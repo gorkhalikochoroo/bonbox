@@ -38,7 +38,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { Button, Card, UpgradeNudge, Icon } from "./ui";
 
 
@@ -246,8 +246,12 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {t("inventoryAutopilotEstTotal", "Est. total")}
             </p>
+            {/* Was "1250.00 DKK" — dot-decimal, no grouping, a bare currency
+                code. A Danish owner reads money as "1.250,00 kr.", and this
+                total sits beside the Kopiér button that emits the same figure,
+                so the two must be the same notation. */}
             <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {Number(group.total_cost || 0).toFixed(2)} {currency}
+              {formatOwnerMoney(Number(group.total_cost || 0), currency, { decimals: 2 })}
             </p>
           </div>
         )}
@@ -258,7 +262,7 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
           const editKey = it.item_id;
           const qty = edits[editKey] ?? it.suggested_qty;
           const safeQty = Number.isFinite(parseFloat(qty)) ? parseFloat(qty) : 0;
-          const lineCost = (safeQty * (it.cost_per_unit || 0)).toFixed(2);
+          const lineCost = safeQty * (it.cost_per_unit || 0);
 
           return (
             <li key={editKey} className="py-3 px-1">
@@ -309,8 +313,11 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
                 </div>
               </div>
               {Number(it.cost_per_unit || 0) > 0 && (
+                /* Was "37.50 DKK" — same bare-code notation as the group total
+                   above it. One money notation per card, or the owner has to
+                   translate between two while reading one list. */
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 text-right">
-                  {lineCost} {currency}
+                  {formatOwnerMoney(lineCost, currency, { decimals: 2 })}
                 </p>
               )}
             </li>
@@ -422,7 +429,13 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           s + (parseFloat(edits[it.item_id] ?? it.suggested_qty) || 0) * (it.cost_per_unit || 0),
         0,
       );
-      lines.push(`${t("inventoryAutopilotEstValue", "Est. value")}: ${total.toFixed(2)} ${currency}`);
+      // Was "Anslået værdi: 1250.00 DKK" — the one string on this surface that
+      // LEAVES BonBox, pasted into the owner's own SMS/mail to a leverandør,
+      // and it was the one skipping the house money formatter. Now "1.250,00
+      // kr.", the way the leverandør's own faktura will read it back.
+      lines.push(
+        `${t("inventoryAutopilotEstValue", "Est. value")}: ${formatOwnerMoney(total, user?.currency, { decimals: 2 })}`,
+      );
     }
     return lines.join("\n");
   };

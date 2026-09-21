@@ -2,7 +2,8 @@
 // balance/in/out stat row → StatCard grid (red/green semantic accents
 // preserved for cash-in vs cash-out where they're data-true).
 // Behavior + i18n + a11y unchanged.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Pencil, SearchX, Trash2, Wallet } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -11,9 +12,10 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, formatOwnerMoney, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
-import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
+import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard, Amount, LoadFailed } from "../components/ui";
+import { PageHeader, StatCard, Amount, LoadFailed, Empty, Button } from "../components/ui";
+import DataTable from "../components/ui/DataTable";
 import { errText } from "../utils/errText";
 import { useUndoToast } from "../hooks/useUndoToast";
 
@@ -110,8 +112,21 @@ export default function CashBookPage() {
     }
   };
 
+  // The correction form is a card BELOW the table now (the row itself no
+  // longer turns into six input boxes). On a 50-row list, opening it from a
+  // row near the top would put it off-screen and "Edit" would look dead, so
+  // it is scrolled into view — the same fix /sales and /expenses carry.
+  const editPanelRef = useRef(null);
+  useEffect(() => {
+    if (editId && editPanelRef.current) {
+      editPanelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [editId]);
+
   const startEdit = (txn) => {
     setEditId(txn.id);
+    // An armed "move to trash" on another row must not survive into an edit.
+    setDeleteConfirm(null);
     setEditData({
       date: txn.date,
       amount: parseFloat(txn.amount),
@@ -170,6 +185,144 @@ export default function CashBookPage() {
   const displayTxns = [...withBalance].reverse().filter(txn => !search || txn.description?.toLowerCase().includes(search.toLowerCase()) || txn.category?.toLowerCase().includes(search.toLowerCase()));
 
   const categories = tab === "cash_in" ? IN_CATEGORIES : OUT_CATEGORIES;
+
+  // ── History table ──────────────────────────────────────────────────────
+  // BEFORE: a hand-rolled 7-column <table> inside `overflow-x-auto`. On a
+  // 402pt phone the owner saw Date and Description and had to drag sideways
+  // to reach the amount they came to check; Edit and Move-to-trash were plain
+  // text links parked past the right edge. <DataTable mobileBreakpoint="md">
+  // is the app's one table: a real table from md up, stacked cards below it,
+  // and row actions as real buttons instead of links.
+  //
+  // An auto-synced row (reference_id) mirrors a sale or an expense, so it
+  // recedes — same muted grey the rest of that row already used.
+  const mutedIf = (r) => (r.reference_id ? "text-gray-400 dark:text-gray-500" : "");
+
+  const tableColumns = [
+    {
+      id: "date",
+      label: t("date"),
+      width: "w-28",
+      render: (r) => <span className={mutedIf(r)}>{formatDate(r.date)}</span>,
+    },
+    {
+      id: "description",
+      label: t("description"),
+      render: (r) => (
+        <span className={"inline-flex items-center gap-1.5 " + mutedIf(r)}>
+          <span className="truncate">{r.description}</span>
+          {/* One badge, spelled out. The row used to carry "(auto)" here AND
+              "Auto-synced" in the actions column — the same fact twice, and
+              the actions column is now where the buttons live. */}
+          {r.reference_id && (
+            <span className="shrink-0 text-[11px] font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded-lg">
+              {t("autoSynced")}
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "category",
+      label: t("category"),
+      render: (r) => (
+        <span className={mutedIf(r) || "text-gray-500 dark:text-gray-400"}>
+          {r.category || "—"}
+        </span>
+      ),
+    },
+    {
+      id: "cash_in",
+      label: t("cashIn"),
+      align: "right",
+      // Empty, not "0" and not "—": a cash-out line has no cash-in figure,
+      // and neither a fabricated zero nor an "unknown" dash is true of it.
+      render: (r) =>
+        r.type === "cash_in" ? (
+          <span
+            className={
+              "font-semibold " +
+              (r.reference_id ? "text-gray-400 dark:text-gray-500" : "text-emerald-600 dark:text-emerald-400")
+            }
+          >
+            <Amount value={parseFloat(r.amount)} currency={currency} decimals={2} sign />
+          </span>
+        ) : null,
+    },
+    {
+      id: "cash_out",
+      label: t("cashOut"),
+      align: "right",
+      render: (r) =>
+        r.type === "cash_out" ? (
+          <span
+            className={
+              "font-semibold " +
+              (r.reference_id ? "text-gray-400 dark:text-gray-500" : "text-red-600 dark:text-red-400")
+            }
+          >
+            <Amount value={-parseFloat(r.amount)} currency={currency} decimals={2} />
+          </span>
+        ) : null,
+    },
+    {
+      id: "balance",
+      label: t("balance"),
+      align: "right",
+      render: (r) => (
+        <span
+          className={
+            "font-semibold " +
+            (r.runningBalance >= 0 ? "text-gray-900 dark:text-gray-100" : "text-red-600 dark:text-red-400")
+          }
+        >
+          <Amount value={r.runningBalance} currency={currency} decimals={2} />
+        </span>
+      ),
+    },
+  ];
+
+  const rowActions = (txn) => {
+    // An auto-synced line is the shadow of a sale or an expense. Correcting it
+    // here would put the two records out of step, so it carries no actions —
+    // the badge in the description column is what says why.
+    if (txn.reference_id) return [];
+    const armed = deleteConfirm === txn.id;
+    return [
+      {
+        id: "edit",
+        label: t("edit"),
+        icon: <Pencil size={14} strokeWidth={1.75} aria-hidden="true" />,
+        onClick: () => startEdit(txn),
+      },
+      {
+        id: "delete",
+        // Armed shows the WORD. A trash icon that silently changes meaning on
+        // the first tap is a trap on a touch screen: nothing moves, so the
+        // owner either reads it as broken or taps twice and loses the row.
+        label: armed ? t("cbConfirmDelete", "Confirm?") : t("moveToTrash"),
+        ariaLabel: armed
+          ? t("cbConfirmDeleteAria", "Confirm: move this entry to the trash")
+          : t("moveToTrash"),
+        text: armed,
+        icon: <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />,
+        variant: "danger",
+        onClick: () => {
+          if (armed) { deleteTxn(txn.id); return; }
+          setDeleteConfirm(txn.id);
+          // A stray tap must not leave the next one armed.
+          setTimeout(() => setDeleteConfirm((cur) => (cur === txn.id ? null : cur)), 5000);
+        },
+      },
+    ];
+  };
+
+  // "Nothing here" is a CLAIM, and there are three different true ones. The
+  // range/search case is the one the old table had no answer for at all: it
+  // rendered an empty tbody and left the owner staring at column headers.
+  const rowsOnScreen = displayTxns.slice(0, 50);
+  const hasFilter = !!(search || filterFrom || filterTo);
+  const clearFilters = () => { setSearch(""); setFilterFrom(""); setFilterTo(""); };
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -244,13 +397,25 @@ export default function CashBookPage() {
         <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{t("category")}</p>
         <div className="flex flex-wrap gap-2 mb-4">
           {categories.map((c) => (
+            // BEFORE: on the CASH IN tab — the tab the page opens on — the
+            // selected chip was gray-50 on a gray-200 border with gray-700
+            // text, and the UNSELECTED chip took that same gray-50 on hover,
+            // one step of grey away. The owner tapped a category and could not
+            // see which one they had picked. This is the doctrine's selected
+            // chip (ui/Chip.jsx): gray-900 fill, white text — the same weight
+            // as the primary button it is about to feed. The cash-out tab
+            // keeps its red because money leaving is data-true red, which is
+            // this file's own rule (see the header comment).
+            // py-3 (was py-2) takes the chip to a 44px tap target: these are
+            // tapped standing at a till, often one-handed.
             <button
               key={c}
               onClick={() => { setCategory(c); setDesc(c); }}
-              className={`px-4 py-2 rounded-xl text-sm font-medium border transition ${
+              aria-pressed={category === c}
+              className={`px-4 py-3 rounded-xl text-sm font-medium border transition ${
                 category === c
                   ? tab === "cash_in"
-                    ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
+                    ? "bg-gray-900 dark:bg-gray-50 border-gray-900 dark:border-gray-50 text-white dark:text-gray-900"
                     : "bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-600 text-red-700 dark:text-red-300"
                   : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
@@ -325,9 +490,13 @@ export default function CashBookPage() {
         </div>
       </div>
 
-      {/* Transaction History */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
+      {/* Transaction History.
+          The block is a plain <section> now, not a card: DataTable draws its
+          own card (and, on a phone, one card per entry). Keeping the old
+          wrapper would have stacked a second border around the first. Same
+          shape /sales and /expenses use. */}
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("transactionHistory")}</h2>
           <div className="flex items-center gap-2 flex-wrap">
             <input
@@ -350,9 +519,12 @@ export default function CashBookPage() {
               placeholder={t("search")}
               className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
-            {(filterFrom || filterTo) && (
+            {/* Was date-range only: a search word that hid every row left the
+                owner with no one-tap way back, and the new "nothing matched"
+                card points at this same control. One lever, all three. */}
+            {hasFilter && (
               <button
-                onClick={() => { setFilterFrom(""); setFilterTo(""); }}
+                onClick={clearFilters}
                 className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
               >
                 {t("clear")}
@@ -382,118 +554,132 @@ export default function CashBookPage() {
             is the only thing that changes. The no-rows case is handled in the
             table body instead, where it replaces the empty state outright. */}
         {txns.failed && transactions.length > 0 && (
-          <div className="px-6 pt-4">
-            <LoadFailed onRetry={txns.reload} body={t("cbListStale")} />
-          </div>
+          <LoadFailed onRetry={txns.reload} body={t("cbListStale")} />
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-gray-50 dark:bg-gray-700/50">
-              <tr>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("date")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("description")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">{t("category")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("cashIn")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("cashOut")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("balance")}</th>
-                <th className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 text-right">{t("actions")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {displayTxns.slice(0, 50).map((txn) => (
-                <tr key={txn.id}>
-                  {editId === txn.id ? (
-                    <>
-                      <td className="px-4 py-3">
-                        <input type="date" value={editData.date} onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                          className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-32" />
-                      </td>
-                      <td className="px-4 py-3">
-                        <input type="text" value={editData.description} onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                          className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-28" />
-                      </td>
-                      <td className="px-4 py-3">
-                        <input type="text" value={editData.category} onChange={(e) => setEditData({ ...editData, category: e.target.value })}
-                          className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-20" />
-                      </td>
-                      <td className="px-4 py-3" colSpan={2}>
-                        <div className="flex items-center gap-2">
-                          <select value={editData.type} onChange={(e) => setEditData({ ...editData, type: e.target.value })}
-                            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white">
-                            <option value="cash_in">{t("cashIn")}</option>
-                            <option value="cash_out">{t("cashOut")}</option>
-                          </select>
-                          <MoneyField locale={mLocale} value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: e.target.value })}
-                            className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-24" />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3"></td>
-                      <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} disabled={!(parseMoneyInput(editData.amount, mLocale) > 0)}
-                          className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{t("save")}</button>
-                        <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>{formatDate(txn.date)}</td>
-                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-700 dark:text-gray-300"}`}>
-                        {txn.description}
-                        {txn.reference_id && <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">({t("autoTag")})</span>}
-                      </td>
-                      <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>{txn.category || "-"}</td>
-                      <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-gray-300 dark:text-emerald-600" : "text-emerald-600 dark:text-gray-300"}`}>
-                        {txn.type === "cash_in" ? <Amount value={parseFloat(txn.amount)} currency={currency} decimals={2} sign /> : ""}
-                      </td>
-                      <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-red-400 dark:text-red-600" : "text-red-600 dark:text-red-400"}`}>
-                        {txn.type === "cash_out" ? <Amount value={-parseFloat(txn.amount)} currency={currency} decimals={2} /> : ""}
-                      </td>
-                      <td className={`px-4 py-3 text-sm text-right font-bold ${txn.runningBalance >= 0 ? "text-gray-800 dark:text-white" : "text-red-600 dark:text-red-400"}`}>
-                        <Amount value={txn.runningBalance} currency={currency} decimals={2} />
-                      </td>
-                      <td className="px-4 py-3 text-right space-x-2">
-                        {txn.reference_id ? (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">{t("autoSynced")}</span>
-                        ) : (
-                          <>
-                            <button onClick={() => startEdit(txn)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
-                            {deleteConfirm === txn.id ? (
-                              <span className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">
-                                <span className="text-xs text-red-600 dark:text-red-400">{t("delete")}?</span>
-                                <button onClick={() => deleteTxn(txn.id)} className="text-red-600 dark:text-red-400 text-xs font-bold hover:underline">&#x2713;</button>
-                                <button onClick={() => setDeleteConfirm(null)} className="text-gray-400 text-xs font-bold hover:underline">&#x2715;</button>
-                              </span>
-                            ) : (
-                              <button onClick={() => setDeleteConfirm(txn.id)} className="text-red-400 dark:text-red-500 text-sm hover:underline">{t("moveToTrash")}</button>
-                            )}
-                          </>
-                        )}
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))}
-              {/* The order that matters: asking → could not ask → nothing to
-                  show. The empty state is last and now only renders when the
-                  drawer genuinely came back empty, so "no cash transactions
-                  yet" is a fact about the drawer again instead of a guess
-                  about the network. Words, not a bare spinner — a spinner
-                  says something is happening, not what. */}
-              {txns.loading && transactions.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500 animate-pulse">{t("cbLoadingTransactions")}</td></tr>
-              )}
-              {!txns.loading && txns.failed && transactions.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-6">
-                  <LoadFailed onRetry={txns.reload} body={t("cbListUnavailable")} />
-                </td></tr>
-              )}
-              {!txns.loading && !txns.failed && transactions.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noCashTransactionsYet")}</td></tr>
-              )}
-            </tbody>
-          </table>
+        <DataTable
+          columns={tableColumns}
+          rows={rowsOnScreen}
+          rowKey="id"
+          rowActions={rowActions}
+          mobileBreakpoint="md"
+          // The order that matters: asking → could not ask → nothing to
+          // show. The empty state is last and now only renders when the
+          // drawer genuinely came back empty, so "no cash transactions
+          // yet" is a fact about the drawer again instead of a guess
+          // about the network. Words, not a bare spinner — a spinner
+          // says something is happening, not what.
+          //
+          // That is why `loading` is deliberately NOT handed to DataTable:
+          // its skeleton bars are the same wordless shrug. All four answers
+          // are carried here, in the one slot, in sentences.
+          //
+          // The filtered branch is new. A date range or a search word that
+          // matched nothing used to render an empty tbody under six column
+          // headers — no sentence at all — and the owner had no way to tell
+          // "nothing in this period" from "the page is broken".
+          empty={
+            txns.loading && transactions.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 dark:text-gray-500 animate-pulse">
+                {t("cbLoadingTransactions")}
+              </p>
+            ) : txns.failed && transactions.length === 0 ? (
+              <LoadFailed onRetry={txns.reload} body={t("cbListUnavailable")} />
+            ) : hasFilter ? (
+              <Empty
+                icon={SearchX}
+                title={t("cbNoMatches", "No entries match these filters")}
+                body={t("cbNoMatchesBody", "Try a wider date range, or a different word in the search box.")}
+                cta={
+                  <Button variant="ghost" size="lg" onClick={clearFilters}>
+                    {t("clear")}
+                  </Button>
+                }
+              />
+            ) : (
+              <Empty
+                icon={Wallet}
+                title={t("noCashTransactionsYet")}
+                body={t("cbEmptyBody", "Book the first one with the form above — cash in or cash out.")}
+              />
+            )
+          }
+        />
+      </section>
+
+      {/* Correcting a booked entry. BEFORE: the row turned into six input
+          boxes inside the same 7-column scroller, so on a phone the owner
+          edited a date they could see and an amount they could not. It is a
+          card of its own now — the /sales and /expenses shape — which works
+          at any width and keeps DataTable concerned only with display. */}
+      {editId && (
+        <div
+          ref={editPanelRef}
+          className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] p-4 sm:p-5 space-y-3 scroll-mt-24"
+        >
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {t("cbEditEntry", "Edit entry")}
+            {editData.description ? ` · ${editData.description}` : ""}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="date"
+              value={editData.date || ""}
+              max={localIso()}
+              onChange={(e) => setEditData({ ...editData, date: e.target.value })}
+              aria-label={t("date")}
+              className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+            <input
+              type="text"
+              value={editData.description || ""}
+              onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+              placeholder={t("description")}
+              aria-label={t("description")}
+              className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+            <input
+              type="text"
+              value={editData.category || ""}
+              onChange={(e) => setEditData({ ...editData, category: e.target.value })}
+              placeholder={t("category")}
+              aria-label={t("category")}
+              className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+            <select
+              value={editData.type || "cash_in"}
+              onChange={(e) => setEditData({ ...editData, type: e.target.value })}
+              aria-label={t("type")}
+              className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+            >
+              <option value="cash_in">{t("cashIn")}</option>
+              <option value="cash_out">{t("cashOut")}</option>
+            </select>
+            {/* Still the strict parser in the ACCOUNT's notation — see the
+                note on saveEdit. A blank box must not book a 0. */}
+            <MoneyField
+              locale={mLocale}
+              value={editData.amount ?? ""}
+              onChange={(e) => setEditData({ ...editData, amount: e.target.value })}
+              placeholder={t("amount")}
+              aria-label={t("amount")}
+              className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="lg" onClick={() => { setEditId(null); setEditData({}); }}>
+              {t("cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={saveEdit}
+              disabled={!(parseMoneyInput(editData.amount, mLocale) > 0)}
+            >
+              {t("save")}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
       {undoToastUI}
     </div>
   );

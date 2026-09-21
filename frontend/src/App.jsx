@@ -13,11 +13,13 @@ import { PillarsProvider } from "./hooks/usePillars";
 import { ActivationProvider } from "./hooks/useActivation";
 import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
-import { LanguageProvider } from "./hooks/useLanguage";
+import { LanguageProvider, detectInitialLanguage } from "./hooks/useLanguage";
 import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import LandingV2Page from "./pages/LandingV2Page";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { AlertTriangle } from "lucide-react";
+import Button from "./components/ui/Button";
 
 // ── Keep-alive: prevent Render cold starts ──
 // Pings health endpoint every 10 min while app is open. VITE_API_URL already
@@ -100,6 +102,46 @@ function chunkFromError(err) {
   } catch { return ""; }
 }
 
+/**
+ * Copy for the crash screen — the ONE surface in BonBox that cannot call t().
+ *
+ * The ErrorBoundary below sits OUTSIDE LanguageProvider on purpose: it has to
+ * catch the providers themselves throwing, so by the time the fallback renders
+ * there is no LanguageContext to read (useLanguage() throws without one, and a
+ * throw inside an error fallback is a white screen — the one outcome worse
+ * than an untranslated button).
+ *
+ * So it resolves the language the same provider-less way utils/dateFormat.js
+ * does, through the very function LanguageProvider itself uses, and carries
+ * its own table. EN + DA only, deliberately: those two are statically bundled
+ * in useLanguage.jsx while every other locale is a lazy chunk — and a chunk
+ * that will not load is precisely one of the things that lands the owner here.
+ * Anything else falls back to English, exactly as t() does for a missing key.
+ */
+const CRASH_COPY = {
+  en: {
+    title: "Something went wrong",
+    body: "It is usually the connection, or a new version of BonBox.",
+    reload: "Reload the page",
+    home: "Go to the start page",
+  },
+  da: {
+    title: "Noget gik galt",
+    body: "Det skyldes som regel forbindelsen eller en ny version af BonBox.",
+    reload: "Hent siden igen",
+    home: "Gå til forsiden",
+  },
+};
+function crashCopy() {
+  try {
+    return detectInitialLanguage().lang === "da" ? CRASH_COPY.da : CRASH_COPY.en;
+  } catch {
+    // localStorage/navigator can throw in a hardened browser — never let the
+    // crash screen crash while deciding which language to apologise in.
+    return CRASH_COPY.en;
+  }
+}
+
 // Catch React render crashes — auto-recovers from stale cache
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false, retrying: false }; }
@@ -148,22 +190,43 @@ class ErrorBoundary extends Component {
       window.location.reload();
     }
   };
+  // The escape hatch used to be "Sign In" → /login: it offered to sign in an
+  // owner who was already signed in, and sent a booking guest to an account
+  // they do not have. "/" is the one exit that is right for everyone —
+  // PublicOrDashboard lands an owner on their dashboard, staff on their
+  // portal, and a guest on the front page. It is a full navigation, so the
+  // crashed tree is torn down rather than re-rendered into the same throw
+  // (the old handler cleared hasError first, which re-mounted the broken page
+  // for a frame before the browser left).
+  handleGoHome = () => { window.location.href = "/"; };
   render() {
     if (this.state.hasError) {
+      // What the owner saw here before: a 📦 at text-5xl over five hardcoded
+      // English strings and a blue button — the least BonBox-looking screen in
+      // the product, shown at the moment they trust it least. Now the house
+      // empty-state chip with a Lucide glyph, the house Button, and Danish for
+      // a Danish owner.
+      const copy = crashCopy();
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900 px-4">
           <div className="text-center max-w-md">
-            <div className="text-5xl mb-4">📦</div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Something went wrong</h1>
-            <p className="text-gray-500 dark:text-gray-400 mb-6">This might be a connection issue. Try refreshing.</p>
-            <button onClick={this.handleClearAndReload} disabled={this.state.retrying}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-60">
-              {this.state.retrying ? "Refreshing..." : "Refresh & Try Again"}
-            </button>
-            <button onClick={() => { this.setState({ hasError: false }); window.location.href = "/login"; }}
-              className="ml-3 px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition font-semibold">
-              Sign In
-            </button>
+            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] text-gray-400 dark:text-gray-500">
+              <AlertTriangle className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+            </div>
+            <h1 className="text-[21px] font-semibold tracking-[-0.025em] leading-tight text-gray-900 dark:text-gray-100 mb-2">
+              {copy.title}
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{copy.body}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {/* busy keeps the label in place beside a spinner, so the button
+                  no longer swaps to a separate "Refreshing..." string. */}
+              <Button size="lg" onClick={this.handleClearAndReload} busy={this.state.retrying}>
+                {copy.reload}
+              </Button>
+              <Button size="lg" variant="ghost" onClick={this.handleGoHome}>
+                {copy.home}
+              </Button>
+            </div>
           </div>
         </div>
       );

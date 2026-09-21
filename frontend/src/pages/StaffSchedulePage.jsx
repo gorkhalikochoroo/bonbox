@@ -1760,7 +1760,10 @@ export default function StaffSchedulePage() {
             "nudgeAutopilot",
             "Let BonBox propose next week's schedule from your sales history + weather"
           ),
-          icon: "✨",
+          // Was an emoji glyph, which rendered in the OS emoji font at
+          // whatever colour/size the platform felt like — next to the
+          // Lucide-iconed chooser one tap earlier it read as a different app.
+          iconName: "Sparkles",
         });
       } else {
         setError(
@@ -1796,7 +1799,10 @@ export default function StaffSchedulePage() {
       });
       const n = res.data?.applied ?? shifts.length;
       setAutopilotToast(
-        `✨ ${t("autopilotApplied", "Schedule applied")} — ${n} ${t(
+        // The banner this lands in already draws a Lucide Sparkles at
+        // icon="Sparkles"; the leading emoji was a second, mismatched
+        // sparkle sitting right beside it.
+        `${t("autopilotApplied", "Schedule applied")} — ${n} ${t(
           "autopilotShifts",
           "shifts scheduled"
         )}`
@@ -1865,7 +1871,8 @@ export default function StaffSchedulePage() {
         setUpgradeNudge({
           tier: detail.required_plan || "pro",
           benefit: t("nudgeBulkStaffEmail", "Email this week's schedule to every staff member in one tap"),
-          icon: "📧",
+          // Lucide, not an emoji envelope — see the Sparkles note above.
+          iconName: "Mail",
         });
       } else {
         setError(detail?.message || (typeof detail === "string" ? detail : null) || (t("scheduleEmailFailedAll", "Couldn't email the schedule.")));
@@ -1947,7 +1954,8 @@ export default function StaffSchedulePage() {
             "nudgeStaffPortalLink",
             "Send every staff a personal schedule link — they bookmark it, get push when shifts change"
           ),
-          icon: "🔗",
+          // Lucide, not an emoji chain link — see the Sparkles note above.
+          iconName: "Link2",
         });
       } else {
         setError(
@@ -2289,6 +2297,28 @@ export default function StaffSchedulePage() {
         eyebrow="STAFF"
         title={t("staffSchedule") || "Staff Schedule"}
         subtitle={t("staffScheduleDesc") || "Plan weekly shifts, manage staff, and track labor costs."}
+        actions={
+          /* Beskeder — owner ↔ staff 1:1 chat launcher. Unread badge polls the
+             cheap aggregate endpoint; opening the drawer marks read.
+             It used to sit in the week toolbar below, where it was the only
+             control in that row that is not a step in building a week, and on
+             a phone it was part of what pushed "Del" off the right edge. Here
+             it keeps its label at every width and stays where an owner looks
+             for an inbox. */
+          <button
+            onClick={() => setChatOpen(true)}
+            title={t("ownerChatTitle", "Messages")}
+            className="relative inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-sm font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 transition"
+          >
+            <Icon name="MessageSquare" size={14} />
+            <span>{t("navMessages", "Messages")}</span>
+            {chatUnread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center">
+                {chatUnread > 9 ? "9+" : chatUnread}
+              </span>
+            )}
+          </button>
+        }
       />
 
       {/* Live punch-clock — who's on the clock right now (staff self-clock
@@ -2388,10 +2418,22 @@ export default function StaffSchedulePage() {
                 staff) collapse to icon-only with title-tooltips, so they
                 fit a 375px viewport in 2 rows max. Tablet+ shows full
                 labels. */}
-            {/* Mobile: one tidy horizontally-scrollable row (icon buttons) instead
-                of a 3-row wrapped cluster. Desktop (sm+) keeps the wrapped
-                full-label toolbar unchanged. */}
-            <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 justify-start sm:justify-end w-full sm:w-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* The phone row used to be `flex-nowrap overflow-x-auto` with its
+                scrollbar suppressed (here AND by index.css on coarse pointers).
+                It held six controls — Tilføj, Kopiér, Auto, Udgiv · N, Beskeder,
+                Del — which measure roughly 450px against the 338px a 402pt
+                phone leaves inside the page and card padding. So "Del" simply
+                ended past the right edge of a row with nothing on screen saying
+                it scrolled: the owner's way of getting the week to the team was
+                invisible on the device most of them build the week on.
+
+                Two fixes, both subtraction. Beskeder left this row entirely —
+                it is an inbox, not a step in building a week, and it now lives
+                in the page header where it is visible from every scroll
+                position. And the row WRAPS on a phone instead of scrolling, so
+                the five that remain are all on screen and all tappable. From
+                sm: up nothing changes — it was already flex-wrap there. */}
+            <div className="flex items-center gap-2 flex-wrap [&>*]:shrink-0 justify-start sm:justify-end w-full sm:w-auto">
               {/* Secondary, not primary. The week has exactly ONE headline
                   action — Udgiv — and a toolbar with three gray-900 buttons
                   tells the owner nothing about which of them finishes the job. */}
@@ -2495,21 +2537,8 @@ export default function StaffSchedulePage() {
                   </span>
                 )}
               </Button>
-              {/* Beskeder — owner ↔ staff 1:1 chat launcher. Unread badge polls
-                  the cheap aggregate endpoint; opening the drawer marks read. */}
-              <button
-                onClick={() => setChatOpen(true)}
-                title={t("ownerChatTitle", "Messages")}
-                className="relative inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-              >
-                <Icon name="MessageSquare" size={14} />
-                <span className="hidden sm:inline">{t("navMessages", "Messages")}</span>
-                {chatUnread > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center">
-                    {chatUnread > 9 ? "9+" : chatUnread}
-                  </span>
-                )}
-              </button>
+              {/* Beskeder moved to the PageHeader actions slot — see the note
+                  on this row's container above. */}
               {/* ONE hand-off control.
                   This row used to offer four near-identical ways to get the
                   week to staff — Udgiv, Del med medarbejdere, Send til
@@ -2634,9 +2663,11 @@ export default function StaffSchedulePage() {
           rows) or Discard. */}
       {autopilotSuggestion && (
         <FadeIn delay={0.02}>
+          {/* No `currency` prop any more: every figure inside the panel goes
+              through formatKr, which emits its own "kr." — the bare code token
+              it used to append is gone with the bare toLocaleString. */}
           <AutopilotPanel
             suggestion={autopilotSuggestion}
-            currency={currency}
             staff={staff}
             applying={autopilotApplying}
             onApply={handleApplyAutopilot}
@@ -2971,7 +3002,9 @@ export default function StaffSchedulePage() {
                         it is a projection while it is one. */}
                     {weekSummary.isForecast && (
                       <div className="mt-1 flex items-center justify-end gap-1.5">
-                        <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        {/* 11px floor — and this chip is the one that tells the
+                            owner the labor% beside it is a projection. */}
+                        <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           {t("schedLaborForecast", "projected")}
                         </span>
                         <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
@@ -3098,10 +3131,11 @@ export default function StaffSchedulePage() {
       {/* Publish-confirm sheet — the deliberate gate before draft shifts go
           live to staff. Shows what's about to change in one calm glance. */}
       {publishConfirm && (
+        // `currency` dropped with the bare toLocaleString in the est-labor
+        // tile — formatKr emits its own "kr.".
         <PublishConfirmModal
           summary={publishConfirm}
           result={publishResult}
-          currency={currency}
           weekStart={weekStart}
           lang={lang}
           publishing={publishing}
@@ -3116,13 +3150,17 @@ export default function StaffSchedulePage() {
 
       {/* Upgrade nudge — Free/Starter user trying bulk-email-staff
           (Pro+). The PDF download button stays available so they
-          can still print or paste a link into WhatsApp. */}
+          can still print or paste a link into WhatsApp.
+          iconName, not icon: all three setUpgradeNudge callers above now name a
+          Lucide glyph, which the dialog draws in its own gray-400 at its own
+          size. The owner was seeing an OS emoji — platform-coloured, sized by
+          the emoji font — heading a dialog built entirely from Lucide. */}
       {upgradeNudge && (
         <UpgradeNudge
           intent="dialog"
           tier={upgradeNudge.tier}
           benefit={upgradeNudge.benefit}
-          icon={upgradeNudge.icon}
+          iconName={upgradeNudge.iconName}
           ctaLabel={t("nudgeSeePlans", "See plans")}
           onTry={() => setUpgradeNudge(null)}
         />
@@ -3246,8 +3284,14 @@ export default function StaffSchedulePage() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{s.name}</div>
                       <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate flex items-center gap-1.5">
-                        <span className="truncate">
-                          {hasEmail ? `📧 ${s.email}` : t("shareNoEmail", "link only — no email")}
+                        {/* Was an emoji envelope glued to the address; it drew
+                            in the OS emoji font, coloured, on a row whose every
+                            other glyph is a 12-14px gray Lucide. */}
+                        <span className="truncate inline-flex items-center gap-1 min-w-0">
+                          {hasEmail && <Icon name="Mail" size={12} className="shrink-0 text-gray-400 dark:text-gray-500" />}
+                          <span className="truncate">
+                            {hasEmail ? s.email : t("shareNoEmail", "link only — no email")}
+                          </span>
                         </span>
                         {shareCodes[s.id] && (
                           <span className="shrink-0 font-mono font-semibold tracking-wider text-gray-600 dark:text-gray-300">
@@ -3307,22 +3351,32 @@ export default function StaffSchedulePage() {
               <button
                 onClick={copySelectedLinks}
                 disabled={shareBusy || shareSel.size === 0}
-                className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50 transition"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50 transition"
               >
+                {/* The primary CTA of the step that actually gets the week to
+                    staff used to lead with an emoji clipboard, then swap to a
+                    bare "✓" — two different glyph systems on one button, and
+                    neither is the Lucide set the chooser one tap earlier is
+                    built from. */}
                 {shareBusy
                   ? t("shareWorking", "Preparing…")
                   : shareCopiedN > 0
-                    ? `✓ ${shareCopiedN} ${t("shareCopiedLinks", "links copied")}`
-                    : `📋 ${t("shareCopyLinks", "Copy")} ${shareSel.size} ${shareSel.size === 1 ? t("shareLinkWord", "link") : t("shareLinksWord", "links")}`}
+                    ? (<><Icon name="Check" size={14} />{`${shareCopiedN} ${t("shareCopiedLinks", "links copied")}`}</>)
+                    : (<><Icon name="Copy" size={14} />{`${t("shareCopyLinks", "Copy")} ${shareSel.size} ${shareSel.size === 1 ? t("shareLinkWord", "link") : t("shareLinksWord", "links")}`}</>)}
               </button>
               <button
                 onClick={() => { setShareSheet(false); handleShareWithStaff(); }}
                 disabled={sharing || shareEmailableCount() === 0}
-                className="w-full px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition"
                 title={shareEmailableCount() === 0 ? t("shareNoEmailable", "No selected staff have an email") : ""}
               >
-                📧 {t("shareEmailWithAddress", "Email those with an address")}
-                {shareEmailableCount() > 0 ? ` (${shareEmailableCount()})` : ""}
+                {/* Emoji envelope → the same Lucide Mail the hand-off chooser
+                    and the publish sheet already use for "this sends email". */}
+                <Icon name="Mail" size={14} className="shrink-0" />
+                <span>
+                  {t("shareEmailWithAddress", "Email those with an address")}
+                  {shareEmailableCount() > 0 ? ` (${shareEmailableCount()})` : ""}
+                </span>
               </button>
               <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
                 {t("shareFootNote", "Paste copied links into WhatsApp or SMS — works for staff without email.")}
@@ -3364,19 +3418,33 @@ export default function StaffSchedulePage() {
      • Compliance warnings as amber chips
      • Apply (materializes draft Schedule rows) / Discard
    ═══════════════════════════════════════════════════════════ */
-function weatherChip(weather) {
-  if (!weather) return "";
+// Lucide names, not emoji — the same map WeatherPage already uses, and for the
+// same reason stated there: an emoji is a different vendor cartoon on every OS
+// and cannot take a design-system colour. schedule_autopilot.py's _bucket_for
+// returns exactly these four strings, or the whole forecast dict is empty.
+const AUTOPILOT_WEATHER_ICON = {
+  sunny: "Sun",
+  rainy: "CloudRain",
+  cold: "Snowflake",
+  cloudy: "CloudSun",
+};
+
+function WeatherChip({ weather }) {
+  // A day with no forecast used to fall through to the 🌤️ default and render
+  // a partly-sunny glyph with no temperature beside it — a weather claim about
+  // a day we have no weather for. `summary` is null exactly when the forecast
+  // fetch returned nothing, so that day now says nothing.
+  const name = AUTOPILOT_WEATHER_ICON[weather?.summary];
+  if (!name) return null;
   const t = weather.temp_c;
   const p = weather.precipitation_mm;
-  let icon = "🌤️";
-  if (weather.summary === "rainy") icon = "🌧️";
-  else if (weather.summary === "sunny") icon = "☀️";
-  else if (weather.summary === "cold") icon = "❄️";
-  else if (weather.summary === "cloudy") icon = "☁️";
-  const parts = [icon];
-  if (t !== null && t !== undefined) parts.push(`${Math.round(t)}°C`);
-  if (p && p >= 0.5) parts.push(`${p.toFixed(1)}mm`);
-  return parts.join(" ");
+  return (
+    <span className="inline-flex items-center gap-1 tabular-nums">
+      <Icon name={name} size={13} className="shrink-0 text-gray-400 dark:text-gray-500" />
+      {t != null && <span>{Math.round(t)}°C</span>}
+      {p != null && p >= 0.5 && <span className="text-gray-500 dark:text-gray-400">{p.toFixed(1)}mm</span>}
+    </span>
+  );
 }
 
 function formatDayShort(iso) {
@@ -3385,7 +3453,7 @@ function formatDayShort(iso) {
   return `${days[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
 }
 
-function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t, lang }) {
+function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
   // On phones the 7 day-cards stack into one ~1,200px column. Collapse them
   // behind a disclosure so the week summary + Apply/Discard stay above the
   // fold; always expanded from `sm:` up (desktop layout unchanged).
@@ -3401,7 +3469,9 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t,
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400">
+          {/* 11px floor — and this eyebrow carries the confidence caveat, the
+              one sentence that decides how much of this panel to believe. */}
+          <p className="text-[11px] font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400">
             <Icon name="Sparkles" size={12} className="inline-block -mt-0.5 mr-1 text-gray-400 dark:text-gray-500" />
             {t("autopilotHeading", "Autopilot Suggestion")} ·{" "}
             {suggestion.confidence === "high"
@@ -3414,16 +3484,26 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t,
             {t("autopilotWeekOf", "Week of")} {formatDayShort(suggestion.week_start)}
           </h3>
           <div className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+            {/* formatKr, not a bare toLocaleString + a "DKK" token. The owner
+                was reading these two figures in the BROWSER's locale — an
+                en-US Chrome printed "15,000 DKK" — one card away from the week
+                toolbar, which has always printed the same kind of number as
+                "15.000 kr." through this exact formatter. Same helper now, so
+                the two reconcile. */}
             <span>
               {t("autopilotPredicted", "Predicted")}:{" "}
               <strong className="text-gray-900 dark:text-white">
-                {totalRevenue.toLocaleString()} {currency}
+                {formatKr(totalRevenue, { decimals: 0 })}
               </strong>
             </span>
             <span>
               {t("autopilotLabor", "Suggested labor")}:{" "}
               <strong className="text-gray-900 dark:text-white">
-                ≈ {Math.round(suggestion.week_total_cost).toLocaleString()} {currency}
+                {/* Same rule as the week toolbar: no "≈" in front of a dash —
+                    the squiggle promises an estimate we do not have. */}
+                {suggestion.week_total_cost == null
+                  ? "—"
+                  : `≈ ${formatKr(suggestion.week_total_cost, { decimals: 0 })}`}
               </strong>{" "}
               <span className="text-gray-500">
                 · {formatTimer(suggestion.week_total_hours, lang)}
@@ -3535,14 +3615,20 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t,
                 </div>
               </div>
               <div className="text-xs text-gray-700 dark:text-gray-300 text-right whitespace-nowrap">
-                {weatherChip(day.weather)}
+                <WeatherChip weather={day.weather} />
               </div>
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-3 gap-y-0.5 sm:block sm:space-y-0.5">
               <div>
                 {t("autopilotRevenue", "Revenue")}:{" "}
                 <span className="text-gray-800 dark:text-gray-200 font-medium">
-                  {Math.round(day.predicted_revenue || 0).toLocaleString()} {currency}
+                  {/* Same locale fix as the header. The `|| 0` went with it:
+                      schedule_autopilot.py types predicted_revenue as a float
+                      and always ships one, so the coalesce was covering a case
+                      the contract does not have — and if a future payload ever
+                      dropped it, formatKr's "—" is the honest render, not a
+                      confident 0 kr. */}
+                  {formatKr(day.predicted_revenue, { decimals: 0 })}
                 </span>
               </div>
               <div>
@@ -3589,7 +3675,11 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t,
             )}
             <div className="text-[11px] font-medium text-gray-700 dark:text-gray-300 border-t border-gray-100 dark:border-gray-700 pt-1.5">
               {t("autopilotTotal", "Total")}:{" "}
-              ≈ {Math.round(day.total_cost).toLocaleString()} {currency}
+              {/* The day's labour total, in the same formatter as the week
+                  summary it has to add up to. */}
+              {day.total_cost == null
+                ? "—"
+                : `≈ ${formatKr(day.total_cost, { decimals: 0 })}`}
               <span className="text-gray-400 font-normal">
                 {" "}
                 · {formatTimer(day.total_hours, lang)}
@@ -4806,7 +4896,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setLinkModal(null)}>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-sm w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="text-center">
-              <div className="text-3xl mb-2">🔗</div>
+              {/* A 30px emoji chain link was the largest thing in this dialog and
+                  the only coloured one. Same Lucide Link2 the toolbar and the
+                  share toast use, in the quiet tile the chooser rows use. */}
+              <div className="mx-auto mb-2 w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-300">
+                <Icon name="Link2" size={18} />
+              </div>
               <h3 className="text-base font-bold text-gray-900 dark:text-white">{t("sharePortalLink")}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {t("schedSendThisTo", "Send this to")} <strong>{linkModal.staffName}</strong> {t("schedPortalLinkDesc", "— they can see their schedule, hours, and tips.")}
@@ -4825,19 +4920,23 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                 <div className="flex gap-2">
                   <button
                     onClick={copyLink}
-                    className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
+                    className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
                       linkCopied
                         ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                         : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                     }`}
                   >
-                    {linkCopied ? `✓ ${t("schedCopied", "Copied!")}` : `📋 ${t("schedCopyBtn", "Copy")}`}
+                    {/* Emoji clipboard / phone → Lucide, same as every other
+                        copy-and-share control on this page. */}
+                    <Icon name={linkCopied ? "Check" : "Copy"} size={14} />
+                    <span>{linkCopied ? t("schedCopied", "Copied!") : t("schedCopyBtn", "Copy")}</span>
                   </button>
                   <button
                     onClick={shareLink}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
                   >
-                    📱 {t("schedShareBtn", "Share")}
+                    <Icon name="Share2" size={14} />
+                    <span>{t("schedShareBtn", "Share")}</span>
                   </button>
                 </div>
                 <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
@@ -5083,7 +5182,11 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                 on the chips below, so green was doing three jobs on one
                 phone screen. */}
             {isSelectedToday && (
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-[rgb(var(--brand-600))] dark:text-[rgb(var(--brand-400))]">
+              // 11px is the ramp's floor. This whole phone column — "I dag",
+              // the booket line, the three status chips below — was set at 10
+              // and 9, i.e. the day view an owner actually uses standing up was
+              // the smallest type in the app.
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[rgb(var(--brand-600))] dark:text-[rgb(var(--brand-400))]">
                 {t("schedToday")}
               </div>
             )}
@@ -5094,7 +5197,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                 Absent entirely when the owner doesn't take reservations. */}
             {typeof serverDay?.covers_booked === "number" && (
               <div
-                className="text-[10px] mt-0.5 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums"
+                className="text-[11px] mt-0.5 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums"
                 aria-label={t("schedCoversBookedAria").replace("{n}", serverDay.covers_booked)}
               >
                 {serverDay.covers_booked} {t("schedCoversBooked")}
@@ -5183,7 +5286,9 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
               is never going to be shown. */}
           {!isStaffSeat && (
             <span className="ml-auto flex items-center gap-1 pl-1 flex-shrink-0">
-              <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {/* 11px floor. The strip is still one line at 320px: the "N på
+                  vagt" span carries min-w-0 truncate and absorbs the ~5px. */}
+              <span className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
                 {t("schedLaborPct")}
               </span>
               {dayStats.hasRevenue && dayStats.laborPct != null ? (
@@ -5260,19 +5365,23 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                   aria-label={t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
                 >
                   {identity}
+                  {/* Ferie / Kan ikke / Helst — the three facts that decide
+                      whether the owner can put this person on today. They were
+                      set at 10px inside a px-2 py-1 pill that has the room for
+                      the floor. */}
                   {mAbs ? (
                     <span className="inline-flex items-center rounded-md px-2 py-1 bg-indigo-100/70 dark:bg-indigo-900/30">
-                      <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absKindLabel(mAbs.kind, t)}</span>
+                      <span className="text-[11px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absKindLabel(mAbs.kind, t)}</span>
                     </span>
                   ) : mBlk ? (
                     <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 bg-red-100/70 dark:bg-red-900/30">
                       <CalendarOff className="w-3 h-3 text-red-400 dark:text-red-400" strokeWidth={2} aria-hidden />
-                      <span className="text-[10px] font-medium text-red-400 dark:text-red-400 tabular-nums">{mBlk.timeLabel || t("schedKanIkkeCell", "Can't work")}</span>
+                      <span className="text-[11px] font-medium text-red-400 dark:text-red-400 tabular-nums">{mBlk.timeLabel || t("schedKanIkkeCell", "Can't work")}</span>
                     </span>
                   ) : mPref ? (
                     <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 bg-emerald-100/70 dark:bg-emerald-900/30">
                       <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} aria-hidden />
-                      <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">{mPref.timeLabel || t("schedHelstCell", "Prefers")}</span>
+                      <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">{mPref.timeLabel || t("schedHelstCell", "Prefers")}</span>
                     </span>
                   ) : (
                     <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
@@ -5826,7 +5935,8 @@ function OpenShiftsPanel({ weekStart, t }) {
               const dayRows = byDate[toISO(d)] || [];
               return (
                 <div key={i} className="min-h-[1.5rem]">
-                  <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+                  {/* 11px floor. */}
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
                     {dayShort(i, t)} {d.getDate()}
                   </div>
                   <div className="space-y-1.5">
@@ -5845,7 +5955,8 @@ function OpenShiftsPanel({ weekStart, t }) {
               if (!dayRows.length) return null;
               return (
                 <div key={i}>
-                  <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+                  {/* 11px floor. */}
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
                     {dayShort(i, t)} {d.getDate()}/{d.getMonth() + 1}
                   </div>
                   <div className="space-y-1.5">
@@ -6059,7 +6170,9 @@ export function ScheduleGrid({
                   );
                 })()}
               </div>
-              <div className="text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+              {/* 11px floor — role + contract type, in the 160px staff column
+                  that has the room for it. */}
+              <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
                 <span>{member.role}</span>
                 {/* Contract type — Fuldtid / Deltid / Studerende / Freelance.
                     This is what replaced the per-shift kroner: an owner
@@ -6181,16 +6294,21 @@ export function ScheduleGrid({
                     a quiet red chip. Both fade to the Plus on hover
                     (override). h-14 matches the occupied block. */}
                 <div className="h-14 relative flex items-center justify-center">
+                  {/* 9px was the smallest type anywhere in BonBox, and it was
+                      carrying "Ferie" / "Barns sygedag" — the reason a name is
+                      unavailable. 11px is the floor; the chip can take a second
+                      line inside an h-14 cell, which the one-line header rows
+                      above this grid deliberately cannot. */}
                   {abs && (
                     <span className="inline-flex items-center rounded-md px-1.5 py-0.5 bg-indigo-100/70 dark:bg-indigo-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
-                      <span className="text-[9px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absLabel}</span>
+                      <span className="text-[11px] leading-tight font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absLabel}</span>
                     </span>
                   )}
                   {blk && (
                     <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-red-100/70 dark:bg-red-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
                       <CalendarOff className="w-[11px] h-[11px] text-red-400 dark:text-red-400" strokeWidth={2} />
                       {blk.timeLabel && (
-                        <span className="text-[9px] font-medium text-red-400 dark:text-red-400 tabular-nums">{blk.timeLabel}</span>
+                        <span className="text-[11px] leading-tight font-medium text-red-400 dark:text-red-400 tabular-nums">{blk.timeLabel}</span>
                       )}
                     </span>
                   )}
@@ -6319,7 +6437,9 @@ export function ScheduleGrid({
                   {formatTimer(wh, hoursLang)}
                 </div>
                 {over && (
-                  <div className="text-[10px] text-amber-500 dark:text-amber-400 tabular-nums">
+                  // 11px floor — this is the over-cap figure, in the 160px
+                  // Timer column.
+                  <div className="text-[11px] text-amber-500 dark:text-amber-400 tabular-nums">
                     +{formatTimer(wh - cap, hoursLang)}
                   </div>
                 )}
@@ -6376,7 +6496,9 @@ export function ScheduleGrid({
                     >
                       {isToday ? t("schedToday") : dayShort(i, t)}
                     </div>
-                    <div className="font-normal text-[10px] mt-0.5 opacity-70">
+                    {/* 11px floor — four characters, so the column width is
+                        unaffected (unlike the two nowrap lines below). */}
+                    <div className="font-normal text-[11px] mt-0.5 opacity-70">
                       {date.getDate()}/{date.getMonth() + 1}
                     </div>
                     {/* Demand on top, roster in the middle, cost in the footer —
@@ -6623,7 +6745,7 @@ function StatTile({ icon, value, label }) {
   );
 }
 
-function PublishConfirmModal({ summary, result, currency, weekStart, publishing, onConfirm, onClose, t, lang }) {
+function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm, onClose, t, lang }) {
   // The Shield warnings below arrive as raw numbers and used to be pasted into
   // catalogue strings that typed the hour unit themselves, so a Danish owner
   // read an English unit here and the Danish one on the chip the sentence is
@@ -6640,14 +6762,24 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
         ? t("publishNothingTitle", "Nothing to publish")
         : t("publishConfirmTitle", "Publish this week?"));
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3">
+    // Container swap ONLY — every row below is the one that shipped. This was
+    // the last hand-rolled `fixed inset-0 items-center` card on the page: an
+    // uncapped, unscrollable box holding four stat tiles, up to six Vagtplan
+    // Shield warnings and the notify note. On a week with several warnings the
+    // card grew past the viewport and "Udgiv uge" — the button the whole sheet
+    // exists to reach — sat below the fold with nothing to scroll, which is
+    // exactly the failure the file header at the top documents ShiftModal being
+    // ported out of. Sheet supplies the phone bottom sheet, the height cap, the
+    // single scroller, the keyboard inset, Escape and the focus trap; this file
+    // supplies the three rows: fixed header, scrolling body, pinned footer.
+    <Sheet
+      onClose={onClose}
+      zClassName="z-50"
+      ariaLabel={title}
+      panelClassName="bg-white dark:bg-gray-800 shadow-sm border-t sm:border border-gray-200 dark:border-gray-700"
+    >
+      {/* Header — never scrolls, so the owner always knows which week this is */}
+      <div className="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3 sm:px-6 sm:pt-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
               <Icon name={headerIcon} size={done ? 20 : 18} className="text-emerald-600 dark:text-emerald-400" />
@@ -6662,13 +6794,18 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none"
+            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
             aria-label={t("close", "Close")}
           >
-            {"×"}
+            <Icon name="X" size={20} />
           </button>
-        </div>
+      </div>
+
+      {/* The one scrolling region. The Shield warnings that used to push Udgiv
+          off the bottom of the screen now scroll inside this box instead. */}
+      <div data-sheet-body="" className="flex-1 overflow-y-auto px-5 pb-4 space-y-4 sm:px-6">
 
         {done ? (
           /* ── Success — durable confirmation from the server's real counts ── */
@@ -6715,7 +6852,15 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
               {summary.anyRate && (
                 <StatTile
                   icon="Coins"
-                  value={`≈ ${summary.cost.toLocaleString()} ${currency}`}
+                  /* Was a bare toLocaleString + a "DKK" token: the owner read
+                     this figure in the BROWSER's locale while the toolbar
+                     behind the sheet printed the same week's wage bill through
+                     formatKr. Two spellings of one number, 200px apart. */
+                  value={
+                    summary.cost == null
+                      ? "—"
+                      : `≈ ${formatKr(summary.cost, { decimals: 0 })}`
+                  }
                   label={t("publishStatCost", "est. labor")}
                 />
               )}
@@ -6782,9 +6927,15 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
             </div>
           </>
         )}
+      </div>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-2 pt-1">
+      {/* Actions — OUTSIDE the scroller, so Udgiv uge is on screen from the
+          moment the sheet opens no matter how many Shield warnings are above
+          it. pb uses the home-indicator inset on a phone. */}
+      <div
+        className="shrink-0 flex justify-end gap-2 px-5 py-3 sm:px-6 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))" }}
+      >
           {done ? (
             <Button variant="accent" size="sm" onClick={onClose} iconLeft={<Icon name="Check" size={14} />}>
               {t("publishDone", "Done")}
@@ -6807,9 +6958,8 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
               )}
             </>
           )}
-        </div>
       </div>
-    </div>
+    </Sheet>
   );
 }
 

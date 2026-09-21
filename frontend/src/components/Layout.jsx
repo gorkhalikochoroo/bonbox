@@ -1005,13 +1005,25 @@ export default function Layout() {
                           // for non-Pro user). Lock icon replaces the
                           // normal icon; clicking routes to /subscription
                           // so the owner sees what their tier unlocks.
+                          //
+                          // The row used to say "dead" and behave "live":
+                          // `cursor-not-allowed` sat on the one row that turns
+                          // a Free owner into a paying one, so the owner was
+                          // told not to click the upgrade path they had just
+                          // been shown. `opacity-60` compounded it — gray-600
+                          // washed to ~3.1:1 on the white rail, under the AA
+                          // floor. Now a pointer cursor and the full-opacity
+                          // muted tier (4.83:1 light / 5.78:1 dark), which
+                          // still reads a step quieter than an unlocked row.
+                          // The Lock icon carries "locked" on its own; it does
+                          // not need the row to pretend to be inert.
                           <NavLink
                             key={item.to}
                             to="/subscription"
                             onClick={closeSidebar}
                             title={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock")}
                             aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + (item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)) + ")"}
-                            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition cursor-not-allowed opacity-60 ${inactiveClass}`}
+                            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${NAV_MUTED} ${NAV_MUTED_HOVER} hover:bg-gray-50 dark:hover:bg-gray-700 ${NAV_FOCUS_RING}`}
                           >
                             <Icon name="Lock" size={18} className="shrink-0" />
                             <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
@@ -1100,19 +1112,26 @@ export default function Layout() {
                         {group.items.map((item) => (
                           item.locked ? (
                             // L1 — visible-but-locked Pro feature entry.
-                            // Lucide Lock icon + opacity-60 + cursor-not-
-                            // allowed; click routes to /subscription so
-                            // the owner sees the upsell path. Multi-
-                            // barrier defense: even if the L3 router
-                            // gate breaks, the frontend stops the click
-                            // from hitting the 402 directly.
+                            // Lucide Lock icon; click routes to
+                            // /subscription so the owner sees the upsell
+                            // path. Multi-barrier defense: even if the L3
+                            // router gate breaks, the frontend still sends
+                            // the click somewhere that explains the tier
+                            // instead of into a bare 402.
+                            //
+                            // Same repair as the core-group locked row
+                            // above: `cursor-not-allowed opacity-60` told
+                            // the owner the upgrade row was dead while it
+                            // navigated, and washed the label under the AA
+                            // floor. Pointer cursor + the full-opacity
+                            // muted tier; the Lock icon is the signal.
                             <NavLink
                               key={item.to}
                               to="/subscription"
                               onClick={closeSidebar}
                               title={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock")}
                               aria-label={(t("proFeatureUpgrade") || "Pro feature — upgrade to unlock") + " (" + (item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)) + ")"}
-                              className={`flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition cursor-not-allowed opacity-60 ${inactiveClass}`}
+                              className={`flex items-center gap-2.5 pl-5 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition cursor-pointer ${NAV_MUTED} ${NAV_MUTED_HOVER} hover:bg-gray-50 dark:hover:bg-gray-700 ${NAV_FOCUS_RING}`}
                             >
                               <Icon name="Lock" size={16} className="shrink-0" />
                               <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>

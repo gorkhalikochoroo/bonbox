@@ -1186,6 +1186,61 @@ function ReservationDrawer({
   );
 }
 
+/* ─── ONE party ladder for every sheet that asks "how many?" ───────────
+ * There used to be three: Seat-now and Edit offered [1,2,3,4,5,6,8] while
+ * New booking offered 1–10 and the public page offers 1–max_party_size.
+ * So a booking of 7, 9 or 10 — takeable in New booking, arrivable from the
+ * public page — opened in Edit with the whole Party row blank, and the host
+ * could not seat a walk-in of 7 at all.
+ *
+ * Parties above the ladder exist (the backend accepts 1–100 and the owner
+ * can raise max_party_size), so the field also renders the ACTUAL number as
+ * a selected chip rather than showing nothing.
+ */
+const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+function PartySizeChips({ value, onChange, t }) {
+  const n = parseInt(value, 10);
+  // A real party that is not on the ladder (12, 14 …) gets its own chip at
+  // the end — selected, because it IS the booking.
+  const offLadder = Number.isFinite(n) && n > 0 && !PARTY_SIZES.includes(n);
+  const chipClass = (on) =>
+    "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
+    (on
+      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600");
+  return (
+    <div className="flex flex-wrap gap-2 mt-1.5">
+      {PARTY_SIZES.map((s) => {
+        const on = String(s) === String(value);
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onChange(String(s))}
+            aria-pressed={on}
+            aria-label={t("rsvpPartyN", "{n} guests", { n: s })}
+            className={chipClass(on)}
+          >
+            {s}
+          </button>
+        );
+      })}
+      {offLadder && (
+        <button
+          type="button"
+          onClick={() => onChange(String(n))}
+          aria-pressed="true"
+          aria-label={t("rsvpPartyN", "{n} guests", { n })}
+          className={chipClass(true)}
+        >
+          {n}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Seat-now (mark a free table occupied with a walk-in) ─────────────
 // Two launch paths, same sheet:
 //   • Tile-launched — `table` is the tapped resource object (preset table,
@@ -1256,7 +1311,6 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
     !!chosenTable &&
     (Number(chosenTable.capacity_seats) || 0) < (Number(party) || 0);
   if (!table) return null;
-  const sizes = [1, 2, 3, 4, 5, 6, 8];
   const canSeat = pickMode ? !!chosenTable && !chosenTable.busy : true;
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
@@ -1333,23 +1387,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t("rsvpColParty", "Party")}
           </label>
-          <div className="flex flex-wrap gap-2 mt-1.5">
-            {sizes.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setParty(String(n))}
-                className={
-                  "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
-                  (String(n) === party
-                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
-                }
-              >
-                {n}
-              </button>
-            ))}
-          </div>
+          {/* Was its own [1,2,3,4,5,6,8] ladder — a walk-in of 7 or 9 could
+              not be typed at all. Now the one shared ladder. */}
+          <PartySizeChips value={party} onChange={setParty} t={t} />
         </div>
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -1442,7 +1482,6 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
   const initialSeverity = r.allergy_severity || "";
   const [allergyNote, setAllergyNote] = useState(initialAllergy);
   const [severity, setSeverity] = useState(initialSeverity);
-  const sizes = [1, 2, 3, 4, 5, 6, 8];
   const severities = [
     { v: "", label: t("rsvpSevNone", "Ingen") },
     { v: "preference", label: t("rsvpSevPreference", "Præference") },
@@ -1481,17 +1520,11 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpColParty", "Party")}</label>
-          <div className="flex flex-wrap gap-2 mt-1.5">
-            {sizes.map((n) => (
-              <button key={n} type="button" onClick={() => setParty(String(n))}
-                className={"h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
-                  (String(n) === party
-                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")}>
-                {n}
-              </button>
-            ))}
-          </div>
+          {/* Was [1,2,3,4,5,6,8]: opening Edit on a party of 7, 9, 10 or 12
+              showed the whole row unselected — the booking said seven and
+              the sheet showed nothing. (It saved 7 correctly; the host just
+              had no way to see that without tapping a chip and losing it.) */}
+          <PartySizeChips value={party} onChange={setParty} t={t} />
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
@@ -1586,7 +1619,6 @@ function NewBookingSheet({
   // via the availability engine). A chosen id is posted as resource_id; if it's
   // taken the backend returns a clean 409 and we surface it honestly.
   const [resourceId, setResourceId] = useState("");
-  const sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   // Provider (salon) selections. behandlingId is required; stylistId "" =
   // Valgfri behandler (no pinned behandler).
   const [behandlingId, setBehandlingId] = useState(() =>
@@ -1686,7 +1718,12 @@ function NewBookingSheet({
                 <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
                 {behandlinger.map((b) => {
                   const mins = t("rsvpBehandlingMinutes", "{n} min", { n: b.duration_min });
-                  const price = b.price_kr != null ? ` · ${b.price_kr} kr.` : "";
+                  // Was a bare `${b.price_kr} kr.` — a 1.200 kr. behandling
+                  // read "1200 kr." here and "1.200 kr." on the Behandlinger
+                  // tab, the same price spelled two ways in one flow.
+                  // formatKr already ends in "kr.", so no literal suffix.
+                  const price =
+                    b.price_kr != null ? ` · ${formatKr(b.price_kr, { decimals: 0 })}` : "";
                   return (
                     <option key={b.id} value={String(b.id)}>
                       {b.name} · {mins}
@@ -1766,26 +1803,16 @@ function NewBookingSheet({
             <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               {t("rsvpPartySize", "Party size")}
             </label>
-            <div className="flex flex-wrap gap-2 mt-1.5">
-              {sizes.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => {
-                    setParty(String(n));
-                    if (warning) onClearWarning();
-                  }}
-                  className={
-                    "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
-                    (String(n) === party
-                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
-                  }
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
+            {/* Same ladder as Seat-now and Edit now — this sheet's own 1–10
+                was the widest of the three, so nothing here narrows. */}
+            <PartySizeChips
+              value={party}
+              onChange={(v) => {
+                setParty(v);
+                if (warning) onClearWarning();
+              }}
+              t={t}
+            />
           </div>
         )}
 
@@ -1834,7 +1861,10 @@ function NewBookingSheet({
           />
           {nameMissing && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-              {t("rsvpNameRequired", "Enter your name.")}
+              {/* Was rsvpNameRequired — the PUBLIC guest page's own key, so
+                  the owner taking a booking over the phone was told
+                  "Indtast dit navn." about somebody else's name. */}
+              {t("rsvpOwnerGuestNameRequired", "Enter the guest's name.")}
             </p>
           )}
         </div>
@@ -2161,7 +2191,11 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                     <span className="text-[11px] font-semibold leading-none truncate">
                       {fmtTime(r.starts_at)} · {r.party_size}
                     </span>
-                    <span className="text-[10px] leading-tight truncate opacity-90 mt-0.5 flex items-center gap-0.5">
+                    {/* Was text-[10px] opacity-90 — the guest name, the one
+                        string a host scans the timeline FOR, rendered under
+                        the 11px floor and faded. 11px + 11px still clears the
+                        34px lane (11 + 2 + ~14). */}
+                    <span className="text-[11px] leading-tight truncate mt-0.5 flex items-center gap-0.5">
                       {allergy && (
                         <AlertTriangle
                           className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
@@ -2252,7 +2286,10 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                         {fmtTime(r.starts_at)} · {r.party_size}
                         {combined && <Link2 className="w-3 h-3 shrink-0" aria-hidden />}
                       </span>
-                      <span className="text-[10px] leading-tight truncate opacity-90 flex items-center gap-0.5 mt-0.5">
+                      {/* Same as the unassigned lane: the name was 10px and
+                          faded. Bar height is ROW_H − 12 = 40px, so two 11px
+                          lines fit with room to spare. */}
+                      <span className="text-[11px] leading-tight truncate flex items-center gap-0.5 mt-0.5">
                         {allergy && (
                           <AlertTriangle
                             className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
@@ -2972,6 +3009,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // once we KNOW there are no stations (never flashes for an established salon
   // while resources are still in flight).
   const [resourcesLoaded, setResourcesLoaded] = useState(false);
+  // "We could not ask" is not "there are none". Both first-run cards below make
+  // a claim about the owner's OWN setup, so neither may be drawn from a fetch
+  // that failed — see the catch in fetchResources.
+  const [resourcesFailed, setResourcesFailed] = useState(false);
   // The canonical venue seat capacity from GET /resources — active, non-deleted,
   // non-provider tables only, the SAME number the booking engine allows against.
   // The occupancy gauge divides by THIS (not a raw resources.reduce, which wrongly
@@ -2980,6 +3021,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const [venueSeats, setVenueSeats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // When the book last actually arrived, and whether the most recent silent
+  // poll failed. Together they are the only honest answer to "is what I am
+  // looking at still true?" — see the stale chip in the toolbar.
+  const [lastOkAt, setLastOkAt] = useState(() => Date.now());
+  const [liveFailed, setLiveFailed] = useState(false);
   const [actioningId, setActioningId] = useState(null);
   // Filters (Liste view).
   const [q, setQ] = useState("");
@@ -3076,6 +3122,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       try {
         const res = await api.get("/reservations/book", { params: { day: forDay } });
         setData(res.data || null);
+        // When the book last actually ARRIVED. See the stale-book signal below.
+        setLastOkAt(Date.now());
+        setLiveFailed(false);
         // Signal the Venteliste to resync against the freshly-loaded book.
         setBookTick((n) => n + 1);
       } catch (e) {
@@ -3101,9 +3150,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // omits it so the gauge can fall back to the raw reduce.
       const vs = res.data?.venue_seats_total;
       setVenueSeats(Number.isFinite(vs) ? vs : null);
+      setResourcesFailed(false);
     } catch {
+      // The empty array is what the gauge and the pickers need in order to
+      // render at all — but it is NOT an answer about how many tables this
+      // venue has, and `resourcesLoaded` in the finally made it look like one.
       setResources([]);
       setVenueSeats(null);
+      setResourcesFailed(true);
     } finally {
       setResourcesLoaded(true);
     }
@@ -3133,9 +3187,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     try {
       const res = await api.get("/reservations/book", { params: { day } });
       setData(res.data || null);
+      setLastOkAt(Date.now());
+      setLiveFailed(false);
       setBookTick((n) => n + 1); // Venteliste resyncs against the fresh book
     } catch {
-      /* silent — the manual refresh + the next wake/poll still exist */
+      // Silent no longer means INVISIBLE. The poll used to swallow every
+      // failure while the now-line, the ETAs and the "forsinket" chips kept
+      // ticking off the 60s clock — so a stand whose wifi had dropped looked
+      // MORE alive than one that was merely quiet. The retry path is
+      // unchanged; the toolbar just stops pretending (see `bookStale`).
+      setLiveFailed(true);
     } finally {
       liveRefreshInFlight.current = false;
     }
@@ -3674,7 +3735,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Show the calm "confirm hours → open for booking" card instead of an empty,
   // confusing book. `resourcesLoaded` guards the flash before resources land
   // (an established salon never sees the card blink in).
-  const salonFirstRun = isProvider && resourcesLoaded && providerStations.length === 0;
+  // !resourcesFailed: a dropped connection used to read as "no stations yet"
+  // and offer to set up a salon that has been running for a year.
+  const salonFirstRun =
+    isProvider && resourcesLoaded && !resourcesFailed && providerStations.length === 0;
   const behandlerByResourceId = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -4117,6 +4181,39 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     );
   };
 
+  /* Is the screen still telling the truth? Only claim "stale" when all three
+     are true, so the chip never cries wolf:
+       • the last silent poll actually FAILED (not merely "no poll ran" — a
+         past or future day is never polled and never drifts),
+       • the book on screen is older than two poll cycles (~3 min), and
+       • we are not already showing the full load-error state.
+     `nowTs` ticks every 60s, so this re-evaluates on its own. */
+  const bookStale =
+    liveFailed && !error && !loading && nowTs - lastOkAt > 180000;
+
+  /* A TABLE venue that has not set up a single table. The empty book used to
+     promise "Bookings will appear here as they come in" — they cannot: with
+     no bookable table the availability engine has nothing to offer, so the
+     public page returns no slot a guest could pick. The salon path has had an
+     honest first run since day one; the table venue — the ICP — had none.
+     Deliberately NOT gated on reservations_enabled: BookSection never fetches
+     /reservations/settings, and a claim about a field we did not load is a
+     guess. `resourcesLoaded` stops it flashing at an established venue, and
+     the host stand is excluded — it has no tabs to send a host to. */
+  const noTablesYet =
+    !standalone &&
+    !isProvider &&
+    tableFloor &&
+    resourcesLoaded &&
+    // This card makes a specific, actionable claim about the owner's own
+    // setup — "you have no tables, here is where to add them". A failed fetch
+    // knows nothing: without this guard a restaurant with twenty tables that
+    // loses wifi is told it has none, directly under the error banner saying
+    // we could not load them. That is the defect this page was fixing, one
+    // empty state over.
+    !resourcesFailed &&
+    assignableTables.length === 0;
+
   return (
     <div
       className={
@@ -4277,6 +4374,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           >
             <RefreshCw className="w-5 h-5" />
           </button>
+          {/* The stand used to go stale in complete silence while the now-line
+              kept moving. This names the one fact that matters — WHEN what you
+              are reading arrived — and sits next to the refresh that fixes it.
+              No spinner, no modal: service does not stop for a dialog. */}
+          {bookStale && (
+            <span
+              role="status"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-amber-700 dark:text-amber-400"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              <span className="tabular-nums">
+                {t("rsvpBookStale", "Updated {time} · can't reach BonBox", {
+                  time: fmtTime(new Date(lastOkAt).toISOString()),
+                })}
+              </span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Pop the book out to its own full-screen door screen (no sidebar).
@@ -4508,13 +4622,40 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             mobileBreakpoint="md"
             mobileRow={compactRow}
             empty={
+              /* Three honest empty states, not one: filtered-to-nothing, a
+                 quiet day, and a venue that has no tables yet — the last used
+                 to wear the second one's copy and promise bookings that could
+                 never arrive. The phone route is named because it genuinely
+                 still works with no floor plan (the 409 room_full path saves
+                 the booking unassigned), so this is never a dead end. */
               <Empty
                 icon={CalendarCheck}
-                title={t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })}
+                title={
+                  noTablesYet && !filtersOn
+                    ? t("rsvpBookNoTablesTitle", "No tables set up yet")
+                    : t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })
+                }
                 body={
                   filtersOn
                     ? t("rsvpNoMatch", "No bookings match your filters.")
-                    : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
+                    : noTablesYet
+                      ? t(
+                          "rsvpBookNoTablesBody",
+                          "Guests can't book online until there's a table to seat them at. You can still take one over the phone with New booking.",
+                        )
+                      : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
+                }
+                cta={
+                  noTablesYet && !filtersOn ? (
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      iconLeft={<Armchair className="w-4 h-4" />}
+                      onClick={() => navigate("/reservations?tab=floor")}
+                    >
+                      {t("rsvpBookNoTablesCta", "Set up your tables")}
+                    </Button>
+                  ) : null
                 }
               />
             }

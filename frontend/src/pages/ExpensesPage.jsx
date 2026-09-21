@@ -43,6 +43,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { useUndoToast } from "../hooks/useUndoToast";
+import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
@@ -119,6 +120,9 @@ export default function ExpensesPage() {
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
+  // The ONE confirm primitive (useConfirm), same as /sales. Replaces the
+  // arm-then-delete two-tap the row action used to carry — see rowActions.
+  const confirm = useConfirm();
   // Declared ABOVE the query below, which names them in its deps array — a
   // `const` read before its line is a TDZ crash, not a lint warning.
   const [filterFrom, setFilterFrom] = useState("");
@@ -184,7 +188,6 @@ export default function ExpensesPage() {
   // an expense row that has receipt_photo set.
   const [receiptViewing, setReceiptViewing] = useState(null);
   const [editData, setEditData] = useState({});
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
   // Sticky payment method (expense scope, own key — seeds from the owner's
   // last expense choice, default card). setMethod is in-memory (Smart Scan
   // prefill uses it, so a scanned method never sticks); commitMethod persists a
@@ -355,22 +358,35 @@ export default function ExpensesPage() {
   }), [expenses, search, showFilter, categoryFilter]);
 
   // This-month summary — replaces the 4-tile period KPI right-rail.
-  // We scope to month of today (or latest expense when a date filter
-  // is active, matching the previous behaviour).
+  //
+  // `scoped` is the honesty flag the line below reads. With a date filter set,
+  // the fetched array IS the filtered range (from/to are query params), so the
+  // total covers the whole range — but the line still said "Denne måned:".
+  // An owner who filtered 1 Jan–31 Mar to check a quarter read a quarter's
+  // spend labelled as one month. The number was never wrong; the word was.
+  // Now the scope decides the label, from the same flag, so the two cannot
+  // drift apart. (The dead refDate/monthPrefix branch went with it: when a
+  // filter was set the prefix was computed and then never used.)
   const monthSummary = useMemo(() => {
+    const scoped = !!(filterFrom || filterTo);
     if (expenses.length === 0) {
-      return { total: 0, count: 0 };
+      return { total: 0, count: 0, scoped };
     }
-    const now = new Date();
-    const hasFilter = filterFrom || filterTo;
-    const refDate = hasFilter
-      ? new Date(expenses.reduce((latest, e) => e.date > latest ? e.date : latest, expenses[0].date) + "T12:00:00")
-      : now;
-    const monthPrefix = localIso(refDate).slice(0, 7);
-    const monthExpenses = hasFilter ? expenses : expenses.filter(e => e.date?.startsWith(monthPrefix));
-    const total = monthExpenses.reduce((s, x) => s + parseFloat(x.amount), 0);
-    return { total, count: monthExpenses.length };
+    const monthPrefix = localIso(new Date()).slice(0, 7);
+    const rows = scoped ? expenses : expenses.filter(e => e.date?.startsWith(monthPrefix));
+    const total = rows.reduce((s, x) => s + parseFloat(x.amount), 0);
+    return { total, count: rows.length, scoped };
   }, [expenses, filterFrom, filterTo]);
+
+  // The range the owner actually set, in words. Both bounds are inclusive
+  // server-side (date >= from, date <= to), so "til og med" is literally true.
+  const filterRangeLabel = !monthSummary.scoped
+    ? ""
+    : filterFrom && filterTo
+      ? t("expPeriodRange", "Period {from}–{to}", { from: formatDate(filterFrom), to: formatDate(filterTo) })
+      : filterFrom
+        ? t("expPeriodFrom", "From {from}", { from: formatDate(filterFrom) })
+        : t("expPeriodTo", "Up to and including {to}", { to: formatDate(filterTo) });
 
   // The edit form renders as a card BELOW the table (see ~line 1213). On a
   // long expense list, clicking Edit on a row near the top would open that
@@ -760,7 +776,6 @@ export default function ExpensesPage() {
   const deleteExpense = async (id) => {
     try {
       await api.delete(`/expenses/${id}`);
-      setDeleteConfirm(null);
       fetchData();
       window.dispatchEvent(new Event("bonbox-data-changed"));
       showUndo({
@@ -1215,16 +1230,27 @@ export default function ExpensesPage() {
     {
       label: t("delete", "Move to trash"),
       icon: <Trash2 size={14} strokeWidth={1.75} />,
-      onClick: () => {
-        // Two-step confirm — keep the existing safety net.
-        if (deleteConfirm === row.id) {
-          deleteExpense(row.id);
-        } else {
-          setDeleteConfirm(row.id);
-          // Auto-clear the confirm after 5s so a stray click doesn't
-          // arm the next delete-button accidentally.
-          setTimeout(() => setDeleteConfirm((cur) => cur === row.id ? null : cur), 5000);
-        }
+      onClick: async () => {
+        // Was an arm-then-delete two-tap. DataTable renders row actions
+        // icon-only, with the label only in a hover `title` — so the armed
+        // state was invisible: on a phone the first tap looked like the
+        // button was broken, and the "try again" tap deleted the row. One
+        // dialog that NAMES the row instead, the same useConfirm() /sales
+        // uses; the 8-second undo toast still sits behind it.
+        const amt = parseFloat(row.amount);
+        const what = row.description || getCatName(row.category_id);
+        const money = Number.isFinite(amt)
+          ? formatOwnerMoney(amt, currency)
+          // An amount we cannot read is not 0 kr. — say so rather than put a
+          // fabricated number in a dialog the owner is about to act on.
+          : "—";
+        const ok = await confirm({
+          title: t("moveToTrash", "Move to trash"),
+          message: what ? `${money} · ${what}` : money,
+          destructive: true,
+          confirmLabel: t("moveToTrash", "Move to trash"),
+        });
+        if (ok) deleteExpense(row.id);
       },
       variant: "danger",
     },
@@ -1447,10 +1473,19 @@ export default function ExpensesPage() {
             null
           ) : (
           <p className="text-xs text-gray-500 dark:text-gray-400 px-1">
-            {t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
-              total: formatOwnerMoney(monthSummary.total, currency),
-              count: monthSummary.count,
-            })}
+            {/* The label follows the scope. With a date filter set this total
+                is the filtered range, not the calendar month, so it says so —
+                see monthSummary. */}
+            {monthSummary.scoped
+              ? t("expPeriodSummary", "{range}: {total} across {count} expenses · ", {
+                  range: filterRangeLabel,
+                  total: formatOwnerMoney(monthSummary.total, currency),
+                  count: monthSummary.count,
+                })
+              : t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
+                  total: formatOwnerMoney(monthSummary.total, currency),
+                  count: monthSummary.count,
+                })}
             <Link
               to="/reports?tab=expenses"
               className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
