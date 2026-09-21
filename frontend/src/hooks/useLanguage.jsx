@@ -1883,7 +1883,7 @@ const translations = {
     rsvpBookBehandlingRequired: "Choose a behandling.",
     rsvpBookNoBehandlinger: "Add a behandling first (Behandlinger tab) to take a tidsbestilling.",
     // 409 fail-closed: the pinned behandler was just taken (owner).
-    rsvpBookStylistUnavailable: "Den valgte behandler er ikke ledig på det tidspunkt — vælg et andet tidspunkt eller 'Valgfri behandler'.",
+    rsvpBookStylistUnavailable: "That behandler isn't free at that time — pick another time, or choose Valgfri behandler.",
     rsvpEditAction: "Edit",
     rsvpEditTitle: "Edit reservation",
     rsvpEditDate: "Date",
@@ -1994,14 +1994,14 @@ const translations = {
     rsvpSaved: "Saved",
     // SMS reminders (Pro). DK terms (kasserapport/revisor/MOMS) don't apply
     // here, but the section ships DK-first like the rest of the page.
-    rsvpSmsTitle: "SMS-påmindelser",
-    rsvpSmsToggle: "SMS-påmindelser",
-    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (på Starter og Pro).",
+    rsvpSmsTitle: "SMS reminders",
+    rsvpSmsToggle: "SMS reminders",
+    rsvpSmsHint: "Send an SMS reminder the day before instead of an email (on Starter and Pro).",
     rsvpSmsSender: "Sender name",
-    rsvpSmsSenderHint: "Afsendernavn på SMS'en (maks. 11 tegn).",
+    rsvpSmsSenderHint: "Sender name on the SMS (max. 11 characters).",
     rsvpSmsPro: "Starter",
     rsvpSmsProUpsell: "Available on Starter",
-    rsvpSmsFallbackNote: "SMS sendes når din konto er klar. Indtil da sender vi påmindelsen som email.",
+    rsvpSmsFallbackNote: "SMS goes out once your account is ready. Until then the reminder is sent as an email.",
     // Public widget (/r/:slug) — DK-first market, but EN here is the
     // fallback when the visitor's browser is set to English.
     rsvpLoading: "Loading…",
@@ -2081,8 +2081,8 @@ const translations = {
     // ── Salon booking (S3b) — behandling → behandler → dato → tid ──────
     // DK terminology lock: behandling/behandler/tidsbestilling stay Danish in
     // ALL UI languages, including EN.
-    rsvpPublicPickBehandling: "Vælg behandling",
-    rsvpPublicPickBehandler: "Vælg behandler",
+    rsvpPublicPickBehandling: "Choose a behandling",
+    rsvpPublicPickBehandler: "Choose a behandler",
     rsvpBookValgfri: "Valgfri behandler",
     rsvpBookValgfriHint: "We'll match you with the first free behandler.",
     rsvpBehandlingMinutes: "{n} min",
@@ -2924,7 +2924,7 @@ const translations = {
     scanGapOrSkip: "Or skip — the total above will save correctly either way.",
     scanBadgeMissing: "missing",
     enterActualAmount: "enter actual amount",
-    revenueMedMoms: "Revenue (med moms)",
+    revenueMedMoms: "Revenue (incl. MOMS)",
     udenMomsSuffix: "(uden moms)",
     receiptPhotoLabel: "Receipt photo",
     receiptPhotosLabel: "Receipt photos",
@@ -4244,7 +4244,7 @@ const translations = {
     inventoryAutopilotNoSendNote: "BonBox suggests — you place the order",
     inventoryAutopilotNoSendFooter: "BonBox sends nothing — you place the orders yourself.",
     inventoryAutopilotGroupHint: "Add a leverandør to group these varer (optional)",
-    inventoryAutopilotBasisCounts: "{n} varer fulgt · {m} med forbrugshistorik",
+    inventoryAutopilotBasisCounts: "{n} items tracked · {m} with usage history",
     // Months
     january: "January", february: "February", march: "March", april: "April",
     may: "May", june: "June", july: "July", august: "August",
@@ -5458,7 +5458,7 @@ const translations = {
     landingCatFaktura1: "Send fakturaer (direct email)",
     landingCatFaktura2: "CVR-verified customers",
     landingCatFaktura3: "Bank auto-match (±2 kr tolerance)",
-    landingCatFaktura4: "Proper kreditnota (kreditnota, ikke sletning)",
+    landingCatFaktura4: "Proper kreditnota — a credit note, never a deletion",
     landingCatFaktura5: "Brand + logo on PDF",
     landingCatFaktura6: "Bilagsnummer audit trail",
     landingCatStock: "Stock",
@@ -7745,7 +7745,7 @@ const translations = {
     // and never gets an English alternative.
     todayOnShiftTitle: "Today on shift",
     todayOnShiftViewPlan: "Vagtplan",
-    todayOnShiftEmpty: "Ingen vagter i dag — føj en til vagtplanen.",
+    todayOnShiftEmpty: "No shifts today — add one to the vagtplan.",
     todayOnShiftEmptyCta: "Åbn vagtplan",
     // Task #204 P2.7 — Apply / Snooze CTAs on Smart Pricing + Staffing.
     // Inline "Apply X kr" wording uses {price} + {currency} placeholders
