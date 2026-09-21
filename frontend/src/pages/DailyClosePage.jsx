@@ -1934,6 +1934,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale],
   );
 
+  // WHICH group holds it. The lock button sits on the review step, three
+  // screens past the box that refused — so "one amount can't be read" with no
+  // location is a dead end at 22:30. The field still says so in place; this
+  // says where in place IS. Order matches the wizard, so the first hit is the
+  // earliest step the owner has to go back to.
+  const rejectedArea = useMemo(() => {
+    const groups = [
+      ["revenue", Object.values(revAmounts)],
+      ["payments", Object.values(payAmounts)],
+      ["cash", [cashCounted]],
+      ["tips", [tipsTotal]],
+      ["gavekort", [gavekortSold]],
+      ["moms", [momsMode === "manual" ? momsManual : ""]],
+    ];
+    for (const [name, values] of groups) {
+      if (values.some((v) => isMoneyRejected(v, mLocale))) return name;
+    }
+    return null;
+  }, [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale]);
+
   // Taxable base = entered revenue MINUS today's exempt sales total.
   // Clamp at 0: if the user only entered a placeholder and the exempt
   // total exceeds it, we'd otherwise show a negative MOMS amount which
@@ -1955,6 +1975,25 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (scannedMoms) return scannedMoms;
     return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
   }, [momsMode, momsManual, scanResult, taxableBase]);
+
+  // WHICH of the two "auto" paths produced that number — because the caption
+  // underneath used to assert the multiplication either way. The comment above
+  // caught this for a HALF-merged scan and stopped there; a complete one still
+  // won the branch while the page printed "Auto-calculated: Revenue × 25% /
+  // 125%" over a figure that came off the Z-report and does not equal that
+  // product. An owner flipping back to Auto to cross-check their own arithmetic
+  // was shown a sum that had never been done.
+  //
+  // The scanned figure still WINS — the till's own MOMS knows about split
+  // rates that revenue × 25/125 cannot — so what is saved does not change.
+  // Only the sentence changes, to name where the number actually came from.
+  const momsSource = useMemo(() => {
+    if (momsMode === "manual") return "manual";
+    const scannedMoms = (scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+      ? null
+      : scanResult?.moms_total;
+    return scannedMoms ? "scanned" : "computed";
+  }, [momsMode, scanResult]);
   const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
 
   const addCustomRevCat = () => {
@@ -3515,7 +3554,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </div>
                 )}
                 {momsMode === "auto" && (
-                  <p className="text-[12px] text-gray-500 dark:text-gray-400">{t("momsAutoCalc", "Auto-calculated: Revenue × {pct}% / {div}%", { pct: vatRatePct, div: 100 + vatRatePct })}</p>
+                  <p className="text-[12px] text-gray-500 dark:text-gray-400">
+                    {momsSource === "scanned"
+                      ? t("momsFromZReport", "Read from your Z-report — not recalculated from revenue.")
+                      : t("momsAutoCalc", "Auto-calculated: Revenue × {pct}% / {div}%", { pct: vatRatePct, div: 100 + vatRatePct })}
+                  </p>
                 )}
                 <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 py-0.5 tabular-nums">
                   <span>{t("revenueMedMoms", "Revenue (med moms)")}</span>
@@ -3788,6 +3831,34 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       <span className="inline-flex items-center gap-2"><Icon name="Lock" size={16} /> {t("confirmAndLock", "Confirm & Lock")}</span>
                     )}
                   </Button>
+                  {/* A disabled primary with nothing beside it is
+                      indistinguishable from a broken one. The owner taps
+                      Confirm & Lock, nothing happens, nothing appears — and in
+                      the moneyRejected case the "Will save total" underneath
+                      still reads a plausible figure, because revenueTotal
+                      scores an unreadable box as 0. So say which of the three
+                      gates is closed, and for the unreadable one say where. */}
+                  {!saving && (moneyRejected || willSave === 0) && (
+                    <p className="text-[12px] text-amber-700 dark:text-amber-400 text-right max-w-xs flex items-start gap-1.5 justify-end">
+                      <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+                      <span>
+                        {moneyRejected
+                          ? (rejectedArea
+                              ? t("dcLockBlockedAmountIn", "One amount under {area} can't be read — go back and fix the red field.", {
+                                  area: {
+                                    revenue: t("revenueLabel", "Revenue"),
+                                    payments: t("paymentsLabel", "Payments"),
+                                    cash: t("dcCashLabel", "Cash"),
+                                    tips: t("tipsLabel", "Tips"),
+                                    gavekort: t("gavekort", "Gavekort"),
+                                    moms: vatName,
+                                  }[rejectedArea],
+                                })
+                              : t("dcLockBlockedAmount", "One amount can't be read — go back and fix the red field."))
+                          : t("dcLockBlockedNoRevenue", "Enter tonight's revenue before locking.")}
+                      </span>
+                    </p>
+                  )}
                   <p className="text-[12px] text-gray-500 dark:text-gray-400 text-right">
                     {/* The number about to be written to the ledger. It has to
                         be formatted exactly like the review card above it and

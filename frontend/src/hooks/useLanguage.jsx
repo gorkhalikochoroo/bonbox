@@ -2744,6 +2744,10 @@ const translations = {
     dcDeleteDraftBody: "This draft is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
     dcDeleteDraftTitleDated: "Delete the kladde for {date}?",
     dcDeleteDraftBodyAmount: "This kladde shows {amount} — it is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+    momsFromZReport: "Read from your Z-report — not recalculated from revenue.",
+    dcLockBlockedAmountIn: "One amount under {area} can't be read — go back and fix the red field.",
+    dcLockBlockedAmount: "One amount can't be read — go back and fix the red field.",
+    dcLockBlockedNoRevenue: "Enter tonight's revenue before locking.",
     // ── "We couldn't check" — the third state ──
     // Copy for the loading and FAILED branches of the nine list fetchers
     // that used to render their empty state on a failure, telling an owner
@@ -11150,6 +11154,10 @@ const translations = {
     dcDeleteDraftBody: "Kladden fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
     dcDeleteDraftTitleDated: "Slet kladden for {date}?",
     dcDeleteDraftBodyAmount: "Denne kladde viser {amount} — den fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
+    momsFromZReport: "Aflæst fra din Z-rapport — ikke genberegnet ud fra omsætningen.",
+    dcLockBlockedAmountIn: "Et beløb under {area} kan ikke læses — gå tilbage og ret det røde felt.",
+    dcLockBlockedAmount: "Et beløb kan ikke læses — gå tilbage og ret det røde felt.",
+    dcLockBlockedNoRevenue: "Indtast aftenens omsætning, før du låser.",
     // ── "We couldn't check" — the third state ──
     // Copy for the loading and FAILED branches of the nine list fetchers
     // that used to render their empty state on a failure, telling an owner
