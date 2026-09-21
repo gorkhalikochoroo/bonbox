@@ -116,6 +116,48 @@ def make_bilagsnummer(
     )
 
 
+class OpenPunchInPeriod(Exception):
+    """A shift in this period has no clock-out, so its hours are not yet known.
+
+    WHY THIS IS FATAL AND NOT A WARNING. An open punch stores total_hours = 0
+    (the real figure is only computed at clock-out). Issue a lønseddel over
+    that period and three things happen at once:
+
+      1. the shift is paid as 0,00 kr. — `earned = hrs * rate` re-derives zero
+         from zero, on a line that states a start time and a rate, so the
+         document positively asserts the employee earned nothing;
+      2. that assertion lands on a Bilagsnummer'd, SHA-256-hashed, employee-
+         SIGNED artifact retained five years under Bogføringsloven §10;
+      3. the hours are then unpayable FOREVER. Nothing auto-closes a punch —
+         the only closer is the staffer's own clock-out — and HoursLogged has
+         no paid_at or payslip_id, so payroll is purely `date >= period_start`.
+         Once the shift's date sits inside a period already issued, no later
+         payslip will ever query it again.
+
+    Refusing is the only safe answer: a lønseddel is a statement about settled
+    time, and this time is not settled. Close the punch, then re-issue.
+    """
+
+    def __init__(self, entries: list):
+        self.entries = entries
+        super().__init__(
+            "A shift in this period has not been clocked out, so its hours are "
+            "not yet known. Close it before issuing a lønseddel — an open shift "
+            "records 0 hours and would be paid as 0 kr., permanently."
+        )
+
+
+def _open_punches(rows: list) -> list:
+    """Rows the punch clock opened and never closed.
+
+    BOTH conditions, deliberately. `end_time IS NULL` alone is not enough: an
+    owner quick-log legitimately stores a NULL end with real hours (see
+    schemas/staff.py), and refusing payroll over those would block a venue that
+    never touches the clock. Only a `clock` row without an end is unfinished.
+    """
+    return [r for r in rows if (r.entry_method or "") == "clock" and not r.end_time]
+
+
 def fetch_loenseddel_data(
     db: Session,
     owner: User,
@@ -145,6 +187,13 @@ def fetch_loenseddel_data(
         .order_by(HoursLogged.date.asc(), HoursLogged.start_time.asc())
         .all()
     )
+
+    # BARRIER 2 (the router pre-checks every employee at once so the owner sees
+    # them all in one message; this one guarantees no other caller can route
+    # around it into a signed document). See OpenPunchInPeriod.
+    still_open = _open_punches(hours_rows)
+    if still_open:
+        raise OpenPunchInPeriod(still_open)
 
     base_rate = float(getattr(employee, "base_rate", 0) or 0)
     lines: list[dict] = []

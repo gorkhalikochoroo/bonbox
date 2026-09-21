@@ -5296,7 +5296,10 @@ def loenseddel_pdf(
       - PDF lib import wrapped — 500 if reportlab missing
       - L7 audit_logs row written per employee rendered
     """
-    from app.services.loenseddel_pdf import build_loenseddel_pdf_multi
+    from app.services.loenseddel_pdf import (
+        OpenPunchInPeriod,
+        build_loenseddel_pdf_multi,
+    )
 
     # Resolve all eligible staff (active, non-deleted) AND restrict to
     # those who logged hours in the period. We feed them all into one
@@ -5329,6 +5332,43 @@ def loenseddel_pdf(
     if not eligible:
         raise HTTPException(404, "No staff with hours logged in this period")
 
+    # BARRIER 1 — refuse the whole run while any shift in the period is still
+    # open, and name every one of them in a single message so the owner closes
+    # them in one pass instead of discovering them one 409 at a time.
+    #
+    # An open punch stores total_hours = 0 until clock-out, so issuing over it
+    # pays the shift as 0,00 kr. on a signed, hashed, five-year document AND
+    # strands the hours permanently: nothing auto-closes a punch, and payroll
+    # is a pure date-range query with no paid_at, so once this period is issued
+    # no later payslip will ever look at that date again.
+    # Service-side twin: loenseddel_pdf.OpenPunchInPeriod.
+    open_rows = (
+        db.query(HoursLogged.staff_id, HoursLogged.date, HoursLogged.start_time)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.date >= period_start,
+            HoursLogged.date <= period_end,
+            HoursLogged.entry_method == "clock",
+            HoursLogged.end_time.is_(None),
+        )
+        .order_by(HoursLogged.date.asc())
+        .all()
+    )
+    if open_rows:
+        names = {str(s.id): s.name for s in staff_rows}
+        listed = ", ".join(
+            f"{names.get(str(sid), 'ukendt')} {d.isoformat()}"
+            + (f" fra {st}" if st else "")
+            for sid, d, st in open_rows[:6]
+        )
+        more = f" (+{len(open_rows) - 6} more)" if len(open_rows) > 6 else ""
+        raise HTTPException(
+            409,
+            f"{len(open_rows)} shift(s) in this period have not been clocked "
+            f"out: {listed}{more}. Close them first — an open shift records 0 "
+            f"hours, would be paid as 0 kr., and cannot be paid later.",
+        )
+
     profile = (
         db.query(BusinessProfile)
         .filter(BusinessProfile.user_id == user.id)
@@ -5346,6 +5386,11 @@ def loenseddel_pdf(
         )
     except ImportError:
         raise HTTPException(500, "PDF library not available")
+    except OpenPunchInPeriod as exc:
+        # Barrier 1 above should have caught this. If it fires, the two
+        # queries disagree about what "open" means — surface it rather than
+        # let a 0-hour line reach a signed document.
+        raise HTTPException(409, str(exc))
 
     # L7 audit row — accountant-grade requirement. One row per
     # employee rendered so a revisor can later see exactly which staff
