@@ -4674,6 +4674,22 @@ def hours_overview(
         except Exception:
             return 0.0
 
+    # TIE-OUT WITH THE PERIOD SUMMARY TABLE. /hours/summary reports each staff
+    # member's scheduled hours ROUNDED to 1dp — that is the figure their row
+    # shows and the figure their pay is reckoned on — and the Hours table sums
+    # those rounded rows into its Total. Accumulating raw here and rounding
+    # once at the end answers a different question, and both answers were on
+    # screen at the same time: "193,8 t planned on the schedule" in the period
+    # card, directly above a table whose Total read "193,6 t". Shift lengths
+    # come from HH:MM strings, so they land on quarter-hours; eight of them
+    # rounded individually drift from the same eight rounded together.
+    #
+    # Round per staff, then sum, exactly as /hours/summary does, so the total
+    # equals the sum of the rows the owner can actually see. Safe to change
+    # here and not for actual_total: measured/typed/schedule_hours decompose
+    # ACTUAL by entry method and would stop tying out if that one moved —
+    # nothing decomposes scheduled_total.
+    _sched_by_staff: dict[str, float] = {}
     scheduled_total = 0.0
     try:
         for s in (
@@ -4686,7 +4702,11 @@ def hours_overview(
             )
             .all()
         ):
-            scheduled_total += _shift_hours(s.start_time, s.end_time, s.break_minutes)
+            sid = str(s.staff_id)
+            _sched_by_staff[sid] = _sched_by_staff.get(sid, 0.0) + _shift_hours(
+                s.start_time, s.end_time, s.break_minutes
+            )
+        scheduled_total = sum(round(v, 1) for v in _sched_by_staff.values())
     except Exception:
         scheduled_total = 0.0
 
