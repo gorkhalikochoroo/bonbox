@@ -20,7 +20,7 @@ import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
 import { capturePhoto } from "../utils/camera";
-import { Camera as CameraIcon, Trash2 } from "lucide-react";
+import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
@@ -3074,19 +3074,61 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             }}
           >
             {data.entries.map((h, i) => {
+              // WHAT THE OWNER DECIDED ABOUT THIS SHIFT.
+              //
+              // The owner can confirm a shift, mark it absent, or ADJUST it —
+              // and an adjustment changes the hours this person is paid for.
+              // Until now none of that reached here, so the owner could change
+              // someone's hours and the only person with a real stake in the
+              // correction was the only one who could not see it.
+              //
+              // `adjusted` is the one that gets words and colour: BOTH figures,
+              // so a reduction reads as a difference the staffer can ask about
+              // rather than a number that quietly changed. The server only
+              // sends clock_hours when it differs from what was recorded.
+              //
+              // An UNRESOLVED shift (resolution == null) is left unmarked on
+              // purpose. It is the normal state for anything recent, and
+              // labelling every fresh row "awaiting" would make the ordinary
+              // case look like a problem.
+              const adjusted = h.resolution === "adjusted" && h.clock_hours != null;
               return (
                 <div
                   key={i}
-                  className="flex items-center"
                   style={{
-                    gap: 11, padding: "13px 15px",
+                    padding: "13px 15px",
                     borderBottom: i === data.entries.length - 1 ? "none" : "1px solid #f1f5f9",
                   }}
                 >
-                  <span className="text-sm text-gray-500 flex-1">
-                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
-                  </span>
-                  <span className="text-sm font-semibold text-gray-900 tabular-nums">{h.total_hours} {t("portalHrsShort")}</span>
+                  <div className="flex items-center" style={{ gap: 11 }}>
+                    <span className="text-sm text-gray-500 flex-1">
+                      {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{h.total_hours} {t("portalHrsShort")}</span>
+                  </div>
+                  {adjusted && (
+                    <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
+                      <PencilLine size={12} className="shrink-0 mt-0.5" />
+                      <span className="tabular-nums">
+                        {t("portalHoursAdjusted", "You clocked {clocked} · recorded {recorded}", {
+                          clocked: `${h.clock_hours} ${t("portalHrsShort")}`,
+                          recorded: `${h.total_hours} ${t("portalHrsShort")}`,
+                        })}
+                      </span>
+                    </p>
+                  )}
+                  {h.resolution === "absent" && (
+                    <p className="text-[12px] text-gray-500 mt-1 flex items-start gap-1.5">
+                      <MinusCircle size={12} className="shrink-0 mt-0.5" />
+                      <span>{t("portalHoursAbsent", "Recorded as not worked")}</span>
+                    </p>
+                  )}
+                  {h.resolution === "confirmed" && (
+                    <p className="text-[12px] text-gray-400 mt-1 flex items-start gap-1.5">
+                      <Check size={12} className="shrink-0 mt-0.5" />
+                      <span>{t("portalHoursConfirmed", "Checked by your manager")}</span>
+                    </p>
+                  )}
                 </div>
               );
             })}

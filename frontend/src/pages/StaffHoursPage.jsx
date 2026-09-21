@@ -1174,6 +1174,32 @@ function shiftStateMeta(state, t) {
   }
 }
 
+/** What the owner ALREADY decided about a shift — the other half of the tick.
+ *
+ *  resolve() has taken confirm / adjust / absent for a long time and wrote
+ *  resolution, resolved_by, resolved_at on the row. None of it was ever
+ *  rendered, so answering a shift only made the amber go away: there was no
+ *  way to tell "I checked this and it is right" from "I have not looked yet".
+ *
+ *  GREY, deliberately, and never emerald. The colour law above spends emerald
+ *  on exactly one state — LIVE, on the clock right now — precisely because an
+ *  earlier version painted every negative diff emerald and a no-show wore the
+ *  colour of success. A resolution is a fact about what the owner decided, and
+ *  grey is this table's colour for a fact.
+ */
+function resolutionMeta(resolution, t) {
+  switch (resolution) {
+    case "confirmed":
+      return { label: t("shpStateConfirmed", "Checked"), icon: "Check" };
+    case "adjusted":
+      return { label: t("shpStateAdjusted", "Adjusted by you"), icon: "PencilLine" };
+    case "absent":
+      return { label: t("shpStateAbsentMark", "Marked absent"), icon: "MinusCircle" };
+    default:
+      return null;     // unanswered — the amber state above already says so
+  }
+}
+
 /** Danish writes 7 t — not 7.0h.
  *
  *  This used to be the whole implementation, and the page then bypassed it
@@ -2223,6 +2249,27 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                   </div>
                   <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     <span>{fmtDateFull(entry.date)}</span>
+                    {/* What you already decided about this shift. Until now
+                        answering one only made the amber go away, so there was
+                        no way to tell "I checked this and it is right" from "I
+                        have not looked yet" — and an ADJUSTED shift, where you
+                        changed the hours someone is paid for, looked exactly
+                        like an ordinary one. Grey on purpose: this table spends
+                        emerald on LIVE only, because a no-show once wore the
+                        colour of success. */}
+                    {(() => {
+                      const rm = resolutionMeta(entry.resolution, t);
+                      if (!rm) return null;
+                      return (
+                        <>
+                          <span className="text-gray-300 dark:text-gray-600">|</span>
+                          <span className="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
+                            <Icon name={rm.icon} size={11} />
+                            {rm.label}
+                          </span>
+                        </>
+                      );
+                    })()}
                     {entry.start_time && entry.end_time && (
                       <>
                         <span className="text-gray-300 dark:text-gray-600">|</span>
