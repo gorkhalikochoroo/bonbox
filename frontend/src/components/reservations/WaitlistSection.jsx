@@ -11,7 +11,7 @@
  * Mobile-first: the whole thing is a single calm card; the add form collapses
  * to one column and every row is a full-width stacked card with ≥44px taps.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2 } from "lucide-react";
 import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
@@ -112,10 +112,25 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     return () => clearTimeout(tmr);
   }, [spotMatches, reloadWaitlist]);
 
-  const flashToast = (msg) => {
+  // A toast that carries something the host has to ACT on — a phone number to
+  // dial — cannot vanish on the same timer as "SMS sent". The notify fallback
+  // said "call {name} on {phone}" and then deleted the number after 4s, so the
+  // one instruction the host was given outlived the data they needed to follow
+  // it. TOAST_ACTIONABLE_MS is for messages holding data; the default is for
+  // messages that only report an outcome.
+  const TOAST_MS = 4000;
+  const TOAST_ACTIONABLE_MS = 20000;
+  const toastTimerRef = useRef(null);
+  const flashToast = (msg, ms = TOAST_MS) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 4000);
+    // Without this, a second toast inherits the first one's countdown and can
+    // disappear almost immediately.
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), ms);
   };
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
 
   const addEntry = async (e) => {
     e?.preventDefault();
@@ -168,10 +183,14 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     try {
       const res = await api.post(`/reservations/waitlist/${entry.id}/notify`);
       const { channel, phone } = res.data || {};
+      const sentBySms = channel === "sms";
       flashToast(
-        channel === "sms"
+        sentBySms
           ? t("rsvpWlSmsSent", "SMS sent")
           : t("rsvpWlNotifyCall", "No SMS on this plan — call {name} on {phone}.", { name: who, phone: phone || entry.guest_phone }),
+        // The call fallback hands over a number to dial; give the host time to
+        // read and dial it. "SMS sent" is just an outcome and can go quickly.
+        sentBySms ? TOAST_MS : TOAST_ACTIONABLE_MS,
       );
       reloadWaitlist();
     } catch (err) {
@@ -322,7 +341,7 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
 
       {/* Transient result line */}
       {toast && (
-        <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
+        <div className="px-4 py-2 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
           {toast}
         </div>
       )}
@@ -377,7 +396,7 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                         {e.guest_name || t("rsvpGuest", "Guest")}
                       </span>
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 tabular-nums shrink-0">
+                      <span className="inline-flex items-center gap-1 text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums shrink-0">
                         <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{e.party_size}
                       </span>
                       {e.status === "notified" && (
@@ -392,7 +411,7 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
                     )}
                     {e.guest_phone && (
                       <a href={`tel:${String(e.guest_phone).replace(/\s+/g, "")}`}
-                        className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums hover:text-gray-600">
+                        className="text-xs text-gray-600 dark:text-gray-300 tabular-nums hover:text-gray-900 dark:hover:text-gray-100">
                         {e.guest_phone}
                       </a>
                     )}

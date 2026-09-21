@@ -471,7 +471,14 @@ function TableNode({
               "font-semibold leading-none truncate max-w-full " +
               style.text +
               " " +
-              (sizePx >= 80 ? "text-sm" : "text-xs")
+              // Gate on the width actually DRAWN, not on sizePx. They diverge:
+              // a hightop 4-top has sizePx 84 (so it took text-sm) but is drawn
+              // as a 59px circle, and the label is truncate + max-w-full — so
+              // "Bord 12" rendered as "Bord…" on the one string a host
+              // navigates by. Width, not height: nothing here is
+              // overflow-hidden, so a tall-constrained shape (bar, h=30) spills
+              // harmlessly, while a narrow one silently loses characters.
+              (dims.w >= 80 ? "text-sm" : "text-xs")
             }
           >
             {res.label}
@@ -487,7 +494,7 @@ function TableNode({
             ) : (
               <>
                 <Users className="w-3 h-3 opacity-70" aria-hidden />
-                <span className="text-[11px] tabular-nums">
+                <span className="text-[13px] tabular-nums">
                   {status !== "free" && partySize != null
                     ? `${partySize}/${seats}`
                     : seats}

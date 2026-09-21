@@ -2158,7 +2158,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
               <span className="text-sm font-semibold text-amber-700 dark:text-amber-400 truncate leading-tight">
                 {t("rsvpUnassignedLane", "Unassigned")}
               </span>
-              <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 tabular-nums">
+              <span className="text-[11px] text-amber-700 dark:text-amber-500 tabular-nums">
                 {unassigned.blocks.length}
               </span>
             </div>
@@ -2232,7 +2232,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
                   {tbl.label}
                 </span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                   {[tbl.zone, tbl.capacity_seats + "p"].filter(Boolean).join(" · ")}
                 </span>
               </div>
@@ -3969,10 +3969,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             return (
               <div
                 className={
-                  "text-[11px] font-medium truncate " +
+                  // The icon in the Flags column says THAT there is an
+                  // allergy; this line is the only place that says WHAT —
+                  // "nødder" vs "ingen bisque". amber-600 on white measured
+                  // 3.19:1, under AA for normal text, so the one string a
+                  // kitchen decision depends on was the faintest on the row.
+                  // The severe branch already passes at 4.83:1; left alone.
+                  "text-[12px] font-medium truncate " +
                   (severe
                     ? "text-red-600 dark:text-red-400"
-                    : "text-amber-600 dark:text-amber-400")
+                    : "text-amber-700 dark:text-amber-400")
                 }
                 title={detail || undefined}
               >
@@ -7154,10 +7160,15 @@ function StandDevices({ t }) {
               "inset 0 1px 0 #fff, 0 1px 2px rgba(15,23,42,.05), 0 8px 18px -14px rgba(15,23,42,.35)",
           }}
         >
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-gray-500">
             {t("rsvpStandCodeEyebrow", "Tast på enheden · bonbox.dk/stand")}
           </p>
-          <p className="mt-1 font-mono text-[32px] font-bold tracking-[0.3em] tabular-nums text-gray-900 dark:text-gray-100">
+          {/* NO dark: variant here on purpose. This card's background is the
+              hardcoded light gradient above, which dark mode cannot touch —
+              so dark:text-gray-100 painted near-white on near-white and the
+              pairing code disappeared entirely for any owner in dark mode.
+              The card is light in both themes; the code must be dark in both. */}
+          <p className="mt-1 font-mono text-[32px] font-bold tracking-[0.3em] tabular-nums text-gray-900">
             {fresh.code}
           </p>
           <p className="mt-1 text-[12px] text-gray-500">

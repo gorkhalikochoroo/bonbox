@@ -1272,7 +1272,7 @@ export default function ReservationPublicPage() {
               The nightly sweep now guarantees an answer before the
               sitting; this is that promise, said out loud. */}
           {isRequest && (
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
               {t(
                 "rsvpRequestExpectation",
                 "Du hører fra os på email inden dagen. Vil du være sikker, så ring til os.",
@@ -1510,7 +1510,12 @@ export default function ReservationPublicPage() {
                   onClick={() => setLang(code)}
                   aria-pressed={lang === code}
                   className={
-                    "px-1.5 py-1 rounded-md text-[11px] font-medium uppercase tracking-wide transition-colors " +
+                    // Padding is the substantive half of this: at px-1.5 py-1
+                    // a two-letter language code is a ~22x18px tap target on a
+                    // phone, well under the ~44px guideline, and this is the
+                    // control a guest reaches for when the page opened in a
+                    // language they do not read.
+                    "px-2.5 py-2 rounded-md text-xs font-medium uppercase tracking-wide transition-colors " +
                     (lang === code
                       ? "text-gray-900 dark:text-gray-100"
                       : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300")
@@ -1721,7 +1726,7 @@ export default function ReservationPublicPage() {
                     reaching the venue. Calling is that route; where there is
                     no number, the note field is, and the owner reads it. */}
                 {party >= maxParty && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
                     {telHref(page.phone) ? (
                       <>
                         {t("rsvpPartyOverMaxCall", "Er I mere end {n}? Ring til os", {

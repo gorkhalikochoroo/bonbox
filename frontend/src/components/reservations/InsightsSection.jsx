@@ -618,7 +618,7 @@ function RecoveredCard({ data, t }) {
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
             ≈ {formatKr(data.kr, { decimals: 0 })}
           </p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {t("rsvpInsRecoveredKrBasis", "≈ revenue recovered (incl. VAT)")}
             {data.avg_cover != null && (
               <>
@@ -631,7 +631,7 @@ function RecoveredCard({ data, t }) {
           </p>
         </div>
       ) : (
-        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           {t(
             "rsvpInsRecoveredNoKr",
             "Add guest counts to your sales to see recovered revenue.",
@@ -703,7 +703,7 @@ function ForecastBlock({ forecast, forecastLocked, t }) {
           </li>
         ))}
       </ul>
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
         {t("rsvpInsForecastBasis", "Based on the last {n} matching weekdays", { n: avgSamples })}
       </p>
     </Card>
