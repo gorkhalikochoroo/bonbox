@@ -48,20 +48,25 @@ _db_ready.set()
 FROM, TO = "2026-06-01", "2026-06-30"
 D = date(2026, 6, 10)
 
-# Quarter-hour shifts: 09:00-15:15 is 6.25 h.
+# 09:00-15:20 is 6h20m = 6.3333... h — a length that does NOT land exactly on
+# the 2 decimals these endpoints report.
 #
-# The shift COUNTS are load-bearing, not decoration. 9/5/1 is chosen so
-# sum-of-rounded and rounded-sum actually disagree:
+# The shift COUNTS and the shift LENGTH are both load-bearing. 1/3/4 at 6h20m
+# is chosen so sum-of-rounded and rounded-sum actually disagree:
 #
-#     per staff : 56.25->56.2   31.25->31.2   6.25->6.2   = 93.6
-#     raw total : 93.75                                   -> 93.8
+#     per staff : 6.33   19.0   25.33   = 50.66
+#     raw total : 50.6666...                 -> 50.67
 #
-# An earlier draft used 5/3/1, where the two happen to coincide at 56.2 — the
-# tie-outs below all passed, and would have passed against the OLD buggy code
-# too. test_the_scenario_is_actually_awkward exists to catch exactly that, and
-# did. Do not "tidy" these numbers.
-SHIFT_HOURS = 6.25
-ROSTER = [("Agnes", 9), ("Bo", 5), ("Cara", 1)]
+# TWO earlier drafts went vacuous here and the guard below caught both:
+#   • 5/3/1 quarter-hour shifts, where the two coincided at 56.2;
+#   • 9/5/1 quarter-hour shifts, which drifted at 1dp but stopped drifting the
+#     moment the endpoints moved to 2dp — because n x 6.25 is EXACT at two
+#     decimals, so there was nothing left to lose.
+# A quarter-hour roster can no longer test this. Do not "tidy" these numbers
+# back to round ones.
+SHIFT_HOURS = 380 / 60
+SHIFT_START, SHIFT_END = "09:00", "15:20"
+ROSTER = [("Agnes", 4), ("Bo", 3), ("Cara", 1)]
 
 
 @pytest.fixture
@@ -97,7 +102,7 @@ def ctx(engine_and_session):
         for i in range(n_shifts):
             db.add(Schedule(
                 id=uuid.uuid4(), user_id=u.id, staff_id=m.id,
-                date=date(2026, 6, 1 + i), start_time="09:00", end_time="15:15",
+                date=date(2026, 6, 1 + i), start_time=SHIFT_START, end_time=SHIFT_END,
                 break_minutes=0, status="published",
             ))
     db.commit()
@@ -165,13 +170,13 @@ TIE_OUTS = [
     (
         "scheduled hours: period card vs summary table",
         lambda c: c.overview()["hours"]["scheduled_total"],
-        lambda c: round(_sum(c.summary(), "scheduled_hours"), 1),
+        lambda c: round(_sum(c.summary(), "scheduled_hours"), 2),
         "both render on /staff/hours simultaneously — the card above the table",
     ),
     (
         "actual hours: period card vs summary table",
         lambda c: c.overview()["hours"]["actual_total"],
-        lambda c: round(_sum(c.summary(), "actual_hours"), 1),
+        lambda c: round(_sum(c.summary(), "actual_hours"), 2),
         "the HOURS tile sits directly above the ACTUAL column it summarises",
     ),
     (
@@ -180,15 +185,15 @@ TIE_OUTS = [
         lambda c: round(
             c.overview()["hours"]["measured_hours"]
             + c.overview()["hours"]["typed_hours"]
-            + c.overview()["hours"]["schedule_hours"], 1),
+            + c.overview()["hours"]["schedule_hours"], 2),
         "measured/typed/schedule partition actual_total; the tile shows both",
     ),
     (
         "diff: period card vs summary table",
         lambda c: c.overview()["hours"]["diff"],
         lambda c: round(
-            round(_sum(c.summary(), "actual_hours"), 1)
-            - round(_sum(c.summary(), "scheduled_hours"), 1), 1),
+            round(_sum(c.summary(), "actual_hours"), 2)
+            - round(_sum(c.summary(), "scheduled_hours"), 2), 2),
         "the DIFF column and the card's diff describe the same shortfall",
     ),
     (
@@ -222,15 +227,15 @@ def test_the_scenario_is_actually_awkward(ctx):
     sum-then-round diverge — if someone 'tidies' the roster to whole hours,
     every assertion above would pass vacuously.
     """
-    rounded_sum = round(sum(n * SHIFT_HOURS for _, n in ROSTER), 1)
-    sum_of_rounded = round(sum(round(n * SHIFT_HOURS, 1) for _, n in ROSTER), 1)
+    rounded_sum = round(sum(n * SHIFT_HOURS for _, n in ROSTER), 2)
+    sum_of_rounded = round(sum(round(n * SHIFT_HOURS, 2) for _, n in ROSTER), 2)
     assert rounded_sum != sum_of_rounded, (
         f"The seeded roster no longer drifts under rounding "
         f"(rounded-sum {rounded_sum} == sum-of-rounded {sum_of_rounded}), so "
         f"every tie-out above would pass even against the round-once bug they "
         f"exist to catch. Restore shift counts where the two disagree — "
-        f"9/5/1 at {SHIFT_HOURS} h gives 93.8 vs 93.6."
+        f"1/3/4 at {SHIFT_HOURS:.4f} h gives 50.67 vs 50.66."
     )
     # And the API really is serving those drifting figures, not a tidy fixture.
-    assert sorted(round(r["scheduled_hours"], 1) for r in ctx.summary()) == \
-        sorted(round(n * SHIFT_HOURS, 1) for _, n in ROSTER)
+    assert sorted(round(r["scheduled_hours"], 2) for r in ctx.summary()) == \
+        sorted(round(n * SHIFT_HOURS, 2) for _, n in ROSTER)

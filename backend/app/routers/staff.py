@@ -4592,11 +4592,22 @@ def hours_summary(
     summary = []
     for sid in staff_ids:
         r = hours_by_id.get(sid)
-        actual = round(float(r.total_hours or 0), 1) if r else 0.0
+        # 2 decimals, not 1 — total_hours is stored Numeric(5,2), so reporting
+        # it at 1dp throws away real time and the rows stop summing to the
+        # total above them. Agnes at 0,6 + 6,25 is 6,85: shown as "6,8" she
+        # loses 3 minutes, and the two rows then summed to 19,2 under a card
+        # that said 19,3. Report the precision the data actually has and the
+        # tie-out holds by construction, because every stored value is 2dp.
+        # It also makes the row checkable: 6,85 x 145 kr. is the earned figure
+        # printed beside it, where 6,8 x 145 is not.
+        actual = round(float(r.total_hours or 0), 2) if r else 0.0
         earned = round(float(r.total_earned or 0), 2) if r else 0.0
-        overtime = round(float(r.overtime_hours or 0), 1) if r else 0.0
+        overtime = round(float(r.overtime_hours or 0), 2) if r else 0.0
         tips = round(float(tips_map.get(sid, 0)), 2)
-        scheduled = round(sched_map.get(sid, 0.0), 1)
+        # Matched to actual so one table does not mix precisions, and to the
+        # sum-of-rounded rule in /hours/overview below — the two must round
+        # identically or the Total row drifts from the card again.
+        scheduled = round(sched_map.get(sid, 0.0), 2)
         summary.append({
             "staff_id": sid,
             "staff_name": staff_names.get(sid, f"Staff #{sid[:8]}"),
@@ -4790,7 +4801,7 @@ def hours_overview(
             _sched_by_staff[sid] = _sched_by_staff.get(sid, 0.0) + _shift_hours(
                 s.start_time, s.end_time, s.break_minutes
             )
-        scheduled_total = sum(round(v, 1) for v in _sched_by_staff.values())
+        scheduled_total = sum(round(v, 2) for v in _sched_by_staff.values())
     except Exception:
         scheduled_total = 0.0
 
@@ -4931,12 +4942,14 @@ def hours_overview(
             "total_days": total_days,
         },
         "hours": {
-            "actual_total": round(actual_total, 1),
-            "scheduled_total": round(scheduled_total, 1),
-            "diff": round(actual_total - scheduled_total, 1),
-            "measured_hours": round(measured_hours, 1),
-            "typed_hours": round(typed_hours, 1),
-            "schedule_hours": round(schedule_hours, 1),
+            # All 2dp, matching /hours/summary and the Numeric(5,2) storage.
+            # At 1dp these drifted from the rows they summarise.
+            "actual_total": round(actual_total, 2),
+            "scheduled_total": round(scheduled_total, 2),
+            "diff": round(actual_total - scheduled_total, 2),
+            "measured_hours": round(measured_hours, 2),
+            "typed_hours": round(typed_hours, 2),
+            "schedule_hours": round(schedule_hours, 2),
             "measured_share": round(measured_share, 3),
         },
         "cost": {

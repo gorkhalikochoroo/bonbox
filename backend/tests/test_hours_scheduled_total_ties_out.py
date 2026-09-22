@@ -45,10 +45,11 @@ _db_ready.set()
 
 FROM, TO = "2026-06-01", "2026-06-30"
 
-# 09:00-17:10, no break = 8h10m = 8.1666..h, which rounds to 8.2.
-# Two staff: raw total 16.333.. rounds to 16.3, but the two ROWS the owner
-# sees read 8.2 each and sum to 16.4. Chosen so the drift does not depend on
-# half-way rounding behaviour.
+# 09:00-17:10, no break = 8h10m = 8.1666..h, which reports as 8.17 at the
+# endpoints' 2 decimals. Two staff: the ROWS read 8.17 each and sum to 16.34,
+# while the raw total 16.3333.. rounds to 16.33. Chosen so the drift does not
+# depend on half-way rounding behaviour, and so it survives at 2dp — a
+# quarter-hour roster would not, because n x 6.25 is exact at two decimals.
 _START, _END = "09:00", "17:10"
 
 
@@ -125,7 +126,7 @@ def test_the_card_and_the_table_report_the_same_scheduled_hours(client, db):
     _seed(db, staff_count=2)
     ov, rows = _both(client)
 
-    rows_total = round(sum(r["scheduled_hours"] for r in rows), 1)
+    rows_total = round(sum(r["scheduled_hours"] for r in rows), 2)
     assert ov["hours"]["scheduled_total"] == rows_total, (
         f"period card says {ov['hours']['scheduled_total']} t, the table Total "
         f"sums its own rows to {rows_total} t"
@@ -133,14 +134,14 @@ def test_the_card_and_the_table_report_the_same_scheduled_hours(client, db):
 
 
 def test_it_is_the_sum_of_the_rows_the_owner_can_see(client, db):
-    """Pins the DIRECTION. 16.4 is the sum of two visible 8.2s; 16.3 is the
+    """Pins the DIRECTION. 16.34 is the sum of two visible 8.17s; 16.33 is the
     raw total rounded once, which matches no row on the screen."""
     _seed(db, staff_count=2)
     ov, rows = _both(client)
 
-    assert [r["scheduled_hours"] for r in rows] == [8.2, 8.2]
-    assert ov["hours"]["scheduled_total"] == 16.4, "regressed to round-once"
-    assert ov["hours"]["scheduled_total"] != 16.3
+    assert [r["scheduled_hours"] for r in rows] == [8.17, 8.17]
+    assert ov["hours"]["scheduled_total"] == 16.34, "regressed to round-once"
+    assert ov["hours"]["scheduled_total"] != 16.33
 
 
 def test_the_drift_grows_with_headcount(client, db):
@@ -149,9 +150,9 @@ def test_the_drift_grows_with_headcount(client, db):
     ov, rows = _both(client)
 
     assert len(rows) == 8
-    assert ov["hours"]["scheduled_total"] == round(sum(r["scheduled_hours"] for r in rows), 1)
-    assert ov["hours"]["scheduled_total"] == 65.6      # 8 x 8.2
-    assert ov["hours"]["scheduled_total"] != 65.3      # raw 65.33 rounded once
+    assert ov["hours"]["scheduled_total"] == round(sum(r["scheduled_hours"] for r in rows), 2)
+    assert ov["hours"]["scheduled_total"] == 65.36     # 8 x 8.17
+    assert ov["hours"]["scheduled_total"] != 65.33     # raw rounded once
 
 
 def test_diff_ties_out_to_the_same_rows(client, db):
@@ -161,24 +162,27 @@ def test_diff_ties_out_to_the_same_rows(client, db):
     ov, rows = _both(client)
 
     rows_diff = round(
-        sum(r["actual_hours"] for r in rows) - sum(r["scheduled_hours"] for r in rows), 1,
+        sum(r["actual_hours"] for r in rows) - sum(r["scheduled_hours"] for r in rows), 2,
     )
     assert ov["hours"]["diff"] == rows_diff
 
 
-def test_the_real_world_case_is_the_half_way_one(client, db):
-    """The shape this actually takes in production.
+def test_the_real_world_roster_ties_out_exactly(client, db):
+    """The shape this actually takes in production — and why 2dp ends it.
 
     Rosters are built on quarter-hours, so every staff total lands on .25 or
-    .75 — the exact half-way case. Python's round() is half-to-EVEN there:
-    31.25 -> 31.2 but 18.75 -> 18.8. Both endpoints call round(), so they
-    agree; swap either one for Decimal ROUND_HALF_UP and they silently would
-    not. (Postgres ROUND is half-away-from-zero, which is why checking this
-    fix in SQL gives a different answer than the code does — 194.0 vs 193.6.)
+    .75. At ONE decimal those are half-way cases and Python rounds half-to-
+    EVEN (31.25 -> 31.2 but 18.75 -> 18.8), which is how a real month summed to
+    193.6 under a card that said 193.8.
 
-    Reproduces a real month: 8 staff, 193.75 raw hours.
-      round-once      -> 193.8   (what the period card showed)
-      sum-of-rounded  -> 193.6   (what the table showed, and now both do)
+    At TWO decimals — the precision total_hours is actually stored at — a
+    quarter-hour total needs no rounding at all, so sum-of-rounded and
+    rounded-raw are the same number by construction and there is nothing left
+    to drift. Reporting the precision the data has is the fix; sum-of-rounded
+    is the belt that holds for the shapes that are not exact (see the 09:00-
+    17:10 cases above, which still drift and still pass).
+
+    Reproduces the live September roster: 8 staff, 193.75 h.
     """
     u = User(
         id=uuid.uuid4(), email="real@bonbox.dk", password_hash=hash_password("x"),
@@ -208,13 +212,15 @@ def test_the_real_world_case_is_the_half_way_one(client, db):
     by_name = {r["staff_name"]: r["scheduled_hours"] for r in rows}
 
     # Half-to-even, per staff, visible on their own row.
-    assert by_name["Aksel"] == 31.2, "31.25 rounds to even -> 31.2"
-    assert by_name["demo"] == 18.8, "18.75 rounds to even -> 18.8"
+    # Exact at 2dp — no rounding happens, so nothing can be lost.
+    assert by_name["Aksel"] == 31.25
+    assert by_name["demo"] == 18.75
     assert by_name["Agnes"] == 50.0
 
-    assert ov["hours"]["scheduled_total"] == round(sum(by_name.values()), 1)
-    assert ov["hours"]["scheduled_total"] == 193.6
-    assert ov["hours"]["scheduled_total"] != 193.8, "regressed to round-once"
+    assert ov["hours"]["scheduled_total"] == round(sum(by_name.values()), 2)
+    assert ov["hours"]["scheduled_total"] == 193.75
+    assert ov["hours"]["scheduled_total"] != 193.8, "regressed to 1dp round-once"
+    assert ov["hours"]["scheduled_total"] != 193.6, "regressed to 1dp sum-of-rounded"
 
 
 def test_a_draft_roster_still_counts_for_neither(client, db):

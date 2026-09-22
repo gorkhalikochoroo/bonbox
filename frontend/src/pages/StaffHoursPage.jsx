@@ -1222,7 +1222,12 @@ function resolutionMeta(resolution, t) {
  *  read. This wrapper stays only so the existing call sites keep their shape.
  */
 function fmtHours(n, lang) {
-  return formatHours(n, { lang });
+  // 2 decimals, matching what the endpoints now report and what total_hours is
+  // stored at. At 1 decimal a 6,85 h row printed "6,9 t" while the Total below
+  // it summed the real values to 19,3 — the column did not add up to its own
+  // footer, and "0,6 t x 145 kr./h" did not produce the 83 kr. printed beside
+  // it. A pay-facing column has to survive being checked by hand.
+  return formatHours(n, { lang, decimals: 2 });
 }
 
 
