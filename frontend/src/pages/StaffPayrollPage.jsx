@@ -6,7 +6,7 @@ import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatHours } from "../utils/hours";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
@@ -17,9 +17,22 @@ import { isStaffMemberRole } from "../config/navManifest";
 /* ═══════════════════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════════════════ */
+// MONEY, the account's way — not the browser's.
+//
+// This built its own string with toLocaleString(undefined, ...), and
+// `undefined` means the BROWSER's locale, not the account's. On a DKK account
+// opened in an English session the payroll screen read "988.90 DKK" where the
+// Hours tab beside it read "988,90 kr." — the same figure, two notations, and
+// the wrong one on the screen where the owner decides what to pay. It also
+// printed the raw ISO code instead of the unit a Dane writes.
+//
+// formatOwnerMoney is the one source: DKK routes through formatKr ("988,90
+// kr.", da-DK), everything else through formatMoney with locale-correct
+// grouping and the code. `cur` is kept in the signature so the 16 call sites
+// stay untouched.
 function fmtMoney(n, cur) {
   if (n == null) return "—";
-  return `${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
+  return formatOwnerMoney(n, cur, { decimals: 2 });
 }
 
 // Hours are NOT formatted here. The unit belongs to the language — this page
@@ -1046,7 +1059,7 @@ function DkStat({ label, value, currency, accent = "gray", small = false }) {
     <div className={`rounded-lg border ${accentClass} px-3 py-2.5`}>
       <div className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>
       <div className={`mt-0.5 font-bold text-gray-900 dark:text-white ${small ? "text-base" : "text-lg"}`}>
-        {value == null ? "—" : `${Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currency}`}
+        {value == null ? "—" : formatOwnerMoney(value, currency, { decimals: 0 })}
       </div>
     </div>
   );

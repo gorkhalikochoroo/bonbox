@@ -5008,6 +5008,7 @@ const translations = {
     hovTabOverview: "Overview",
     hovTabLog: "Log",
     hovTabDetails: "Details",
+    hovTabPerStaff: "Per staff",
     // Owner-only Oversigt: the wage overview carries the venue's labour cost
     // AND its revenue, so a delegated seat is denied it server-side. Said out
     // loud, because a blank panel under a working period picker reads as a bug.
@@ -13450,6 +13451,7 @@ const translations = {
     hovTabOverview: "Oversigt",
     hovTabLog: "Log",
     hovTabDetails: "Detaljer",
+    hovTabPerStaff: "Pr. medarbejder",
     hovRoleCannotSee: "Din rolle kan ikke se løntal",
     hovRoleCannotSeeHint: "Timer og stempling ligger under Detaljer. Spørg ejeren, hvis du har brug for lønoversigten.",
     hovTileHours: "Timer",

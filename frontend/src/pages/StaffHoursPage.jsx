@@ -434,7 +434,18 @@ export default function StaffHoursPage() {
     // No count on a failed load. A tab badge is a claim about how many entries
     // this period has, and a list that did not arrive cannot support one —
     // including the "0" that a silent catch used to leave behind.
-    { id: "details", label: t("hovTabDetails", "Details"), count: entriesQ.failed ? undefined : (entries?.length || undefined) },
+    // "Details" said nothing about what is behind it. This tab IS the
+    // per-person answer — the table of who worked how much and what they
+    // earned — and an owner opening Hours to pay somebody had to guess that
+    // "Details" was where their people were. The badge counts STAFF for the
+    // same reason: it now matches the noun in the label. No count on a failed
+    // load — a badge is a claim about how many, and a list that did not
+    // arrive cannot support one, including the "0" a silent catch leaves.
+    {
+      id: "details",
+      label: t("hovTabPerStaff", "Per staff"),
+      count: summaryQ.failed ? undefined : (summary?.length || undefined),
+    },
   ];
 
   return (
