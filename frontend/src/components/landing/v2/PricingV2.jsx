@@ -97,8 +97,13 @@ export default function PricingV2() {
                 {t("landingV2.pricing.free.period", "forever")}
               </span>
             </div>
+            {/* /register, not /login. These three buttons are the highest-
+                intent moment on the only acquisition page there is, and they
+                dropped a first-time visitor onto a sign-in form for an account
+                they do not have. The hero CTA was already corrected to
+                /register (see HeroV2.jsx); the pricing table was missed. */}
             <Link
-              to="/login"
+              to="/register"
               className={`${ctaBase} bg-slate-100 py-[13px] text-slate-900 hover:bg-slate-200`}
             >
               {t("landingV2.pricing.free.cta", "Start free")}
@@ -191,8 +196,13 @@ export default function PricingV2() {
                 "14 days free · no card required · that price stays as long as you do"
               )}
             </div>
+            {/* /register, not /login. These three buttons are the highest-
+                intent moment on the only acquisition page there is, and they
+                dropped a first-time visitor onto a sign-in form for an account
+                they do not have. The hero CTA was already corrected to
+                /register (see HeroV2.jsx); the pricing table was missed. */}
             <Link
-              to="/login"
+              to="/register"
               className={`${ctaBase} bg-bb-green py-[14px] text-white hover:bg-bb-green-dark`}
             >
               {t("landingV2.pricing.starter.cta", "Start on Starter")}
@@ -303,8 +313,13 @@ export default function PricingV2() {
                 "14 days free · no card required"
               )}
             </div>
+            {/* /register, not /login. These three buttons are the highest-
+                intent moment on the only acquisition page there is, and they
+                dropped a first-time visitor onto a sign-in form for an account
+                they do not have. The hero CTA was already corrected to
+                /register (see HeroV2.jsx); the pricing table was missed. */}
             <Link
-              to="/login"
+              to="/register"
               className={`${ctaBase} bg-bb-green py-[13px] text-white hover:bg-bb-green-dark`}
             >
               {t("landingV2.pricing.pro.cta", "Start on Pro")}

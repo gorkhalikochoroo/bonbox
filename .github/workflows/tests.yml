@@ -1,0 +1,94 @@
+# Run the test suites. On every push and every PR.
+#
+# WHY THIS DID NOT EXIST. There are 5,514 tests here and, until now, nothing
+# automated ran them — the only workflow was a weekly dependency audit. The
+# pre-commit hook runs the i18n, no-undef and money-write guards plus a build,
+# but not pytest and not vitest. The only thing standing between a red suite
+# and production was someone remembering to run it, and pushes go straight to
+# production with no staging.
+#
+# It also could not have worked before today: pytest and pypdf were installed
+# on the founder's machine but declared nowhere, so a fresh checkout could not
+# run the backend suite at all. requirements-dev.txt fixes that; verified by
+# installing into an empty venv and running the full suite green (4,061 passed,
+# 1 skipped) before this file was added.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded push does not need its run finished.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: pytest
+        working-directory: backend
+        # The suite runs against in-memory SQLite and sets _db_ready itself;
+        # it needs no database service and no secrets.
+        run: python -m pytest -q
+
+  frontend:
+    name: frontend (vitest + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: vitest
+        working-directory: frontend
+        run: npx vitest run
+      - name: Build
+        working-directory: frontend
+        # The pre-commit hook builds too, but a hook can be skipped with
+        # --no-verify and does not run on anyone else's machine.
+        run: npm run build
+
+  guards:
+    name: repo guards (i18n + money writes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: i18n guards
+        working-directory: frontend
+        # Same checks the pre-commit hook runs, now enforced server-side where
+        # --no-verify cannot reach them.
+        run: npm run lint:i18n

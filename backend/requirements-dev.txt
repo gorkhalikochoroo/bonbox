@@ -1,0 +1,17 @@
+# Test-only dependencies.
+#
+# WHY THIS FILE EXISTS. The backend suite is 4,061 tests and it could not be
+# run from a clean checkout: pytest and pypdf were installed on the founder's
+# machine but declared nowhere, so `pip install -r requirements.txt && pytest`
+# failed on a fresh clone. That is the practical reason there was no CI — the
+# suite was not reproducible, so nothing could run it.
+#
+# Everything else the tests import (starlette, anyio, py_vapid) arrives
+# transitively via fastapi and pywebpush and is deliberately NOT pinned here;
+# pinning a transitive dep in a second file is how the two drift apart.
+#
+# Runtime deps stay in requirements.txt. Production installs that file only.
+-r requirements.txt
+
+pytest==9.0.3
+pypdf==6.14.2
