@@ -744,3 +744,89 @@ def test_moms_is_unknown_agrees_with_the_document(kw, unknown):
     assert moms_is_unknown(dc) is unknown
     # The shared predicate and the rendered block can never drift apart.
     assert (_claims(dc)["moms"]["vat"] == "—") is unknown
+
+
+# ─────────── G. Payments ↔ revenue — the check this document never ran ───────
+#
+# THE DEFECT. The assurance band compared payment LINES to the payment
+# SUBTOTAL. routers/daily_close.py computes payment_total as the sum of exactly
+# those lines, so for any close saved through the app that check compares a
+# number with itself and always passes. It could not catch a wrong day.
+#
+# Meanwhile services/daily_close_range_export.py compared payments to REVENUE
+# and flagged the mismatch. So one stored row produced a green "KLAR TIL
+# BOGFØRING" per-close PDF and an amber multi-day export — two revisor-bound
+# documents contradicting each other about the same day, and the owner sends
+# the flattering one.
+#
+# The third outcome is deliberately NOT an accusation: a revenue-only close
+# (Z-report bottom line, no method split) has nothing to reconcile, and
+# branding it "out by 17.030 kr" would be the same false claim being removed
+# from the dashboard. It is reported as data instead.
+
+
+def _band(dc):
+    return _claims(dc)["assurance"]
+
+
+def _check(dc, name):
+    return next(
+        (c for c in _band(dc)["checks"] if c.get("check") == name), None
+    )
+
+
+def test_payments_matching_revenue_pass_the_new_check():
+    dc = _good_close(payment_categories="kontant:3200|kort:6800", payment_total=10000.0)
+    c = _check(dc, "payments_vs_revenue")
+    assert c is not None and c["ok"] is True
+    assert _band(dc)["payments_vs_revenue"] == "ok"
+
+
+def test_payments_that_do_not_match_revenue_block_book_ready():
+    """The exact contradiction: lines agree with their own subtotal, so the old
+    band said ready, while the day is 2.000 kr short of revenue."""
+    dc = _good_close(payment_categories="kontant:3200|kort:4800", payment_total=8000.0)
+    band = _band(dc)
+    assert band["payments_vs_revenue"] == "off"
+    assert band["all_ok"] is False, (
+        "a close 2.000 kr out still claimed book-ready — the range export "
+        "flags this same day"
+    )
+    c = _check(dc, "payments_vs_revenue")
+    assert c["ok"] is False and "2.000" in c["text"].replace(" ", " ")
+
+
+def test_the_old_check_alone_could_not_have_caught_it():
+    """Proves the new check is not redundant: lines-vs-subtotal passes on the
+    very close that is 2.000 kr short."""
+    dc = _good_close(payment_categories="kontant:3200|kort:4800", payment_total=8000.0)
+    assert _check(dc, "payments")["ok"] is True
+
+
+def test_a_revenue_only_close_is_not_accused():
+    """The ICP's normal close. Nothing was recorded, so there is nothing to
+    reconcile — it must not be branded out by the whole day's revenue."""
+    dc = _good_close(payment_categories=None, payment_total=0.0)
+    band = _band(dc)
+    assert band["payments_vs_revenue"] == "not_recorded"
+    assert _check(dc, "payments_vs_revenue") is None, (
+        "a close with no payment split was given a payments-vs-revenue verdict"
+    )
+    texts = " ".join(c["text"] for c in band["checks"])
+    assert "10.000" not in texts.replace(" ", " "), (
+        "the whole day's revenue was printed as a discrepancy"
+    )
+
+
+def test_the_third_outcome_is_still_reported_as_data():
+    """It does not gate the heading, but a caller must be able to see it
+    rather than infer it from a missing check."""
+    dc = _good_close(payment_categories=None, payment_total=0.0)
+    band = _band(dc)
+    assert band["payments_recorded"] is False
+    assert band["payments_vs_revenue"] == "not_recorded"
+
+
+def test_ore_rounding_does_not_trip_the_check():
+    dc = _good_close(payment_categories="kontant:3200|kort:6800.4", payment_total=10000.4)
+    assert _band(dc)["payments_vs_revenue"] == "ok"

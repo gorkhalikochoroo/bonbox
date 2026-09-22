@@ -456,6 +456,59 @@ def stand_convert_waitlist(
                               db=db, user=user)
 
 
+# ── Bordet og allergien ───────────────────────────────────────────────
+# Two controls the drawer renders on the stand and neither was wrapped, so both
+# 404'd on the door tablet while looking perfectly live.
+#
+# "Tildel bord" is the one the audit classed blocks_the_job: the select is
+# gated on `onAssign && tables.length > 0`, and `tables` IS populated because
+# /resources is wrapped — so the host gets a full, working-looking table picker
+# whose every option fails. Seating a walk-in at a table is the single most
+# common thing anyone does at a host stand.
+#
+# The allergy control is the safety-adjacent one. The stand is where a guest
+# says "she's coeliac" out loud, and "muligt: gluten — bekræft?" kept
+# re-surfacing because the person standing in front of the guest could not
+# confirm it.
+#
+# Neither widens reach: both call the owner handler, which re-derives the
+# reservation under user.id, keeps the no-double-booking constraint (409
+# slot_unavailable), escalates allergy severity only upward, and audits.
+
+
+@router.patch("/{token}/reservations/{reservation_id}/table")
+def stand_assign_table(
+    token: str,
+    reservation_id: UUID,
+    payload: R.TableAssign,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Assign / move / clear the table. resource_id null clears the hold."""
+    _, user = _bind(db, token)
+    return R.assign_table(
+        reservation_id=reservation_id, payload=payload, request=request,
+        db=db, user=user,
+    )
+
+
+@router.patch("/{token}/reservations/{reservation_id}/allergy-suggestion")
+def stand_action_allergy_suggestion(
+    token: str,
+    reservation_id: UUID,
+    payload: R.AllergySuggestionAction,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Confirm or dismiss the AI allergy suggestion, from the one place the
+    guest is actually standing."""
+    _, user = _bind(db, token)
+    return R.action_allergy_suggestion(
+        reservation_id=reservation_id, payload=payload, request=request,
+        db=db, user=user,
+    )
+
+
 @router.patch("/{token}/reservations/{reservation_id}/status")
 def stand_update_status(
     token: str,

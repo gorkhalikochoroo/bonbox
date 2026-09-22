@@ -903,6 +903,7 @@ function ReservationDrawer({
   highlight = false,
   onAllergyAction = null,
   allergyActionBusy = false,
+  allergyActionError = "",
 }) {
   if (!reservation) return null;
   const r = reservation;
@@ -1044,6 +1045,13 @@ function ReservationDrawer({
                     {t("rsvpAiAllergyDismiss", "Not an allergy")}
                   </Button>
                 </div>
+              )}
+              {/* An allergy the host thinks they confirmed, and didn't, is the
+                  one failure on this drawer nobody can afford to miss. The
+                  handler used to swallow the error and silently refetch, so
+                  the prompt just reappeared and the host tapped again. */}
+              {allergyActionError && (
+                <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{allergyActionError}</p>
               )}
             </div>
           )}
@@ -3036,6 +3044,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const [noteTypeFilter, setNoteTypeFilter] = useState("all");
   // Busy flag for the AI-allergy confirm/dismiss action in the drawer.
   const [allergyBusy, setAllergyBusy] = useState(false);
+  const [allergyError, setAllergyError] = useState("");
   // The reservation open in the detail drawer (from a Liste row, a Plan
   // tile, or a timeline block). null = drawer closed.
   const [selected, setSelected] = useState(null);
@@ -3616,6 +3625,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const actionAllergy = async (r, action) => {
     if (!r) return;
     setAllergyBusy(true);
+    setAllergyError("");
     try {
       const resp = await api.patch(
         `/reservations/reservations/${r.id}/allergy-suggestion`,
@@ -3623,7 +3633,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       );
       if (resp?.data) setSelected(resp.data);
       await fetchBook(day);
-    } catch {
+    } catch (e) {
+      // This used to be a bare `catch { await fetchBook(day); }`. On a paired
+      // host stand it swallowed a 404 — the route was not wrapped, so the
+      // control could never work — and the refetch made the "muligt: gluten —
+      // bekræft?" prompt reappear unchanged. The host reads that as "it didn't
+      // register, tap again", not as "this is broken", and a guest's allergy
+      // silently stays unconfirmed. Say it instead.
+      setAllergyError(
+        e?.response?.data?.detail?.error ||
+          t("rsvpAllergyActionError", "Couldn't save that. The allergy is unchanged."),
+      );
       await fetchBook(day);
     } finally {
       setAllergyBusy(false);
@@ -4735,6 +4755,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onEdit={(r) => { setEditError(""); setEditRes(r); }}
           onAllergyAction={(action) => actionAllergy(selected, action)}
           allergyActionBusy={allergyBusy}
+          allergyActionError={allergyError}
           onStatus={(r, to) => {
             setStatus(r, to);
             setSelected(null);

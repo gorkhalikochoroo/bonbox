@@ -183,9 +183,17 @@ export default function HeroV2() {
                 className="h-2 w-2 flex-none rounded-full bg-red-500"
               />
               <span className="flex-1 text-[14px] leading-[1.4] text-slate-900">
+                {/* The figures are a DEMO, but the shape of the claim has to
+                    be one the product can actually produce. It used to read
+                    "you took 0,00 kr. in payments" — which was the shipped
+                    behaviour at the time, and was a false alarm: a Z-report-only
+                    close records no payment split, so nothing can be reconciled.
+                    The detector no longer says that, so the landing page must
+                    not either; a partial split that genuinely does not tie out
+                    is the real version of this alert. */}
                 {t(
                   "landingV2HeroCardAlert",
-                  "The 20/07 kasserapport doesn't tie out — you took 0,00 kr. in payments but booked 24.022,00 kr. in sales",
+                  "The 20/07 kasserapport doesn't tie out — you took 18.430,00 kr. in payments but booked 24.022,00 kr. in sales",
                 )}
               </span>
               <span className="flex flex-none items-center whitespace-nowrap text-[13px] font-semibold text-slate-900">

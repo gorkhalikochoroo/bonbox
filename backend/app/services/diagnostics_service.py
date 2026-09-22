@@ -54,6 +54,18 @@ _UNRECONCILED_PCT = 0.05
 # A draft "ties out" when payments and revenue agree within rounding noise.
 _TIE_OUT_ABS_KR = 1.0
 _TIE_OUT_PCT = 0.005
+# Below this, NO payment split was recorded at all — there is nothing to
+# reconcile, so the tie-out is NOT-KNOWN rather than off. Same threshold and
+# reasoning as `_has_reconcilable_payments` in
+# services/daily_close_range_export.py, which already exempts these closes from
+# the revisor export's reconciliation, its per-row flag and its readiness badge.
+#
+# Deliberately NOT imported from there: that helper decodes the
+# `payment_categories` TEXT column, while the detectors below quote the
+# `payment_total` NUMERIC column. Gating on one number and quoting the other
+# could still print "du har taget 0,00 kr. ind i betalinger" on a row that
+# passed the gate. The gate must be computed from the same figure the row shows.
+_PAYMENTS_RECORDED_KR = 0.005
 
 
 def _close_date(close) -> "date | None":  # noqa: F821 — date is a runtime type
@@ -65,8 +77,33 @@ def _close_date(close) -> "date | None":  # noqa: F821 — date is a runtime typ
     return created.date() if created is not None else None
 
 
-def _ties_out(payment_total, revenue_total) -> bool:
-    """True when payments ≈ revenue within rounding noise (<=1 kr or 0.5%)."""
+def _has_recorded_payments(payment_total) -> bool:
+    """True only when the close actually recorded payment-method amounts.
+
+    A revenue-only close — the ICP's normal closing: the Z-report bottom line
+    typed in, never split into kontant/kort/MobilePay — stores
+    payment_total = 0.00. It has NOTHING to tie out. Treating that 0 as a
+    measured "you took nothing in" turns every such close into a permanent
+    urgent alarm about money that was in fact collected."""
+    return float(payment_total or 0) > _PAYMENTS_RECORDED_KR
+
+
+def _ties_out(payment_total, revenue_total):
+    """THREE outcomes, not two — the same verdict DailyClosePage renders.
+
+    True   payments ≈ revenue within rounding noise (<=1 kr or 0.5%)
+    False  payments were recorded AND they do not match revenue
+    None   no payment split was recorded, so this cannot be checked
+
+    None is the one that matters. With the payments column untouched,
+    revenue − payments equals the WHOLE revenue, and calling that "doesn't tie
+    out" is a confident verdict derived from a number nobody entered. Mirrors
+    `tieOut.state === "unknown"` in pages/DailyClosePage.jsx and
+    `_has_reconcilable_payments` in services/daily_close_range_export.py.
+    components/NeedsYouQueue.jsx already keys on `m.ties_out === false`, so a
+    None drops the "…der ikke stemmer" clause with no frontend change."""
+    if not _has_recorded_payments(payment_total):
+        return None
     rev = float(revenue_total or 0)
     pay = float(payment_total or 0)
     return abs(pay - rev) <= max(_TIE_OUT_ABS_KR, _TIE_OUT_PCT * rev)
@@ -259,10 +296,31 @@ def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
         revenue_total = float(c.revenue_total or 0)
         if revenue_total <= 0:
             continue
+        payment_total = float(c.payment_total or 0)
+        # THE FIX. A Z-report-only close stores payment_total = 0.00, so diff
+        # == the entire day's revenue, and this row asserted — in red, urgent,
+        # in Danish — "du har taget 0,00 kr. ind i betalinger, men bogført
+        # 17.030,00 kr. i omsætning". A confident measurement of a figure
+        # nobody entered, once per close, and the dismissal is date-anchored
+        # so it comes back tomorrow. That trains an owner to clear urgent rows
+        # without reading them, which costs the one real unbalanced close this
+        # detector exists to catch.
+        #
+        # services/daily_close_range_export.py already exempts exactly these
+        # closes (_has_reconcilable_payments, used by its per-row flag, its
+        # aggregate reconciliation and its readiness badge), so until now the
+        # dashboard and the revisor's own PDF contradicted each other about
+        # one stored row — and the revisor's was right.
+        #
+        # The not-known case is not erased, just not alarmed: DailyClosePage
+        # still says "Vi kan ikke se, om dagen stemmer" on the close itself,
+        # and the range export still prints the revenue-only total. A PARTIAL
+        # split (some methods typed, still off) is untouched and still fires.
+        if not _has_recorded_payments(payment_total):
+            continue
         c_date = _close_date(c)
         if c_date is not None and ("close_unreconciled", c_date.isoformat()) in skip:
             continue
-        payment_total = float(c.payment_total or 0)
         diff = abs(payment_total - revenue_total)
         if diff > max(_UNRECONCILED_ABS_KR, _UNRECONCILED_PCT * revenue_total):
             if diff > worst_diff:

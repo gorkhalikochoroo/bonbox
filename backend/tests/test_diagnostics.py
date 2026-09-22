@@ -286,3 +286,109 @@ def test_router_parse_skip_is_fail_soft():
     # Token cap: only the first 60 tokens are considered.
     flood = ",".join(f"close_missing:2026-01-{(i % 28) + 1:02d}" for i in range(200))
     assert len(_parse_skip(flood)) <= 60
+
+
+# ── the ICP's normal close must not be an urgent alarm ────────────────
+#
+# THE DEFECT. A Danish cafe running its own till types the Z-report bottom line
+# into BonBox at closing and never splits it into kontant/kort/MobilePay — that
+# is the entire point of a Z-report. daily_close.py sums an empty
+# payment_breakdown to 0, so the close is stored with payment_total = 0.00,
+# and _detect_close_unreconciled computed diff = |0 − revenue| = the whole
+# day's takings. The queue then asserted, in red and in Danish, "du har taget
+# 0,00 kr. ind i betalinger, men bogført 17.030,00 kr. i omsætning".
+#
+# A confident measurement of a figure nobody entered, once per close, and the
+# dismissal is date-anchored so it returns the next day. That is how a queue
+# teaches an owner to clear urgent rows unread — which costs the one genuinely
+# unbalanced close the detector exists to catch.
+#
+# WHY IT SURVIVED THE SUITE. Every existing _add_close call here passes a
+# non-zero payment (4000, 7000, 8000, 10000, 10050, 573). There was no case in
+# the file with payment=0, so nothing exercised the ICP's actual close.
+#
+# daily_close_range_export.py already exempted exactly these closes via
+# _has_reconcilable_payments, so the dashboard and the revisor's own PDF
+# disagreed about one stored row — and the PDF was right.
+
+
+def test_revenue_only_confirmed_close_is_not_flagged_unreconciled(db):
+    """The ICP's every-night close. Nothing was recorded to reconcile, so the
+    tie-out is NOT-KNOWN — not off — and it must not be urgent."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=3),
+        status="confirmed",
+        revenue=17030,
+        payment=0,  # Z-report bottom line, never split by method
+    )
+
+    findings = _only(ds.run_diagnostics(db, user), "close_unreconciled")
+    assert findings == [], (
+        "a revenue-only close was flagged unreconciled — this is the red row "
+        f"the ICP got after every single close: {findings}"
+    )
+
+
+def test_a_close_with_real_payments_that_do_not_match_is_still_flagged(db):
+    """The guard that keeps the fix honest. Over-correcting here would silence
+    the detector's entire reason for existing."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=3),
+        status="confirmed",
+        revenue=17030,
+        payment=9000,  # a real split, and genuinely 8.030 kr out
+    )
+
+    findings = _only(ds.run_diagnostics(db, user), "close_unreconciled")
+    assert len(findings) == 1, f"a genuinely unbalanced close stopped surfacing: {findings}"
+
+
+def test_a_partial_split_is_not_excused_by_the_new_gate(db):
+    """One method typed and the rest forgotten is RECORDED but wrong. The gate
+    is 'did anyone enter anything', not 'is it small'."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=4),
+        status="confirmed",
+        revenue=17030,
+        payment=250,  # someone typed the kontant line only
+    )
+    assert len(_only(ds.run_diagnostics(db, user), "close_unreconciled")) == 1
+
+
+def test_ties_out_is_three_valued(db):
+    """None is a distinct outcome from False. NeedsYouQueue keys on
+    `ties_out === false`, so None correctly drops the '…der ikke stemmer'
+    clause — a null here must never be rendered as 'does not tie out'."""
+    assert ds._ties_out(0, 17030) is None, "no payment split must read as not-known"
+    assert ds._ties_out(None, 17030) is None
+    assert ds._ties_out(17030, 17030) is True
+    assert ds._ties_out(9000, 17030) is False
+
+
+def test_a_revenue_only_draft_is_not_told_it_does_not_tie_out(db):
+    """Same lie, quieter surface: the stale-draft row carries ties_out in its
+    meta and must not claim a verdict it cannot have."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=30),
+        status="draft",
+        revenue=17030,
+        payment=0,
+    )
+
+    rows = _only(ds.run_diagnostics(db, user), "stale_draft_close")
+    assert len(rows) == 1, "the stale draft itself should still surface"
+    assert rows[0]["meta"].get("ties_out") is None, (
+        f"a draft with no payment split was given a tie-out verdict: {rows[0]['meta']}"
+    )

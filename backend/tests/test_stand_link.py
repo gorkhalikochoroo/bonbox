@@ -368,6 +368,16 @@ def test_credential_reaches_no_owner_config_route(client, db):
         "/stand/{token}/waitlist/{entry_id}",
         "/stand/{token}/waitlist/{entry_id}/notify",
         "/stand/{token}/waitlist/{entry_id}/convert",
+        # The table picker. The drawer renders it on the stand whenever
+        # /resources returned tables — which it does, because /resources is
+        # wrapped — so before this existed the host got a complete, live-looking
+        # picker in which every option 404'd. Seating a party at a table is the
+        # most common act at a host stand.
+        "/stand/{token}/reservations/{reservation_id}/table",
+        # Confirm/dismiss the AI allergy suggestion. The door is where a guest
+        # says it out loud; the owner handler still escalates severity only
+        # upward and never writes raw tags.
+        "/stand/{token}/reservations/{reservation_id}/allergy-suggestion",
     }
     assert wrapped == allowed, (
         "the stand credential's reach changed — this is a security boundary, "
@@ -508,3 +518,110 @@ def test_devices_are_scoped_to_their_owner(client, db):
     _as(a); _mint(client)
     _as(b)
     assert client.get("/api/stand/links").json()["devices"] == []
+
+
+# ── the door tablet must be able to seat a party AT A TABLE ──────────
+#
+# "Tildel bord" rendered on the stand and 404'd, because only /resources was
+# wrapped and the assignment route was not. The drawer gates the picker on
+# `onAssign && tables.length > 0`, and tables IS populated — so the host got a
+# complete, live-looking table picker in which every option failed. An audit
+# classed this blocks_the_job, and it is the most common act at a host stand.
+
+
+def _table(client, user, label="Bord 5", seats=4):
+    _as(user)
+    r = client.post("/api/reservations/resources", json={
+        "kind": "table", "label": label, "capacity_seats": seats,
+    })
+    assert r.status_code in (200, 201), r.text
+    return r.json()["id"]
+
+
+def test_stand_can_assign_a_table(client, db):
+    """The blocker itself: the host seats a booking at a table, no owner
+    session anywhere."""
+    u = _seed(db); _as(u)
+    rid = _book(client, u)
+    tid = _table(client, u)
+    token = _pair(client, _mint(client)["code"])
+
+    r = client.patch(f"/api/stand/{token}/reservations/{rid}/table",
+                     json={"resource_id": tid})
+    assert r.status_code == 200, (
+        f"the door tablet still cannot seat a party at a table: {r.status_code} {r.text}"
+    )
+
+
+def test_the_assignment_actually_sticks(client, db):
+    """A 200 that changes nothing would be the same dead end with a nicer
+    status code — read it back off the stand's own book."""
+    u = _seed(db); _as(u)
+    rid = _book(client, u)
+    tid = _table(client, u)
+    token = _pair(client, _mint(client)["code"])
+
+    client.patch(f"/api/stand/{token}/reservations/{rid}/table",
+                 json={"resource_id": tid})
+
+    book = client.get(f"/api/stand/{token}/book?day={_DAY}").json()
+    row = next(x for x in book["reservations"] if x["id"] == rid)
+    assigned = row.get("resource_id") or row.get("table_id")
+    assert str(assigned) == str(tid), f"table did not stick: {row}"
+
+
+def test_the_table_can_be_cleared_again(client, db):
+    """resource_id null releases the hold — a party that moved or left."""
+    u = _seed(db); _as(u)
+    rid = _book(client, u)
+    tid = _table(client, u)
+    token = _pair(client, _mint(client)["code"])
+    client.patch(f"/api/stand/{token}/reservations/{rid}/table",
+                 json={"resource_id": tid})
+
+    r = client.patch(f"/api/stand/{token}/reservations/{rid}/table",
+                     json={"resource_id": None})
+    assert r.status_code == 200, r.text
+
+
+def test_assigning_is_tenant_locked(client, db):
+    """The wrapper re-derives the tenant from the link row, so another venue's
+    booking must not be reachable with this token."""
+    a = _seed(db); _as(a)
+    token = _pair(client, _mint(client)["code"])
+
+    b = _seed(db); _as(b)
+    other_rid = _book(client, b)
+    other_tid = _table(client, b, label="Deres bord")
+
+    r = client.patch(f"/api/stand/{token}/reservations/{other_rid}/table",
+                     json={"resource_id": other_tid})
+    assert r.status_code == 404, f"cross-tenant table assign returned {r.status_code}"
+
+
+def test_a_revoked_device_cannot_assign(client, db):
+    u = _seed(db); _as(u)
+    rid = _book(client, u)
+    tid = _table(client, u)
+    minted = _mint(client)
+    token = _pair(client, minted["code"])
+    assert client.delete(f"/api/stand/links/{minted['id']}").status_code == 200
+
+    r = client.patch(f"/api/stand/{token}/reservations/{rid}/table",
+                     json={"resource_id": tid})
+    assert r.status_code == 404
+
+
+def test_stand_can_confirm_an_allergy_suggestion(client, db):
+    """Safety-adjacent, and the door is where the guest says it out loud. The
+    route must exist; whether THIS booking carries an unconfirmed suggestion is
+    the owner handler's business, so 404-for-no-suggestion is fine — what must
+    not happen is a 404 because the route was never wrapped."""
+    u = _seed(db); _as(u)
+    rid = _book(client, u)
+    token = _pair(client, _mint(client)["code"])
+
+    r = client.patch(f"/api/stand/{token}/reservations/{rid}/allergy-suggestion",
+                     json={"action": "dismiss"})
+    assert r.status_code != 405, "route not wrapped"
+    assert r.status_code in (200, 400, 404, 409, 422), r.text

@@ -5156,7 +5156,7 @@ export const tr = {
   landingV2HeroCardQuickSale: "+ Hızlı satış",
   landingV2HeroCardSnapReceipt: "Fiş çek",
   landingV2HeroCardNeedsYouNow: "Şimdi seni bekliyor",
-  landingV2HeroCardAlert: "20/07 kasserapport tutmuyor — ödeme olarak 0,00 kr. aldın ama ciro olarak 24.022,00 kr. yazdın",
+  landingV2HeroCardAlert: "20/07 kasserapport tutmuyor — ödeme olarak 18.430,00 kr. aldın ama ciro olarak 24.022,00 kr. yazdın",
   landingV2HeroCardAlertAction: "İncele",
   landingV2HeroCardRevenueLabel: "Şu ana kadarki ciro",
   landingV2HeroCardSalesToday: "bugün 18 satış",

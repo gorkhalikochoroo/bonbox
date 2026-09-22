@@ -1950,6 +1950,7 @@ const translations = {
     rsvpNoTable: "No table",
     rsvpTableTaken: "{label} is taken at that time.",
     rsvpAssignError: "Couldn't assign the table.",
+    rsvpAllergyActionError: "Couldn't save that. The allergy is unchanged.",
     rsvpUtilPeakAt: "peak {time}",
     rsvpAddTable: "Add table",
     rsvpAddTableErr: "Couldn't add the table.",
@@ -6070,7 +6071,7 @@ const translations = {
     // still carrying both defects: the pre-rename noun and "≠". Same wording
     // as the real nyqUnreconciled it is a picture of, because a demo that
     // says something the product does not is its own kind of lie.
-    landingV2HeroCardAlert: "The 20/07 kasserapport doesn't tie out — you took 0,00 kr. in payments but booked 24.022,00 kr. in sales",
+    landingV2HeroCardAlert: "The 20/07 kasserapport doesn't tie out — you took 18.430,00 kr. in payments but booked 24.022,00 kr. in sales",
     landingV2HeroCardAlertAction: "Review",
     landingV2HeroCardRevenueLabel: "Revenue so far",
     landingV2HeroCardSalesToday: "18 sales today",
@@ -10558,6 +10559,7 @@ const translations = {
     rsvpNoTable: "Intet bord",
     rsvpTableTaken: "{label} er optaget på det tidspunkt.",
     rsvpAssignError: "Kunne ikke tildele bordet.",
+    rsvpAllergyActionError: "Kunne ikke gemme. Allergien er uændret.",
     rsvpUtilPeakAt: "højest kl. {time}",
     rsvpAddTable: "Tilføj bord",
     rsvpAddTableErr: "Kunne ikke tilføje bordet.",
@@ -14506,7 +14508,7 @@ const translations = {
     landingV2HeroCardQuickSale: "+ Hurtigt salg",
     landingV2HeroCardSnapReceipt: "Snap bilag",
     landingV2HeroCardNeedsYouNow: "Kræver dig nu",
-    landingV2HeroCardAlert: "Kasserapporten 20/07 stemmer ikke — du har taget 0,00 kr. ind i betalinger, men bogført 24.022,00 kr. i omsætning",
+    landingV2HeroCardAlert: "Kasserapporten 20/07 stemmer ikke — du har taget 18.430,00 kr. ind i betalinger, men bogført 24.022,00 kr. i omsætning",
     landingV2HeroCardAlertAction: "Gennemgå",
     landingV2HeroCardRevenueLabel: "Omsætning indtil nu",
     landingV2HeroCardSalesToday: "18 salg i dag",

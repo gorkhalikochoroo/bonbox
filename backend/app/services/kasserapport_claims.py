@@ -53,6 +53,24 @@ CASH_TOL = 100.0
 # day's categories while still catching a real contradiction.
 MOMS_RECON_TOL = 1.00
 
+# Payments ↔ REVENUE. Every krone of revenue was collected by some method, so
+# the methods must sum to the revenue. 50 øre absorbs rounding and still catches
+# a real gap. This is the SAME comparison, at the same tolerance, that
+# services/daily_close_range_export.py has always applied to the SAME stored
+# row — restated here because the two artifacts disagreeing about one day is
+# exactly the defect this constant closes.
+#
+# NOT MOMS_RECON_TOL: that governs ex_moms + moms == revenue_total, a different
+# equation with a different tolerance.
+PAY_RECON_TOL = 0.50
+
+# Below this, no payment split was recorded at all. A revenue-only close — the
+# Z-report bottom line typed in with no method breakdown — has nothing to
+# reconcile, and saying it is "out by" the whole day's revenue is the same
+# false accusation the `unallocated` wording exists to prevent for the revenue
+# lines. See diagnostics_service._has_recorded_payments, same reasoning.
+PAY_RECORDED_TOL = 0.005
+
 # ── Marks the base font can actually draw ────────────────────────────────────
 # The band's heading led with "⚠" (U+26A0). Helvetica is drawn in WinAnsi, which
 # has no such glyph, and ReportLab's fallback for a character it cannot place is
@@ -280,6 +298,13 @@ def close_labels(currency: str) -> dict[str, str]:
                          else "Payment lines agree with the stated total.",
         "a_pay_off":     "Betalingslinjer stemmer IKKE med Betalinger i alt." if DA
                          else "Payment lines do NOT agree with the stated total.",
+        # ── Payments ↔ REVENUE ────────────────────────────────────────────
+        # Wording tracks the range export's own recon strings so a revisor
+        # reading both documents for one day reads one sentence, not two.
+        "a_rev_pay_ok":  "Betalinger stemmer med omsætningen." if DA
+                         else "Payments agree with revenue.",
+        "a_rev_pay_off": "Betalinger stemmer IKKE med omsætningen (afvigelse {amount})." if DA
+                         else "Payments do NOT agree with revenue (difference {amount}).",
     }
 
 
@@ -482,6 +507,30 @@ def build_close_claims(
     )
     payment_ties_out = abs(pay_discrepancy) <= TIE_TOL
 
+    # ── B2. Payments ↔ REVENUE — the comparison this document never made ──
+    # `payment_ties_out` above is lines-vs-SUBTOTAL, and the save path writes
+    # payment_total as the sum of exactly those lines (routers/daily_close.py:
+    # `payment_total = sum(v for k, v in payment_breakdown ...)`), so for any
+    # close saved through the app it compares a number with itself and always
+    # passes. It cannot catch a wrong day.
+    #
+    # The comparison that can is payments vs REVENUE, which
+    # services/daily_close_range_export.py has always run and this document
+    # never did. That is how one stored row came to print a green KLAR TIL
+    # BOGFØRING here and an amber flag there — and the owner sends this one.
+    #
+    # THREE outcomes. "Recorded and they do not match" is an accusation;
+    # "never recorded" is not, and must not be branded as a discrepancy of the
+    # entire day's revenue.
+    payments_recorded = abs(payment_total) > PAY_RECORDED_TOL
+    rev_pay_discrepancy = round(payment_total - revenue_total, 2)
+    if not payments_recorded:
+        payments_vs_revenue = "not_recorded"
+    elif abs(rev_pay_discrepancy) <= PAY_RECON_TOL:
+        payments_vs_revenue = "ok"
+    else:
+        payments_vs_revenue = "off"
+
     # ── C. MOMS honesty ───────────────────────────────────────────────────
     moms = _f(getattr(dc, "moms_total", None))
     ex_moms = _f(getattr(dc, "revenue_ex_moms", None))
@@ -570,11 +619,42 @@ def build_close_claims(
                 "check": "payments",
             })
 
+        # THE SIXTH CHECK — payments against REVENUE, which the range export
+        # has always run and this one never did.
+        #
+        # Only the RECORDED cases are asserted here. "not_recorded" is
+        # deliberately left out of the band rather than failed: branding a
+        # revenue-only close as out-by-17.030 kr would be the same false
+        # accusation this whole change is removing from the dashboard, one
+        # document over — and whether a Z-report-only close should be allowed
+        # to read "klar til bogføring" at all is a call about what BonBox
+        # certifies to a revisor, not a bug to decide inside a helper. It is
+        # still reported as data below, so the decision has evidence when it
+        # is made.
+        if payments_vs_revenue == "ok":
+            checks.append({
+                "ok": True,
+                "text": L["a_rev_pay_ok"],
+                "check": "payments_vs_revenue",
+            })
+        elif payments_vs_revenue == "off":
+            checks.append({
+                "ok": False,
+                "text": L["a_rev_pay_off"].format(amount=fmt(abs(rev_pay_discrepancy))),
+                "check": "payments_vs_revenue",
+            })
+
         all_ok = all(c["ok"] for c in checks)
         assurance = {
             "heading": L["ready"] if all_ok else L["review"],
             "all_ok": all_ok,
             "checks": checks,
+            # Reported even when it does not gate the heading — "ok" / "off" /
+            # "not_recorded". A caller (or a founder deciding whether a
+            # revenue-only close may be certified book-ready) can see the third
+            # state instead of inferring it from a missing check.
+            "payments_vs_revenue": payments_vs_revenue,
+            "payments_recorded": payments_recorded,
         }
 
     # ── E. Footer — a label with no value is not a claim ──────────────────
