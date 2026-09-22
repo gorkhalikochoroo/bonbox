@@ -5,7 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useFeatures } from "../hooks/useFeatures";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
@@ -595,13 +595,13 @@ export default function BankImportPage() {
               </StaggerGridItem>
               <StaggerGridItem>
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">+{preview.summary.income_total?.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">+{preview.summary.income_total == null ? "" : formatOwnerMoney(preview.summary.income_total, currency, { decimals: 2 })}</p>
                   <p className="text-xs text-gray-400">{t("bankPreviewKpiIncome", { n: preview.summary.income_count })}</p>
                 </div>
               </StaggerGridItem>
               <StaggerGridItem>
                 <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-red-600 dark:text-red-400">{preview.summary.expense_total?.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-red-600 dark:text-red-400">{preview.summary.expense_total == null ? "" : formatOwnerMoney(preview.summary.expense_total, currency, { decimals: 2 })}</p>
                   <p className="text-xs text-gray-400">{t("bankPreviewKpiExpenses", { n: preview.summary.expense_count })}</p>
                 </div>
               </StaggerGridItem>
@@ -661,7 +661,7 @@ export default function BankImportPage() {
                         <td className={`px-3 py-2.5 text-right font-semibold whitespace-nowrap ${
                           isIncome ? "text-emerald-600 dark:text-gray-300" : "text-red-600 dark:text-red-400"
                         }`}>
-                          {isIncome ? "+" : ""}{txn.amount.toLocaleString()} {currency}
+                          {isIncome ? "+" : ""}{formatOwnerMoney(txn.amount, currency, { decimals: 2 })}
                         </td>
                         <td className="px-3 py-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -893,7 +893,7 @@ export default function BankImportPage() {
                         "text-right font-semibold whitespace-nowrap shrink-0 " +
                         (isIncome ? "text-gray-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")
                       }>
-                        {isIncome ? "+" : ""}{Number(txn.amount).toLocaleString()} {currency}
+                        {isIncome ? "+" : ""}{formatOwnerMoney(Number(txn.amount), currency, { decimals: 2 })}
                       </div>
                     </div>
 

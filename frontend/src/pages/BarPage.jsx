@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
@@ -337,7 +337,7 @@ export default function BarPage() {
             </div>
             <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("total") || "Total"}: {pourCount * (pourModal.pour_size || 0)} {pourModal.pour_unit || "ml"}
-              {pourModal.sell_price_per_pour > 0 && ` · ${t("revenue") || "Revenue"}: ${(pourCount * pourModal.sell_price_per_pour).toLocaleString()} ${currency}`}
+              {pourModal.sell_price_per_pour > 0 && ` · ${t("revenue") || "Revenue"}: ${formatOwnerMoney(pourCount * pourModal.sell_price_per_pour, currency, { decimals: 0 })}`}
             </p>
             <div className="flex gap-2">
               <button onClick={() => setPourModal(null)} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-300">

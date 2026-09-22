@@ -392,8 +392,8 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
             <p className="text-[10px] text-gray-400">{t("wineMarginLabel", "margin")}</p>
           </div>
           <div>
-            <p className="text-sm font-bold dark:text-white">{w.sell_price.toLocaleString()} {currency}</p>
-            <p className="text-[10px] text-gray-400">{w.cost_price.toLocaleString()} {t("wineCostLabel", "cost")}</p>
+            <p className="text-sm font-bold dark:text-white">{formatOwnerMoney(w.sell_price, currency, { decimals: 0 })}</p>
+            <p className="text-[10px] text-gray-400">{formatOwnerMoney(w.cost_price, currency, { decimals: 0 })} {t("wineCostLabel", "cost")}</p>
           </div>
           <div>
             <p className={`text-sm font-bold ${stockColor}`}>{w.stock_qty}</p>
@@ -704,7 +704,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                           <div className="flex justify-end gap-3 mt-1">
                             {e.glass_price && parseFloat(e.glass_price) > 0 && (
                               <span className="text-xs text-gray-500">
-                                {t("wineGlassColon", "Glass:")} <span className="font-semibold">{parseFloat(e.glass_price).toLocaleString()}</span>
+                                {t("wineGlassColon", "Glass:")} <span className="font-semibold">{formatOwnerMoney(parseFloat(e.glass_price), currency, { decimals: 0 })}</span>
                               </span>
                             )}
                             <span className="text-xs text-gray-500">
@@ -767,7 +767,7 @@ function StaffSheet({ wines, currency }) {
             <div key={w.id} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
               <div className="flex items-baseline justify-between gap-2 mb-2">
                 <h3 className="font-bold text-gray-900 dark:text-white text-lg">{w.name}</h3>
-                <span className="text-sm font-bold text-gray-600 dark:text-gray-300 whitespace-nowrap">{w.sell_price.toLocaleString()} {currency}</span>
+                <span className="text-sm font-bold text-gray-600 dark:text-gray-300 whitespace-nowrap">{formatOwnerMoney(w.sell_price, currency, { decimals: 0 })}</span>
               </div>
 
               <div className="flex flex-wrap gap-2 mb-3 text-xs">
@@ -893,7 +893,7 @@ function SommelierTab({ currency }) {
                     <div className="flex-1">
                       <div className="flex items-baseline justify-between gap-2">
                         <h3 className="font-bold dark:text-white">{w.name}</h3>
-                        <span className="text-sm font-bold dark:text-white whitespace-nowrap">{w.sell_price?.toLocaleString()} {currency}</span>
+                        <span className="text-sm font-bold dark:text-white whitespace-nowrap">{w.sell_price == null ? "" : formatOwnerMoney(w.sell_price, currency, { decimals: 0 })}</span>
                       </div>
                       <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
                         <span className="capitalize">{w.wine_type}</span>

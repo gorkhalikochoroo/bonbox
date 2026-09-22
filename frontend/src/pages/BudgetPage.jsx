@@ -6,7 +6,7 @@ import { dateLocale } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import { PageHeader, Button, SectionBanner, StatCard } from "../components/ui";
@@ -35,6 +35,14 @@ export default function BudgetPage() {
   // parser in the ACCOUNT's notation. type="number" silently rewrote a Dane's
   // "1.500,50" to "1.50050". See components/ui/MoneyField.jsx.
   const mLocale = moneyLocale(user?.currency);
+  // A spent/limit ratio states its unit ONCE, at the end of the pair:
+  // "1.200 / 5.000 kr.", not "1.200 kr. / 5.000 kr.". Both halves still come
+  // from formatOwnerMoney, so grouping and decimals can never drift apart;
+  // this only drops the redundant trailing token off the left-hand number,
+  // using the same split <Amount> does. "—" carries no token and passes
+  // through untouched.
+  const moneyNoUnit = (n) =>
+    formatOwnerMoney(n, currency).replace(/\s(?:kr\.|[A-Z]{2,4})$/, "");
 
   const [monthDate, setMonthDate] = useState(new Date());
   const month = useMemo(() => getMonthStr(monthDate), [monthDate]);
@@ -273,7 +281,7 @@ export default function BudgetPage() {
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{t("bgtOverallBudget", "Overall Budget")}</span>
                   <span className="text-sm font-semibold text-gray-800 dark:text-white">
-                    {summary.total_spent.toLocaleString()} / {summary.total_budget.toLocaleString()} {currency}
+                    {moneyNoUnit(summary.total_spent)} / {formatOwnerMoney(summary.total_budget, currency)}
                   </span>
                 </div>
                 <div className="h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -291,7 +299,7 @@ export default function BudgetPage() {
                     {summary.total_pct}% {t("bgtUsed", "used")}
                   </span>
                   <span className="text-xs text-gray-400">
-                    {Math.max(0, summary.total_budget - summary.total_spent).toLocaleString()} {currency} {t("bgtRemaining", "remaining")}
+                    {formatOwnerMoney(Math.max(0, summary.total_budget - summary.total_spent), currency)} {t("bgtRemaining", "remaining")}
                   </span>
                 </div>
               </div>
@@ -354,8 +362,8 @@ export default function BudgetPage() {
                           </span>
                         </div>
                         <span className="text-sm text-gray-500 dark:text-gray-400">
-                          <span className={`font-semibold ${sc.text}`}>{cat.spent.toLocaleString()}</span>
-                          {cat.limit_amount > 0 && <span> / {cat.limit_amount.toLocaleString()} {currency}</span>}
+                          <span className={`font-semibold ${sc.text}`}>{moneyNoUnit(cat.spent)}</span>
+                          {cat.limit_amount > 0 && <span> / {formatOwnerMoney(cat.limit_amount, currency)}</span>}
                         </span>
                       </div>
                       {cat.limit_amount > 0 ? (
@@ -368,11 +376,11 @@ export default function BudgetPage() {
                           </div>
                           <p className={`text-xs mt-1.5 ${sc.text} font-medium`}>
                             {cat.pct}% {t("bgtUsed", "used")}
-                            {cat.status === "red" && ` \u2014 ${(cat.spent - cat.limit_amount).toLocaleString()} ${currency} ${t("bgtOverSuffix", "over")}`}
+                            {cat.status === "red" && ` \u2014 ${formatOwnerMoney(cat.spent - cat.limit_amount, currency)} ${t("bgtOverSuffix", "over")}`}
                           </p>
                         </>
                       ) : (
-                        <p className="text-xs text-gray-400 mt-1">{t("bgtNoBudgetSet", "No budget set")} \u2014 {cat.spent.toLocaleString()} {currency} {t("bgtSpent", "spent")}</p>
+                        <p className="text-xs text-gray-400 mt-1">{t("bgtNoBudgetSet", "No budget set")} \u2014 {formatOwnerMoney(cat.spent, currency)} {t("bgtSpent", "spent")}</p>
                       )}
                     </div>
                   );

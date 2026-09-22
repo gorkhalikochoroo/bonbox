@@ -48,6 +48,32 @@ const LOCALE_BY_CURRENCY = {
   PHP: "en-PH",
 };
 
+/**
+ * Intl.NumberFormat, reused.
+ *
+ * Constructing one is ~50x the cost of calling .format() on an existing one,
+ * and these three formatters are called once per money cell per render. A
+ * list of wine bottles or an expense ledger builds hundreds of them per paint
+ * — measured: routing more surfaces through formatOwnerMoney doubled the
+ * render time of a page that had not otherwise changed.
+ *
+ * The cache is keyed on everything that varies, so two callers never share a
+ * formatter configured for the other's decimals. Unbounded on purpose: the key
+ * space is (a dozen locales) x (0-2 decimals) x compact, which is tiny and
+ * fixed at build time — there is no user input in it to grow it without bound.
+ */
+const _nfCache = new Map();
+function _nf(locale, opts) {
+  const key = locale + "|" + opts.minimumFractionDigits + "|" +
+    opts.maximumFractionDigits + "|" + (opts.notation || "");
+  let f = _nfCache.get(key);
+  if (!f) {
+    f = new Intl.NumberFormat(locale, opts);
+    _nfCache.set(key, f);
+  }
+  return f;
+}
+
 export function formatMoney(amount, currency = "DKK", options = {}) {
   if (amount == null || Number.isNaN(amount)) return "—";
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -59,7 +85,7 @@ export function formatMoney(amount, currency = "DKK", options = {}) {
   // Compact mode for charts/cards — "15K DKK", "1.2M DKK"
   if (options.compact) {
     try {
-      const formatter = new Intl.NumberFormat(locale, {
+      const formatter = _nf(locale, {
         notation: "compact",
         maximumFractionDigits: 1,
       });
@@ -82,7 +108,7 @@ export function formatMoney(amount, currency = "DKK", options = {}) {
 
   let formatted;
   try {
-    formatted = new Intl.NumberFormat(locale, {
+    formatted = _nf(locale, {
       minimumFractionDigits: minFrac,
       maximumFractionDigits: maxFrac,
     }).format(num);
@@ -122,7 +148,7 @@ export function formatKr(amount, options = {}) {
 
   let formatted;
   try {
-    formatted = new Intl.NumberFormat("da-DK", {
+    formatted = _nf("da-DK", {
       minimumFractionDigits: frac,
       maximumFractionDigits: frac,
     }).format(num);

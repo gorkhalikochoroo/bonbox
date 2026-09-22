@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
+import Amount from "../components/ui/Amount";
 import { formatDate, formatDateShort, localIso, dateLocale } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -249,7 +250,7 @@ export default function PersonalPage() {
       setNotes("");
       setCatId("");
       setCustomCat("");
-      setSuccess(`${value.toLocaleString()} ${currency} ${t("logged")}`);
+      setSuccess(`${formatOwnerMoney(value, currency)} ${t("logged")}`);
       fetchData();
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -323,12 +324,12 @@ export default function PersonalPage() {
         <p className={`text-4xl sm:text-5xl font-extrabold ${
           balance >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"
         }`}>
-          {balance.toLocaleString()} <span className="text-lg font-medium text-gray-400">{currency}</span>
+          <Amount value={balance} currency={currency} />
         </p>
         <div className="flex items-center justify-center gap-4 mt-3 text-sm">
-          <span className="text-emerald-600 dark:text-gray-300">+{totalIncome.toLocaleString()} {t("in")}</span>
+          <span className="text-emerald-600 dark:text-gray-300">+{formatOwnerMoney(totalIncome, currency)} {t("in")}</span>
           <span className="text-gray-300 dark:text-gray-600">|</span>
-          <span className="text-red-500 dark:text-red-400">-{totalSpent.toLocaleString()} {t("out")}</span>
+          <span className="text-red-500 dark:text-red-400">-{formatOwnerMoney(totalSpent, currency)} {t("out")}</span>
         </div>
         {/* Progress bar */}
         {totalIncome > 0 && (
@@ -348,14 +349,14 @@ export default function PersonalPage() {
         <div className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border text-center ${loanNetBalance >= 0 ? "border-blue-100 dark:border-blue-900" : "border-orange-100 dark:border-orange-900"}`}>
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("loans")}</p>
           <p className={`text-xl font-bold mt-0.5 ${loanNetBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}`}>
-            {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span>
+            {loanNetBalance >= 0 ? "+" : ""}<Amount value={loanNetBalance} currency={currency} />
           </p>
           <p className="text-xs text-gray-400">{loanNetBalance >= 0 ? t("owedToYou") : t("youOwe")}</p>
         </div>
         <div className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border text-center ${(balance + loanNetBalance) >= 0 ? "border-purple-100 dark:border-purple-900" : "border-red-100 dark:border-red-900"}`}>
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("netWorth")}</p>
           <p className={`text-xl font-bold mt-0.5 ${(balance + loanNetBalance) >= 0 ? "text-purple-600 dark:text-purple-400" : "text-red-500 dark:text-red-400"}`}>
-            {(balance + loanNetBalance).toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span>
+            <Amount value={balance + loanNetBalance} currency={currency} />
           </p>
           <p className="text-xs text-gray-400">{t("balancePlusLoans")}</p>
         </div>
@@ -371,9 +372,9 @@ export default function PersonalPage() {
             <div key={cat} className="flex items-center justify-between text-sm">
               <span className="text-red-600 dark:text-red-400 font-medium">{cat}</span>
               <span className="text-red-600 dark:text-red-400">
-                {spent.toLocaleString()} / {limit.toLocaleString()} {currency}
+                {formatOwnerMoney(spent, currency)} / {formatOwnerMoney(limit, currency)}
                 <span className="ml-2 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-xs font-bold">
-                  +{over.toLocaleString()} {t("over")}
+                  +{formatOwnerMoney(over, currency)} {t("over")}
                 </span>
               </span>
             </div>
@@ -389,7 +390,7 @@ export default function PersonalPage() {
             <div key={cat} className="flex items-center justify-between text-sm">
               <span className="text-amber-600 dark:text-amber-400 font-medium">{cat}</span>
               <span className="text-amber-600 dark:text-amber-400">
-                {spent.toLocaleString()} / {limit.toLocaleString()} {currency}
+                {formatOwnerMoney(spent, currency)} / {formatOwnerMoney(limit, currency)}
                 <span className="ml-2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded text-xs font-bold">
                   {pct}% {t("used")}
                 </span>
@@ -403,7 +404,7 @@ export default function PersonalPage() {
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("monthlyBudget")}</span>
             <span className={`text-sm font-bold ${totalBudgetUsed > 100 ? "text-red-600" : totalBudgetUsed >= 80 ? "text-amber-600" : "text-emerald-600"}`}>
-              {totalSpent.toLocaleString()} / {totalBudgetNum.toLocaleString()} {currency} ({totalBudgetUsed}%)
+              {formatOwnerMoney(totalSpent, currency)} / {formatOwnerMoney(totalBudgetNum, currency)} ({totalBudgetUsed}%)
             </span>
           </div>
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -411,7 +412,7 @@ export default function PersonalPage() {
               style={{ width: `${Math.min(totalBudgetUsed, 100)}%` }} />
           </div>
           {totalBudgetUsed > 100 && (
-            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">{t("youveExceededMonthlyBudgetBy")} {(totalSpent - totalBudgetNum).toLocaleString()} {currency}</p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">{t("youveExceededMonthlyBudgetBy")} {formatOwnerMoney(totalSpent - totalBudgetNum, currency)}</p>
           )}
         </div>
       )}
@@ -469,15 +470,15 @@ export default function PersonalPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="text-center p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("income")}</p>
-              <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{totalIncome.toLocaleString()}</p>
+              <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{formatOwnerMoney(totalIncome, currency)}</p>
             </div>
             <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("expense")}</p>
-              <p className="text-lg font-bold text-red-500 dark:text-red-400">{totalSpent.toLocaleString()}</p>
+              <p className="text-lg font-bold text-red-500 dark:text-red-400">{formatOwnerMoney(totalSpent, currency)}</p>
             </div>
             <div className={`text-center p-3 rounded-xl ${balance >= 0 ? "bg-gray-50 dark:bg-gray-800/50" : "bg-red-50 dark:bg-red-900/20"}`}>
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("saved")}</p>
-              <p className={`text-lg font-bold ${balance >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>{balance.toLocaleString()}</p>
+              <p className={`text-lg font-bold ${balance >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>{formatOwnerMoney(balance, currency)}</p>
             </div>
             <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
               <p className="text-xs text-gray-500 dark:text-gray-400">{t("savingsRate")}</p>
@@ -493,7 +494,7 @@ export default function PersonalPage() {
                 {Object.entries(incomeByCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
                   <div key={cat} className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 dark:text-gray-400">{cat}</span>
-                    <span className="font-medium text-emerald-600 dark:text-gray-300">+{amt.toLocaleString()} {currency}</span>
+                    <span className="font-medium text-emerald-600 dark:text-gray-300">+{formatOwnerMoney(amt, currency)}</span>
                   </div>
                 ))}
               </div>
@@ -513,7 +514,7 @@ export default function PersonalPage() {
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="text-gray-600 dark:text-gray-400">{cat}</span>
                       <span className={`font-medium ${exceeded ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
-                        {amt.toLocaleString()} {limit > 0 ? `/ ${limit.toLocaleString()}` : ""} {currency}
+                        {formatOwnerMoney(amt, currency)}{limit > 0 ? ` / ${formatOwnerMoney(limit, currency)}` : ""}
                         {exceeded && <span className="ml-1 text-xs text-red-500 font-bold">{t("over").toUpperCase()}</span>}
                       </span>
                     </div>
@@ -538,7 +539,7 @@ export default function PersonalPage() {
                 : t("overspentThisMonth")}
             </p>
             {totalBudgetNum > 0 && totalSpent > totalBudgetNum && (
-              <p className="text-sm text-red-500 mt-1">{t("budgetExceededBy")} {(totalSpent - totalBudgetNum).toLocaleString()} {currency}</p>
+              <p className="text-sm text-red-500 mt-1">{t("budgetExceededBy")} {formatOwnerMoney(totalSpent - totalBudgetNum, currency)}</p>
             )}
           </div>
         </div>
@@ -557,7 +558,7 @@ export default function PersonalPage() {
                   <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div className="h-full bg-purple-500 rounded-full" style={{ width: `${(amt / totalSpent) * 100}%` }} />
                   </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-24 text-right">{amt.toLocaleString()} {currency}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-24 text-right">{formatOwnerMoney(amt, currency)}</span>
                 </div>
               ))}
             </div>
@@ -580,20 +581,20 @@ export default function PersonalPage() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("iOweBorrowed")}</span>
-            <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{totalBorrowed.toLocaleString()} {currency}</span>
+            <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{formatOwnerMoney(totalBorrowed, currency)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("owedToMeLent")}</span>
-            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{totalLent.toLocaleString()} {currency}</span>
+            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatOwnerMoney(totalLent, currency)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("loanEmiPaid")}</span>
-            <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{totalLoanPayments.toLocaleString()} {currency}</span>
+            <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{formatOwnerMoney(totalLoanPayments, currency)}</span>
           </div>
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("netBalance")}</span>
             <span className={`text-sm font-bold ${loanNetBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-              {loanNetBalance >= 0 ? "+" : ""}{loanNetBalance.toLocaleString()} {currency}
+              {loanNetBalance >= 0 ? "+" : ""}{formatOwnerMoney(loanNetBalance, currency)}
             </span>
           </div>
           {loanSummary.persons?.length > 0 && (
@@ -603,7 +604,7 @@ export default function PersonalPage() {
                 <div key={i} className="flex justify-between text-xs">
                   <span className="text-gray-600 dark:text-gray-400">{p.name}</span>
                   <span className={`font-medium ${p.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}>
-                    {p.net >= 0 ? `+${Number(p.net).toLocaleString()}` : Number(p.net).toLocaleString()} {currency}
+                    {p.net >= 0 ? "+" : ""}{formatOwnerMoney(Number(p.net), currency)}
                   </span>
                 </div>
               ))}
@@ -662,7 +663,7 @@ export default function PersonalPage() {
                 amount === String(amt)
                   ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 text-purple-700"
                   : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-              }`}>{amt.toLocaleString()} {currency}</button>
+              }`}>{formatOwnerMoney(amt, currency)}</button>
           ))}
         </div>
 
@@ -762,7 +763,13 @@ export default function PersonalPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{e.description}</td>
                     <td className={`px-6 py-4 text-sm font-semibold ${income ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>
-                      {income ? "+" : "-"}{parseFloat(e.amount).toLocaleString()} {currency}
+                      {/* decimals: 2 — this is a LEDGER row, one real entry the
+                          owner reconciles against a receipt or a bank line.
+                          The default 0 turns 347,50 kr. into "348 kr." and
+                          quietly loses 50 øre off a figure that is supposed to
+                          match something. The aggregates and KPI tiles above
+                          stay whole-krone; a row does not. */}
+                      {income ? "+" : "-"}{formatOwnerMoney(parseFloat(e.amount), currency, { decimals: 2 })}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 capitalize">{e.payment_method?.replace("_", " ") || "-"}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{e.notes || "-"}</td>

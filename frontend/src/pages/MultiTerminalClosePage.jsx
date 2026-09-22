@@ -4,7 +4,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { FadeIn } from "../components/AnimationKit";
 import SmartTerminalsCard from "../components/SmartTerminalsCard";
@@ -1204,8 +1204,12 @@ function CopyButton({ text, t }) {
 
 /* ─── helpers ────────────────────────────────────────────────────────── */
 
+// Whole kroner, da-DK notation. Math.round stays so the NUMBER is byte-for-byte
+// what this page rendered before — only the notation changes: a bare
+// toLocaleString() formatted in the BROWSER's locale, so an EN-locale till
+// showed "1,113 DKK" where Denmark writes "1.113 kr.". formatOwnerMoney routes
+// DKK through formatKr and every other account currency through formatMoney.
 function fmtKr(n, currency, prefix = "") {
   if (n == null || isNaN(n)) return "—";
-  const formatted = Math.round(n).toLocaleString();
-  return `${prefix}${formatted} ${currency}`;
+  return `${prefix}${formatOwnerMoney(Math.round(n), currency, { decimals: 0 })}`;
 }
