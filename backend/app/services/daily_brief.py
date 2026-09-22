@@ -1686,6 +1686,16 @@ def get_or_create_brief(
             payload = json.loads(row.payload_json)
             payload["from_cache"] = True
             payload["tier"] = row.tier
+            # The greeting is PRESENTATION, not content, so it must not be
+            # served from a row written hours ago. The brief is cached once per
+            # user per day; _greeting_for() ran when it was generated, so a
+            # brief written at 06:00 said "Good morning" at four in the
+            # afternoon — directly under a dashboard header that said "Good
+            # afternoon", and above its own copy suggesting "a midday push".
+            # Three times of day on one screen. Everything else in the payload
+            # is a fact about today and is right to cache; this is a clock
+            # reading and has to be taken now.
+            payload["greeting"] = _greeting_for(user)
             return payload
         except Exception:  # noqa: BLE001
             # Corrupt cached row — regenerate. Log but don't fail.
