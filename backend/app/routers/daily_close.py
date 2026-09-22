@@ -1020,9 +1020,29 @@ def create_daily_close(
             }
 
     if existing:
-        # Block edits to confirmed (locked) entries — must unlock first
+        # Block edits to confirmed (locked) entries — must unlock first.
+        #
+        # THE EXEMPTION THAT UNDID THE LOCK. This read
+        # `existing_status == "confirmed" and status != "draft"`, so a POST
+        # carrying status="draft" walked straight past the guard and into the
+        # unconditional update below — including `existing.status = status`.
+        #
+        # That is not hypothetical. DailyClosePage auto-saves a draft two
+        # seconds after any step or amount change and swallows the result
+        # (`catch {}`, best-effort). An owner who reopens Daily Close later the
+        # same business day to look at what they filed therefore DEMOTES the
+        # locked kasserapport to KLADDE and overwrites its revenue, payments
+        # and MOMS with whatever the wizard currently holds — silently, with no
+        # unlock reason, no unlocked_by, and no unlocked_at, while the screen
+        # still says locked. A signed Bogføringsloven record, rewritten by a
+        # timer.
+        #
+        # There is exactly one legitimate way out of "confirmed", and it is not
+        # this one: POST /{close_id}/unlock, which demands a written reason
+        # (422 without it) and writes its own §10 audit row. Removing the
+        # exemption does not touch that path.
         existing_status = getattr(existing, "status", None) or "confirmed"
-        if existing_status == "confirmed" and status != "draft":
+        if existing_status == "confirmed":
             raise HTTPException(
                 status_code=409,
                 detail="This daily close is locked. Unlock it first to make changes."

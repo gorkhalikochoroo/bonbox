@@ -23,7 +23,7 @@ from app.schemas.inventory import (
 from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.inventory_reorder import reorder_items
-from app.services.billing import effective_plan, has_feature
+from app.services.billing import effective_plan, has_feature, min_plan_for_feature
 from app.services.inventory_export import (
     build_stock_list_pdf, items_to_csv_bytes,
 )
@@ -452,64 +452,181 @@ def inventory_count_reconcile(
 
 # ── Dead Stock Detection ──────────────────────────────────
 
+# A stocked item is only "dead" if it has not MOVED in this long. Movement is
+# a sale naming it or an inventory log touching it — see _last_movement below.
+DEAD_STOCK_WINDOW_DAYS = 30
+# An item added days ago has not had a chance to sell. Flagging it as dead and
+# offering a delete button is how a brand-new line gets thrown away.
+NEW_ITEM_GRACE_DAYS = 30
+
+
 @router.get("/dead-stock")
 def get_dead_stock(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    cutoff = date.today() - timedelta(days=30)
+    """Stock that is sitting still — or an honest admission that we cannot tell.
 
-    # Subquery: most recent sale date per item_name for this user
-    last_sale_sq = (
-        db.query(
-            Sale.item_name,
-            func.max(Sale.date).label("last_sale_date"),
-        )
-        .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True))
-        .group_by(Sale.item_name)
-        .subquery()
-    )
+    WHAT WAS WRONG. Demand was read from ONE signal: `Sale.item_name` matched
+    against `InventoryItem.name`. That column is only ever written by the
+    manual item-sale flow. The ICP — a cafe running its own till that types the
+    Z-report total into BonBox at closing — never produces it. So every stocked
+    vare fell to the `last_sale_date IS NULL` branch, got `days_since = 999`,
+    and the stockroom rendered the venue's ten most valuable items under a red
+    "Dødt lager / Aldrig solgt" heading with a delete button beside each line.
 
-    # Join inventory items with their last sale date (if any)
-    rows = (
-        db.query(
-            InventoryItem,
-            last_sale_sq.c.last_sale_date,
-        )
-        .outerjoin(last_sale_sq, InventoryItem.name == last_sale_sq.c.item_name)
-        .filter(
-            InventoryItem.user_id == user.id,
-            InventoryItem.quantity > 0,
-        )
-        .filter(
-            # No sale at all, or last sale older than 30 days
-            (last_sale_sq.c.last_sale_date == None) | (last_sale_sq.c.last_sale_date < cutoff)
-        )
-        .all()
-    )
+    Not an edge case: that is what the feature did, by construction, for the
+    customer it was built for. And the claim was false — the shop sells those
+    items every day; BonBox just is not the till.
+
+    NEVER OBSERVED IS NOT A FINDING, AND IT IS DECIDED PER ITEM. An item this
+    venue has never sold AND never logged is one we know nothing about, so it
+    is skipped — not listed as dead. Everything reported here is backed by a
+    real observation that is simply old. That is what makes the list safe for a
+    venue BonBox is not the till for: it comes back empty instead of wrong.
+
+    Deciding it per VENUE does not work, and is worth recording because it is
+    the obvious shape: a gate like "does this tenant emit any signal at all"
+    flips the moment one signal exists anywhere, and a stocktake writes an
+    InventoryLog only for items whose count was off. Counting 40 items with 2
+    discrepancies would make the venue "readable" and then accuse the other 38
+    — while the empty-state banner tells owners to go and do that count.
+
+    Movement means EITHER signal (a sale naming it, or an inventory log), read
+    directly over ONE 30-day window. The reorder engine's `moving_item_ids`
+    deliberately is not reused: it answers over 90 days, which is right for
+    "should I reorder" and would make this panel's own "30+ days" heading false.
+
+    `measurable` describes SALES visibility only and drives nothing but the
+    empty state.
+    """
 
     today = date.today()
+    cutoff = today - timedelta(days=DEAD_STOCK_WINDOW_DAYS)
+
+    items = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.user_id == user.id, InventoryItem.quantity > 0)
+        .all()
+    )
+    if not items:
+        return {"items": [], "measurable": True, "reason": None}
+
+    item_ids = [i.id for i in items]
+
+    # Can BonBox see SALES for this venue at all? Asked over all time and with
+    # no date bound on purpose: the question is "is the till wired up", not
+    # "was it busy this month". A quiet January must not read as a broken
+    # integration, and a broken integration must not read as a quiet January.
+    #
+    # This decides only which EMPTY STATE to show. It deliberately does not
+    # gate the list, and it deliberately does not count InventoryLog rows: a
+    # pour, a restock or a stocktake correction proves the owner handles an
+    # item, never that this product can see it sell.
+    has_named_sales = (
+        db.query(Sale.id)
+        .filter(
+            Sale.user_id == user.id,
+            Sale.is_deleted.isnot(True),
+            Sale.item_name.isnot(None),
+            Sale.item_name != "",
+        )
+        .first()
+        is not None
+    )
+
+    # NOTE ON moving_item_ids(): the reorder engine's primitive is deliberately
+    # NOT used here, and the reason is its window. It answers "has this moved in
+    # DEMAND_LOOKBACK_DAYS (90)", which is right for "should I reorder this" and
+    # wrong for a panel headed "not sold in 30+ days" — routing the decision
+    # through it makes the 30-day cutoff below unreachable and the heading a
+    # lie. Both signals are read directly, over one window, instead.
+
+    # Last sale per item name. Case-folded the same way moving_item_ids
+    # compares names, so the two surfaces cannot disagree about one item.
+    sale_rows = (
+        db.query(Sale.item_name, func.max(Sale.date))
+        .filter(
+            Sale.user_id == user.id,
+            Sale.is_deleted.isnot(True),
+            Sale.item_name.isnot(None),
+            Sale.item_name != "",
+        )
+        .group_by(Sale.item_name)
+        .all()
+    )
+    last_sale_by_name = {}
+    for name, last in sale_rows:
+        key = (name or "").strip().casefold()
+        if not key or last is None:
+            continue
+        if key not in last_sale_by_name or last > last_sale_by_name[key]:
+            last_sale_by_name[key] = last
+
+    log_rows = (
+        db.query(InventoryLog.item_id, func.max(InventoryLog.date))
+        .filter(InventoryLog.item_id.in_(item_ids))
+        .group_by(InventoryLog.item_id)
+        .all()
+    )
+    last_log_by_id = {i: d for i, d in log_rows if d is not None}
+
     result = []
-    for item, last_sale_date in rows:
+    for item in items:
+        created = getattr(item, "created_at", None)
+        created_day = created.date() if hasattr(created, "date") else created
+        if created_day and (today - created_day).days < NEW_ITEM_GRACE_DAYS:
+            continue  # too new to have a verdict
+
+        last_sale = last_sale_by_name.get((item.name or "").strip().casefold())
+        last_log = last_log_by_id.get(item.id)
+        candidates = [d for d in (last_sale, last_log) if d is not None]
+
+        # NEVER OBSERVED IS NOT A FINDING. This is the whole ICP fix, and it has
+        # to be decided PER ITEM, not per venue. An earlier attempt gated the
+        # whole endpoint on "does this tenant emit any signal at all", which
+        # fails the moment one signal exists anywhere: a stocktake writes an
+        # InventoryLog only for items whose count was off (`if delta != 0`), so
+        # counting 40 items with 2 discrepancies would mark the venue readable
+        # and then accuse the other 38 of being dead — and the empty-state
+        # banner tells owners to do exactly that count.
+        #
+        # An item with no observation is one we cannot judge. Skip it.
+        if not candidates:
+            continue
+
+        last_movement = max(candidates)
+        if last_movement >= cutoff:
+            continue  # moved inside the window
+
         qty = float(item.quantity)
         cost = float(item.cost_per_unit)
-        stock_value = round(qty * cost, 2)
-        if last_sale_date:
-            days_since = (today - last_sale_date).days
-        else:
-            days_since = 999  # never sold
+        # What the clock is actually measuring. An InventoryLog is a pour, a
+        # restock or a count correction — handling, not selling — so calling it
+        # "days since last sale" would be the same category error as the
+        # original bug, one layer down.
+        kind = "sale" if (last_sale is not None and last_sale == last_movement) else "movement"
         result.append({
             "id": str(item.id),
             "name": item.name,
             "quantity": qty,
             "cost_per_unit": cost,
-            "days_since_last_sale": days_since,
-            "stock_value": stock_value,
+            "days_since_last_movement": (today - last_movement).days,
+            "last_movement_kind": kind,
+            # Populated ONLY from real sales, and null when this venue has never
+            # named the item on one. Kept for older clients, which render null
+            # as "never sold" — true, and no longer the universal answer.
+            "days_since_last_sale": (
+                (today - last_sale).days if last_sale is not None else None
+            ),
+            "stock_value": round(qty * cost, 2),
         })
 
-    # Sort by stock_value descending, limit 10
     result.sort(key=lambda x: x["stock_value"], reverse=True)
-    return result[:10]
+    # `measurable` now describes SALES visibility only, and drives nothing but
+    # the explanatory empty state. An InventoryLog proves the owner handles the
+    # item, never that BonBox can see it sell.
+    return {"items": result[:10], "measurable": bool(has_named_sales), "reason": None}
 
 
 # ── Profit Per Item Ranking ───────────────────────────────
@@ -1303,18 +1420,21 @@ def _enforce_inventory_autopilot_tier(user: User) -> None:
     Same payload shape as schedule_autopilot's gate so the frontend
     renders the upgrade prompt from one contract."""
     if not has_feature(user, "inventory_autopilot"):
+        # Derived, not typed. inventory_autopilot moved to Starter+ in the
+        # 2026-05-25 tier-doctrine fix; this 402 kept quoting Pro.
+        plan = min_plan_for_feature("inventory_autopilot") or "pro"
         raise HTTPException(
             status_code=402,
             detail={
                 "code": "plan_required",
                 "error": "feature_locked",
                 "feature": "inventory_autopilot",
-                "required_plan": "pro",
-                "upgrade_to": "pro",
+                "required_plan": plan,
+                "upgrade_to": plan,
                 "current_plan": effective_plan(user),
                 "plan": effective_plan(user),
                 "message": (
-                    "Order Autopilot is on Pro. You can still review the "
+                    f"Order Autopilot is on {plan.capitalize()}. You can still review the "
                     "low-stock list and place orders manually."
                 ),
             },

@@ -20,7 +20,7 @@ from app.models.user import User
 from app.models.business_profile import BusinessProfile
 from app.services import audit_service
 from app.services.auth import get_current_user
-from app.services.billing import effective_plan, has_feature
+from app.services.billing import effective_plan, has_feature, min_plan_for_feature
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf,
     compute_filing_data,
@@ -248,18 +248,27 @@ def _resolve_filing_period(
 
 
 def _enforce_tax_filing_pdf(user: User) -> None:
-    """Pro+ gate for tax_filing_pdf. Raises 402 with the structured
-    upgrade detail the frontend renders into the UpgradeNudge."""
+    """Paid-plan gate for tax_filing_pdf. Raises 402 with the structured
+    upgrade detail the frontend renders into the UpgradeNudge.
+
+    The plan name is DERIVED, never typed. tax_filing_pdf was opened to
+    Starter+ on 2026-07-12 (billing.py PLAN_FEATURES) but this 402 still said
+    "pro", so a Free owner was quoted the 249-349 kr tier for something the
+    129-199 kr tier unlocks — on an upgrade prompt, which is the one screen
+    where being wrong about price costs a sale. min_plan_for_feature() reads
+    PLAN_FEATURES directly, so the next time a feature moves tier this
+    message moves with it."""
     if not has_feature(user, "tax_filing_pdf"):
+        plan = min_plan_for_feature("tax_filing_pdf") or "pro"
         raise HTTPException(
             status_code=402,
             detail={
                 "code": "plan_required",
                 "feature": "tax_filing_pdf",
-                "required_plan": "pro",
+                "required_plan": plan,
                 "current_plan": effective_plan(user),
                 "message": (
-                    "Filing-ready PDF is on Pro. You can still see the "
+                    f"Filing-ready PDF is on {plan.capitalize()}. You can still see the "
                     "MOMS estimate on this page and file manually on SKAT.dk."
                 ),
             },

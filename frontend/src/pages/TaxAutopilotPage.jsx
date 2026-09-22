@@ -412,6 +412,14 @@ function MetricCard({ label, value, sub, color, currency }) {
    ────────────────────────────────────────────────────────────── */
 function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked }) {
   const { t } = useLanguage();
+  // Own hook call: this is a separate component from TaxAutopilotPage, so the
+  // plan it advertises has to be resolved here. tax_filing_pdf moved to
+  // Starter on 2026-07-12 and both the badge and the 402 dialog kept
+  // quoting Pro — the 249-349 kr tier for a 129-199 kr feature.
+  const { minPlanForFeature } = useEntitlements();
+  const filingPdfPlan = minPlanForFeature("tax_filing_pdf") || "starter";
+  // "Starter" / "Pro" are product names and are not translated.
+  const filingPdfPlanName = filingPdfPlan.charAt(0).toUpperCase() + filingPdfPlan.slice(1);
   const [downloading, setDownloading] = useState(false);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState("");
@@ -506,7 +514,10 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-700 dark:text-emerald-400">
-              {unlocked ? t("taxPdfPro") : t("taxPdfProLocked")} · {t("taxPdfFilingReadyShort")}
+              {unlocked
+                ? filingPdfPlanName
+                : (t("taxPdfPlanLocked") || "{plan} · Locked").replace("{plan}", filingPdfPlanName)}
+              {" · "}{t("taxPdfFilingReadyShort")}
             </p>
             <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">
               {t("taxReadyToFile")} · {periodLabel}
@@ -609,7 +620,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       {show402 && (
         <UpgradeNudge
           intent="dialog"
-          tier="pro"
+          tier={filingPdfPlan}
           icon={<Icon name="FileText" size={20} />}
           benefit={t("filingPdfUpgradeBenefit")}
           ctaLabel={t("seePlans")}

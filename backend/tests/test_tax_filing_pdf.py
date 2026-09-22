@@ -407,7 +407,10 @@ def test_filing_pdf_free_user_gets_402_plan_required(db_session, client):
     body = r.json()
     assert body["detail"]["code"] == "plan_required"
     assert body["detail"]["feature"] == "tax_filing_pdf"
-    assert body["detail"]["required_plan"] == "pro"
+    # Derived from PLAN_FEATURES, never typed — tax_filing_pdf was opened to
+    # Starter on 2026-07-12 and this assertion kept certifying "pro".
+    from app.services.billing import min_plan_for_feature
+    assert body["detail"]["required_plan"] == min_plan_for_feature("tax_filing_pdf")
     assert body["detail"]["current_plan"] == "free"
 
 

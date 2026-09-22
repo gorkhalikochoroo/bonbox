@@ -2964,21 +2964,24 @@ def _enforce_autopilot_tier(user: User) -> None:
     rest of the codebase (code/feature/upgrade_to/current_plan/message)
     so the frontend renders the UpgradeNudge from one error contract.
     """
-    from app.services.billing import effective_plan, has_feature
+    from app.services.billing import effective_plan, has_feature, min_plan_for_feature
 
     if not has_feature(user, "schedule_autopilot"):
+        # Plan name DERIVED from PLAN_FEATURES, never typed — schedule_autopilot
+        # was opened to Starter+ on 2026-07-12 while this 402 still said "pro".
+        plan = min_plan_for_feature("schedule_autopilot") or "pro"
         raise HTTPException(
             status_code=402,
             detail={
                 "code": "plan_required",
                 "error": "feature_locked",
                 "feature": "schedule_autopilot",
-                "required_plan": "pro",
-                "upgrade_to": "pro",
+                "required_plan": plan,
+                "upgrade_to": plan,
                 "current_plan": effective_plan(user),
                 "plan": effective_plan(user),
                 "message": (
-                    "Schedule Autopilot is on Pro. You can still build "
+                    f"Schedule Autopilot is on {plan.capitalize()}. You can still build "
                     "the schedule manually or copy last week's shifts."
                 ),
             },
@@ -3267,18 +3270,22 @@ def email_schedule_to_staff(
     if (body.lang or "").lower() not in ("en", "da"):
         raise HTTPException(status_code=422, detail="lang must be 'en' or 'da'")
 
-    # Tier gate (Pro+ — bulk-staff feature for multi-employee operations)
-    from app.services.billing import has_feature, effective_plan
+    # Tier gate. The comment here used to say "Pro+"; billing.py has granted
+    # bulk_staff_email on Starter since the 2026-05-25 tier-doctrine fix
+    # ("Starter is the workhorse tier"). Derive the name so the two cannot
+    # disagree again.
+    from app.services.billing import has_feature, effective_plan, min_plan_for_feature
     if not has_feature(user, "bulk_staff_email"):
+        plan = min_plan_for_feature("bulk_staff_email") or "pro"
         raise HTTPException(
             status_code=402,
             detail={
                 "code": "plan_required",
                 "feature": "bulk_staff_email",
-                "required_plan": "pro",
+                "required_plan": plan,
                 "current_plan": effective_plan(user),
                 "message": (
-                    "Email-to-all-staff is on Pro. You can still print the "
+                    f"Email-to-all-staff is on {plan.capitalize()}. You can still print the "
                     "schedule PDF and share it via WhatsApp."
                 ),
             },

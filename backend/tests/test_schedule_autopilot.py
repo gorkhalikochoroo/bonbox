@@ -222,7 +222,11 @@ def test_free_user_blocked(client, db):
     detail = res.json()["detail"]
     assert detail["code"] == "plan_required"
     assert detail["feature"] == "schedule_autopilot"
-    assert detail["upgrade_to"] == "pro"
+    # Derived from PLAN_FEATURES, never typed — see the note in
+    # test_inventory_autopilot: a hardcoded tier here outlives the packaging
+    # decision it was written for and then certifies a wrong price.
+    from app.services.billing import min_plan_for_feature
+    assert detail["upgrade_to"] == min_plan_for_feature("schedule_autopilot")
     assert detail["current_plan"] == "free"
 
 
@@ -911,4 +915,5 @@ def test_apply_tier_gate(client, db):
         },
     )
     assert res.status_code == 402, res.text
-    assert res.json()["detail"]["upgrade_to"] == "pro"
+    from app.services.billing import min_plan_for_feature
+    assert res.json()["detail"]["upgrade_to"] == min_plan_for_feature("schedule_autopilot")

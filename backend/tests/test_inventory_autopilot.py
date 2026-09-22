@@ -234,7 +234,12 @@ def test_free_user_blocked(client, db):
     detail = res.json()["detail"]
     assert detail["code"] == "plan_required"
     assert detail["feature"] == "inventory_autopilot"
-    assert detail["upgrade_to"] == "pro"
+    # Assert against PLAN_FEATURES, never a typed tier name. This line used to
+    # read `== "pro"` and passed for months after inventory_autopilot was
+    # opened to Starter — so the test certified an upsell that quoted a Free
+    # owner 249-349 kr for a 129-199 kr feature.
+    from app.services.billing import min_plan_for_feature
+    assert detail["upgrade_to"] == min_plan_for_feature("inventory_autopilot")
     assert detail["current_plan"] == "free"
 
 

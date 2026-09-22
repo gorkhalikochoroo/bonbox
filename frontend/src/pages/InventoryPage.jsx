@@ -161,12 +161,30 @@ export default function InventoryPage() {
   // nothing, and on three of them (dead stock, expiring, expired) an absent
   // warning reads exactly like an all-clear. They report their failure through
   // one banner in the alert zone rather than four.
+  // Two shapes on purpose. The endpoint used to return a bare array and now
+  // returns {items, measurable}, and this frontend deploys separately from the
+  // backend — so an array here means "older server", not "no dead stock", and
+  // must still render. Never assume the pair moved together.
   const deadStockQ = useAsyncData(
-    () => api.get("/inventory/dead-stock").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    () =>
+      api.get("/inventory/dead-stock").then((r) => {
+        const d = r.data;
+        if (Array.isArray(d)) return { items: d, measurable: true };
+        return {
+          items: Array.isArray(d?.items) ? d.items : [],
+          // Absent `measurable` means the old server, which only ever spoke
+          // when it had an answer — so treat it as measured, not as unknown.
+          measurable: d?.measurable !== false,
+        };
+      }),
     [],
-    { initial: [] },
+    { initial: { items: [], measurable: true } },
   );
-  const deadStock = deadStockQ.data;
+  const deadStock = deadStockQ.data?.items || [];
+  // "We cannot see what sells" — NOT "nothing sells". The difference is the
+  // whole point: this venue runs its own till, so BonBox has no demand signal
+  // and must not name their ten most valuable items as dead stock.
+  const deadStockUnmeasurable = deadStockQ.data?.measurable === false;
   const profitRankingQ = useAsyncData(
     () => api.get("/inventory/profit-ranking").then((r) => (Array.isArray(r.data) ? r.data : [])),
     [],
@@ -1291,6 +1309,26 @@ export default function InventoryPage() {
           severity="critical" containing the list. The red stays on the
           per-item value because that's a data-true color (loss).  Page
           chrome around it is calm gray + a single red border. */}
+      {/* BonBox is not this venue's till and nobody has logged a count, so
+          there is no demand signal to read. Say that plainly — calm, no
+          delete buttons. The alternative, and what shipped for months, was
+          listing the venue's ten most valuable items under a red "Dødt lager"
+          heading because a column no cafe ever writes came back empty. */}
+      {deadStockUnmeasurable && (
+        <SectionBanner
+          severity="info"
+          icon="Info"
+          title={t("deadStockUnmeasurableTitle", "We can't tell what's moving yet")}
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+            {t(
+              "deadStockUnmeasurableBody",
+              "BonBox isn't your till, so it can't see which items sell. Do a stock count and it will start tracking what moves.",
+            )}
+          </p>
+        </SectionBanner>
+      )}
+
       {deadStock.length > 0 && (
         <SectionBanner
           severity="critical"
@@ -1303,7 +1341,24 @@ export default function InventoryPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">{ds.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {ds.quantity} {t("inStock")} · {ds.days_since_last_sale >= 999 ? t("neverSold") : `${ds.days_since_last_sale} ${t("daysSinceLastSale")}`}
+                    {/* Say what the clock actually measured. The server now
+                        reports days_since_last_movement plus which signal it
+                        came from, because an InventoryLog is a pour, a restock
+                        or a count correction — handling, not selling. Printing
+                        that as "siden sidste salg" would repeat the original
+                        bug one layer down. Falls back to the old field so an
+                        older server still renders. */}
+                    {ds.quantity} {t("inStock")} · {
+                      ds.days_since_last_movement != null
+                        ? `${ds.days_since_last_movement} ${
+                            ds.last_movement_kind === "sale"
+                              ? t("daysSinceLastSale")
+                              : t("daysSinceLastMovement", "days since last movement")
+                          }`
+                        : ds.days_since_last_sale == null || ds.days_since_last_sale >= 999
+                          ? t("neverSold")
+                          : `${ds.days_since_last_sale} ${t("daysSinceLastSale")}`
+                    }
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1313,7 +1368,10 @@ export default function InventoryPage() {
                       if (!(await confirm({ message: `${t("removeFromInventory")} "${ds.name}"?`, destructive: true, confirmLabel: t("removeItem") }))) return;
                       try {
                         await api.delete(`/inventory/${ds.id}`);
-                        deadStockQ.setData((prev) => prev.filter((d) => d.id !== ds.id));
+                        deadStockQ.setData((prev) => ({
+                          ...prev,
+                          items: (prev?.items || []).filter((d) => d.id !== ds.id),
+                        }));
                         setAllItems((prev) => prev.filter((it) => it.id !== ds.id));
                       } catch (err) {
                         // Same rule one layer over: a delete that the server

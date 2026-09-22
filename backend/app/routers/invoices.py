@@ -44,7 +44,7 @@ def _enforce_monthly_invoice_cap(db: Session, user: User, issue_date):
     excluded — voids shouldn't count toward the quota.
     """
     from datetime import date as _date
-    from app.services.billing import get_cap, effective_plan
+    from app.services.billing import get_cap, effective_plan, PLAN_ORDER, PLAN_CAPS
 
     cap = get_cap(user, "invoices_per_month")
     if cap is None or cap < 0:
@@ -74,22 +74,52 @@ def _enforce_monthly_invoice_cap(db: Session, user: User, issue_date):
     )
 
     if issued_this_month >= cap:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "plan_required",
-                "feature": "unlimited_invoices",
-                "required_plan": "pro",
-                "current_plan": effective_plan(user),
-                "used_this_month": issued_this_month,
-                "monthly_cap": cap,
-                "message": (
-                    f"You've issued {issued_this_month} of your {cap} "
-                    f"monthly fakturaer on Starter. Upgrade to Pro for "
-                    f"unlimited invoicing."
-                ),
-            },
-        )
+        # This gate is a CAP, not a feature, so min_plan_for_feature() cannot
+        # answer it — `unlimited_invoices` is not a key in PLAN_FEATURES and
+        # asking for it returns None. The honest upsell is the cheapest plan
+        # that actually RAISES this owner's ceiling, and that differs by who
+        # is asking: Free is capped at 0, so their answer is Starter (30/md),
+        # not Pro. The old hard-coded "pro" told a Free owner to buy the most
+        # expensive tier to send one faktura, and the message even informed
+        # them they were "on Starter" while they were not.
+        current = effective_plan(user)
+        upgrade_to, upgrade_cap = None, cap
+        for candidate in PLAN_ORDER:
+            cand_cap = (PLAN_CAPS.get(candidate) or {}).get("invoices_per_month")
+            if cand_cap is None:
+                continue
+            # -1 is unlimited, which beats every finite cap.
+            better = cand_cap < 0 or (upgrade_cap >= 0 and cand_cap > upgrade_cap)
+            if better:
+                upgrade_to, upgrade_cap = candidate, cand_cap
+                break
+        detail = {
+            "code": "plan_required",
+            "feature": "unlimited_invoices",
+            "required_plan": upgrade_to or "pro",
+            "current_plan": current,
+            "used_this_month": issued_this_month,
+            "monthly_cap": cap,
+        }
+        if upgrade_to:
+            ceiling = (
+                "unlimited invoicing"
+                if upgrade_cap < 0
+                else f"{upgrade_cap} fakturaer a month"
+            )
+            detail["message"] = (
+                f"You've issued {issued_this_month} of your {cap} monthly "
+                f"fakturaer on {current.capitalize()}. Upgrade to "
+                f"{upgrade_to.capitalize()} for {ceiling}."
+            )
+        else:
+            # No plan raises the ceiling — say so plainly rather than sell
+            # something that would not help.
+            detail["message"] = (
+                f"You've issued {issued_this_month} of your {cap} monthly "
+                f"fakturaer on {current.capitalize()}."
+            )
+        raise HTTPException(status_code=402, detail=detail)
 
 
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)

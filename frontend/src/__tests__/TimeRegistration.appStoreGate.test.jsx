@@ -37,7 +37,7 @@ vi.mock("../utils/platform", () => ({
 }));
 
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ ready: true, hasFeature: () => false, tier: "free", plan: "free" }),
+  useEntitlements: () => ({ ready: true, hasFeature: () => false, minPlanForFeature: () => null, tier: "free", plan: "free" }),
 }));
 
 const TimeRegistrationPage = (await import("../pages/TimeRegistrationPage")).default;

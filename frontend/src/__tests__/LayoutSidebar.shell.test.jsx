@@ -38,7 +38,7 @@ vi.mock("../components/BranchSelector", () => ({
   useBranch: () => ({ branchType: null, businessTypes: ["cafe"] }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, isReady: true }),
+  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
 }));
 vi.mock("../hooks/usePillars", () => ({
   usePillars: () => ({ hiddenPillars: new Set(), isReady: true, setPillarHidden: vi.fn() }),

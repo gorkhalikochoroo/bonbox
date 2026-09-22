@@ -52,7 +52,7 @@ vi.mock("../hooks/useLanguage", () => ({
   }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, isReady: true }),
+  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
 }));
 // Two branches so the Branches tab exists and the smoke test below can mount
 // BranchSummaryView — the one view on this page with no other test coverage.

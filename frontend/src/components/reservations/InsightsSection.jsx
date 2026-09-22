@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
+import { useEntitlements } from "../../hooks/useEntitlements";
 import { bookingModeFor } from "../../config/venueProfiles";
 import { formatKr } from "../../utils/currency";
 import StatCard from "../ui/StatCard";
@@ -646,11 +647,17 @@ function RecoveredCard({ data, t }) {
 // forecast present → "Next 7 days" mini-list. forecast_locked → UpgradeNudge.
 // forecast === null && !locked → calm "not enough data yet" (Pro, thin data).
 function ForecastBlock({ forecast, forecastLocked, t }) {
+  // This component takes `t` as a PROP and calls no hook of its own, so the
+  // plan cannot be read from an outer scope — it needs its own hook call.
+  // reservation_insights has been a Starter feature since the tier-doctrine
+  // fix; the card sold Pro.
+  const { minPlanForFeature } = useEntitlements();
+  const forecastPlan = minPlanForFeature("reservation_insights") || "starter";
   if (forecastLocked) {
     return (
       <UpgradeNudge
         intent="card"
-        tier="pro"
+        tier={forecastPlan}
         benefit={t("rsvpInsForecastUpsell", "See next week's expected guests — plan staff and stock ahead.")}
         ctaLabel={t("rsvpInsForecastCta", "See plans")}
       />

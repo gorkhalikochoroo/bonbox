@@ -44,7 +44,7 @@ vi.mock("../hooks/useLanguage", () => ({
   }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, isReady: true }),
+  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
 }));
 vi.mock("../components/BranchSelector", () => ({
   useBranch: () => ({ branchId: null, branchType: "restaurant", branches: [] }),

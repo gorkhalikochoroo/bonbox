@@ -3213,6 +3213,7 @@ export const tr = {
   taxReadyToFile: "Beyana hazır",
   taxPdfPro: "Pro",
   taxPdfProLocked: "Pro · Kilitli",
+  taxPdfPlanLocked: "{plan} · Kilitli",
   taxPdfFilingReadyShort: "MOMS beyanı hazır",
   taxPdfNetToSkat: "SKAT'a net",
   taxPdfDownloadAria: "Beyan PDF'ini indir",

@@ -43,7 +43,7 @@ vi.mock("../hooks/useLanguage", () => ({
   useLanguage: () => ({ t: (k, f) => f || k, lang: "en", setLang: () => {}, LANGUAGES: [] }),
 }));
 vi.mock("../hooks/useEntitlements", () => {
-  const ent = { plan: "pro", caps: {}, features: {}, has: () => true, hasFeature: () => true, loading: false };
+  const ent = { plan: "pro", caps: {}, features: {}, has: () => true, hasFeature: () => true, minPlanForFeature: () => null, loading: false };
   return { useEntitlements: () => ent, default: () => ent };
 });
 vi.mock("../services/api", () => ({

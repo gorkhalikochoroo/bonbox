@@ -2119,8 +2119,30 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Draft auto-save — fires on step change (silent, no loading state)
   const [draftSaved, setDraftSaved] = useState(false);
   const autoSaveRef = useRef(null);
+  // "The server told us this exact row is locked." NOT a guess from page state.
+  //
+  // The obvious guard here is a `dayLocked` prop fed from the page's
+  // `isLockedToday`, and it is wrong three ways: that flag is derived from
+  // `findConfirmedCloseFor(history, todayIso)` so it only knows about TODAY,
+  // while this form posts `businessDate`, which the owner can point at an
+  // earlier day; it is not scoped to `branchId`, so locking one branch would
+  // mute auto-save for every other branch; and it would stay true after a
+  // legitimate unlock until history happened to refresh, killing auto-save in
+  // the very flow the unlock exists to enable.
+  //
+  // The server already knows the answer for the actual (branch, date) row and
+  // now answers 409. So ask it, believe it, and forget it the moment the
+  // target row changes.
+  const [lockedRowRejected, setLockedRowRejected] = useState(false);
+  useEffect(() => {
+    setLockedRowRejected(false);
+  }, [businessDate, branchId]);
 
   useEffect(() => {
+    // Stop re-asking to overwrite a signed kasserapport. The 409 below is the
+    // real barrier; this only stops the timer knocking every two seconds after
+    // the server has already said no for this row.
+    if (lockedRowRejected) return;
     // Only auto-save if user has entered some data and is past scan UI
     if (scanMode !== "skipped" || revenueTotal === 0) return;
     // Debounce: save 2s after last step change
@@ -2130,12 +2152,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         await api.post("/daily-close", buildPayload("draft"));
         setDraftSaved(true);
         setTimeout(() => setDraftSaved(false), 3000);
-      } catch {
-        // Silent — auto-save is best-effort
+      } catch (err) {
+        // Still best-effort for every other failure (offline, 500, flaky
+        // connection) — but a 409 is not a transient error, it is the lock
+        // saying this row is final.
+        if (err?.response?.status === 409) setLockedRowRejected(true);
       }
     }, 2000);
     return () => clearTimeout(autoSaveRef.current);
-  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal]);
+  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, lockedRowRejected, businessDate, branchId]);
 
   // Final submit — locks the close (with offline queue fallback).
   // opts.acknowledgeAnomaly=true is passed by the "Yes, lock it" button

@@ -2460,6 +2460,9 @@ const translations = {
     taxReadyToFile: "Klar til indberetning",
     taxPdfPro: "Pro",
     taxPdfProLocked: "Pro · Låst",
+    // The plan NAME is substituted, never baked in: this badge read
+    // "Pro · Låst" for a feature Starter has unlocked since 2026-07-12.
+    taxPdfPlanLocked: "{plan} · Locked",
     taxPdfFilingReadyShort: "MOMS-angivelse klar",
     taxPdfNetToSkat: "Net til SKAT",
     taxPdfDownloadAria: "Hent indberetnings-PDF",
@@ -5396,7 +5399,11 @@ const translations = {
     pricingStatus: "Pricing Status", buyLabel: "Buy", sellLabel: "Sell",
     notPriced: "Not Priced", noSellPrice: "No sell price",
     deadStockTitle: "Dead Stock — not sold in 30+ days",
+    deadStockUnmeasurableTitle: "We can't tell what's moving yet",
+    deadStockUnmeasurableBody:
+      "BonBox isn't your till, so it can't see which items sell. Do a stock count and it will start tracking what moves.",
     inStock: "in stock", daysSinceLastSale: "days since last sale",
+    daysSinceLastMovement: "days since last movement",
     removeFromInventory: "Remove from inventory", totalDeadStockValue: "Total dead stock value",
     bestMarginItems: "Best Margin Items",
     selected: "selected", yesDelete: "Yes, Delete", deleteSelected: "Delete Selected",
@@ -11015,6 +11022,7 @@ const translations = {
     taxReadyToFile: "Klar til indberetning",
     taxPdfPro: "Pro",
     taxPdfProLocked: "Pro · Låst",
+    taxPdfPlanLocked: "{plan} · Låst",
     taxPdfFilingReadyShort: "MOMS-angivelse klar",
     taxPdfNetToSkat: "Net til SKAT",
     taxPdfDownloadAria: "Hent indberetnings-PDF",
@@ -13864,7 +13872,11 @@ const translations = {
     pricingStatus: "Prisstatus", buyLabel: "Køb", sellLabel: "Sælg",
     notPriced: "Ikke prissat", noSellPrice: "Ingen salgspris",
     deadStockTitle: "Dødt lager — ikke solgt i 30+ dage",
+    deadStockUnmeasurableTitle: "Vi kan ikke se, hvad der sælger endnu",
+    deadStockUnmeasurableBody:
+      "BonBox er ikke din kasse, så den kan ikke se, hvilke varer der sælger. Lav en lageroptælling, så begynder den at følge, hvad der bevæger sig.",
     inStock: "på lager", daysSinceLastSale: "dage siden sidste salg",
+    daysSinceLastMovement: "dage siden sidste bevægelse",
     removeFromInventory: "Fjern fra lager", totalDeadStockValue: "Samlet værdi af dødt lager",
     bestMarginItems: "Bedste marginvarer",
     selected: "valgt", yesDelete: "Ja, slet", deleteSelected: "Slet valgte",

@@ -57,7 +57,7 @@ vi.mock("../hooks/useAuth", () => ({
   }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, isReady: true, plan: "pro" }),
+  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true, plan: "pro" }),
 }));
 // The t() mock echoes the key, so assertions pin BEHAVIOUR, never wording.
 vi.mock("../hooks/useLanguage", () => ({

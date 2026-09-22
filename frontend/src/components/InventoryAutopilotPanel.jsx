@@ -344,8 +344,11 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
 export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false, onAddSupplier = null }) {
   const { t, lang } = useLanguage();
   const { user } = useAuth();
-  const { hasFeature, loading: entLoading } = useEntitlements();
+  const { hasFeature, minPlanForFeature, loading: entLoading } = useEntitlements();
   const isUnlocked = hasFeature("inventory_autopilot");
+  // Read the unlocking plan instead of typing it: inventory_autopilot moved to
+  // Starter in the 2026-05-25 tier-doctrine fix while this card still sold Pro.
+  const autopilotPlan = minPlanForFeature("inventory_autopilot") || "starter";
   const currency = displayCurrency(user?.currency);
 
   const [loading, setLoading] = useState(false);
@@ -497,7 +500,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
         </div>
         <UpgradeNudge
           intent="card"
-          tier="pro"
+          tier={autopilotPlan}
           benefit={t(
             "inventoryAutopilotUpgradeBenefit",
             "BonBox flags what's running low and how much to genbestil, grouped by leverandør — you place the order.",

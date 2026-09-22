@@ -520,17 +520,20 @@ def _enforce_menu_scan_plan(user: User):
     vision call is the most expensive thing we offer (~2¢ per scan,
     bulk-extracts 30 prices in 10 seconds). It's also the most
     impressive feature we have; gating it gives Pro a clear pitch."""
-    from app.services.billing import has_feature, effective_plan
+    from app.services.billing import has_feature, effective_plan, min_plan_for_feature
     if not has_feature(user, "ai_menu_scan"):
+        # Derived, not typed. ai_menu_scan opened to Starter+ on 2026-07-12
+        # under the all-features doctrine; this 402 kept quoting Pro.
+        plan = min_plan_for_feature("ai_menu_scan") or "pro"
         raise HTTPException(
             status_code=402,
             detail={
                 "code": "plan_required",
                 "feature": "ai_menu_scan",
-                "required_plan": "pro",
+                "required_plan": plan,
                 "current_plan": effective_plan(user),
                 "message": (
-                    "AI menu scan is on Pro. Compare competitor prices "
+                    f"AI menu scan is on {plan.capitalize()}. Compare competitor prices "
                     "manually with the price-check log on any plan."
                 ),
             },

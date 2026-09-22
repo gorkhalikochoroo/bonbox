@@ -48,7 +48,7 @@ vi.mock("../hooks/useAuth", () => ({
 }));
 
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => false, isReady: true }),
+  useEntitlements: () => ({ hasFeature: () => false, minPlanForFeature: () => null, isReady: true }),
 }));
 
 vi.mock("../hooks/useEventLog", () => ({ trackEvent: vi.fn() }));
