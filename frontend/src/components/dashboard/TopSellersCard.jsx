@@ -16,6 +16,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../hooks/useLanguage";
+import { Amount } from "../ui";
 
 export default function TopSellersCard({ ctx = {} }) {
   const { t } = useLanguage();
@@ -62,7 +63,7 @@ export default function TopSellersCard({ ctx = {} }) {
                     {item.name}
                   </span>
                   <span className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100 ml-2">
-                    {Math.round(val).toLocaleString()} {currency}
+                    <Amount value={val} currency={currency} decimals={0} />
                   </span>
                 </div>
                 <div className="h-1.5 bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] rounded-full overflow-hidden">

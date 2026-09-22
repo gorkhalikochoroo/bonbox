@@ -4,8 +4,8 @@ import { Car, Wallet, BarChart3, Timer } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
-import { formatHours, formatHoursMinutes } from "../utils/hours";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { formatHours, formatHoursMinutes, hoursUnit } from "../utils/hours";
 import { FadeIn } from "../components/AnimationKit";
 
 const STATUS_FLOW = ["received", "diagnosing", "waiting_parts", "in_progress", "completed", "delivered", "invoiced"];
@@ -65,8 +65,11 @@ export default function WorkshopPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KpiCard icon={Car} label={t("wsInWorkshop", "In Workshop")} value={summary.vehicles_in_workshop}
             sub={Object.entries(summary.status_breakdown || {}).map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(", ")} />
-          <KpiCard icon={Wallet} label={t("wsWeekRevenue", "Week Revenue")} value={`${summary.week_revenue?.toLocaleString()} ${currency}`} />
-          <KpiCard icon={BarChart3} label={t("wsAvgJobValue", "Avg Job Value")} value={`${summary.avg_job_value?.toLocaleString()} ${currency}`} />
+          {/* Headline KPIs: whole kroner (decimals 0) — cents are noise at a
+              glance. The notation follows the ACCOUNT, not the browser, so a
+              DKK owner on an EN browser reads "1.113 kr." and not "1,113 DKK". */}
+          <KpiCard icon={Wallet} label={t("wsWeekRevenue", "Week Revenue")} value={formatOwnerMoney(summary.week_revenue, currency, { decimals: 0 })} />
+          <KpiCard icon={BarChart3} label={t("wsAvgJobValue", "Avg Job Value")} value={formatOwnerMoney(summary.avg_job_value, currency, { decimals: 0 })} />
           <KpiCard icon={Timer} label={t("wsAvgTurnaround", "Avg Turnaround")} value={summary.avg_turnaround_days ? `${summary.avg_turnaround_days}d` : "—"} />
         </div>
       )}
@@ -195,7 +198,9 @@ function JobList({ jobs, currency, nav }) {
               {j.vehicle?.customer_name && <p className="text-sm text-gray-500 dark:text-gray-400">{j.vehicle.customer_name}</p>}
             </div>
             <div className="text-right">
-              {j.grand_total > 0 && <p className="font-bold text-emerald-600 dark:text-gray-300">{j.grand_total?.toLocaleString()} {currency}</p>}
+              {/* Same figure the job card's header shows — 2 decimals there,
+                  2 decimals here, or one job reads two different totals. */}
+              {j.grand_total > 0 && <p className="font-bold text-emerald-600 dark:text-gray-300">{formatOwnerMoney(j.grand_total, currency, { decimals: 2 })}</p>}
               {j.assigned_mechanic && <p className="text-xs text-gray-400">🔧 {j.assigned_mechanic}</p>}
             </div>
           </div>
@@ -239,7 +244,7 @@ function MechanicView({ data, currency }) {
               <span className="text-lg font-bold dark:text-white">#{i + 1}</span>
               <span className="font-semibold dark:text-white">{m.name}</span>
             </div>
-            <span className="font-bold text-emerald-600 dark:text-gray-300">{m.total_revenue.toLocaleString()} {currency}</span>
+            <span className="font-bold text-emerald-600 dark:text-gray-300">{formatOwnerMoney(m.total_revenue, currency, { decimals: 0 })}</span>
           </div>
           {/* Revenue bar */}
           <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 mb-3">
@@ -254,7 +259,12 @@ function MechanicView({ data, currency }) {
                 duration reads better on its own and makes the division
                 impossible to verify. */}
             <div><span className="font-medium dark:text-gray-300">{formatHours(m.total_hours, { lang, decimals: 1 })}</span> total</div>
-            <div><span className="font-medium dark:text-gray-300">{m.revenue_per_hour.toLocaleString()}</span> {currency}/hr</div>
+            {/* A rate, but its numerator is MONEY — so the amount goes through
+                the account's money notation and only the denominator is an hour
+                unit. "/hr" typed here put an English unit next to a Danish
+                figure; it comes from hoursUnit() like every other hour on the
+                page. Whole kroner, matching the revenue above it. */}
+            <div><span className="font-medium dark:text-gray-300">{formatOwnerMoney(m.revenue_per_hour, currency, { decimals: 0 })}</span>/{hoursUnit(lang)}</div>
           </div>
         </div>
       ))}

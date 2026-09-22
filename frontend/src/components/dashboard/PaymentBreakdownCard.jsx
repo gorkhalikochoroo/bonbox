@@ -17,6 +17,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../hooks/useLanguage";
+import { Amount } from "../ui";
 
 export default function PaymentBreakdownCard({ ctx = {}, compact = true }) {
   const { t } = useLanguage();
@@ -59,7 +60,7 @@ export default function PaymentBreakdownCard({ ctx = {}, compact = true }) {
                 {label}
               </span>
               <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                {Math.round(p.amount).toLocaleString()} {currency}
+                <Amount value={p.amount} currency={currency} decimals={0} />
               </span>
               <span className="text-xs text-gray-500 dark:text-gray-400 w-10 text-right tabular-nums">
                 {pct}%

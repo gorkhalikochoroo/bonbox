@@ -5,6 +5,7 @@ import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { formatOwnerMoney } from "../utils/currency";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
@@ -750,16 +751,12 @@ function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider, t
           {totals.grand_total != null && (
             <span>
               {t("siTotalLabel", "Total:")} <span className="font-medium text-gray-800 dark:text-gray-200">
-                {Number(totals.grand_total).toLocaleString(undefined, {
-                  minimumFractionDigits: 2, maximumFractionDigits: 2,
-                })} {totals.currency || "DKK"}
+                {formatOwnerMoney(totals.grand_total, totals.currency || "DKK", { decimals: 2 })}
               </span>
             </span>
           )}
           {totals.vat_total != null && (
-            <span>MOMS: {Number(totals.vat_total).toLocaleString(undefined, {
-              minimumFractionDigits: 2, maximumFractionDigits: 2,
-            })}</span>
+            <span>MOMS: {formatOwnerMoney(totals.vat_total, totals.currency || "DKK", { decimals: 2 })}</span>
           )}
         </div>
       )}
@@ -896,7 +893,7 @@ function ReviewStep({
           <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
             {t("siReadTitle", "Read")} · {items.length} {t("siItemsShort", "items")}
             {draft.invoice_totals?.grand_total
-              ? ` · ${Math.round(draft.invoice_totals.grand_total).toLocaleString("da-DK")} kr`
+              ? ` · ${formatOwnerMoney(draft.invoice_totals.grand_total, draft.invoice_totals.currency || "DKK", { decimals: 0 })}`
               : ""}
             {draft.supplier?.name ? ` · ${draft.supplier.name}` : ""}
           </div>

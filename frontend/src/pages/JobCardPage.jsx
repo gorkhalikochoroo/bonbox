@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import { formatHours, hoursUnit } from "../utils/hours";
 import MoneyField from "../components/ui/MoneyField";
 import { FadeIn } from "../components/AnimationKit";
@@ -317,9 +317,15 @@ export default function JobCardPage() {
             <p className="text-gray-500 dark:text-gray-400 text-sm">{job.vehicle?.plate_number} — {job.vehicle?.make} {job.vehicle?.model}</p>
             {job.vehicle?.customer_name && <p className="text-sm text-gray-400">{job.vehicle.customer_name} · {job.vehicle?.customer_phone}</p>}
           </div>
+          {/* This is what the customer gets invoiced, so it is ledger-exact:
+              2 decimals, and the ACCOUNT's notation — an EN-browser session on
+              a DKK account used to read "1,250.50" where the invoice says
+              "1.250,50". The parts/labor split underneath is the same money,
+              so it carries the unit too rather than a bare browser-locale
+              number sitting under a kr. figure. */}
           <div className="text-right">
-            <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">{job.grand_total?.toLocaleString()} {currency}</p>
-            <p className="text-xs text-gray-400">{t("jcPartsLabel", "Parts")}: {job.parts_total?.toLocaleString()} + {t("jcLaborLabel", "Labor")}: {job.labor_total?.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">{formatOwnerMoney(job.grand_total, currency, { decimals: 2 })}</p>
+            <p className="text-xs text-gray-400">{t("jcPartsLabel", "Parts")}: {formatOwnerMoney(job.parts_total, currency, { decimals: 2 })} + {t("jcLaborLabel", "Labor")}: {formatOwnerMoney(job.labor_total, currency, { decimals: 2 })}</p>
           </div>
         </div>
       </FadeIn>
@@ -377,10 +383,13 @@ export default function JobCardPage() {
                 <div key={p.id} className="flex justify-between items-center text-sm py-2 border-b dark:border-gray-700 last:border-0">
                   <div>
                     <p className="font-medium dark:text-white">{p.part_name}</p>
-                    <p className="text-xs text-gray-400">{p.quantity} × {p.unit_cost.toLocaleString()} {currency}
+                    {/* quantity is a COUNT and stays a plain number; unit cost
+                        and the line total are money — 2 decimals so qty × unit
+                        ties out against the total on the right by eye. */}
+                    <p className="text-xs text-gray-400">{p.quantity} × {formatOwnerMoney(p.unit_cost, currency, { decimals: 2 })}
                       {p.is_from_stock && ` · ${t("jcFromStock", "from stock")}`}</p>
                   </div>
-                  <span className="font-semibold dark:text-white">{p.total_cost.toLocaleString()} {currency}</span>
+                  <span className="font-semibold dark:text-white">{formatOwnerMoney(p.total_cost, currency, { decimals: 2 })}</span>
                 </div>
               ))}
               {/* Add part form */}
@@ -418,9 +427,9 @@ export default function JobCardPage() {
                         The rate's denominator is an hour unit too — "/hr" typed
                         here put an English unit on a Danish invoice line, so it
                         comes from hoursUnit() like everything else. */}
-                    <p className="text-xs text-gray-400">{l.mechanic_name} · {formatHours(l.hours, { lang, decimals: 2 })} × {l.hourly_rate.toLocaleString()} {currency}/{hoursUnit(lang)}</p>
+                    <p className="text-xs text-gray-400">{l.mechanic_name} · {formatHours(l.hours, { lang, decimals: 2 })} × {formatOwnerMoney(l.hourly_rate, currency, { decimals: 2 })}/{hoursUnit(lang)}</p>
                   </div>
-                  <span className="font-semibold dark:text-white">{l.total_cost.toLocaleString()} {currency}</span>
+                  <span className="font-semibold dark:text-white">{formatOwnerMoney(l.total_cost, currency, { decimals: 2 })}</span>
                 </div>
               ))}
               {/* Add labor form */}
@@ -445,15 +454,15 @@ export default function JobCardPage() {
         <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 border-t dark:border-gray-700">
           <div className="flex justify-between text-sm">
             <span className="text-gray-500 dark:text-gray-400">{t("jcPartsLabel", "Parts")}</span>
-            <span className="dark:text-gray-300">{job.parts_total?.toLocaleString()} {currency}</span>
+            <span className="dark:text-gray-300">{formatOwnerMoney(job.parts_total, currency, { decimals: 2 })}</span>
           </div>
           <div className="flex justify-between text-sm mt-1">
             <span className="text-gray-500 dark:text-gray-400">{t("jcLaborLabel", "Labor")}</span>
-            <span className="dark:text-gray-300">{job.labor_total?.toLocaleString()} {currency}</span>
+            <span className="dark:text-gray-300">{formatOwnerMoney(job.labor_total, currency, { decimals: 2 })}</span>
           </div>
           <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t dark:border-gray-600 dark:text-white">
             <span>{t("jcTotal", "Total")}</span>
-            <span>{job.grand_total?.toLocaleString()} {currency}</span>
+            <span>{formatOwnerMoney(job.grand_total, currency, { decimals: 2 })}</span>
           </div>
         </div>
       </div>

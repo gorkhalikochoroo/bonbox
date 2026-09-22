@@ -61,7 +61,9 @@ import {
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAuth } from "../hooks/useAuth";
 import { useConfirm } from "../hooks/useConfirm";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { safeExternalUrl } from "../utils/safeUrl";
 import PageShell from "../components/ui/PageShell";
 import PageHeader from "../components/ui/PageHeader";
@@ -600,7 +602,12 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [showManual, setShowManual] = useState(false);
-  const fmt = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  // Money notation follows the ACCOUNT currency, never the browser locale:
+  // a DK owner on an EN browser must read "1.234,56 kr.", not "1,234.56".
+  const { user } = useAuth();
+  const currency = displayCurrency(user?.currency);
+  // Bank/MobilePay transaction lines are ledger-exact → 2 decimals.
+  const fmt = (v) => formatOwnerMoney(v, currency, { decimals: 2 });
 
   const isSyncing = syncing === conn.id;
 

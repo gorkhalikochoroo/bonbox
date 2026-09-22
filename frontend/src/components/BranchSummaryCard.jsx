@@ -38,7 +38,8 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import Amount from "./ui/Amount";
 import { useBranch } from "./BranchSelector";
 
 
@@ -75,7 +76,7 @@ export default function BranchSummaryCard() {
         <span className="text-[12px] text-gray-500 dark:text-gray-400">
           {(t("branchSummaryTotal") || "Total {amount}").replace(
             "{amount}",
-            `${Math.round(totalRev).toLocaleString()} ${currency}`,
+            formatOwnerMoney(totalRev, currency, { decimals: 0 }),
           )}
         </span>
       </div>
@@ -106,7 +107,7 @@ export default function BranchSummaryCard() {
                   )}
                 </span>
                 <span className="text-[13px] tabular-nums font-semibold text-gray-900 dark:text-gray-100 shrink-0">
-                  {Math.round(b.month_revenue).toLocaleString()} {currency}
+                  <Amount value={b.month_revenue} currency={currency} decimals={0} />
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-600/60 overflow-hidden">
@@ -116,7 +117,10 @@ export default function BranchSummaryCard() {
                 />
               </div>
               <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-3">
-                <span>{(t("branchSummaryProfit") || "profit")}: {Math.round(b.month_profit).toLocaleString()} {currency}</span>
+                <span>
+                  {(t("branchSummaryProfit") || "profit")}:{" "}
+                  <Amount value={b.month_profit} currency={currency} decimals={0} />
+                </span>
                 {isActive && (
                   <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                     ✓ {t("branchSummaryActive") || "scoped to this branch"}

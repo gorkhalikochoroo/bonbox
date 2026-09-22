@@ -44,7 +44,7 @@ import {
 } from "../components/BonBoxPolishKit";
 import ReceiptCapture from "../components/ReceiptCapture";
 import SmartSaleInput from "../components/SmartSaleInput";
-import { displayCurrency, getTaxConfig } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, getTaxConfig } from "../utils/currency";
 import { localIso, dateLocale } from "../utils/dateFormat";
 import { reorderNeededItems } from "../utils/inventoryReorder";
 
@@ -366,7 +366,7 @@ export default function DashboardPage() {
         ? `quick_sale ${amount} ${currency} moms_fri`
         : `quick_sale ${amount} ${currency} ${inclMoms ? "incl" : "excl"}_moms`;
       trackEvent("sale_logged", "dashboard", trackLabel);
-      showToast(`${t("saleLogged")} ${amount.toLocaleString()} ${currency}`, "success");
+      showToast(`${t("saleLogged")} ${formatOwnerMoney(amount, currency, { decimals: 2 })}`, "success");
       fetchAll();
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch {

@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { localIso } from "../utils/dateFormat";
 import { safeImageUrl } from "../utils/safeUrl";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 
 // §42 fradrag % from the canonical DK category name — mirrors dk_fradrag.py so
 // the owner sees WHY a meal/gift deducts less, in the open. Display only; the
@@ -21,10 +22,15 @@ function fradragPct(name) {
  * every money total until approved (the S0 gate), so this is pure upside:
  * nothing it shows has touched the MOMS bill yet. Self-hides when empty.
  */
-export default function GodkendKo({ getCatName, currency = "kr.", onApproved, onEdit, refreshToken }) {
+export default function GodkendKo({ getCatName, currency = "DKK", onApproved, onEdit, refreshToken }) {
   const { t } = useLanguage();
   const [drafts, setDrafts] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Currency lives on the ACCOUNT, never the browser: amounts route through
+  // formatOwnerMoney (DKK → "1.113,50 kr.", da-DK grouping). The missing-
+  // amount branch still renders "— <unit>", now in the same notation as the
+  // rows beside it instead of a bare ISO code.
+  const unit = displayCurrency(currency) === "DKK" ? "kr." : displayCurrency(currency);
 
   const load = useCallback(async () => {
     try {
@@ -154,7 +160,7 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
                   <div className="flex justify-between gap-2">
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{d.description || catName}</span>
                     <span className={`text-sm font-medium tabular-nums shrink-0 ${noAmount ? "text-gray-400" : "text-gray-900 dark:text-gray-100"}`}>
-                      {noAmount ? `— ${currency}` : `${parseFloat(d.amount).toLocaleString()} ${currency}`}
+                      {noAmount ? `— ${unit}` : formatOwnerMoney(d.amount, currency, { decimals: 2 })}
                     </span>
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2 truncate">{catName} · {d.date}</div>
@@ -171,7 +177,7 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
                     ) : noRate ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
                         <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />
-                        {t("koMissingRate", "Needs an exchange rate")} · {d.original_amount} {d.currency}
+                        {t("koMissingRate", "Needs an exchange rate")} · {formatOwnerMoney(d.original_amount, d.currency, { decimals: 2 })}
                       </span>
                     ) : noMethod ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">

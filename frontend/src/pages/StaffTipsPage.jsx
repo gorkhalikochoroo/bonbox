@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { formatDate, localIso, localDaysAgo, dateLocale } from "../utils/dateFormat";
 import { formatHoursMinutes, formatHoursNumber } from "../utils/hours";
@@ -408,7 +408,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
             <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDC65"} {t("stStaffDistribution", "Staff Distribution")}</h2>
             {amount > 0 && (
               <span className="text-sm font-semibold text-emerald-600 dark:text-gray-300">
-                {amount.toLocaleString()} {currency}
+                {formatOwnerMoney(amount, currency, { decimals: 2 })}
               </span>
             )}
           </div>
@@ -504,7 +504,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                     </td>
                     <td className="px-5 py-3 text-right">
                       <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">
-                        {row.share_amount > 0 ? row.share_amount.toLocaleString() : "\u2014"} {row.share_amount > 0 ? currency : ""}
+                        {row.share_amount > 0 ? formatOwnerMoney(row.share_amount, currency, { decimals: 2 }) : "\u2014"}
                       </span>
                     </td>
                   </tr>
@@ -536,7 +536,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-right text-sm font-bold text-emerald-600 dark:text-gray-300">
-                    {distributionTotal > 0 ? `${distributionTotal.toLocaleString()} ${currency}` : "\u2014"}
+                    {distributionTotal > 0 ? formatOwnerMoney(distributionTotal, currency, { decimals: 2 }) : "\u2014"}
                   </td>
                 </tr>
               </tfoot>
@@ -597,7 +597,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   </div>
                   <div className="flex justify-between text-sm font-bold pt-2 border-t dark:border-gray-600 dark:text-white">
                     <span>{t("stTotalTips", "Total Tips")}</span>
-                    <span className="text-emerald-600 dark:text-gray-300">{amount.toLocaleString()} {currency}</span>
+                    <span className="text-emerald-600 dark:text-gray-300">{formatOwnerMoney(amount, currency, { decimals: 2 })}</span>
                   </div>
                 </div>
 
@@ -609,7 +609,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                         <p className="text-xs text-gray-400">{d.share_pct.toFixed(1)}% {t("stShareSuffix", "share")}</p>
                       </div>
                       <span className="text-lg font-bold text-emerald-600 dark:text-gray-300">
-                        {d.share_amount.toLocaleString()} {currency}
+                        {formatOwnerMoney(d.share_amount, currency, { decimals: 2 })}
                       </span>
                     </div>
                   ))}
@@ -618,7 +618,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                 {/* Rounding note */}
                 {Math.abs(distributionTotal - amount) > 0.01 && (
                   <p className="text-xs text-gray-400 text-center">
-                    {t("stRoundingDiff", "Rounding difference:")} {(amount - distributionTotal).toFixed(2)} {currency}
+                    {t("stRoundingDiff", "Rounding difference:")} {formatOwnerMoney(amount - distributionTotal, currency, { decimals: 2 })}
                   </p>
                 )}
               </div>
@@ -643,7 +643,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
             disabled={saving || amount <= 0 || amountRejected}
             className="w-full py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
           >
-            {saving ? t("stDistributing", "Distributing...") : `\uD83D\uDCB0 ${t("stDistribute", "Distribute")} ${amount > 0 ? amount.toLocaleString() + " " + currency : t("tips", "Tips")}`}
+            {saving ? t("stDistributing", "Distributing...") : `\uD83D\uDCB0 ${t("stDistribute", "Distribute")} ${amount > 0 ? formatOwnerMoney(amount, currency, { decimals: 2 }) : t("tips", "Tips")}`}
           </button>
 
           {/* Tax reminder */}
@@ -705,7 +705,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("stTotalDistributed", "Total Distributed")}</p>
           <p className="text-lg font-bold text-emerald-600 dark:text-gray-300 mt-1">
-            {totalTips.toLocaleString()} {currency}
+            {formatOwnerMoney(totalTips, currency, { decimals: 2 })}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
@@ -756,7 +756,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                     </div>
                     <div className="text-right flex flex-col items-end gap-2">
                       <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">
-                        {(parseFloat(tip.total_amount) || 0).toLocaleString()} {currency}
+                        {formatOwnerMoney(parseFloat(tip.total_amount) || 0, currency, { decimals: 2 })}
                       </p>
                       {isConfirmed ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
@@ -775,7 +775,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                     <div className="flex flex-wrap gap-2 mt-3">
                       {distributions.slice(0, 3).map((d, i) => (
                         <span key={i} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
-                          {d.staff_name || d.name || `Staff #${d.staff_id}`}: {(parseFloat(d.amount) || 0).toLocaleString()}
+                          {d.staff_name || d.name || `Staff #${d.staff_id}`}: {formatOwnerMoney(parseFloat(d.amount) || 0, currency, { decimals: 2 })}
                         </span>
                       ))}
                       {distributions.length > 3 && (
@@ -803,7 +803,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                             </p>
                           </div>
                           <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">
-                            {(parseFloat(d.amount) || 0).toLocaleString()} {currency}
+                            {formatOwnerMoney(parseFloat(d.amount) || 0, currency, { decimals: 2 })}
                           </span>
                         </div>
                       ))}

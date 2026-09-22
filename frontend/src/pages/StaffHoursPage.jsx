@@ -1353,8 +1353,44 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   );
 }
 
+/**
+ * Order the per-staff rows the way an owner reads them before paying.
+ *
+ * Exported so its tests exercise THIS function and not a copy of it — a
+ * comparator duplicated into a test file drifts from the shipped one the first
+ * time either is edited, and the suite keeps passing while the screen is wrong.
+ *
+ * Worked first, most hours first, everyone else alphabetical (Danish collation
+ * — Æ Ø Å sort after z). Nobody is filtered: a rostered no-show is what the
+ * DIFF column is for, and hiding them would hide the shift needing an answer.
+ */
+export function orderForPaying(summary) {
+  const list = [...(summary || [])];
+  list.sort((a, b) => {
+    const ah = Number(a.actual_hours) || 0;
+    const bh = Number(b.actual_hours) || 0;
+    if ((ah > 0) !== (bh > 0)) return bh > 0 ? 1 : -1;
+    if (ah !== bh) return bh - ah;
+    return (a.staff_name || "").localeCompare(b.staff_name || "", "da");
+  });
+  return list;
+}
+
 function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency, onResolved }) {
   const { t, lang } = useLanguage();
+  // ORDER. The server builds these rows from a set union, so they arrived in
+  // no order at all — and on a 16-person roster where two people worked, the
+  // fourteen zero-hour rows landed wherever, burying the two the owner is
+  // actually about to pay. BonBox does not run payroll; this table IS the
+  // thing an owner reads before paying, so it has to lead with the people who
+  // have hours.
+  //
+  // Worked first, most hours first. Everyone else keeps their place below,
+  // alphabetically, so the list is stable between loads — a table that
+  // reshuffles on every refresh cannot be trusted to have been read.
+  // Nobody is hidden: a rostered no-show is exactly what the DIFF column is
+  // for, and dropping them would hide the shift that needs an answer.
+  const rows = useMemo(() => orderForPaying(summary), [summary]);
   const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
   // Same server field the rows read, so the chip and the rows can never
   // disagree about how many shifts are unanswered.
@@ -1471,7 +1507,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {summary.map((row, idx) => {
+            {rows.map((row, idx) => {
               // Server-computed, per SHIFT. Falls back to the old aggregate
               // reading only for a backend that has not shipped worst_state yet
               // — and that fallback deliberately reports NOTHING rather than
