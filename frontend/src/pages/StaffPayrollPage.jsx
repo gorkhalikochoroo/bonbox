@@ -7,6 +7,7 @@ import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatHours } from "../utils/hours";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
@@ -21,10 +22,11 @@ function fmtMoney(n, cur) {
   return `${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
 }
 
-function fmtHours(h) {
-  if (h == null) return "—";
-  return `${Number(h).toFixed(1)}h`;
-}
+// Hours are NOT formatted here. The unit belongs to the language — this page
+// typed a hardcoded "h", so a Danish owner read an English unit on a payroll
+// figure. formatHours() from utils/hours.js is the one source; these are pay
+// QUANTITIES multiplied by a rate, so they keep the decimal form (6,8 t),
+// not the spoken duration form (6 t 48 min).
 
 function periodLabel(start, end) {
   if (!start || !end) return "—";
@@ -49,7 +51,7 @@ const REASON_OPTIONS = [
    ═══════════════════════════════════════════════════════════ */
 export default function StaffPayrollPage() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const currency = displayCurrency(user?.currency);
   // A manager reaches this tab (/staff/hours is not an ownerOnly destination)
   // and keeps the wage-cost estimate they build rotas against. The two payroll
@@ -587,7 +589,7 @@ export default function StaffPayrollPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                        {fmtHours(h.total_hours || 0)}
+                        {formatHours(h.total_hours || 0, { lang })}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {fmtMoney(totalEarned, currency)}
@@ -658,7 +660,7 @@ export default function StaffPayrollPage() {
                         <p className="text-xs text-gray-500 dark:text-gray-400">{row.role} · {row.contract_type}</p>
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
-                        {fmtHours(row.hours)}
+                        {formatHours(row.hours, { lang })}
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
                         {fmtMoney(row.base_earned, currency)}
@@ -693,7 +695,7 @@ export default function StaffPayrollPage() {
                       {t("payrollGrandTotal", "Grand Total ({count} staff)").replace("{count}", payrollRows.length)}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
-                      {fmtHours(totals.hours)}
+                      {formatHours(totals.hours, { lang })}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
                       {fmtMoney(totals.base_earned, currency)}
@@ -719,7 +721,7 @@ export default function StaffPayrollPage() {
             >
               {t("payrollPreviewSummaryTap", "{count} staff · {hours} · {total} total — tap to see per-staff")
                 .replace("{count}", payrollRows.length)
-                .replace("{hours}", fmtHours(totals.hours))
+                .replace("{hours}", formatHours(totals.hours, { lang }))
                 .replace("{total}", fmtMoney(totals.total, currency))}
             </button>
           )}
@@ -836,7 +838,7 @@ export default function StaffPayrollPage() {
                           {dkEstimate.per_staff.map((s) => (
                             <tr key={s.staff_id} className="border-b border-gray-100 dark:border-gray-800">
                               <td className="py-1.5 px-2">{s.name}</td>
-                              <td className="py-1.5 px-2 text-right">{s.hours.toFixed(1)}</td>
+                              <td className="py-1.5 px-2 text-right">{formatHours(s.hours, { lang })}</td>
                               <td className="py-1.5 px-2 text-right">{fmtMoney(s.gross, currency)}</td>
                               <td className="py-1.5 px-2 text-right">{fmtMoney(s.am_bidrag, currency)}</td>
                               <td className="py-1.5 px-2 text-right">{fmtMoney(s.a_skat, currency)}</td>

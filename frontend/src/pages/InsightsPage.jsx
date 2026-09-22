@@ -309,7 +309,7 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
         </p>
       )}
       <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2">
-        {t("insDetected", "Detected")} {timeAgo(pattern.detected_at)}{" "}
+        {t("insDetected", "Detected")} {timeAgo(pattern.detected_at, t)}{" "}
         {pattern.valid_until && pattern.state === "active" && (
           <>· {t("insValidUntil", "valid until")} {new Date(pattern.valid_until).toLocaleDateString()}</>
         )}
@@ -397,12 +397,17 @@ function EmptyState({ filter }) {
   );
 }
 
-function timeAgo(iso) {
+// Relative timestamp, NOT a duration — so this does not use utils/hours.js.
+// The unit belongs to the language, so the whole string comes from the t()
+// catalogue (justNow / minutesAgo / hoursAgo / daysAgo — en + da + tr).
+// Under a minute collapses to "just now": the catalogue has no seconds key,
+// and a hardcoded "{n}s ago" is the English-on-a-Danish-screen defect again.
+function timeAgo(iso, t) {
   if (!iso) return "—";
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-  if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
+  if (sec < 60) return t("justNow", "just now");
+  if (sec < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(sec / 60) });
+  if (sec < 86400) return t("hoursAgo", "{n}h ago", { n: Math.floor(sec / 3600) });
+  if (sec < 604800) return t("daysAgo", "{n}d ago", { n: Math.floor(sec / 86400) });
   return new Date(iso).toLocaleDateString();
 }

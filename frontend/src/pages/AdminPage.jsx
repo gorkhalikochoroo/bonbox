@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useConfirm } from "../hooks/useConfirm";
+import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import {
@@ -23,6 +24,9 @@ import {
  */
 export default function AdminPage() {
   const { user } = useAuth();
+  // Used only by relativeTime() below — the "N hours ago" stamps in the user,
+  // signup and security tables used to be hardcoded English.
+  const { t } = useLanguage();
 
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
@@ -305,8 +309,8 @@ export default function AdminPage() {
                     </td>
                     <td className="px-2 py-2 text-right font-mono">{u.event_count}</td>
                     <td className="px-2 py-2 text-right font-mono">{u.active_days}</td>
-                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.last_active ? relativeTime(u.last_active) : "never"}</td>
-                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{relativeTime(u.created_at)}</td>
+                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{u.last_active ? relativeTime(u.last_active, t) : "never"}</td>
+                    <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{relativeTime(u.created_at, t)}</td>
                     <td className="px-2 py-2 text-right">
                       <LockToggle user={u} onChange={() => api.get("/admin/users", { params: { limit: 100 } }).then(r => setUsers(r.data))} />
                     </td>
@@ -336,7 +340,7 @@ export default function AdminPage() {
                 const denied = s.event_type.startsWith("admin_denied");
                 return (
                   <tr key={s.id} className={`border-b border-gray-100 dark:border-gray-800 ${denied ? "bg-red-50/40 dark:bg-red-900/10" : ""}`}>
-                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300">{relativeTime(s.created_at)}</td>
+                    <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300">{relativeTime(s.created_at, t)}</td>
                     <td className="px-2 py-1.5">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${denied ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"}`}>
                         {s.event_type}
@@ -383,7 +387,7 @@ export default function AdminPage() {
                 {recentErrors.map((e) => (
                   <tr key={e.id} className="border-b border-gray-100 dark:border-gray-800 align-top">
                     <td className="px-2 py-1.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                      {e.created_at ? relativeTime(e.created_at) : "—"}
+                      {e.created_at ? relativeTime(e.created_at, t) : "—"}
                     </td>
                     <td className="px-2 py-1.5">
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300">
@@ -619,15 +623,20 @@ function pct(part, whole) {
   return Math.round((part / whole) * 100);
 }
 
-function relativeTime(iso) {
+// Relative timestamp, NOT a duration — so this does not use utils/hours.js.
+// The unit belongs to the language, so the whole string comes from the t()
+// catalogue (justNow / minutesAgo / hoursAgo / daysAgo — en + da + tr).
+// Under a minute collapses to "just now": the catalogue has no seconds key,
+// and a hardcoded "{n}s ago" is the same hardcoded-English defect.
+function relativeTime(iso, t) {
   if (!iso) return "—";
   const then = new Date(iso);
   if (isNaN(then)) return iso;
   const sec = Math.floor((Date.now() - then.getTime()) / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-  if (sec < 86400 * 7) return `${Math.floor(sec / 86400)}d ago`;
+  if (sec < 60) return t("justNow", "just now");
+  if (sec < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(sec / 60) });
+  if (sec < 86400) return t("hoursAgo", "{n}h ago", { n: Math.floor(sec / 3600) });
+  if (sec < 86400 * 7) return t("daysAgo", "{n}d ago", { n: Math.floor(sec / 86400) });
   return then.toLocaleDateString();
 }
 

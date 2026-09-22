@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { errText } from "../utils/errText";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * AdminSupportPage — the founder's triage inbox for in-app support tickets
@@ -19,15 +20,20 @@ import { errText } from "../utils/errText";
  * (Reply-keep-open) and they'd silently vanish. "Active" = open + responded.
  */
 
-function relativeTime(iso) {
+// Relative timestamp, NOT a duration — so this does not use utils/hours.js.
+// The unit belongs to the language, so the whole string comes from the t()
+// catalogue (justNow / minutesAgo / hoursAgo / daysAgo — en + da + tr).
+// Under a minute collapses to "just now": the catalogue has no seconds key,
+// and a hardcoded "{n}s ago" is the same hardcoded-English defect.
+function relativeTime(iso, t) {
   if (!iso) return "—";
   const then = new Date(iso);
   if (isNaN(then)) return iso;
   const sec = Math.floor((Date.now() - then.getTime()) / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-  if (sec < 86400 * 7) return `${Math.floor(sec / 86400)}d ago`;
+  if (sec < 60) return t("justNow", "just now");
+  if (sec < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(sec / 60) });
+  if (sec < 86400) return t("hoursAgo", "{n}h ago", { n: Math.floor(sec / 3600) });
+  if (sec < 86400 * 7) return t("daysAgo", "{n}d ago", { n: Math.floor(sec / 86400) });
   return then.toLocaleDateString();
 }
 
@@ -55,6 +61,8 @@ function prettyContext(ctx) {
 }
 
 export default function AdminSupportPage() {
+  // Used only by relativeTime() below — the ticket age stamps were English-only.
+  const { t } = useLanguage();
   const [tickets, setTickets] = useState([]);
   const [count, setCount] = useState(0);
   const [filter, setFilter] = useState("active"); // active (open+responded) | all | closed
@@ -183,7 +191,7 @@ export default function AdminSupportPage() {
                         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{tk.kind}</span>
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
-                        {tk.owner_email || "unknown"} · {relativeTime(tk.created_at)}
+                        {tk.owner_email || "unknown"} · {relativeTime(tk.created_at, t)}
                       </div>
                     </div>
                   </button>

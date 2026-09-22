@@ -16,6 +16,7 @@ import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, C
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+import { formatHoursMinutes } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
@@ -1191,7 +1192,7 @@ function fmtDist(m) {
 }
 
 function useClock(token) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [st, setSt] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1281,7 +1282,11 @@ function useClock(token) {
         // too short and discarded server-side — say so plainly. No silent flip.
         const d = res.data || {};
         const mins = Math.round((d.worked_hours || 0) * 60);
-        const dur = mins >= 60 ? `${Math.floor(mins / 60)}t ${mins % 60}m` : `${mins}m`;
+        // A duration someone worked — the thing a person says out loud. Unit
+        // comes from the language (hours.js), never typed here: this line used
+        // to hardcode the Danish "t" on a screen an English or Turkish worker
+        // reads too.
+        const dur = formatHoursMinutes(mins / 60, { lang });
         setResult(
           d.discarded
             ? t("portalClockTooShort", "Too short — nothing logged.")
@@ -1319,12 +1324,9 @@ function useClock(token) {
     }
   };
 
-  const fmtDur = (min) => {
-    if (min == null) return "—";
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return h > 0 ? `${h}t ${m}m` : `${m}m`;
-  };
+  // A worked duration. formatHoursMinutes takes HOURS, so convert first, and
+  // it renders "—" for an unknown value on its own.
+  const fmtDur = (min) => formatHoursMinutes(min == null ? null : min / 60, { lang });
 
   // Live elapsed: starts at "0s" on clock-in (server returns elapsed_sec≈0),
   // ticks seconds for the first hour (proof it's alive), then calm "Xt Ym".
@@ -1334,7 +1336,10 @@ function useClock(token) {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const ss = s % 60;
-    if (h > 0) return `${h}t ${m}m`;
+    // Past the first hour: hand the FLOORED whole minutes to the formatter (as
+    // hours) so a live counter never rounds itself a minute ahead, and the unit
+    // comes from the language instead of a hardcoded Danish "t".
+    if (h > 0) return formatHoursMinutes(Math.floor(s / 60) / 60, { lang });
     if (m > 0) return `${m}m ${String(ss).padStart(2, "0")}s`;
     return `${ss}s`;
   };
@@ -1787,14 +1792,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Clock-in is time-locked until the owner's window opens (server-authoritative
   // via clock.st.locked/opens_at). Only meaningful before a punch.
   const clockLocked = !!(clock?.st?.locked) && !clock?.st?.clocked_in;
-  const hUnit = t("portalHrsCompact", "h");
-  // Format decimal hours as "7t" / "6t 15m" (unit is locale "t"/"h").
-  const fmtHM = (h) => {
-    if (h == null) return "—";
-    const mm = Math.round(Number(h) * 60);
-    const H = Math.floor(mm / 60), M = mm % 60;
-    return M ? `${H}${hUnit} ${M}m` : `${H}${hUnit}`;
-  };
+  // A shift's length — a duration, so it goes through the one formatter. It
+  // used to take its HOUR unit from t("portalHrsCompact") and type its MINUTE
+  // unit inline: a hybrid that read "6t 15m" in Danish (glued, wrong minute
+  // word) and "6h 15m" in Turkish, where the catalogue has no key and the unit
+  // is "sa"/"dk". hours.js owns both units now.
+  const fmtHM = (h) => formatHoursMinutes(h == null ? null : Number(h), { lang });
   // Gross span = net (paid) + unpaid break — both come from the owner's roster.
   const grossHrs = (s) => (Number(s?.net_hours) || 0) + (Number(s?.break_minutes) || 0) / 60;
 

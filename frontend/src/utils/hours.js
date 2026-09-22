@@ -53,6 +53,28 @@ function decimalMark(lang) {
 }
 
 /**
+ * The NUMBER only, with the language's decimal mark and no unit.
+ *
+ * For the one shape where repeating the unit reads badly: a ratio that states
+ * it once, "(38/160 t)". Everywhere else use formatHours — a bare number with
+ * no unit anywhere near it is how "38" ends up meaning minutes to somebody.
+ *
+ * It still lives here, because the decimal mark is the same rule as the unit
+ * and the narrative banner was rendering String(6.8) as "6.8" under a Danish
+ * "t" for exactly as long as it had its own substitution.
+ */
+export function formatHoursNumber(value, lang = "en", decimals = 1) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (value == null || value === "" || !Number.isFinite(n)) return "—";
+  const factor = 10 ** decimals;
+  const r = Math.round(n * factor) / factor;
+  const s = Number.isInteger(r)
+    ? String(r)
+    : r.toFixed(decimals).replace(/0+$/, "").replace(/[.,]$/, "");
+  return s.replace(".", decimalMark(lang));
+}
+
+/**
  * Format a number of hours for display.
  *
  * @param {number|null|undefined} value

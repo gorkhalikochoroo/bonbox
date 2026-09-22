@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { formatHours, hoursUnit } from "../utils/hours";
 import MoneyField from "../components/ui/MoneyField";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
@@ -227,7 +228,7 @@ export function NewJobPage() {
 export default function JobCardPage() {
   const { id } = useParams();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const currency = displayCurrency(user?.currency);
   // Unit cost and rate-per-hour are money the owner types — text boxes,
   // strict parser, the ACCOUNT's notation. Qty and Hours beside them stay
@@ -407,7 +408,17 @@ export default function JobCardPage() {
                 <div key={l.id} className="flex justify-between items-center text-sm py-2 border-b dark:border-gray-700 last:border-0">
                   <div>
                     <p className="font-medium dark:text-white">{l.description}</p>
-                    <p className="text-xs text-gray-400">{l.mechanic_name} · {l.hours}h × {l.hourly_rate.toLocaleString()} {currency}/hr</p>
+                    {/* A pay line, not a working-time register: these hours are
+                        MULTIPLIED by the rate beside them, so the decimal form
+                        is the one that ties out against total_cost — "2,25 t ×
+                        450 kr/t" reads as its own arithmetic, "2 t 15 min ×
+                        450 kr/t" does not. 2 decimals because the raw value was
+                        printed unrounded before; 1 would crush 2,25 to 2,3 and
+                        silently stop matching the total on the right.
+                        The rate's denominator is an hour unit too — "/hr" typed
+                        here put an English unit on a Danish invoice line, so it
+                        comes from hoursUnit() like everything else. */}
+                    <p className="text-xs text-gray-400">{l.mechanic_name} · {formatHours(l.hours, { lang, decimals: 2 })} × {l.hourly_rate.toLocaleString()} {currency}/{hoursUnit(lang)}</p>
                   </div>
                   <span className="font-semibold dark:text-white">{l.total_cost.toLocaleString()} {currency}</span>
                 </div>

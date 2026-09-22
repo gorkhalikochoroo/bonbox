@@ -7,7 +7,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
-import { formatHours, hoursUnit } from "../utils/hours";
+import { formatHours, formatHoursNumber, hoursUnit } from "../utils/hours";
 import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -612,14 +612,27 @@ const NAR_KEY = {
   trust_caveat: "hovNarTrustCaveat",
 };
 
-function fillNarrative(t, currencyCode, line) {
+// Hour params that stand ALONE in the sentence — they carry their own unit,
+// so the catalogue string must not also spell one.
+const NAR_HOUR_PARAMS = new Set(["hours", "diff", "delta"]);
+// Hour params inside a ratio, "(38/160 t)". The unit is stated once by the
+// string; these are numbers, but they still need the language's decimal mark.
+const NAR_HOUR_RATIO_PARAMS = new Set(["actual", "limit"]);
+
+function fillNarrative(t, currencyCode, line, lang) {
   const key = NAR_KEY[line?.code];
   if (!key) return null;
   let s = t(key, line.code);
   const p = line.params || {};
   Object.keys(p).forEach((k) => {
-    // Money params are formatted with the currency word; the rest are plain.
-    const v = k === "cost" || k === "gross" ? formatOwnerMoney(p[k], currencyCode) : String(p[k]);
+    // Money params carry the currency word. Hour params carry the hour unit
+    // and the decimal mark — String(6.8) rendered "6.8" under a Danish "t",
+    // which is the same hybrid this page's own hours columns were fixed for.
+    let v;
+    if (k === "cost" || k === "gross") v = formatOwnerMoney(p[k], currencyCode);
+    else if (NAR_HOUR_PARAMS.has(k)) v = formatHours(p[k], { lang });
+    else if (NAR_HOUR_RATIO_PARAMS.has(k)) v = formatHoursNumber(p[k], lang);
+    else v = String(p[k]);
     s = s.split(`{${k}}`).join(v);
   });
   return s;
@@ -829,12 +842,12 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
    HOURS OVERVIEW — one-glance narrative + 4 hero tiles
    ═══════════════════════════════════════════════════════════ */
 function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   if (!lines || lines.length === 0) return null;
   const sevMap = { good: "success", watch: "warn", alert: "critical", info: "info" };
   const iconMap = { success: "CheckCircle2", warn: "AlertTriangle", critical: "AlertTriangle", info: "Clock" };
   const variant = sevMap[severity] || "info";
-  const rendered = lines.map((ln) => fillNarrative(t, currencyCode, ln)).filter(Boolean);
+  const rendered = lines.map((ln) => fillNarrative(t, currencyCode, ln, lang)).filter(Boolean);
   if (rendered.length === 0) return null;
   const [head, ...rest] = rendered;
   // When the period isn't over, close the banner with a muted honesty note so

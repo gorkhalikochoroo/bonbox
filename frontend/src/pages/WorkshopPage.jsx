@@ -5,6 +5,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatHours, formatHoursMinutes } from "../utils/hours";
 import { FadeIn } from "../components/AnimationKit";
 
 const STATUS_FLOW = ["received", "diagnosing", "waiting_parts", "in_progress", "completed", "delivered", "invoiced"];
@@ -212,6 +213,7 @@ function JobList({ jobs, currency, nav }) {
    MECHANIC LEADERBOARD
    ═══════════════════════════════════════════════════════════ */
 function MechanicView({ data, currency }) {
+  const { lang } = useLanguage();
   if (!data?.mechanics?.length) {
     return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
       <p className="text-4xl mb-3">👨‍🔧</p>
@@ -245,7 +247,13 @@ function MechanicView({ data, currency }) {
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs text-gray-500 dark:text-gray-400">
             <div><span className="font-medium dark:text-gray-300">{m.total_jobs}</span> jobs</div>
-            <div><span className="font-medium dark:text-gray-300">{m.total_hours}h</span> total</div>
+            {/* DECIMAL, not "6 t 48 min". This cell is the DENOMINATOR of the
+                one beside it — the backend computes revenue_per_hour as
+                revenue / hours — so the three numbers in this grid have to
+                stay checkable against each other by eye. An hours-and-minutes
+                duration reads better on its own and makes the division
+                impossible to verify. */}
+            <div><span className="font-medium dark:text-gray-300">{formatHours(m.total_hours, { lang, decimals: 1 })}</span> total</div>
             <div><span className="font-medium dark:text-gray-300">{m.revenue_per_hour.toLocaleString()}</span> {currency}/hr</div>
           </div>
         </div>

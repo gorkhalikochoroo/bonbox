@@ -8,6 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { formatDate, localIso, localDaysAgo, dateLocale } from "../utils/dateFormat";
+import { formatHoursMinutes, formatHoursNumber } from "../utils/hours";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
 import { PageHeader, TabPills, Icon } from "../components/ui";
 import { errText } from "../utils/errText";
@@ -131,6 +132,11 @@ export default function StaffTipsPage() {
    TIP ENTRY FORM
    ═══════════════════════════════════════════════════════════ */
 function TipEntryForm({ currency, t, staffMembers, onDone }) {
+  // `t` arrives as a prop here, so there is no hook call in this component and
+  // `lang` was not in scope — the hours total below needs it for the decimal
+  // mark, and a bare reference would have thrown at render, which a green
+  // build cannot see.
+  const { lang } = useLanguage();
   // The tip pot is money the owner types — text box, strict parser, the
   // ACCOUNT's notation (this form receives it as `currency`). The hours and
   // percentage columns beside it stay number inputs: neither is kroner.
@@ -508,7 +514,13 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                 <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50">
                   <td className="px-5 py-3 text-sm font-bold dark:text-white">{t("total", "Total")}</td>
                   <td className="px-3 py-3 text-right text-sm font-semibold dark:text-gray-300">
-                    {totalHours > 0 ? totalHours.toFixed(1) : "\u2014"}
+                    {/* formatHoursNumber, not formatHours: the unit is
+                        already in this column's header, and the cells above
+                        are raw number inputs the owner typed — stamping a unit
+                        on the total alone would read as a different notation
+                        from the column it sums. toFixed(1) handed a Danish
+                        owner "38.5" where they write "38,5". */}
+                    {totalHours > 0 ? formatHoursNumber(totalHours, lang) : "\u2014"}
                   </td>
                   {splitMethod === "role" && <td className="px-3 py-3" />}
                   <td className="px-3 py-3 text-right">
@@ -649,6 +661,9 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
    TIP HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
 function TipHistoryView({ data, currency, t, onRefresh }) {
+  // `t` arrives as a prop, but the hour unit is the LANGUAGE's, not the
+  // catalogue's — so this view reads `lang` straight from the hook.
+  const { lang } = useLanguage();
   const [confirmingId, setConfirmingId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
 
@@ -783,7 +798,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                               {d.staff_name || d.name || `Staff #${d.staff_id}`}
                             </p>
                             <p className="text-xs text-gray-400">
-                              {d.hours ? `${d.hours}h` : ""}{d.hours && d.percentage ? " \u2022 " : ""}
+                              {d.hours ? formatHoursMinutes(parseFloat(d.hours), { lang }) : ""}{d.hours && d.percentage ? " \u2022 " : ""}
                               {d.percentage ? `${parseFloat(d.percentage).toFixed(1)}%` : ""}
                             </p>
                           </div>

@@ -20,9 +20,17 @@
  *    names its own dates. A month stepper answers none of those.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 import { formatHoursMinutes, formatHours, minutesUnit } from "../utils/hours";
 import { periodBounds, stepCursor, TREG_MODES } from "../pages/TimeRegistrationPage";
+
+const PAGE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "pages", "TimeRegistrationPage.jsx"),
+  "utf8",
+);
 
 describe("a duration reads the way a person says it", () => {
   it("Danish gets Danish units and no decimal point in sight", () => {
@@ -70,6 +78,54 @@ describe("a duration reads the way a person says it", () => {
     expect(formatHours(4.04, { lang: "da" })).toBe("4 t");
     expect(formatHours(4.04, { lang: "da", decimals: 2 })).toBe("4,04 t");
     expect(formatHours(6.8, { lang: "en" })).toBe("6.8 h");
+  });
+
+  it("the 4-month average never rounds UP onto the 48 t cap", () => {
+    // Arbejdstidsloven caps the 4-month average at 48 t/uge. At one decimal,
+    // 47,96 renders "48 t" — an employee who is UNDER the statutory cap reads
+    // as sitting exactly on it. For a compliance figure that is the wrong
+    // direction to lose precision, so this page passes decimals: 2.
+    expect(formatHours(47.96, { lang: "da" })).toBe("48 t");          // the trap
+    expect(formatHours(47.96, { lang: "da", decimals: 2 })).toBe("47,96 t");
+    expect(PAGE).toMatch(/weekly_avg_hours, \{ lang, decimals: 2 \}/);
+  });
+
+  it("a staffer with no rows reads '—', not a measured zero", () => {
+    // The backend sends total_hours 0 because there were NO rows; the status
+    // is "gap" and already says "No time registered". "0 min" beside it would
+    // assert somebody worked none, which is a different claim.
+    expect(PAGE).toMatch(/s\.status === "gap" \? "\\u2014"/);
+  });
+});
+
+describe("colour marks an exception, never a value", () => {
+  // The house rule, from StatCard's own docstring: "Color via `accent` is the
+  // EXCEPTION not the rule." On a compliant venue this page must read as one
+  // calm block, so the day something IS wrong it is the only coloured thing
+  // on the screen. A tick on every row is wallpaper.
+
+  it("a headcount is a fact and never takes a colour", () => {
+    expect(PAGE).toMatch(/label=\{t\("tregStaff"[^}]*\}\s*value=\{String\(totals\.staff_count[^)]*\)\}\s*\/>/);
+  });
+
+  it("zero problems stays gray — it is the normal state, not an achievement", () => {
+    expect(PAGE).toMatch(/with_rest_violations \?\? 0\) > 0 \? "warn" : "neutral"/);
+    expect(PAGE).toMatch(/over_weekly_cap \?\? 0\) > 0 \? "critical" : "neutral"/);
+  });
+
+  it("a real breach is the one thing wearing a colour", () => {
+    expect(PAGE).toMatch(/accent=\{totals\.all_compliant \? "success" : "critical"\}/);
+  });
+
+  it("only the states needing an ANSWER get a left rail", () => {
+    // Compliant and "no time registered" rows carry none. Colouring a
+    // compliant row would put an accent on fifteen of sixteen lines and bury
+    // the one that matters.
+    const status = PAGE.slice(PAGE.indexOf("const STATUS = {"), PAGE.indexOf("function fmtDay"));
+    expect(status).toMatch(/warn:.*rail: "border-l-2 border-amber/s);
+    expect(status).toMatch(/over:.*rail: "border-l-2 border-red/s);
+    expect(status).toMatch(/ok:.*rail: ""/s);
+    expect(status).toMatch(/gap:.*rail: ""/s);
   });
 });
 

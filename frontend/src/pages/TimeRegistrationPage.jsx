@@ -71,11 +71,16 @@ export function stepCursor(mode, cursor, dir) {
   return new Date(y, m + dir, 1);
 }
 
+// `rail` is a 2px left edge, and only the two states that need the owner to DO
+// something carry one. Compliant rows get none — a tick on every line is
+// wallpaper, and once everything is coloured nothing is. On a venue where one
+// person in sixteen has a rest issue, that single amber edge is the whole
+// point of the screen.
 const STATUS = {
-  ok:   { dot: "bg-green-500", text: "text-green-700 dark:text-green-400", key: "tregOk",     fb: "Compliant" },
-  warn: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", key: "tregWarn",   fb: "Rest issue" },
-  over: { dot: "bg-red-500",   text: "text-red-700 dark:text-red-400",     key: "tregOver",   fb: "Over weekly cap" },
-  gap:  { dot: "bg-gray-300",  text: "text-gray-500",                       key: "tregGap",    fb: "No time registered" },
+  ok:   { dot: "bg-green-500", text: "text-green-700 dark:text-green-400", key: "tregOk",     fb: "Compliant",           rail: "" },
+  warn: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", key: "tregWarn",   fb: "Rest issue",          rail: "border-l-2 border-amber-400 dark:border-amber-500" },
+  over: { dot: "bg-red-500",   text: "text-red-700 dark:text-red-400",     key: "tregOver",   fb: "Over weekly cap",     rail: "border-l-2 border-red-500 dark:border-red-500" },
+  gap:  { dot: "bg-gray-300",  text: "text-gray-500",                       key: "tregGap",    fb: "No time registered",  rail: "" },
 };
 
 function fmtDay(iso) {
@@ -345,10 +350,28 @@ export default function TimeRegistrationPage() {
 
       {/* Compliance rollup */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* Colour marks an EXCEPTION, never a value. A headcount is a fact and
+            stays gray; a zero stays gray because zero problems is not an
+            achievement to celebrate, it is the normal state. Only a real
+            breach takes a colour, so on a compliant venue this row reads as
+            one calm block and the one day something is wrong, it is the only
+            thing on the page wearing a colour. */}
         <StatCard label={t("tregStaff", "Employees")} value={String(totals.staff_count ?? staff.length)} />
-        <StatCard label={t("tregAllOk", "All compliant")} value={totals.all_compliant ? t("yes", "Yes") : t("no", "No")} />
-        <StatCard label={t("tregRestIssues", "Rest issues")} value={String(totals.with_rest_violations ?? 0)} />
-        <StatCard label={t("tregOverCap", "Over 48h/wk")} value={String(totals.over_weekly_cap ?? 0)} />
+        <StatCard
+          label={t("tregAllOk", "All compliant")}
+          value={totals.all_compliant ? t("yes", "Yes") : t("no", "No")}
+          accent={totals.all_compliant ? "success" : "critical"}
+        />
+        <StatCard
+          label={t("tregRestIssues", "Rest issues")}
+          value={String(totals.with_rest_violations ?? 0)}
+          accent={(totals.with_rest_violations ?? 0) > 0 ? "warn" : "neutral"}
+        />
+        <StatCard
+          label={t("tregOverCap", "Over 48h/wk")}
+          value={String(totals.over_weekly_cap ?? 0)}
+          accent={(totals.over_weekly_cap ?? 0) > 0 ? "critical" : "neutral"}
+        />
       </div>
 
       {/* Legal note */}
@@ -375,7 +398,7 @@ export default function TimeRegistrationPage() {
             const open = expanded === s.staff_id;
             const reg = detail[s.staff_id]?.register;
             return (
-              <Card key={s.staff_id} className="!p-0 overflow-hidden">
+              <Card key={s.staff_id} className={`!p-0 overflow-hidden ${st.rail}`}>
                 <button
                   onClick={() => openStaff(s.staff_id)}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
@@ -388,12 +411,18 @@ export default function TimeRegistrationPage() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatHoursMinutes(s.total_hours, { lang })}</div>
+                    <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                      {/* "No time registered" is a GAP, not a measured zero —
+                          the backend gives 0 because there were no rows, and
+                          the status beside this already says so. "0 min" would
+                          assert somebody worked none. */}
+                      {s.status === "gap" ? "\u2014" : formatHoursMinutes(s.total_hours, { lang })}
+                    </div>
                     {/* The 4-month average stays DECIMAL on purpose: it is the
                         figure Arbejdstidsloven's 48 t/uge cap is measured
                         against, so it should read like the cap it is compared
                         to, not like a duration someone worked. */}
-                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {formatHours(s.weekly_avg_hours, { lang })}/{t("tregWk", "wk")}</div>
+                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {formatHours(s.weekly_avg_hours, { lang, decimals: 2 })}/{t("tregWk", "wk")}</div>
                   </div>
                   <Icon name={open ? "ChevronUp" : "ChevronDown"} size={16} className="text-gray-400 shrink-0" />
                 </button>

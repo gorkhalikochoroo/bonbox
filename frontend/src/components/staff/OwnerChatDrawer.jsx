@@ -15,16 +15,21 @@ import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "./chatPhotoKit";
 
-function timeAgo(dateStr) {
+// Relative timestamp ("3t siden"), NOT a duration — so this deliberately does
+// not go through utils/hours.js. The unit belongs to the language, so the whole
+// string comes from the t() catalogue (justNow / minutesAgo / hoursAgo /
+// daysAgo, present in en + da + tr). It used to hardcode Danish ("nu", "t"),
+// which an English or Turkish owner read on their own screen.
+function timeAgo(dateStr, t) {
   if (!dateStr) return "";
   try {
     const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : `${dateStr}Z`;
     const d = new Date(iso);
     const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (diff < 60) return "nu";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}t`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
+    if (diff < 60) return t("justNow", "just now");
+    if (diff < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(diff / 60) });
+    if (diff < 86400) return t("hoursAgo", "{n}h ago", { n: Math.floor(diff / 3600) });
+    if (diff < 604800) return t("daysAgo", "{n}d ago", { n: Math.floor(diff / 86400) });
     return d.toLocaleDateString();
   } catch {
     return "";
@@ -194,7 +199,7 @@ function Conversation({ endpoint, name, sub, isGroup, onBack, onRead }) {
                 <span className="text-[10px] text-gray-400 mt-0.5 px-1">
                   {m._failed
                     ? t("staffChatFailed", "Not sent — tap to retry")
-                    : timeAgo(m.created_at)}
+                    : timeAgo(m.created_at, t)}
                 </span>
               </div>
             </div>
@@ -462,7 +467,7 @@ export default function OwnerChatDrawer({ open, onClose, onUnreadChange }) {
                                 {g.title}
                               </span>
                               <span className="text-[10px] text-gray-400 shrink-0">
-                                {timeAgo(g.last_message_at)}
+                                {timeAgo(g.last_message_at, t)}
                               </span>
                             </div>
                             <div className="text-[12px] text-gray-500 truncate">
@@ -507,7 +512,7 @@ export default function OwnerChatDrawer({ open, onClose, onUnreadChange }) {
                               {thr.name}
                             </span>
                             <span className="text-[10px] text-gray-400 shrink-0">
-                              {timeAgo(thr.last_message_at)}
+                              {timeAgo(thr.last_message_at, t)}
                             </span>
                           </div>
                           <div className="text-[12px] text-gray-500 truncate">
