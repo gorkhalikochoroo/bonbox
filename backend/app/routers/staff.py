@@ -46,7 +46,7 @@ from datetime import date, date as date_type, datetime, time as dtime, timedelta
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -3624,6 +3624,90 @@ def time_registration_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
+
+
+# ── Register PERIOD preference ────────────────────────────────────────────
+# Route order matters here exactly as it does for /export.csv above: these two
+# literals MUST stay before /{staff_id} or FastAPI matches "preference" as a
+# staff_id. See the note at ~line 3521.
+#
+# WHY THIS IS NOT PayPeriodConfig. That config is the PAY period and says so on
+# screen ("used for Hours and Payroll"). This is a compliance register under
+# Arbejdstidsloven, and the two questions are genuinely different: a venue pays
+# fortnightly and an inspector asks for a quarter. Sharing one setting would
+# mean re-framing payroll to look at a quarter, which is a side effect no owner
+# would expect from a view control. PayPeriodConfig also has no quarter.
+
+_TREG_MODES = ("month", "quarter", "year", "custom")
+
+
+def _load_treg_pref(profile) -> dict:
+    raw = getattr(profile, "timereg_period_json", None) if profile else None
+    try:
+        d = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        d = {}
+    mode = d.get("mode")
+    return {
+        "mode": mode if mode in _TREG_MODES else "month",
+        "custom_from": d.get("custom_from"),
+        "custom_to": d.get("custom_to"),
+    }
+
+
+@router.get("/time-registration/preference")
+def get_time_registration_preference(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The owner's default framing for the working-time register."""
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    return _load_treg_pref(profile)
+
+
+@router.post("/time-registration/preference")
+def set_time_registration_preference(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Save it. A view preference, so it fails soft rather than 500s a page."""
+    mode = payload.get("mode")
+    if mode not in _TREG_MODES:
+        raise HTTPException(422, f"mode must be one of {', '.join(_TREG_MODES)}")
+    cf, ct = payload.get("custom_from"), payload.get("custom_to")
+    if mode == "custom":
+        # A custom default with no dates would silently fall back to month on
+        # every load and look like the setting did not save.
+        if not cf or not ct:
+            raise HTTPException(422, "custom mode needs custom_from and custom_to")
+        if str(cf) > str(ct):
+            raise HTTPException(422, "custom_from must not be after custom_to")
+    else:
+        cf = ct = None
+
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if not profile:
+        profile = BusinessProfile(user_id=user.id)
+        db.add(profile)
+    # Its own column, NOT a key inside clock_settings_json: that blob is
+    # rewritten wholesale by the geofence save (json.dumps of 8 fixed keys), so
+    # anything else stored there is destroyed the next time the owner moves the
+    # geofence pin.
+    profile.timereg_period_json = json.dumps(
+        {"mode": mode, "custom_from": cf, "custom_to": ct}
+    )
+    db.commit()
+    db.refresh(profile)
+    return _load_treg_pref(profile)
 
 
 @router.get("/time-registration/{staff_id}")

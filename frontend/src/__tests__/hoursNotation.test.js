@@ -25,12 +25,23 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GUARDED = [
   "pages/StaffSchedulePage.jsx",
   "pages/StaffHoursPage.jsx",
+  // Added 2026-09-22. This page printed "6.8 t" — a Danish unit with an
+  // English decimal, on an English screen — for as long as it existed,
+  // because the rule was enforced on a hardcoded list of two files and it
+  // was not on the list. The rule was right; its coverage was not.
+  "pages/TimeRegistrationPage.jsx",
 ];
 
-/* `}` immediately followed by a bare h/t — i.e. an interpolation with the unit
-   typed after it. The trailing lookahead keeps `${x}hidden` and `${n}total`
-   out: only a unit STANDING ALONE is a unit. */
-const BARE_UNIT = /\}[ht](?![A-Za-z0-9_])/g;
+/* `}` followed by a bare h/t — i.e. an interpolation with the unit typed
+   after it. The trailing lookahead keeps `${x}hidden` and `${n}total` out:
+   only a unit STANDING ALONE is a unit.
+
+   A SPACE may sit between them: "{s.total_hours} t" is the same defect as
+   "{n}t" and reads identically wrong, and the original pattern missed it.
+   The `=` in the lookahead keeps JSX props out — `t={t}` and `h={dims.h}` are
+   a translate function and a height, not units, and flagging those would
+   teach everyone to ignore this guard. */
+const BARE_UNIT = /\}\s?[ht](?![A-Za-z0-9_=])/g;
 
 describe("hours notation is single-sourced", () => {
   for (const rel of GUARDED) {

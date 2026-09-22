@@ -7,20 +7,68 @@ import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
+import { dateLocale } from "../utils/dateFormat";
 import { useLanguage } from "../hooks/useLanguage";
+// This page printed "6.8 t" — a Danish unit wearing an English decimal, on an
+// English screen — because it typed the unit itself instead of asking
+// utils/hours.js. That is the exact hybrid hours.js was opened to end.
+// formatHoursMinutes, not formatHours, because this is a working-time
+// register: it answers "how long was this person here", and nobody, least of
+// all an inspector, thinks in 6,8 t.
+import { formatHours, formatHoursMinutes } from "../utils/hours";
 import { PageHeader, Button, StatCard, Card, Empty, Icon } from "../components/ui";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import { isNativeApp } from "../utils/platform";
 import { Clock } from "lucide-react";
 
-function monthBounds(d) {
-  const start = new Date(d.getFullYear(), d.getMonth(), 1);
-  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  const iso = (x) => {
-    const o = x.getTimezoneOffset() * 60000;
-    return new Date(x.getTime() - o).toISOString().slice(0, 10);
-  };
-  return { from: iso(start), to: iso(end) };
+/** Local-date ISO. toISOString() alone is UTC, so a Copenhagen owner opening
+    the page late in the evening got yesterday's boundary. */
+const iso = (x) => {
+  const o = x.getTimezoneOffset() * 60000;
+  return new Date(x.getTime() - o).toISOString().slice(0, 10);
+};
+
+export const TREG_MODES = ["month", "quarter", "year", "custom"];
+
+/**
+ * The window the register covers.
+ *
+ * A month was the only option, which is the wrong default for half the
+ * reasons an owner opens this page: Arbejdstidsloven's weekly cap is averaged
+ * over four months, an accountant asks for a quarter, and an Arbejdstilsynet
+ * request names its own dates. Quarter and custom are not conveniences here,
+ * they are the shapes the questions actually come in.
+ */
+export function periodBounds(mode, cursor, customFrom, customTo) {
+  const y = cursor.getFullYear();
+  const m = cursor.getMonth();
+  if (mode === "quarter") {
+    const q0 = Math.floor(m / 3) * 3;
+    return { from: iso(new Date(y, q0, 1)), to: iso(new Date(y, q0 + 3, 0)) };
+  }
+  if (mode === "year") {
+    return { from: iso(new Date(y, 0, 1)), to: iso(new Date(y, 12, 0)) };
+  }
+  if (mode === "custom") {
+    // Incomplete custom dates fall back to the month rather than querying a
+    // half-open range — an empty register reads as "nobody worked", which is
+    // the one thing this page must never imply by accident.
+    if (!customFrom || !customTo) return periodBounds("month", cursor);
+    return customFrom <= customTo
+      ? { from: customFrom, to: customTo }
+      : { from: customTo, to: customFrom };
+  }
+  return { from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) };
+}
+
+/** Step one whole period, not one month, or "next" on a quarter lands inside
+    the same quarter and nothing appears to change. */
+export function stepCursor(mode, cursor, dir) {
+  const y = cursor.getFullYear();
+  const m = cursor.getMonth();
+  if (mode === "quarter") return new Date(y, m + dir * 3, 1);
+  if (mode === "year") return new Date(y + dir, 0, 1);
+  return new Date(y, m + dir, 1);
 }
 
 const STATUS = {
@@ -32,11 +80,14 @@ const STATUS = {
 
 function fmtDay(iso) {
   if (!iso) return "";
-  return new Date(iso + "T00:00:00").toLocaleDateString("da-DK", { weekday: "short", day: "numeric", month: "short" });
+  // Was hardcoded "da-DK", so an English or Turkish session read Danish
+  // weekday names beside English labels. The register is a DK artifact; the
+  // SCREEN is whatever language the owner chose.
+  return new Date(iso + "T00:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
 }
 
 export default function TimeRegistrationPage() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [cursor, setCursor] = useState(() => new Date());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,8 +98,48 @@ export default function TimeRegistrationPage() {
   // Payroll-adjacent export: a failure has to be visible, not an
   // unhandled rejection that looks exactly like success.
   const [downloadError, setDownloadError] = useState("");
+  const [mode, setMode] = useState("month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [prefLoaded, setPrefLoaded] = useState(false);
+  const [savingPref, setSavingPref] = useState(false);
+  const [prefSaved, setPrefSaved] = useState(false);
 
-  const { from, to } = monthBounds(cursor);
+  // The owner's saved default. Loaded once; a failure just leaves the month
+  // default in place — a view preference must never block the register.
+  useEffect(() => {
+    let alive = true;
+    api.get("/staff/time-registration/preference")
+      .then((res) => {
+        if (!alive) return;
+        const p = res.data || {};
+        if (TREG_MODES.includes(p.mode)) setMode(p.mode);
+        if (p.custom_from) setCustomFrom(p.custom_from);
+        if (p.custom_to) setCustomTo(p.custom_to);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setPrefLoaded(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const { from, to } = periodBounds(mode, cursor, customFrom, customTo);
+
+  const saveDefault = async () => {
+    setSavingPref(true);
+    setPrefSaved(false);
+    try {
+      await api.post("/staff/time-registration/preference", {
+        mode,
+        custom_from: mode === "custom" ? from : null,
+        custom_to: mode === "custom" ? to : null,
+      });
+      setPrefSaved(true);
+    } catch (e) {
+      setDownloadError(errText(e, t("tregPrefSaveFailed", "Could not save that as your default.")));
+    } finally {
+      setSavingPref(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,7 +155,10 @@ export default function TimeRegistrationPage() {
     }
   }, [from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  // Wait for the saved default before the first fetch, or the page loads the
+  // month, then immediately reloads the owner's real period — two requests and
+  // a visible flash of the wrong window.
+  useEffect(() => { if (prefLoaded) load(); }, [load, prefLoaded]);
 
   const openStaff = async (sid) => {
     if (expanded === sid) { setExpanded(null); return; }
@@ -94,7 +188,27 @@ export default function TimeRegistrationPage() {
     }
   };
 
-  const monthLabel = cursor.toLocaleDateString("da-DK", { month: "long", year: "numeric" });
+  const periodLabel = (() => {
+    const loc = dateLocale();
+    if (mode === "quarter") {
+      // "K3 2026" in Danish — a Dane writes kvartal, not quarter.
+      const q = Math.floor(cursor.getMonth() / 3) + 1;
+      return `${t("tregQuarterShort", "Q")}${q} ${cursor.getFullYear()}`;
+    }
+    if (mode === "year") return String(cursor.getFullYear());
+    if (mode === "custom") {
+      const d = (s) => new Date(s + "T00:00:00").toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" });
+      return `${d(from)} – ${d(to)}`;
+    }
+    return cursor.toLocaleDateString(loc, { month: "long", year: "numeric" });
+  })();
+
+  const MODE_LABELS = {
+    month: t("tregModeMonth", "Month"),
+    quarter: t("tregModeQuarter", "Quarter"),
+    year: t("tregModeYear", "Year"),
+    custom: t("tregModeCustom", "Custom dates"),
+  };
 
   if (locked) {
     return (
@@ -156,16 +270,78 @@ export default function TimeRegistrationPage() {
         </p>
       )}
 
-      {/* Month nav */}
-      <div className="flex items-center justify-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
-          <Icon name="ChevronLeft" size={18} />
-        </Button>
-        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 capitalize min-w-[140px] text-center">{monthLabel}</span>
-        <Button variant="ghost" size="sm" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>
-          <Icon name="ChevronRight" size={18} />
-        </Button>
-      </div>
+      {/* Period: how the register is framed, and the owner's default. */}
+      <Card className="px-4 py-3 space-y-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mr-1">
+            {t("tregPeriodLabel", "Period")}
+          </span>
+          {TREG_MODES.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => { setMode(m); setPrefSaved(false); }}
+              aria-pressed={mode === m}
+              className={
+                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors " +
+                (mode === m
+                  ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
+              }
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+
+        {mode === "custom" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo || undefined}
+              onChange={(e) => { setCustomFrom(e.target.value); setPrefSaved(false); }}
+              aria-label={t("tregFrom", "From")}
+              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm tabular-nums"
+            />
+            <span className="text-gray-400 text-sm">–</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom || undefined}
+              onChange={(e) => { setCustomTo(e.target.value); setPrefSaved(false); }}
+              aria-label={t("tregTo", "To")}
+              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm tabular-nums"
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => setCursor(stepCursor(mode, cursor, -1))} aria-label={t("previousPeriod", "Previous period")}>
+              <Icon name="ChevronLeft" size={18} />
+            </Button>
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 capitalize min-w-[150px] text-center">{periodLabel}</span>
+            <Button variant="ghost" size="sm" onClick={() => setCursor(stepCursor(mode, cursor, 1))} aria-label={t("nextPeriod", "Next period")}>
+              <Icon name="ChevronRight" size={18} />
+            </Button>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 pt-0.5">
+          <span className="text-[11px] text-gray-400 tabular-nums">{from} → {to}</span>
+          <button
+            type="button"
+            onClick={saveDefault}
+            disabled={savingPref || (mode === "custom" && (!customFrom || !customTo))}
+            className="text-[11px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline disabled:opacity-40 disabled:no-underline"
+          >
+            {prefSaved
+              ? t("tregPrefSaved", "Saved as your default")
+              : savingPref
+                ? t("saving", "Saving…")
+                : t("tregSetDefault", "Make this my default")}
+          </button>
+        </div>
+      </Card>
 
       {/* Compliance rollup */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -212,8 +388,12 @@ export default function TimeRegistrationPage() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">{s.total_hours} t</div>
-                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {s.weekly_avg_hours} t/{t("tregWk", "wk")}</div>
+                    <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatHoursMinutes(s.total_hours, { lang })}</div>
+                    {/* The 4-month average stays DECIMAL on purpose: it is the
+                        figure Arbejdstidsloven's 48 t/uge cap is measured
+                        against, so it should read like the cap it is compared
+                        to, not like a duration someone worked. */}
+                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {formatHours(s.weekly_avg_hours, { lang })}/{t("tregWk", "wk")}</div>
                   </div>
                   <Icon name={open ? "ChevronUp" : "ChevronDown"} size={16} className="text-gray-400 shrink-0" />
                 </button>
@@ -241,7 +421,7 @@ export default function TimeRegistrationPage() {
                               <td className="py-1.5">{fmtDay(e.date)}</td>
                               <td className="py-1.5 tabular-nums">{e.start || "—"}</td>
                               <td className="py-1.5 tabular-nums">{e.end || "—"}</td>
-                              <td className="py-1.5 text-right tabular-nums">{e.hours.toFixed(1)}</td>
+                              <td className="py-1.5 text-right tabular-nums">{formatHoursMinutes(e.hours, { lang })}</td>
                               <td className="py-1.5 text-right">
                                 <span className="text-[10px] uppercase tracking-wide text-gray-400">
                                   {e.source === "clock" ? t("tregClock", "Clock") : t("tregLogged", "Logged")}
@@ -256,7 +436,7 @@ export default function TimeRegistrationPage() {
                       <div className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
                         {detail[s.staff_id].rest_violations.map((v, i) => (
                           <div key={i}>
-                            ⚠ {fmtDay(v.after_date)} → {fmtDay(v.next_date)}: {v.rest_hours}t {t("tregRestGap", "rest")} ({v.shortfall_hours}t {t("tregShort", "short")})
+                            ⚠ {fmtDay(v.after_date)} → {fmtDay(v.next_date)}: {formatHoursMinutes(v.rest_hours, { lang })} {t("tregRestGap", "rest")} ({formatHoursMinutes(v.shortfall_hours, { lang })} {t("tregShort", "short")})
                           </div>
                         ))}
                       </div>

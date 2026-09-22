@@ -222,6 +222,12 @@ class BusinessProfile(Base):
     # of the venue. Location is checked at the INSTANT of clock-in only — never
     # stored or tracked (GDPR). NULL = off (the default).
     clock_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Working-time register view preference (JSON-as-text, same no-migration
+    # pattern as the fields above): {"mode": month|quarter|year|custom,
+    # "custom_from": iso|null, "custom_to": iso|null}. Its OWN column and not a
+    # key in clock_settings_json, because that blob is rewritten wholesale by
+    # the geofence save. NULL = month (the default).
+    timereg_period_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # procedure_json — owner-confirmed answers for the Bogføringsloven § 6
     # procedurebeskrivelse, keyed by skabelon point (see procedure_service.
     # PROCEDURE_POINTS) + saved_at. The PDF regenerates from these on demand.

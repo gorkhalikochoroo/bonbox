@@ -36,6 +36,15 @@ export function hoursUnit(lang) {
   return UNIT_BY_LANG[lang] || "h";
 }
 
+/** The MINUTE unit, same rule and same place as the hour unit above.
+    English glues its units to the digit ("6h 48m"), so it takes the short
+    form; Danish and Turkish space them and take the spoken abbreviation. */
+const MIN_UNIT_BY_LANG = { da: "min", tr: "dk", en: "m" };
+
+export function minutesUnit(lang) {
+  return MIN_UNIT_BY_LANG[lang] || "min";
+}
+
 /** Danish writes 6,25. Keyed on the LANGUAGE, not on the unit — keying it on
     `unit === "t"` gave Turkish an English decimal point under a Turkish unit
     ("38.5 sa"), because only Danish happened to spell its unit "t". */
@@ -60,6 +69,44 @@ function decimalMark(lang) {
  * two pages drifted apart in the first place: give a caller a way to supply
  * its own unit and one of them eventually does.
  */
+/**
+ * Hours and minutes, the way a person says them: "6 t 48 min".
+ *
+ * WHY THIS EXISTS. Decimal hours are the right storage and the right unit for
+ * a pay figure — you multiply 6,8 t by a rate. They are the WRONG unit for a
+ * working-time register, which answers "how long was this person here?" and is
+ * read by an owner and, on an Arbejdstilsynet visit, an inspector. Nobody
+ * thinks in 6,8 t; they think in 6 hours and 48 minutes, and converting in
+ * your head under inspection is exactly when a mistake gets made.
+ *
+ * Kept in THIS module rather than at the call site for the same reason the
+ * decimal form is: the moment a page spells a unit itself, it drifts.
+ *
+ *   6.8  da -> "6 t 48 min"    en -> "6h 48m"
+ *   6.0  da -> "6 t"           en -> "6h"        (no bare "0 min" tail)
+ *   0.57 da -> "34 min"        en -> "34m"       (no misleading "0 t")
+ *   0    da -> "0 min"                            (a real, measured zero)
+ *   null    -> "—"                                (not known — never "0")
+ */
+export function formatHoursMinutes(value, { lang = "en", sign = false } = {}) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (value == null || value === "" || !Number.isFinite(n)) return "—";
+  const neg = n < 0;
+  // Round to the minute FIRST. Rounding hours and minutes independently can
+  // produce "6 t 60 min".
+  const totalMin = Math.round(Math.abs(n) * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const hu = hoursUnit(lang);
+  const mu = minutesUnit(lang);
+  const glue = lang === "en" ? "" : " ";   // "6h 48m" vs "6 t 48 min"
+  const parts = [];
+  if (h) parts.push(`${h}${glue}${hu}`);
+  if (m || !h) parts.push(`${m}${glue}${mu}`);
+  const prefix = neg ? "−" : (sign && totalMin > 0 ? "+" : "");
+  return prefix + parts.join(" ");
+}
+
 export function formatHours(value, { lang = "en", decimals = 1, sign = false } = {}) {
   const n = typeof value === "number" ? value : Number(value);
   if (value == null || value === "" || !Number.isFinite(n)) return "—";
