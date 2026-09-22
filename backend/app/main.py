@@ -4618,6 +4618,47 @@ async def sliding_refresh_middleware(request: Request, call_next):
 # reasoning as the inner-middleware ordering note in the CORS comment).
 app.add_middleware(SlowAPIMiddleware)
 
+# ── Server-Timing ─────────────────────────────────────────────────────────
+# Declared BELOW every other @app.middleware("http") on purpose. Starlette
+# inserts each add_middleware at the FRONT of the list and builds the stack
+# by iterating it in REVERSE, so the LAST one registered is the OUTERMOST
+# wrap (see the CORS note below). Outermost is what we want: the number
+# then covers every guard, not just the handler.
+#
+# WHY. /dashboard/batch takes ~2s and /tax/overview ~1.6s, and three separate
+# attempts to explain that from OUTSIDE the server were wrong: /health/ready
+# caches its DB probe for 15s, so paired health-vs-ready timings measured a
+# cache, not the database; and pg_stat_statements shows none of this app's
+# queries in the top 12 by total time, so it is probably not DB time at all.
+#
+# Guessing from the outside has cost more than instrumenting would have. This
+# emits the standard Server-Timing header, which every browser shows in the
+# network panel, on every response. It is cheap (one perf_counter pair), it
+# leaks nothing (a duration, no query text, no data), and it turns "the
+# dashboard feels slow" into a number anyone can read.
+@app.middleware("http")
+async def server_timing(request: Request, call_next):
+    import time as _t
+    _started = _t.perf_counter()
+    response = await call_next(request)
+    _ms = (_t.perf_counter() - _started) * 1000.0
+    try:
+        existing = response.headers.get("Server-Timing")
+        entry = f"total;dur={_ms:.1f}"
+        response.headers["Server-Timing"] = f"{existing}, {entry}" if existing else entry
+        # Exposed so a browser on www.bonbox.dk can actually read it from a
+        # cross-origin api.bonbox.dk response — without this the header is
+        # present on the wire and invisible to fetch().
+        prev = response.headers.get("Access-Control-Expose-Headers")
+        if "Server-Timing" not in (prev or ""):
+            response.headers["Access-Control-Expose-Headers"] = (
+                f"{prev}, Server-Timing" if prev else "Server-Timing"
+            )
+    except Exception:  # noqa: BLE001 — timing must never break a response
+        pass
+    return response
+
+
 # --- CORS layer registration — keep last (outermost) ---
 # Starlette's `app.add_middleware(...)` inserts at the FRONT of the
 # user-middleware list, then the stack is built by iterating that list in

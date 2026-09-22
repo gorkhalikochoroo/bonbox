@@ -915,7 +915,17 @@ def get_dashboard_batch(
     # Effective revenue resolver — kasserapport closes count toward
     # both windows so the WoW comparison reflects what actually
     # happened on the floor, not just what was rung up as Sale rows.
-    this_week_rev = effective_revenue_total(db, user.id, this_monday, today)
+    # Reuses week_rev from line ~389 instead of re-running the same query.
+    # Both sites ask effective_revenue_total(user, <this Monday>, today): 388
+    # derives the Monday as `today - today.weekday()`, 911 as `today - weekday`
+    # where `weekday = today.weekday()` — the same date — and `today` is
+    # assigned exactly once in this handler, so the two calls were provably
+    # identical. /batch fires ~50 SEQUENTIAL queries and measured ~2s end to
+    # end, so a duplicate is pure waste on the product's front door. (What
+    # that 2s actually consists of is NOT yet known — an earlier attempt to
+    # blame transatlantic round trips was wrong; see the note in
+    # tests/test_dashboard_batch_week_tieout.py.)
+    this_week_rev = week_rev
     last_week_rev = effective_revenue_total(db, user.id, last_monday, last_sunday)
     this_week_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
