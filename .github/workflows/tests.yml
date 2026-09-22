@@ -41,10 +41,42 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+      # MOST tests build their own in-memory SQLite and override get_db, but
+      # not all of them are hermetic: `accountant_write_guard` is HTTP
+      # middleware, so it runs OUTSIDE dependency_overrides and does its role
+      # lookup on the app's own engine. With no database it cannot answer, and
+      # it correctly fails CLOSED with 503 — which surfaced as 42 red tests
+      # (`assert 503 == 200`, `role_check_unavailable`) that look like broken
+      # auth and are really a missing database.
+      #
+      # Locally this is invisible: backend/.env sets DATABASE_URL to a SQLite
+      # file that has accumulated a schema, so the guard always finds its
+      # tables. .env is gitignored, so CI fell through to the config default
+      # (postgresql://…@localhost:5432) and got connection-refused.
+      #
+      # So: point the app at a file SQLite and CREATE THE SCHEMA first. An
+      # empty file is not enough — a fresh DB has zero tables, and the guard
+      # fails exactly as it does with no DB at all.
+      #
+      # This tests the SQLite path, not the Postgres one production runs. That
+      # gap is real and documented (PG and the SQLite migration mirror can
+      # drift); a second PG-backed job is the right follow-up, and it is NOT
+      # written here because it could not be verified on this machine — no
+      # local Postgres, no Docker. An unverified CI job is worse than none.
+      - name: Create the schema the middleware needs
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:///./ci.db
+        run: |
+          python -c "
+          from app.database import Base, engine
+          import app.models  # registers every model on Base.metadata
+          Base.metadata.create_all(engine)
+          "
       - name: pytest
         working-directory: backend
-        # The suite runs against in-memory SQLite and sets _db_ready itself;
-        # it needs no database service and no secrets.
+        env:
+          DATABASE_URL: sqlite:///./ci.db
         run: python -m pytest -q
 
   frontend:
@@ -55,7 +87,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22, not 20, because the dev machine runs 22 and the suite uses
+          # node:fs globSync (added in 22) — on 20 that is `undefined` and
+          # deadInterpolatedFallback.test.js dies with "globSync is not a
+          # function" AFTER 1452 tests pass, which reads like a real failure.
+          # A CI runtime older than the one the code is written on tests a
+          # thing nobody runs. GitHub has also deprecated Node 20 on runners.
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install
@@ -78,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-python@v5
