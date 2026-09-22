@@ -118,6 +118,10 @@ router = APIRouter(dependencies=[Depends(_stash_portal_request)])
 limiter = Limiter(key_func=client_ip)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# How stale staff_links.last_accessed may get before we spend a write on it.
+# See the long note at the write site in _get_staff_from_token.
+_TOUCH_MIN_INTERVAL_S = 120
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Schemas (kept here since they're portal-specific and small)
@@ -290,9 +294,36 @@ def _get_staff_from_token(token: str, db: Session):
             if not _pin_proof_valid(link, proof):
                 raise HTTPException(status_code=401, detail="PIN required")
 
-    # Update last accessed
-    link.last_accessed = utc_now()
-    db.commit()
+    # Update last accessed — THROTTLED.
+    #
+    # This runs on every authenticated portal request, and it was the single
+    # most expensive statement this application issues: pg_stat_statements put
+    # `UPDATE staff_links SET last_accessed` at 95,859 calls and ~14% of total
+    # database time, more than any query that answers an actual question. A
+    # staffer with the portal open generates a steady stream of them, and the
+    # whole estate shares one worker and a 15-connection pool.
+    #
+    # The column's only consumers are the owner's device list and the
+    # activation funnel in admin.py, which both ask "has this person ever
+    # opened their link, and roughly when" — a question minute-granularity
+    # answers exactly as well as per-request granularity does.
+    #
+    # Mirrors _TOUCH_MIN_INTERVAL_S in stand_link.py; the two tables have the
+    # same telemetry-vs-cost shape.
+    now = utc_now()
+    prev = link.last_accessed
+    try:
+        fresh = prev is not None and 0 <= (now - prev).total_seconds() < _TOUCH_MIN_INTERVAL_S
+    except TypeError:
+        # naive/aware mismatch from a future column change — fall through and
+        # write. Telemetry must never decide whether a portal request succeeds.
+        fresh = False
+    if not fresh:
+        link.last_accessed = now
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001 — never fail a staffer's request over telemetry
+            db.rollback()
 
     return link, member
 

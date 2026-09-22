@@ -655,8 +655,9 @@ function AppRoutes() {
                              the TOKEN IN THE PATH instead of an owner session.
             Deliberately NOT wrapped in ProtectedRoute: a door tablet has no
             login, and requiring one is the whole problem this removes. The
-            credential is scoped server-side — it reaches six reservation
-            operations and 404s everything else — so an unauthenticated route
+            credential is scoped server-side — it reaches only the
+            reservation operations wrapped in routers/stand_link.py and
+            404s everything else — so an unauthenticated route
             here cannot expose anything the device is not entitled to. */}
         <Route path="/stand" element={<StandPairPage />} />
         <Route path="/stand/:standToken" element={<StandTokenRoute />} />

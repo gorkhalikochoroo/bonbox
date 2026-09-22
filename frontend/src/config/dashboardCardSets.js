@@ -477,12 +477,33 @@ export const DASHBOARD_CARD_SET = {
       renderIf: (ctx) => (ctx?.actionItems?.length ?? 0) >= 1,
     },
 
-    // CloserPrompt — when daily close hasn't been run today.
+    // CloserPrompt — when we KNOW tonight's kasserapport is still open.
+    //
+    // THE DEFECT THIS LINE USED TO CARRY:
+    //   !ctx?.dailyCloseRanToday && (ctx?.summary?.todaySales ?? 0) > 0
+    // Two failures in one predicate, and the second was total.
+    // `dailyCloseRanToday` was a hardcoded `false` in DashboardPage's ctx, so
+    // the first half was a no-op that only looked close-aware. And
+    // `todaySales` was fed by `summary?.today_sale_count || 0` against a key
+    // no endpoint in this product has ever sent — so it was 0 for every
+    // account on every night, and `todaySales > 0` could not be true. This
+    // card, the dashboard's only close-aware surface, never rendered for
+    // anyone. It read like a business rule about venues with sales; it was a
+    // dead branch.
+    //
+    // `=== false`, never `!`: the flag is three-valued now (true / false /
+    // null = could not check). Prompting someone to close a day they already
+    // closed because a request failed is the same lie with the sign flipped.
     {
       id: "closer",
       component: "CloserPromptCard",
-      renderIf: (ctx) =>
-        !ctx?.dailyCloseRanToday && (ctx?.summary?.todaySales ?? 0) > 0,
+      // Asks "who closes for you?" at the moment the close is actually
+      // pending — the original intent, restored. This does NOT re-ask a
+      // settled question: the card self-hides once the owner has a recipient
+      // tagged role="closer", once they dismiss it (localStorage, persistent),
+      // and while recipients are loading. So the gate below only decides WHEN
+      // an unanswered prompt appears, never whether an answered one returns.
+      renderIf: (ctx) => ctx?.dailyCloseRanToday === false,
     },
 
     // AllClearCard — Linear Inbox-Zero pattern. When all dynamic Zone-3

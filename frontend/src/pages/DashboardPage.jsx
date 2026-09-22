@@ -45,8 +45,10 @@ import {
 import ReceiptCapture from "../components/ReceiptCapture";
 import SmartSaleInput from "../components/SmartSaleInput";
 import { displayCurrency, formatOwnerMoney, getTaxConfig } from "../utils/currency";
-import { localIso, dateLocale } from "../utils/dateFormat";
+import { localIso, localDaysAgo, dateLocale, businessTodayIso } from "../utils/dateFormat";
 import { reorderNeededItems } from "../utils/inventoryReorder";
+import { cutoffHourFor } from "../config/archetypes";
+import { findConfirmedCloseFor, resolveCutoffHour } from "../utils/dailyCloseDay";
 
 // ── Phase A artifacts + extracted zone cards ──
 import DashboardZones from "../components/dashboard/DashboardZones";
@@ -227,6 +229,20 @@ export default function DashboardPage() {
   // own fetch (e.g. ComplianceCountdownCard → /cashflow/forecast) read this off
   // ctx and re-fetch when it changes, so they don't go stale after a Quick Sale.
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // ── Tonight's kasserapport — asked, not assumed ─────────────────────
+  //
+  // THE DEFECT THIS REPLACES: `dailyCloseRanToday: false` was a hardcoded
+  // literal in the ctx memo below. "Has tonight's close been done?" was
+  // therefore never a question the dashboard asked — it was an answer it
+  // invented, and it was wrong every night after the owner locked.
+  //
+  // `closeListState` is deliberately three-valued, not a boolean: "loading"
+  // and "failed" are NOT "the day is still open". A card that nags an owner
+  // to close a day they already closed, because a request 403'd or timed
+  // out, is the same defect wearing the opposite sign.
+  const [closeCutoffHour, setCloseCutoffHour] = useState(() => cutoffHourFor(user?.business_type));
+  const [closeRows, setCloseRows] = useState([]);
+  const [closeListState, setCloseListState] = useState("loading"); // loading | ok | failed
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [smartSaleOpen, setSmartSaleOpen] = useState(false);
@@ -325,6 +341,74 @@ export default function DashboardPage() {
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
   }, []);
+
+  // ── Has tonight's kasserapport been locked? ─────────────────────────
+  //
+  // Two requests in PARALLEL, so this costs one round-trip of latency, not
+  // two: the owner's real day_cutoff_hour (/business — the same source
+  // SalesPage and LiveKpisToday read, so no third definition of "today"
+  // enters the product), and the closes filed against the two calendar days
+  // the current business day can possibly be.
+  //
+  // The window is two days because businessTodayIso() returns YESTERDAY's
+  // date whenever the clock is before the cutoff: at 01:30 in a 06:00 venue,
+  // "today" is yesterday's row, and a one-day window would miss the close
+  // the owner locked twenty minutes ago and invite them to do it again.
+  //
+  // A failed cutoff lookup degrades to the archetype default (food_service /
+  // bar → 6, else 0) rather than blocking the answer. A failed CLOSE lookup
+  // does not degrade to anything — it is reported as "failed", because the
+  // whole point of this state is that "I could not check" is not "no".
+  // Re-runs on refreshNonce, which fetchAll bumps, so locking a close and
+  // firing bonbox-data-changed updates Home without a reload.
+  useEffect(() => {
+    let cancelled = false;
+    const to = localIso();
+    // localDaysAgo, not `Date.now() - 86_400_000`: a calendar-day step is
+    // DST-exact, and this window has to be right on the two nights a year
+    // the Danish day is 23 or 25 hours long.
+    const from = localDaysAgo(1);
+    Promise.allSettled([
+      api.get("/business"),
+      api.get("/daily-close", { params: { from, to } }),
+    ]).then(([biz, closes]) => {
+      if (cancelled) return;
+      if (biz.status === "fulfilled") {
+        setCloseCutoffHour(
+          resolveCutoffHour(biz.value?.data?.day_cutoff_hour, cutoffHourFor(user?.business_type)),
+        );
+      }
+      if (closes.status === "fulfilled" && Array.isArray(closes.value?.data)) {
+        setCloseRows(closes.value.data);
+        setCloseListState("ok");
+      } else {
+        setCloseRows([]);
+        setCloseListState("failed");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [user?.business_type, refreshNonce]);
+
+  // done | open | loading | failed — and `ranToday` is true / false / null,
+  // never a boolean that has swallowed "I don't know".
+  const dailyClose = useMemo(() => {
+    if (closeListState !== "ok") {
+      return {
+        status: closeListState === "failed" ? "failed" : "loading",
+        ranToday: null,
+        close: null,
+        businessDate: null,
+      };
+    }
+    const businessDate = businessTodayIso(closeCutoffHour);
+    const close = findConfirmedCloseFor(closeRows, businessDate);
+    return {
+      status: close ? "done" : "open",
+      ranToday: !!close,
+      close,
+      businessDate,
+    };
+  }, [closeListState, closeRows, closeCutoffHour]);
 
   // ── Quick-sale handler (preserved verbatim — MOMS conversion is
   //    load-bearing: misinterpreting incl/excl-MOMS on a stored Sale
@@ -499,7 +583,17 @@ export default function DashboardPage() {
         // spread) — first-run clears on any activity, not just sales.
         hasActivity: !!summary?.has_activity,
         totalSales: summary?.total_sales ?? summary?.sale_count ?? 0,
-        todaySales: summary?.today_sale_count || 0,
+        // PHANTOM KEY. No endpoint in this product has ever sent
+        // `today_sale_count` — grep the backend, it does not exist — so this
+        // read has always been `undefined || 0` and `todaySales` has always
+        // been a confident 0 for every account on every night. That is how
+        // the one close-aware card in zone3 came to be gated on
+        // `todaySales > 0`: a predicate that could not be true, dressed as a
+        // business rule about venues with sales. Null, not 0, so the next
+        // predicate that reaches for it cannot mistake "never measured" for
+        // "measured none" — and so a real count, if one is ever added to
+        // /dashboard/batch, lands here without a silent zero in front of it.
+        todaySales: summary?.today_sale_count ?? null,
         // MONEY fields stay null when absent — never coerced to 0.
         // If /dashboard/batch AND its per-endpoint fallback both fail (see the
         // two silent catches below), `summary` is null; with `|| 0` the tiles
@@ -576,10 +670,20 @@ export default function DashboardPage() {
       },
       growthSignals: growthSignals || [],
       actionItems: actionItems || [],
-      // CloserPromptCard self-detects whether daily close ran; the
-      // renderIf still needs a default. The card hides itself when
-      // there's nothing to prompt.
-      dailyCloseRanToday: false,
+      // Whether tonight's kasserapport is locked — REAL data now. This was
+      // the literal `false`, with a comment claiming CloserPromptCard
+      // "self-detects whether daily close ran". It does not: that card
+      // fetches /output-channels and detects whether a CLOSER is configured.
+      // Nothing on this dashboard ever asked about the close itself.
+      //
+      // THREE-VALUED on purpose: true = locked, false = genuinely still
+      // open, null = we could not check (loading, or the request failed).
+      // Every predicate that reads it must test `=== false`, never `!x`, or
+      // a dropped request silently becomes "you haven't closed yet".
+      dailyCloseRanToday: dailyClose.ranToday,
+      dailyCloseStatus: dailyClose.status, // loading | failed | done | open
+      dailyCloseBusinessDate: dailyClose.businessDate,
+      todaysClose: dailyClose.close,
 
       // Notices state. Current banner components self-detect their own
       // visibility; these defaults exist so the renderIf predicates
@@ -617,6 +721,7 @@ export default function DashboardPage() {
     refreshNonce,
     profile,
     dailyRevData,
+    dailyClose,
   ]);
 
   // ── Greeting (preserved from the previous surgical pass) ──

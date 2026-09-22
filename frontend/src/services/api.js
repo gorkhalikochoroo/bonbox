@@ -223,7 +223,7 @@ api.interceptors.request.use((config) => {
   // credentials on those calls: a stand must never carry both, or an owner
   // session that happened to exist in this browser would silently hand the
   // device owner-level reach. Scope is enforced server-side — the backend
-  // accepts this credential on six wrapped operations and 404s everything
+  // accepts this credential on its wrapped operations only and 404s everything
   // else — so this rewrite cannot widen what the device can do.
   const rewritten = standRewrite(config.url);
   if (rewritten) {

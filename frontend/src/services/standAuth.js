@@ -10,7 +10,7 @@
  *     /reservations/reservations/{id}/status ->  /stand/<token>/reservations/{id}/status
  *
  * WHY THIS IS SAFE. The rewrite cannot widen what the device can reach. The
- * backend accepts a StandLink on exactly the six operations wrapped in
+ * backend accepts a StandLink on exactly the operations wrapped in
  * routers/stand_link.py and on nothing else, so any call this shim rewrites to
  * an unwrapped path simply 404s. Scope lives on the server, structurally; this
  * is only plumbing.

@@ -1825,7 +1825,31 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     () => Object.values(payAmounts).some((v) => String(v ?? "").trim() !== ""),
     [payAmounts],
   );
-  const balanceDiff = revenueTotal - paymentTotal;
+  // ── The tie-out, as ONE verdict both surfaces read ──────────────────
+  //
+  // THE DEFECT THIS EXISTS TO KILL: `balanceDiff` was computed here and
+  // rendered on the PAYMENTS step only. The path this product promotes —
+  // "Brug disse værdier — spring til gennemgang" — calls
+  // applyScanValues(true), which does setStep(totalSteps) and lands the
+  // owner on review without ever passing the payments step. So the single
+  // line that says "your day does not add up" was skipped by the exact flow
+  // we push people into, and the review card showed revenue and payments as
+  // two unrelated totals with no difference between them. A kasserapport got
+  // locked, signed and mailed to the revisor without anyone being told it
+  // did not reconcile.
+  //
+  // Three outcomes, not two. "unknown" is the one that matters: with the
+  // payments column untouched, revenue − payments equals the whole revenue,
+  // and rendering that as "Difference: 17.030 kr" is a confident figure
+  // derived from a number nobody entered — the same class of lie as a
+  // not-known total printed as a zero. It says it cannot be checked instead.
+  const tieOut = useMemo(() => {
+    if (!hasRevenueEntry || !hasPaymentEntry) return { state: "unknown", diff: null };
+    const diff = revenueTotal - paymentTotal;
+    // Under 1 kr is rounding, not a discrepancy — same threshold the
+    // payments step has always used, now defined once.
+    return { state: Math.abs(diff) < 1 ? "balanced" : "off", diff };
+  }, [hasRevenueEntry, hasPaymentEntry, revenueTotal, paymentTotal]);
   // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
   // register cash (what the till says was taken) over the owner's typed cash
   // line — typed-vs-counted is self-referential and can't surface a real
@@ -3420,14 +3444,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <Amount value={hasRevenueEntry ? revenueTotal : null} currency={currency} decimals={GLANCE_DECIMALS} />
                 </span>
               </div>
-              {revenueTotal > 0 && (
+              {/* Same verdict object the review card renders, so the two
+                  surfaces cannot disagree about whether the day ties out.
+                  It used to be gated on `revenueTotal > 0` alone, which meant
+                  an untouched payments column produced "Difference: 17.030 kr"
+                  — the full revenue, presented as a discrepancy. */}
+              {tieOut.state !== "unknown" && (
                 <div className={`mt-2 px-3 py-2 rounded-lg text-[13px] font-medium ${
-                  Math.abs(balanceDiff) < 1 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                  tieOut.state === "balanced" ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                     : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
                 }`}>
-                  {Math.abs(balanceDiff) < 1
+                  {tieOut.state === "balanced"
                     ? <><Icon name="CheckCircle2" size={14} className="inline align-text-bottom mr-1" />{t("balanced", "Balanced!")}</>
-                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${formatOwnerMoney(balanceDiff, currency, { decimals: GLANCE_DECIMALS, sign: true })}`}</>}
+                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${formatOwnerMoney(tieOut.diff, currency, { decimals: GLANCE_DECIMALS, sign: true })}`}</>}
                 </div>
               )}
             </div>
@@ -3804,6 +3833,61 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <span className="block mt-1 text-[12px] opacity-70">{errorDetail}</span>
                 )}
               </SectionBanner>
+            )}
+
+            {/* ─── Does the day add up? ───────────────────────────────
+                The last thing on the card, directly above Bekræft & lås,
+                because this is the step the promoted scan path jumps to and
+                the only place left to say it before the close is signed.
+
+                It deliberately does NOT block the lock. An owner may be
+                genuinely 200 kr short and still has to file the day; the
+                rule on this surface is say it plainly, not prevent it. Once
+                locked, a close that does not reconcile is picked up again by
+                the close_unreconciled row in "Skal ses nu", so the statement
+                survives the lock instead of dying with the wizard. */}
+            {(hasRevenueEntry || hasPaymentEntry) && (
+              <div className={`rounded-xl p-4 ${
+                tieOut.state === "off"
+                  ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40"
+                  : "bg-gray-50 dark:bg-gray-700/50"
+              }`}>
+                <div className="flex items-start gap-2">
+                  <Icon
+                    name={tieOut.state === "balanced" ? "CheckCircle2" : tieOut.state === "off" ? "AlertTriangle" : "HelpCircle"}
+                    size={16}
+                    className={`shrink-0 mt-0.5 ${
+                      tieOut.state === "off"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    {tieOut.state === "balanced" && (
+                      <p className="text-[13px] font-medium text-gray-900 dark:text-white">
+                        {t("dcTieOutBalanced", "Revenue and payments match.")}
+                      </p>
+                    )}
+                    {tieOut.state === "off" && (
+                      <>
+                        <p className="text-[13px] font-semibold text-amber-800 dark:text-amber-300 tabular-nums">
+                          {t("dcTieOutOff", "Revenue and payments differ by {amount}.", {
+                            amount: formatOwnerMoney(tieOut.diff, currency, { decimals: LEDGER_DECIMALS, sign: true }),
+                          })}
+                        </p>
+                        <p className="text-[12px] text-amber-700 dark:text-amber-400 mt-1">
+                          {t("dcTieOutOffHint", "You can still lock the day — the kasserapport records the difference exactly as it stands.")}
+                        </p>
+                      </>
+                    )}
+                    {tieOut.state === "unknown" && (
+                      <p className="text-[13px] text-gray-700 dark:text-gray-300">
+                        {t("dcTieOutUnknown", "We can't tell whether the day adds up: revenue or payments are still empty.")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

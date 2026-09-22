@@ -10,10 +10,22 @@
  *
  * Mobile-first: the whole thing is a single calm card; the add form collapses
  * to one column and every row is a full-width stacked card with ≥44px taps.
+ *
+ * PAIRED HOST STAND. On /stand/<token> the api client rewrites /reservations/*
+ * onto /stand/<token>/*, and the backend accepts that credential only on the
+ * calls it explicitly wraps. The waitlist READ was wrapped but none of the
+ * mutations were, so this card drew Add / Notify / Book / Remove on the door
+ * tablet and every one of them 404'd — the venteliste is written down by the
+ * person at the door, so that was the whole feature, unreachable exactly where
+ * it is used. The mutations are wrapped now (routers/stand_link.py). The one
+ * residue is DEPLOY SKEW: frontend and backend ship separately, so a newer
+ * bundle can still meet an older API. Every failure path below therefore has to
+ * say something true rather than guess at the cause.
  */
 import { useEffect, useRef, useState } from "react";
 import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2 } from "lucide-react";
 import api from "../../services/api";
+import { getStandToken } from "../../services/standAuth";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useConfirm } from "../../hooks/useConfirm";
 import useAsyncData from "../../hooks/useAsyncData";
@@ -47,6 +59,11 @@ function defaultBookTime() {
 export default function WaitlistSection({ day, spotMatches, refreshTick, onCountChange, onConverted }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
+  // Is this a paired door device? Only used to explain a 404 on a call whose
+  // owner-side handler can never produce one (POST /waitlist) — there, and only
+  // there, a 404 unambiguously means "this device's credential doesn't reach
+  // that route", i.e. an API older than this bundle.
+  const onStand = !!getStandToken();
 
   const [busyId, setBusyId] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -157,12 +174,25 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
       setAdding(false);
       reloadWaitlist();
     } catch (err) {
+      // "Check the phone number" was the answer to EVERY non-402 failure — a
+      // 500, a dropped connection, a route the device cannot reach. It sent the
+      // host back to re-type a number that was never the problem, and it
+      // asserted a cause we had not established. Only a validation status
+      // actually says the input was wrong.
       const code = err?.response?.status;
-      setAddErr(
-        code === 402
-          ? t("upgradeRequired", "Upgrade required")
-          : t("rsvpWlAddErr", "Couldn't add — check the phone number."),
-      );
+      let msg;
+      if (code === 402) msg = t("upgradeRequired", "Upgrade required");
+      else if (code === 400 || code === 422) {
+        msg = t("rsvpWlAddErr", "Couldn't add — check the phone number.");
+      } else if (onStand && (code === 404 || code === 405)) {
+        msg = t(
+          "rsvpWlStandUnavailable",
+          "This door device can't do that yet — add them in BonBox on your phone.",
+        );
+      } else {
+        msg = t("rsvpWlAddErrGeneric", "Couldn't add them just now — try again.");
+      }
+      setAddErr(msg);
     } finally {
       setSaving(false);
     }

@@ -1915,7 +1915,6 @@ export const np = {
   sanityCheckTitle: "छिटो दोहोरो-जाँच",
   // Schedule confirmations
   scheduleConfirmAll: "सबै {n} कर्मचारीले यो हप्ताको तालिका पुष्टि गरे।",
-  scheduleConfirmNone: "तालिका {total} कर्मचारीलाई पठाइयो — कसैले अझै पुष्टि गरेनन्। उनीहरूले लिङ्क खोल्दा देख्नेछन्।",
   scheduleConfirmPartial: "यो हप्ता {total} मध्ये {confirmed} कर्मचारीले पुष्टि गरे।",
   schedulePdfFailed: "PDF निर्यात गर्न सकिएन।",
   schedulePdfTitle: "तालिका PDF का रूपमा निर्यात गर्नुहोस् (कर्मचारी बोर्डको लागि)",

@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { ScanLine, ArrowRight, QrCode } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Modal from "./Modal";
@@ -112,9 +112,36 @@ export default function QuickAdd() {
   // confirming a value the app picked, which is the thing that goes wrong.
   // So: no default, and Tilføj stays disabled until one is tapped.
   const [expMethod, setExpMethod] = useState(null);
-  // One lock for both non-idempotent submitters. Neither had any, and
-  // both clear their fields only after the await.
+  // One in-flight lock for ALL THREE non-idempotent submitters.
+  //
+  // The ref is the lock; the state is only what the button renders.
+  // `if (posting) return; setPosting(true)` on its own is not a lock —
+  // setState is async, so two taps React batches together both read the
+  // stale `false` and both post. The ref flips synchronously inside the
+  // first handler, so the second tap is refused however close it lands.
+  //
+  // Every submitter clears its fields only AFTER the await, so without
+  // this a double-tap on a slow save posts the same money twice. That is
+  // exactly what a phone mid-service produces: the first tap looks like
+  // it did nothing, so the owner taps again. Hence the paired change on
+  // every submit button — disabled + a "Gemmer…" label, so the first tap
+  // visibly lands and there is nothing to tap twice.
+  const postingRef = useRef(false);
   const [posting, setPosting] = useState(false);
+
+  /** Take the in-flight lock. Returns false if someone already holds it. */
+  const beginPost = () => {
+    if (postingRef.current) return false;
+    postingRef.current = true;
+    setPosting(true);
+    return true;
+  };
+  /** Release it. Called from `finally` so a FAILED save never locks the
+   *  form forever — the owner has to be able to retry. */
+  const endPost = () => {
+    postingRef.current = false;
+    setPosting(false);
+  };
 
   // Personal mode
   const [pAmount, setPAmount] = useState("");
@@ -206,6 +233,11 @@ export default function QuickAdd() {
     // Gate on the PARSED number, not on the raw string being non-empty.
     // `if (!saleAmount)` let "abc" through to parseFloat -> NaN -> the API.
     if (!Number.isFinite(saleAmountNum) || saleAmountNum <= 0) return;
+    // Sales is the most-used surface in the product, and this submitter had
+    // no lock at all while the expense one did. A double-logged sale is not
+    // a cosmetic duplicate: it inflates the day's omsætning, the
+    // kasserapport and the MOMS figure computed from them.
+    if (!beginPost()) return;
     try {
       await api.post("/sales", {
         date: saleDate,
@@ -218,6 +250,8 @@ export default function QuickAdd() {
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || t("failedToLogSale"));
+    } finally {
+      endPost();
     }
   };
 
@@ -230,8 +264,13 @@ export default function QuickAdd() {
     // the await, so a second tap during a slow save posted the same
     // expense again — one of the two mechanisms behind the duplicate
     // pairs measured in production.
-    if (posting) return;
-    setPosting(true);
+    //
+    // This tab did get a lock before the sale tab did, but it was a
+    // `if (posting) return; setPosting(true)` state check, and a test that
+    // delivers both taps in one batch still doubles the expense against
+    // that version. Hence beginPost(), which is a ref. Do not "simplify"
+    // it back to reading `posting`.
+    if (!beginPost()) return;
     try {
       await api.post("/expenses", {
         category_id: expCatId,
@@ -251,15 +290,14 @@ export default function QuickAdd() {
     } catch (err) {
       showError(err.response?.data?.detail || t("failedToAddExpense"));
     } finally {
-      setPosting(false);
+      endPost();
     }
   };
 
   const submitPersonal = async () => {
     if (!Number.isFinite(pAmountNum) || pAmountNum <= 0) return;
     if (!pCatId) return;
-    if (posting) return;
-    setPosting(true);
+    if (!beginPost()) return;
     const cat = categories.find((c) => c.id === pCatId);
     try {
       await api.post("/expenses", {
@@ -287,7 +325,7 @@ export default function QuickAdd() {
     } catch (err) {
       showError(err.response?.data?.detail || t("failedToAddEntry"));
     } finally {
-      setPosting(false);
+      endPost();
     }
   };
 
@@ -524,15 +562,22 @@ export default function QuickAdd() {
 
             <button
               onClick={submitSale}
-              disabled={!(saleAmountNum > 0)}
+              aria-busy={posting}
+              disabled={posting || !(saleAmountNum > 0)}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {/* The label has to match the date actually being posted. It said
                   "Log Today's Sale" ("Registrer dagens salg") no matter what,
                   so backdating a sale to the 20th still told the owner it was
                   today's — the button lying about what it does, on the money
-                  path. Verified on device before the fix. */}
-              {saleDate === localIso()
+                  path. Verified on device before the fix.
+
+                  While the save is in flight it says so. The lock above makes
+                  the second tap harmless; this is what stops the owner wanting
+                  to make it. */}
+              {posting
+                ? t("savingEllipsis")
+                : saleDate === localIso()
                 ? t("logSale")
                 : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
             </button>
@@ -633,7 +678,7 @@ export default function QuickAdd() {
               disabled={posting || !(expAmountNum > 0) || !expCatId || !expDesc || !expMethod}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
-              {t("addExpense")}
+              {posting ? t("savingEllipsis") : t("addExpense")}
             </button>
           </div>
         )}
@@ -719,7 +764,7 @@ export default function QuickAdd() {
               disabled={posting || !(pAmountNum > 0) || !pCatId}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
-              {t("logIncome")}
+              {posting ? t("savingEllipsis") : t("logIncome")}
             </button>
           </div>
         )}
@@ -805,7 +850,7 @@ export default function QuickAdd() {
               disabled={posting || !(pAmountNum > 0) || !pCatId}
               className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
-              {t("logExpense")}
+              {posting ? t("savingEllipsis") : t("logExpense")}
             </button>
           </div>
         )}

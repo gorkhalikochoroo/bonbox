@@ -97,10 +97,30 @@ def _owner(db: Session, link: StandLink) -> User:
     return user
 
 
+# How stale last_seen_at is allowed to get before we spend a write on it. The
+# live-alert feed polls every ~20s per device: writing telemetry on every bind
+# would turn one idle door tablet into ~4,300 UPDATE+COMMIT round trips a day,
+# and the whole estate shares a single worker and a 15-connection pool. The
+# column exists to tell "running a service tonight" apart from "paired on a
+# visit months ago", and minute-granularity answers that question exactly as
+# well as second-granularity does.
+_TOUCH_MIN_INTERVAL_S = 120
+
+
 def _touch(db: Session, link: StandLink) -> None:
     """Last-seen, so the owner's device list distinguishes a stand running a
     live service from one paired on a visit months ago and forgotten."""
-    link.last_seen_at = utc_now()
+    now = utc_now()
+    prev = link.last_seen_at
+    try:
+        fresh = prev is not None and 0 <= (now - prev).total_seconds() < _TOUCH_MIN_INTERVAL_S
+    except TypeError:
+        # naive/aware mismatch from some future column change — fall through and
+        # write. Telemetry must never decide whether a service action happens.
+        fresh = False
+    if fresh:
+        return  # recent enough — don't buy a commit with nothing to record
+    link.last_seen_at = now
     try:
         db.commit()
     except Exception:  # noqa: BLE001 — never fail a service action over telemetry
@@ -303,6 +323,27 @@ def stand_resources(token: str, db: Session = Depends(get_db)):
     return R.list_resources(db=db, user=user)
 
 
+@router.get("/{token}/changes")
+def stand_changes(
+    token: str,
+    since: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """The live-alert change feed — the reason a host stand exists.
+
+    A /stand/<token> device has no session, so the alert poll (which the client
+    rewrites onto this prefix) used to 404 on every tick and the door tablet
+    NEVER chimed for a new booking. The owner's laptop chimed; the one screen
+    front-of-house is looking at did not.
+
+    Read-only and already PII-minimal at the source (first name + a severity
+    flag; the allergy note itself never enters this payload), which is what makes
+    it safe on an unlocked device in a public room.
+    """
+    _, user = _bind(db, token)
+    return R.list_changes(since=since, db=db, user=user)
+
+
 @router.get("/{token}/waitlist")
 def stand_waitlist(
     token: str,
@@ -311,6 +352,108 @@ def stand_waitlist(
 ):
     _, user = _bind(db, token)
     return R.list_waitlist(day=day, db=db, user=user)
+
+
+# ── Venteliste ────────────────────────────────────────────────────────
+# The waitlist READ was wrapped but none of its mutations were, so the stand
+# rendered Add / Notify / Book / Remove and every one of them 404'd. A button
+# that cannot work is worse than no button. These belong to the door: the
+# waitlist IS the party you just turned away, written down by the person who
+# turned them away. Nothing here reaches config, money or payroll, every handler
+# re-derives the tenant from the link row, and the two spend-adjacent limits the
+# owner path relies on still apply — the active-entries plan cap on add and the
+# server-side notify_count < 2 SMS cap on notify.
+
+
+@router.get("/{token}/waitlist/matches")
+def stand_waitlist_matches(
+    token: str,
+    freed_reservation_id: UUID = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Who fits the table that just freed. Pure read; the freed booking is
+    re-derived under the tenant inside the owner handler."""
+    _, user = _bind(db, token)
+    return R.waitlist_matches(freed_reservation_id=freed_reservation_id, db=db, user=user)
+
+
+@router.post("/{token}/waitlist", status_code=201)
+@limiter.limit("30/minute")
+def stand_add_waitlist(
+    token: str,
+    payload: R.WaitlistCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Park a party the venue could not seat. Plan cap on active entries is
+    enforced by the owner handler, unchanged.
+
+    RATE LIMITED because this endpoint is reachable from a device sitting
+    unlocked in a public room, and every row it writes is a phone number that
+    /notify can later turn into an SMS the venue pays for. Typing a party in
+    takes a host the better part of a minute, so 30/minute never touches real
+    door work and still stops a script. The plan cap bounds how many entries
+    can be ACTIVE at once; this bounds how fast they can be created."""
+    _, user = _bind(db, token)
+    return R.add_waitlist(payload=payload, request=request, db=db, user=user)
+
+
+@router.patch("/{token}/waitlist/{entry_id}")
+def stand_update_waitlist(
+    token: str,
+    entry_id: UUID,
+    payload: R.WaitlistUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Party size / note, and the one status the model accepts here:
+    'cancelled' — i.e. "they gave up and left", which only the door knows."""
+    _, user = _bind(db, token)
+    return R.update_waitlist(entry_id=entry_id, payload=payload, request=request,
+                             db=db, user=user)
+
+
+@router.post("/{token}/waitlist/{entry_id}/notify")
+@limiter.limit("20/minute")
+def stand_notify_waitlist(
+    token: str,
+    entry_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """"A spot may have opened" — one honest message, or the phone number to
+    call. The anti-spam cap (notify_count < 2) is server-side in the owner
+    handler, so a stand cannot out-send an owner even by double-tapping.
+
+    RATE LIMITED on top of that cap because the two bound different things.
+    notify_count is PER ENTRY: it stops one party being messaged twice, but
+    N entries still authorise 2N messages, and this endpoint — unlike the
+    owner's — answers to a device anyone in the room can pick up. 20/minute
+    covers the worst real burst (a large turnover freeing several tables at
+    once) and bounds the rest.
+
+    NOT a total ceiling. There is still no per-tenant daily SMS limit on
+    either this path or the owner's; a patient sender is bounded only by the
+    plan's active-entry cap, which is unlimited above Free. That is a pricing
+    decision, not a bug to fix quietly here."""
+    _, user = _bind(db, token)
+    return R.notify_waitlist(entry_id=entry_id, request=request, db=db, user=user)
+
+
+@router.post("/{token}/waitlist/{entry_id}/convert")
+def stand_convert_waitlist(
+    token: str,
+    entry_id: UUID,
+    payload: R.WaitlistConvert,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Seat a waiting party for real. Goes through the same create path the
+    stand's own walk-in button already uses, so no new reach: the
+    no-double-booking constraint still governs and a filled slot still 409s."""
+    _, user = _bind(db, token)
+    return R.convert_waitlist(entry_id=entry_id, payload=payload, request=request,
+                              db=db, user=user)
 
 
 @router.patch("/{token}/reservations/{reservation_id}/status")

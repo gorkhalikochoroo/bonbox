@@ -1363,6 +1363,11 @@ def list_share_links(
     write loses its user-gesture window on big teams), the modal pre-fetches
     every link here on open. Reuses each staff's durable token via
     get-or-create — never rotates an existing link.
+
+    Each row also carries `last_accessed`: the timestamp of the last time that
+    staffer actually opened their portal, or NULL if they never have. It is the
+    only evidence the owner has that a hand-off landed, which is why no screen
+    is allowed to state that the team "sees" the week without reading it first.
     """
     _require_owner_actor(user)  # bulk portal credentials — owner-only
     members = (
@@ -1422,6 +1427,23 @@ def list_share_links(
             "join_code": code,
             "has_pin": bool(link.pin_hash),
             "portal_url": portal_path(link.token, user.business_name, m.name),
+            # Whether this person has EVER opened their link, and when.
+            #
+            # The column existed and this endpoint dropped it, so the Share
+            # sheet — the one screen an owner uses to hand the week over — could
+            # not tell a link that half the team reads every morning from one
+            # nobody has ever tapped. Across 51 venues the second case was the
+            # only case, and no surface in the product said so: the owner copied
+            # links into WhatsApp, saw no error, and concluded it had worked.
+            #
+            # NULL is the honest answer for "never opened", and is exactly what
+            # a link minted moments ago in the loop above carries. The frontend
+            # renders the three outcomes apart (opened / never opened / we did
+            # not ask), and never a confident "delivered".
+            #
+            # staff_portal.py stamps this on every portal GET, so it is a
+            # genuine read receipt for the link — not a proxy for the email.
+            "last_accessed": link.last_accessed,
         })
     if dirty:
         db.commit()

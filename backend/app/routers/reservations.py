@@ -652,6 +652,72 @@ def list_resources(db: Session = Depends(get_db), user: User = Depends(get_curre
     }
 
 
+def _activate_reservations_on_first_resource(
+    db: Session, user: User, *, had_resources_before: int
+) -> dict | None:
+    """Switch the public booking page ON the first time a venue gets a table.
+
+    THE DEFECT THIS CLOSES. `reservations_enabled` defaults False and NOTHING in
+    the table-venue flow ever flipped it. An owner could draw a whole floor plan,
+    work the book, take walk-ins — and every guest who opened the link they had
+    shared was refused, because public_reservations._resolve_owner gates on that
+    flag. Only the SALON path (salon_quick_setup) ever turned it on. "Built a
+    floor plan, still not bookable" is a silent, total failure of the one job the
+    feature exists for, and it is one reason so few accounts have ever taken a
+    booking.
+
+    WHY THIS IS STILL A KILL-SWITCH, NOT AN OVERRIDE. We act ONLY on the
+    transition from "this venue has no bookable resource at all" to "it has one",
+    and ONLY when no slug has ever been minted. `reservation_slug` is durable and
+    is minted the first time reservations are turned on — here, in
+    update_settings, in salon_quick_setup, or by set_slug. Its presence is
+    therefore proof that the owner has already made this decision once. An owner
+    who deliberately switches the page OFF keeps their slug, so adding a table
+    next week can never switch it back on behind their back.
+
+    Returns the activation facts (so a caller can hand the owner the link they
+    just got), or None when nothing changed. Never raises: the resource the owner
+    asked for is the contract, and a slug collision must not lose it.
+    """
+    if had_resources_before > 0:
+        return None
+    profile = _profile(db, user)
+    if profile is None:
+        profile = BusinessProfile(user_id=user.id)
+        db.add(profile)
+        db.flush()
+    if getattr(profile, "reservation_slug", None) or bool(
+        getattr(profile, "reservations_enabled", False)
+    ):
+        return None
+
+    try:
+        slug = _allocate_slug(db, (
+            getattr(profile, "company_name", None)
+            or getattr(user, "business_name", None)
+            or "booking"
+        ))
+    except HTTPException:
+        # Astronomically unlikely slug exhaustion. Leaving the page off is the
+        # honest outcome (a page with no address is not reachable anyway) and is
+        # far better than failing the table the owner actually asked for.
+        return None
+
+    profile.reservations_enabled = True
+    profile.reservation_slug = slug
+    audit_service.record(
+        db, user, "reservation.auto_enabled_on_first_resource",
+        "business_profile", profile.id,
+        before={"reservations_enabled": False, "reservation_slug": None},
+        after={"reservations_enabled": True, "reservation_slug": slug},
+    )
+    return {
+        "reservations_enabled": True,
+        "reservation_slug": slug,
+        "public_url": _public_reservation_url(slug),
+    }
+
+
 @router.post("/resources", status_code=201)
 def create_resource(payload: ResourceCreate, request: Request,
                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -690,6 +756,11 @@ def create_resource(payload: ResourceCreate, request: Request,
     db.add(r)
     db.flush()
     audit_service.record(db, user, "reservation.resource_created", "bookable_resource", r.id)
+    # The venue's FIRST bookable resource also opens the public page (see the
+    # helper). The response shape stays the bare resource dict — the settings
+    # panel is where the owner reads the switch and copies the link, and two
+    # call sites append this object straight into their resource list.
+    _activate_reservations_on_first_resource(db, user, had_resources_before=int(current))
     db.commit()
     return _resource_dict(r)
 
@@ -818,10 +889,18 @@ def create_resources_bulk(payload: BulkResourceCreate, request: Request,
         if len(created) >= remaining:
             break
 
+    activated = None
     if created:
         db.flush()
         audit_service.record(
             db, user, "reservation.resources_bulk_created", "bookable_resource", created[0].id,
+        )
+        # Quick floor setup is how a table venue gets its first resource, so it
+        # is also where the public page has to come on. See
+        # _activate_reservations_on_first_resource for why this cannot override
+        # an owner who turned it off.
+        activated = _activate_reservations_on_first_resource(
+            db, user, had_resources_before=int(current)
         )
         db.commit()
 
@@ -832,6 +911,11 @@ def create_resources_bulk(payload: BulkResourceCreate, request: Request,
         "requested": requested,
         "capped": capped,
     }
+    if activated:
+        # Present ONLY when this call actually flipped the switch — the caller
+        # can then tell the owner their booking page is live and hand over the
+        # link. Absent means nothing changed; it never claims otherwise.
+        resp["reservations_activated"] = activated
     if capped > 0:
         # Same shape as the single-create 402 → reuse the upgrade nudge.
         resp["cap_info"] = cap_exceeded_detail(user, "bookable_resources_max", current + len(created))

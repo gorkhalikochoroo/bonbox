@@ -2,6 +2,7 @@
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { dateLocale } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -169,6 +170,23 @@ export default function StaffHoursPage() {
 
   const staffQ = useAsyncData(() => api.get("/staff/members"), [], { initial: [] });
   const staffList = staffQ.data || [];
+  // THE ROSTER, IN THREE OUTCOMES — because the front door of this job used to
+  // read it as two.
+  //
+  // "Log hours" was the only button on the Oversigt empty state, and it moved
+  // the owner to the Log tab, where the staff <select> holds one disabled
+  // "Vælg medarbejder…" and the submit button is dead forever: a venue that has
+  // never added anybody cannot log an hour, and nothing on the way said so. The
+  // owner reads that as a broken form, not as a missing prerequisite.
+  //
+  // `rosterEmpty` is deliberately NOT `staffList.length === 0`. A failed fetch
+  // gives the same empty array, and telling an owner with nine staff to "add
+  // your first team member" is the comforting-and-false answer this file has
+  // spent its whole history removing. Empty means: we asked, the answer came
+  // back, and it was nobody. A failure keeps the old CTA and gets LoadFailed
+  // (already wired below) to explain itself.
+  const rosterEmpty =
+    !staffQ.loading && !staffQ.failed && staffList.length === 0;
 
   const summaryQ = useAsyncData(
     () => api.get("/staff/hours/summary", { params: { from: periodFrom, to: periodTo } }),
@@ -521,6 +539,7 @@ export default function StaffHoursPage() {
             currency={currency}
             onGoLog={() => setSubTab("log")}
             onGoDetails={() => setSubTab("details")}
+            rosterEmpty={rosterEmpty}
           />
         </FadeIn>
       )}
@@ -536,6 +555,7 @@ export default function StaffHoursPage() {
             // the gap, it never takes the action away.
             staffFailed={staffQ.failed}
             onRetryStaff={staffQ.reload}
+            rosterEmpty={rosterEmpty}
             currency={currency}
             periodFrom={periodFrom}
             onLogged={refetchAll}
@@ -878,7 +898,7 @@ function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) 
   );
 }
 
-function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails }) {
+function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails, rosterEmpty = false }) {
   const { t, lang } = useLanguage();
 
   // THE THIRD STATE, on the tab this hub opens on. `if (!overview) return null`
@@ -959,15 +979,45 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
               .split("{planned}").join(fmtHours(plannedT, lang))}
           </p>
         )}
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("hovEmptyBody", "Log hours or confirm the schedule to see cost and labor %.")}</p>
-        {onGoLog && (
-          <button
-            type="button"
-            onClick={onGoLog}
-            className="mt-4 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition"
-          >
-            {t("logHours", "Log hours")}
-          </button>
+        {/* THE CTA MUST MATCH THE ACTUAL BLOCKER.
+            With nobody on the roster, "Registrér timer" opens a form whose
+            name picker is empty and whose submit button can never light up —
+            the front door of this job ending in a wall. The prerequisite is
+            a staff member, so that is what the button offers, and it goes to
+            the roster on Vagtplan, which is the one place BonBox adds one. */}
+        {rosterEmpty ? (
+          <>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+              {t("hovEmptyNoStaff", "Hours are logged against a person, and there is nobody on the roster yet.")}
+            </p>
+            <Link
+              to="/staff/schedule"
+              className="mt-4 inline-flex items-center gap-1.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition"
+            >
+              {/* "Plus", not "UserPlus": Icon's map carries ~50 curated names
+                  and falls back to a generic circle for anything else, so a
+                  name that is not in it degrades silently into the wrong
+                  glyph. Checked against components/ui/Icon.jsx. */}
+              <Icon name="Plus" size={15} aria-hidden="true" />
+              {t("hovEmptyAddStaff", "Add a staff member")}
+            </Link>
+            <p className="text-gray-400 dark:text-gray-500 text-xs mt-2">
+              {t("hovEmptyAddStaffWhere", "Under Manage staff on Vagtplan.")}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("hovEmptyBody", "Log hours or confirm the schedule to see cost and labor %.")}</p>
+            {onGoLog && (
+              <button
+                type="button"
+                onClick={onGoLog}
+                className="mt-4 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition"
+              >
+                {t("logHours", "Log hours")}
+              </button>
+            )}
+          </>
         )}
       </div>
       </div>
@@ -1412,9 +1462,45 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // the rendering, leaving "kr." full-size in the tfoot and a de-emphasized
   // whisper in every row above it — one column, two typographies. Amount
   // renders null as "—" on its own, which is exactly the wagesHidden branch.
-  const moneyTotal = (key) => (
+  // THE THIRD CAUSE OF A NULL RATE, AND IT IS THE ONE THE ROWS GOT WRONG.
+  //
+  // hourly_rate arrives null for two different reasons. One is redaction —
+  // handled by wagesHidden above. The other is that NOBODY EVER SET A RATE for
+  // this person, and there the server does something the rows then stated as
+  // fact: _pick_rate reads `float(staff.base_rate or 0)`, so every shift they
+  // worked was costed at zero and `earned` came back as a real, stored 0. The
+  // row printed "— | 0 kr. | 0 kr." — an em-dash admitting the rate is unknown,
+  // sitting one cell away from a wage total asserting it is nothing. The owner
+  // reads the number, not the dash, and 0 kr. for a person who worked 34 hours
+  // is the single most expensive lie this table could tell.
+  //
+  // Not-known, not zero. A row only qualifies when wages are VISIBLE (so the
+  // null is absence, not redaction) and the person actually worked: with no
+  // actual hours, 0 kr. is genuinely zero and stays a figure.
+  const rateMissing = (r) =>
+    !wagesHidden && r && r.hourly_rate == null && (r.actual_hours || 0) > 0;
+  const missingRateCount = (summary || []).filter(rateMissing).length;
+  // The totals used to print "12500 DKK" — no thousands separator and the raw
+  // code — under an Overview tile that said "12.500 kr" for the same period.
+  // Rendered through <Amount>, the same primitive as the rows it sums: a
+  // formatOwnerMoney string here would agree on the NOTATION and disagree on
+  // the rendering, leaving "kr." full-size in the tfoot and a de-emphasized
+  // whisper in every row above it — one column, two typographies. Amount
+  // renders null as "—" on its own, which is exactly the wagesHidden branch.
+  //
+  // `unknowable`: a wage column whose rows are not all knowable has no honest
+  // total. Summing the rest would print a confident figure that is short by
+  // however much the rateless staff are owed — worse than the "—" here,
+  // because it looks complete. Tips are recorded money and are never affected,
+  // so that column keeps its total; the note under the table names the reason
+  // and links to the fix, so the dash is never the end of the road.
+  const moneyTotal = (key, unknowable = false) => (
     <Amount
-      value={wagesHidden ? null : (summary || []).reduce((s, r) => s + (r[key] || 0), 0)}
+      value={
+        wagesHidden || unknowable
+          ? null
+          : (summary || []).reduce((s, r) => s + (r[key] || 0), 0)
+      }
       currency={currency}
     />
   );
@@ -1632,15 +1718,30 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       : "\u2014"}
                   </td>
                   {/* <Amount> renders a missing figure as "—" on its own, which
-                      is what the redacted (member-seat) payload sends. */}
+                      is what the redacted (member-seat) payload sends.
+                      rateMissing() is the OTHER null: no rate was ever set, so
+                      the server costed these hours at 0 and sent a stored,
+                      confident 0 kr. back. Earned is not zero there — it is
+                      unknown, and this column now says which. */}
                   <td className="hidden sm:table-cell px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
-                    <Amount value={row.earned} currency={currency} />
+                    {rateMissing(row) ? (
+                      <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
+                    ) : (
+                      <Amount value={row.earned} currency={currency} />
+                    )}
                   </td>
                   <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {row.tips != null && row.tips > 0 ? <Amount value={row.tips} currency={currency} /> : "\u2014"}
                   </td>
+                  {/* Total = earned + tips. With earned unknown the sum is
+                      unknown too — printing the tips alone under a column
+                      headed "I alt" would read as this person's whole pay. */}
                   <td className="px-3 py-3 text-right font-bold text-gray-900 dark:text-white tabular-nums">
-                    <Amount value={row.total} currency={currency} />
+                    {rateMissing(row) ? (
+                      <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
+                    ) : (
+                      <Amount value={row.total} currency={currency} />
+                    )}
                   </td>
                 </tr>
               );
@@ -1664,18 +1765,44 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               </td>
               <td className="hidden md:table-cell px-3 py-3" />
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
-                {moneyTotal("earned")}
+                {moneyTotal("earned", missingRateCount > 0)}
               </td>
               <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {moneyTotal("tips")}
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm">
-                {moneyTotal("total")}
+                {moneyTotal("total", missingRateCount > 0)}
               </td>
             </tr>
           </tfoot>
         </table>
       </div>
+
+      {/* A DASH THAT DOES NOT SAY WHY IS ITS OWN DEAD END. The wage totals
+          above go "—" the moment one person on the roster has no rate, which
+          is only honest if the owner can see the cause and reach the fix in
+          one tap. Silent when every rate is set. */}
+      {missingRateCount > 0 && (
+        <div className="px-3 sm:px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-gray-600 dark:text-gray-300">
+          {/* Gray, not amber. This card already spends its one amber on the
+              "n shifts need your answer" chip in the header, and a second
+              amber signal beside it turns both into wallpaper. The em-dash in
+              the totals row is what catches the eye; this line is the
+              explanation it sends you to. */}
+          <Icon name="Info" size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
+          <span>
+            {missingRateCount === 1
+              ? t("shpMissingRateOne", "1 person has no wage rate set, so wage figures wait for it.")
+              : t("shpMissingRateMany", "{n} people have no wage rate set, so wage figures wait for them.").replace("{n}", String(missingRateCount))}
+          </span>
+          <Link
+            to="/staff/schedule"
+            className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+          >
+            {t("shpSetWageRates", "Set wage rates")}
+          </Link>
+        </div>
+      )}
 
       {resolving && (
         <ResolveSheet
@@ -1694,7 +1821,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
 /* ═══════════════════════════════════════════════════════════
    LOGGING SECTION — 3 TABS
    ═══════════════════════════════════════════════════════════ */
-function LoggingSection({ staffList, staffFailed, onRetryStaff, currency, periodFrom, onLogged }) {
+function LoggingSection({ staffList, staffFailed, onRetryStaff, rosterEmpty = false, currency, periodFrom, onLogged }) {
   const { t } = useLanguage();
   const [logTab, setLogTab] = useState("quick");
 
@@ -1734,12 +1861,35 @@ function LoggingSection({ staffList, staffFailed, onRetryStaff, currency, period
             />
           </div>
         )}
+        {/* THE OTHER CAUSE, AND IT IS NOT A FAILURE. The roster came back and
+            it was nobody — so the picker below is empty, Registrér timer can
+            never light up, and until this banner existed the form said none of
+            that. It is the reason plus the one link that removes it; the forms
+            stay mounted and enabled either way, exactly as under the failure
+            banner above, because "From Schedule" needs no picker at all. */}
+        {!staffFailed && rosterEmpty && (
+          <SectionBanner
+            severity="info"
+            icon="Users"
+            className="mb-4"
+            title={t("shpNoStaffYetTitle", "No staff members yet")}
+          >
+            <p>{t("shpNoStaffYetBody", "Hours are logged against a person, so the name picker stays empty until you add one.")}</p>
+            <Link
+              to="/staff/schedule"
+              className="mt-2 inline-flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+            >
+              <Icon name="Plus" size={14} aria-hidden="true" />
+              {t("hovEmptyAddStaff", "Add a staff member")}
+            </Link>
+          </SectionBanner>
+        )}
         <TabContent tabKey={logTab}>
           {logTab === "quick" && (
-            <QuickLogForm staffList={staffList} currency={currency} onLogged={onLogged} />
+            <QuickLogForm staffList={staffList} rosterEmpty={rosterEmpty} staffFailed={staffFailed} currency={currency} onLogged={onLogged} />
           )}
           {logTab === "clock" && (
-            <ClockInOutForm staffList={staffList} currency={currency} onLogged={onLogged} />
+            <ClockInOutForm staffList={staffList} rosterEmpty={rosterEmpty} staffFailed={staffFailed} currency={currency} onLogged={onLogged} />
           )}
           {logTab === "schedule" && (
             <FromScheduleForm periodFrom={periodFrom} onLogged={onLogged} />
@@ -1753,7 +1903,7 @@ function LoggingSection({ staffList, staffFailed, onRetryStaff, currency, period
 /* ─────────────────────────────────────────────────────────
    Tab 1: Quick Log
    ───────────────────────────────────────────────────────── */
-function QuickLogForm({ staffList, currency, onLogged }) {
+function QuickLogForm({ staffList, rosterEmpty = false, staffFailed = false, currency, onLogged }) {
   const { t } = useLanguage();
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState(today());
@@ -1802,7 +1952,22 @@ function QuickLogForm({ staffList, currency, onLogged }) {
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
-            <option value="">{t("shpSelectStaff", "Select staff...")}</option>
+            {/* An empty picker with "Vælg medarbejder…" in it looks like a
+                list that failed to render. Saying which it is costs one line
+                and stops the owner hunting for a bug that is not there — the
+                banner above the tabs carries the link that fixes it.
+                Three outcomes, not two: `staffList.length === 0` is ALSO true
+                when the roster request failed, so keying the label off the
+                length would tell an owner with nine staff that they have
+                none. `rosterEmpty` means we asked and the answer was nobody;
+                `staffFailed` means we never got an answer. */}
+            <option value="">
+              {rosterEmpty
+                ? t("shpNoStaffYetOption", "No staff members yet")
+                : staffFailed
+                  ? t("shpStaffLoadFailedOption", "Could not load staff")
+                  : t("shpSelectStaff", "Select staff...")}
+            </option>
             {staffList.map(s => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -1855,7 +2020,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
 /* ─────────────────────────────────────────────────────────
    Tab 2: Clock In/Out
    ───────────────────────────────────────────────────────── */
-function ClockInOutForm({ staffList, currency, onLogged }) {
+function ClockInOutForm({ staffList, rosterEmpty = false, staffFailed = false, currency, onLogged }) {
   const { t, lang } = useLanguage();
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState(today());
@@ -1887,9 +2052,38 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
   // then pasted next to a hand-built currency token, which is how the preview
   // ended up reading "(1200 DKK at 150/kr/hr)" to a Danish owner. Formatting
   // belongs at the render, in the house formatter.
+  //
+  // `base_rate`, not `hourly_rate`: StaffMemberResponse has never carried a
+  // key called hourly_rate (that name only exists on /staff/hours/summary
+  // rows), so this read was `undefined` for every staff member in the
+  // product's history and the estimate beside "Beregnet" has simply never
+  // rendered. A preview nobody can see is not a small bug — it is the one
+  // place this form says what the entry will cost before it is written.
+  //
+  // Three outcomes, not two. A staffer with no rate set, and a seat the
+  // server redacts the rate from, both arrive as null → no estimate, because
+  // there is nothing true to show. A rate of exactly 0 is a real answer an
+  // owner typed, so it previews as 0 rather than disappearing — `|| null`
+  // would have swallowed it back into "unknown".
   const selectedStaff = staffList.find(s => s.id === staffId);
-  const rate = selectedStaff?.hourly_rate || null;
-  const estimated = rate && calcHours > 0 ? rate * calcHours : null;
+  // WAGE PRIVACY — the same inference the summary table makes at ~1456, for
+  // the same reason. A null base_rate has TWO causes: nobody set a rate, or
+  // the backend stripped every pay field because this is a delegated seat or
+  // the owner's curtained shared device (_wage_stripped_member, staff.py:213).
+  // Saying "no wage rate set" in the second case states as fact something that
+  // is merely hidden from this viewer — on the pay surface, which is the one
+  // place this product must never do it.
+  //
+  // It is only knowable that THIS person has no rate when somebody else on the
+  // roster does. If every row is null we cannot tell, so we say nothing.
+  const wagesHidden =
+    staffList.length > 0 && staffList.every((m) => m.base_rate == null);
+  const rawRate = selectedStaff?.base_rate;
+  const rate =
+    rawRate == null || rawRate === "" || !Number.isFinite(Number(rawRate))
+      ? null
+      : Number(rawRate);
+  const estimated = rate != null && calcHours > 0 ? rate * calcHours : null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1935,7 +2129,22 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
-            <option value="">{t("shpSelectStaff", "Select staff...")}</option>
+            {/* An empty picker with "Vælg medarbejder…" in it looks like a
+                list that failed to render. Saying which it is costs one line
+                and stops the owner hunting for a bug that is not there — the
+                banner above the tabs carries the link that fixes it.
+                Three outcomes, not two: `staffList.length === 0` is ALSO true
+                when the roster request failed, so keying the label off the
+                length would tell an owner with nine staff that they have
+                none. `rosterEmpty` means we asked and the answer was nobody;
+                `staffFailed` means we never got an answer. */}
+            <option value="">
+              {rosterEmpty
+                ? t("shpNoStaffYetOption", "No staff members yet")
+                : staffFailed
+                  ? t("shpStaffLoadFailedOption", "Could not load staff")
+                  : t("shpSelectStaff", "Select staff...")}
+            </option>
             {staffList.map(s => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -2010,6 +2219,14 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
                 ({formatOwnerMoney(estimated, currency)}
                 {" · "}
                 {formatOwnerMoney(rate, currency, { decimals: rateDecimals(rate) })}/{hoursUnit(lang)})
+              </span>
+            )}
+            {/* Rate not set — say so, instead of leaving a blank the owner
+                reads as "the estimate is broken". Only once a name and real
+                times are on screen, so an untouched form stays quiet. */}
+            {rate == null && !wagesHidden && staffId && calcHours > 0 && (
+              <span className="text-sm text-gray-400 dark:text-gray-500 ml-2">
+                ({t("shpNoRateSet", "no wage rate set")})
               </span>
             )}
           </div>

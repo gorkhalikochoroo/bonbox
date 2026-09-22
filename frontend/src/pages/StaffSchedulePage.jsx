@@ -46,10 +46,15 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { useBranch } from "../components/BranchSelector";
-import { displayCurrency, formatKr, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatKr, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { errText } from "../utils/errText";
 import { formatHours, hoursUnit } from "../utils/hours";
+// "Has anyone actually opened their link?" — three outcomes, never a boolean.
+// null (we never asked / the call failed) must not render as "nobody has",
+// and it must never render as the sentence claiming the team can see the week.
+import { summarizePortalReach, linkWasOpened } from "../utils/portalReach";
+import { formatDateClear } from "../utils/dateFormat";
 import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
@@ -1685,9 +1690,20 @@ export default function StaffSchedulePage() {
       const d = res.data || {};
       // Keep the sheet OPEN and flip it to a success state built from the
       // server's real counts — the durable confirmation that was missing.
+      // notify is THREE outcomes, not a count with a convenient default.
+      // Coercing the raw field with `|| 0` collapsed a missing value into 0,
+      // and 0 is now a sentence the sheet says out loud — "nobody was told". A body
+      // from an older backend, or a shape change, would have put those words
+      // on screen about a publish that did notify people. null means we could
+      // not tell, and the sheet says that instead of picking a side.
+      const rawNotify = d.notify_count;
+      const notify =
+        rawNotify === null || rawNotify === undefined || !Number.isFinite(Number(rawNotify))
+          ? null
+          : Number(rawNotify);
       setPublishResult({
         published: Number(d.published) || 0,
-        notify: Number(d.notify_count) || 0,
+        notify,
       });
     } catch (err) {
       setError(errText(err, "Failed to publish schedule."));
@@ -1718,6 +1734,13 @@ export default function StaffSchedulePage() {
   const [shareSel, setShareSel] = useState(() => new Set());
   const [shareLinks, setShareLinks] = useState({}); // staffId -> portal URL
   const [shareCodes, setShareCodes] = useState({}); // staffId -> short join code
+  // staffId -> ISO timestamp of the last time that staffer opened their link,
+  // or null for "never opened". Absent from the map = we have not asked.
+  const [shareOpened, setShareOpened] = useState({});
+  // The rollup of the above: null until the server has answered once. Three
+  // outcomes — see utils/portalReach.js. Nothing on this page may state that
+  // staff can see the week unless this says somebody has actually opened it.
+  const [portalReach, setPortalReach] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopiedN, setShareCopiedN] = useState(0);
   const [shareRowCopied, setShareRowCopied] = useState(null); // staffId just copied
@@ -2127,12 +2150,16 @@ export default function StaffSchedulePage() {
       const map = {};
       const codes = {};
       const pins = {};
+      const opened = {};
       for (const row of r.data || []) {
         if (row.staff_id && row.portal_url) {
           map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
         }
         if (row.staff_id && row.join_code) codes[row.staff_id] = row.join_code;
         if (row.staff_id) pins[row.staff_id] = !!row.has_pin;
+        // null, deliberately, for a link nobody has ever opened: the KEY being
+        // present is what says "we asked", and the value is what says "never".
+        if (row.staff_id) opened[row.staff_id] = linkWasOpened(row) ? row.last_accessed : null;
       }
       setShareLinks((prev) => ({ ...map, ...prev }));
       // Server LAST for codes: `prev` spread last meant a cached code could
@@ -2143,6 +2170,12 @@ export default function StaffSchedulePage() {
       // that ordering protects an in-flight per-staff mint. A code is not.
       setShareCodes((prev) => ({ ...prev, ...codes }));
       setPinHas(pins);
+      setShareOpened(opened);
+      // The server has answered, so the page may now speak about reach — and
+      // only about what this answer says. `summarizePortalReach` returns null
+      // for a non-array, which keeps a malformed 200 in the "we do not know"
+      // bucket rather than letting it render as "nobody has opened it".
+      setPortalReach(summarizePortalReach(r.data));
       return true;
     } catch {
       // Answered, not swallowed — and deliberately without a banner. This
@@ -2151,6 +2184,11 @@ export default function StaffSchedulePage() {
       // copy time, not a wrong screen. A missing join code is also the correct
       // render for a manager seat (the endpoint is owner-only), which is
       // exactly why "no code" must not be dressed up as an error here.
+      //
+      // portalReach is left UNTOUCHED on purpose. A failed refetch is not
+      // evidence that nobody opened their link, and it is not a reason to
+      // discard an answer we already have — the page simply keeps saying
+      // whatever it last actually knew, or stays silent if that is nothing.
       return false;
     }
   }, []);
@@ -2552,7 +2590,16 @@ export default function StaffSchedulePage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setHandoffSheet(true)}
+                onClick={() => {
+                  // Ask who has actually opened their link at the moment the
+                  // owner starts a hand-off. Same owner-only call the Share
+                  // sheet and the roster already make (and a no-op re-read once
+                  // every staffer has a live code), but made HERE it means the
+                  // reach line below the toolbar can stop guessing before the
+                  // owner sends the week out one more time into silence.
+                  loadShareLinks();
+                  setHandoffSheet(true);
+                }}
                 disabled={sharing || emailing || exporting}
                 busy={sharing || emailing || exporting}
                 iconLeft={!(sharing || emailing || exporting) && <Icon name="Share2" size={14} />}
@@ -2583,29 +2630,77 @@ export default function StaffSchedulePage() {
               )}
             </div>
           </div>
-          {/* Small identifier so the owner recognises the app their team
-              uses — deliberately NOT a download button (owners run the main
-              BonBox app, not this one). It just names BonBox Scheduler and
-              links the store page so the owner can point staff to it. */}
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-400 dark:text-gray-500">
-            {/* No leading icon: a 14px Lucide "Smartphone" is a bare rounded
-                rectangle at this size and read as a missing-glyph box rather
-                than an icon. The sentence already says "app". */}
-            <span>{t("scheduleStaffAppHint", "Your team sees these shifts in the BonBox Scheduler app")}</span>
-            {/* The separator travels WITH the link — on a phone the line broke
-                after the "·", orphaning it at the end of the first line. */}
-            <span className="whitespace-nowrap">
-              <span aria-hidden="true">·</span>{" "}
-              <a
-                href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-              >
-                {t("appStore", "App Store")}
-              </a>
-            </span>
-          </div>
+          {/* Reach, not reassurance.
+              This line used to read "Your team sees these shifts in the BonBox
+              Scheduler app" — unconditionally, on every owner's screen, from
+              the first minute of a brand-new account with no staff and no link
+              ever sent. It was the product's most-read sentence about staff
+              delivery and it was asserted, never checked. Across 51 venues not
+              one staff link had ever been opened, so it was false everywhere it
+              mattered, and it is a large part of why nobody found out: the
+              owner shared the week, read this, and had no reason to look
+              further.
+              Now it states what `last_accessed` on the staff links actually
+              says, in three outcomes:
+                • portalReach === null — we have not asked the server (the call
+                  is owner-only and deliberately not made on mount). Render
+                  NOTHING. Silence is the only honest output for "unknown"; the
+                  zero-state below would be a different, equally wrong claim.
+                • opened > 0 — say how many, and keep the store link.
+                • opened === 0 — say so plainly and hand over the control that
+                  fixes it. Not a dead end: it opens the same hand-off chooser
+                  as the toolbar button. */}
+          {portalReach && portalReach.staff > 0 && (
+            portalReach.opened > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-400 dark:text-gray-500">
+                {/* No leading icon: a 14px Lucide "Smartphone" is a bare rounded
+                    rectangle at this size and read as a missing-glyph box rather
+                    than an icon. */}
+                <span>
+                  {/* "staff links", not "your team": the denominator is the
+                      rows this endpoint returned — one per non-deleted staff
+                      member, which can include someone deactivated. Counting
+                      links is the thing we actually measured, so that is what
+                      the sentence names. */}
+                  {t(
+                    "scheduleStaffOpenedCount",
+                    "{opened} of {total} staff links have been opened",
+                    { opened: portalReach.opened, total: portalReach.staff },
+                  )}
+                </span>
+                {/* The separator travels WITH the link — on a phone the line broke
+                    after the "·", orphaning it at the end of the first line. */}
+                <span className="whitespace-nowrap">
+                  <span aria-hidden="true">·</span>{" "}
+                  <a
+                    href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+                  >
+                    {t("appStore", "App Store")}
+                  </a>
+                </span>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400">
+                <Icon name="AlertTriangle" size={13} className="shrink-0" />
+                <span>
+                  {t(
+                    "scheduleStaffNoneOpened",
+                    "No one has opened their schedule link yet",
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { loadShareLinks(); setHandoffSheet(true); }}
+                  className="font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 transition-colors"
+                >
+                  {t("schedHandoffButton", "Share week")}
+                </button>
+              </div>
+            )
+          )}
         </div>
       </FadeIn>
 
@@ -3144,6 +3239,16 @@ export default function StaffSchedulePage() {
             setPublishConfirm(null);
             setPublishResult(null);
           }}
+          /* The way out of "published, but nobody was told". A sheet that
+             states that and then offers only "Close" leaves the owner exactly
+             where the silent failure wants them; this hands them the hand-off
+             chooser instead. */
+          onShare={() => {
+            setPublishConfirm(null);
+            setPublishResult(null);
+            loadShareLinks();
+            setHandoffSheet(true);
+          }}
           t={t}
         />
       )}
@@ -3299,6 +3404,27 @@ export default function StaffSchedulePage() {
                           </span>
                         )}
                       </div>
+                      {/* The read receipt. This sheet is where an owner hands
+                          the week over, and until now it could not tell a link
+                          somebody opens every morning from one that has never
+                          been tapped — the endpoint had the column and dropped
+                          it. Rendered ONLY when the server answered for this
+                          staffer (the key is present): an absent key means we
+                          did not ask, and "we did not ask" must not print as
+                          "never opened". */}
+                      {Object.prototype.hasOwnProperty.call(shareOpened, s.id) && (
+                        <div
+                          className={`text-[11px] truncate ${
+                            shareOpened[s.id]
+                              ? "text-gray-400 dark:text-gray-500"
+                              : "text-amber-700 dark:text-amber-500"
+                          }`}
+                        >
+                          {shareOpened[s.id]
+                            ? t("shareLinkOpened", "Opened {date}", { date: formatDateClear(shareOpened[s.id]) })
+                            : t("shareLinkNeverOpened", "Never opened")}
+                        </div>
+                      )}
                     </div>
                     {/* Extra PIN lock — hidden unless the owner opened the
                         "Extra security" section, OR this link already has a
@@ -3776,6 +3902,13 @@ function StaffDetailModal({
   t,
 }) {
   const catFor = useCatFor();
+  // The hour unit comes off utils/hours.js, never typed: these three labels
+  // read "(DKK/hr)" — an English unit on a Danish wage form — for as long as
+  // they existed, and "t" is the unit every other hours surface in the app
+  // prints. `t` is the translate function here (a prop), so the language is
+  // taken from the hook rather than shadowed.
+  const { lang: rateLang } = useLanguage();
+  const perHour = hoursUnit(rateLang);
   // A wage rate is MONEY per hour — kroner the owner types — so the three
   // rate boxes are text, read by the strict parser in the ACCOUNT's notation.
   // type="number" on an English-locale browser rewrites a Dane's "1.500,50"
@@ -4076,14 +4209,14 @@ function StaffDetailModal({
             <StaffDocumentsRow memberId={member.id} labelCls={labelCls} />
             {/* Base rate */}
             <div className="sm:col-span-2">
-              <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/hr)</label>
+              <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/{perHour})</label>
               <MoneyField
                 id="sd-rate"
                 locale={mLocale}
                 value={editForm.base_rate ?? ""}
                 onChange={(e) => setEditForm({ ...editForm, base_rate: e.target.value })}
                 className={`${inputCls} tabular-nums`}
-                placeholder={`${t("baseRate")} (${currency}/hr)`}
+                placeholder={`${t("baseRate")} (${currency}/${perHour})`}
               />
             </div>
           </div>
@@ -4116,7 +4249,7 @@ function StaffDetailModal({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className={labelCls} htmlFor="sd-evening">{t("rateEvening", "Evening")} ({currency}/hr)</label>
+                <label className={labelCls} htmlFor="sd-evening">{t("rateEvening", "Evening")} ({currency}/{perHour})</label>
                 <MoneyField
                   id="sd-evening"
                   locale={mLocale}
@@ -4127,7 +4260,7 @@ function StaffDetailModal({
                 />
               </div>
               <div>
-                <label className={labelCls} htmlFor="sd-weekend">{t("rateWeekend", "Weekend")} ({currency}/hr)</label>
+                <label className={labelCls} htmlFor="sd-weekend">{t("rateWeekend", "Weekend")} ({currency}/{perHour})</label>
                 <MoneyField
                   id="sd-weekend"
                   locale={mLocale}
@@ -4238,11 +4371,21 @@ function StaffDetailModal({
 /* ═══════════════════════════════════════════════════════════
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
+// Decimals for an HOURLY RATE, which is the one money figure on this page an
+// owner multiplies by hours. base_rate is Numeric(10,2) and 137,50 kr./t is a
+// rate people really type; printing it as "138 kr./t" beside an `earned` the
+// server derived from 137,50 hands them a payroll row they cannot reproduce.
+// Whole rates stay clean. (Same rule, same reason, as StaffHoursPage.)
+function rateDecimals(rate) {
+  const n = typeof rate === "string" ? parseFloat(rate) : rate;
+  return Number.isInteger(n) ? 0 : 2;
+}
+
 function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
   // Wage rates are money — same reasoning as StaffDetailModal above.
   const mLocale = moneyLocale(currency);
   const catFor = useCatFor();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const confirm = useConfirm();
   // Which row's code was just copied. Local on purpose — the parent has its
   // own copied-state for the Share sheet and the two should not fight over
@@ -4369,7 +4512,24 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         phone: phone.trim() || undefined,
         role,
         contract_type: contractType,
-        base_rate: (() => { const n = parseMoneyInput(baseRate, mLocale); return Number.isFinite(n) ? n : 0; })(),
+        // A BLANK RATE BOX IS "NOT SET", NEVER "ZERO KRONER AN HOUR".
+        //
+        // The Tilføj button is live on an empty rate (isMoneyRejected treats an
+        // untouched box as the resting state, deliberately), so this is the
+        // ordinary path for an owner who adds the roster first and sets wages
+        // later — and it used to land `0`. A stored 0 is a FACT everywhere
+        // downstream: _pick_rate returns it, `earned` computes to 0 kr., the
+        // rate card printed "0 kr./t", and the owner was told they pay this
+        // person nothing. null is the only honest value for a figure nobody
+        // entered, and every consumer already treats it as "not known": the
+        // rate card renders "—", /hours/summary sends hourly_rate: null, and
+        // the client cost estimators read `base_rate || 0` so no sum changes
+        // shape. 0 keeps meaning what it should — an owner who really typed 0.
+        base_rate: (() => {
+          if (String(baseRate ?? "").trim() === "") return null;
+          const n = parseMoneyInput(baseRate, mLocale);
+          return Number.isFinite(n) ? n : null;
+        })(),
         branch_id: branchId || undefined,
       });
       setName("");
@@ -4407,7 +4567,13 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         city: editForm.city !== undefined ? (editForm.city.trim() || null) : undefined,
         role: editForm.role || undefined,
         contract_type: editForm.contract_type || undefined,
-        base_rate: editForm.base_rate !== undefined ? parseMoneyInput(editForm.base_rate, mLocale) : undefined,
+        // Base rate through the SAME helper as the premiums. It used to call
+        // parseMoneyInput directly, which returns NaN for a cleared box and
+        // arrived as JSON null only because JSON.stringify happens to serialize
+        // NaN that way — an accident, not an intention, and one that would turn
+        // into `0` the day this payload was built by anything else. "" is
+        // "cleared this rate" and says so out loud now.
+        base_rate: rateOrNull(editForm.base_rate),
         evening_rate: rateOrNull(editForm.evening_rate),
         weekend_rate: rateOrNull(editForm.weekend_rate),
         // Trækkort fields — null/empty maps to NULL on server (treated as
@@ -4473,7 +4639,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
     // pre-selects the member's ACTUAL role instead of defaulting to "Chef".
     role: roleToShiftOption(member.role, roles),
     contract_type: member.contract_type,
-    base_rate: member.base_rate || "",
+    // `??`, not `||`, for the same reason the premiums beside it use it: a
+    // member whose rate really IS 0 (an unpaid trial week, the owner's own
+    // row) had it seeded as "" — the form then showed "not set", and saving
+    // any unrelated field wrote null back over a deliberate 0. Only a genuine
+    // null now reads as an empty box.
+    base_rate: member.base_rate ?? "",
     evening_rate: member.evening_rate ?? "",
     weekend_rate: member.weekend_rate ?? "",
     tax_card_type: member.tax_card_type || "",
@@ -4567,7 +4738,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
           </select>
           <MoneyField
             locale={mLocale}
-            placeholder={`${t("schedBaseRate", "Base rate")} (${currency}/hr)`}
+            placeholder={`${t("schedBaseRate", "Base rate")} (${currency}/${hoursUnit(lang)})`}
             value={baseRate}
             onChange={(e) => setBaseRate(e.target.value)}
             className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
@@ -4717,16 +4888,29 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                       )}
                       {/* Rate card */}
                       <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+                        {/* The rate read "185DKK/hr" — the raw Numeric straight
+                            out of the payload, no grouping, the currency CODE
+                            jammed against it and an English unit, on the one
+                            line of this roster that states a wage. Through the
+                            house formatter and utils/hours.js it reads
+                            "185 kr./t", the same notation as the Hours table's
+                            rate column. Øre survive (a real 137,50 kr./t is a
+                            rate people type); whole rates stay clean. */}
                         <span title={t("baseRate")}>
                           {t("baseRate")}: {rates.base == null
                             ? "—"
-                            : `${rates.base}${currency}/hr`}
+                            : `${formatOwnerMoney(rates.base, currency, { decimals: rateDecimals(rates.base) })}/${hoursUnit(lang)}`}
                         </span>
+                        {/* Premiums were bare numbers ("Aften: 231") sitting
+                            beside a formatted base — same row, two notations,
+                            and one of them not identifiable as money at all.
+                            The unit is carried once, by the base chip, so these
+                            stay compact on the narrow tablet this row targets. */}
                         {rates.evening != null && (
-                          <span title={t("rateEvening", "Evening")}>{t("rateEveShort", "Eve")}: {rates.evening}</span>
+                          <span title={t("rateEvening", "Evening")}>{t("rateEveShort", "Eve")}: {formatOwnerMoney(rates.evening, currency, { decimals: rateDecimals(rates.evening) })}</span>
                         )}
                         {rates.weekend != null && (
-                          <span title={t("rateWeekend", "Weekend")}>{t("rateWkndShort", "Wknd")}: {rates.weekend}</span>
+                          <span title={t("rateWeekend", "Weekend")}>{t("rateWkndShort", "Wknd")}: {formatOwnerMoney(rates.weekend, currency, { decimals: rateDecimals(rates.weekend) })}</span>
                         )}
                         {rates.evening == null && rates.weekend == null && (
                           <span className="text-gray-300 dark:text-gray-600">{t("noPremiumSet", "No premium")}</span>
@@ -6745,7 +6929,7 @@ function StatTile({ icon, value, label }) {
   );
 }
 
-function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm, onClose, t, lang }) {
+function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm, onClose, onShare, t, lang }) {
   // The Shield warnings below arrive as raw numbers and used to be pasted into
   // catalogue strings that typed the hour unit themselves, so a Danish owner
   // read an English unit here and the Danish one on the chip the sentence is
@@ -6753,11 +6937,27 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
   const fmtWarnHours = (n) => formatHours(n, { lang });
   const done = !!result; // success state shown after a publish completes
   const nothing = !summary || summary.draftCount === 0;
-  const headerIcon = done ? "CheckCircle2" : "Send";
+  // The publish landed in the database and reached NOBODY. That is the state
+  // this sheet used to celebrate: a green tick, "{n} shifts are now live on
+  // your team's schedule", and the actual outcome — that not one person was
+  // sent anything — demoted to grey 12px underneath it. An owner reads the
+  // headline. Across 51 venues no staff link has ever been opened, and this is
+  // one of the screens that kept that quiet. So it stops being a footnote and
+  // becomes the headline, the icon and the tone.
+  //   result.notify === 0    → we know: nobody.
+  //   result.notify === null → the server did not tell us; see below.
+  const toldNobody = done && result.published > 0 && result.notify === 0;
+  const notifyUnknown = done && result.published > 0 && result.notify == null;
+  const headerIcon = done ? (toldNobody ? "AlertTriangle" : "CheckCircle2") : "Send";
+  const headerTone = toldNobody
+    ? { ring: "bg-amber-50 dark:bg-amber-900/20", glyph: "text-amber-600 dark:text-amber-400" }
+    : { ring: "bg-emerald-50 dark:bg-emerald-900/20", glyph: "text-emerald-600 dark:text-emerald-400" };
   const title = done
     ? (result.published === 0
         ? t("publishNothingTitle", "Nothing to publish")
-        : t("publishedTitle", "Week published"))
+        : toldNobody
+          ? t("publishedNobodyToldTitle", "Published — but nobody was told")
+          : t("publishedTitle", "Week published"))
     : (nothing
         ? t("publishNothingTitle", "Nothing to publish")
         : t("publishConfirmTitle", "Publish this week?"));
@@ -6781,8 +6981,8 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
       {/* Header — never scrolls, so the owner always knows which week this is */}
       <div className="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3 sm:px-6 sm:pt-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
-              <Icon name={headerIcon} size={done ? 20 : 18} className="text-emerald-600 dark:text-emerald-400" />
+            <div className={`w-10 h-10 rounded-full ${headerTone.ring} flex items-center justify-center shrink-0`}>
+              <Icon name={headerIcon} size={done ? 20 : 18} className={headerTone.glyph} />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white leading-tight">
@@ -6810,17 +7010,49 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
         {done ? (
           /* ── Success — durable confirmation from the server's real counts ── */
           <div className="space-y-1.5">
-            <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
-              {result.published === 0
-                ? t("publishedNothing", "Already up to date — nothing new to publish.")
-                : t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
-            </p>
-            {result.published > 0 && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                {result.notify > 0
-                  ? t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))
-                  : t("publishedNotifyNo", "No affected staff had an email on file — nothing was sent.")}
+            {result.published === 0 ? (
+              <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
+                {t("publishedNothing", "Already up to date — nothing new to publish.")}
               </p>
+            ) : toldNobody ? (
+              /* Truth first, in the sentence the owner actually reads, and the
+                 saved-shift count second — where it belongs, because it is the
+                 part that needed no telling. */
+              <>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300 leading-relaxed">
+                  {t(
+                    "publishedNobodyToldBody",
+                    "No one was sent anything. None of the affected staff have an email on file.",
+                  )}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {t(
+                    "publishedSavedNotSent",
+                    "{n} shift(s) are saved as published, but your team has not been told.",
+                    { n: result.published },
+                  )}
+                </p>
+                {/* The way out is the sheet's PRIMARY action, in the footer —
+                    see below. A sheet that reports a silent failure and offers
+                    only "Done" is a dead end, and this one is the last screen
+                    before the owner walks away believing the week went out. */}
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
+                  {t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {notifyUnknown
+                    /* The server did not give us a count. "0 notified" would be
+                       a claim; so would "{m} notified". Say which it is. */
+                    ? t(
+                        "publishedNotifyUnknown",
+                        "We could not confirm whether anyone was notified.",
+                      )
+                    : t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))}
+                </p>
+              </>
             )}
           </div>
         ) : nothing ? (
@@ -6937,9 +7169,30 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
         style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))" }}
       >
           {done ? (
-            <Button variant="accent" size="sm" onClick={onClose} iconLeft={<Icon name="Check" size={14} />}>
-              {t("publishDone", "Done")}
-            </Button>
+            toldNobody && onShare ? (
+              /* Published, and not one person was told. "Done" must not be the
+                 only thing on offer here — the whole failure this sheet now
+                 reports is that the week is sitting in the database where no
+                 staffer can see it. Share week is the action; Done demotes to
+                 secondary but stays, because the publish itself did succeed. */
+              <>
+                <Button variant="secondary" size="sm" onClick={onClose}>
+                  {t("publishDone", "Done")}
+                </Button>
+                <Button
+                  variant="accent"
+                  size="sm"
+                  onClick={onShare}
+                  iconLeft={<Icon name="Share2" size={14} />}
+                >
+                  {t("schedHandoffButton", "Share week")}
+                </Button>
+              </>
+            ) : (
+              <Button variant="accent" size="sm" onClick={onClose} iconLeft={<Icon name="Check" size={14} />}>
+                {t("publishDone", "Done")}
+              </Button>
+            )
           ) : (
             <>
               <Button variant="secondary" size="sm" onClick={onClose}>

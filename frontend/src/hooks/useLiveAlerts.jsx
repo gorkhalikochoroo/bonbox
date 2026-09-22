@@ -23,7 +23,16 @@
  *   • Privacy: the feed shows guest first name + severity flag only; the full
  *     allergy note (Art. 9 health data) is never pulled into the toast.
  *
- * Accountant-view / logged-out → inert (no polling, no UI).
+ * Accountant-view → inert (no polling, no UI).
+ *
+ * A PAIRED HOST STAND HAS NO SESSION. /stand/<token> is deliberately outside
+ * ProtectedRoute (a door tablet has no login), so `!!user` is false there and
+ * this whole feature used to be dead on the ONE screen it was built for: the
+ * owner's laptop chimed, the tablet at the door never made a sound. A stand
+ * device is therefore active on the strength of its token — the api client
+ * rewrites the poll onto /stand/<token>/changes, which the backend wraps with
+ * the same tenant-scoped, PII-minimal handler. Logged out AND unpaired is still
+ * inert.
  */
 import {
   createContext,
@@ -34,7 +43,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "./useAuth";
 import { useLanguage } from "./useLanguage";
@@ -67,13 +76,40 @@ const writeBool = (key, val) => {
 
 let _toastSeq = 0;
 
+/**
+ * The paired-stand token for the CURRENT path, or "".
+ *
+ * Read from the URL rather than from standAuth's module/sessionStorage cache on
+ * purpose: this provider sits ABOVE <Routes>, so on a cold open of
+ * /stand/<token> it renders before StandTokenRoute has adopted the token, and a
+ * cache read would answer "" exactly once — at mount, which is the only render
+ * that matters for arming the poll. The path is true immediately and, via
+ * useLocation, stays true when the device navigates.
+ *
+ * Deliberately NOT a match for /reservations/stand: that is the owner's own
+ * pop-out window, which has a real session.
+ */
+function standTokenFromPath(pathname) {
+  // Returned RAW (undecoded): the only thing we do with it is rebuild the same
+  // path we are already on, and re-encoding a decoded segment is how a token
+  // silently stops matching.
+  const m = /^\/stand\/([^/?#]+)/.exec(pathname || "");
+  return m ? m[1] : "";
+}
+
 export function LiveAlertsProvider({ children }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
 
+  const pathname = location?.pathname || "";
+  const standToken = standTokenFromPath(pathname);
+  const isStand = !!standToken;
   const isAccountant = (user?.role || "").toLowerCase() === "accountant";
-  const active = !!user && !isAccountant;
+  // A paired stand has no session and never has an accountant role — its token
+  // IS its credential, and the server decides what that reaches.
+  const active = isStand || (!!user && !isAccountant);
 
   const [enabled, setEnabledState] = useState(() => readBool(LS_ENABLED, true));
   const [sound, setSoundState] = useState(() => readBool(LS_SOUND, true));
@@ -279,18 +315,25 @@ export function LiveAlertsProvider({ children }) {
   // or any item without a booking id — falls back to the list. The id is the
   // only thing we carry; ReservationsPage re-derives the row from a fresh fetch.
   //
-  // On the host stand this must NOT leave the stand. The stand is a door
-  // tablet running an unlocked owner session; navigating it to /reservations
-  // drops front of house into the full owner app — and it fired on the allergy
-  // toast, i.e. the single interaction the whole alert feature exists for.
-  // Same query contract either way, so the stand opens the same drawer.
+  // On the host stand this must NOT leave the stand. Two kinds of stand:
+  //   • /reservations/stand — the owner's pop-out window, a real session. Being
+  //     dropped into the full owner app is wrong but survivable.
+  //   • /stand/<token> — a PAIRED door tablet with NO session. Sending that
+  //     device to /reservations hits ProtectedRoute and lands front-of-house on
+  //     a login screen mid-service, with no password to type. That is a dead end,
+  //     and it would fire on the allergy toast: the single interaction the whole
+  //     alert feature exists for.
+  // Same query contract on every branch, so each one opens the same drawer.
   const openReservations = useCallback(
     (target) => {
       setToasts([]);
       markAllRead();
-      const base =
-        typeof window !== "undefined" &&
-        window.location.pathname.endsWith("/reservations/stand")
+      // Router location, not window.location: the router is the source of
+      // truth for where this app thinks it is, and reading the raw address bar
+      // meant this branch could not even be exercised by a test.
+      const base = isStand
+        ? `/stand/${standToken}`
+        : pathname.endsWith("/reservations/stand")
           ? "/reservations/stand"
           : "/reservations";
       const id = target && typeof target === "object" ? target.bookingId : null;
@@ -303,7 +346,7 @@ export function LiveAlertsProvider({ children }) {
         navigate(base);
       }
     },
-    [navigate, markAllRead],
+    [navigate, markAllRead, isStand, standToken, pathname],
   );
 
   const value = useMemo(

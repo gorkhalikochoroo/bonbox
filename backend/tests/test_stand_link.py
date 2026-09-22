@@ -183,6 +183,163 @@ def test_stand_can_record_an_allergy(client, db):
     assert r.status_code == 200, r.text
 
 
+def test_stand_hears_a_new_booking(client, db):
+    """DEFECT: the paired host stand never chimed.
+
+    useLiveAlerts polls /reservations/changes, which the api client rewrites to
+    /stand/<token>/changes on a paired device — a route that did not exist, so
+    every tick 404'd and was swallowed. The owner's laptop popped and beeped for
+    a new booking; the tablet at the door, which is the entire reason the alert
+    feature was built, sat silent through a whole service.
+
+    Walks the real contract: the first poll carries no `since` and must return
+    NOTHING (opening the app never replays the morning's bookings), it hands back
+    a server_time, and a booking taken after that anchor shows up on the next
+    poll.
+    """
+    u = _seed(db); _as(u)
+    token = _pair(client, _mint(client)["code"])
+
+    first = client.get(f"/api/stand/{token}/changes")
+    assert first.status_code == 200, first.text
+    assert first.json()["changes"] == [], "a fresh stand replayed history"
+    anchor = first.json()["server_time"]
+    assert anchor
+
+    rid = _book(client, u, guest_name="Sent efter anker")
+
+    again = client.get(f"/api/stand/{token}/changes", params={"since": anchor})
+    assert again.status_code == 200, again.text
+    assert rid in [c["id"] for c in again.json()["changes"]], "the stand still cannot hear"
+
+
+def test_stand_change_feed_is_tenant_locked(client, db):
+    """A device must not hear the venue next door's bookings."""
+    a, b = _seed(db), _seed(db)
+    _as(a); token_a = _pair(client, _mint(client)["code"])
+    anchor = client.get(f"/api/stand/{token_a}/changes").json()["server_time"]
+
+    _as(b); rid_b = _book(client, b, guest_name="Other Venue")
+
+    feed = client.get(f"/api/stand/{token_a}/changes", params={"since": anchor})
+    assert rid_b not in [c["id"] for c in feed.json()["changes"]], "cross-tenant leak"
+
+
+def test_stand_can_work_the_venteliste(client, db):
+    """DEFECT: every Venteliste mutation was structurally unreachable here.
+
+    The READ was wrapped, so the door tablet rendered the list AND its Add /
+    Notify / Book / Remove buttons — while the rewritten mutation routes did not
+    exist at all. Four buttons that could never work, on the one device where a
+    turned-away party actually gets written down.
+
+    This walks the real sequence a host does at the door: park a party, seat them
+    when a table frees, and park-then-drop another who gave up waiting.
+    """
+    u = _seed(db); _as(u)
+    token = _pair(client, _mint(client)["code"])
+
+    added = client.post(f"/api/stand/{token}/waitlist", json={
+        "guest_name": "Mette", "guest_phone": "+4520304050",
+        "party_size": 2, "waitlist_date": _DAY,
+    })
+    assert added.status_code in (200, 201), added.text
+    entry_id = added.json()["id"]
+
+    listed = client.get(f"/api/stand/{token}/waitlist?day={_DAY}")
+    assert entry_id in [e["id"] for e in listed.json()["waitlist"]]
+
+    notified = client.post(f"/api/stand/{token}/waitlist/{entry_id}/notify")
+    assert notified.status_code == 200, notified.text
+    # No SMS plan in this fixture → the honest fallback is the phone to call,
+    # and the response must say so rather than claim a text went out.
+    assert notified.json()["sms_sent"] is False
+    assert notified.json()["channel"] == "call"
+
+    booked = client.post(f"/api/stand/{token}/waitlist/{entry_id}/convert", json={
+        "starts_at": _START, "auto_assign": False, "allow_overflow": True,
+    })
+    assert booked.status_code in (200, 201), booked.text
+    assert booked.json()["entry"]["status"] == "converted"
+
+    gave_up = client.post(f"/api/stand/{token}/waitlist", json={
+        "guest_phone": "+4520304051", "party_size": 4, "waitlist_date": _DAY,
+    })
+    dropped = client.patch(
+        f"/api/stand/{token}/waitlist/{gave_up.json()['id']}", json={"status": "cancelled"}
+    )
+    assert dropped.status_code == 200, dropped.text
+    assert dropped.json()["status"] == "cancelled"
+
+
+def test_stand_cannot_touch_another_tenants_waitlist(client, db):
+    """New reach is new attack surface: prove the tenant lock holds on it."""
+    a, b = _seed(db), _seed(db)
+    _as(a); token_a = _pair(client, _mint(client)["code"])
+    _as(b)
+    theirs = client.post("/api/reservations/waitlist", json={
+        "guest_name": "Their guest", "guest_phone": "+4520304052",
+        "party_size": 2, "waitlist_date": _DAY,
+    })
+    assert theirs.status_code in (200, 201), theirs.text
+    entry_id = theirs.json()["id"]
+
+    assert client.patch(
+        f"/api/stand/{token_a}/waitlist/{entry_id}", json={"status": "cancelled"}
+    ).status_code == 404
+    assert client.post(
+        f"/api/stand/{token_a}/waitlist/{entry_id}/notify"
+    ).status_code == 404
+
+
+def test_last_seen_does_not_buy_a_write_on_every_poll(client, db):
+    """DEFECT (introduced by the fix above, closed here).
+
+    Every wrapped stand call runs _bind → _touch, which committed an UPDATE.
+    That was fine when a device only spoke when a host tapped something. The
+    live-alert feed polls every ~20 seconds, so a single idle door tablet would
+    now write telemetry ~4,300 times a day, against an estate that shares one
+    worker and a 15-connection pool. last_seen_at exists to tell "running a
+    service tonight" apart from "paired on a visit months ago" — a question
+    minute-granularity answers exactly as well.
+    """
+    u = _seed(db); _as(u)
+    token = _pair(client, _mint(client)["code"])
+    row = db.query(StandLink).filter(StandLink.token == token).first()
+    first = row.last_seen_at
+    assert first is not None
+
+    for _ in range(3):
+        assert client.get(f"/api/stand/{token}/changes").status_code == 200
+    db.refresh(row)
+    assert row.last_seen_at == first, "a 20-second poll is writing on every tick"
+
+    # …but it must still be TRUE. Once genuinely stale, the next call records it,
+    # or the owner's device list starts lying about which stands are alive.
+    stale = first - timedelta(minutes=10)
+    row.last_seen_at = stale
+    db.commit()
+    assert client.get(f"/api/stand/{token}/changes").status_code == 200
+    db.refresh(row)
+    assert row.last_seen_at > stale, "last_seen_at froze — the throttle ate the truth"
+
+
+def test_revoke_kills_the_new_surface_too(client, db):
+    """Revocation is the one control that has to cover EVERY wrapper — a device
+    left in a closed venue must go dark on the waitlist and the alert feed, not
+    just on the book."""
+    u = _seed(db); _as(u)
+    minted = _mint(client)
+    token = _pair(client, minted["code"])
+    assert client.get(f"/api/stand/{token}/changes").status_code == 200
+
+    assert client.delete(f"/api/stand/links/{minted['id']}").status_code == 200
+    assert client.get(f"/api/stand/{token}/changes").status_code == 404
+    assert client.post(f"/api/stand/{token}/waitlist", json={
+        "guest_phone": "+4520304053", "party_size": 2, "waitlist_date": _DAY,
+    }).status_code == 404
+
+
 # ── what it must NOT reach ───────────────────────────────────────────
 
 def test_credential_reaches_no_owner_config_route(client, db):
@@ -192,11 +349,25 @@ def test_credential_reaches_no_owner_config_route(client, db):
 
     wrapped = {r.path for r in S.router.routes if "{token}" in r.path}
     allowed = {
+        # working the book
         "/stand/{token}/book",
         "/stand/{token}/resources",
-        "/stand/{token}/waitlist",
         "/stand/{token}/reservations/{reservation_id}",
         "/stand/{token}/reservations/{reservation_id}/status",
+        # the live-alert change feed — a stand that never chimes is not a stand.
+        # Read-only and PII-minimal at the source (first name + severity flag;
+        # the allergy note itself is never in the payload).
+        "/stand/{token}/changes",
+        # the venteliste. It is written down by the person at the door, so the
+        # door is where every one of these has to work. None of them reaches
+        # config, money or payroll; the plan cap on active entries and the
+        # server-side notify_count < 2 SMS cap both still apply, because these
+        # wrappers call the very same owner handlers.
+        "/stand/{token}/waitlist",
+        "/stand/{token}/waitlist/matches",
+        "/stand/{token}/waitlist/{entry_id}",
+        "/stand/{token}/waitlist/{entry_id}/notify",
+        "/stand/{token}/waitlist/{entry_id}/convert",
     }
     assert wrapped == allowed, (
         "the stand credential's reach changed — this is a security boundary, "
