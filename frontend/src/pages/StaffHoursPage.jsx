@@ -1477,8 +1477,20 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // Not-known, not zero. A row only qualifies when wages are VISIBLE (so the
   // null is absence, not redaction) and the person actually worked: with no
   // actual hours, 0 kr. is genuinely zero and stays a figure.
+  //
+  // THE FOURTH CASE, and the one a rate being SET later leaves behind. A row
+  // can carry a real hourly_rate and still show earned 0, because `earned` is
+  // stored at log time: shifts worked before the rate existed were costed at
+  // zero and the figure stuck. The backend now re-costs those the moment a
+  // rate is first entered, but a row that predates that repair — or one the
+  // bound deliberately would not touch — must not print a confident 0 kr
+  // beside hours somebody actually worked.
   const rateMissing = (r) =>
-    !wagesHidden && r && r.hourly_rate == null && (r.actual_hours || 0) > 0;
+    !wagesHidden &&
+    r &&
+    (r.actual_hours || 0) > 0 &&
+    (r.hourly_rate == null ||
+      ((r.earned ?? 0) === 0 && (r.hourly_rate || 0) > 0));
   const missingRateCount = (summary || []).filter(rateMissing).length;
   // The totals used to print "12500 DKK" — no thousands separator and the raw
   // code — under an Overview tile that said "12.500 kr" for the same period.

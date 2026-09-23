@@ -121,6 +121,13 @@ class StaffMemberResponse(BaseModel):
     is_deleted: bool = False
     created_at: datetime.datetime | None = None
     updated_at: datetime.datetime | None = None
+    # Present ONLY on the PUT that first fills in a wage rate, when shifts
+    # logged before it existed were re-costed from 0. {"count": n,
+    # "amount": kr}. Declared here because response_model strips anything it
+    # does not know about — without this line the repair still happens and the
+    # owner is simply never told, which is the silent version of the fix this
+    # was written to avoid.
+    recosted_hours: dict | None = None
 
     model_config = {"from_attributes": True}
 

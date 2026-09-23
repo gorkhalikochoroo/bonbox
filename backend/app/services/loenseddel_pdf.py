@@ -158,6 +158,49 @@ def _open_punches(rows: list) -> list:
     return [r for r in rows if (r.entry_method or "") == "clock" and not r.end_time]
 
 
+class UncostedHoursInPeriod(Exception):
+    """A shift in this period has hours but no rate, so its pay is UNKNOWN.
+
+    WHY THIS IS FATAL, and why it is a different condition from an open punch.
+    An open punch has no hours yet. This row HAS hours — the person demonstrably
+    worked — and no rate was on file when it was logged, so `earned` was stored
+    as a real 0.00 by `float(staff.base_rate or 0)`. The payslip then states a
+    date, a duration, and Bruttoløn 0,00 kr: a positive assertion that someone
+    who worked a full shift earned nothing, on a Bilagsnummer'd, SHA-256-hashed,
+    employee-SIGNED artifact retained five years under Bogføringsloven §10.
+
+    IT MUST NOT BLOCK A LEGITIMATE ZERO. An unpaid intern, a volunteer, an
+    owner who takes no wage — those are real, and a payslip for them is valid.
+    The distinction is the RATE, not the amount: a row is uncosted when it has
+    hours AND no rate was applied. A venue that deliberately pays nothing still
+    has a rate on file (0 entered on purpose sets base_rate, so _pick_rate
+    returns 0 and rate_applied is written as 0 against a rate that EXISTS)...
+    which is indistinguishable at the row level. So the employee's own
+    base_rate is consulted too: if the owner has since entered any rate, the
+    rows are stale rather than genuinely unpaid, and staff.py re-costs them the
+    moment a rate is first set. What reaches here is the case that repair
+    cannot fix by itself — hours logged with no rate anywhere, still no rate on
+    file — and the honest answer is to refuse and say which shifts.
+    """
+
+
+def _uncosted_rows(rows: list, employee) -> list:
+    """Rows with real hours that were never costed against any rate.
+
+    `base_rate` is the tiebreaker between "nobody has told us what this person
+    earns" and "this person genuinely earns nothing": with a rate on file, a
+    zero row is stale data (repairable, and repaired on rate-set); with no rate
+    anywhere, the pay is simply unknown.
+    """
+    if float(getattr(employee, "base_rate", 0) or 0) > 0:
+        return []
+    return [
+        r for r in rows
+        if float(getattr(r, "total_hours", 0) or 0) > 0
+        and not float(getattr(r, "rate_applied", 0) or 0) > 0
+    ]
+
+
 def fetch_loenseddel_data(
     db: Session,
     owner: User,
@@ -194,6 +237,15 @@ def fetch_loenseddel_data(
     still_open = _open_punches(hours_rows)
     if still_open:
         raise OpenPunchInPeriod(still_open)
+
+    # BARRIER 3 — hours with no rate anywhere. Same reasoning as barrier 2 one
+    # step along: that one refuses when the DURATION is unknown, this one when
+    # the PAY is. Both would otherwise print a confident 0,00 kr onto a signed
+    # five-year document. See UncostedHoursInPeriod for why a genuinely
+    # unpaid employee is not caught by it.
+    uncosted = _uncosted_rows(hours_rows, employee)
+    if uncosted:
+        raise UncostedHoursInPeriod(uncosted)
 
     base_rate = float(getattr(employee, "base_rate", 0) or 0)
     lines: list[dict] = []

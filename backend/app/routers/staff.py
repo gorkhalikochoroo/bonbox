@@ -354,6 +354,86 @@ def _pick_rate(staff: StaffMember, shift_date: date, start_time: Optional[str]) 
     return base
 
 
+def _recost_uncosted_hours(db: Session, user: User, member: StaffMember) -> dict | None:
+    """Repair hours that were costed at zero because no rate existed yet.
+
+    THE DEFECT. `base_rate` is nullable and `_pick_rate` reads
+    `float(staff.base_rate or 0)`, so before a rate is entered every shift is
+    costed at 0 — and `earned` is a STORED column, written at log time by four
+    different paths. Filling the rate in later fixed nothing: Hours kept
+    showing 0 kr for someone who worked, and loenseddel_pdf would print
+    Bruttoløn 0,00 kr on a signed five-year payslip.
+
+    This is the ICP's ordinary sequence, not an edge case: add the person, let
+    them start clocking in, sort the paperwork out that weekend.
+
+    WHY THIS REPAIRS RATHER THAN ASKS. A prompt — "9 shifts were costed at
+    0 kr, re-cost them?" — asks a non-technical owner to adjudicate a concept
+    that exists only because of an implementation detail. They do not know
+    rows were costed at zero; there is nothing for them to decide.
+
+    And it is not the same as overwriting a decision. A locked kasserapport
+    carries a figure the owner signed, which is why a timer must never touch
+    it. A 0 produced by `base_rate or 0` was never chosen by anyone — it is
+    the absence of a rate rendered as a number. Repairing it restores a fact;
+    it does not overrule a choice.
+
+    THE SAFETY BOUND IS THEREFORE "CARRIES NO DECISION", not "is recent":
+    only rows where BOTH rate_applied and earned are null-or-zero. A row with
+    any rate on it was costed deliberately — a different rate, a manual
+    override, a corrected entry — and is never touched here. There is no
+    paid/exported marker on HoursLogged to key off instead (checked), so this
+    is the only bound that is actually knowable.
+
+    Returns {count, amount} so the caller can SAY what happened. Silent is not
+    the goal — unasked is.
+    """
+    rows = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.staff_id == member.id,
+            or_(HoursLogged.rate_applied.is_(None), HoursLogged.rate_applied == 0),
+            or_(HoursLogged.earned.is_(None), HoursLogged.earned == 0),
+        )
+        .all()
+    )
+    if not rows:
+        return None
+
+    count, total = 0, 0.0
+    for r in rows:
+        hours = float(r.total_hours or 0)
+        if hours <= 0:
+            # A genuinely zero-hour row has nothing to re-cost, and writing a
+            # rate onto it would invent a shift.
+            continue
+        rate = _pick_rate(member, r.date, r.start_time)
+        if rate <= 0:
+            continue
+        earned = round(hours * rate, 2)
+        r.rate_applied = rate
+        r.earned = earned
+        count += 1
+        total = round(total + earned, 2)
+
+    if not count:
+        return None
+
+    # Bogføringsloven §10 — this moves wage figures, so it leaves a trail.
+    audit_service.record(
+        db, user, "staff.hours_recosted", "staff_member", member.id,
+        after={
+            "staff_id": str(member.id),
+            "rows_recosted": count,
+            "amount": total,
+            "base_rate": float(member.base_rate or 0),
+            "reason": "rate_set_after_hours_logged",
+        },
+    )
+    return {"count": count, "amount": total}
+
+
 def _compute_pay_period(config: PayPeriodConfig, ref_date: date) -> dict:
     """Compute {start_date, end_date} for the current pay period."""
     ptype = config.period_type
@@ -715,8 +795,16 @@ def update_staff_member(
         )
         enforce_cap(user, "staff_members", active_others)
 
+    # Was a wage rate just filled in for the first time? Captured BEFORE the
+    # write, because after it the old value is gone.
+    _rate_was_unset = float(getattr(member, "base_rate", None) or 0) <= 0
+
     for field, value in updates.items():
         setattr(member, field, value)
+
+    recosted = None
+    if _rate_was_unset and float(getattr(member, "base_rate", None) or 0) > 0:
+        recosted = _recost_uncosted_hours(db, user, member)
 
     db.commit()
     db.refresh(member)
@@ -726,6 +814,16 @@ def update_staff_member(
     # schema, so the client's shape never changes.
     if getattr(user, "_shared_device_locked", False):
         return _wage_stripped_member(member)
+    if recosted:
+        # Announced, not asked. The repair happens either way; the owner is
+        # told what moved so it is never a number that changed by itself.
+        # Attached to the echo rather than raised, because it is news, not an
+        # error — and a curtained shared device never sees it, since it is a
+        # wage figure (the branch above returns before this).
+        out = member.__dict__.copy()
+        out.pop("_sa_instance_state", None)
+        out["recosted_hours"] = recosted
+        return out
     return member
 
 
@@ -5438,6 +5536,7 @@ def loenseddel_pdf(
     """
     from app.services.loenseddel_pdf import (
         OpenPunchInPeriod,
+        UncostedHoursInPeriod,
         build_loenseddel_pdf_multi,
     )
 
@@ -5531,6 +5630,16 @@ def loenseddel_pdf(
         # queries disagree about what "open" means — surface it rather than
         # let a 0-hour line reach a signed document.
         raise HTTPException(409, str(exc))
+    except UncostedHoursInPeriod:
+        # Hours exist, no rate anywhere, so the pay is UNKNOWN. Refuse rather
+        # than print Bruttoløn 0,00 kr for someone who demonstrably worked —
+        # and name the remedy, because it is one field away and fixing it
+        # re-costs the shifts automatically.
+        raise HTTPException(
+            409,
+            "Der er timer i perioden uden en timeløn. Sæt medarbejderens "
+            "timeløn først — så bliver vagterne beregnet automatisk.",
+        )
 
     # L7 audit row — accountant-grade requirement. One row per
     # employee rendered so a revisor can later see exactly which staff
