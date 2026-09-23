@@ -459,6 +459,16 @@ def _compute_pay_period(config: PayPeriodConfig, ref_date: date) -> dict:
                 start = date(ref_date.year, ref_date.month - 1, 15)
             end = ref_date.replace(day=14)
 
+    elif ptype == "weekly":
+        # Monday to Sunday. DK hospitality pays weekly more often than any
+        # other cadence, and it was the one frame this list did not have — an
+        # owner paying every Friday had to read a fortnight and halve it in
+        # their head, which is exactly the arithmetic this page exists to
+        # remove. Anchored on the ISO week so it lines up with how a Dane says
+        # "uge 39", and with the weekly cap in Arbejdstidsloven.
+        start = ref_date - timedelta(days=ref_date.weekday())
+        end = start + timedelta(days=6)
+
     elif ptype == "biweekly":
         # Every 2 weeks from epoch Monday 2024-01-01
         epoch = date(2024, 1, 1)

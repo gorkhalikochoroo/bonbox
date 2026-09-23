@@ -104,6 +104,13 @@ function computePayPeriod(type, startDay, refIso) {
     if (day >= 15) return { from: isoOf(y, m, 15), to: isoOf(y, m + 1, 14) };
     return { from: isoOf(y, m - 1, 15), to: isoOf(y, m, 14) };
   }
+  if (type === "weekly") {
+    // Monday-Sunday, mirroring _compute_pay_period in routers/staff.py. JS
+    // getDay() is 0=Sunday, so shift it to Python's 0=Monday before
+    // subtracting, or every Sunday lands in the wrong week.
+    const dow = (ref.getDay() + 6) % 7;
+    return { from: isoOf(y, m, day - dow), to: isoOf(y, m, day - dow + 6) };
+  }
   if (type === "custom") {
     const csd = Math.min(28, Math.max(1, parseInt(startDay, 10) || 1));
     // to = the day before the next occurrence of csd (isoOf(y, m+1, csd-1) handles csd=1)
@@ -680,6 +687,7 @@ const FRAME_OPTIONS = [
   { id: "monthly_1st", key: "hovFrameMonth1" },
   { id: "monthly_15th", key: "hovFrameMonth15" },
   { id: "custom", key: "hovFrameCustom" },
+  { id: "weekly", key: "hovFrameWeekly" },
   { id: "biweekly", key: "hovFrameBiweekly" },
   { id: "custom_range", key: "hovFrameCustomRange" },
 ];
