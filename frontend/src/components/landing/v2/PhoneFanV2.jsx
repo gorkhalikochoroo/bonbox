@@ -1,6 +1,7 @@
 import React from "react";
 import { BatteryFull } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { dateLocale } from "../../../utils/dateFormat";
 
 /**
  * PhoneFanV2 — the three-phone 3D fan from the "staff" section of the
@@ -218,7 +219,28 @@ export default function PhoneFanV2() {
                 {t("landingV2.phones.thisWeek", "This week")}
               </SectionLabel>
               <span className="text-[11.5px] text-slate-500">
-                {t("landingV2.phones.weekRange", "27 Jul – 2 Aug")}
+                {/* Was the frozen string "27 Jul – 2 Aug", so the phone
+                    mock-up showed a week that ended two months ago. Same
+                    defect HeroV2 already fixed for its greeting date and
+                    BookingCardV2 for its date chips — this was the third
+                    copy. Monday to Sunday of the CURRENT week. */}
+                {(() => {
+                  try {
+                    const loc = dateLocale();
+                    const now = new Date();
+                    const mon = new Date(now);
+                    mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+                    const sun = new Date(mon);
+                    sun.setDate(mon.getDate() + 6);
+                    const f = (d) =>
+                      new Intl.DateTimeFormat(loc, { day: "numeric", month: "short" })
+                        .format(d)
+                        .replace(/\.$/, "");
+                    return `${f(mon)} – ${f(sun)}`;
+                  } catch {
+                    return t("landingV2.phones.thisWeek", "This week");
+                  }
+                })()}
               </span>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center">

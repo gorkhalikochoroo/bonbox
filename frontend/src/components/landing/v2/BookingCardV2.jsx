@@ -21,6 +21,7 @@
  */
 import { useEffect, useState } from "react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { dateLocale } from "../../../utils/dateFormat";
 
 /** Chip geometry differs per group in the design: 12 / 14 / 13 px inline. */
 const CHIP_BASE =
@@ -51,19 +52,49 @@ export default function BookingCardV2() {
 
   const da = cardLang === "da";
 
-  const dates = da
-    ? [
-        t("landingV2BookingDate1Da", "Man 27. jul"),
-        t("landingV2BookingDate2Da", "Tir 28"),
-        t("landingV2BookingDate3Da", "Ons 29"),
-        t("landingV2BookingDate4Da", "Tor 30"),
-      ]
-    : [
-        t("landingV2BookingDate1", "Mon 27 Jul"),
-        t("landingV2BookingDate2", "Tue 28"),
-        t("landingV2BookingDate3", "Wed 29"),
-        t("landingV2BookingDate4", "Thu 30"),
-      ];
+  // THE NEXT FOUR REAL DAYS, not four strings frozen in July.
+  //
+  // These were hardcoded ("Mon 27 Jul", "Tue 28"...), so by late September the
+  // booking demo on the front page offered tables two months in the PAST. To a
+  // prospect that does not read as demo data, it reads as a product nobody has
+  // touched since summer — on the one widget whose entire job is to look live.
+  //
+  // HeroV2 already hit this and fixed it for the greeting date; its comment
+  // says the preview "aged into a screenshot of a product nobody had touched
+  // in weeks". Same defect, same folder, one component over. The figures in
+  // this card stay invented and the caption says so — the DATES are the frame
+  // around them, and today is the only honest frame.
+  //
+  // Same reasoning as HeroV2 for not memoising: dateLocale() reads the stored
+  // language rather than taking it as an argument, so a memo would either look
+  // like a missing dependency or freeze the dates in the previous language.
+  const dates = (() => {
+    const loc = da ? "da-DK" : dateLocale();
+    const cap = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : x);
+    const part = (d, opts) => {
+      try {
+        return new Intl.DateTimeFormat(loc, opts).format(d).replace(/\.$/, "");
+      } catch {
+        return "";
+      }
+    };
+    const out = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      // Composed from PARTS rather than one format call. Asking Intl for
+      // weekday+day together in Danish yields "tors. den 24." — the locale's
+      // own pattern inserts "den", which is correct prose and wrong for a
+      // chip. The frozen strings these replace read "Tir 28" / "Tue 28", and
+      // that shape is what fits.
+      const wd = cap(part(d, { weekday: "short" }));
+      const day = d.getDate();
+      const mon = i === 0 ? part(d, { month: "short" }) : "";
+      const dayStr = da ? `${day}.` : `${day}`;
+      out.push([wd, dayStr, mon].filter(Boolean).join(" "));
+    }
+    return out;
+  })();
 
   const copy = da
     ? {
