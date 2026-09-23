@@ -201,8 +201,28 @@ describe("index.css agrees with the mirrors it is measured through", () => {
   it("has ONE dark near-black — the slate-900 body override is gone", () => {
     // #0f172a under gray-tinted cards was the third near-black; gray-950 in a
     // StatCard ring offset was the fourth. Neither may come back.
-    expect(CSS).not.toMatch(/#0f172a/i);
+    //
+    // SCOPED TO CHROME, because this file is about the two colour contracts of
+    // the app SHELL — the brand accent and the surface ladder. The reservations
+    // room plan (`.bb-room-*`) also draws in #0f172a, and that is not a third
+    // surface: it is the ink of a drawing, the same ink the marketing floor
+    // plan uses, and it sits inside a bordered canvas rather than under a card.
+    // The old assertion was a blanket regex over the whole file, so it read
+    // that as the regression it was written to stop.
+    //
+    // The exception is narrow and checked: near-blacks are allowed ONLY inside
+    // the room block, and the surface half of the file must still be clean.
+    const roomStart = CSS.indexOf(".bb-room-wall");
+    expect(roomStart).toBeGreaterThan(-1); // the block must still exist
+    const chrome = CSS.slice(0, roomStart);
+    const room = CSS.slice(roomStart);
+
+    expect(chrome).not.toMatch(/#0f172a/i);
     expect(CSS).not.toMatch(/\.dark body\s*\{/);
+    // ...and the room block may not quietly become a chrome rule: nothing in
+    // it may paint `body`, a card or the page ground.
+    expect(room).not.toMatch(/\bbody\s*\{/);
+    expect(room).not.toMatch(/--surface-/);
   });
 
   it("declares the dark ladder AFTER the [data-theme] blocks", () => {

@@ -28,6 +28,7 @@ from app.database import get_db
 from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
+from app.models.floor_fixture import FloorFixture, FIXTURE_KINDS
 from app.models.reservation import Reservation
 from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.reservation_waitlist import ReservationWaitlistEntry
@@ -644,10 +645,22 @@ def list_resources(db: Session = Depends(get_db), user: User = Depends(get_curre
     )
     return {
         "resources": [_resource_dict(r) for r in rows],
+        # Decorative room objects (bar, entrance, window, wall) — a SEPARATE
+        # list under a SEPARATE key, never merged into `resources`. Anything
+        # iterating `resources` keeps counting only bookable things, which is
+        # what every existing caller (including the seat gauge below and the
+        # frontend's deriveFloorState) already assumes.
+        #
+        # Folded into this endpoint rather than given its own route so the
+        # paired door tablet gets fixtures through the /resources wrapper it
+        # already has — no new entry in stand_link.py's allow-list, which is
+        # asserted as an exact set by test_credential_reaches_no_owner_config_route.
+        "fixtures": [_fixture_dict(f) for f in _venue_fixtures(db, user)],
         # The ONE canonical seat total (active, non-provider tables/rooms) —
         # the SAME set the booking engine's room_full check counts, so the
         # owner's capacity gauge can never disagree with what a guest can
         # actually book. Inactive tables + provider chairs are excluded.
+        # Fixtures are NOT in this number and have no seats column at all.
         "venue_seats_total": _venue_seats_total(db, user),
     }
 
@@ -1007,6 +1020,252 @@ def save_layout(payload: LayoutUpdate, request: Request,
             )
         db.commit()
     return {"updated": updated, "seats_changed": seats_changed}
+
+
+# ══ Floor fixtures — the bar, the entrance, a window, a dividing wall ══════
+#
+# Non-bookable objects. They live in their OWN table (app/models/floor_fixture.py
+# explains why at length: the booking engine filters resources with a
+# `kind != "provider"` DENYLIST in six places, so a new resource kind is
+# bookable by default — including `recheck_and_assign_combo`, which would seat
+# a real party at the wall).
+#
+# WHY THESE ROUTES LIVE ON THE RESERVATIONS ROUTER AND NOT A /floor ONE.
+# This is a security requirement, not tidiness. standRewrite() (frontend
+# services/standAuth.js) keys on the literal "/reservations" prefix, and the
+# axios interceptor drops withCredentials AND the Authorization header only on
+# calls it rewrote. A fixture route mounted at /floor/... would go out from a
+# paired door device UNREWRITTEN, still carrying the owner's token — the exact
+# thing the credential-dropping interceptor exists to prevent.
+#
+# Note the stand's allow-list in stand_link.py is an exact set asserted by
+# test_credential_reaches_no_owner_config_route, and these are NOT in it. A
+# door tablet reads fixtures through GET /resources (already wrapped) and can
+# never write one. The frontend `canArrange` gate makes that visible rather
+# than a 404 surprise.
+
+# A sanity ceiling, NOT a billing cap. Fixtures are decorative and must never
+# consume a paid resource slot (see the model header) — but "not metered" is
+# not "unbounded", and an unbounded owner-writable list is a storage and
+# render-cost vector. 60 is far past any real room.
+_MAX_FIXTURES_PER_VENUE = 60
+
+
+def _clamp_span(v, *, default: float) -> float:
+    """Clamp a fixture footprint to 1.5–98% of the canvas. Floor at 1.5 so a
+    fixture can never be dragged down to an invisible, un-grabbable sliver;
+    ceiling at 98 so it can't swallow the room. Non-numeric falls back to the
+    default rather than 422-ing — same clamp-don't-reject contract as the
+    table coordinates, so a flaky drag never loses a whole room save."""
+    try:
+        if v is None:
+            return default
+        return max(1.5, min(98.0, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _fixture_dict(f: FloorFixture) -> dict:
+    return {
+        "id": str(f.id),
+        "kind": f.kind,
+        "label": f.label,
+        "pos_x": f.pos_x,
+        "pos_y": f.pos_y,
+        "w_pct": f.w_pct,
+        "h_pct": f.h_pct,
+        "rotation_deg": f.rotation_deg,
+        "sort_order": f.sort_order,
+    }
+
+
+def _venue_fixtures(db: Session, user: User) -> list[FloorFixture]:
+    return (
+        db.query(FloorFixture)
+        .filter(FloorFixture.user_id == user.id, FloorFixture.is_deleted.is_(False))
+        .order_by(FloorFixture.sort_order, FloorFixture.created_at)
+        .all()
+    )
+
+
+def _owned_fixture(db: Session, user: User, fixture_id: UUID) -> FloorFixture:
+    """Load a fixture that belongs to THIS user, or 404.
+
+    Scoped by user_id in the query itself, not checked after loading — so a
+    guessed id from another venue is indistinguishable from one that does not
+    exist, and there is no branch where a wrong-tenant row is in hand.
+    """
+    f = (
+        db.query(FloorFixture)
+        .filter(
+            FloorFixture.id == fixture_id,
+            FloorFixture.user_id == user.id,
+            FloorFixture.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if f is None:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+    return f
+
+
+class FixtureCreate(BaseModel):
+    kind: str
+    label: str | None = None
+    pos_x: float | None = None
+    pos_y: float | None = None
+    w_pct: float | None = None
+    h_pct: float | None = None
+    rotation_deg: float | None = None
+
+
+class FixtureLayoutItem(BaseModel):
+    id: UUID
+    pos_x: float | None = None
+    pos_y: float | None = None
+    w_pct: float | None = None
+    h_pct: float | None = None
+    rotation_deg: float | None = None
+
+
+class FixtureLayoutUpdate(BaseModel):
+    fixtures: list[FixtureLayoutItem] = Field(default_factory=list)
+
+
+# Default footprint per kind, percent of canvas. A bar is a wall-length slab, a
+# window is a thin run along a wall, an entrance is a doorway. These are just
+# starting sizes — the owner drags the handles from here.
+_FIXTURE_DEFAULT_SPAN = {
+    "bar_counter": (7.0, 46.0),
+    "entrance": (13.0, 4.0),
+    "window": (34.0, 3.0),
+    "wall": (30.0, 2.5),
+}
+
+
+@router.post("/fixtures", status_code=201)
+def create_fixture(payload: FixtureCreate, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    kind = payload.kind if payload.kind in FIXTURE_KINDS else "wall"
+    existing = (
+        db.query(func.count(FloorFixture.id))
+        .filter(FloorFixture.user_id == user.id, FloorFixture.is_deleted.is_(False))
+        .scalar()
+        or 0
+    )
+    if existing >= _MAX_FIXTURES_PER_VENUE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Max {_MAX_FIXTURES_PER_VENUE} fixtures per venue",
+        )
+    dw, dh = _FIXTURE_DEFAULT_SPAN.get(kind, (20.0, 8.0))
+    f = FloorFixture(
+        user_id=user.id,
+        kind=kind,
+        label=(payload.label or None),
+        # A new fixture lands in the middle of the room, where the owner can
+        # see it and drag it — never at 0,0 under the wall.
+        pos_x=_clamp_pct(payload.pos_x) if payload.pos_x is not None else 50.0,
+        pos_y=_clamp_pct(payload.pos_y) if payload.pos_y is not None else 50.0,
+        w_pct=_clamp_span(payload.w_pct, default=dw),
+        h_pct=_clamp_span(payload.h_pct, default=dh),
+        rotation_deg=_clamp_deg(payload.rotation_deg),
+        sort_order=existing,
+    )
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    # NOTE: deliberately does NOT call _activate_reservations_on_first_resource.
+    # Drawing a wall is not a decision to open a public booking page, and that
+    # helper mints a slug and switches the guest page ON.
+    return {"fixture": _fixture_dict(f)}
+
+
+@router.put("/fixtures/layout")
+def save_fixture_layout(payload: FixtureLayoutUpdate, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Bulk position/size save — the fixture half of one Arrange-room Save.
+
+    Mirrors save_layout for tables: one atomic commit, ids scoped to this
+    user in the query, unknown ids skipped rather than 422-ing the batch.
+    """
+    enforce_feature(user, "reservations")
+    if not payload.fixtures:
+        return {"updated": 0}
+    ids = [i.id for i in payload.fixtures]
+    rows = {
+        f.id: f
+        for f in db.query(FloorFixture).filter(
+            FloorFixture.user_id == user.id,
+            FloorFixture.id.in_(ids),
+            FloorFixture.is_deleted.is_(False),
+        )
+    }
+    updated = 0
+    for item in payload.fixtures:
+        f = rows.get(item.id)
+        if f is None:
+            continue
+        if item.pos_x is not None:
+            f.pos_x = _clamp_pct(item.pos_x)
+        if item.pos_y is not None:
+            f.pos_y = _clamp_pct(item.pos_y)
+        if item.w_pct is not None:
+            f.w_pct = _clamp_span(item.w_pct, default=f.w_pct)
+        if item.h_pct is not None:
+            f.h_pct = _clamp_span(item.h_pct, default=f.h_pct)
+        if item.rotation_deg is not None:
+            f.rotation_deg = _clamp_deg(item.rotation_deg)
+        updated += 1
+    if updated:
+        db.commit()
+    return {"updated": updated}
+
+
+class FixtureUpdate(BaseModel):
+    # The owner's own word for their own room ("Cocktailbaren", "Køkken",
+    # "Indgang Nørrebrogade"). Sent as "" to clear it and fall back to the
+    # translated kind name.
+    label: str | None = None
+    kind: str | None = None
+
+
+@router.patch("/fixtures/{fixture_id}")
+def update_fixture(fixture_id: UUID, payload: FixtureUpdate,
+                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Rename a fixture, or change what it IS.
+
+    Separate from the bulk layout save because a name is not geometry: it is
+    typed deliberately, one at a time, and it should not have to wait for the
+    owner to press Save on the whole room to stick.
+    """
+    enforce_feature(user, "reservations")
+    f = _owned_fixture(db, user, fixture_id)
+    if payload.label is not None:
+        # Trim, cap at the column width, and treat empty as "no custom name"
+        # so clearing the box returns it to the translated default rather than
+        # leaving a blank object the owner cannot identify.
+        label = payload.label.strip()[:60]
+        f.label = label or None
+    if payload.kind is not None:
+        # Normalise rather than reject, like `shape` on a table: an unknown
+        # kind from a stale client becomes a wall, it never 422s.
+        f.kind = payload.kind if payload.kind in FIXTURE_KINDS else "wall"
+    db.commit()
+    db.refresh(f)
+    return {"fixture": _fixture_dict(f)}
+
+
+@router.delete("/fixtures/{fixture_id}")
+def delete_fixture(fixture_id: UUID, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    f = _owned_fixture(db, user, fixture_id)
+    f.is_deleted = True
+    f.deleted_at = utc_now()
+    db.commit()
+    return {"deleted": True}
 
 
 @router.patch("/resources/{resource_id}")

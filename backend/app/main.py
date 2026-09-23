@@ -2486,6 +2486,48 @@ _migrations = [
     # places to drift) — services/schedule_confirm_backfill.py, run once per
     # boot AFTER the readiness gate opens.
     "ALTER TABLE schedules ADD COLUMN IF NOT EXISTS confirmed_for VARCHAR(64)",
+    # ── Migration 079 (2026-09-23): floor_fixtures (bar / entrance / window / wall) ──
+    # Net-new table backing app/models/floor_fixture.py — the non-bookable
+    # objects an owner places on the 2D floor plan so the room reads as their
+    # room. Additive: no existing table is touched, nothing references it, and
+    # no FK points AT it, so this cannot lock or rewrite anything.
+    #
+    # THE PRIMARY MECHANISM FOR A NEW TABLE IS create_all, NOT THIS LIST.
+    # `Base.metadata.create_all(bind=engine)` (see _init_db) runs BEFORE these
+    # statements and builds the table on Postgres AND SQLite from the model —
+    # which is also why there is no SQLite counterpart to add here: the SQLite
+    # branch below only ADDS COLUMNS and indexes to tables that already exist,
+    # it has no CREATE TABLE path. This statement is the emergency-restore net
+    # for the case where create_all is bypassed, exactly as the comments on
+    # webhook_events and staff_device_tokens describe.
+    #
+    # TYPES MATCH create_all, WHICH IS NOT WHAT THE NEIGHBOURS ABOVE SAY.
+    # `GUID.load_dialect_impl` (app/database.py) returns String(36) for EVERY
+    # dialect — its docstring claims native UUID on Postgres, but the code does
+    # not branch. So create_all really produces VARCHAR(36) here, and a UUID
+    # column in this net would restore a *different* schema from the one the
+    # model builds. SQLAlchemy Float lands as double precision, hence
+    # DOUBLE PRECISION rather than FLOAT.
+    """CREATE TABLE IF NOT EXISTS floor_fixtures (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        kind VARCHAR(20) NOT NULL DEFAULT 'wall',
+        label VARCHAR(60),
+        pos_x DOUBLE PRECISION NOT NULL DEFAULT 50,
+        pos_y DOUBLE PRECISION NOT NULL DEFAULT 50,
+        w_pct DOUBLE PRECISION NOT NULL DEFAULT 20,
+        h_pct DOUBLE PRECISION NOT NULL DEFAULT 8,
+        rotation_deg DOUBLE PRECISION,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    # Also declared in FloorFixture.__table_args__ so create_all emits it on
+    # both engines — this line only covers the create_all-bypassed path.
+    "CREATE INDEX IF NOT EXISTS ix_floor_fixture_user_active ON floor_fixtures (user_id, is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_floor_fixtures_user_id ON floor_fixtures (user_id)",
 ]
 
 

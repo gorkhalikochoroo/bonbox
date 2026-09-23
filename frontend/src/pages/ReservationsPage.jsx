@@ -817,7 +817,7 @@ function deriveFloorState(reservations, resources, nowMs) {
 // draggable tables, chairs, zone bands, and edit/save). The tap + seat-now
 // handlers are passed straight through so FloorPlan reuses the page's shared
 // ReservationDrawer + SeatNowSheet.
-function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged }) {
+function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged, canArrange = true, fixtures = [] }) {
   // Tick every 60s so the floor is LIVE, not a snapshot: a seated table that
   // crosses its end-time flips to "overdue" (red) on its own, and upcoming
   // ETAs ("om 25 min") count down — no manual refresh. This is the difference
@@ -857,6 +857,8 @@ function FloorView({ reservations, resources, t, businessType, onSelect, onSeatN
       onSeatNow={onSeatNow}
       nextBookingId={nextBookingId}
       onResourcesChanged={onResourcesChanged}
+      canArrange={canArrange}
+      fixtures={fixtures}
     />
   );
 }
@@ -2970,6 +2972,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const standalone =
     location.pathname.endsWith("/reservations/stand") ||
     location.pathname.startsWith("/stand/");
+  // The ONE of those two doors that has NO session. The distinction matters
+  // for Arrange room and `standalone` cannot carry it: the owner's pop-out has
+  // a real cookie and saves a layout fine, while a paired device's calls are
+  // rewritten by standRewrite() onto /stand/<token>/… — and the layout route
+  // is deliberately absent from stand_link.py's allow-list, which
+  // test_owner_config_paths_404_under_the_stand_prefix pins. So a host could
+  // drag the whole room on the door tablet, hit Save, and get a 404 toast with
+  // the work gone. Don't offer the door.
+  const isStandDevice = location.pathname.startsWith("/stand/");
   // TABLE venues (dining/bar) get the Floor ("plan") lens; provider (salon) /
   // no-floor (bakery/retail) venues never do — gated on the venue TYPE, with a
   // grandfather for venues that already have a real table plan. `tableFloor`
@@ -3013,6 +3024,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   });
   const [data, setData] = useState(null);
   const [resources, setResources] = useState([]);
+  // Non-bookable room objects (bar, entrance, window, wall). Deliberately its
+  // OWN state and never merged into `resources` — see fetchResources.
+  const [fixtures, setFixtures] = useState([]);
   // Tracks the first resources fetch so the salon first-run card only shows
   // once we KNOW there are no stations (never flashes for an established salon
   // while resources are still in flight).
@@ -3155,12 +3169,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     try {
       const res = await api.get("/reservations/resources");
       setResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+      // Decorative room objects, kept in their OWN state. Never merged into
+      // `resources` — deriveFloorState, the seat gauge and every table picker
+      // iterate that array and must keep counting only bookable things.
+      setFixtures(Array.isArray(res.data?.fixtures) ? res.data.fixtures : []);
       // Prefer the backend's canonical seat total; keep null if an older API
       // omits it so the gauge can fall back to the raw reduce.
       const vs = res.data?.venue_seats_total;
       setVenueSeats(Number.isFinite(vs) ? vs : null);
       setResourcesFailed(false);
     } catch {
+      setFixtures([]);
       // The empty array is what the gauge and the pickers need in order to
       // render at all — but it is NOT an answer about how many tables this
       // venue has, and `resourcesLoaded` in the finally made it look like one.
@@ -4715,6 +4734,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             onSelect={openDrawer}
             onSeatNow={setSeatTarget}
             onResourcesChanged={fetchResources}
+            canArrange={!isStandDevice}
+            fixtures={fixtures}
           />
         ))}
 

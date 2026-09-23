@@ -44,6 +44,39 @@ import {
 import api from "../services/api";
 import { haptic } from "../utils/haptics";
 import Button from "./ui/Button";
+import RoomShell from "./RoomShell";
+import FloorFixtures, {
+  FIXTURE_KINDS,
+  FIXTURE_LABELS,
+  normalizeFixtureKind,
+} from "./FloorFixtures";
+
+/** Minus / value / plus, sized for a thumb. Local to the fixture inspector. */
+function FixtureStepper({ label, value, onLess, onMore }) {
+  return (
+    <span className="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <button
+        type="button"
+        onClick={onLess}
+        className="h-10 w-9 inline-flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+        aria-label={`${label} −`}
+      >
+        <Minus className="w-4 h-4" aria-hidden />
+      </button>
+      <span className="px-2 text-xs tabular-nums text-gray-700 dark:text-gray-200 min-w-[64px] text-center">
+        {label} {value}
+      </span>
+      <button
+        type="button"
+        onClick={onMore}
+        className="h-10 w-9 inline-flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+        aria-label={`${label} +`}
+      >
+        <Plus className="w-4 h-4" aria-hidden />
+      </button>
+    </span>
+  );
+}
 import { venueProfile } from "../config/venueProfiles";
 import {
   SHAPES,
@@ -567,6 +600,17 @@ export default function FloorPlan({
   // Parent refetch hook — called after this component creates a table from
   // the arrange toolbar so the page's resources state picks it up.
   onResourcesChanged = null,
+  // May this surface rearrange the room at all? FALSE on a PAIRED DOOR DEVICE
+  // (/stand/<token>), whose requests are rewritten onto /stand/<token>/… where
+  // the layout route deliberately does not exist — so arranging there ends in
+  // a 404 and lost work. Defaults TRUE so every existing owner call site is
+  // unchanged, and the gate lives HERE as well as at the call site: a surface
+  // that forgets to pass it is the failure we are guarding against.
+  canArrange = true,
+  // Non-bookable room objects (bar counter, entrance, window, wall). NOT
+  // resources: they carry no seats, live in their own table, and the booking
+  // engine cannot see them. Never merge this into `cells`.
+  fixtures = [],
 }) {
   // Account-level venue archetype — drives the section vocabulary (noun,
   // icon, empty state, hints, zone presets). Per-resource provider overrides
@@ -710,16 +754,81 @@ export default function FloorPlan({
   }, [cells, nowMs]);
 
   // ── Edit lifecycle ───────────────────────────────────────────────────
+  // ── Fixture draft ────────────────────────────────────────────────
+  // Parallel to `draft` rather than merged into it: a fixture and a table
+  // share a canvas and a drag gesture but nothing else — different fields,
+  // different endpoint, different table. Merging them is how a decorative
+  // wall ends up somewhere that counts seats.
+  const [fixtureDraft, setFixtureDraft] = useState(null);
+  const [selectedFixtureId, setSelectedFixtureId] = useState(null);
+  const [fixtureBusy, setFixtureBusy] = useState(false);
+  // Server truth after a save/add/delete, so the room renders the new state
+  // before the parent's refetch lands (same trick as savedLayout).
+  const [localFixtures, setLocalFixtures] = useState(null);
+
+  const liveFixtures = localFixtures || fixtures;
+
+  // Hand control BACK to the server whenever the parent delivers a new list —
+  // but NEVER while the owner is arranging.
+  //
+  // Without the reset at all, `localFixtures` wins forever the moment it is
+  // set once: this client would keep rendering its own post-add snapshot and
+  // never see a fixture added on the owner's phone or the door tablet.
+  //
+  // Without the `editing` guard, the reset is worse than the bug it fixes.
+  // The name field writes optimistically into `localFixtures`, so a refetch
+  // landing between a keystroke and its PATCH would snap the input back to the
+  // server's older value — the owner watches "Cocktailbaren" become "Bar"
+  // under their cursor. Resources are not on a timer TODAY, so this cannot
+  // happen yet; it is one added `fetchResources()` away from happening
+  // silently, and a bug that needs someone else's future change to appear is
+  // the kind that ships. While arranging, the owner's copy is the truth.
+  useEffect(() => {
+    if (editing) return;
+    setLocalFixtures(null);
+  }, [fixtures, editing]);
+
+  /** Server error text that is safe to render. FastAPI's `detail` is a string
+   *  for our HTTPExceptions but a LIST of objects for a 422 — putting that
+   *  straight into JSX throws "Objects are not valid as a React child" and
+   *  takes the whole floor down instead of showing the error. */
+  const errText = useCallback(
+    (e, fallback) => {
+      const d = e?.response?.data?.detail;
+      return typeof d === "string" && d ? d : fallback;
+    },
+    [],
+  );
+
+  /** What to draw right now: the draft while arranging, else server truth. */
+  const shownFixtures = useMemo(
+    () =>
+      liveFixtures.map((f) =>
+        fixtureDraft && fixtureDraft[String(f.id)]
+          ? { ...f, ...fixtureDraft[String(f.id)] }
+          : f,
+      ),
+    [liveFixtures, fixtureDraft],
+  );
+
   const enterEdit = useCallback(() => {
+    if (!canArrange) return;
     setDraft(JSON.parse(JSON.stringify(currentLayout)));
+    setFixtureDraft({});
     setSelectedId(null);
+    setSelectedFixtureId(null);
     setSaveError("");
     setEditing(true);
-  }, [currentLayout]);
+  }, [currentLayout, canArrange]);
 
   // Exit WITHOUT saving → revert (draft discarded).
   const cancelEdit = useCallback(() => {
     setDraft(null);
+    // Drops fixture MOVES only. An added bar is already on the server (it
+    // needed an id to be draggable at all), so Cancel does not un-add it —
+    // the same asymmetry the existing Add table flow has.
+    setFixtureDraft(null);
+    setSelectedFixtureId(null);
     setActiveId(null);
     setSelectedId(null);
     setEditing(false);
@@ -728,6 +837,7 @@ export default function FloorPlan({
 
   const resetDraft = useCallback(() => {
     setDraft(JSON.parse(JSON.stringify(currentLayout)));
+    setFixtureDraft({});
   }, [currentLayout]);
 
   // Auto-arrange — tidy every table into the zone-banded grid in one tap
@@ -743,6 +853,95 @@ export default function FloorPlan({
       return next;
     });
   }, [cells, currentLayout]);
+
+  // ── Fixture actions ──────────────────────────────────────────────
+  // Add and delete hit the server IMMEDIATELY rather than riding the Save.
+  // A fixture has to exist to have an id, and an id is what the drag and the
+  // bulk layout save are keyed on. Position/size changes still ride Save, so
+  // Cancel reverts a drag — it does not un-add a bar. That asymmetry is the
+  // same one the existing Add table flow already has.
+  const addFixture = useCallback(
+    async (kind) => {
+      if (fixtureBusy) return;
+      setFixtureBusy(true);
+      setSaveError("");
+      try {
+        const res = await api.post("/reservations/fixtures", { kind });
+        const created = res?.data?.fixture;
+        if (created) {
+          setLocalFixtures([...(liveFixtures || []), created]);
+          setSelectedFixtureId(String(created.id));
+          setSelectedId(null);
+          haptic.success();
+        }
+        onResourcesChanged?.();
+      } catch (e) {
+        setSaveError(errText(e, t("rsvpFixtureAddError", "Couldn't add that. Please try again.")));
+      } finally {
+        setFixtureBusy(false);
+      }
+    },
+    [fixtureBusy, liveFixtures, onResourcesChanged, errText, t],
+  );
+
+  const deleteFixture = useCallback(
+    async (id) => {
+      if (fixtureBusy) return;
+      setFixtureBusy(true);
+      setSaveError("");
+      try {
+        await api.delete(`/reservations/fixtures/${id}`);
+        setLocalFixtures((liveFixtures || []).filter((f) => String(f.id) !== String(id)));
+        setSelectedFixtureId(null);
+        haptic.success();
+        onResourcesChanged?.();
+      } catch (e) {
+        setSaveError(errText(e, t("rsvpFixtureDeleteError", "Couldn't remove that. Please try again.")));
+      } finally {
+        setFixtureBusy(false);
+      }
+    },
+    [fixtureBusy, liveFixtures, onResourcesChanged, errText, t],
+  );
+
+  /** Rename a fixture — the owner's own word for their own room.
+   *  Goes straight to the server rather than riding Save: a name is typed
+   *  deliberately, one at a time, and losing it to a Cancel meant for a
+   *  mis-drag would be surprising. Geometry rides Save; identity does not. */
+  const renameFixture = useCallback(
+    async (id, label) => {
+      const next = (label || "").slice(0, 60);
+      // Paint it immediately — a text field that lags the keystroke feels broken.
+      setLocalFixtures((prev) =>
+        (prev || liveFixtures).map((f) =>
+          String(f.id) === String(id) ? { ...f, label: next || null } : f,
+        ),
+      );
+      try {
+        await api.patch(`/reservations/fixtures/${id}`, { label: next });
+      } catch (e) {
+        setSaveError(
+          errText(e, t("rsvpFixtureRenameError", "Couldn't rename that. Please try again.")),
+        );
+      }
+    },
+    [liveFixtures, errText, t],
+  );
+
+  /** Resize/rotate the selected fixture into the DRAFT, so Cancel reverts it.
+   *  Clamped to the same 1.5–98% band the server enforces, so the UI can never
+   *  show a size the save will silently change underneath it. */
+  const nudgeFixture = useCallback((id, patch) => {
+    setFixtureDraft((prev) => {
+      const key = String(id);
+      const cur = (prev || {})[key] || {};
+      const next = { ...cur, ...patch };
+      if (next.w_pct != null) next.w_pct = Math.min(98, Math.max(1.5, next.w_pct));
+      if (next.h_pct != null) next.h_pct = Math.min(98, Math.max(1.5, next.h_pct));
+      if (next.rotation_deg != null) next.rotation_deg = ((next.rotation_deg % 360) + 360) % 360;
+      return { ...(prev || {}), [key]: next };
+    });
+  }, []);
 
   // Cycle a table through the preset design library (the order in SHAPES).
   const toggleShape = useCallback((id) => {
@@ -797,18 +996,21 @@ export default function FloorPlan({
 
   // ── Drag (pointer + touch via Pointer Events) ─────────────────────────
   const onPointerDownDrag = useCallback(
-    (e, id) => {
+    (e, id, isFixture = false) => {
       if (!editing) return;
       e.preventDefault();
       e.stopPropagation();
       dragRef.current = {
         id: String(id),
+        // Which layer this gesture belongs to. The pointer math is identical;
+        // only the destination differs.
+        isFixture,
         pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
         moved: false,
       };
-      setActiveId(String(id));
+      if (!isFixture) setActiveId(String(id));
       try {
         e.currentTarget.setPointerCapture?.(e.pointerId);
       } catch {
@@ -837,6 +1039,17 @@ export default function FloorPlan({
       if (rect.width === 0 || rect.height === 0) return;
       const px = ((e.clientX - rect.left) / rect.width) * 100;
       const py = ((e.clientY - rect.top) / rect.height) * 100;
+      if (drag.isFixture) {
+        setFixtureDraft((prev) => ({
+          ...(prev || {}),
+          [drag.id]: {
+            ...((prev || {})[drag.id] || {}),
+            pos_x: clampPct(px),
+            pos_y: clampPct(py),
+          },
+        }));
+        return;
+      }
       setDraft((prev) => {
         if (!prev) return prev;
         const cur = prev[drag.id];
@@ -854,7 +1067,16 @@ export default function FloorPlan({
       // A tap that never crossed the drag threshold selects the table (opens
       // the Inspector). A real drag just drops; a pointercancel never selects.
       if (e && e.type === "pointerup" && !drag.moved) {
-        setSelectedId(drag.id);
+        if (drag.isFixture) {
+          // Selecting a fixture clears any table selection and vice versa —
+          // one Inspector, one subject, so the size stepper can never be
+          // pointing at something other than what's outlined.
+          setSelectedFixtureId(drag.id);
+          setSelectedId(null);
+        } else {
+          setSelectedId(drag.id);
+          setSelectedFixtureId(null);
+        }
       }
       dragRef.current = null;
       setActiveId(null);
@@ -891,8 +1113,32 @@ export default function FloorPlan({
         };
       }),
     };
+    // The fixture half of the same Save. Sent only for fixtures the owner
+    // actually moved or resized — an untouched bar must not be rewritten with
+    // values this client happens to be holding.
+    const movedFixtures = Object.entries(fixtureDraft || {}).map(([id, v]) => ({
+      id,
+      ...(v.pos_x != null ? { pos_x: Math.round(v.pos_x * 10) / 10 } : {}),
+      ...(v.pos_y != null ? { pos_y: Math.round(v.pos_y * 10) / 10 } : {}),
+      ...(v.w_pct != null ? { w_pct: Math.round(v.w_pct * 10) / 10 } : {}),
+      ...(v.h_pct != null ? { h_pct: Math.round(v.h_pct * 10) / 10 } : {}),
+      ...(v.rotation_deg != null ? { rotation_deg: v.rotation_deg } : {}),
+    }));
+
     try {
       await api.put("/reservations/resources/layout", body);
+      if (movedFixtures.length) {
+        // Sequential, not Promise.all: if the fixture save fails we want the
+        // error to name THAT, with the table layout already safely committed,
+        // rather than one ambiguous rejection covering both.
+        await api.put("/reservations/fixtures/layout", { fixtures: movedFixtures });
+        setLocalFixtures(
+          (liveFixtures || []).map((f) => {
+            const patch = fixtureDraft?.[String(f.id)];
+            return patch ? { ...f, ...patch } : f;
+          }),
+        );
+      }
       // Patch the in-memory res objects so the NEXT parent re-derive of cells
       // (poll/refetch) rebuilds baseLayout with the saved positions. This
       // alone is not enough for the current render — baseLayout is memoized
@@ -914,6 +1160,8 @@ export default function FloorPlan({
       setSavedAt(Date.now());
       setEditing(false);
       setDraft(null);
+      setFixtureDraft(null);
+      setSelectedFixtureId(null);
       setActiveId(null);
     } catch (e) {
       setSaveError(
@@ -923,7 +1171,7 @@ export default function FloorPlan({
     } finally {
       setSaving(false);
     }
-  }, [draft, cells, baseLayout, t]);
+  }, [draft, fixtureDraft, liveFixtures, cells, baseLayout, t]);
 
   // Auto-dismiss the saved toast.
   useEffect(() => {
@@ -1043,6 +1291,23 @@ export default function FloorPlan({
                 <Plus className="w-4 h-4" aria-hidden />
                 {t("rsvpAddTable", "Add table")}
               </button>
+              {/* Add the room ITSELF — the bar, the door, a window, a wall.
+                  Sits next to Add table because to an owner arranging their
+                  room these are the same act: putting a thing where it is.
+                  Plain buttons rather than a dropdown: four items, and a menu
+                  would put a tap between the owner and every one of them. */}
+              {FIXTURE_KINDS.map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  disabled={fixtureBusy}
+                  onClick={() => addFixture(kind)}
+                  className="inline-flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+                >
+                  <Plus className="w-3.5 h-3.5" aria-hidden />
+                  {t(FIXTURE_LABELS[kind][0], FIXTURE_LABELS[kind][1])}
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={autoArrange}
@@ -1078,7 +1343,7 @@ export default function FloorPlan({
                 {t("rsvpPlanSave", "Save layout")}
               </Button>
             </>
-          ) : (
+          ) : canArrange ? (
             <button
               type="button"
               onClick={enterEdit}
@@ -1087,7 +1352,7 @@ export default function FloorPlan({
               <Pencil className="w-4 h-4" aria-hidden />
               {t(profile.arrangeKey, "Arrange room")}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -1190,12 +1455,12 @@ export default function FloorPlan({
           onPointerDown={editing ? () => setSelectedId(null) : undefined}
           className={
             "relative w-full min-w-[560px] rounded-2xl border overflow-hidden " +
-            // Calm, near-flat surface so the status-coloured tables pop — a
-            // premium room reads by the tables, not a loud wireframe dot-grid.
-            "bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 " +
+            // The canvas body is the WALL (see RoomShell) — so the border has
+            // to be wall-coloured too, or a light hairline haloes the masonry.
+            "bg-slate-900 dark:bg-slate-950 " +
             (editing
-              ? "border-gray-300 dark:border-gray-600 ring-2 ring-gray-900/5 dark:ring-gray-100/5"
-              : "border-gray-200 dark:border-gray-800")
+              ? "border-slate-700 ring-2 ring-white/15"
+              : "border-slate-900 dark:border-black")
           }
           style={
             fitScale < 1
@@ -1203,6 +1468,29 @@ export default function FloorPlan({
               : { aspectRatio: "16 / 10" }
           }
         >
+          {/* Walls + drafting grid + paper floor. FIRST child on purpose:
+              nothing here is positioned or z-indexed, so paint order is DOM
+              order and the shell must precede the zone bands and the tables.
+              It is decorative and pointer-events-none — table coordinates stay
+              a % of THIS canvas, never of the inset floor, so no saved
+              pos_x/pos_y changes meaning. */}
+          <RoomShell />
+
+          {/* The room's own objects — bar, entrance, window, wall. Painted
+              ABOVE the shell and BELOW the tables: a decorative wall must
+              never sit on top of a live booking a host is trying to tap. */}
+          <FloorFixtures
+            fixtures={shownFixtures}
+            t={t}
+            editing={editing}
+            selectedId={selectedFixtureId}
+            onPointerDownDrag={(e, id) => onPointerDownDrag(e, id, true)}
+            onTap={(id) => {
+              setSelectedFixtureId(String(id));
+              setSelectedId(null);
+            }}
+          />
+
           {/* Soft zone bands + labels behind the tables */}
           {zoneBands.length > 1 &&
             zoneBands.map((z, i) => {
@@ -1296,6 +1584,78 @@ export default function FloorPlan({
           keeps the controls under the thumb (never behind a finger on the
           canvas) and sidesteps tiny on-tile hit targets on small tables.
           .glass-static = frosted panel with NO transform (iOS-wobble-safe). */}
+      {/* Fixture inspector — the same bottom sheet as the table one, so the
+          controls sit under the thumb rather than behind a finger on a small
+          object. Shown only while arranging and only for the selected fixture. */}
+      {editing && selectedFixtureId && (() => {
+        const f = shownFixtures.find((x) => String(x.id) === String(selectedFixtureId));
+        if (!f) return null;
+        const [lk, lf] = FIXTURE_LABELS[normalizeFixtureKind(f.kind)];
+        const step = (patch) => nudgeFixture(f.id, patch);
+        return (
+          <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+68px)] md:pb-[calc(env(safe-area-inset-bottom)+12px)] pointer-events-none">
+            <div className="pointer-events-auto w-full max-w-md glass rounded-2xl border border-gray-200/70 dark:border-gray-700/70 shadow-2xl px-4 py-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                {/* Call it what you call it. Empty falls back to the
+                    translated kind name, so clearing the box is a valid
+                    choice and never leaves an unnamed object. */}
+                <input
+                  type="text"
+                  value={f.label || ""}
+                  maxLength={60}
+                  placeholder={t(lk, lf)}
+                  onChange={(e) => renameFixture(f.id, e.target.value)}
+                  aria-label={t("rsvpFixtureName", "Name")}
+                  className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-gray-900 dark:text-gray-100 placeholder:font-normal placeholder:text-gray-400 dark:placeholder:text-gray-500 rounded-lg px-2 py-1.5 border border-transparent hover:border-gray-200 focus:border-gray-300 dark:hover:border-gray-700 dark:focus:border-gray-600 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedFixtureId(null)}
+                  className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800"
+                  aria-label={t("rsvpFixtureClose", "Close")}
+                >
+                  <X className="w-4 h-4" aria-hidden />
+                </button>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap text-sm">
+                <FixtureStepper
+                  label={t("rsvpFixtureWide", "Width")}
+                  onLess={() => step({ w_pct: (f.w_pct || 10) - 2 })}
+                  onMore={() => step({ w_pct: (f.w_pct || 10) + 2 })}
+                  value={`${Math.round(f.w_pct)}%`}
+                />
+                <FixtureStepper
+                  label={t("rsvpFixtureTall", "Height")}
+                  onLess={() => step({ h_pct: (f.h_pct || 10) - 2 })}
+                  onMore={() => step({ h_pct: (f.h_pct || 10) + 2 })}
+                  value={`${Math.round(f.h_pct)}%`}
+                />
+                <button
+                  type="button"
+                  onClick={() => step({ rotation_deg: (f.rotation_deg || 0) + 90 })}
+                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <RotateCw className="w-4 h-4" aria-hidden />
+                  {t("rsvpFixtureRotate", "Rotate")}
+                </button>
+                <button
+                  type="button"
+                  disabled={fixtureBusy}
+                  onClick={() => deleteFixture(f.id)}
+                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 disabled:opacity-50"
+                >
+                  <X className="w-4 h-4" aria-hidden />
+                  {t("rsvpFixtureRemove", "Remove")}
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                {t("rsvpFixtureHint", "Drag it where it sits in your room. Size and position save with the layout.")}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {selectedCell && (
         // Outer rail is invisible + click-through — it only CENTRES the card, so
         // the sheet hugs its content instead of slabbing across the whole viewport.

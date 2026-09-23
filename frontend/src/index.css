@@ -1146,3 +1146,60 @@ body.modal-open {
 @media (prefers-reduced-motion: reduce) {
   [data-anim] { animation: none !important; }
 }
+/* ── Reservations room shell ─────────────────────────────────────────────
+   Walls, drafting grid and paper floor behind the owner's 2D floor plan —
+   the same plan language as the marketing floor plan
+   (components/landing/FloorPlan.jsx), so what a visitor is sold is what an
+   owner opens. Consumed by components/RoomShell.jsx.
+
+   These live here rather than inline because the floor needs a real `.dark`
+   variant, and the app's dark theme is a CLASS on <html> — an inline style
+   cannot see it.
+
+   Depth is extrusion, not perspective: the wall is a solid body and the floor
+   is recessed into it by four inward inset shadows. The 28px grid matches the
+   landing plan's drafting grid at the same drawn width.
+
+   No `green-*` here on purpose — index.css remaps that family to the brand
+   accent, so a "green" grid line would follow the owner's theme and stop
+   reading as ink. */
+/* The floor colour, also exposed as a variable: the WINDOW and ENTRANCE plan
+   symbols are openings, drawn by painting the floor colour over the wall run.
+   They are rendered inline by components/FloorFixtures.jsx, which cannot see
+   the `.dark` class on <html> — so the value has to reach it as a token. */
+:root      { --bb-room-paper: #FBFAF7; }
+:root.dark { --bb-room-paper: #2A3548; }
+
+.bb-room-wall { background: #0F172A; }
+.bb-room-floor {
+  background-color: #FBFAF7;
+  background-image:
+    repeating-linear-gradient(0deg,  rgb(15 23 42 / 0.055) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, rgb(15 23 42 / 0.055) 0 1px, transparent 1px 28px);
+  box-shadow:
+    inset 0 9px 14px -9px rgb(15 23 42 / 0.55),
+    inset 0 -9px 14px -9px rgb(15 23 42 / 0.35),
+    inset 9px 0 14px -9px rgb(15 23 42 / 0.35),
+    inset -9px 0 14px -9px rgb(15 23 42 / 0.35);
+}
+/* Dark is NOT the light shell inverted. Inverting it (wall #020617, floor
+   #0E1524) measured at luminance 0.03 → 0.08 against a page ground of 0.09 —
+   the floor came out DARKER than the page behind it, so the room read as a
+   hole punched in the page rather than a lit floor inside walls. Light mode's
+   step is 0.11 → 0.98; dark has to keep a real step too.
+
+   So in dark the wall stays near-black and the floor is LIFTED above the page
+   ground (0.09) and above --surface-card (31 41 55) — it is the lit surface in
+   the room, which is what a floor is. */
+.dark .bb-room-wall { background: #020617; }
+.dark .bb-room-floor {
+  background-color: #2A3548;
+  background-image:
+    repeating-linear-gradient(0deg,  rgb(226 232 240 / 0.07) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, rgb(226 232 240 / 0.07) 0 1px, transparent 1px 28px);
+  box-shadow:
+    inset 0 9px 14px -9px rgb(0 0 0 / 0.85),
+    inset 0 -9px 14px -9px rgb(0 0 0 / 0.70),
+    inset 9px 0 14px -9px rgb(0 0 0 / 0.70),
+    inset -9px 0 14px -9px rgb(0 0 0 / 0.70);
+}

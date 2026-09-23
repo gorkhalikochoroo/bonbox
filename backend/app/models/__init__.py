@@ -121,5 +121,10 @@ from app.models.monitor_state import MonitorState
 # Public-surface quality monitor — per-slug findings (dead booking page, stale
 # meta) written by the 15-min public_surface_monitor_job.
 from app.models.surface_finding import SurfaceFinding
+# Non-bookable objects on the 2D floor plan — bar counter, entrance, window,
+# dividing wall. A SEPARATE table from bookable_resources on purpose: the
+# booking engine filters resources with a `kind != "provider"` DENYLIST in six
+# places, so a new `kind` would be bookable by default. See the module header.
+from app.models.floor_fixture import FloorFixture
 
 __all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor", "Wine", "WineSale", "StaffMember", "PayPeriodConfig", "Schedule", "HoursLogged", "Tip", "TipDistribution", "StaffLink", "NotificationLog", "SecurityEvent", "OwnerPattern", "WaitlistEntry", "DailyBrief", "AnomalyAlert", "TriageNote", "KasserapportExtraction", "KasserapportExample", "InventoryImport", "InventoryImportExample", "Terminal", "TerminalProvider", "OutputChannel", "OrderChannelConfig", "StaffAbsence", "ShiftSwapRequest", "StaffRoleTarget", "SmartDriftFinding", "SupportTicket", "Customer", "Invoice", "InvoiceLine", "MileageEntry", "PaymentMatchSuggestion", "AuditLog", "RecurringExpense", "AccountantGrant", "MagicLinkToken", "BankConnection", "MobilePayConnection", "PushSubscription", "Event", "EmailMessage", "ReceiptIntake", "Booking", "Ticket", "EventCustomer", "BookableResource", "Reservation", "ReservationOccupancy", "Behandling", "GiftCard", "GiftCardTransaction", "StandLink"]
