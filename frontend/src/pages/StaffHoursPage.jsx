@@ -149,11 +149,19 @@ function calcHoursFromTimes(start, end, breakMin) {
 //
 // TWO NOTES FOR WHOEVER TOUCHES THE PALETTE NEXT.
 //
+// GREEN-* DOES NOT WORK HERE, and the first version of this shipped broken
+// because of it. index.css:808-822 remaps every .bg-green-* / .text-green-*
+// to rgb(var(--brand-*)) with !important so the app follows the owner's
+// chosen theme — and the default theme is "calm", a soft BLUE. A green chip
+// therefore renders blue, or vanishes against a pale background. emerald-*,
+// teal-*, lime-* and amber-* carry no override; green is the one family that
+// is hijacked. Check index.css before reaching for a colour here.
+//
 // The colour law at ~line 1228 governs the SHIFT-STATE cell: amber "needs an
 // answer", red "statutory breach", emerald "LIVE, on the clock right now".
-// These chips are a different axis — provenance, not state — and they use
-// green-600, deliberately NOT the emerald-500 that cell spends on "live", so
-// the one place emerald means "right now" keeps meaning it.
+// These chips are a different axis — provenance, not state. The soft
+// emerald-50/700 pair here is visually distinct from the emerald-500/600 TEXT
+// that cell uses for "live", so the two do not read as the same signal.
 //
 // The greens and ambers are kept soft (50/700 pairs) rather than solid fills:
 // on a venue where most rows are Tastet, a saturated amber block per row is
@@ -170,7 +178,7 @@ const METHOD_BADGES = {
     icon: "Clock",
     labelKey: "hovMethodClock",
     // Measured. The only row an owner can hand to Arbejdstilsynet.
-    chip: "bg-green-50 text-green-700 ring-1 ring-green-200 dark:bg-green-900/25 dark:text-green-300 dark:ring-green-900/40",
+    chip: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-900/40",
   },
   schedule: {
     icon: "CalendarCheck",
