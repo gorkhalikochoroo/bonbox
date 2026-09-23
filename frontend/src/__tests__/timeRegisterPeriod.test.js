@@ -232,3 +232,37 @@ describe("the register covers the window the question was asked about", () => {
     expect(TREG_MODES).toEqual(["month", "quarter", "year", "custom"]);
   });
 });
+
+describe("the dates on screen are a way IN to a custom range", () => {
+  // The owner's report: "date range is not able to select". The range read as
+  // a label, so the only route to custom dates was spotting the "Custom" chip
+  // — and that opened two EMPTY inputs, throwing away the window already on
+  // screen. An Arbejdstilsynet request names its own dates, which is exactly
+  // when somebody is on this page.
+
+  it("the range is a button, not a label", () => {
+    expect(CODE).toMatch(/onClick=\{\(\) => \{\s*\n\s*setCustomFrom\(from\);/);
+  });
+
+  it("it carries the window you were looking at", () => {
+    // setCustomFrom(from) / setCustomTo(to) BEFORE setMode("custom"), so the
+    // pickers open on the period already on screen instead of blank.
+    const i = CODE.indexOf("setCustomFrom(from);");
+    const j = CODE.indexOf("setCustomTo(to);", i);
+    const k = CODE.indexOf('setMode("custom");', j);
+    expect(i).toBeGreaterThan(-1);
+    expect(j).toBeGreaterThan(i);
+    expect(k).toBeGreaterThan(j);
+  });
+
+  it("it does not fight the custom view once you are in it", () => {
+    // In custom mode the two date inputs ARE the control; a button there would
+    // reset what the owner just typed.
+    expect(CODE).toMatch(/mode === "custom" \? \(\s*\n\s*<span/);
+  });
+
+  it("it looks interactive", () => {
+    expect(CODE).toMatch(/underline decoration-dotted/);
+    expect(CODE).toMatch(/tregPickDates/);
+  });
+});

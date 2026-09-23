@@ -351,7 +351,29 @@ export default function TimeRegistrationPage() {
         )}
 
         <div className="flex items-center justify-between gap-3 pt-0.5">
-          <span className="text-[11px] text-gray-400 tabular-nums">{from} → {to}</span>
+          {/* The dates read as a control, so they are one — tapping them opens
+              the custom range PRE-FILLED with the window already on screen.
+              Before this, the only way to a custom range was to spot the
+              "Custom" chip and then type both dates from scratch, losing the
+              period you were looking at. An Arbejdstilsynet request names its
+              own dates, which is exactly when an owner is on this screen. */}
+          {mode === "custom" ? (
+            <span className="text-[11px] text-gray-400 tabular-nums">{from} → {to}</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setCustomFrom(from);
+                setCustomTo(to);
+                setMode("custom");
+                setPrefSaved(false);
+              }}
+              title={t("tregPickDates", "Pick your own dates")}
+              className="text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 tabular-nums underline decoration-dotted underline-offset-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            >
+              {from} → {to}
+            </button>
+          )}
           <button
             type="button"
             onClick={saveDefault}
