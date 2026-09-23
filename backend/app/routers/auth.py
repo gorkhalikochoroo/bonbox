@@ -1183,6 +1183,15 @@ def change_password(
     return {"message": "Password changed successfully", "token": fresh}
 
 
+# How long a reset code is valid. Unchanged (15 min) — named so the cooldown
+# below can derive when the live code was issued instead of storing it.
+_RESET_CODE_TTL_MIN = 15
+# Minimum gap between two reset emails to the SAME account. Long enough that a
+# flood is pointless, short enough that an owner whose first mail went to spam
+# is not stuck waiting out the full code lifetime.
+_RESET_RESEND_COOLDOWN_MIN = 2
+
+
 @router.post("/forgot-password")
 @limiter.limit("5/minute")
 def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session = Depends(get_db)):
@@ -1191,10 +1200,40 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
         # Don't reveal if email exists — return same message as success
         return {"message": "If an account exists with that email, we've sent a reset code."}
 
+    # PER-ACCOUNT COOLDOWN — the IP cap above does not protect the victim.
+    #
+    # An owner's address is printed on their public booking page. At 5/minute
+    # per IP, and more from a handful of cheap proxies, an attacker points this
+    # endpoint at a known inbox and every request sends a REAL BonBox email.
+    # Two things break: the owner's mailbox, and — the expensive one — our
+    # sending reputation at Resend, because recipients mark the flood as spam
+    # and that degrades delivery of every transactional email the product
+    # sends, to everyone.
+    #
+    # Derived from the existing columns rather than a new counter table: a
+    # live code's issue time is (expires - TTL), so "was one just sent?" is
+    # already knowable. No migration, and nothing to drift out of sync with
+    # the SQLite mirror.
+    #
+    # Returns the SAME generic message, deliberately. A distinguishable
+    # response would turn the cooldown into an oracle for which addresses have
+    # accounts — which is exactly what the branch above exists to prevent.
+    _now = utc_now()
+    _prev_expiry = getattr(user, "reset_token_expires", None)
+    if user.reset_token and _prev_expiry:
+        try:
+            _issued_at = _prev_expiry - timedelta(minutes=_RESET_CODE_TTL_MIN)
+            if (_now - _issued_at) < timedelta(minutes=_RESET_RESEND_COOLDOWN_MIN):
+                return {"message": "If an account exists with that email, we've sent a reset code."}
+        except TypeError:
+            # naive/aware mismatch from a future column change — fall through
+            # and send. A throttle must never lock a real owner out of reset.
+            pass
+
     # Generate a short 6-digit code instead of a long token
     code = f"{secrets.randbelow(900000) + 100000}"
     user.reset_token = code
-    user.reset_token_expires = utc_now() + timedelta(minutes=15)
+    user.reset_token_expires = _now + timedelta(minutes=_RESET_CODE_TTL_MIN)
     user.reset_attempts = 0  # fresh code → reset the brute-force counter
     db.commit()
 

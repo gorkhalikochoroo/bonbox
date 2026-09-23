@@ -3106,7 +3106,21 @@ def _run_data_migration():
     print("Data migration: cashbook entries fixed")
 
 # --- Rate Limiter ---
-limiter = Limiter(key_func=client_ip, default_limits=["120/minute"])
+# key_style="endpoint", NOT the slowapi default of "url".
+#
+# The default keys each bucket on the exact URL, so a path-parameterised route
+# hands out a NEW 120/minute allowance per distinct id: /api/reservations/<uuid>
+# with ten thousand uuids is ten thousand buckets, i.e. no limit at all on
+# precisely the routes an enumerator walks. "endpoint" keys on the matched
+# route function, so every id shares one bucket.
+#
+# This still leaves one allowance PER ROUTE per IP, which is why the coarse
+# all-paths cap below exists as well — the two answer different questions.
+limiter = Limiter(
+    key_func=client_ip,
+    default_limits=["120/minute"],
+    key_style="endpoint",
+)
 
 # --- App Setup ---
 is_prod = settings.ENVIRONMENT == "production"
@@ -3613,6 +3627,61 @@ async def admin_scan_blocker(request: Request, call_next):
             _admin_ip_banned[ip] = now + _ADMIN_BAN_DURATION_SEC
             strikes.clear()
     return response
+
+
+# --- Coarse per-IP ceiling, across every path ---
+#
+# The 120/minute default above is per ROUTE. An attacker hitting fifty
+# different endpoints from one IP therefore gets fifty independent allowances
+# — around 6,000 requests a minute against a single uvicorn worker sitting on
+# a 15-connection pool. Every individual limit is obeyed and the box still
+# falls over.
+#
+# So: one bucket per IP, path-blind. Set high enough that it never touches a
+# real venue (a heavy dashboard load is tens of requests, not hundreds) and low
+# enough to bound a flood. Deliberately NOT a replacement for the per-route
+# limits, which are what stop targeted abuse of one expensive endpoint.
+#
+# In-memory, like the admin scan-blocker above: process-local and reset on
+# deploy. Honest about what that means — it is a brake on a single noisy
+# source, not DDoS protection. That belongs at Cloudflare, and the origin lock
+# (ORIGIN_SHARED_SECRET) is what forces traffic through it.
+_COARSE_LIMIT = 600           # requests
+_COARSE_WINDOW_SEC = 60.0
+_coarse_hits: dict[str, list[float]] = {}
+_COARSE_EXEMPT = frozenset(
+    {"/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive"}
+)
+
+
+@app.middleware("http")
+async def coarse_ip_ceiling(request: Request, call_next):
+    path = request.url.path
+    if request.method == "OPTIONS" or path in _COARSE_EXEMPT:
+        return await call_next(request)
+
+    ip = client_ip(request)
+    now = _time.time()
+    hits = _coarse_hits.setdefault(ip, [])
+    cutoff = now - _COARSE_WINDOW_SEC
+    hits[:] = [t for t in hits if t > cutoff]
+
+    if len(hits) >= _COARSE_LIMIT:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests"},
+            headers={"Retry-After": str(int(_COARSE_WINDOW_SEC))},
+        )
+    hits.append(now)
+
+    # Keep the dict from growing without bound under a rotating-IP flood: once
+    # it is large, drop the entries that have gone quiet. Cheap and only runs
+    # when it needs to.
+    if len(_coarse_hits) > 5000:
+        for k in [k for k, v in _coarse_hits.items() if not v or v[-1] <= cutoff]:
+            _coarse_hits.pop(k, None)
+
+    return await call_next(request)
 
 
 # --- CSRF Protection (double-submit cookie) ---

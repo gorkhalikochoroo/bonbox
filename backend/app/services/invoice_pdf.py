@@ -442,7 +442,7 @@ def _build_invoice_story(
     # field almost always already ends with "zip city", and appending it again
     # printed the town twice on the faktura exactly as it did on the
     # kasserapport. `zc` comes back empty when the address already carries it.
-    from app.services.bonbox_pdf_kit import split_address_parts
+    from app.services.bonbox_pdf_kit import split_address_parts, escape_pdf_text
     issuer_addr_lines = []
     if profile:
         _addr, zc = split_address_parts(profile)
@@ -545,18 +545,21 @@ def _build_invoice_story(
     story.append(Spacer(1, 8 * mm))
 
     # ── Party blocks ────────────────────────────────────────────────
-    issuer_lines = [f"<b>{issuer_name}</b>"]
+    # Escaped at the Paragraph boundary: a business name with & (…& Søn) or a
+    # street with < is markup to ReportLab. The <b>/<br/> wrappers are ours
+    # and go on the OUTSIDE of the escaped value.
+    issuer_lines = [f"<b>{escape_pdf_text(issuer_name)}</b>"]
     if issuer_cvr:
-        issuer_lines.append(f"{L['cvr']}: {issuer_cvr}")
-    issuer_lines.extend(issuer_addr_lines)
+        issuer_lines.append(f"{L['cvr']}: {escape_pdf_text(issuer_cvr)}")
+    issuer_lines.extend(escape_pdf_text(x) for x in issuer_addr_lines)
     if issuer_email:
-        issuer_lines.append(issuer_email)
-    cust_lines = [f"<b>{cust_name}</b>"]
+        issuer_lines.append(escape_pdf_text(issuer_email))
+    cust_lines = [f"<b>{escape_pdf_text(cust_name)}</b>"]
     if cust_cvr:
-        cust_lines.append(f"{L['cvr']}: {cust_cvr}")
+        cust_lines.append(f"{L['cvr']}: {escape_pdf_text(cust_cvr)}")
     if cust_ean:
-        cust_lines.append(f"EAN: {cust_ean}")
-    cust_lines.extend(cust_addr_lines)
+        cust_lines.append(f"EAN: {escape_pdf_text(cust_ean)}")
+    cust_lines.extend(escape_pdf_text(x) for x in cust_addr_lines)
     parties = Table(
         [
             [Paragraph(L["from"], h2), Paragraph(L["to"], h2)],
@@ -622,7 +625,7 @@ def _build_invoice_story(
     story.append(Spacer(1, 8 * mm))
 
     if is_credit and invoice.notes:
-        story.append(Paragraph(f"<i>{invoice.notes}</i>", small))
+        story.append(Paragraph(f"<i>{escape_pdf_text(invoice.notes)}</i>", small))
         story.append(Spacer(1, 4 * mm))
 
     # ── Line items table ────────────────────────────────────────────
@@ -639,7 +642,7 @@ def _build_invoice_story(
         if line.unit:
             qty_str = f"{qty_str} {line.unit}"
         line_rows.append([
-            Paragraph(line.description, body),
+            Paragraph(escape_pdf_text(line.description), body),
             Paragraph(qty_str, right),
             Paragraph(_money(line.unit_price_net, invoice.currency), right),
             Paragraph(_fmt_pct(line.moms_rate), right),

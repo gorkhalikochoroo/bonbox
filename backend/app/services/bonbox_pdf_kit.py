@@ -26,6 +26,7 @@ builders convert PALETTE hex strings via colors.HexColor() themselves.
 import logging
 import math
 from datetime import date
+import html
 from typing import Any
 
 from app.services import audit_service
@@ -44,6 +45,34 @@ PALETTE = {
     "REFUND": "#6b7280",   # stone — refund / zero net
     "ACCENT": "#4338ca",   # indigo accent
 }
+
+
+def escape_pdf_text(value: Any) -> str:
+    """User text → safe for a ReportLab Paragraph. The ONE escape helper.
+
+    ReportLab's Paragraph does not render plain text — it parses a small HTML
+    dialect, so `<`, `>` and `&` in anything a person typed are MARKUP.
+
+    THIS IS NOT A THEORETICAL INJECTION; IT IS ALREADY BREAKING INVOICES. The
+    two characters a Danish owner is most likely to type into a line item are
+    exactly the two that break it:
+
+        "Rengøring & vedligehold"   → a bare & is an illegal entity
+        "Levering <5 km"            → an unclosed tag swallows the rest
+
+    Either mangles the line or raises inside the PDF build, on a document a
+    customer receives and a revisor files. And because a Paragraph will happily
+    accept `<font color=...>` or an `<img>` from the same string, an invoice
+    line is also a way to inject markup into a document someone else opens.
+
+    Escape at the Paragraph boundary, never earlier: escaping on the way INTO
+    the database would store `&amp;` and corrupt the value for every other
+    reader. The formatting tags this codebase adds itself — <b>, <i>, <br/> —
+    are applied AFTER escaping, around the escaped value, so they survive.
+    """
+    if value is None:
+        return ""
+    return html.escape(str(value), quote=False)
 
 
 def money_dk(value: Any, currency: str = "DKK") -> str:
