@@ -1203,3 +1203,15 @@ body.modal-open {
     inset 9px 0 14px -9px rgb(0 0 0 / 0.70),
     inset -9px 0 14px -9px rgb(0 0 0 / 0.70);
 }
+
+/* The floor plan's pan edge. The room keeps a 560px min-width so tables stay
+   legible and tappable, so on a phone it is wider than its scroller — this
+   fade marks the edge as "the room continues" rather than "cut off".
+   It is the WALL colour, not the page colour, precisely so the room appears
+   to run on past the edge instead of being masked by the page. */
+.bb-room-panfade {
+  background: linear-gradient(to left, rgb(15 23 42 / 0.92), rgb(15 23 42 / 0));
+}
+.dark .bb-room-panfade {
+  background: linear-gradient(to left, rgb(2 6 23 / 0.92), rgb(2 6 23 / 0));
+}

@@ -646,27 +646,68 @@ export default function FloorPlan({
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, pointerId}
 
-  // Fit-to-width (phone): below the 560px logical floor the canvas used to
-  // pan horizontally — an overdue red table could sit in an invisible
-  // off-screen strip with zero scroll affordance. Now the whole room
-  // CSS-scales to the viewport. Drag math is unaffected (the % conversion
-  // uses getBoundingClientRect, which reflects the SCALED rect, and pointer
-  // coords are visual). scale === 1 on desktop → no transform at all, and the
-  // canvas is never sticky, so the iOS sticky-transform doctrine holds.
-  const fitRef = useRef(null);
-  const [fitScale, setFitScale] = useState(1);
-  useEffect(() => {
-    const el = fitRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      const w = el.clientWidth;
-      setFitScale(w > 0 && w < 560 ? w / 560 : 1);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+  // THE ROOM PANS ON A PHONE. It does not scale to fit, and the history is
+  // worth keeping because the obvious fix was the wrong one.
+  //
+  // It used to scale: below 560px the canvas got `transform: scale(w/560)`.
+  // That measurement was a `useRef` read inside a `useEffect(…, [])`, and the
+  // node carrying the ref renders AFTER this component's empty-state early
+  // return. FloorView is gated on the parent's `loading`, which tracks the
+  // /reservations/book fetch ALONE — `resources` is a separate request. So the
+  // two race: when /book wins, FloorPlan's first commit is the empty state,
+  // the effect reads a null ref, bails before attaching its ResizeObserver,
+  // and with `[]` deps never looks again once the tables land.
+  //
+  // That makes the defect INTERMITTENT, not universal — an earlier version of
+  // this comment claimed it "never ran in production" and that was wrong. If
+  // /resources wins the race the old code worked; switching lens or changing
+  // the day also remounts with tables already present. You reach the bad
+  // ordering by re-entering the page on a remembered Floor lens (the default
+  // is the list, so it has to have been chosen before).
+  //
+  // Measured on a live account at 390px when it did fire: scroller 358px,
+  // canvas pinned at 560px, 202px of the room off the right edge.
+  //
+  // MAKING THE SCALING RUN WAS WORSE THAN LEAVING IT BROKEN. At 390px the
+  // scale is 0.639 and everything inside the canvas is absolute px: table
+  // labels render at 7.7px, the seats chip at 8.3px, a 2-top's tap target
+  // drops to 40.9px (under the 44pt minimum), a bar counter to 19.2px tall,
+  // the Arrange shape button to 17.9px. A host mid-service has to READ a table
+  // and TAP it; a whole room they can do neither to is not an improvement on
+  // part of a room they can.
+  //
+  // A 358px phone cannot show eight legible, tappable tables in a 16:10 room —
+  // the information does not fit and no layout makes it fit. So the room stays
+  // 1:1 and pans, and the measurement drives the AFFORDANCE instead. That is
+  // what was actually missing: a canvas running off the edge with nothing but
+  // a scrollbar read as broken rather than as a room that continues.
+  //
+  // Both measurements below are CALLBACK refs. A node behind a conditional
+  // render cannot be measured by a mount-only effect — that is the bug class,
+  // and a callback ref cannot have it: React invokes it whenever the node
+  // attaches, and again with null when it detaches.
+  const roRef = useRef(null);
+  const [pan, setPan] = useState({ can: false, atEnd: true });
+  const measurePan = useCallback((el) => {
+    if (!el) return;
+    const slack = el.scrollWidth - el.clientWidth;
+    setPan({ can: slack > 4, atEnd: slack <= 4 || el.scrollLeft >= slack - 4 });
   }, []);
+  // A CALLBACK ref for the same reason the old one should have been: this node
+  // renders after the empty-state early return, so a mount-only effect would
+  // measure null and never look again.
+  const scrollerRef = useCallback((el) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el) return;            // detaching — the disconnect above is the work
+    measurePan(el);
+    const ro = new ResizeObserver(() => measurePan(el));
+    ro.observe(el);
+    roRef.current = ro;
+  }, [measurePan]);
+  // Unmount safety net: a callback ref fires with null on unmount, but not if
+  // the whole tree is torn down in a way that skips it.
+  useEffect(() => () => roRef.current?.disconnect(), []);
 
   // Freshest known server-truth layout (post-save override wins over the
   // memoized base until the parent re-derives cells).
@@ -1442,13 +1483,17 @@ export default function FloorPlan({
         </div>
       )}
 
-      {/* The room. Below 560px the whole floor scales to fit (no hidden
-          off-screen strip); at ≥560px it renders 1:1 as before. The wrapper
-          height pins to the scaled canvas so no dead space follows it. */}
+      {/* The room. The canvas keeps its 560px min-width so tables stay legible
+          and tappable, which on a phone means the room is WIDER than the
+          screen and pans. The fade and the hint below exist so that reads as
+          "the room continues over there" rather than "this is cut off" — the
+          fade is the wall colour, so the room appears to run on past the edge.
+          Both are suppressed the moment there is nothing left to pan to. */}
+      <div className="relative">
       <div
-        ref={fitRef}
-        className={(fitScale < 1 ? "" : "overflow-x-auto ") + "rounded-2xl"}
-        style={fitScale < 1 ? { height: 350 * fitScale } : undefined}
+        ref={scrollerRef}
+        onScroll={(e) => measurePan(e.currentTarget)}
+        className="overflow-x-auto rounded-2xl"
       >
         <div
           ref={canvasRef}
@@ -1462,11 +1507,7 @@ export default function FloorPlan({
               ? "border-slate-700 ring-2 ring-white/15"
               : "border-slate-900 dark:border-black")
           }
-          style={
-            fitScale < 1
-              ? { width: 560, aspectRatio: "16 / 10", transform: `scale(${fitScale})`, transformOrigin: "top left" }
-              : { aspectRatio: "16 / 10" }
-          }
+          style={{ aspectRatio: "16 / 10" }}
         >
           {/* Walls + drafting grid + paper floor. FIRST child on purpose:
               nothing here is positioned or z-indexed, so paint order is DOM
@@ -1568,6 +1609,20 @@ export default function FloorPlan({
           })}
         </div>
       </div>
+        {/* Sits OUTSIDE the scroller on purpose — inside it, the fade would
+            scroll away with the room and stop marking the edge. */}
+        {pan.can && !pan.atEnd && (
+          <div
+            className="bb-room-panfade pointer-events-none absolute inset-y-0 right-0 w-16 rounded-r-2xl"
+            aria-hidden
+          />
+        )}
+      </div>
+      {pan.can && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          {t("rsvpPlanPan", "Swipe to see the rest of the room.")}
+        </p>
+      )}
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
