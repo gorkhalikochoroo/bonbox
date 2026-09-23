@@ -135,45 +135,52 @@ function calcHoursFromTimes(start, end, breakMin) {
 // Entry-method chip — neutral gray + a Lucide icon encoding meaning (design
 // lock: no decorative blue/purple, no emoji). Clock = stemplet (measured),
 // FileText = tastet (typed), CalendarCheck = fra plan.
-// WEIGHT, not status colour, and the distinction is deliberate.
+// COLOUR, as a confidence gradient. How much does this number deserve to be
+// believed?
 //
-// These three chips answer one question: how much does this number deserve to
-// be believed? Stempelur MEASURED it. Tastet means a person asserted it. Fra
-// plan means nobody did either — it was assumed from a roster.
+//   Stempelur   the clock MEASURED it        green
+//   Tastet      a person asserted it         amber
+//   Fra plan    nobody did either            grey outline
 //
-// The obvious move is three colours. The colour law a few hundred lines down
-// forbids it, and is right to: amber means "needs an answer from you", and on
-// this venue 96% of hours are not clocked, so amber-for-unmeasured would paint
-// almost every row — "once everything is coloured nothing is", as the rail
-// comment in this file puts it. Grey is already the correct colour for a
-// measured fact.
+// A traffic light, read in a glance, in the order an owner already understands.
+// It answers the question the banner above the table asks out loud — "96% of
+// hours were not clocked, the figures are an estimate" — by showing WHICH
+// rows those are instead of only quoting a percentage.
 //
-// So the gradient is in WEIGHT. Stempelur is the darkest and the only one that
-// carries a border, because it is the row an owner can defend to
-// Arbejdstilsynet. Fra plan is the faintest, because it is the weakest claim on
-// the page. Scannable at a glance, and it says something true rather than
-// decorating.
+// TWO NOTES FOR WHOEVER TOUCHES THE PALETTE NEXT.
+//
+// The colour law at ~line 1228 governs the SHIFT-STATE cell: amber "needs an
+// answer", red "statutory breach", emerald "LIVE, on the clock right now".
+// These chips are a different axis — provenance, not state — and they use
+// green-600, deliberately NOT the emerald-500 that cell spends on "live", so
+// the one place emerald means "right now" keeps meaning it.
+//
+// The greens and ambers are kept soft (50/700 pairs) rather than solid fills:
+// on a venue where most rows are Tastet, a saturated amber block per row is
+// the "once everything is coloured nothing is" trap. Soft tints stay legible
+// in bulk and still separate at a glance.
 const METHOD_BADGES = {
   quick: {
     icon: "FileText",
     labelKey: "hovMethodQuick",
-    // Asserted by a person. Mid weight.
-    chip: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200",
+    // Asserted by a person — true as far as anyone typed it.
+    chip: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/25 dark:text-amber-300 dark:ring-amber-900/40",
   },
   clock: {
     icon: "Clock",
     labelKey: "hovMethodClock",
-    // Measured. The strongest claim, so the strongest chip.
-    chip: "bg-gray-900 text-white ring-1 ring-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:ring-gray-100",
+    // Measured. The only row an owner can hand to Arbejdstilsynet.
+    chip: "bg-green-50 text-green-700 ring-1 ring-green-200 dark:bg-green-900/25 dark:text-green-300 dark:ring-green-900/40",
   },
   schedule: {
     icon: "CalendarCheck",
     labelKey: "hovMethodSchedule",
-    // Assumed from a roster. Faintest — nobody has confirmed this happened.
-    chip: "bg-transparent text-gray-500 ring-1 ring-gray-200 dark:text-gray-400 dark:ring-gray-700",
+    // Assumed from a roster. Nobody has confirmed it happened, so it stays
+    // uncoloured — an outline, not a claim.
+    chip: "bg-transparent text-gray-500 ring-1 ring-gray-300 dark:text-gray-400 dark:ring-gray-600",
   },
 };
-// Fallback for an unknown method — never stronger than a measured one.
+// Fallback for an unknown method — never dressed as measured.
 const METHOD_CHIP =
   "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 
