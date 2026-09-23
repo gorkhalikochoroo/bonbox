@@ -38,6 +38,12 @@ export function normalizeFixtureKind(k) {
 }
 
 /**
+ * Type size note: these labels were 8.5px, copied from the marketing floor
+ * plan. There it is a decorative illustration nobody reads; here it is the
+ * owner's own room and "Bar" / "Indgang" are words they have to recognise at a
+ * glance, mid-service, on a phone. 11px is the floor the rest of the app uses
+ * for meaningful small text.
+ *
  * One fixture. `editing` only changes the affordance (a dashed grab outline);
  * the symbol itself is identical in both modes, so the owner arranges the room
  * they will actually look at during service.
@@ -73,12 +79,12 @@ function Fixture({ f, t, editing, selected, onPointerDownDrag, onTap }) {
         onClick={editing ? () => onTap(f.id) : undefined}
       >
         <span
-          className="text-[8.5px] font-semibold uppercase text-slate-400 select-none"
+          className="text-[11px] font-semibold uppercase text-slate-400 select-none"
           // Vertical when the slab is taller than it is wide, which is how a
           // bar usually runs — otherwise the label clips to nothing.
           style={
             f.h_pct > f.w_pct
-              ? { writingMode: "vertical-rl", letterSpacing: "0.26em" }
+              ? { writingMode: "vertical-rl", letterSpacing: "0.16em" }
               : { letterSpacing: "0.18em" }
           }
         >
@@ -105,7 +111,7 @@ function Fixture({ f, t, editing, selected, onPointerDownDrag, onTap }) {
         onPointerDown={editing ? (e) => onPointerDownDrag(e, f.id) : undefined}
         onClick={editing ? () => onTap(f.id) : undefined}
       >
-        <span className="absolute -top-3.5 left-0 text-[8.5px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
+        <span className="absolute -top-3.5 left-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
           {name}
         </span>
       </div>
@@ -141,7 +147,7 @@ function Fixture({ f, t, editing, selected, onPointerDownDrag, onTap }) {
             borderRadius: "0 100% 0 0",
           }}
         />
-        <span className="absolute -top-3.5 left-0 text-[8.5px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
+        <span className="absolute -top-3.5 left-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
           {name}
         </span>
       </div>

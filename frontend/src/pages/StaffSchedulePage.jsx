@@ -4809,7 +4809,10 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
+                      {/* shrink-0: single-word chips have a min-content floor
+                          and cannot shrink, so without this they take their
+                          width out of the NAME's budget. */}
+                      <div className={`shrink-0 px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
                         {member.role}
                       </div>
                       {/* Click the name to open the detail/edit modal (#336).
@@ -4825,16 +4828,32 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                         onClick={() => openDetail(member)}
                         title={t("viewStaffDetails") || "View details"}
                         aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
-                        className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
+                        // `flex-1 min-w-0` — WITHOUT IT THIS RENDERED AT 0px.
+                        // Measured at 390px the row's inner width is 282px and
+                        // the right cluster takes 171px, leaving 111px for an
+                        // identity column whose unshrinkable siblings (role
+                        // chip, "@", contract label, three gap-3s) already want
+                        // ~186px. `truncate` sets overflow:hidden, which
+                        // resolves min-width:auto to 0 — so the NAME was the
+                        // one item that could absorb the whole deficit, and it
+                        // did. The owner saw a role chip, a stray "@" and a
+                        // code, and no idea whose row they were about to tap
+                        // to edit or deactivate.
+                        className="flex-1 min-w-0 text-left text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
                       >
                         {member.name}
                       </button>
+                      {/* Both hidden on a phone, matching what the rate card
+                          below already does. A bare "@" and the contract label
+                          are worth their width on a laptop; on 282px they were
+                          spending the name's budget, and both are shown in
+                          full in the detail modal one tap away. */}
                       {member.email && (
-                        <span className="text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
+                        <span className="hidden sm:inline shrink-0 text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
                           @
                         </span>
                       )}
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="hidden sm:inline shrink-0 text-xs text-gray-400 dark:text-gray-500">
                         {contractLabel(member.contract_type, t)}
                       </span>
                       {isInactive && (
@@ -5737,7 +5756,24 @@ function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t
               type="button"
               onClick={(e) => { e.stopPropagation(); onRemove(tpl.id); }}
               title={t("schedTemplateRemove", "Remove template")}
-              className="opacity-0 group-hover:opacity-100 transition-opacity -mr-0.5 ml-0.5 hover:text-red-400"
+              aria-label={t("schedTemplateRemove", "Remove template")}
+              // `[@media(hover:hover)]:` IS THE WHOLE FIX, and OpenShiftChip
+              // ~150 lines below already had it right.
+              //
+              // A bare `opacity-0 group-hover:opacity-100` never matches on a
+              // touch device, so this stayed at opacity 0 — and opacity:0 does
+              // NOT remove an element from hit-testing. Combined with the
+              // coarse-pointer `min-height: 44px` floor (index.css:327) that
+              // made every template chip carry a 12 x 44px INVISIBLE strip on
+              // its right edge, wired to a delete that writes straight to
+              // localStorage with no confirm and no undo. Tapping the chip to
+              // arm a template destroyed it instead, with nothing on screen to
+              // say what happened.
+              //
+              // Now: always visible on touch, hover-revealed only where hover
+              // exists. `p-1 -mr-1` makes it a real target rather than a 12px
+              // sliver without changing the chip's layout.
+              className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity p-1 -mr-1 ml-0.5 hover:text-red-400"
             >
               <X className="w-3 h-3" />
             </button>

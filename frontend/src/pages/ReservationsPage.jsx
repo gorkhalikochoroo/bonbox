@@ -600,7 +600,11 @@ function PageTitle({ t, isProvider = false }) {
         <CalendarCheck className="w-6 h-6 text-gray-700 dark:text-gray-200" aria-hidden />
         {isProvider ? t("rsvpOwnerTitleProvider", "Tidsbestilling") : t("rsvpOwnerTitle", "Reservations")}
       </h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      {/* Hidden on a phone. It tells a first-time owner what this page IS,
+          which is worth 40px on a laptop and worth nothing to a host at 19:30
+          who opened it to seat a walk-in — measured, it was part of 877px of
+          chrome sitting above the floor plan on a 390px screen. */}
+      <p className="hidden sm:block text-sm text-gray-500 dark:text-gray-400 mt-1">
         {isProvider
           ? t(
               "rsvpOwnerSubtitleProvider",
@@ -4496,10 +4500,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           Awaiting are click-to-filter into the list; Next arrival opens that
           booking; Belægning is a calm fill gauge. Awaiting goes amber when
           requests pile up — otherwise the whole row stays calm gray. */}
-      {/* On mobile these six vitals pack into a compact 3-across, 2-row grid
-          (dense tiles, tighter gap) so they read as a glance-bar instead of
-          four rows of tall cards pushing the booking list off-screen. From
-          sm: up it's the original 3-col → 6-col layout at full scale. */}
+      {/* On mobile these six vitals pack into a compact 3-across grid (dense
+          tiles, tighter gap) so they read as a glance-bar instead of four rows
+          of tall cards. From sm: up it's the original 3-col → 6-col layout.
+
+          AND ON A PHONE, A SECONDARY TILE THAT HAS NOTHING TO SAY HIDES.
+          Measured on a 390px phone: 877px of chrome sat above the floor plan —
+          a full screen of scrolling before a host could see their own room,
+          and this grid was the single biggest block at 228px. Awaiting,
+          Occupancy and On-waitlist each ALREADY turn amber/red exactly when
+          they matter, so "0 to confirm" and "0 waiting" are the two rows of
+          noise pushing the room off-screen mid-service.
+
+          They hide only below sm: and only when genuinely quiet — a non-zero
+          count, or an occupancy at the 85% warn threshold, always renders. So
+          nothing that is signalling can ever be hidden by this, which is the
+          only version of this idea that is safe. Covers, Seated now and Next
+          arrival always show: those are the three a host reads during service. */}
       <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
         <StatCard
           dense
@@ -4533,6 +4550,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         />
         <StatCard
           dense
+          className={requestedCount > 0 ? "" : "hidden sm:flex"}
           label={t("rsvpAwaiting", "Awaiting")}
           value={requestedCount}
           accent={requestedCount > 0 ? "warn" : "neutral"}
@@ -4542,6 +4560,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         />
         <StatCard
           dense
+          className={peakPct != null && peakPct >= 85 ? "" : "hidden sm:flex"}
           label={t("rsvpUtilization", "Occupancy")}
           value={peakPct == null ? "—" : `${peakPct}%`}
           // Over 100% means more covers than seats at the peak — a real
@@ -4565,6 +4584,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         />
         <StatCard
           dense
+          className={waitlistCount > 0 ? "" : "hidden sm:flex"}
           label={t("rsvpWlCockpitToday", "On waitlist")}
           value={waitlistCount}
           accent={waitlistCount > 0 ? "warn" : "neutral"}

@@ -1313,7 +1313,11 @@ export default function FloorPlan({
               {t(profile.dragHintKey, "Drag tables to arrange. Tap the icon to switch round / square.")}
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5">
+            // Hidden on a phone: it is instructional, learned on the first
+            // visit, and it was costing a line of the screen every service
+            // thereafter. The DRAG hint above stays at every width — that one
+            // appears only in Arrange mode, where it is the actual instruction.
+            <span className="hidden sm:inline-flex items-center gap-1.5">
               {t(profile.tapHintKey, "Tap a table to seat or open a booking.")}
             </span>
           )}

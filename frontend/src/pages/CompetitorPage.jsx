@@ -946,8 +946,20 @@ export default function CompetitorPage({ embedded = false }) {
                             title={t("scanMenuTapToScan", "Tap to scan this photo")}
                           >
                             <img src={p.view_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center opacity-0 group-hover:opacity-100">
-                              <span className="text-white text-xs font-semibold">📷 {t("scanMenuScan", "Scan")}</span>
+                            {/* On a phone this whole overlay used to be
+                                permanently invisible: `opacity-0
+                                group-hover:opacity-100` with no hover guard,
+                                and `title` tooltips do not show on touch
+                                either — so the one cue that a photo is
+                                tappable existed only for mouse users.
+
+                                On touch the label now shows at rest as a small
+                                chip and the scrim stays off, so the photo is
+                                still the photo. Hover keeps the full scrim. */}
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center [@media(hover:hover)]:opacity-0 group-hover:opacity-100">
+                              <span className="text-white text-xs font-semibold rounded-full bg-black/55 px-2 py-0.5 [@media(hover:hover)]:bg-transparent [@media(hover:hover)]:px-0 [@media(hover:hover)]:py-0">
+                                📷 {t("scanMenuScan", "Scan")}
+                              </span>
                             </div>
                           </button>
                         ))}
