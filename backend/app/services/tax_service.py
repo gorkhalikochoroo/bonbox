@@ -1077,7 +1077,21 @@ def get_tax_overview(user: User, db: Session) -> dict:
 
 
 def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[dict]:
-    """Generate tax-related alerts."""
+    """Generate tax-related alerts.
+
+    MONEY GOES THROUGH money_dk, THE SAME FORMATTER THE MOMS PDF USES. These
+    strings used Python's `{:,}` grouping, so a DKK account read "Estimated:
+    35,561." — and in Danish convention a comma is the DECIMAL separator, so
+    an owner reads that as thirty-five point five six one. On the tax page.
+    About what they owe SKAT. It also printed a bare number with no currency
+    at all. money_dk renders "35.561,00 kr." for DKK and the ISO form for
+    everything else, so this page now agrees with the artifact the revisor
+    receives instead of contradicting it."""
+    from app.services.bonbox_pdf_kit import money_dk
+
+    def _m(v) -> str:
+        return money_dk(v, currency)
+
     alerts = []
     tax_name = config["tax_name"]
 
@@ -1088,10 +1102,11 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
         if dl["status"] == "overdue":
             alerts.append({
                 "type": "overdue",
+                "params": {"tax": tax_name, "period": dl["period_label"], "deadline": dl["deadline"], "amount": _m(amt), "authority": config["authority"]},
                 "severity": "critical",
                 "icon": "🚨",
                 "title": f"{tax_name} filing OVERDUE! ({dl['period_label']})",
-                "detail": f"Deadline was {dl['deadline']}. Estimated: {round(amt):,}. File immediately to avoid penalties.",
+                "detail": f"Deadline was {dl['deadline']}. Estimated {_m(amt)} — file immediately to avoid penalties.",
                 "action": f"File your {tax_name} return with {config['authority']} today.",
             })
         elif dl["status"] == "urgent":
@@ -1107,6 +1122,7 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
             # of the period onto the calm surface.
             alerts.append({
                 "type": "urgent",
+                "params": {"tax": tax_name, "period": dl["period_label"], "deadline": dl["deadline"], "amount": _m(amt), "authority": config["authority"]},
                 "severity": "critical",
                 "icon": "⏰",
                 "title": (
@@ -1115,7 +1131,7 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                     else f"{tax_name} due in {days} day{'s' if days != 1 else ''}! "
                          f"({dl['period_label']})"
                 ),
-                "detail": f"Deadline: {dl['deadline']}. Estimated amount: {round(amt):,}.",
+                "detail": f"Deadline: {dl['deadline']} — estimated amount {_m(amt)}",
                 "action": (
                     f"File your {tax_name} return with {config['authority']} before midnight."
                     if days == 0
@@ -1125,19 +1141,21 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
         elif dl["status"] == "soon":
             alerts.append({
                 "type": "soon",
+                "params": {"tax": tax_name, "period": dl["period_label"], "deadline": dl["deadline"], "amount": _m(amt), "days": days},
                 "severity": "warning",
                 "icon": "📅",
                 "title": f"{tax_name} due in {days} days ({dl['period_label']})",
-                "detail": f"Deadline: {dl['deadline']}. Estimated: {round(amt):,}. Make sure your books are up to date.",
+                "detail": f"Deadline: {dl['deadline']}. Estimated {_m(amt)} — make sure your books are up to date.",
                 "action": "Review and categorize any uncategorized expenses.",
             })
         elif dl["status"] == "approaching":
             alerts.append({
                 "type": "approaching",
+                "params": {"tax": tax_name, "period": dl["period_label"], "amount": _m(amt), "days": days},
                 "severity": "info",
                 "icon": "📋",
                 "title": f"{tax_name} filing in {days} days",
-                "detail": f"For {dl['period_label']}. Current estimate: {round(amt):,}.",
+                "detail": f"For {dl['period_label']} — current estimate {_m(amt)}",
                 "action": None,
             })
 
@@ -1145,10 +1163,11 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
     if ytd["vat_payable"] > 0:
         alerts.append({
             "type": "ytd_summary",
+            "params": {"tax": tax_name, "payable": _m(ytd["vat_payable"]), "output": _m(ytd["output_vat"]), "sales": _m(ytd["sales_total"]), "input": _m(ytd["input_vat"]), "expenses": _m(ytd["expenses_total"])},
             "severity": "info",
             "icon": "📊",
-            "title": f"Year-to-date {tax_name}: {round(ytd['vat_payable']):,}",
-            "detail": f"Output: {round(ytd['output_vat']):,} on {round(ytd['sales_total']):,} sales. Input: {round(ytd['input_vat']):,} on {round(ytd['expenses_total']):,} expenses.",
+            "title": f"Year-to-date {tax_name}: {_m(ytd['vat_payable'])}",
+            "detail": f"Output: {_m(ytd['output_vat'])} on {_m(ytd['sales_total'])} sales. Input: {_m(ytd['input_vat'])} on {_m(ytd['expenses_total'])} expenses.",
             "action": None,
         })
 
@@ -1167,6 +1186,7 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
         if cm.get("status") == "combined" and closes_count >= 1:
             alerts.append({
                 "type": "reconciliation_ok",
+                "params": {"tax": tax_name, "count": closes_count, "from_closes": _m(from_closes), "from_sales": _m(from_sales)},
                 "severity": "positive",
                 "icon": "\u2705",
                 "title": (
@@ -1175,8 +1195,8 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                 "detail": (
                     f"{closes_count} confirmed close"
                     f"{'s' if closes_count != 1 else ''} this month "
-                    f"contributed {round(from_closes):,} {tax_name}; "
-                    f"Sale rows on the other days contributed {round(from_sales):,}. "
+                    f"contributed {_m(from_closes)} {tax_name}; "
+                    f"Sale rows on the other days contributed {_m(from_sales)} — "
                     "Both feed the headline filing total."
                 ),
                 "action": None,
@@ -1192,12 +1212,13 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
             day_word = "day" if len(gk_warn) == 1 else "days"
             alerts.append({
                 "type": "gavekort_reconciliation",
+                "params": {"count": len(gk_warn), "total": _m(gk_total)},
                 "severity": "warning",
                 "icon": "\U0001F381",  # 🎁
                 "title": "Gavekort redeemed — check the sale is bogført",
                 "detail": (
                     f"{len(gk_warn)} {day_word} with gavekort redemptions "
-                    f"(~{gk_total:,} kr.) where the meal may be missing from revenue. "
+                    f"(~{_m(gk_total)}) where the meal may be missing from revenue. "
                     "MOMS falls at redemption — record the sale in a dagsafslutning "
                     "or as a salg so it enters the MOMS base."
                 ),
@@ -1207,6 +1228,7 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
     if not alerts:
         alerts.append({
             "type": "all_clear",
+            "params": {"tax": tax_name},
             "severity": "positive",
             "icon": "\u2705",
             "title": f"No urgent {tax_name} deadlines",

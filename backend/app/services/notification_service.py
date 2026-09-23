@@ -111,7 +111,26 @@ def _send_staff_schedule_push(
     # in the OS tray instead of stacking. Keyed on (user_id, week_label)
     # rather than (staff_id, week_label) so multiple devices belonging to
     # the same staff each get exactly one notification.
-    safe_label = week_label.replace(" ", "-").lower()
+    # ASCII-ONLY, and not just tidiness. This tag becomes the APNs collapse-id
+    # / web-push tag, which must be a short ASCII token; `week_label` is
+    # human-facing copy and is about to become Danish ("Uge 39", and any label
+    # carrying æ/ø/å or a non-breaking space). A non-ASCII collapse-id is
+    # rejected by the push service, and the failure mode is the worst kind —
+    # the notification silently never arrives, on the one channel that tells
+    # staff when they are working.
+    #
+    # Transliterate the three Danish letters rather than dropping them, so
+    # "Uge 39" and a hypothetical "Uge 39 — ændret" cannot collapse onto the
+    # same tag and swallow one of the two pushes.
+    _base = (week_label or "").replace(" ", "-").lower()
+    for _src, _dst in (("æ", "ae"), ("ø", "oe"), ("å", "aa")):
+        _base = _base.replace(_src, _dst)
+    # `ch.isalnum()` alone is NOT enough: it is true for every Unicode letter,
+    # so "Café" keeps its é and the tag is still non-ASCII. Require isascii()
+    # explicitly.
+    safe_label = "".join(
+        ch for ch in _base if ch.isascii() and (ch.isalnum() or ch == "-")
+    )[:48] or "week"
     tag = f"bonbox-schedule-{user_id}-{safe_label}"
 
     payload = {
@@ -290,27 +309,66 @@ def _format_date_nice(date_str: str) -> str:
         return date_str
 
 
+# The shift email, in the two languages this product ships.
+#
+# WHY THIS EXISTS. build_shift_email_html had no lang argument and no Danish
+# variant, and on the FREE plan this email is the ONLY thing that fires when an
+# owner publishes a schedule. So the single automatic message Danish staff ever
+# received from BonBox was entirely in English — "Your schedule has been
+# updated", "CANCELLED", "View Schedule" — sent to kitchen and floor staff who
+# may not read English comfortably, about when they are expected at work.
+#
+# `lang` is passed in by the caller, matching the convention already used for
+# the schedule PDF (routers/staff.py: `lang: str = Query("en", pattern="^(en|da)$")`).
+# There is no User.language column to read, and guessing from currency would be
+# a different mechanism than the rest of the app uses.
+_EMAIL_COPY = {
+    "en": {
+        "new": "NEW", "cancelled": "CANCELLED", "changed": "CHANGED",
+        "cta": "View Schedule",
+        "subject_line": "Schedule update",
+        "greeting": "Hi {first},",
+        "lede": "Your schedule has been updated. Here's what changed:",
+        "col_day": "Day", "col_shift": "Shift", "col_status": "Status",
+        "footer_1": "This is an automated notification from BonBox.",
+        "footer_2": "Questions? Ask your manager directly.",
+    },
+    "da": {
+        "new": "NY", "cancelled": "AFLYST", "changed": "ÆNDRET",
+        "cta": "Se vagtplan",
+        "subject_line": "Ændring i vagtplanen",
+        "greeting": "Hej {first},",
+        "lede": "Din vagtplan er opdateret. Her er, hvad der er ændret:",
+        "col_day": "Dag", "col_shift": "Vagt", "col_status": "Status",
+        "footer_1": "Dette er en automatisk besked fra BonBox.",
+        "footer_2": "Spørgsmål? Tal med din leder.",
+    },
+}
+
+
 def build_shift_email_html(
     staff_name: str,
     changes: list[ShiftChange],
     portal_url: str | None,
     restaurant_name: str,
     week_label: str,
+    lang: str = "en",
 ) -> str:
     """Build a mobile-friendly HTML email for shift change notifications."""
+    C = _EMAIL_COPY.get((lang or "en").lower(), _EMAIL_COPY["en"])
 
     # Build change rows
     change_rows = ""
     for c in sorted(changes, key=lambda x: x.date):
         date_nice = _format_date_nice(c.date)
         if c.change_type == "added":
-            badge = '<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#16a34a20;color:#16a34a;font-size:11px;font-weight:600">NEW</span>'
+            badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#16a34a20;color:#16a34a;font-size:11px;font-weight:600">{C["new"]}</span>'
             detail = f"{c.new_start} - {c.new_end}"
         elif c.change_type == "removed":
-            badge = '<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#dc262620;color:#dc2626;font-size:11px;font-weight:600">CANCELLED</span>'
+            badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#dc262620;color:#dc2626;font-size:11px;font-weight:600">{C["cancelled"]}</span>'
             detail = f"<s style=\"color:#94a3b8\">{c.old_start} - {c.old_end}</s>"
         else:
-            badge = '<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#d9770620;color:#d97706;font-size:11px;font-weight:600">CHANGED</span>'
+            badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#d9770620;color:#d97706;font-size:11px;font-weight:600">{C["changed"]}</span>'
             detail = f"<s style=\"color:#94a3b8\">{c.old_start}-{c.old_end}</s> &rarr; <strong>{c.new_start}-{c.new_end}</strong>"
 
         change_rows += f"""
@@ -325,7 +383,7 @@ def build_shift_email_html(
     if portal_url:
         cta = f"""
         <div style="text-align:center;margin-top:24px">
-          <a href="{portal_url}" style="display:inline-block;padding:12px 32px;background:#22c55e;color:white;text-decoration:none;border-radius:10px;font-size:15px;font-weight:600">View Schedule</a>
+          <a href="{portal_url}" style="display:inline-block;padding:12px 32px;background:#22c55e;color:white;text-decoration:none;border-radius:10px;font-size:15px;font-weight:600">{C["cta"]}</a>
         </div>"""
 
     return f"""
@@ -340,22 +398,22 @@ def build_shift_email_html(
         <span style="color:white;font-size:20px;font-weight:bold">B</span>
       </div>
       <h1 style="margin:12px 0 4px;font-size:20px;color:#f1f5f9">{restaurant_name}</h1>
-      <p style="margin:0;font-size:13px;color:#64748b">Schedule update - {week_label}</p>
+      <p style="margin:0;font-size:13px;color:#64748b">{C["subject_line"]} - {week_label}</p>
     </div>
 
     <!-- Greeting -->
     <div style="margin-bottom:20px">
-      <p style="margin:0;font-size:15px;color:#cbd5e1">Hi {staff_name.split(' ')[0]},</p>
-      <p style="margin:6px 0 0;font-size:14px;color:#94a3b8">Your schedule has been updated. Here's what changed:</p>
+      <p style="margin:0;font-size:15px;color:#cbd5e1">{C['greeting'].format(first=staff_name.split(' ')[0])}</p>
+      <p style="margin:6px 0 0;font-size:14px;color:#94a3b8">{C['lede']}</p>
     </div>
 
     <!-- Changes table -->
     <div style="background:#1e293b;border-radius:12px;overflow:hidden;border:1px solid #334155">
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
         <tr style="background:#0f172a">
-          <td style="padding:8px 12px;font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Day</td>
-          <td style="padding:8px 12px;font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Shift</td>
-          <td style="padding:8px 12px;font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;text-align:right">Status</td>
+          <td style="padding:8px 12px;font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">{C["col_day"]}</td>
+          <td style="padding:8px 12px;font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">{C["col_shift"]}</td>
+          <td style="padding:8px 12px;font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;text-align:right">{C["col_status"]}</td>
         </tr>
         {change_rows}
       </table>
@@ -365,8 +423,8 @@ def build_shift_email_html(
 
     <!-- Footer -->
     <div style="text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #1e293b">
-      <p style="margin:0;font-size:12px;color:#475569">This is an automated notification from BonBox.</p>
-      <p style="margin:4px 0 0;font-size:11px;color:#334155">Questions? Ask your manager directly.</p>
+      <p style="margin:0;font-size:12px;color:#475569">{C["footer_1"]}</p>
+      <p style="margin:4px 0 0;font-size:11px;color:#334155">{C["footer_2"]}</p>
     </div>
   </div>
 </body>
@@ -381,6 +439,7 @@ def send_shift_notifications(
     user_id,
     changes_by_staff: dict[str, list[ShiftChange]],
     week_label: str,
+    lang: str = "en",
 ):
     """
     For each staff with changes, look up their email and send a notification.
@@ -489,6 +548,7 @@ def send_shift_notifications(
                     portal_url=portal_url,
                     restaurant_name=restaurant_name,
                     week_label=week_label,
+                    lang=lang,
                 )
                 # send_email is internally try/except'd — returns False on
                 # any failure. The per-staff outer try/except is belt-and-
@@ -555,6 +615,7 @@ def send_single_shift_notification(
     staff_id,
     change: ShiftChange,
     event_type: str = "shift_changed",
+    lang: str = "en",
 ):
     """
     Send a notification for a single shift change (edit or delete).
@@ -612,6 +673,7 @@ def send_single_shift_notification(
             portal_url=portal_url,
             restaurant_name=restaurant_name,
             week_label=week_label,
+            lang=lang,
         )
         success = send_email(to=member.email, subject=subject, html=html)
         channel = "email"

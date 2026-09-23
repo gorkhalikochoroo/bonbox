@@ -1478,6 +1478,7 @@ class ShareWithStaffRequest(BaseModel):
 def share_with_staff(
     body: ShareWithStaffRequest,
     request: Request,
+    lang: str = Query("en", pattern="^(en|da)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1564,7 +1565,11 @@ def share_with_staff(
     emailed_count = 0
     email_failed_count = 0
     skipped_no_email = 0
-    week_label = f"Week of {body.week_start.strftime('%d %b %Y')}"
+    week_label = (
+        f"Uge {body.week_start.isocalendar().week}"
+        if lang == "da"
+        else f"Week of {body.week_start.strftime('%d %b %Y')}"
+    )
 
     for member in members:
         try:
@@ -2787,6 +2792,11 @@ def copy_week(
 def publish_week(
     background_tasks: BackgroundTasks,
     week_start: date = Query(..., description="Monday of the week to publish"),
+    # Same convention as the schedule PDF endpoint: the client knows which
+    # language the owner is working in and says so. There is no User.language
+    # column to read. On Free this drives the ONLY automatic message staff
+    # receive, so an unset value must degrade to English, not crash.
+    lang: str = Query("en", pattern="^(en|da)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -2892,12 +2902,16 @@ def publish_week(
             )
 
         user_id = user.id
-        week_label = f"Week of {week_start.strftime('%d %b %Y')}"
+        week_label = (
+            f"Uge {week_start.isocalendar().week}"
+            if lang == "da"
+            else f"Week of {week_start.strftime('%d %b %Y')}"
+        )
 
         def _send_bg():
             bg_db = SessionLocal()
             try:
-                send_shift_notifications(bg_db, user_id, changes, week_label)
+                send_shift_notifications(bg_db, user_id, changes, week_label, lang=lang)
             finally:
                 bg_db.close()
 

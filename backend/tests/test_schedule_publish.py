@@ -89,9 +89,15 @@ def sent(monkeypatch, engine_and_session):
     """
     calls: list[dict] = []
 
-    def _fake(bg_db, user_id, changes, week_label):
+    # Mirrors the real signature INCLUDING lang. A stub that is narrower than
+    # the function it replaces does not fail loudly: publish_week hands this to
+    # BackgroundTasks, so a TypeError here is swallowed and the test sees an
+    # empty `calls` list — "no notification was sent" — which reads like a
+    # product bug rather than a stale double. Keep this in step with
+    # services/notification_service.send_shift_notifications.
+    def _fake(bg_db, user_id, changes, week_label, lang="en"):
         calls.append({"user_id": str(user_id), "changes": dict(changes),
-                      "week_label": week_label})
+                      "week_label": week_label, "lang": lang})
 
     monkeypatch.setattr(staff_router, "send_shift_notifications", _fake)
     _, SessionLocal = engine_and_session

@@ -15,6 +15,21 @@ import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
 
 
+// Server alert `type` → the i18n keys that render it. An explicit map, not a
+// template literal: the i18n guard scans for literal t("key") calls, and a
+// computed key would be invisible to it — a missing Danish string would then
+// ship silently as English, which is the exact defect this map exists to fix.
+const TAX_ALERT_KEYS = {
+  overdue: { title: "taxAlertOverdueTitle", detail: "taxAlertOverdueDetail", action: "taxAlertOverdueAction" },
+  urgent: { title: "taxAlertUrgentTitle", detail: "taxAlertUrgentDetail", action: "taxAlertUrgentAction" },
+  soon: { title: "taxAlertSoonTitle", detail: "taxAlertSoonDetail", action: "taxAlertSoonAction" },
+  approaching: { title: "taxAlertApproachingTitle", detail: "taxAlertApproachingDetail" },
+  ytd_summary: { title: "taxAlertYtdTitle", detail: "taxAlertYtdDetail" },
+  reconciliation_ok: { title: "taxAlertReconOkTitle", detail: "taxAlertReconOkDetail" },
+  gavekort_reconciliation: { title: "taxAlertGavekortTitle", detail: "taxAlertGavekortDetail" },
+  all_clear: { title: "taxAlertAllClearTitle", detail: "taxAlertAllClearDetail" },
+};
+
 export default function TaxAutopilotPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -228,11 +243,26 @@ export default function TaxAutopilotPage() {
               alert.severity === "critical" ? "AlertTriangle" :
               alert.severity === "warning" ? "AlertTriangle" :
               alert.severity === "positive" ? "CheckCircle2" : "FileText";
+            // The server composes these sentences, and it composes them in
+            // English — so a Danish owner read their SKAT page in English.
+            // It now also sends `type` and `params` (money already formatted
+            // by money_dk, the same formatter the MOMS PDF uses), so the copy
+            // is looked up here and the amounts still come from one place.
+            // alert.title/detail stay as the fallback: this frontend deploys
+            // separately, so an older server that sends no params must still
+            // render.
+            const k = TAX_ALERT_KEYS[alert.type] || null;
+            const P = alert.params || {};
+            const title = k ? t(k.title, alert.title, P) : alert.title;
+            const detail = k ? t(k.detail, alert.detail, P) : alert.detail;
+            const action = alert.action
+              ? (k?.action ? t(k.action, alert.action, P) : alert.action)
+              : null;
             return (
-              <SectionBanner key={i} severity={severity} icon={icon} title={alert.title}>
-                <p>{alert.detail}</p>
-                {alert.action && (
-                  <p className="text-xs mt-2 font-medium">{alert.action}</p>
+              <SectionBanner key={i} severity={severity} icon={icon} title={title}>
+                <p>{detail}</p>
+                {action && (
+                  <p className="text-xs mt-2 font-medium">{action}</p>
                 )}
               </SectionBanner>
             );
