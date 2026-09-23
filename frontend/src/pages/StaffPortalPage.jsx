@@ -4751,12 +4751,20 @@ function AbsenceSection({ token, onChanged }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [reason, setReason] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = async () => {
+    setLoadFailed(false);
     try {
       const res = await portalApi.get(`/portal/${token}/absence`);
       setRows(res.data?.absence || []);
-    } catch { setRows([]); }
+    } catch {
+      // Keep whatever was last loaded and say the refresh failed. Clearing to
+      // [] rendered "no absence registered" to a staffer who HAS booked
+      // ferie — their own record, reported as empty because a request
+      // dropped.
+      setLoadFailed(true);
+    }
   };
   useEffect(() => { load(); }, [token]);
 
@@ -4833,7 +4841,11 @@ function AbsenceSection({ token, onChanged }) {
         </div>
       </div>
 
-      {rows === null ? (
+      {loadFailed && rows === null ? (
+        <div className="text-xs text-gray-500">
+          {t("portalAbsenceLoadFailed", "Couldn't load your absence — pull to refresh or try again in a moment.")}
+        </div>
+      ) : rows === null ? (
         <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>
       ) : groups.length > 0 ? (
         <div className="space-y-2">

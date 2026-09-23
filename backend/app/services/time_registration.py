@@ -242,6 +242,21 @@ def venue_compliance_summary(db: Session, user_id, members: list[StaffMember],
             # previously answered "Yes" for exactly that venue, while the
             # per-employee rows underneath it showed "No time registered" —
             # the headline contradicting its own drill-down.
+            # `all([])` is True, so a venue with NO employees in the period
+            # reads "All compliant: Yes". That was flagged as a confident
+            # all-clear about a question nobody asked, and returning None for
+            # the empty case was tried — but it is NOT clearly better, and
+            # test_time_registration_provenance already pins True here with a
+            # stated reason: "Nothing to register is not the same as failing to
+            # register." Zero employees is genuinely zero violations, and the
+            # tile sits directly beside "Employees: 0", so the pair reads
+            # coherently rather than as a boast.
+            #
+            # Left as an OPEN QUESTION for the founder rather than flipped
+            # here: it changes what a compliance surface asserts, and the
+            # frontend already renders "—" for a null if that call is ever
+            # made. See the `measured && totals.all_compliant != null` branch
+            # in pages/TimeRegistrationPage.jsx.
             "all_compliant": all(r["status"] == "ok" for r in rows),
             "with_rest_violations": sum(1 for r in rows if r["rest_violation_count"] > 0),
             "over_weekly_cap": sum(1 for r in rows if r["over_weekly_cap"]),

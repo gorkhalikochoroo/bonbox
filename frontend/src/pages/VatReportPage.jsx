@@ -2,13 +2,14 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { useLanguage } from "../hooks/useLanguage";
+import { blobErrText } from "../utils/blobErrText";
 import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 
 const currentDate = new Date();
 
 export default function VatReportPage() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { user } = useAuth();
   const vat = getVatTerms(user?.currency);
   const [mode, setMode] = useState("monthly"); // "monthly" or "quarterly"
@@ -60,9 +61,19 @@ export default function VatReportPage() {
         setError(t("vatDownloadFailed"));
         setTimeout(() => setError(null), 3000);
       }
-    } catch {
-      setError(t("vatDownloadFailed"));
-      setTimeout(() => setError(null), 3000);
+    } catch (e) {
+      // The body of a failed BLOB download is itself a Blob, so
+      // err.response.data.detail is undefined and errText() returns its
+      // generic fallback. That is how a 402 carrying a precise Danish
+      // sentence — which cap was hit, and what unlocks it — rendered as
+      // "Could not download the report."
+      //
+      // No auto-dismiss on this path: an upgrade message the owner has three
+      // seconds to read is barely better than none. A plain failure still
+      // clears itself.
+      const msg = await blobErrText(e, t("vatDownloadFailed"), lang);
+      setError(msg);
+      if (e?.response?.status !== 402) setTimeout(() => setError(null), 3000);
     } finally {
       setDownloading(false);
     }

@@ -16,7 +16,7 @@ import { useLanguage } from "../hooks/useLanguage";
 // register: it answers "how long was this person here", and nobody, least of
 // all an inspector, thinks in 6,8 t.
 import { formatHours, formatHoursMinutes } from "../utils/hours";
-import { PageHeader, Button, StatCard, Card, Empty, Icon } from "../components/ui";
+import { PageHeader, Button, StatCard, Card, Empty, Icon, LoadFailed } from "../components/ui";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import { isNativeApp } from "../utils/platform";
 import { Clock } from "lucide-react";
@@ -96,6 +96,10 @@ export default function TimeRegistrationPage() {
   const [cursor, setCursor] = useState(() => new Date());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // The third outcome. `loading` and `data` alone could not tell "the request
+  // failed" from "the answer is nothing", and this page renders a compliance
+  // verdict — the one thing that must never be guessed.
+  const [failed, setFailed] = useState(false);
   const [locked, setLocked] = useState(false);
   const [expanded, setExpanded] = useState(null);   // staff_id whose register is open
   const [detail, setDetail] = useState({});          // staff_id -> register rows
@@ -148,13 +152,24 @@ export default function TimeRegistrationPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFailed(false);
     try {
       const res = await api.get("/staff/time-registration", { params: { from, to } });
       setData(res.data);
       setLocked(false);
     } catch (e) {
       if (e?.response?.status === 402) setLocked(true);
-      else setData({ staff: [], totals: {} });
+      else {
+        // NOT `setData({ staff: [], totals: {} })`. That made a dropped
+        // request indistinguishable from a measured result: `totals` came
+        // back empty, `totals.all_compliant` was undefined, and the tile
+        // above rendered "All compliant: No" in critical red — a confident
+        // verdict about Arbejdstidsloven compliance derived from a request
+        // that never arrived. Same for the rest-breach and 48h counts, which
+        // fell to a fabricated 0.
+        setData(null);
+        setFailed(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -254,6 +269,10 @@ export default function TimeRegistrationPage() {
 
   const staff = data?.staff || [];
   const totals = data?.totals || {};
+  // "We asked, and this is the answer." False while the first request is still
+  // in flight and false if it failed — the compliance tiles below key off this
+  // rather than off the shape of an empty object.
+  const measured = !loading && !failed && data != null;
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto page-enter space-y-4">
@@ -356,21 +375,44 @@ export default function TimeRegistrationPage() {
             breach takes a colour, so on a compliant venue this row reads as
             one calm block and the one day something is wrong, it is the only
             thing on the page wearing a colour. */}
-        <StatCard label={t("tregStaff", "Employees")} value={String(totals.staff_count ?? staff.length)} />
+        {/* NOT MEASURED YET IS NOT A VERDICT. This grid sits ABOVE the
+            `loading ?` ternary below, so it rendered on first paint — before
+            any request had been made — and `totals` was {} then too. Between
+            them, the two bugs meant an owner opening this page saw "All
+            compliant: No" in critical red, and a failed request left it there.
+            An Arbejdstidsloven verdict the product has not computed reads as
+            an em-dash, in gray, until it has. */}
+        <StatCard
+          label={t("tregStaff", "Employees")}
+          value={measured ? String(totals.staff_count ?? staff.length) : "—"}
+        />
         <StatCard
           label={t("tregAllOk", "All compliant")}
-          value={totals.all_compliant ? t("yes", "Yes") : t("no", "No")}
-          accent={totals.all_compliant ? "success" : "critical"}
+          value={
+            // null from the server means "no employees in this period, so
+            // there is nothing to be compliant ABOUT" — a third answer, not a
+            // No. Python's all([]) used to make that an emerald Yes.
+            measured && totals.all_compliant != null
+              ? (totals.all_compliant ? t("yes", "Yes") : t("no", "No"))
+              : "—"
+          }
+          accent={
+            measured && totals.all_compliant === false
+              ? "critical"
+              : measured && totals.all_compliant === true
+                ? "success"
+                : "neutral"
+          }
         />
         <StatCard
           label={t("tregRestIssues", "Rest issues")}
-          value={String(totals.with_rest_violations ?? 0)}
-          accent={(totals.with_rest_violations ?? 0) > 0 ? "warn" : "neutral"}
+          value={measured ? String(totals.with_rest_violations ?? 0) : "—"}
+          accent={measured && (totals.with_rest_violations ?? 0) > 0 ? "warn" : "neutral"}
         />
         <StatCard
           label={t("tregOverCap", "Over 48h/wk")}
-          value={String(totals.over_weekly_cap ?? 0)}
-          accent={(totals.over_weekly_cap ?? 0) > 0 ? "critical" : "neutral"}
+          value={measured ? String(totals.over_weekly_cap ?? 0) : "—"}
+          accent={measured && (totals.over_weekly_cap ?? 0) > 0 ? "critical" : "neutral"}
         />
       </div>
 
@@ -385,6 +427,12 @@ export default function TimeRegistrationPage() {
       {/* Per-employee */}
       {loading ? (
         <Card><p className="text-sm text-gray-400">{t("loading", "Loading…")}</p></Card>
+      ) : failed ? (
+        // The register never arrived. Previously this fell through to the
+        // empty state — "No registered time yet" — which tells an owner with a
+        // full roster that nobody clocked in, on the page an Arbejdstilsynet
+        // request is answered from.
+        <LoadFailed onRetry={load} />
       ) : !staff.length ? (
         <Empty
           icon={Clock}

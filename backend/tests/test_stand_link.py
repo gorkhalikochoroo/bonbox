@@ -363,6 +363,11 @@ def test_credential_reaches_no_owner_config_route(client, db):
         # config, money or payroll; the plan cap on active entries and the
         # server-side notify_count < 2 SMS cap both still apply, because these
         # wrappers call the very same owner handlers.
+        # The date picker's month grid. Without this every open 404'd and the
+        # popover painted a blank month with "0 gæster · 0 på vagt" under it —
+        # indistinguishable from a genuinely empty month, on the screen a host
+        # uses to decide whether next Saturday needs another person.
+        "/stand/{token}/month-load",
         "/stand/{token}/waitlist",
         "/stand/{token}/waitlist/matches",
         "/stand/{token}/waitlist/{entry_id}",

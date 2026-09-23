@@ -344,6 +344,29 @@ def stand_changes(
     return R.list_changes(since=since, db=db, user=user)
 
 
+@router.get("/{token}/month-load")
+def stand_month_load(
+    token: str,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    db: Session = Depends(get_db),
+):
+    """Per-day covers for a month — what the stand's date picker reads.
+
+    The host stand has its own date stepper, and a pop-out month grid so a
+    host jumping to next Saturday does not tap the arrow seven times. That
+    grid calls /reservations/month-load, which standAuth rewrites onto this
+    prefix — and this route did not exist, so it 404'd on EVERY open. The
+    popover then painted a blank 31-day grid with "0 gæster · 0 på vagt"
+    underneath, which is exactly what a genuinely empty month looks like.
+
+    A host checking next Saturday saw an empty Saturday, did not call anyone
+    in, and the venue was short at 19:00. Read-only, and the owner handler's
+    own enforce_feature(user, "reservations") comes along with it.
+    """
+    _, user = _bind(db, token)
+    return R.reservation_month_load(month=month, db=db, user=user)
+
+
 @router.get("/{token}/waitlist")
 def stand_waitlist(
     token: str,

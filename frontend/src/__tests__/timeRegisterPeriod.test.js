@@ -32,6 +32,17 @@ const PAGE = readFileSync(
   "utf8",
 );
 
+/** PAGE with comments removed.
+ *
+ * A guard that forbids a code shape will match the comment EXPLAINING why that
+ * shape was removed, and then it can never go green. Any assertion of the form
+ * "this must not appear" has to run against this, not against PAGE. */
+const CODE = PAGE
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .split("\n")
+  .filter((l) => !/^\s*(\/\/|\*)/.test(l))
+  .join("\n");
+
 describe("a duration reads the way a person says it", () => {
   it("Danish gets Danish units and no decimal point in sight", () => {
     expect(formatHoursMinutes(6.8, { lang: "da" })).toBe("6 t 48 min");
@@ -105,7 +116,15 @@ describe("colour marks an exception, never a value", () => {
   // on the screen. A tick on every row is wallpaper.
 
   it("a headcount is a fact and never takes a colour", () => {
-    expect(PAGE).toMatch(/label=\{t\("tregStaff"[^}]*\}\s*value=\{String\(totals\.staff_count[^)]*\)\}\s*\/>/);
+    // The tile now renders "—" until the figure has actually been measured,
+    // so the assertion is about the ABSENCE of an accent rather than the
+    // exact value expression.
+    const tile = PAGE.slice(
+      PAGE.indexOf('label={t("tregStaff"'),
+      PAGE.indexOf('label={t("tregAllOk"'),
+    );
+    expect(tile).toMatch(/totals\.staff_count/);
+    expect(tile).not.toMatch(/accent=/);
   });
 
   it("zero problems stays gray — it is the normal state, not an achievement", () => {
@@ -114,7 +133,36 @@ describe("colour marks an exception, never a value", () => {
   });
 
   it("a real breach is the one thing wearing a colour", () => {
-    expect(PAGE).toMatch(/accent=\{totals\.all_compliant \? "success" : "critical"\}/);
+    // Critical is reserved for a MEASURED non-compliance. The gate used to be
+    // `totals.all_compliant ? "success" : "critical"`, which painted the tile
+    // red whenever `totals` was empty — on first paint, before any request,
+    // and again if the request failed. Both are "we have not checked", and
+    // neither is a breach.
+    expect(PAGE).toMatch(/measured && totals\.all_compliant === false\s*\n?\s*\? "critical"/);
+    expect(CODE).not.toMatch(/accent=\{totals\.all_compliant \? "success" : "critical"\}/);
+  });
+
+  it("an unmeasured compliance verdict is an em-dash, not a No", () => {
+    // The whole point: a page that answers an Arbejdstidsloven question must
+    // not answer it before it has asked.
+    expect(PAGE).toMatch(/const measured = !loading && !failed && data != null/);
+    const tile = PAGE.slice(
+      PAGE.indexOf('label={t("tregAllOk"'),
+      PAGE.indexOf('label={t("tregRestIssues"'),
+    );
+    // Three answers, not two: Yes, No, and "—" for not-measured — which now
+    // covers BOTH a failed fetch and a period with no employees at all
+    // (all([]) is True in Python, so that used to render an emerald Yes).
+    expect(tile).toMatch(/totals\.all_compliant != null/);
+    expect(tile).toMatch(/"—"/);
+  });
+
+  it("a failed register does not render as an empty one", () => {
+    // Falling through to the empty state told an owner with a full roster
+    // that nobody had clocked in.
+    expect(PAGE).toMatch(/setData\(null\);[\s\S]{0,40}setFailed\(true\);/);
+    expect(CODE).not.toMatch(/setData\(\{ staff: \[\], totals: \{\} \}\)/);
+    expect(PAGE).toMatch(/failed \? \(/);
   });
 
   it("only the states needing an ANSWER get a left rail", () => {

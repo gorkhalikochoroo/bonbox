@@ -175,6 +175,10 @@ export default function ConnectionsPage() {
   const [grants, setGrants] = useState([]);
   const [emailPrefs, setEmailPrefs] = useState(null);
   const [bankConnections, setBankConnections] = useState([]);
+  // A refresh that failed is not "no bank connected". Kept separate from the
+  // list so the page can keep showing what it last knew while saying the
+  // latest check did not come back.
+  const [bankRefreshFailed, setBankRefreshFailed] = useState(false);
   // Task #71 — MobilePay Erhverv connection (single row per user in v1).
   // null = not loaded yet; {} or row object = loaded.
   const [mpConnection, setMpConnection] = useState(null);
@@ -219,9 +223,15 @@ export default function ConnectionsPage() {
     try {
       const r = await api.get("/bank-connections");
       setBankConnections(r.data || []);
+      setBankRefreshFailed(false);
     } catch {
-      // Endpoint is auth-required; non-auth shouldn't hit this page anyway.
-      setBankConnections([]);
+      // Was `setBankConnections([])`, justified as "endpoint is auth-required;
+      // non-auth shouldn't hit this page anyway" — which explains one cause of
+      // a failure and then treats every other cause the same way. A timeout, a
+      // 500 or a dropped connection all rendered as "no bank connected", on
+      // the page an owner opens to check exactly that. Keep what was last
+      // known and record that the refresh failed.
+      setBankRefreshFailed(true);
     }
   }, []);
 
@@ -787,6 +797,12 @@ export default function ConnectionsPage() {
       {/* Aiia bank connections panel (Task #67) — shown ABOVE the grid
           when the owner has 1+ active connections, so the most-relevant
           actionable state is the first thing they see. */}
+      {bankRefreshFailed && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+          {t("connBankRefreshFailed", "Couldn't refresh your bank connections just now — this may be out of date.")}
+        </p>
+      )}
+
       {activeBankConnections.length > 0 && (
         <div className="mb-7 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-xl p-5">
           <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
