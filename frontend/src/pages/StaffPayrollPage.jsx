@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
+import { stepPayPeriod } from "../utils/payPeriod";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
@@ -227,14 +228,27 @@ export default function StaffPayrollPage() {
   /* ─── Period navigation ─── */
   const navigatePeriod = (direction) => {
     if (!period) return;
-    const len = Math.round(
-      (new Date(period.period_end) - new Date(period.period_start)) / 86400000
-    ) + 1;
-    const offset = direction === "next" ? len : -len;
-    setPeriod({
-      period_start: addDays(period.period_start, offset),
-      period_end: addDays(period.period_end, offset),
-    });
+    // FRAME-AWARE, via the shared definition the Timer tab uses.
+    //
+    // This stepped by a raw day count: len = (end - start) + 1, then shift
+    // both ends by that. On a calendar-month venue standing on 1.-31. marts
+    // that walks backwards 31 days to 28. jan - 27. feb — four days of
+    // January pulled into "February" and 28. februar dropped — while the
+    // Timer tab's "Previous", one tab away on the same screen, correctly
+    // snapped to 1.-28. feb.
+    //
+    // This window is what /staff/payroll/estimate, the revisor CSV and the
+    // LØNSEDDEL PDF are all built from, and the PDF filename prints the dates
+    // as though somebody chose them. The frame selector directly below still
+    // said "Calendar month (1st -> end)". Nothing on screen contradicted it.
+    const stepped = stepPayPeriod(
+      periodCfg.period_type,
+      periodCfg.custom_start_day,
+      period.period_start,
+      period.period_end,
+      direction === "next" ? "next" : "prev",
+    );
+    setPeriod({ period_start: stepped.from, period_end: stepped.to });
   };
 
   /* ─── Selection helpers ─── */

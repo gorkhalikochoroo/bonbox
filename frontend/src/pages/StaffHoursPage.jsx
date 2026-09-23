@@ -135,11 +135,45 @@ function calcHoursFromTimes(start, end, breakMin) {
 // Entry-method chip — neutral gray + a Lucide icon encoding meaning (design
 // lock: no decorative blue/purple, no emoji). Clock = stemplet (measured),
 // FileText = tastet (typed), CalendarCheck = fra plan.
+// WEIGHT, not status colour, and the distinction is deliberate.
+//
+// These three chips answer one question: how much does this number deserve to
+// be believed? Stempelur MEASURED it. Tastet means a person asserted it. Fra
+// plan means nobody did either — it was assumed from a roster.
+//
+// The obvious move is three colours. The colour law a few hundred lines down
+// forbids it, and is right to: amber means "needs an answer from you", and on
+// this venue 96% of hours are not clocked, so amber-for-unmeasured would paint
+// almost every row — "once everything is coloured nothing is", as the rail
+// comment in this file puts it. Grey is already the correct colour for a
+// measured fact.
+//
+// So the gradient is in WEIGHT. Stempelur is the darkest and the only one that
+// carries a border, because it is the row an owner can defend to
+// Arbejdstilsynet. Fra plan is the faintest, because it is the weakest claim on
+// the page. Scannable at a glance, and it says something true rather than
+// decorating.
 const METHOD_BADGES = {
-  quick: { icon: "FileText", labelKey: "hovMethodQuick" },
-  clock: { icon: "Clock", labelKey: "hovMethodClock" },
-  schedule: { icon: "CalendarCheck", labelKey: "hovMethodSchedule" },
+  quick: {
+    icon: "FileText",
+    labelKey: "hovMethodQuick",
+    // Asserted by a person. Mid weight.
+    chip: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200",
+  },
+  clock: {
+    icon: "Clock",
+    labelKey: "hovMethodClock",
+    // Measured. The strongest claim, so the strongest chip.
+    chip: "bg-gray-900 text-white ring-1 ring-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:ring-gray-100",
+  },
+  schedule: {
+    icon: "CalendarCheck",
+    labelKey: "hovMethodSchedule",
+    // Assumed from a roster. Faintest — nobody has confirmed this happened.
+    chip: "bg-transparent text-gray-500 ring-1 ring-gray-200 dark:text-gray-400 dark:ring-gray-700",
+  },
 };
+// Fallback for an unknown method — never stronger than a measured one.
 const METHOD_CHIP =
   "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 
@@ -2572,7 +2606,9 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-800 dark:text-white text-sm truncate">{staffName}</span>
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${METHOD_CHIP}`}>
+                    {/* Per-method weight: measured > asserted > assumed. See
+                        METHOD_BADGES for why this is weight and not colour. */}
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge.chip || METHOD_CHIP}`}>
                       <Icon name={badge.icon} size={10} />
                       {badgeLabel}
                     </span>
