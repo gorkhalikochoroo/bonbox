@@ -1492,6 +1492,31 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
     (r.hourly_rate == null ||
       ((r.earned ?? 0) === 0 && (r.hourly_rate || 0) > 0));
   const missingRateCount = (summary || []).filter(rateMissing).length;
+  // THE RATE THAT RECONCILES WITH THE MONEY BESIDE IT.
+  //
+  // This file already states the rule, at the rateDecimals() comment: the rate
+  // is "the one figure on this page the owner MULTIPLIES by the hours beside
+  // it", and printing one that does not reproduce `earned` "hands the owner a
+  // payroll row they cannot reproduce". That was written about øre rounding.
+  // The same defect arrives much larger through `earned` being STORED:
+  //
+  //   16 t · 190 kr./t · 2.400 kr.        16 × 190 = 3.040, not 2.400
+  //
+  // Both numbers are individually true — 190 is today's rate, and the shifts
+  // were really costed at 150 before the raise — but the row does not add up,
+  // and an owner checking the arithmetic concludes the payroll is broken.
+  //
+  // So show what these hours ACTUALLY cost: earned ÷ hours. It reconciles by
+  // construction, and it is more accurate than base_rate even without a raise,
+  // because an evening or weekend premium already makes the two differ.
+  // Falls back to the stated rate when there is nothing to divide.
+  const effectiveRate = (r) => {
+    const h = Number(r?.actual_hours) || 0;
+    const e = Number(r?.earned) || 0;
+    if (h > 0 && e > 0) return e / h;
+    return r?.hourly_rate ?? null;
+  };
+
   // The totals used to print "12500 DKK" — no thousands separator and the raw
   // code — under an Overview tile that said "12.500 kr" for the same period.
   // Rendered through <Amount>, the same primitive as the rows it sums: a
@@ -1725,9 +1750,12 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       off utils/hours.js, the same place the hour columns get
                       theirs, so a Danish owner reads "150 kr./t". */}
                   <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
-                    {row.hourly_rate != null
-                      ? `${formatOwnerMoney(row.hourly_rate, currency, { decimals: rateDecimals(row.hourly_rate) })}/${hoursUnit(lang)}`
-                      : "\u2014"}
+                    {(() => {
+                      const rate = effectiveRate(row);
+                      return rate != null
+                        ? `${formatOwnerMoney(rate, currency, { decimals: rateDecimals(rate) })}/${hoursUnit(lang)}`
+                        : "\u2014";
+                    })()}
                   </td>
                   {/* <Amount> renders a missing figure as "—" on its own, which
                       is what the redacted (member-seat) payload sends.
