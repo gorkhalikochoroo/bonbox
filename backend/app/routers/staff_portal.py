@@ -122,6 +122,24 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # See the long note at the write site in _get_staff_from_token.
 _TOUCH_MIN_INTERVAL_S = 120
 
+# How long a /s/<token> URL stays valid without being used.
+#
+# The token had NO expiry — only the short join code did — so it was a
+# permanent credential sitting in a phone's browser history, a WhatsApp
+# message, a screenshot on the staff-room tablet, and any browser profile that
+# ever synced it. It carries schedule, the colleague roster, hours and chat.
+# The only way to retire one was an owner manually flipping `active`, which
+# happens when somebody is fired and at no other time.
+#
+# ROLLING, not absolute, and the distinction is the whole design: the window is
+# pushed forward every time the link is used, so a staffer who opens their
+# portal each week never notices it exists. Only an ABANDONED link ages out —
+# which is exactly the one that leaks.
+_TOKEN_TTL_DAYS = 90
+# Extend at most once a day. Same reasoning as the _last_accessed throttle
+# below: this runs on every authenticated portal request.
+_TOKEN_EXTEND_MIN_INTERVAL_S = 86400
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Schemas (kept here since they're portal-specific and small)
@@ -293,6 +311,40 @@ def _get_staff_from_token(token: str, db: Session):
             proof = req.headers.get("x-bonbox-pin") if req is not None else None
             if not _pin_proof_valid(link, proof):
                 raise HTTPException(status_code=401, detail="PIN required")
+
+    # ── Token lifetime ────────────────────────────────────────────────
+    # NULL is treated as VALID, deliberately. Every link minted before this
+    # column existed has no expiry, and refusing those on deploy would lock
+    # out every staffer at once — the opposite of a security improvement. They
+    # are bounded from their first use instead.
+    _now_tok = utc_now()
+    _tok_exp = getattr(link, "token_expires_at", None)
+    if _tok_exp is not None:
+        try:
+            if _now_tok >= _tok_exp:
+                # Same 404 as every other failure on this router: a distinct
+                # "expired" response would confirm the token was once real.
+                raise HTTPException(status_code=404, detail="Invalid link")
+        except TypeError:
+            # naive/aware mismatch from a future column change — treat as
+            # valid rather than lock a staffer out over a type error.
+            pass
+
+    # Push the window forward, at most daily.
+    try:
+        _needs_extend = (
+            _tok_exp is None
+            or (_tok_exp - _now_tok).total_seconds()
+            < (_TOKEN_TTL_DAYS * 86400 - _TOKEN_EXTEND_MIN_INTERVAL_S)
+        )
+    except TypeError:
+        _needs_extend = False
+    if _needs_extend:
+        link.token_expires_at = _now_tok + timedelta(days=_TOKEN_TTL_DAYS)
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001 — never fail a request over telemetry
+            db.rollback()
 
     # Update last accessed — THROTTLED.
     #

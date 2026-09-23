@@ -2162,6 +2162,10 @@ _migrations = [
     # on use. Previously permanent + infinitely reusable.
     "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS code_expires_at TIMESTAMP",
     "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS code_used_at TIMESTAMP",
+    # Migration 078 (2026-09-23): the /s/<token> URL had no expiry — only the
+    # short join code did. NULL = not yet bounded and still valid, so no
+    # existing staffer is locked out; a window is set on first use.
+    "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP",
     """CREATE TABLE IF NOT EXISTS staff_chat_threads (
         id UUID PRIMARY KEY,
         user_id UUID NOT NULL REFERENCES users(id),
@@ -2998,6 +3002,8 @@ def _run_migrations():
                 pass
             ok += _add("staff_links", "code_expires_at", "TIMESTAMP")
             ok += _add("staff_links", "code_used_at", "TIMESTAMP")
+            # Mirror of Migration 078.
+            ok += _add("staff_links", "token_expires_at", "TIMESTAMP")
             # Mirror of Migration 073. The PG branch above and this list are two
             # separate sources of truth, and create_all() papers over the gap on
             # a FRESH sqlite db — so a missing mirror cannot fail a test and only

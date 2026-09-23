@@ -366,6 +366,15 @@ class StaffLink(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # When this TOKEN stops working. Distinct from code_expires_at, which bounds
+    # only the short join code — the long /s/<token> URL had no expiry at all
+    # and was therefore a permanent credential living in a phone's history, a
+    # WhatsApp message and any browser profile that ever synced it.
+    #
+    # NULL means "not yet bounded" and is treated as valid: every existing link
+    # keeps working, and picks up a window the first time it is used. So this
+    # never locks a staffer out on deploy; it only retires links nobody opens.
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class NotificationLog(Base):
