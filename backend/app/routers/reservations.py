@@ -1142,6 +1142,24 @@ _FIXTURE_DEFAULT_SPAN = {
     "wall": (30.0, 2.5),
 }
 
+# Where a new fixture LANDS, percent of canvas (centre point).
+#
+# Dropping everything at 50/50 was the first version, and testing it on a real
+# room showed why that is wrong: a bar and a doorway both appeared stacked on
+# top of the tables, and the owner's first act had to be dragging them off.
+# These things have obvious homes in a real room — a bar runs along a wall, a
+# door is in one, a window is high on one. Landing them there means the common
+# case is already right and the owner only drags when their room differs.
+#
+# A dividing wall has no obvious home, so it stays in the middle where it is
+# visible and clearly needs placing.
+_FIXTURE_DEFAULT_POS = {
+    "bar_counter": (94.0, 30.0),   # along the right wall
+    "entrance": (12.0, 96.0),      # bottom-left, where a door usually is
+    "window": (28.0, 2.0),         # high on the top wall
+    "wall": (50.0, 50.0),          # no natural home — put it where it's seen
+}
+
 
 @router.post("/fixtures", status_code=201)
 def create_fixture(payload: FixtureCreate, db: Session = Depends(get_db),
@@ -1160,14 +1178,16 @@ def create_fixture(payload: FixtureCreate, db: Session = Depends(get_db),
             detail=f"Max {_MAX_FIXTURES_PER_VENUE} fixtures per venue",
         )
     dw, dh = _FIXTURE_DEFAULT_SPAN.get(kind, (20.0, 8.0))
+    dx, dy = _FIXTURE_DEFAULT_POS.get(kind, (50.0, 50.0))
     f = FloorFixture(
         user_id=user.id,
         kind=kind,
         label=(payload.label or None),
-        # A new fixture lands in the middle of the room, where the owner can
-        # see it and drag it — never at 0,0 under the wall.
-        pos_x=_clamp_pct(payload.pos_x) if payload.pos_x is not None else 50.0,
-        pos_y=_clamp_pct(payload.pos_y) if payload.pos_y is not None else 50.0,
+        # Lands where this kind of thing actually lives in a room (see
+        # _FIXTURE_DEFAULT_POS) unless the caller says otherwise — never at
+        # 0,0 under the wall, and never stacked on the tables.
+        pos_x=_clamp_pct(payload.pos_x) if payload.pos_x is not None else dx,
+        pos_y=_clamp_pct(payload.pos_y) if payload.pos_y is not None else dy,
         w_pct=_clamp_span(payload.w_pct, default=dw),
         h_pct=_clamp_span(payload.h_pct, default=dh),
         rotation_deg=_clamp_deg(payload.rotation_deg),

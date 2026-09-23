@@ -210,9 +210,14 @@ def test_another_venue_cannot_delete_or_move_my_fixture(client, db):
     b, _ = _restaurant(db, tables=1)
 
     _override_user(a)
-    fid = client.post(
+    created = client.post(
         "/api/reservations/fixtures", json={"kind": "bar_counter"}
-    ).json()["fixture"]["id"]
+    ).json()["fixture"]
+    fid = created["id"]
+    # Capture where it ACTUALLY landed rather than asserting a literal later:
+    # this test is about tenant isolation, and pinning the default placement
+    # here made it fail the day that default legitimately changed.
+    where = (created["pos_x"], created["pos_y"])
 
     _override_user(b)
     # A guessed id from another venue is indistinguishable from a missing one.
@@ -228,7 +233,7 @@ def test_another_venue_cannot_delete_or_move_my_fixture(client, db):
 
     _override_user(a)
     mine = client.get("/api/reservations/resources").json()["fixtures"][0]
-    assert (mine["pos_x"], mine["pos_y"]) == (50.0, 50.0)
+    assert (mine["pos_x"], mine["pos_y"]) == where, "another venue moved my bar"
 
 
 # ─── Clamping, defaults, normalisation ───────────────────────────────
@@ -272,6 +277,40 @@ def test_each_kind_gets_a_sensible_default_footprint(client, db):
     assert got["bar_counter"][1] > got["bar_counter"][0], "a bar counter runs along a wall"
     assert got["window"][0] > got["window"][1], "a window is a wide, thin run"
     assert len({v for v in got.values()}) > 1, "kinds must not all share one footprint"
+
+
+def test_a_new_fixture_lands_where_that_thing_actually_lives(client, db):
+    """Found by using it, not by a unit test: the first version dropped every
+    fixture at 50/50, so a bar and a doorway both appeared stacked on top of
+    the tables and the owner's first act was dragging them off. A bar belongs
+    against a wall and a door in one — land them there so the common case is
+    already right."""
+    u, _ = _restaurant(db, tables=1)
+    _override_user(u)
+    pos = {}
+    for kind in FIXTURE_KINDS:
+        f = client.post("/api/reservations/fixtures", json={"kind": kind}).json()["fixture"]
+        pos[kind] = (f["pos_x"], f["pos_y"])
+
+    assert pos["bar_counter"][0] > 80, "a bar runs along a wall, not through the middle"
+    assert pos["entrance"][1] > 80, "a door is at the edge of the room"
+    assert pos["window"][1] < 20, "a window is high on a wall"
+    # A dividing wall has no natural home, so it stays where it is visible.
+    assert pos["wall"] == (50.0, 50.0)
+    # Nothing may land on the same spot as something else by default.
+    assert len(set(pos.values())) == len(FIXTURE_KINDS)
+
+
+def test_an_explicit_position_still_wins(client, db):
+    """The defaults are a convenience, not a policy — a client that knows
+    where the owner dropped it must be able to say so."""
+    u, _ = _restaurant(db, tables=1)
+    _override_user(u)
+    f = client.post(
+        "/api/reservations/fixtures",
+        json={"kind": "bar_counter", "pos_x": 20, "pos_y": 70},
+    ).json()["fixture"]
+    assert (f["pos_x"], f["pos_y"]) == (20.0, 70.0)
 
 
 def test_soft_delete_hides_it_from_the_room(client, db):
