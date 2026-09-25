@@ -88,6 +88,9 @@ import StatCard from "../components/ui/StatCard";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
 import FloorPlan from "../components/FloorPlan";
+// deriveFloorState + fmtTime live in utils/floorState so they can be tested;
+// one definition each, imported here.
+import { deriveFloorState, fmtTime } from "../utils/floorState";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
 import { QRCodeSVG } from "qrcode.react";
@@ -149,19 +152,6 @@ function fmtDkDate(isoStr) {
   if (!isoStr) return "";
   const [y, m, d] = isoStr.split("-");
   return `${d}/${m}/${y}`;
-}
-
-// HH:MM from an ISO datetime (the book sorts/labels by time-of-day).
-function fmtTime(iso) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleTimeString("da-DK", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
 }
 
 // Step a YYYY-MM-DD day by ±n calendar days (local, DST-safe).
@@ -756,65 +746,9 @@ function ComingSoonView({ icon, title, body }) {
 }
 
 // ─── Plan (visual floor) ──────────────────────────────────────────────
-// Map the day's holding bookings onto each table and classify it. Status-
-// driven (seated > upcoming > free) so it's correct on any day; the "in N
-// min" eta is only computed when it's meaningful (a future start). Tables
-// only — providers carry their own availability model.
-function deriveFloorState(reservations, resources, nowMs) {
-  const holding = reservations.filter((r) =>
-    ["requested", "confirmed", "seated"].includes(r.status),
-  );
-  return resources
-    .filter((r) => r.kind !== "provider")
-    .map((res) => {
-      const id = String(res.id);
-      if (res.is_active === false) {
-        return { res, status: "inactive", booking: null, combined: false };
-      }
-      const mine = holding.filter((r) => {
-        if (String(r.resource_id) === id) return true;
-        return (r.combined_resource_ids || []).map(String).includes(id);
-      });
-      if (mine.length === 0) {
-        return { res, status: "free", booking: null, combined: false };
-      }
-      const seated = mine.find((r) => r.status === "seated");
-      const current =
-        seated ||
-        mine.slice().sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1))[0];
-      const combined =
-        Array.isArray(current.combined_resource_ids) &&
-        current.combined_resource_ids.length > 1;
-      let eta = null;
-      if (!seated && current.starts_at) {
-        const ms = new Date(current.starts_at).getTime() - nowMs;
-        if (ms > 0 && ms < 1000 * 60 * 120) eta = Math.round(ms / 60000);
-      }
-      return {
-        res,
-        status: seated ? "seated" : "upcoming",
-        combined,
-        booking: {
-          id: current.id,
-          name: current.guest_name,
-          time: fmtTime(current.starts_at),
-          eta,
-          // When an OCCUPIED table frees — the number a host seating walk-ins
-          // actually decides on. Only for seated tables (an upcoming table
-          // isn't holding a seat yet); the floor tile + the "next free" readout
-          // both read these. freesInMin goes negative once it runs over (the
-          // visual status flips to "overdue" and shows "+Nm over" instead).
-          freesAt: seated && current.ends_at ? fmtTime(current.ends_at) : null,
-          freesInMin:
-            seated && current.ends_at
-              ? Math.round((new Date(current.ends_at).getTime() - nowMs) / 60000)
-              : null,
-          reservation: current,
-        },
-      };
-    });
-}
-
+// Per-table live state (seated > upcoming > free) comes from
+// utils/floorState.deriveFloorState — including the hold window that keeps a
+// table booked for tonight from reading "occupied" at lunch.
 // FloorView — the Floor lens of the book. A thin adapter: it derives the
 // per-table live state (deriveFloorState) and the "your next booking" accent
 // id, then hands them to the premium 2D FloorPlan (the spatial room with
