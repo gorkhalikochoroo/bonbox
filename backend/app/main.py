@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -2761,6 +2762,93 @@ def _verify_schema_no_drift(conn, *, strict: bool) -> None:
         )
 
 
+def _pg_catalog_snapshot(conn) -> dict:
+    """What the live schema already has — columns, relations (tables and
+    indexes) and constraints — read once per boot."""
+    cols = {
+        (t.lower(), c.lower())
+        for t, c in conn.execute(text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema()"
+        ))
+    }
+    rels = {
+        r.lower()
+        for (r,) in conn.execute(text(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = current_schema()"
+        ))
+    }
+    cons = {
+        (t.lower(), c.lower())
+        for t, c in conn.execute(text(
+            "SELECT cl.relname, con.conname FROM pg_constraint con "
+            "JOIN pg_class cl ON cl.oid = con.conrelid "
+            "JOIN pg_namespace n ON n.oid = cl.relnamespace WHERE n.nspname = current_schema()"
+        ))
+    }
+    return {"cols": cols, "rels": rels, "cons": cons}
+
+
+_RX_ALTER_TABLE = re.compile(r'^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?"?(\w+)"?', re.I)
+_RX_CREATE_INDEX = re.compile(r'^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+"?(\w+)"?', re.I)
+_RX_CREATE_TABLE = re.compile(r'^\s*CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+"?(\w+)"?', re.I)
+
+
+def _split_top_level(clauses: str) -> list[str]:
+    """Split an ALTER TABLE action list on commas OUTSIDE parentheses, so
+    "NUMERIC(5,2)" stays one clause."""
+    out, depth, cur = [], 0, []
+    for ch in clauses:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+    if "".join(cur).strip():
+        out.append("".join(cur).strip())
+    return out
+
+
+def _migration_already_applied(sql: str, catalog: dict) -> bool:
+    """True only when the statement provably has nothing left to do, so it
+    can be skipped without taking a lock. Anything we cannot read with
+    certainty returns False and simply runs, as it always did."""
+    s = " ".join(sql.split())
+    m = _RX_CREATE_TABLE.match(s)
+    if m:
+        return m.group(1).lower() in catalog["rels"]
+    m = _RX_CREATE_INDEX.match(s)
+    if m:
+        return m.group(1).lower() in catalog["rels"]
+    m = _RX_ALTER_TABLE.match(s)
+    if m:
+        table = m.group(1).lower()
+        clauses = _split_top_level(s[m.end():])
+        if not clauses:
+            return False
+        for clause in clauses:
+            add = re.match(r'(?i)^ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?(\w+)"?', clause)
+            drop = re.match(r'(?i)^DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+"?(\w+)"?\s*$', clause)
+            if add:
+                # The column's own definition (type, default, REFERENCES … ON
+                # DELETE SET NULL) is moot: if the column exists, the clause
+                # is a no-op whatever it says.
+                if (table, add.group(1).lower()) not in catalog["cols"]:
+                    return False
+            elif drop:
+                if (table, drop.group(1).lower()) in catalog["cons"]:
+                    return False
+            else:
+                return False  # any other action (ALTER COLUMN, SET, …) runs
+        return True
+    return False
+
+
 def _run_migrations():
     """Run schema migrations — works with both PostgreSQL and SQLite."""
     from sqlalchemy import inspect as sa_inspect
@@ -3102,24 +3190,39 @@ def _run_migrations():
             conn.commit()
             print(f"Schema migrations (SQLite): {ok} new columns added, {ix_ok} indexes ensured")
         else:
-            # PostgreSQL: supports IF NOT EXISTS
-            # IMPORTANT: Use SAVEPOINT per migration so one failure
-            # doesn't abort the entire transaction (PG behaviour).
+            # PostgreSQL.
+            #
+            # WHY NOT "just run them all with IF NOT EXISTS". They used to run
+            # in ONE transaction (a SAVEPOINT each, one commit at the end). An
+            # ALTER TABLE … ADD COLUMN IF NOT EXISTS takes an ACCESS EXCLUSIVE
+            # lock on its table EVEN WHEN THE COLUMN EXISTS, and in one
+            # transaction every such lock was held until the final commit —
+            # so each deploy froze the core tables for ~35 s while the old
+            # instance was still serving (a live read waited 28 s on 27 Sep; a
+            # 23 Sep boot pushed the pooler to "max clients reached"). Now:
+            #   1. the catalog is read once and anything already applied is
+            #      skipped — a normal deploy runs almost no DDL, takes no locks;
+            #   2. what does run, runs in its OWN transaction with a short
+            #      lock_timeout, so it never queues behind live traffic (and
+            #      traffic never queues behind it) for more than a moment.
             ok = 0
             failed = 0
+            already = 0
+            catalog = _pg_catalog_snapshot(conn)
+            conn.commit()
             for i, sql in enumerate(_migrations):
-                sp = f"sp_{i}"
+                if _migration_already_applied(sql, catalog):
+                    already += 1
+                    continue
                 try:
-                    conn.execute(text(f"SAVEPOINT {sp}"))
-                    conn.execute(text(sql))
-                    conn.execute(text(f"RELEASE SAVEPOINT {sp}"))
+                    with conn.begin():
+                        conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                        conn.execute(text(sql))
                     ok += 1
                 except Exception as e:
-                    conn.execute(text(f"ROLLBACK TO SAVEPOINT {sp}"))
                     failed += 1
                     print(f"Migration {i} skipped: {e}")
-            conn.commit()
-            print(f"Schema migrations (PG): {ok} applied, {failed} skipped")
+            print(f"Schema migrations (PG): {ok} applied, {already} already in place, {failed} skipped")
 
             # After all migrations land, run the audit-log immutability
             # self-test. If the RULE didn't install we want to know NOW,
