@@ -113,9 +113,11 @@ def report_client_error(
         except Exception:
             ip = ""
 
+        from app.utils.log_redact import redact_path
         db.add(ErrorLog(
             method="CLIENT",
-            path=(payload.route or "")[:500],
+            # A route like /s/<token> is a working staff link — redacted.
+            path=(redact_path(payload.route) or "")[:500],
             status_code=0,               # 0 = client-side, not an HTTP status
             error_type=f"client:{kind}"[:100],
             message=msg or None,

@@ -82,10 +82,21 @@ def _eligible_users(db: Session) -> tuple[list[User], int]:
     # EXISTS per signal — index-friendly and short-circuits per user; far
     # cheaper than building a brief (which can hit the AI pipeline) for an
     # account we're about to skip anyway.
+    # Sample data is NOT a sign of life. The demo seeder tags its expenses
+    # and closes " · demo" (services/demo_seed.py), and those rows counted:
+    # an account that loaded sample data on day one and never came back got
+    # a brief every day (31 in 30 days, measured) — to someone who is not
+    # using the product.
     alive = or_(
         exists().where(and_(Sale.user_id == User.id, Sale.created_at >= cutoff)),
-        exists().where(and_(Expense.user_id == User.id, Expense.created_at >= cutoff)),
-        exists().where(and_(DailyClose.user_id == User.id, DailyClose.created_at >= cutoff)),
+        exists().where(and_(
+            Expense.user_id == User.id, Expense.created_at >= cutoff,
+            or_(Expense.description.is_(None), ~Expense.description.like("% · demo")),
+        )),
+        exists().where(and_(
+            DailyClose.user_id == User.id, DailyClose.created_at >= cutoff,
+            or_(DailyClose.notes.is_(None), ~DailyClose.notes.like("% · demo")),
+        )),
         exists().where(and_(Reservation.user_id == User.id, Reservation.created_at >= cutoff)),
         exists().where(and_(Invoice.user_id == User.id, Invoice.created_at >= cutoff)),
     )

@@ -3451,9 +3451,12 @@ async def _global_exception_handler(request: Request, exc: Exception):
         from app.database import SessionLocal as _SessionLocal
         _db = _SessionLocal()
         try:
+            from app.utils.log_redact import redact_path as _redact_path
             _db.add(_ErrorLog(
                 method=request.method,
-                path=path[:500] if path else None,
+                # Links like /s/<token> are their own credential — never
+                # store one (app/utils/log_redact.py).
+                path=(_redact_path(path) or "")[:500] or None,
                 status_code=500,
                 user_id=getattr(getattr(request, "state", None), "user_id", None),
                 ip_address=(client_ip(request) if request else None),

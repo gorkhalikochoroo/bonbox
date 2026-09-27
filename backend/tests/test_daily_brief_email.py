@@ -663,3 +663,39 @@ def test_idempotency_helper_treats_naive_dt_as_utc():
     assert dbe._same_calendar_day_utc(same_day_naive, now) is True
     assert dbe._same_calendar_day_utc(diff_day_naive, now) is False
     assert dbe._same_calendar_day_utc(None, now) is False
+
+
+def test_sample_data_is_not_a_sign_of_life(db_session, monkeypatch):
+    """The demo seeder tags its expenses and closes " · demo". Those rows made
+    an account that loaded sample data and never came back look alive for
+    weeks — 31 briefs in 30 days to someone not using the product."""
+    from datetime import date as _date
+
+    from app.jobs.daily_brief_email_job import _eligible_users
+    from app.models.daily_close import DailyClose
+    from app.models.expense import Expense, ExpenseCategory
+
+    sampled = _make_user(db_session, email="sampled@example.com", active=False)
+    cat = ExpenseCategory(user_id=sampled.id, name="Vareforbrug · demo")
+    db_session.add(cat)
+    db_session.flush()
+    db_session.add(Expense(
+        user_id=sampled.id, category_id=cat.id, date=_date.today(),
+        amount=450, description="Grønt fra grossist · demo",
+    ))
+    db_session.add(DailyClose(user_id=sampled.id, date=_date.today(), notes="sample · demo"))
+    real = _make_user(db_session, email="real@example.com", active=False)
+    cat2 = ExpenseCategory(user_id=real.id, name="Vareforbrug")
+    db_session.add(cat2)
+    db_session.flush()
+    db_session.add(Expense(
+        user_id=real.id, category_id=cat2.id, date=_date.today(),
+        amount=450, description="Grønt fra grossist",
+    ))
+    db_session.commit()
+
+    users, _ = _eligible_users(db_session)
+    emails = {u.email for u in users}
+    assert "real@example.com" in emails
+    assert "sampled@example.com" not in emails, "sample data alone must not trigger a daily email"
+

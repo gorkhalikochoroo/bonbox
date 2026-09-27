@@ -119,6 +119,35 @@ def smart_drift_scan_for_all() -> dict:
         db.close()
 
 
+ERROR_LOG_RETENTION_DAYS = 30
+
+
+def purge_old_error_logs(days: int = ERROR_LOG_RETENTION_DAYS) -> int:
+    """Delete error_logs older than `days` — technical logs, kept 30 days
+    per the privacy policy. Returns the number of rows deleted."""
+    from app.models.error_log import ErrorLog
+
+    db: Session = SessionLocal()
+    try:
+        cutoff = utc_now() - timedelta(days=days)
+        n = db.query(ErrorLog).filter(ErrorLog.created_at < cutoff).delete(synchronize_session=False)
+        # Rows written before paths were redacted can still hold a working
+        # link token (/s/<token>, a stand link). Redact what remains.
+        from app.utils.log_redact import redact_path
+        for row in db.query(ErrorLog).filter(ErrorLog.path.isnot(None)).all():
+            clean = redact_path(row.path)
+            if clean != row.path:
+                row.path = clean
+        db.commit()
+        return int(n or 0)
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        print(f"[retention] purge_old_error_logs failed: {e}")
+        return 0
+    finally:
+        db.close()
+
+
 def daily_maintenance() -> dict:
     """Composite job — run all maintenance steps and return a summary.
 
@@ -140,6 +169,14 @@ def daily_maintenance() -> dict:
         summary.update(expire_stale_requests())
     except Exception as e:  # noqa: BLE001
         summary["request_expiry_error"] = str(e)
+
+    # Technical logs: the privacy policy promises 30 days. error_logs were
+    # never purged (899 rows older than 90 days, with IP addresses, some with
+    # working link tokens in their paths before log_redact existed).
+    try:
+        summary["error_logs_purged"] = purge_old_error_logs()
+    except Exception as e:  # noqa: BLE001
+        summary["error_log_retention_error"] = str(e)
 
     # Accounting retention sweep — Bogføringsloven §12 (5y min) +
     # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive
