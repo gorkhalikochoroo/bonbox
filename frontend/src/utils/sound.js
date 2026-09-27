@@ -1,7 +1,8 @@
 /**
  * alertSound — the live-alert chime for the host stand.
  *
- *   playChime()  — soft two-note ding for a normal booking change.
+ *   playChime()  — soft rising two-note chime: a new booking or a change.
+ *   playCancel() — the same chime falling: a booking was cancelled.
  *   playUrgent() — sharper triple-pulse for a SEVERE allergy (Art. 9 health
  *                  data: the louder cue is deliberate — a severe allergy is a
  *                  safety event, not just an FYI).
@@ -87,14 +88,30 @@ function buildWavUrl(parts) {
     const len = Math.floor(p.duration * SAMPLE_RATE);
     for (let i = 0; i < len; i++) {
       const t = i / SAMPLE_RATE;
-      const phase = 2 * Math.PI * p.freq * t;
-      const raw = p.square ? (Math.sin(phase) >= 0 ? 1 : -1) : Math.sin(phase);
-      // Exponential decay, mirroring gain.exponentialRampToValueAtTime.
-      const decay = Math.exp((-5 * i) / len);
-      // Short fade-in kills the click a square wave starts with.
-      const attack = Math.min(1, i / (SAMPLE_RATE * 0.004));
+      let v;
+      if (p.partials) {
+        // A soft mallet note: sine partials, each ringing out on its own
+        // (upper ones die first, so the note mellows as it rings), a rounded
+        // 12 ms attack instead of a click, and a short fade at the end.
+        let raw = 0;
+        for (const [mult, amp, decayFactor] of p.partials) {
+          raw += amp * Math.sin(2 * Math.PI * p.freq * mult * t) * Math.exp(-t / (p.decay * decayFactor));
+        }
+        const x = Math.min(1, t / p.attack);
+        const attack = 0.5 - 0.5 * Math.cos(Math.PI * x);
+        const fadeOut = Math.min(1, (len - i) / (SAMPLE_RATE * 0.04));
+        v = raw * p.volume * attack * fadeOut;
+      } else {
+        const phase = 2 * Math.PI * p.freq * t;
+        const raw = p.square ? (Math.sin(phase) >= 0 ? 1 : -1) : Math.sin(phase);
+        // Exponential decay, mirroring gain.exponentialRampToValueAtTime.
+        const decay = Math.exp((-5 * i) / len);
+        // Short fade-in kills the click a square wave starts with.
+        const attack = Math.min(1, i / (SAMPLE_RATE * 0.004));
+        v = raw * p.volume * decay * attack;
+      }
       const idx = from + i;
-      if (idx < frames) pcm[idx] += raw * p.volume * decay * attack;
+      if (idx < frames) pcm[idx] += v;
     }
   }
 
@@ -124,10 +141,20 @@ function buildWavUrl(parts) {
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
 
-const CHIME_PARTS = [
-  { freq: 880, start: 0, duration: 0.14, volume: 0.5 },
-  { freq: 1175, start: 0.13, duration: 0.18, volume: 0.42 },
+// Booking and cancel are one family of soft mallet notes (Sep 2026: the old
+// 880/1175 Hz blip read as an irritating beep). A new booking rises
+// (E5 → B5), a cancellation falls (B5 → E5, a touch quieter) — staff can tell
+// which without looking. The severe-allergy alarm below stays sharp on purpose.
+const MALLET = [
+  [1, 1.0, 1.0], // fundamental
+  [2, 0.16, 0.55], // a little warmth, fades faster
+  [3.98, 0.05, 0.3], // the soft "tok" of a mallet, gone almost at once
 ];
+const mallet = (freq, start, volume) => ({
+  freq, start, volume, duration: 1.0, attack: 0.012, decay: 0.26, partials: MALLET,
+});
+const CHIME_PARTS = [mallet(659.25, 0, 0.3), mallet(987.77, 0.14, 0.26)];
+const CANCEL_PARTS = [mallet(987.77, 0, 0.24), mallet(659.25, 0.16, 0.22)];
 const URGENT_PARTS = [
   { freq: 660, start: 0, duration: 0.12, volume: 0.6, square: true },
   { freq: 880, start: 0.16, duration: 0.12, volume: 0.6, square: true },
@@ -142,7 +169,8 @@ function element(kind) {
   if (_els[kind]) return _els[kind];
   if (typeof Audio === "undefined") return null;
   try {
-    const el = new Audio(buildWavUrl(kind === "urgent" ? URGENT_PARTS : CHIME_PARTS));
+    const parts = kind === "urgent" ? URGENT_PARTS : kind === "cancel" ? CANCEL_PARTS : CHIME_PARTS;
+    const el = new Audio(buildWavUrl(parts));
     el.preload = "auto";
     // Not muted, not looped: this is a foreground alert on a device whose
     // whole job is to be heard.
@@ -187,7 +215,7 @@ function classify(e) {
  * play later without a gesture.
  */
 export function unlockSound() {
-  const kinds = ["chime", "urgent"];
+  const kinds = ["chime", "cancel", "urgent"];
   let any = false;
 
   for (const kind of kinds) {
@@ -344,17 +372,25 @@ function toneFallback(kind) {
     tone(660, 0, 0.12, 0.07, "square");
     tone(880, 0.16, 0.12, 0.07, "square");
     tone(660, 0.32, 0.16, 0.07, "square");
+  } else if (kind === "cancel") {
+    tone(987.77, 0, 0.9, 0.05, "sine");
+    tone(659.25, 0.16, 0.9, 0.045, "sine");
   } else {
-    tone(880, 0, 0.14, 0.06, "sine");
-    tone(1175, 0.13, 0.18, 0.05, "sine");
+    tone(659.25, 0, 0.9, 0.06, "sine");
+    tone(987.77, 0.14, 0.9, 0.05, "sine");
   }
 }
 
 /* ── public play API (unchanged signatures) ───────────────────────────────── */
 
-/** Soft, friendly two-note ding for a normal booking change. */
+/** Soft rising two-note chime for a new booking or a change. */
 export function playChime() {
   play("chime");
+}
+
+/** The same chime falling, a touch quieter — a booking was cancelled. */
+export function playCancel() {
+  play("cancel");
 }
 
 /** Sharper triple-pulse for a severe allergy — distinctly more alarming. */

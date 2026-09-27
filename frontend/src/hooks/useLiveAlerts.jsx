@@ -47,7 +47,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "./useAuth";
 import { useLanguage } from "./useLanguage";
-import { playChime, playUrgent, unlockSound } from "../utils/sound";
+import { playCancel, playChime, playUrgent, unlockSound } from "../utils/sound";
+import { useGuestSurface } from "../lib/guestSurface";
+import { RESERVATIONS_CHANGED_EVENT, alertSoundFor } from "../lib/liveAlertKinds";
 
 const POLL_MS = 20000;
 const FEED_CAP = 25;
@@ -107,9 +109,13 @@ export function LiveAlertsProvider({ children }) {
   const standToken = standTokenFromPath(pathname);
   const isStand = !!standToken;
   const isAccountant = (user?.role || "").toLowerCase() === "accountant";
+  // Never on a guest's page: an owner logged in on the same device would pop
+  // other guests' names, party sizes and allergy notes over the booking form a
+  // guest is filling in (see lib/guestSurface.js).
+  const onGuestPage = useGuestSurface();
   // A paired stand has no session and never has an accountant role — its token
   // IS its credential, and the server decides what that reaches.
-  const active = isStand || (!!user && !isAccountant);
+  const active = !onGuestPage && (isStand || (!!user && !isAccountant));
 
   const [enabled, setEnabledState] = useState(() => readBool(LS_ENABLED, true));
   const [sound, setSoundState] = useState(() => readBool(LS_SOUND, true));
@@ -243,7 +249,6 @@ export function LiveAlertsProvider({ children }) {
         if (!fresh.length) return;
 
         const items = fresh.map(describe);
-        const anySevere = items.some((i) => i.severe);
 
         // Feed (newest first, capped) + unread badge.
         setFeed((cur) => [...items, ...cur].slice(0, FEED_CAP));
@@ -276,10 +281,21 @@ export function LiveAlertsProvider({ children }) {
           return [...toShow, ...cur].slice(0, 8);
         });
 
-        // Beep ONCE per poll (urgent wins).
+        // Sound ONCE per poll: a severe allergy wins, then any arrival, and a
+        // batch of nothing but cancellations gets the falling cancel chime.
         if (soundRef.current) {
-          if (anySevere) playUrgent();
+          const kind = alertSoundFor(items);
+          if (kind === "urgent") playUrgent();
+          else if (kind === "cancel") playCancel();
           else playChime();
+        }
+
+        // Tell an open booking list to reload now, instead of on its own
+        // 75-second cycle (which only runs on today's view).
+        try {
+          window.dispatchEvent(new CustomEvent(RESERVATIONS_CHANGED_EVENT));
+        } catch {
+          /* no window — nothing listening either */
         }
       } catch {
         // Network blip / 401 mid-session — stay silent, try again next tick.

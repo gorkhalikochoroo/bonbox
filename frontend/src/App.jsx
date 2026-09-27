@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { setStandToken } from "./services/standAuth";
 import { reportClientError } from "./utils/reportClientError";
@@ -60,6 +60,18 @@ function WithGoogleAuth({ children }) {
       {children}
     </GoogleOAuthProvider>
   );
+}
+
+/**
+ * A guest-facing route (the public booking page). Marks the page as a guest
+ * surface the moment the route matches — BEFORE the lazily loaded page code
+ * arrives — so neither the cookie banner nor the owner's live alerts can
+ * flash over it on a slow connection. Its own Suspense boundary is what lets
+ * this wrapper mount while the page itself is still loading.
+ */
+function GuestPage({ children }) {
+  useLayoutEffect(() => markGuestSurface(), []);
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
 }
 
 // Loading spinner for lazy-loaded pages
@@ -247,6 +259,7 @@ import CookieConsent from "./components/CookieConsent";
 // NEVER wraps public (/r, /e, /s, /scan), spine, accountant, or auth routes.
 import PillarGate from "./components/PillarGate";
 import AccountLanguageSync from "./components/AccountLanguageSync";
+import { markGuestSurface } from "./lib/guestSurface";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the
@@ -627,7 +640,7 @@ function AppRoutes() {
         {/* Reservations public widget — no auth (guest books a table from
             the restaurant's link / QR). Mobile-first; pick date → party →
             slot → details → confirm. */}
-        <Route path="/r/:slug" element={<ReservationPublicPage />} />
+        <Route path="/r/:slug" element={<GuestPage><ReservationPublicPage /></GuestPage>} />
         {/* Public "order a gavekort online" page — no auth, no payment taken. */}
         <Route path="/g/buy/:slug" element={<GavekortBuyPage />} />
         {/* The recipient's live gavekort, opened from a link/QR — no auth. */}
@@ -824,7 +837,7 @@ function AppRoutes() {
             time (RESERVED_SLUGS, backend). An unknown single-segment path falls
             to the page's own "venue not found" state. Declared last so it only
             catches what no static route already did. */}
-        <Route path="/:slug" element={<ReservationPublicPage />} />
+        <Route path="/:slug" element={<GuestPage><ReservationPublicPage /></GuestPage>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

@@ -75,6 +75,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import api from "../services/api";
 import { haptic } from "../utils/haptics";
 import { getSoundStatus, subscribeSound, testSound } from "../utils/sound";
+import { RESERVATIONS_CHANGED_EVENT } from "../lib/liveAlertKinds";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -3261,6 +3262,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
+    // The live-alert poll (every ~20 s) saw a booking arrive, move or cancel:
+    // reload now, on whichever day is open — not on the next 75 s tick, which
+    // only runs on today's view.
+    window.addEventListener(RESERVATIONS_CHANGED_EVENT, onWake);
     let pollId;
     if (day === isoDay(new Date())) {
       pollId = setInterval(() => {
@@ -3270,6 +3275,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     return () => {
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("focus", onWake);
+      window.removeEventListener(RESERVATIONS_CHANGED_EVENT, onWake);
       if (pollId) clearInterval(pollId);
     };
   }, [day, refreshBookSilently]);

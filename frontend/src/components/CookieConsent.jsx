@@ -168,8 +168,10 @@ export default function CookieConsent() {
 
     // The same booking page opened directly (/r/<slug>, bonbox.dk/<slug>) is
     // the same case: strictly-necessary storage only, and the banner covered
-    // the form a guest came to fill in. See lib/guestSurface.js.
-    if (isGuestSurface()) return;
+    // the form a guest came to fill in. See lib/guestSurface.js. Decided when
+    // the banner would open and again on every guest-page change — never by
+    // returning early here, which left an app that started on a guest page
+    // with no reopen listener at all.
 
     // Multi-barrier defense: even if the user has DNT set, we still ask
     // (consent banners can't be skipped under EU rules) but pre-fill with
@@ -188,8 +190,13 @@ export default function CookieConsent() {
       }, 600);
     }
     const onGuestSurface = () => {
-      setOpen(false);
-      setDrawer(false);
+      if (isGuestSurface()) {
+        setOpen(false);
+        setDrawer(false);
+      } else if (!getCookieConsent()) {
+        // Left a guest page for an app page without having answered.
+        setOpen(true);
+      }
     };
     try {
       window.addEventListener(GUEST_SURFACE_EVENT, onGuestSurface);
