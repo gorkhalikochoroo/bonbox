@@ -2544,6 +2544,8 @@ export const da = {
     hideTips: "Skjul tips",
     justNow: "lige nu", minutesAgo: "{n}m siden", hoursAgo: "{n}t siden", daysAgo: "{n}d siden",
     expenseAlert: "Udgiftsadvarsel", unusualSpending: "{cat}: usædvanligt forbrug registreret",
+    expenseSpikeBody: "{cat}: {pct}% mere end normalt denne uge",
+    largeExpenseBody: "Stor udgift: {desc} ({amount})",
     lowStockTitle: "Lavt lager", lowStockBody: "{name}: {qty} tilbage (min: {min})",
     overBudget: "Over budget", nearBudgetLimit: "Nær budgetgrænse",
     budgetUsedFmt: "{cat}: {pct}% brugt ({spent} / {limit})",

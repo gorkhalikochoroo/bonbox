@@ -23,6 +23,22 @@ def _supported_currency(v):
     return code
 
 
+# The languages the app ships (frontend/src/i18n/*.js). `ui_language` is the
+# one the app last ran in, saved so notifications can be written in it.
+UI_LANGUAGES = frozenset({
+    "en", "da", "de", "es", "fr", "it", "ja", "nl", "no", "np", "pt", "sv", "th", "tr", "vi",
+})
+
+
+def _ui_language(v):
+    if v is None:
+        return v
+    code = str(v).strip().lower()
+    if code not in UI_LANGUAGES:
+        raise ValueError("Unsupported language")
+    return code
+
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
@@ -64,6 +80,8 @@ class UserResponse(BaseModel):
     business_name: str
     business_type: str
     currency: str
+    # The app language last saved for this account (None = never saved).
+    ui_language: str | None = None
     daily_goal: float = 0
     monthly_goal: float = 0
     role: str = "owner"
@@ -166,11 +184,18 @@ class UserUpdate(BaseModel):
     # Required only when `email` changes — the login email is how a password
     # reset reaches the account (see update_profile).
     current_password: str | None = None
+    # Saved by the app when its language changes; notifications follow it.
+    ui_language: str | None = None
 
     @field_validator("currency")
     @classmethod
     def _currency_ok(cls, v):
         return _supported_currency(v)
+
+    @field_validator("ui_language")
+    @classmethod
+    def _ui_language_ok(cls, v):
+        return _ui_language(v)
 
 
 class PasswordChange(BaseModel):

@@ -301,9 +301,14 @@ def send_test_push(
         .all()
     )
 
+    from app.services.owner_language import owner_lang
     payload = {
         "title": "BonBox",
-        "body": "Push works — you'll get tomorrow's morning brief here.",
+        "body": (
+            "Push virker — du får morgenbriefen her i morgen."
+            if owner_lang(user) == "da" else
+            "Push works — you'll get tomorrow's morning brief here."
+        ),
         "tag": "bonbox-test",
         "data": {"url": "/"},
     }

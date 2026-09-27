@@ -20,6 +20,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
 from app.services.email_service import send_email
+from app.services.owner_language import owner_lang
 from app.utils.text import portal_path
 
 logger = logging.getLogger("bonbox.notification_service")
@@ -748,17 +749,22 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
 
     when = reservation.starts_at.strftime("%d/%m %H:%M") if reservation.starts_at else ""
     is_request = reservation.status == "requested"
+    da = owner_lang(owner) == "da"
+    party = f"{reservation.party_size} pers" if da else f"{reservation.party_size} guests"
     if cancelled:
         # Guest cancelled online — tell the owner the table is free again
         # (NOT "Ny reservation", which would be misleading). Same tag, so
         # this push replaces the earlier booking ping on the lock screen.
-        title = "BonBox · Reservation aflyst"
-        body_text = f"{reservation.party_size} pers · {when} — bord frigivet"
+        title = "BonBox · Reservation aflyst" if da else "BonBox · Reservation cancelled"
+        body_text = f"{party} · {when} — " + ("bord frigivet" if da else "table free again")
     else:
-        title = "BonBox · Ny forespørgsel" if is_request else "BonBox · Ny reservation"
-        body_text = f"{reservation.party_size} pers · {when}"
+        if da:
+            title = "BonBox · Ny forespørgsel" if is_request else "BonBox · Ny reservation"
+        else:
+            title = "BonBox · New request" if is_request else "BonBox · New reservation"
+        body_text = f"{party} · {when}"
         if is_request:
-            body_text += " — afventer svar"
+            body_text += " — afventer svar" if da else " — waiting for your answer"
     tag = f"bonbox-reservation-{reservation.id}"
     # Deep link straight to THIS booking: the frontend consumer
     # (?booking=<id>&date=) re-derives the row from a fresh fetch, opens the
@@ -871,11 +877,18 @@ def notify_owner_freed_table(
 
     navn = (str(top_match.get("guest_name") or "").strip().split(" ") or [""])[0]
     n = top_match.get("party_size")
-    title = "BonBox · Bord frigivet"
-    if navn:
-        body_text = f"{navn} ({n} pers) passer — tryk for at tilbyde"
+    if owner_lang(owner) == "da":
+        title = "BonBox · Bord frigivet"
+        if navn:
+            body_text = f"{navn} ({n} pers) passer — tryk for at tilbyde"
+        else:
+            body_text = f"{n} pers på ventelisten passer — tryk for at tilbyde"
     else:
-        body_text = f"{n} pers på ventelisten passer — tryk for at tilbyde"
+        title = "BonBox · Table freed"
+        if navn:
+            body_text = f"{navn} ({n} guests) fits — tap to offer it"
+        else:
+            body_text = f"A party of {n} on the waitlist fits — tap to offer it"
     # Distinct tag from the create/cancel ping (bonbox-reservation-<id>) so the
     # freed-table nudge doesn't overwrite / isn't overwritten by it.
     tag = f"bonbox-freed-{freed_reservation.id}"
@@ -949,8 +962,12 @@ def notify_owner_shift_claimed(
         when = shift_date.strftime("%d/%m")
     except Exception:  # noqa: BLE001
         when = str(shift_date)
-    title = "BonBox · Åben vagt taget"
-    body_text = f"{staff_name} tog {when} {start_time}–{end_time}"
+    if owner_lang(owner) == "da":
+        title = "BonBox · Åben vagt taget"
+        body_text = f"{staff_name} tog {when} {start_time}–{end_time}"
+    else:
+        title = "BonBox · Open shift taken"
+        body_text = f"{staff_name} took {when} {start_time}–{end_time}"
     payload = {
         "title": title,
         "body": body_text,
@@ -1034,8 +1051,12 @@ def notify_owner_sick_call(
     except Exception:  # noqa: BLE001
         slot = ""
 
-    title = "BonBox · Sygemelding"
-    body_text = f"{staff_name} har meldt sig syg {when}{slot}"
+    if owner_lang(owner) == "da":
+        title = "BonBox · Sygemelding"
+        body_text = f"{staff_name} har meldt sig syg {when}{slot}"
+    else:
+        title = "BonBox · Sick call"
+        body_text = f"{staff_name} called in sick {when}{slot}"
     payload = {
         "title": title,
         "body": body_text,
@@ -1101,15 +1122,21 @@ def notify_owner_swap_executed(db: Session, *, owner_id, swap) -> dict:
         db.query(StaffMember).filter(StaffMember.id == swap.to_staff_id).first()
         if swap.to_staff_id else None
     )
-    from_name = (from_staff.name if from_staff else "Staff")
-    to_name = (to_staff.name if to_staff else "Staff")
-
-    title = "BonBox · Vagtbytte gennemført"
-    body_text = f"{from_name} ↔ {to_name} byttede to vagter"
-
     owner = db.query(User).filter(User.id == owner_id).first()
     if owner is None:
         return result
+
+    da = owner_lang(owner) == "da"
+    someone = "Medarbejder" if da else "Staff"
+    from_name = (from_staff.name if from_staff else someone)
+    to_name = (to_staff.name if to_staff else someone)
+
+    if da:
+        title = "BonBox · Vagtbytte gennemført"
+        body_text = f"{from_name} ↔ {to_name} byttede to vagter"
+    else:
+        title = "BonBox · Shift swap done"
+        body_text = f"{from_name} ↔ {to_name} swapped shifts"
 
     # Push to the owner's OWN devices (staff_id IS NULL), if any.
     try:

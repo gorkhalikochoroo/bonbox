@@ -17,6 +17,10 @@ class User(Base):
     business_name: Mapped[str] = mapped_column(String(255))
     business_type: Mapped[str] = mapped_column(String(50), default="restaurant")
     currency: Mapped[str] = mapped_column(String(10), default="DKK")
+    # The app language this owner last used ("en", "da", …), saved by the app
+    # so pushes and emails can be written in it. NULL = never saved; see
+    # services/owner_language.py for the fallback.
+    ui_language: Mapped[str | None] = mapped_column(String(8), nullable=True)
     daily_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     monthly_goal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     daily_digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

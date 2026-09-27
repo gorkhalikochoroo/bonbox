@@ -132,8 +132,18 @@ export default function NotificationCenter({ align = "right" }) {
           // WAS an emoji ("📈"). `icon` is now a Lucide name resolved through
           // <Icon>; see the render note on the row below.
           icon: "TrendingUp",
-          title: a.title || t("expenseAlert") || "Expense Alert",
-          body: a.message || ((t("unusualSpending") || "{cat}: unusual spending detected").replace("{cat}", a.category)),
+          title: t("expenseAlert", "Expense Alert"),
+          // Written here from the alert's numbers, not the server's English
+          // `message`, so it reads in the language the app is in.
+          body:
+            a.type === "category_spike" && Number.isFinite(Number(a.pct_increase))
+              ? t("expenseSpikeBody", "{cat}: {pct}% more than usual this week", {
+                  cat: a.category, pct: Math.round(Number(a.pct_increase)) })
+              : a.type === "large_transaction" && Number.isFinite(Number(a.amount))
+                ? t("largeExpenseBody", "Large expense: {desc} ({amount})", {
+                    desc: a.description || "—",
+                    amount: formatOwnerMoney(Number(a.amount), a.currency || currency) })
+                : t("unusualSpending", "{cat}: unusual spending detected", { cat: a.category || "—" }),
           time: now.toISOString(),
           severity: "warning",
         });

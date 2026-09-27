@@ -260,7 +260,7 @@ def send_to_subscription(
 # ─── Brief-specific composer ──────────────────────────────────────────
 
 
-def _compose_brief_payload(brief: dict[str, Any] | None) -> dict[str, Any] | None:
+def _compose_brief_payload(brief: dict[str, Any] | None, lang: str = "en") -> dict[str, Any] | None:
     """Turn the full Daily Brief dict into a minimal push payload.
 
     The brief object contains rich detail — amounts, customer names,
@@ -321,7 +321,7 @@ def _compose_brief_payload(brief: dict[str, Any] | None) -> dict[str, Any] | Non
         body = body[:139] + "…"
 
     return {
-        "title": "BonBox · Daily brief",
+        "title": "BonBox · Morgenbrief" if lang == "da" else "BonBox · Daily brief",
         "body": body,
         # Tag dedupes — if the cron re-fires, the second push replaces
         # the first instead of stacking two of them in the tray.
@@ -372,7 +372,8 @@ def send_brief_push(db: Session, user: User) -> dict[str, Any]:
         summary["skipped"] = True
         return summary
 
-    payload = _compose_brief_payload(brief)
+    from app.services.owner_language import owner_lang
+    payload = _compose_brief_payload(brief, owner_lang(user))
     if payload is None:
         summary["skipped"] = True
         return summary

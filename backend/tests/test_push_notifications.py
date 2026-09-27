@@ -459,7 +459,9 @@ def test_send_brief_push_payload_strips_financial_data(db, monkeypatch):
     payload = json.loads(payload_str)
     # Whitelist: only these four keys allowed.
     assert set(payload.keys()) == {"title", "body", "tag", "data"}
-    assert payload["title"] == "BonBox · Daily brief"
+    # The title follows the owner's language (services/owner_language): this
+    # DKK owner has not saved one, so it is Danish.
+    assert payload["title"] == "BonBox · Morgenbrief"
     assert payload["body"] == "Yesterday beat the week average by 12%."
     assert payload["tag"] == "bonbox-daily-brief"
     assert payload["data"] == {"url": "/?brief=open"}

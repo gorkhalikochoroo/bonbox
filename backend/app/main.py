@@ -1953,6 +1953,12 @@ _migrations = [
     # enabled_modules: that column is the tier-capped vertical-module
     # vocabulary; pillars are free + uncapped (founder decision).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden_pillars TEXT",
+    # ── Migration (2026-09-27): users.ui_language — notification language ──
+    # Mirrors app/models/user.py:User.ui_language. The app saves the language
+    # the owner reads it in, so a push (new booking, sick call, waste alert)
+    # arrives in that language instead of a fixed Danish or English. NULL =
+    # never saved → services/owner_language.py falls back to the DKK guess.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_language VARCHAR(8)",
     # ── Migration 024 (2026-06-22): open_shifts — Åbne vagter ─────────────
     # Net-new table backing app/models/staff.py:OpenShift. The owner posts an
     # UNASSIGNED roster slot; a staffer claims it one-tap from the portal, which
@@ -2789,6 +2795,7 @@ def _run_migrations():
             ok += _add("users", "daily_digest_enabled", "BOOLEAN DEFAULT 0")
             ok += _add("users", "expense_alerts_enabled", "BOOLEAN DEFAULT 1")
             ok += _add("users", "currency", "VARCHAR(10)")
+            ok += _add("users", "ui_language", "VARCHAR(8)")
             ok += _add("expenses", "reference_id", "VARCHAR(100)")
             ok += _add("users", "monthly_goal", "NUMERIC(12,2) DEFAULT 0")
             ok += _add("inventory_items", "bottle_size", "NUMERIC(10,2)")

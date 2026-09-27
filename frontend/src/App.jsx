@@ -246,6 +246,7 @@ import CookieConsent from "./components/CookieConsent";
 // gate decision happens before the lazy page chunk is even fetched.
 // NEVER wraps public (/r, /e, /s, /scan), spine, accountant, or auth routes.
 import PillarGate from "./components/PillarGate";
+import AccountLanguageSync from "./components/AccountLanguageSync";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the
@@ -946,6 +947,8 @@ function AppInner() {
               caller. A component-local toast would vanish with it. */}
           <ToastProvider>
           <AuthProvider>
+            {/* Saves the app language to the account so pushes follow it. */}
+            <AccountLanguageSync />
             {/* DeviceShareProvider — shared-device ("Delt enhed") reveal-PIN
                 state (#379). Inside Auth (reads user.role; only fetches /status
                 for an owner session). Wraps the app so OwnerOnlyRoute + the

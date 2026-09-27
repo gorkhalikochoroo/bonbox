@@ -699,13 +699,14 @@ def _fire_close_push(db: Session, user: User, dc: DailyClose) -> str:
         # Privacy-safe payload — no amounts, no customer names, only
         # a generic "close locked" notification. Owner taps to open
         # the Daily Close history page.
-        currency = user.currency or "DKK"
-        is_danish = (currency == "DKK")
+        from app.services.owner_language import owner_lang
+        is_danish = owner_lang(user) == "da"
         title = "BonBox · Dagsafslutning låst" if is_danish else "BonBox · Close locked"
+        # `kasserapport` stays Danish in English too (DK terminology lock).
         body = (
             f"{dc.closed_by or 'Personalet'} har låst dagens kasserapport."
             if is_danish else
-            f"{dc.closed_by or 'Staff'} just locked tonight's close."
+            f"{dc.closed_by or 'Staff'} locked today's kasserapport."
         )
         payload = {
             "title": title, "body": body[:140],

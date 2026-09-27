@@ -2642,6 +2642,8 @@ export const en = {
     hideTips: "Hide tips",
     justNow: "just now", minutesAgo: "{n}m ago", hoursAgo: "{n}h ago", daysAgo: "{n}d ago",
     expenseAlert: "Expense Alert", unusualSpending: "{cat}: unusual spending detected",
+    expenseSpikeBody: "{cat}: {pct}% more than usual this week",
+    largeExpenseBody: "Large expense: {desc} ({amount})",
     lowStockTitle: "Low Stock", lowStockBody: "{name}: {qty} left (min: {min})",
     overBudget: "Over Budget", nearBudgetLimit: "Near Budget Limit",
     budgetUsedFmt: "{cat}: {pct}% used ({spent} / {limit})",

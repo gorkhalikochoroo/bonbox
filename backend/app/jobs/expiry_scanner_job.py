@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.user import User
 from app.services.billing import has_feature
+from app.services.owner_language import owner_lang
 from app.services.expiry_service import (
     record_alert_sent,
     scan_upcoming_expiries,
@@ -165,14 +166,14 @@ def run_expiry_scan(
                 # the Brief's job.
                 today_items = [i for i in items if (i.get("days_left") or 0) <= 0]
                 if today_items and has_feature(user, "expiry_push_notifications"):
-                    payload = {
-                        "title": "Spildalarm — varer udløber i dag",
-                        "body": (
-                            f"{len(today_items)} varer udløber i dag — "
-                            "åbn BonBox for handlinger"
-                        ),
-                        "data": {"url": "/expiry"},
-                    }
+                    n = len(today_items)
+                    if owner_lang(user) == "da":
+                        title = "Spildalarm — varer udløber i dag"
+                        body = f"{n} {'vare udløber' if n == 1 else 'varer udløber'} i dag — åbn BonBox for handlinger"
+                    else:
+                        title = "Waste alert — items expire today"
+                        body = f"{n} {'item expires' if n == 1 else 'items expire'} today — open BonBox to act"
+                    payload = {"title": title, "body": body, "data": {"url": "/expiry"}}
                     if _send_push_best_effort(db, user, payload) > 0:
                         summary["pushed"] += 1
             except Exception as e:  # noqa: BLE001
