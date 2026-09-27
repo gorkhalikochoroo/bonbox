@@ -2,6 +2,7 @@ import axios from "axios";
 import { getRevealProof, setRevealProof, triggerDeviceLock } from "./deviceShare";
 import { platform } from "../utils/platform";
 import { standRewrite } from "./standAuth";
+import { requestStarted, requestSettled } from "./apiActivity";
 
 // The one prod origin. A native Capacitor shell (iOS/Android) has NO other
 // backend it could ever talk to — it ships pre-built and always points here.
@@ -40,6 +41,29 @@ const api = axios.create({
   // configured on the backend.
   withCredentials: true,
 });
+
+// ── Requests in flight (services/apiActivity) ──────────────────────
+// Registered FIRST so it sees every request and every final answer. A
+// retried request is counted once, from its first send to its first answer —
+// a retry can only make the count read LOW for a moment, which just lets a
+// waiting page show a touch early; every waiter has its own time cap too.
+api.interceptors.request.use((config) => {
+  if (!config._bbCounted) {
+    config._bbCounted = true;
+    requestStarted();
+  }
+  return config;
+});
+const settle = (config) => {
+  if (config && config._bbCounted && !config._bbSettled) {
+    config._bbSettled = true;
+    requestSettled();
+  }
+};
+api.interceptors.response.use(
+  (res) => { settle(res?.config); return res; },
+  (err) => { settle(err?.config); return Promise.reject(err); },
+);
 
 // Auto-retry on timeout, network error, or transient 5xx.
 //

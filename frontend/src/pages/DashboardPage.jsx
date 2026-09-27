@@ -29,6 +29,7 @@ import { isStaffMemberRole } from "../config/navManifest";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
+import { onApiIdle } from "../services/apiActivity";
 import { saveFile } from "../utils/download";
 import { PageHeader, Button, UpgradeNudge } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
@@ -198,6 +199,10 @@ function computeDaysToMonthEnd(now = new Date()) {
    MAIN DASHBOARD
    ═══════════════════════════════════════════════════════════ */
 
+// The longest the dashboard waits for its cards' own requests after the main
+// batch has landed, before showing itself anyway.
+const REVEAL_CAP_MS = 1200;
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -248,6 +253,14 @@ export default function DashboardPage() {
   const [smartSaleOpen, setSmartSaleOpen] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Revealed once, never re-hidden. The page's cards fetch their own data
+  // (the Needs-you queue, banners, the brief, accountant hours …); shown the
+  // moment the main batch landed, each one then arrived on its own and pushed
+  // the rest down — the dashboard measured a layout shift of 0.30 on a phone,
+  // "poor". Now the whole page mounts straight away BEHIND the skeleton, so
+  // every card fetches in parallel with the batch, and it is shown in one go
+  // when the requests have settled — or after REVEAL_CAP_MS, whichever first.
+  const [revealed, setRevealed] = useState(false);
 
   // Click-outside for the overflow menu.
   const overflowRef = useRef(null);
@@ -745,9 +758,29 @@ export default function DashboardPage() {
     return displayName ? `${greet}, ${displayName}` : greet;
   }, [t, user]);
 
+  // Reveal once the main batch is in AND the cards' own requests have gone
+  // quiet — capped, so a slow or polling card can never hold the page back.
+  useEffect(() => {
+    if (revealed || loading) return undefined;
+    let done = false;
+    const reveal = () => {
+      if (done) return;
+      done = true;
+      setRevealed(true);
+    };
+    const cap = setTimeout(reveal, REVEAL_CAP_MS);
+    const stop = onApiIdle(reveal, 120);
+    return () => {
+      done = true;
+      clearTimeout(cap);
+      stop();
+    };
+  }, [loading, revealed]);
+
   // ── Loading skeleton (matches zone shape, not the old grid) ──
-  if (loading && !summary) {
-    return (
+  // Shown until the page is revealed; the real page is already mounted
+  // (hidden) underneath it so its cards load in parallel.
+  const loadingSkeleton = (
       <PageShell width="wide">
         <PageHeader
           eyebrow={t("home", "HOME").toUpperCase()}
@@ -765,8 +798,7 @@ export default function DashboardPage() {
           <SkeletonChart />
         </div>
       </PageShell>
-    );
-  }
+  );
 
   // ── Header actions: 2 primary CTAs + overflow menu.
   //    Preserved from the surgical pass. Repeat-Yesterday + Download PDF
@@ -881,6 +913,9 @@ export default function DashboardPage() {
 
   // ── Steady-state: the full persona-aware 3-zone dashboard ──
   return (
+    <>
+    {!revealed && loadingSkeleton}
+    <div hidden={!revealed}>
     <PullToRefresh onRefresh={async () => fetchAll()}>
       <PageShell width="wide">
         <ToastContainer />
@@ -937,5 +972,7 @@ export default function DashboardPage() {
         </div>
       </PageShell>
     </PullToRefresh>
+    </div>
+    </>
   );
 }

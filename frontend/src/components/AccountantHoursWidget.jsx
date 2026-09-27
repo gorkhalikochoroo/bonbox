@@ -306,6 +306,15 @@ export default function AccountantHoursWidget() {
     );
   }
 
+  // ── Per-month dismissal — owner clicked X earlier this month ──────
+  // Render nothing for the rest of the calendar month; the localStorage
+  // key resets when a new month starts (see _currentMonthKey). Checked
+  // BEFORE the loading state: a dismissed widget used to draw its skeleton
+  // first and then vanish, collapsing its row of the dashboard.
+  if (dismissed) {
+    return null;
+  }
+
   // ── Loading state — low-noise skeleton so the dashboard doesn't shift ─
   if (loading) {
     return (
@@ -314,13 +323,6 @@ export default function AccountantHoursWidget() {
         <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-2/3" />
       </Card>
     );
-  }
-
-  // ── Per-month dismissal — owner clicked X earlier this month ──────
-  // Render nothing for the rest of the calendar month; the localStorage
-  // key resets when a new month starts (see _currentMonthKey).
-  if (dismissed) {
-    return null;
   }
 
   // ── Live numbers ────────────────────────────────────────────────────
