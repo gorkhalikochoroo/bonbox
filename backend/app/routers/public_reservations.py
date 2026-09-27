@@ -361,8 +361,25 @@ def availability(request: Request, slug: str = Path(...),
         return {"date": day, "party_size": party, "slots": [],
                 "group_request": False, "closed_reason": "not_accepting"}
 
-    group_threshold = settings.get("group_request_threshold")
-    group_request = bool(group_threshold and party >= group_threshold)
+    group_request = rsvc.is_group_request(settings, party)
+    if group_request:
+        # A group REQUEST holds no table until the owner approves it, so table
+        # capacity is not the question. Offer the venue's normal time grid for
+        # the day (same opening hours / interval / lead time) as PREFERRED
+        # times. Before this, "no table seats 12" returned no slots at all and
+        # the page stored an invented time as the booking time. No scarcity
+        # hint: nothing is being held.
+        grid = rsvc.group_request_slots(
+            db, profile=profile, user_id=owner.id, day=target,
+            party_size=party, now=_now_local(),
+        )
+        return {
+            "date": day,
+            "party_size": party,
+            "group_request": True,
+            "slots": [s.strftime("%H:%M") for s in grid],
+            "slot_remaining": {},
+        }
 
     slots = rsvc.available_slots(
         db, profile=profile, user_id=owner.id, day=target,
@@ -395,8 +412,10 @@ def availability_summary(request: Request, slug: str = Path(...),
                          db: Session = Depends(get_db)):
     """Multi-day open/closed overview so the public page can render a date strip
     and AUTO-ADVANCE to the next open day (never dead-ends on a closed today).
-    Uses the same available_slots() the diner sees (via rsvc.summarize_days), so
-    the strip can't disagree. Shared with the public-surface monitor."""
+    Uses the same slots the diner sees (via rsvc.summarize_days), so the strip
+    can't disagree — for a group-request party that is the venue's time grid,
+    so a day is open whenever the venue is. Shared with the public-surface
+    monitor."""
     profile, owner = _resolve_owner(db, slug)
     try:
         base = datetime.strptime(start, "%Y-%m-%d").date()
@@ -943,8 +962,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         )
 
     duration = rsvc.resolve_duration(profile, payload.party_size)
-    group_threshold = settings.get("group_request_threshold")
-    is_request = bool(group_threshold and payload.party_size >= group_threshold)
+    is_request = rsvc.is_group_request(settings, payload.party_size)
 
     resource_ids = None
     if not is_request:

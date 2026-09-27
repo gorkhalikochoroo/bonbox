@@ -23,7 +23,7 @@ from app.models.staff import Schedule
 from app.services.availability_engine import (
     AvailabilityConfig, BusyInterval, ResourceView, TimeWindow,
     combinable_zone_overflow, compute_slots, find_slot_resource,
-    find_slot_resources, turn_time_minutes,
+    find_slot_resources, time_grid, turn_time_minutes,
 )
 
 logger = logging.getLogger(__name__)
@@ -368,19 +368,61 @@ def available_slot_details(db: Session, *, profile: BusinessProfile, user_id, da
     return out
 
 
+def is_group_request(settings: dict, party_size: int) -> bool:
+    """A party at/above group_request_threshold books as a REQUEST: no table
+    is held, the owner decides. The ONE definition — the availability
+    endpoints, the day strip and the create path all ask this."""
+    threshold = settings.get("group_request_threshold")
+    try:
+        return bool(threshold) and int(party_size) >= int(threshold)
+    except (TypeError, ValueError):
+        return False
+
+
+def group_request_slots(db: Session, *, profile: BusinessProfile, user_id, day: date,
+                        party_size: int, now: datetime | None = None) -> list[datetime]:
+    """PREFERRED times a group request may ask for: the venue's normal bookable
+    time grid for the day — same opening hours, interval and lead time as
+    available_slots() — IGNORING table capacity (and pacing), because a request
+    holds no table: the owner decides whether and where the party fits.
+
+    Without this, a group's availability was "no slots" whenever no single
+    table (or combo) seated the whole party — which is exactly when it is a
+    request — so the page invented a time and the date strip showed every day
+    closed. Empty when the venue is closed that day, above the online party
+    ceiling (the create path refuses those too), or has no tables at all (an
+    appointment venue has no group requests)."""
+    settings = load_settings(profile)
+    config = build_config(settings)
+    if config.max_party_size is not None and party_size > config.max_party_size:
+        return []
+    if not any(r.kind != "provider" for r in active_resources(db, user_id)):
+        return []
+    windows = restaurant_windows(profile, day, settings)
+    duration = turn_time_minutes(party_size, config)
+    return sorted(set(time_grid(windows=windows, duration_min=duration,
+                                config=config, now=now)))
+
+
 def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                    start_date: date, days: int, party_size: int,
                    now: datetime) -> dict:
     """Per-day open/closed overview for the public date strip + the public-surface
-    monitor. Calls the SAME available_slots() a diner actually sees, so the strip
-    can never disagree with reality. Days in the past or beyond the advance window
-    are 'out_of_window' (not offerable). Returns:
-        {'next_open_day': iso|None, 'days': [{'date', 'has_slots', 'reason'}]}
+    monitor. Calls the SAME available_slots() a diner actually sees (or, for a
+    group request, the same group_request_slots() /availability offers), so the
+    strip can never disagree with reality. Days in the past or beyond the advance
+    window are 'out_of_window' (not offerable). Returns:
+        {'next_open_day': iso|None, 'group_request': bool,
+         'days': [{'date', 'has_slots', 'reason'}]}
     ONE source of truth for 'is this booking page dead' — shared so the customer
     UX and the auto-diagnosis can't diverge."""
     settings = load_settings(profile)
     today = now.date()
     max_advance = int(settings.get("max_advance_days", 60))
+    # A group request is open whenever the venue is open — table capacity is
+    # the owner's call, not the strip's. Counting tables here marked every day
+    # "closed" for exactly the parties that were only ever asking.
+    group = is_group_request(settings, party_size)
     out: list[dict] = []
     first_open = None
     for i in range(days):
@@ -388,16 +430,22 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
         if d < today or d > today + timedelta(days=max_advance):
             out.append({"date": d.isoformat(), "has_slots": False, "reason": "out_of_window"})
             continue
-        slots = available_slots(
-            db, profile=profile, user_id=user_id, day=d,
-            party_size=party_size, now=now,
-        )
+        if group:
+            slots = group_request_slots(
+                db, profile=profile, user_id=user_id, day=d,
+                party_size=party_size, now=now,
+            )
+        else:
+            slots = available_slots(
+                db, profile=profile, user_id=user_id, day=d,
+                party_size=party_size, now=now,
+            )
         has = len(slots) > 0
         out.append({"date": d.isoformat(), "has_slots": has,
                     "reason": None if has else "closed_or_full"})
         if has and first_open is None:
             first_open = d.isoformat()
-    return {"next_open_day": first_open, "days": out}
+    return {"next_open_day": first_open, "group_request": group, "days": out}
 
 
 def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
