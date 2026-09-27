@@ -206,7 +206,6 @@ export default function WastePage() {
             not translate, and it matches the Lager page it sits beside in the
             sidebar, which said LAGER while this one said STOCK. */}
         <PageHeader
-          eyebrow="LAGER"
           title={t("wasteTracker")}
           subtitle={t("wasteSubtitle")}
         />

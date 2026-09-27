@@ -991,7 +991,6 @@ export default function SalesPage() {
     <PageShell width="default">
       <FadeIn>
         <PageHeader
-          eyebrow="MONEY"
           title={t("salesTracker")}
           actions={
             <>

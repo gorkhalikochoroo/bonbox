@@ -99,7 +99,7 @@ export default function SmartTerminalsCard({ onComplete }) {
         });
         newScans.push(res.data);
       } catch (err) {
-        const msg = err?.response?.data?.detail || err?.message || "Unknown error";
+        const msg = err?.response?.data?.detail || err?.message || t("opsUnknownError", "Unknown error");
         setError(`${file.name}: ${msg}`);
       }
     }

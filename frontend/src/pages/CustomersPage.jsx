@@ -14,6 +14,8 @@ import { errText } from "../utils/errText";
  * pre-populate customers separately. Soft-delete only (referential
  * integrity with past invoices).
  */
+const LOAD_FAILED = "__customers_load_failed__";
+
 export default function CustomersPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -45,7 +47,8 @@ export default function CustomersPage() {
       const res = await api.get("/customers");
       setCustomers(res.data);
     } catch (e) {
-      setError(errText(e, "Failed to load customers"));
+      // Sentinel, worded at render (below) so it follows a language switch.
+      setError(errText(e, LOAD_FAILED));
     } finally {
       setLoading(false);
     }
@@ -71,21 +74,20 @@ export default function CustomersPage() {
               "not on your plan" copy. Web keeps the full upgrade gate. */}
           <h1 className="text-xl font-bold mb-2 text-amber-900 dark:text-amber-200">
             {isNativeApp()
-              ? (t("featureNotOnPlanTitle") || "Not available on this plan")
-              : (t("invoicingStarterRequired") || "Customers & Invoicing — Starter plan required")}
+              ? (t("featureNotOnPlanTitle", "Not available on this plan"))
+              : (t("invoicingStarterRequired", "Customers & Invoicing — Starter plan required"))}
           </h1>
           <p className="text-sm text-amber-800 dark:text-amber-300 mb-4">
             {isNativeApp()
-              ? (t("featureNotOnPlanBody") || "This feature isn't part of your current plan.")
-              : (t("invoicingStarterDesc") ||
-                 "Send fakturas, track customers, and log mileage. Upgrade to Starter to unlock.")}
+              ? (t("featureNotOnPlanBody", "This feature isn't part of your current plan."))
+              : (t("invoicingStarterDesc", "Send fakturas, track customers, and log mileage. Upgrade to Starter to unlock."))}
           </p>
           {canPurchaseInApp() && (
             <Link
               to="/subscription"
               className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition"
             >
-              {t("upgrade") || "Upgrade"}
+              {t("upgrade", "Upgrade")}
             </Link>
           )}
         </div>
@@ -98,10 +100,10 @@ export default function CustomersPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-            <span>👥</span> {t("customers") || "Customers"}
+            <span>👥</span> {t("customers", "Customers")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t("customersDesc") || "Debitors you invoice. CVR-verified for B2B."}
+            {t("customersDesc", "Debitors you invoice. CVR-verified for B2B.")}
           </p>
         </div>
         <button
@@ -111,49 +113,44 @@ export default function CustomersPage() {
           }}
           className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition"
         >
-          + {t("addCustomer") || "Add customer"}
+          + {t("addCustomer", "Add customer")}
         </button>
       </div>
 
       <HowItWorksCard
         storageKey="customers"
         iconName="Users"
-        title={t("customersHowTitle") || "How Customers works"}
+        title={t("customersHowTitle", "How Customers works")}
         steps={[
           {
-            title: t("customersStep1Title") || "1. B2B clients — search by CVR",
+            title: t("customersStep1Title", "1. B2B clients — search by CVR"),
             body:
-              t("customersStep1Body") ||
-              "Type a Danish CVR number (8 digits). We auto-fill the company name, address, and postal code from the public CVR + DAWA registers — saves you from typos that nullify a faktura.",
+              t("customersStep1Body", "Type a Danish CVR number (8 digits). We auto-fill the company name, address, and postal code from the public CVR + DAWA registers — saves you from typos that nullify a faktura."),
           },
           {
-            title: t("customersStep2Title") || "2. Private clients — no CVR",
+            title: t("customersStep2Title", "2. Private clients — no CVR"),
             body:
-              t("customersStep2Body") ||
-              "Toggle off the B2B switch for privatpersoner. We still need a name and at least one of email or phone so the faktura has somewhere to land.",
+              t("customersStep2Body", "Toggle off the B2B switch for privatpersoner. We still need a name and at least one of email or phone so the faktura has somewhere to land."),
           },
           {
-            title: t("customersStep3Title") || "3. Set sensible defaults",
+            title: t("customersStep3Title", "3. Set sensible defaults"),
             body:
-              t("customersStep3Body") ||
-              "Pick the customer's invoice language (DA / EN) so the PDF arrives in the right one. Set payment terms — Danish default is 8 dage netto. These pre-fill on every new faktura for this customer.",
+              t("customersStep3Body", "Pick the customer's invoice language (DA / EN) so the PDF arrives in the right one. Set payment terms — Danish default is 8 dage netto. These pre-fill on every new faktura for this customer."),
           },
           {
-            title: t("customersStep4Title") || "4. Deletes are soft",
+            title: t("customersStep4Title", "4. Deletes are soft"),
             body:
-              t("customersStep4Body") ||
-              "Customers tied to past invoices can't be hard-deleted (Bogføringsloven §10 needs the audit trail intact). We hide them from your list but keep them linked to historical fakturaer.",
+              t("customersStep4Body", "Customers tied to past invoices can't be hard-deleted (Bogføringsloven §10 needs the audit trail intact). We hide them from your list but keep them linked to historical fakturaer."),
           },
         ]}
         footer={
-          t("customersHowFooter") ||
-          "CVR-numre valideres mod CVR-registeret (Erhvervsstyrelsen). Adresser hentes fra DAWA — Danmarks officielle adresseregister."
+          t("customersHowFooter", "CVR numbers are checked against CVR-registeret (Erhvervsstyrelsen). Addresses come from DAWA — Denmark's official address register.")
         }
       />
 
       <input
         type="text"
-        placeholder={t("searchCustomers") || "Search by name, CVR, or email"}
+        placeholder={t("searchCustomers", "Search by name, CVR, or email")}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm"
@@ -161,19 +158,19 @@ export default function CustomersPage() {
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl text-sm">
-          {error}
+          {error === LOAD_FAILED ? t("opsCustLoadFailed", "Failed to load customers") : error}
         </div>
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
+        <div className="text-center py-12 text-gray-500">{t("loading", "Loading…")}</div>
       ) : filtered.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">👥</p>
           <p className="text-gray-600 dark:text-gray-300 font-medium">
             {q
-              ? (t("noCustomersMatch") || "No customers match your search.")
-              : (t("noCustomersYet") || "No customers yet. Add your first one to start invoicing.")}
+              ? (t("noCustomersMatch", "No customers match your search."))
+              : (t("noCustomersYet", "No customers yet. Add your first one to start invoicing."))}
           </p>
         </div>
       ) : (
@@ -196,10 +193,10 @@ export default function CustomersPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
-                <th className="text-left px-3 py-3 sm:px-5">{t("name") || "Name"}</th>
+                <th className="text-left px-3 py-3 sm:px-5">{t("name", "Name")}</th>
                 <th className="text-left px-3 py-3 sm:px-5">CVR</th>
-                <th className="text-left px-3 py-3 sm:px-5">{t("email") || "Email"}</th>
-                <th className="text-left px-3 py-3 sm:px-5">{t("paymentTermsDays") || "Terms"}</th>
+                <th className="text-left px-3 py-3 sm:px-5">{t("email", "Email")}</th>
+                <th className="text-left px-3 py-3 sm:px-5">{t("paymentTermsDays", "Payment terms (days)")}</th>
                 <th className="text-right px-3 py-3 sm:px-5"></th>
               </tr>
             </thead>
@@ -221,7 +218,7 @@ export default function CustomersPage() {
                       }}
                       className="text-xs text-blue-600 hover:underline mr-3"
                     >
-                      {t("edit") || "Edit"}
+                      {t("edit", "Edit")}
                     </button>
                   </td>
                 </tr>
@@ -255,7 +252,7 @@ export default function CustomersPage() {
                 onClick={() => { setEditingId(c.id); setShowForm(true); }}
                 className="mt-3 w-full min-h-[44px] rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition"
               >
-                {t("edit") || "Edit"}
+                {t("edit", "Edit")}
               </button>
             </div>
           ))}
@@ -380,7 +377,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
       }
       onSaved();
     } catch (err) {
-      setError(errText(err, "Save failed"));
+      setError(errText(err, t("opsSaveFailed", "Save failed")));
     } finally {
       setSaving(false);
     }
@@ -396,7 +393,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">
-            {isEdit ? (t("editCustomer") || "Edit customer") : (t("addCustomer") || "Add customer")}
+            {isEdit ? (t("editCustomer", "Edit customer")) : (t("addCustomer", "Add customer"))}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
@@ -404,21 +401,21 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="md:col-span-2">
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("name") || "Name"} *
+                {t("name", "Name")} *
               </label>
               <input
                 type="text"
                 value={form.name}
                 onChange={update("name")}
                 required
-                placeholder={t("customerNamePlaceholder") || "Acme ApS"}
+                placeholder={t("customerNamePlaceholder", "Acme ApS")}
                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
               />
             </div>
 
             <label className="md:col-span-2 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input type="checkbox" checked={form.is_company} onChange={update("is_company")} />
-              {t("isB2BCustomer") || "B2B customer (company)"}
+              {t("isB2BCustomer", "B2B customer (company)")}
             </label>
 
             {form.is_company && (
@@ -436,27 +433,27 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                 />
                 {cvrLookup.status === "loading" && (
                   <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
-                    {t("cvrLookingUp") || "Looking up CVR…"}
+                    {t("cvrLookingUp", "Looking up CVR…")}
                   </p>
                 )}
                 {cvrLookup.status === "ok" && (
                   <p className="mt-1 text-[11px] text-emerald-600 dark:text-gray-300">
-                    {t("cvrAutofilled") || "Auto-filled from CVR register"} ({cvrLookup.hit?.source || "cvrapi.dk"})
+                    {t("cvrAutofilled", "Auto-filled from CVR register")} ({cvrLookup.hit?.source || "cvrapi.dk"})
                   </p>
                 )}
                 {cvrLookup.status === "no-match" && (
                   <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                    {t("cvrNoMatch") || "No match found — enter details manually"}
+                    {t("cvrNoMatch", "No match found — enter details manually")}
                   </p>
                 )}
                 {cvrLookup.status === "error" && cvrLookup.reason === "unavailable" && (
                   <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                    {t("cvrLookupUnavailable") || "CVR-opslag er midlertidigt utilgængeligt — udfyld manuelt nedenfor"}
+                    {t("cvrLookupUnavailable", "CVR lookup temporarily unavailable — fill the fields below manually")}
                   </p>
                 )}
                 {cvrLookup.status === "error" && cvrLookup.reason !== "unavailable" && (
                   <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                    {t("cvrLookupError") || "CVR lookup unavailable — enter details manually"}
+                    {t("cvrLookupError", "CVR lookup unavailable — enter details manually")}
                   </p>
                 )}
               </div>
@@ -472,14 +469,14 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                   checked={form.is_public_sector || false}
                   onChange={update("is_public_sector")}
                 />
-                {t("isPublicSector") || "Public sector (kommune / region / stat)"}
+                {t("isPublicSector", "Public sector (kommune / region / stat)")}
               </label>
             )}
 
             {form.is_company && (
               <div className="md:col-span-2">
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                  {t("eanLabel") || "EAN-nummer"}{form.is_public_sector ? " *" : ""}
+                  {t("eanLabel", "EAN number")}{form.is_public_sector ? " *" : ""}
                 </label>
                 <input
                   type="text"
@@ -493,17 +490,15 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
                 />
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                   {form.is_public_sector
-                    ? (t("eanHintRequired") ||
-                       "Required to invoice Danish public sector via NemHandel. 13 digits.")
-                    : (t("eanHintOptional") ||
-                       "Optional. Only needed if customer requires NemHandel-routed invoices.")}
+                    ? (t("eanHintRequired", "Required to invoice Danish public sector via NemHandel. 13 digits."))
+                    : (t("eanHintOptional", "Optional. Only needed if customer requires NemHandel-routed invoices."))}
                 </p>
               </div>
             )}
 
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("email") || "Email"}
+                {t("email", "Email")}
               </label>
               <input
                 type="email"
@@ -516,7 +511,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("phone") || "Phone"}
+                {t("phone", "Phone")}
               </label>
               <input
                 type="tel"
@@ -528,7 +523,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
             <div className="md:col-span-2">
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("address") || "Address"}
+                {t("address", "Address")}
               </label>
               <input
                 type="text"
@@ -541,7 +536,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("zipcode") || "Zipcode"}
+                {t("zipcode", "Zipcode")}
               </label>
               <input
                 type="text"
@@ -554,7 +549,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("city") || "City"}
+                {t("city", "City")}
               </label>
               <input
                 type="text"
@@ -567,7 +562,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("paymentTermsDays") || "Payment terms (days)"}
+                {t("paymentTermsDays", "Payment terms (days)")}
               </label>
               <input
                 type="number"
@@ -581,7 +576,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
 
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("invoiceLanguage") || "Invoice language"}
+                {t("invoiceLanguage", "Invoice language")}
               </label>
               <select
                 value={form.default_lang}
@@ -606,14 +601,14 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
               onClick={onClose}
               className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm"
             >
-              {t("cancel") || "Cancel"}
+              {t("cancel", "Cancel")}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
-              {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+              {saving ? (t("saving", "Saving…")) : (t("save", "Save"))}
             </button>
           </div>
         </form>

@@ -18,10 +18,20 @@ const STATUS_COLORS = {
   delivered: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
   invoiced: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
-const STATUS_LABELS = {
-  received: "Received", diagnosing: "Diagnosing", waiting_parts: "Waiting Parts",
-  in_progress: "In Progress", completed: "Completed", delivered: "Delivered", invoiced: "Invoiced",
-};
+// Status codes are what the API stores; the labels are catalogue copy (the
+// same keys JobCardPage uses, so the board and the card never disagree).
+function statusLabel(t, status) {
+  switch (status) {
+    case "received": return t("opsWsStatusReceived", "Received");
+    case "diagnosing": return t("opsWsStatusDiagnosing", "Diagnosing");
+    case "waiting_parts": return t("opsWsStatusWaitingParts", "Waiting Parts");
+    case "in_progress": return t("opsWsStatusInProgress", "In Progress");
+    case "completed": return t("opsWsStatusCompleted", "Completed");
+    case "delivered": return t("opsWsStatusDelivered", "Delivered");
+    case "invoiced": return t("opsWsStatusInvoiced", "Invoiced");
+    default: return String(status || "").replace(/_/g, " ");
+  }
+}
 
 export default function WorkshopPage() {
   const { user } = useAuth();
@@ -43,14 +53,14 @@ export default function WorkshopPage() {
     ]).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-gray-400">{t("loading") || "Loading..."}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-400">{t("loading", "Loading…")}</div>;
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold dark:text-white">🔧 {t("workshop") || "Workshop"}</h1>
+            <h1 className="text-2xl font-bold dark:text-white">🔧 {t("workshop", "Workshop")}</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
           </div>
           <button onClick={() => nav("/workshop/new-job")}
@@ -64,13 +74,13 @@ export default function WorkshopPage() {
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KpiCard icon={Car} label={t("wsInWorkshop", "In Workshop")} value={summary.vehicles_in_workshop}
-            sub={Object.entries(summary.status_breakdown || {}).map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(", ")} />
+            sub={Object.entries(summary.status_breakdown || {}).map(([k, v]) => `${v} ${statusLabel(t, k).toLowerCase()}`).join(", ")} />
           {/* Headline KPIs: whole kroner (decimals 0) — cents are noise at a
               glance. The notation follows the ACCOUNT, not the browser, so a
               DKK owner on an EN browser reads "1.113 kr." and not "1,113 DKK". */}
           <KpiCard icon={Wallet} label={t("wsWeekRevenue", "Week Revenue")} value={formatOwnerMoney(summary.week_revenue, currency, { decimals: 0 })} />
           <KpiCard icon={BarChart3} label={t("wsAvgJobValue", "Avg Job Value")} value={formatOwnerMoney(summary.avg_job_value, currency, { decimals: 0 })} />
-          <KpiCard icon={Timer} label={t("wsAvgTurnaround", "Avg Turnaround")} value={summary.avg_turnaround_days ? `${summary.avg_turnaround_days}d` : "—"} />
+          <KpiCard icon={Timer} label={t("wsAvgTurnaround", "Avg Turnaround")} value={summary.avg_turnaround_days ? t("expDaysShort", "{n}d", { n: summary.avg_turnaround_days }) : "—"} />
         </div>
       )}
 
@@ -128,6 +138,7 @@ function KpiCard({ icon: IconCmp, label, value, sub }) {
    JOB BOARD — kanban-style columns per status
    ═══════════════════════════════════════════════════════════ */
 function JobBoard({ jobs, currency, nav }) {
+  const { t } = useLanguage();
   const activeStatuses = STATUS_FLOW.filter(s => s !== "invoiced");
   const byStatus = {};
   activeStatuses.forEach(s => { byStatus[s] = []; });
@@ -139,7 +150,7 @@ function JobBoard({ jobs, currency, nav }) {
         {activeStatuses.map(status => (
           <div key={status} className="flex-1 min-w-[160px]">
             <div className={`text-xs font-bold uppercase px-2 py-1.5 rounded-t-lg ${STATUS_COLORS[status]}`}>
-              {STATUS_LABELS[status]} ({byStatus[status].length})
+              {statusLabel(t, status)} ({byStatus[status].length})
             </div>
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-b-lg p-2 space-y-2 min-h-[120px]">
               {byStatus[status].map(j => (
@@ -152,13 +163,15 @@ function JobBoard({ jobs, currency, nav }) {
                   {j.assigned_mechanic && <p className="text-gray-400">🔧 {j.assigned_mechanic}</p>}
                   {j.received_date && (
                     <p className="text-gray-400 mt-1">
-                      {Math.max(0, Math.round((Date.now() - new Date(j.received_date).getTime()) / 86400000))}d ago
+                      {t("daysAgo", "{n}d ago", {
+                        n: Math.max(0, Math.round((Date.now() - new Date(j.received_date).getTime()) / 86400000)),
+                      })}
                     </p>
                   )}
                 </div>
               ))}
               {byStatus[status].length === 0 && (
-                <p className="text-xs text-gray-300 dark:text-gray-600 text-center py-4">Empty</p>
+                <p className="text-xs text-gray-300 dark:text-gray-600 text-center py-4">{t("opsWsColumnEmpty", "Empty")}</p>
               )}
             </div>
           </div>
@@ -173,11 +186,12 @@ function JobBoard({ jobs, currency, nav }) {
    JOB LIST — mobile-friendly card view
    ═══════════════════════════════════════════════════════════ */
 function JobList({ jobs, currency, nav }) {
+  const { t } = useLanguage();
   if (!jobs.length) {
     return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
       <p className="text-4xl mb-3">🔧</p>
-      <p className="font-semibold dark:text-white">No job cards yet</p>
-      <p className="text-sm text-gray-400 mt-1">Create your first job card to get started.</p>
+      <p className="font-semibold dark:text-white">{t("opsWsNoJobsTitle", "No job cards yet")}</p>
+      <p className="text-sm text-gray-400 mt-1">{t("opsWsNoJobsBody", "Create your first job card to get started.")}</p>
     </div>;
   }
 
@@ -191,7 +205,7 @@ function JobList({ jobs, currency, nav }) {
               <div className="flex items-center gap-2">
                 <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{j.job_number}</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[j.status]}`}>
-                  {STATUS_LABELS[j.status]}
+                  {statusLabel(t, j.status)}
                 </span>
               </div>
               <p className="font-semibold dark:text-white mt-1">{j.vehicle?.plate_number} — {j.vehicle?.make} {j.vehicle?.model}</p>
@@ -218,12 +232,12 @@ function JobList({ jobs, currency, nav }) {
    MECHANIC LEADERBOARD
    ═══════════════════════════════════════════════════════════ */
 function MechanicView({ data, currency }) {
-  const { lang } = useLanguage();
+  const { t, lang } = useLanguage();
   if (!data?.mechanics?.length) {
     return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
       <p className="text-4xl mb-3">👨‍🔧</p>
-      <p className="font-semibold dark:text-white">No mechanic data yet</p>
-      <p className="text-sm text-gray-400 mt-1">Add labor entries to job cards to see mechanic performance.</p>
+      <p className="font-semibold dark:text-white">{t("opsWsNoMechanicsTitle", "No mechanic data yet")}</p>
+      <p className="text-sm text-gray-400 mt-1">{t("opsWsNoMechanicsBody", "Add labor entries to job cards to see mechanic performance.")}</p>
     </div>;
   }
 
@@ -251,14 +265,14 @@ function MechanicView({ data, currency }) {
             <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${(m.total_revenue / maxRevenue) * 100}%` }} />
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <div><span className="font-medium dark:text-gray-300">{m.total_jobs}</span> jobs</div>
+            <div><span className="font-medium dark:text-gray-300">{m.total_jobs}</span> {m.total_jobs === 1 ? t("opsWsJobOne", "job") : t("opsWsJobsMany", "jobs")}</div>
             {/* DECIMAL, not "6 t 48 min". This cell is the DENOMINATOR of the
                 one beside it — the backend computes revenue_per_hour as
                 revenue / hours — so the three numbers in this grid have to
                 stay checkable against each other by eye. An hours-and-minutes
                 duration reads better on its own and makes the division
                 impossible to verify. */}
-            <div><span className="font-medium dark:text-gray-300">{formatHours(m.total_hours, { lang, decimals: 1 })}</span> total</div>
+            <div><span className="font-medium dark:text-gray-300">{formatHours(m.total_hours, { lang, decimals: 1 })}</span> {t("opsWsHoursTotal", "total")}</div>
             {/* A rate, but its numerator is MONEY — so the amount goes through
                 the account's money notation and only the denominator is an hour
                 unit. "/hr" typed here put an English unit next to a Danish

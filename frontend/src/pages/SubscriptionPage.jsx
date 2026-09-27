@@ -158,7 +158,7 @@ const buildTiers = (t) => [
       // (Keys keep their featPro* names — only their tier placement moved.)
       { text: t("featProScheduleAutopilot", "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap") || "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap" },
       { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
-      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT") || "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT" },
+      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — a pre-filled MOMS-angivelse your revisor can upload to SKAT") || "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT" },
       { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
       { text: t("featProExpiryPush", "Push notification when items expire today — never lose a perishable to a forgotten reminder") || "Push notification when items expire today — never lose a perishable to a forgotten reminder" },
       { text: t("featStarterReservationInsights", "Reservation Insights — demand forecast + no-show detail per weekday") || "Reservation Insights — demand forecast + no-show detail per weekday" },

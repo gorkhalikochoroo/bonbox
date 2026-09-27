@@ -58,14 +58,14 @@ function typeToLabel(t, type) {
       return t("dashComplianceMomsLabel", "MOMS filing");
     case "kvartal":
     case "kvartalsregnskab":
-      return t("dashComplianceKvartalLabel", "kvartalsregnskab");
+      return t("dashComplianceKvartalLabel", "quarterly accounts");
     case "loen":
     case "loen_seddel":
     case "lønseddel":
       return t("dashComplianceLoenLabel", "lønseddel");
     case "aarsregnskab":
     case "årsregnskab":
-      return t("dashComplianceAarLabel", "årsregnskab");
+      return t("dashComplianceAarLabel", "annual accounts");
     default:
       return t("dashComplianceGenericLabel", "Filing deadline");
   }

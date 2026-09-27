@@ -118,9 +118,13 @@ export default function ReceiptViewer({
   if (!open) return null;
 
   const safeUrl = safeImageUrl(imageUrl);
-  const titleKey = kind === "expense" ? "receiptViewerExpenseTitle" : "receiptViewerSaleTitle";
-  const titleFallback = kind === "expense" ? "Expense receipt" : "Sale receipt";
-  const title = t(titleKey) || titleFallback;
+  const title = kind === "expense"
+    ? t("receiptViewerExpenseTitle", "Expense receipt")
+    : t("receiptViewerSaleTitle", "Sale receipt");
+  // Stored method codes are not all catalogue keys ("bank_transfer" is not),
+  // so map the ones that differ before translating; unknown codes pass through.
+  const methodKey = paymentMethod === "bank_transfer" ? "bankTransfer" : paymentMethod;
+  const ocrCount = Array.isArray(detectedAmounts) ? detectedAmounts.length : 0;
 
   const formattedAmount = (amount != null && !Number.isNaN(Number(amount)))
     ? Number(amount).toLocaleString()
@@ -148,7 +152,7 @@ export default function ReceiptViewer({
           </div>
           <button
             onClick={onClose}
-            aria-label={t("close") || "Close"}
+            aria-label={t("close", "Close")}
             className="w-8 h-8 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
@@ -171,11 +175,11 @@ export default function ReceiptViewer({
                   target="_blank"
                   rel="noreferrer"
                   className="block max-h-[70vh] overflow-hidden rounded-xl shadow"
-                  title={t("receiptViewerOpenOriginal") || "Open full size"}
+                  title={t("receiptViewerOpenOriginal", "Open full size in new tab")}
                 >
                   <img
                     src={safeUrl}
-                    alt={t("receiptViewerImageAlt") || "Receipt photo"}
+                    alt={t("receiptViewerImageAlt", "Receipt photo")}
                     className="block max-h-[70vh] w-auto object-contain"
                   />
                 </a>
@@ -192,7 +196,7 @@ export default function ReceiptViewer({
                   owner can compare it against the photo at a glance. */}
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                  {t("receiptViewerRecordedAmount") || "Recorded amount"}
+                  {t("receiptViewerRecordedAmount", "Recorded amount")}
                 </div>
                 <div className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">
                   {formattedAmount} <span className="text-base font-normal text-gray-500 dark:text-gray-400">{currency}</span>
@@ -203,19 +207,19 @@ export default function ReceiptViewer({
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 {date && (
                   <>
-                    <dt className="text-gray-500 dark:text-gray-400">{t("date") || "Date"}</dt>
+                    <dt className="text-gray-500 dark:text-gray-400">{t("date", "Date")}</dt>
                     <dd className="text-gray-800 dark:text-gray-200 font-medium">{date}</dd>
                   </>
                 )}
                 {paymentMethod && (
                   <>
-                    <dt className="text-gray-500 dark:text-gray-400">{t("paymentMethod") || "Payment"}</dt>
-                    <dd className="text-gray-800 dark:text-gray-200 font-medium capitalize">{t(paymentMethod) || paymentMethod}</dd>
+                    <dt className="text-gray-500 dark:text-gray-400">{t("paymentMethod", "Payment method")}</dt>
+                    <dd className="text-gray-800 dark:text-gray-200 font-medium capitalize">{t(methodKey, paymentMethod)}</dd>
                   </>
                 )}
                 {description && (
                   <>
-                    <dt className="text-gray-500 dark:text-gray-400 col-span-2 mt-1">{t("description") || "Description"}</dt>
+                    <dt className="text-gray-500 dark:text-gray-400 col-span-2 mt-1">{t("description", "Description")}</dt>
                     <dd className="col-span-2 text-gray-800 dark:text-gray-200">{description}</dd>
                   </>
                 )}
@@ -231,13 +235,13 @@ export default function ReceiptViewer({
                 <div>
                   <div className="flex items-center justify-between">
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                      {t("receiptViewerOcrText") || "Receipt text recognized"}
+                      {t("receiptViewerOcrText", "Receipt text recognized")}
                     </div>
-                    {Array.isArray(detectedAmounts) && detectedAmounts.length > 0 && (
+                    {ocrCount > 0 && (
                       <div className="text-[10px] text-gray-400 dark:text-gray-500">
-                        {(t("receiptViewerOcrLegend") || "{n} amount{s} found")
-                          .replace("{n}", detectedAmounts.length)
-                          .replace("{s}", detectedAmounts.length === 1 ? "" : "s")}
+                        {ocrCount === 1
+                          ? t("opsReceiptAmountFoundOne", "1 amount found")
+                          : t("opsReceiptAmountsFound", "{n} amounts found", { n: ocrCount })}
                       </div>
                     )}
                   </div>
@@ -253,7 +257,7 @@ export default function ReceiptViewer({
               {safeUrl && (
                 <div className="text-[11px] text-gray-400 dark:text-gray-500">
                   <a href={safeUrl} target="_blank" rel="noreferrer" className="underline hover:text-gray-700 dark:hover:text-gray-200">
-                    {t("receiptViewerOpenOriginal") || "Open full size in new tab"}
+                    {t("receiptViewerOpenOriginal", "Open full size in new tab")}
                   </a>
                 </div>
               )}

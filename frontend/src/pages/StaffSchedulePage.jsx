@@ -54,7 +54,7 @@ import { formatHours, hoursUnit } from "../utils/hours";
 // null (we never asked / the call failed) must not render as "nobody has",
 // and it must never render as the sentence claiming the team can see the week.
 import { summarizePortalReach, linkWasOpened } from "../utils/portalReach";
-import { formatDateClear } from "../utils/dateFormat";
+import { formatDateClear, dateLocale } from "../utils/dateFormat";
 import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
@@ -127,6 +127,30 @@ function roleToShiftOption(r, roles = ROLES_RESTAURANT) {
   const exact = roles.find((x) => x.toLowerCase() === String(r).toLowerCase());
   if (exact) return exact;
   return ROLE_TO_SHIFT_OPTION[String(r).toLowerCase()] || roles[0];
+}
+
+// What an owner READS for a role. The values above stay the stored English
+// words (role / role_on_shift — the section resolver and the backend key on
+// them); only the text on screen follows the language. Lowercase legacy rows
+// ("server", "kitchen") resolve too. Unknown roles — and the salon vocabulary,
+// Danish in both languages by decision — show exactly as stored. Same map as
+// the twins in StaffPortalPage, StaffPayrollPage and StaffTipsPage.
+const ROLE_NAME_KEYS = {
+  chef: ["stfRoleChef", "Chef"],
+  server: ["stfRoleServer", "Server"],
+  dishwasher: ["stfRoleDishwasher", "Dishwasher"],
+  manager: ["teamRoleManager", "Manager"],
+  kitchen: ["roleKitchen", "Kitchen"],
+  floor: ["roleFloor", "Floor"],
+  "full-time": ["contractFull", "Full-time"],
+  full_time: ["contractFull", "Full-time"],
+  "part-time": ["contractPart", "Part-time"],
+  part_time: ["contractPart", "Part-time"],
+  student: ["contractStudent", "Student"],
+};
+function roleName(role, t) {
+  const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
+  return hit ? t(hit[0], hit[1]) : role;
 }
 // CONTRACT_TYPES moved to config/scheduleGrid.js when its labels became i18n
 // keys — a hardcoded "Full-time" was rendering English inside an otherwise
@@ -238,19 +262,19 @@ function weekParts(weekStart, lang) {
   return { ws, we, da, m: WEEK_MONTHS[da ? "da" : "en"], num: getISOWeekNumber(ws) };
 }
 
-function formatWeekRange(weekStart, lang = "en") {
+function formatWeekRange(weekStart, lang, t) {
   const { ws, we, da, m, num } = weekParts(weekStart, lang);
   const day = (dt) => (da ? `${dt.getDate()}. ${m[dt.getMonth()]}` : `${dt.getDate()} ${m[dt.getMonth()]}`);
-  return `${da ? "Uge" : "Week"} ${num}: ${day(ws)} – ${day(we)} ${we.getFullYear()}`;
+  return `${t("weekLabel", "Week")} ${num}: ${day(ws)} – ${day(we)} ${we.getFullYear()}`;
 }
 
 /** "Uge 38" / "Week 38" — the WEEK NUMBER alone. A DK owner navigates by week
     number ("kan du tage uge 38?"); the dates are confirmation, not the label.
     Split out of formatWeekRange so the pill can weight the two halves
     differently instead of shouting the whole string in semibold. */
-function formatWeekLabel(weekStart, lang = "en") {
-  const { da, num } = weekParts(weekStart, lang);
-  return `${da ? "Uge" : "Week"} ${num}`;
+function formatWeekLabel(weekStart, lang, t) {
+  const { num } = weekParts(weekStart, lang);
+  return `${t("weekLabel", "Week")} ${num}`;
 }
 
 /** The date range alone — the quiet half of the week pill. */
@@ -587,7 +611,7 @@ function GridSkeleton({ t }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <p className="px-4 pt-3 text-[13px] text-gray-500 dark:text-gray-400">
-        {t ? t("schedLoadingWeek", "Loading this week's shifts…") : "Loading this week's shifts…"}
+        {t("schedLoadingWeek", "Loading this week's shifts…")}
       </p>
       <div className="animate-pulse">
       <div className="overflow-x-auto">
@@ -1575,7 +1599,7 @@ export default function StaffSchedulePage() {
       });
       await fetchShifts();
     } catch (err) {
-      setError(errText(err, "Failed to copy last week's schedule."));
+      setError(errText(err, t("stfCopyWeekFailed", "Failed to copy last week's schedule.")));
     }
     setCopying(false);
   };
@@ -1706,7 +1730,7 @@ export default function StaffSchedulePage() {
         notify,
       });
     } catch (err) {
-      setError(errText(err, "Failed to publish schedule."));
+      setError(errText(err, t("stfPublishFailed", "Failed to publish schedule.")));
     }
     setPublishing(false);
   };
@@ -2007,9 +2031,9 @@ export default function StaffSchedulePage() {
         type: "application/pdf",
         title: t("schedHandoffPdfLabel", "PDF for the staff board"),
       });
-      if (!out.ok) setError(t("schedulePdfFailed") || "Couldn't export PDF.");
+      if (!out.ok) setError(t("schedulePdfFailed", "Couldn't export PDF."));
     } catch (err) {
-      setError(errText(err, t("schedulePdfFailed") || "Couldn't export PDF."));
+      setError(errText(err, t("schedulePdfFailed", "Couldn't export PDF.")));
     } finally {
       setExporting(false);
     }
@@ -2261,7 +2285,7 @@ export default function StaffSchedulePage() {
       setShareRowCopied(member.id);
       setTimeout(() => setShareRowCopied(null), 2000);
     } catch (err) {
-      setError(errText(err, "Failed to generate link"));
+      setError(errText(err, t("stfLinkFailed", "Failed to generate link")));
     }
   };
 
@@ -2332,9 +2356,8 @@ export default function StaffSchedulePage() {
   return (
     <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto space-y-6">
       <PageHeader
-        eyebrow="STAFF"
-        title={t("staffSchedule") || "Staff Schedule"}
-        subtitle={t("staffScheduleDesc") || "Plan weekly shifts, manage staff, and track labor costs."}
+        title={t("staffSchedule", "Staff Schedule")}
+        subtitle={t("staffScheduleDesc", "Plan weekly shifts, manage staff, and track labor costs.")}
         actions={
           /* Beskeder — owner ↔ staff 1:1 chat launcher. Unread badge polls the
              cheap aggregate endpoint; opening the drawer marks read.
@@ -2362,9 +2385,6 @@ export default function StaffSchedulePage() {
       {/* Live punch-clock — who's on the clock right now (staff self-clock
           from their portal, auto-updates ~30s). Hides when nobody's in. */}
       <ClockedInStrip />
-
-      {/* Clock-in location lock (opt-in geofence). */}
-      <ClockGeofenceSettings />
 
       {/* Fravær (ferie/sygdom) that need godkend/afvis. Interrupt-only —
           hides itself when nothing is pending. This card had no mount point
@@ -2415,7 +2435,7 @@ export default function StaffSchedulePage() {
                 className="px-4 py-2 rounded-lg text-sm bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] transition"
               >
                 <span className="font-semibold text-gray-900 dark:text-gray-100">
-                  {formatWeekLabel(weekStart, lang)}
+                  {formatWeekLabel(weekStart, lang, t)}
                 </span>{" "}
                 <span className="font-normal text-gray-600 dark:text-gray-400">
                   <span className="sm:hidden">{formatWeekDatesShort(weekStart, lang)}</span>
@@ -3154,6 +3174,12 @@ export default function StaffSchedulePage() {
         </div>
       </FadeIn>
 
+      {/* Clock-in location lock (opt-in geofence). A one-time setting, so it
+          sits BELOW the rota: it used to open the page above the week toolbar,
+          where three reviewers found it pushing the schedule — the thing an
+          owner comes here for, every week — below the fold. */}
+      <ClockGeofenceSettings />
+
       {/* Click-to-bloom undo — a calm one-tap Fortryd for the just-added draft.
           Auto-dismisses after ~6s. Drafts never notify, so this is purely a
           local convenience (no "unsend"). */}
@@ -3573,10 +3599,18 @@ function WeatherChip({ weather }) {
   );
 }
 
-function formatDayShort(iso) {
+function formatDayShort(iso, t) {
   const d = new Date(iso + "T00:00:00");
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  return `${days[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
+  // getDay() is Sunday-first; dayShort() is Monday-indexed.
+  return `${dayShort((d.getDay() + 6) % 7, t)} ${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+/** "Monday" / "Mandag" for an ISO date, in the app language ("" if unparseable). */
+function weekdayLong(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  const s = d.toLocaleDateString(dateLocale(), { weekday: "long" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
@@ -3607,7 +3641,7 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
               : t("autopilotConfidenceLow", "Low confidence — limited data")}
           </p>
           <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mt-0.5">
-            {t("autopilotWeekOf", "Week of")} {formatDayShort(suggestion.week_start)}
+            {t("autopilotWeekOf", "Week of")} {formatDayShort(suggestion.week_start, t)}
           </h3>
           <div className="text-xs text-gray-600 dark:text-gray-400 mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
             {/* formatKr, not a bare toLocaleString + a "DKK" token. The owner
@@ -3734,10 +3768,12 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {day.weekday}
+                  {/* The API names the day in English ("Monday"); the date it
+                      belongs to gives the owner's own word for it. */}
+                  {weekdayLong(day.date) || day.weekday}
                 </div>
                 <div className="text-[11px] text-gray-500">
-                  {formatDayShort(day.date)}
+                  {formatDayShort(day.date, t)}
                 </div>
               </div>
               <div className="text-xs text-gray-700 dark:text-gray-300 text-right whitespace-nowrap">
@@ -3787,7 +3823,7 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
                       {s.break_minutes > 0 && (
                         <span className="text-gray-400">
                           {" "}
-                          · {s.break_minutes}m brk
+                          · {t("portalHoursBreak", "{m} min break", { m: s.break_minutes })}
                         </span>
                       )}
                     </span>
@@ -4034,7 +4070,7 @@ function StaffDetailModal({
                 {member.name}
               </h2>
               <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
-                {member.role}
+                {roleName(member.role, t)}
               </span>
               {isInactive && (
                 <span className="text-xs text-red-500 font-medium">{t("inactive")}</span>
@@ -4079,7 +4115,7 @@ function StaffDetailModal({
                 className={inputCls}
               >
                 {roles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>{roleName(r, t)}</option>
                 ))}
               </select>
             </div>
@@ -4281,20 +4317,20 @@ function StaffDetailModal({
           {currency === "DKK" && (
             <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 space-y-3">
               <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Trækkort
+                {t("stfTaxCardTitle", "Tax card (trækkort)")}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <select
                   value={editForm.tax_card_type || ""}
                   onChange={(e) => setEditForm({ ...editForm, tax_card_type: e.target.value })}
                   className={inputCls}
-                  title="Trækkort type — affects A-skat estimate"
-                  aria-label="Trækkort type"
+                  title={t("stfTaxCardTypeHint", "Tax card type — affects the A-skat estimate")}
+                  aria-label={t("stfTaxCardType", "Tax card type")}
                 >
                   <option value="">{t("auto")}</option>
-                  <option value="hovedkort">Hovedkort (~36%)</option>
-                  <option value="bikort">Bikort (~42%)</option>
-                  <option value="frikort">Frikort (0%)</option>
+                  <option value="hovedkort">{t("stfTaxCardMain", "Hovedkort — main card (~36%)")}</option>
+                  <option value="bikort">{t("stfTaxCardSecondary", "Bikort — secondary card (~42%)")}</option>
+                  <option value="frikort">{t("stfTaxCardFree", "Frikort — tax-free card (0%)")}</option>
                 </select>
                 <input
                   type="number"
@@ -4305,7 +4341,7 @@ function StaffDetailModal({
                   max="60"
                   step="0.1"
                   className={`${inputCls} tabular-nums`}
-                  title="Paste exact rate from employee's eSkattekort (0–60%)"
+                  title={t("stfTaxCardRateHint", "Paste exact rate from employee's eSkattekort (0–60%)")}
                   aria-label={t("rateOverridePct")}
                 />
               </div>
@@ -4445,7 +4481,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       if (res.data.join_code) onCodeMinted?.(member.id, res.data.join_code);
       setLinkModal({ staffName: member.name, portalUrl: fullUrl, loading: false });
     } catch (err) {
-      setPanelError(errText(err, "Failed to generate link"));
+      setPanelError(errText(err, t("stfLinkFailed", "Failed to generate link")));
       setLinkModal(null);
     }
   };
@@ -4540,7 +4576,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       setBaseRate("");
       onRefresh();
     } catch (err) {
-      setPanelError(errText(err, "Failed to add staff member."));
+      setPanelError(errText(err, t("stfStaffAddFailed", "Failed to add staff member.")));
     }
     setSaving(false);
   };
@@ -4591,7 +4627,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       setSaving(false);
       return true; // signals the detail modal to close on success
     } catch (err) {
-      setPanelError(errText(err, "Failed to update staff member."));
+      setPanelError(errText(err, t("stfStaffUpdateFailed", "Failed to update staff member.")));
     }
     setSaving(false);
     return false;
@@ -4620,7 +4656,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       await api.delete(`/staff/members/${member.id}`);
       onRefresh();
     } catch (err) {
-      setPanelError(errText(err, "Failed to deactivate staff member."));
+      setPanelError(errText(err, t("stfStaffDeactivateFailed", "Failed to deactivate staff member.")));
     }
   };
 
@@ -4724,7 +4760,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             {roles.map((r) => (
-              <option key={r} value={r}>{r}</option>
+              <option key={r} value={r}>{roleName(r, t)}</option>
             ))}
           </select>
           <select
@@ -4813,7 +4849,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                           and cannot shrink, so without this they take their
                           width out of the NAME's budget. */}
                       <div className={`shrink-0 px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
-                        {member.role}
+                        {roleName(member.role, t)}
                       </div>
                       {/* Click the name to open the detail/edit modal (#336).
                           Disabled for inactive members (their edit affordances
@@ -4826,8 +4862,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                       <button
                         type="button"
                         onClick={() => openDetail(member)}
-                        title={t("viewStaffDetails") || "View details"}
-                        aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
+                        title={t("viewStaffDetails", "View details")}
+                        aria-label={`${t("viewStaffDetails", "View details")} — ${member.name}`}
                         // `flex-1 min-w-0` — WITHOUT IT THIS RENDERED AT 0px.
                         // Measured at 390px the row's inner width is 282px and
                         // the right cluster takes 171px, leaving 111px for an
@@ -5545,7 +5581,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                     {member.name}
                   </div>
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5 min-w-0">
-                    <span className="truncate">{member.role}</span>
+                    <span className="truncate">{roleName(member.role, t)}</span>
                     {contractLabel(member.contract_type, t) && (
                       <span className="px-1 py-px rounded bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap flex-shrink-0">
                         {contractLabel(member.contract_type, t)}
@@ -6393,7 +6429,7 @@ export function ScheduleGrid({
               {/* 11px floor — role + contract type, in the 160px staff column
                   that has the room for it. */}
               <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-                <span>{member.role}</span>
+                <span>{roleName(member.role, t)}</span>
                 {/* Contract type — Fuldtid / Deltid / Studerende / Freelance.
                     This is what replaced the per-shift kroner: an owner
                     building a week needs to know who is a student before they
@@ -7025,7 +7061,7 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 {title}
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {formatWeekRange(weekStart, lang)}
+                {formatWeekRange(weekStart, lang, t)}
               </p>
             </div>
           </div>
@@ -7062,11 +7098,13 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                   )}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {t(
-                    "publishedSavedNotSent",
-                    "{n} shift(s) are saved as published, but your team has not been told.",
-                    { n: result.published },
-                  )}
+                  {result.published === 1
+                    ? t("stfPublishedSavedNotSentOne", "1 shift is saved as published, but your team has not been told.")
+                    : t(
+                        "publishedSavedNotSent",
+                        "{n} shift(s) are saved as published, but your team has not been told.",
+                        { n: result.published },
+                      )}
                 </p>
                 {/* The way out is the sheet's PRIMARY action, in the footer —
                     see below. A sheet that reports a silent failure and offers
@@ -7076,7 +7114,9 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
             ) : (
               <>
                 <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
-                  {t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
+                  {result.published === 1
+                    ? t("stfPublishedLiveOne", "1 shift is now live on your team's schedule.")
+                    : t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                   {notifyUnknown
@@ -7086,7 +7126,9 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                         "publishedNotifyUnknown",
                         "We could not confirm whether anyone was notified.",
                       )
-                    : t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))}
+                    : result.notify === 1
+                      ? t("stfPublishedNotifiedOne", "1 staff member notified about their changes.")
+                      : t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))}
                 </p>
               </>
             )}
@@ -7513,7 +7555,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
             <option value="">{t("selectStaff")}</option>
             {staff.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} ({s.role})
+                {s.name} ({roleName(s.role, t)})
               </option>
             ))}
           </select>
@@ -7648,7 +7690,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
               className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
             >
               {roles.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option key={r} value={r}>{roleName(r, t)}</option>
               ))}
             </select>
           </div>

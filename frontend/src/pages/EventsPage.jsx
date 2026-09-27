@@ -1306,7 +1306,7 @@ export default function EventsPage() {
                               ? "bg-emerald-500"
                               : "bg-gray-400";
                           const label = isClosed
-                            ? t("eventStatusClosed", "Lukket")
+                            ? t("eventStatusClosed", "Closed")
                             : ev.published
                               ? t("eventStatusLive", "Live")
                               : t("eventStatusDraft", "Draft");
@@ -1322,11 +1322,13 @@ export default function EventsPage() {
                         })()}
                         {ev.ticket_tiers && ev.ticket_tiers.length > 0 && (
                           <span
-                            title={t(
-                              "eventTicketTierBadge",
-                              "{n} ticket tier(s) defined",
-                              { n: ev.ticket_tiers.length },
-                            )}
+                            title={
+                              ev.ticket_tiers.length === 1
+                                ? t("stfEventTierCountOne", "1 ticket tier defined")
+                                : t("stfEventTierCountMany", "{n} ticket tiers defined", {
+                                    n: ev.ticket_tiers.length,
+                                  })
+                            }
                             className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
                           >
                             {ev.ticket_tiers.length}× {t("eventTicketTierBadgeShort", "tier")}
@@ -1334,7 +1336,7 @@ export default function EventsPage() {
                         )}
                         {ev.is_tax_exempt && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                            MOMS-fri
+                            {t("eventsExempt", "MOMS-exempt")}
                           </span>
                         )}
                       </div>

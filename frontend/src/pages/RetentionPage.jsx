@@ -16,10 +16,17 @@ import {
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 
 const STATUS_CONFIG = {
-  active:  { label: "Active",   color: "#10b981", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-emerald-500" },
-  at_risk: { label: "At Risk",  color: "#f59e0b", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-amber-500" },
-  churned: { label: "Churned",  color: "#ef4444", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-red-500" },
+  active:  { color: "#10b981", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-emerald-500" },
+  at_risk: { color: "#f59e0b", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-amber-500" },
+  churned: { color: "#ef4444", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-red-500" },
 };
+
+// Status codes come from the API; the words are catalogue copy.
+function statusLabel(t, status) {
+  if (status === "at_risk") return t("retTabAtRisk", "At Risk");
+  if (status === "churned") return t("opsRetChurned", "Churned");
+  return t("activeLabel", "Active");
+}
 
 // `embedded` (C6 InsightsHub) — when true this page renders as a TAB BODY
 // inside InsightsHubPage (the "Gæster" tab): it drops its own page chrome
@@ -42,7 +49,7 @@ export default function RetentionPage({ embedded = false }) {
     try {
       const res = await api.get("/retention/insights");
       setData(res.data);
-    } catch { setError("Could not load retention data"); }
+    } catch { setError("load_failed"); }
     setLoading(false);
   };
 
@@ -61,7 +68,10 @@ export default function RetentionPage({ embedded = false }) {
     return (
       <div className={`${embedded ? "" : "p-4 md:p-8"} max-w-lg mx-auto text-center`}>
         <div className="text-4xl mb-4">🤝</div>
-        <p className="text-red-500">{error}</p>
+        <p className="text-red-500">
+          {/* Worded at render so the message follows a language switch. */}
+          {error === "load_failed" ? t("opsRetLoadFailed", "Could not load retention data") : error}
+        </p>
         <Button variant="secondary" onClick={fetchData} className="mt-4">
           {t("tryAgain", "Try again")}
         </Button>
@@ -77,16 +87,13 @@ export default function RetentionPage({ embedded = false }) {
   } = data;
 
   const pieData = [
-    { name: "Active", value: active_customers, color: "#10b981" },
-    { name: "At Risk", value: at_risk_customers, color: "#f59e0b" },
-    { name: "Churned", value: churned_customers, color: "#ef4444" },
+    { name: statusLabel(t, "active"), value: active_customers, color: "#10b981" },
+    { name: statusLabel(t, "at_risk"), value: at_risk_customers, color: "#f59e0b" },
+    { name: statusLabel(t, "churned"), value: churned_customers, color: "#ef4444" },
   ].filter(d => d.value > 0);
 
-  const tabs = [
-    { key: "overview", label: "Overview" },
-    { key: "customers", label: `Top Customers (${top_customers?.length || 0})` },
-    { key: "at_risk", label: `At Risk (${at_risk_list?.length || 0})` },
-  ];
+  // Labels are resolved in the TabPills map below (with their counts).
+  const tabs = [{ key: "overview" }, { key: "customers" }, { key: "at_risk" }];
 
   return (
     <div className={wrapCls}>
@@ -94,9 +101,8 @@ export default function RetentionPage({ embedded = false }) {
       {!embedded && (
         <FadeIn>
           <PageHeader
-            eyebrow="INTEL"
-            title={t("customerRetention") || "Customer Retention"}
-            subtitle={t("retentionSubtitle") || "Spot at-risk customers before they churn."}
+            title={t("customerRetention", "Customer Retention")}
+            subtitle={t("retentionSubtitle", "Spot at-risk customers before they churn.")}
           />
         </FadeIn>
       )}
@@ -213,7 +219,7 @@ export default function RetentionPage({ embedded = false }) {
                     return (
                       <div key={key} className="flex items-center gap-3">
                         <span className="w-3 h-3 rounded-full" style={{ backgroundColor: cfg.color }} />
-                        <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{cfg.label}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{statusLabel(t, key)}</span>
                         <span className="text-sm font-bold text-gray-800 dark:text-white">{count}</span>
                         <span className="text-xs text-gray-400 w-10 text-right">{pctVal}%</span>
                       </div>
@@ -315,7 +321,7 @@ function CustomerCard({ customer: c, rank, currency, showUrgency }) {
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{c.name}</p>
             <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${cfg.bg} ${cfg.text}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />{cfg.label}
+              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />{statusLabel(t, c.status)}
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">

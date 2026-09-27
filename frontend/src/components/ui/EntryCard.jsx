@@ -46,19 +46,19 @@
  *
  * Usage:
  *   <EntryCard
- *     title={t("sales.log_a_sale", "Log a sale")}
- *     hint={t("sales.tap_or_type", "Tap an amount or type one")}
+ *     title={t("logSale", "Log Today's Sale")}
+ *     hint={t("tapAmount", "Tap an amount or type your own")}
  *     amountPresets={[500, 1000, 2500, 5000]}
  *     amount={amount} onAmountChange={setAmount}
  *     amountSuffix="DKK"
  *     paymentMethods={[
- *       { id: "cash", label: "Cash" },
+ *       { id: "cash", label: t("cash", "Cash") },
  *       { id: "mobilepay", label: "MobilePay" },
  *     ]}
  *     paymentMethod={method} onPaymentChange={setMethod}
  *     notes={notes} onNotesChange={setNotes}
  *     date={saleDate} onDateChange={setSaleDate}
- *     submitLabel={t("sales.log", "Log")}
+ *     submitLabel={t("log", "Log")}
  *     onSubmit={submit}
  *     busy={submitting}
  *   />
@@ -91,7 +91,8 @@ export default function EntryCard({
   amountPresets = [],
   amount = "",
   onAmountChange,
-  amountPlaceholder = "Custom amount...",
+  // Omitted → the translated default below; a caller's own string wins.
+  amountPlaceholder,
   amountSuffix = null,
   // The owner's own money notation. "da-DK" reads 1.500,50; "en-US" reads
   // 1,500.50. Defaulted to Danish because this is a Denmark-first product and
@@ -106,10 +107,10 @@ export default function EntryCard({
   extras = null,
   notes = "",
   onNotesChange,
-  notesPlaceholder = "Notes (optional)",
+  notesPlaceholder,
   date = null,
   onDateChange,
-  submitLabel = "Save",
+  submitLabel,
   onSubmit,
   busy = false,
   disabled = false,
@@ -117,6 +118,13 @@ export default function EntryCard({
   className = "",
 }) {
   const { t } = useLanguage();
+  // The defaults are copy, so they come from the catalogue — a literal default
+  // here read "Custom amount..." to a Danish owner on every caller that left
+  // it out. `=== undefined` (not `??`) keeps the old default-parameter rule:
+  // only an omitted prop falls back; an explicit null/"" is the caller's call.
+  const amountPh = amountPlaceholder === undefined ? t("customAmount", "Custom amount...") : amountPlaceholder;
+  const notesPh = notesPlaceholder === undefined ? t("notesOptional", "Notes (optional)") : notesPlaceholder;
+  const submitText = submitLabel === undefined ? t("save", "Save") : submitLabel;
   // Density — opt-in `compact` tightens the card chrome (Card padding,
   // header margin, inter-row gap) for height-constrained surfaces like the
   // /expenses capture keypad. Default "comfortable" leaves every token
@@ -253,7 +261,7 @@ export default function EntryCard({
               onChange={(e) =>
                 onAmountChange && onAmountChange(e.target.value)
               }
-              placeholder={amountPlaceholder}
+              placeholder={amountPh}
               suffix={amountSuffix}
               aria-label={t("amount", "Amount")}
               aria-invalid={amountRejected || undefined}
@@ -281,7 +289,7 @@ export default function EntryCard({
             onClick={handleSubmit}
             className="sm:w-auto w-full"
           >
-            {submitLabel}
+            {submitText}
           </Button>
         </div>
 
@@ -322,7 +330,7 @@ export default function EntryCard({
                   size="md"
                   value={notes ?? ""}
                   onChange={(e) => onNotesChange(e.target.value)}
-                  placeholder={notesPlaceholder}
+                  placeholder={notesPh}
                   aria-label={t("notes", "Notes")}
                 />
               </div>

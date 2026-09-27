@@ -131,7 +131,7 @@ export default function StaffDocumentsRow({ memberId, labelCls }) {
           type="text"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder={t("staffDocsNamePlaceholder", "e.g. Ansættelseskontrakt 2026")}
+          placeholder={t("staffDocsNamePlaceholder", "e.g. Employment contract 2026")}
           className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-[13px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
         />
         <button

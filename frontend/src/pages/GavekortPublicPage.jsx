@@ -17,6 +17,7 @@ import { QRCodeSVG } from "qrcode.react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
+import { dateLocale } from "../utils/dateFormat";
 
 function krFromMinor(minor) {
   if (minor == null || Number.isNaN(minor)) return "—";
@@ -102,10 +103,16 @@ function ErrorCard({ t, status }) {
 }
 
 const STATUS_META = {
-  active: { key: "gpkStatusActive", label: "Gyldigt", Icon: Check, tone: "ok" },
-  expired: { key: "gpkStatusExpired", label: "Udløbet", Icon: Clock, tone: "muted" },
-  redeemed: { key: "gpkStatusRedeemed", label: "Indløst", Icon: Check, tone: "muted" },
+  active: { Icon: Check, tone: "ok" },
+  expired: { Icon: Clock, tone: "muted" },
+  redeemed: { Icon: Check, tone: "muted" },
 };
+
+function statusLabel(t, status) {
+  if (status === "expired") return t("gpkStatusExpired", "Expired");
+  if (status === "redeemed") return t("gpkStatusRedeemed", "Redeemed");
+  return t("gpkStatusActive", "Valid");
+}
 
 function CardView({ t, data, token }) {
   const status = data?.status || "active";
@@ -115,7 +122,7 @@ function CardView({ t, data, token }) {
   const face = data?.face_value_minor ?? 0;
   const partial = isActive && balance !== face;
   const expiryLabel = data?.expires_at
-    ? new Date(data.expires_at).toLocaleDateString("da-DK", {
+    ? new Date(data.expires_at).toLocaleDateString(dateLocale(), {
         day: "numeric",
         month: "short",
         year: "numeric",
@@ -164,7 +171,7 @@ function CardView({ t, data, token }) {
             }`}
           >
             <meta.Icon className="h-3.5 w-3.5" aria-hidden />
-            {t(meta.key, meta.label)}
+            {statusLabel(t, STATUS_META[status] ? status : "active")}
           </span>
         </div>
 

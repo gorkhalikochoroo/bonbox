@@ -62,6 +62,16 @@ const DA_MONTH_FULL = [
   "januar", "februar", "marts", "april", "maj", "juni",
   "juli", "august", "september", "oktober", "november", "december",
 ];
+// The same labels for every other UI language — "June 2026", "Q2 2026",
+// "H1 2026", "Jan–Sep 2026" (the landing's MOMS card uses the same H1/H2 form).
+const EN_MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+const EN_MONTH_FULL = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 // Map the user's saved filing frequency to a default preset type. DK SMB
 // fallback is half-yearly (the SKAT default). "bimonthly" has no dedicated
@@ -150,9 +160,24 @@ function stepAnchor(type, anchor, dir) {
 
 // Premium da-DK period label: "juni 2026" · "2. kvartal 2026" · "1. halvår
 // 2026" · "jan.–sep. 2026". Danish ordinals (1./2.) for quarter & half.
-function periodLabel(type, anchor) {
+// Any other UI language reads "June 2026" · "Q2 2026" · "H1 2026" · "Jan–Sep 2026".
+function periodLabel(type, anchor, lang = "da") {
   const y = anchor.year;
   const m = anchor.month; // 1-based, already snapped to period start
+  if (lang !== "da") {
+    switch (type) {
+      case "monthly":
+        return `${EN_MONTH_FULL[m - 1]} ${y}`;
+      case "quarterly":
+        return `Q${Math.floor((m - 1) / 3) + 1} ${y}`;
+      case "halfYearly":
+        return `H${m <= 6 ? 1 : 2} ${y}`;
+      case "nineMonth":
+        return `${EN_MONTH_ABBR[0]}–${EN_MONTH_ABBR[8]} ${y}`;
+      default:
+        return "";
+    }
+  }
   switch (type) {
     case "monthly":
       return `${DA_MONTH_FULL[m - 1]} ${y}`;
@@ -172,7 +197,7 @@ function periodLabel(type, anchor) {
 }
 
 const SECTION_DEFS = [
-  { key: "sales_breakdown", labelKey: "salesBreakdown", descKey: "salesBreakdownDesc", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
+  { key: "sales_breakdown", labelKey: "salesBreakdown", descKey: "opsReportSalesBreakdownDesc", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
   { key: "expense_breakdown", labelKey: "expenseBreakdown", descKey: "costsByCategory", icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" },
   { key: "inventory", labelKey: "inventoryReport", descKey: "stockLevelsValues", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
   { key: "vat_detail", labelKey: null, descKey: "fullTaxBreakdown", icon: "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" },
@@ -197,7 +222,7 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const vat = getVatTerms(user?.currency);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [pulseSubTab, setPulseSubTab] = useState("daily");
   const months = [t("january"),t("february"),t("march"),t("april"),t("may"),t("june"),t("july"),t("august"),t("september"),t("october"),t("november"),t("december")];
@@ -406,7 +431,7 @@ export default function ReportsPage() {
       ? (resolved?.start && resolved?.end
           ? `${formatDate(resolved.start)} – ${formatDate(resolved.end)}`
           : t("periodCustom"))
-      : periodLabel(periodType, anchor);
+      : periodLabel(periodType, anchor, lang);
 
   const periodTypeTabs = [
     { id: "monthly", label: t("periodMonthly") },
@@ -479,12 +504,12 @@ export default function ReportsPage() {
               TaxBundle UX so nothing is lost in the Phase E reshuffle). */}
           <TabPills
             tabs={[
-              { id: "daily", label: t("todaysBooks") || "Today's Books" },
-              { id: "monthly", label: t("taxBundle") || "Tax Bundle" },
+              { id: "daily", label: t("todaysBooks", "Today's Books") },
+              { id: "monthly", label: t("taxBundle", "Tax Bundle") },
             ]}
             activeId={pulseSubTab}
             onChange={setPulseSubTab}
-            ariaLabel={t("reportBuilder") || "Report builder"}
+            ariaLabel={t("reportBuilder", "Report Builder")}
           />
 
           {pulseSubTab === "daily" && <DailyKasserapport />}
@@ -493,7 +518,6 @@ export default function ReportsPage() {
             <>
               {/* Header */}
               <PageHeader
-                eyebrow="REPORTS"
                 title={t("reportBuilder")}
                 subtitle={t("buildCustomReport")}
               />
@@ -608,8 +632,8 @@ export default function ReportsPage() {
                   <StatCard dense label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
                   <StatCard dense label={t("cashIn")} value={money(overview.cash_in)} />
                   <StatCard dense label={t("cashOut")} value={money(overview.cash_out)} />
-                  <StatCard dense label={t("avgPerSale") || "Avg/Sale"} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
-                  <StatCard dense label={t("avgDailySales") || "Avg/Day"} value={money(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days") || "days"}`} />
+                  <StatCard dense label={t("avgPerSale", "Avg/Sale")} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  <StatCard dense label={t("avgDailySales", "Avg/Day")} value={money(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days", "days")}`} />
                 </div>
               )}
 
@@ -850,6 +874,9 @@ function DailyKasserapport() {
   }, [reportDate]);
 
   const METHODS = ["cash", "card", "mobilepay", "online", "dankort", "mixed"];
+  // Stored method codes outside METHODS used to print raw ("bank_transfer");
+  // the known ones get their catalogue word, anything else (brands) stays as-is.
+  const OTHER_METHOD_KEYS = { bank_transfer: "bankTransfer", gift_card: "dcPayGiftCard", invoice: "dcPayInvoice", credit: "opsPayCredit" };
   // Receipt money renders via <Amount decimals={2}> — kasserapport is a cash
   // reconciliation doc, so ører stay visible (matches the old 2-decimal fmt).
   const kr = (v) => <Amount value={v} currency={currency} decimals={2} />;
@@ -857,7 +884,6 @@ function DailyKasserapport() {
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="REPORTS"
         title={t("dailyKasserapport")}
         actions={
           <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
@@ -887,7 +913,7 @@ function DailyKasserapport() {
               </p>
             )}
             {data.business_phone && (
-              <p className="text-xs text-gray-400 mt-0.5">Tel: {data.business_phone}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{t("opsReportPhone", "Tel:")} {data.business_phone}</p>
             )}
             <p className="text-xs text-gray-400 mt-1">{formatDate(data.date)}</p>
           </div>
@@ -914,7 +940,7 @@ function DailyKasserapport() {
                   return <Row key={m} label={t(m)} value={kr(amt)} />;
                 })}
                 {Object.entries(data.payment_breakdown).filter(([k]) => !METHODS.includes(k)).map(([k, v]) => (
-                  <Row key={k} label={k} value={kr(v)} />
+                  <Row key={k} label={OTHER_METHOD_KEYS[k] ? t(OTHER_METHOD_KEYS[k], k) : k} value={kr(v)} />
                 ))}
               </div>
 
@@ -1324,7 +1350,7 @@ function WeekComparisonCard({ weekComparison, currency }) {
   const rows = [
     { label: t("revenue"),  thisWeek: weekComparison.this_week_revenue,  lastWeek: weekComparison.last_week_revenue,  goodUp: true },
     { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, goodUp: false },
-    { label: t("profit") || "Profit", thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
+    { label: t("profit", "Profit"), thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
   ];
 
   // Up/down arrow color is data signal — inline style avoids Tailwind

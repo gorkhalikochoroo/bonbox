@@ -1324,14 +1324,14 @@ export default function ReservationPublicPage() {
                 {chosenBehandling && (
                   <SummaryRow
                     icon={<Scissors size={16} strokeWidth={1.75} />}
-                    label={t("rsvpColBehandling", "Behandling")}
+                    label={t("rsvpColBehandling", "Service")}
                     value={chosenBehandling.name}
                   />
                 )}
                 <SummaryRow
                   icon={<Users size={16} strokeWidth={1.75} />}
-                  label={t("rsvpColBehandler", "Behandler")}
-                  value={chosenStylistName || t("rsvpBookValgfri", "Valgfri behandler")}
+                  label={t("rsvpColBehandler", "Stylist")}
+                  value={chosenStylistName || t("rsvpBookValgfri", "Any stylist")}
                 />
               </>
             ) : (
@@ -1489,7 +1489,7 @@ export default function ReservationPublicPage() {
             <VenueBadge logoUrl={page.logo_url} name={page.business_name} />
             <div className="min-w-0 flex-1">
               <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                {isProvider ? t("rsvpBookATime", "Book en tid") : t("rsvpBookATable", "Book a table")}
+                {isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
               </p>
               <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2">
                 {page.business_name}
@@ -1588,7 +1588,7 @@ export default function ReservationPublicPage() {
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       {t(
                         "rsvpBehandlingNoneOnPage",
-                        "No behandlinger are bookable online right now.",
+                        "No services are bookable online right now.",
                       )}
                     </p>
                   ) : (
@@ -1629,7 +1629,7 @@ export default function ReservationPublicPage() {
                       onChange={(e) => setStylistId(e.target.value)}
                       className="w-full h-12 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base text-gray-900 dark:text-gray-100"
                     >
-                      <option value="">{t("rsvpBookValgfri", "Valgfri behandler")}</option>
+                      <option value="">{t("rsvpBookValgfri", "Any stylist")}</option>
                       {providers.map((p) => (
                         <option key={p.id} value={String(p.id)}>
                           {p.name || p.label}
@@ -1638,9 +1638,9 @@ export default function ReservationPublicPage() {
                     </select>
                   ) : (
                     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300">
-                      {t("rsvpBookValgfri", "Valgfri behandler")} ·{" "}
+                      {t("rsvpBookValgfri", "Any stylist")} ·{" "}
                       <span className="text-gray-500 dark:text-gray-400">
-                        {t("rsvpBookValgfriHint", "We'll match you with the first free behandler.")}
+                        {t("rsvpBookValgfriHint", "We'll match you with the first free stylist.")}
                       </span>
                     </div>
                   )}
@@ -2006,7 +2006,7 @@ export default function ReservationPublicPage() {
                   )}
                   <span aria-hidden="true"> · </span>
                   <span className={chosenStylistName ? "font-medium" : ""}>
-                    {chosenStylistName || t("rsvpBookValgfri", "Valgfri behandler")}
+                    {chosenStylistName || t("rsvpBookValgfri", "Any stylist")}
                   </span>
                   {chosenBehandling && (
                     <>
@@ -2416,7 +2416,7 @@ export default function ReservationPublicPage() {
                   : groupRequest
                     ? t("rsvpSendRequest", "Send forespørgsel →")
                     : isProvider
-                      ? t("rsvpConfirmTime", "Bekræft tidsbestilling →")
+                      ? t("rsvpConfirmTime", "Confirm appointment →")
                       : t("rsvpConfirm", "Bekræft reservation →")}
             </Button>
           )}

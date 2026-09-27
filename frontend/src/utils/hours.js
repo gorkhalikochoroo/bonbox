@@ -25,8 +25,8 @@
  * The unit, per language. THE one place this mapping lives.
  *
  * It has to be one place because the two pages used to read it from two: the
- * hours page derived it from `lang`, the schedule grid from t("schedHoursUnit")
- * — and those two disagree in Turkish, an offered locale ("h" vs "sa"), so a
+ * hours page derived it from `lang`, the schedule grid from a catalogue key
+ * (schedHoursUnit, since retired) — and those two disagree in Turkish, an offered locale ("h" vs "sa"), so a
  * Turkish owner read "38 sa" on Vagtplan and "38 h" on Timer & løn for the
  * same week. Exactly the defect this module was opened for, one locale over.
  */

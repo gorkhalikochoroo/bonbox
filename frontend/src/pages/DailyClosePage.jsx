@@ -124,7 +124,11 @@ function closeTitleKeyFor(businessType) {
  * Falls back to a generic "Could not export." message if anything
  * about the parse fails — never throws.
  */
-async function parseExportError(err) {
+// `t` is optional: without a catalogue the helper still reads English.
+const englishOnly = (_key, fallback, vars) =>
+  vars ? fallback.replace(/\{(\w+)\}/g, (m, n) => (vars[n] !== undefined ? String(vars[n]) : m)) : fallback;
+
+async function parseExportError(err, t = englishOnly) {
   // Plan cap → 402 with structured JSON body
   // Cooldown / rate limit → 429
   // Other → generic
@@ -152,7 +156,7 @@ async function parseExportError(err) {
 
   if (status === 402 && inner && typeof inner === "object" && inner.code === "plan_cap_exceeded") {
     return {
-      message: inner.message || `Your plan exports up to ${inner.cap_days || "?"} days.`,
+      message: inner.message || t("planCapTooltipNative", "Your plan exports up to {days} days.", { days: inner.cap_days || "?" }),
       isPlanCap: true,
       capDays: inner.cap_days,
       planTier: inner.plan,
@@ -163,7 +167,7 @@ async function parseExportError(err) {
     return {
       message: typeof inner === "string"
         ? inner
-        : (inner?.message || "Too many requests — wait a minute and try again."),
+        : (inner?.message || t("tooManyRequests", "Too many requests — please try again in a minute.")),
       isPlanCap: false,
     };
   }
@@ -171,7 +175,7 @@ async function parseExportError(err) {
   // Generic — try a string message, then fall back
   const msg = typeof inner === "string"
     ? inner
-    : inner?.message || "Could not export. Please try again.";
+    : inner?.message || t("opsCloseExportFailed", "Could not export. Please try again.");
   return { message: msg, isPlanCap: false };
 }
 
@@ -325,17 +329,17 @@ function catLabel(t, entry) {
      hasBatch     — bakery: show a "Parti / Batch" reference field (informational
                     — appended to notes for the revisor, never part of MOMS). */
 const CLOSE_CONFIG = {
-  restaurant:  { hasTips: true,  hasCashDrawer: true,  hasCouverts: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — revenue, payments, cash drawer, tips." },
-  workshop:    { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Service",  stepOneLabelKey: "stepOneRevenueByService",  description: "End-of-day closing — parts & labor revenue, payments, cash drawer." },
-  retail:      { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, returns, payments, cash drawer." },
-  grocery:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, cash drawer, transactions." },
-  ecommerce:   { hasTips: false, hasCashDrawer: false, hasCouverts: false, stepOneLabel: "Revenue by Channel",  stepOneLabelKey: "stepOneRevenueByChannel",  description: "End-of-day closing — online sales, returns, payments." },
+  restaurant:  { hasTips: true,  hasCashDrawer: true,  hasCouverts: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory" },
+  workshop:    { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Service",  stepOneLabelKey: "stepOneRevenueByService" },
+  retail:      { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory" },
+  grocery:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory" },
+  ecommerce:   { hasTips: false, hasCashDrawer: false, hasCouverts: false, stepOneLabel: "Revenue by Channel",  stepOneLabelKey: "stepOneRevenueByChannel" },
   // Phase A — salon: no couverts; service-vs-product split lives in the revenue
   // cats; gavekort gets its own line; tips kept (DK salons take tips).
-  salon:       { hasTips: true,  hasCashDrawer: true,  hasCouverts: false, hasGavekort: true, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — Behandlinger, Udsalgsvarer, gavekort, payments." },
+  salon:       { hasTips: true,  hasCashDrawer: true,  hasCouverts: false, hasGavekort: true, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory" },
   // Phase A — bakery: no couverts; Parti/Batch reference field.
-  bakery:      { hasTips: false, hasCashDrawer: true,  hasCouverts: false, hasBatch: true, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — bagværk, drikkevarer, payments, cash drawer." },
-  general:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue",             stepOneLabelKey: "revenue",                   description: "End-of-day closing — revenue, expenses, payments." },
+  bakery:      { hasTips: false, hasCashDrawer: true,  hasCouverts: false, hasBatch: true, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory" },
+  general:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue",             stepOneLabelKey: "revenue" },
 };
 
 function getRevenueCats(branchType) {
@@ -610,7 +614,7 @@ export default function DailyClosePage() {
         // title and reading as a SECOND name for the same thing. The eyebrow's
         // job on sibling pages is to name the pillar; there is no pillar to
         // name here, so the page keeps one name and nothing above it.
-        title={t("navToday") || "Kasserapport"}
+        title={t("navToday", "Kasserapport")}
         subtitle={t(todaySubtitleKey)}
         actions={
           (!isOnline || pendingCount > 0) && (
@@ -762,10 +766,10 @@ export default function DailyClosePage() {
         <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {t("closeTheDayCta") || "Close the day"}
+              {t("closeTheDayCta", "Close the day")}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-              {t("closeScanHint") || "Snap your Z-report and we fill in tonight's numbers — or enter them by hand."}
+              {t("closeScanHint", "Snap your Z-report and we fill in tonight's numbers — or enter them by hand.")}
             </p>
             {/* "We could not check", said out loud — and in the offline wording
                 when that is the actual reason, because "something went wrong"
@@ -798,14 +802,14 @@ export default function DailyClosePage() {
               onClick={() => setScanOpen(true)}
               className="w-full sm:w-auto"
             >
-              {t("closeScanCta") || "Snap your Z-report"}
+              {t("closeScanCta", "Snap your Z-report")}
             </Button>
             <Button
               variant="secondary"
               onClick={() => scrollToWizard({ manual: true })}
               className="w-full sm:w-auto"
             >
-              {t("closeManualCta") || "Enter manually"}
+              {t("closeManualCta", "Enter manually")}
             </Button>
           </div>
         </div>
@@ -824,9 +828,9 @@ export default function DailyClosePage() {
       <TabPills
         tabs={[
           { id: "close", label: t("newClose", "New kasserapport") },
-          { id: "history", label: t("historyTab") || "History" },
-          { id: "insights", label: t("insightsTab") || "Insights" },
-          ...(hasMultiBranch ? [{ id: "branches", label: t("branches") || "Branches" }] : []),
+          { id: "history", label: t("historyTab", "History") },
+          { id: "insights", label: t("insightsTab", "Insights") },
+          ...(hasMultiBranch ? [{ id: "branches", label: t("branches", "Branches") }] : []),
         ]}
         activeId={tab}
         onChange={setTab}
@@ -2283,19 +2287,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       if (f === "tips") return t("tipsLabel", "Tips");
       if (f === "revenue_total") return t("totalRevenue", "Total revenue");
       if (f === "cash_counted_total") return t("cashCounted", "Cash counted");
+      // Built-ins read their catalogue word (catLabel), not the English
+      // fallback `label` — that printed "Food" on a Danish screen.
       if (f.startsWith("revenue.")) {
         const k = f.slice("revenue.".length);
-        return revCats.find((c) => c.key === k)?.label || k;
+        const cat = revCats.find((c) => c.key === k);
+        return cat ? catLabel(t, cat) : k;
       }
       if (f.startsWith("payments.")) {
         const k = f.slice("payments.".length);
-        return payMethods.find((m) => m.key === k)?.label || k;
+        const pm = payMethods.find((m) => m.key === k);
+        return pm ? catLabel(t, pm) : k;
       }
       return null;
     };
     return Array.from(new Set(fields.map(label).filter(Boolean)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanResult, revCats, payMethods, vatName]);
+  }, [scanResult, revCats, payMethods, vatName, t]);
 
   /**
    * The scanned MOMS, but only when it still describes ALL the revenue on
@@ -2846,10 +2853,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               const hasTotal = (scanResult.revenue_total || 0) > 0;
               if (!hasTotal) return null;
               const detected = defaultRevCats
-                .map(c => ({ key: c.key, label: c.label, val: scanResult.revenue?.[c.key] }))
+                .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
                 .filter(r => r.val != null && r.val !== 0 && r.val !== "");
               const missing = defaultRevCats
-                .map(c => ({ key: c.key, label: c.label, val: scanResult.revenue?.[c.key] }))
+                .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
                 .filter(r => !(r.val != null && r.val !== 0 && r.val !== ""));
               if (missing.length === 0) return null;
               const allEmpty = detected.length === 0;
@@ -2969,7 +2976,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 const udenMoms = Math.round((valNum / vatDivisor) * 100) / 100;
                 return (
                   <div key={c.key} className="flex justify-between text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
-                    <span>{c.label.split(" / ")[0]} {t("udenMomsSuffix", "(uden moms)")}</span>
+                    <span>{catLabel(t, c).split(" / ")[0]} {t("udenMomsSuffix", "(excl. MOMS)")}</span>
                     <span>{formatOwnerMoney(udenMoms, currency, { decimals: GLANCE_DECIMALS })}</span>
                   </div>
                 );
@@ -3025,7 +3032,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   {Object.entries(scanResult.payments_view.card_breakdown).map(([k, v]) => (
                     <div key={k} className="flex justify-between text-xs text-gray-600 dark:text-gray-300">
                       <span>{k === "betalingskort"
-                        ? t("brandBetalingskort", "Betalingskort (terminal)")
+                        ? t("brandBetalingskort", "Payment card (terminal)")
                         : k.charAt(0).toUpperCase() + k.slice(1)}</span>
                       <span className="tabular-nums">{formatOwnerMoney(typeof v === "number" ? v : 0, currency, { decimals: GLANCE_DECIMALS })}</span>
                     </div>
@@ -3417,7 +3424,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             ))}
             <div className="flex gap-2">
-              <input type="text" placeholder={t("addCategory") || "Add category..."} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-[13px]"
+              <input type="text" placeholder={t("addCategory", "Add category...")} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-[13px]"
                 value={customRevName} onChange={e => setCustomRevName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomRevCat()} />
               <Button variant="secondary" size="lg" onClick={addCustomRevCat}>+ {t("addBtn", "Add")}</Button>
@@ -3429,7 +3436,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 da-DK grouping, a whispered "kr." token, and Amount's honest "—"
                 until the owner has actually typed something. */}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex items-baseline justify-between gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("total") || "Total"}</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("total", "Total")}</span>
               <Amount
                 value={hasRevenueEntry ? revenueTotal : null}
                 currency={currency}
@@ -3643,7 +3650,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     SKAT MOMS-angivelse PDF. DK term locked. */}
                 {exemptStatus === "ok" && exemptSalesTotal > 0 && (
                   <div className="flex justify-between text-[12px] text-amber-700 dark:text-amber-300 py-0.5 tabular-nums">
-                    <span>{t("salgUdenMomsToday") || "Salg uden moms i dag"}</span>
+                    <span>{t("salgUdenMomsToday", "MOMS-exempt sales today")}</span>
                     <span><Amount value={-exemptSalesTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                   </div>
                 )}
@@ -3654,7 +3661,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     renders with an honest "—" and the reason. */}
                 {exemptStatus === "failed" && (
                   <div className="flex justify-between text-[12px] text-amber-700 dark:text-amber-300 py-0.5 gap-3">
-                    <span>{t("salgUdenMomsToday") || "Salg uden moms i dag"}</span>
+                    <span>{t("salgUdenMomsToday", "MOMS-exempt sales today")}</span>
                     <span className="text-right">
                       <span className="tabular-nums">—</span>
                       <span className="block text-gray-500 dark:text-gray-400">{t("somethingWentWrong")}</span>
@@ -3666,7 +3673,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <span><Amount value={momsTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 <div className="flex justify-between text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-1 text-gray-900 dark:text-white tabular-nums">
-                  <span>{t("revenueUdenMoms", "Revenue (uden moms)")}</span>
+                  <span>{t("revenueUdenMoms", "Revenue (excl. MOMS)")}</span>
                   <span><Amount value={revenueExMoms} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
@@ -3741,7 +3748,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
                 <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
                   <Icon name="Gift" size={14} className="text-gray-500 dark:text-gray-400" />
-                  {t("closeGavekortSoldLabel", "Gavekort solgt")}
+                  {t("closeGavekortSoldLabel", "Gavekort sold")}
                 </label>
                 <MoneyField locale={mLocale} placeholder="0"
                   className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
@@ -3758,7 +3765,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div>
                 <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
                   <Icon name="Croissant" size={14} className="text-gray-500 dark:text-gray-400" />
-                  {t("closeBatchLabel", "Parti / Batch")}
+                  {t("opsCloseBatch", "Batch")}
                 </label>
                 <input type="text" placeholder={t("closeBatchPlaceholder", "fx morgenbatch #2")}
                   className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
@@ -3816,10 +3823,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-100 inline-flex items-center gap-1.5">
-                        <Icon name="Mail" size={14} className="text-gray-500 dark:text-gray-400" /> {t("autoEmailToggleLabel") || "Email owner + accountant automatically on lock"}
+                        <Icon name="Mail" size={14} className="text-gray-500 dark:text-gray-400" /> {t("autoEmailToggleLabel", "Email owner + revisor automatically on lock")}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {t("autoEmailToggleHint") || "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your accountant."}
+                        {t("autoEmailToggleHint", "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your revisor.")}
                       </p>
                     </div>
                   </label>
@@ -3828,17 +3835,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     <Icon name="Lock" size={14} className="text-gray-400 mt-0.5 shrink-0" />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                        {t("autoEmailToggleStarterGate") || "Auto-email on lock is on Starter+"}
+                        {t("autoEmailToggleStarterGate", "Auto-email on lock is on Starter+")}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {t("autoEmailToggleStarterGateBody") || "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version."}
+                        {t("autoEmailToggleStarterGateBody", "Free still lets you manually tap Send to revisor after locking. Upgrade to Starter for the no-extra-tap version.")}
                       </p>
                       {canPurchaseInApp() && (
                         <Link
                           to="/subscription"
                           className="inline-block mt-2 text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
                         >
-                          {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+                          {t("pricingUpgradeStarter", "Upgrade to Starter")} →
                         </Link>
                       )}
                     </div>
@@ -4042,7 +4049,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
   const closedAt = close.closed_at
     ? new Date(close.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "—";
-  const closedBy = close.closed_by || (t("staffShort") || "Staff");
+  const closedBy = close.closed_by || (t("staffShort", "Staff"));
   const recipients = (ritual.sent_to || []).join(", ");
 
   // Local dismiss state for bank-drop — POST to backend so the
@@ -4091,10 +4098,10 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
   if (emailStatus === "sent") {
     emailLine = (
       <p className="text-sm text-gray-700 dark:text-gray-200">
-        <Icon name="Mail" size={14} className="inline align-text-bottom mr-1" /> {(t("closeLockedEmailSent") || "Sent to {recipients}").replace("{recipients}", recipients || "—")}
+        <Icon name="Mail" size={14} className="inline align-text-bottom mr-1" /> {(t("closeLockedEmailSent", "Sent to {recipients}")).replace("{recipients}", recipients || "—")}
         {ritual.scan_degraded && (
           <span className="block text-xs text-amber-600 dark:text-amber-400 mt-1">
-            <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded") || "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached."}
+            <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded", "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached. We'll keep the original on file.")}
           </span>
         )}
       </p>
@@ -4102,29 +4109,29 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
   } else if (emailStatus === "queued_retry") {
     emailLine = (
       <div className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1.5"><Icon name="Mail" size={14} /> {t("closeLockedEmailQueued") || "Email queued for retry — we'll keep trying"}</span>
+        <span className="inline-flex items-center gap-1.5"><Icon name="Mail" size={14} /> {t("closeLockedEmailQueued", "Email queued for retry — we'll keep trying")}</span>
         <button onClick={handleRetryEmail} disabled={retrying}
           className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">
-          {retrying ? "..." : (t("closeLockedEmailRetry") || "Retry now")}
+          {retrying ? "..." : (t("closeLockedEmailRetry", "Retry email now"))}
         </button>
       </div>
     );
   } else if (emailStatus === "skipped_preference_off") {
     emailLine = (
       <p className="text-sm text-gray-600 dark:text-gray-300">
-        <Icon name="BellOff" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedPref") || "Auto-email is off in your settings — open Settings to turn it back on"}
+        <Icon name="BellOff" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedPref", "Auto-email is off in your settings — open Settings to turn it back on")}
       </p>
     );
   } else if (emailStatus === "skipped_no_recipient") {
     emailLine = (
       <p className="text-sm text-amber-700 dark:text-amber-300">
-        <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedNoRecipient") || "No owner email on file — set one on Profile to enable auto-send"}
+        <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedNoRecipient", "No owner email on file — set one on Profile to enable auto-send")}
       </p>
     );
   } else if (emailStatus === "failed_skipped") {
     emailLine = (
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailFailed") || "Email send is disabled in this environment."}
+        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailFailed", "Email send is disabled in this environment.")}
       </p>
     );
   } else if (emailStatus === "skipped_feature_locked") {
@@ -4133,16 +4140,16 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
     // Starter" conversion nudge below.
     emailLine = isNativeApp() ? (
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedAutoSendNativeNote") || "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually."}
+        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedAutoSendNativeNote", "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually.")}
       </p>
     ) : (
       <div className="text-sm bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 border border-amber-200 dark:border-amber-800">
         <p className="text-amber-800 dark:text-amber-200 font-medium">
-          <Icon name="Lightbulb" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
+          <Icon name="Lightbulb" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedFreeUpgradeNudge", "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter.")}
         </p>
         {canPurchaseInApp() && (
           <Link to="/subscription" className="inline-block mt-2 text-[12px] font-semibold text-amber-800 dark:text-amber-300 hover:underline">
-            {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+            {t("pricingUpgradeStarter", "Upgrade to Starter")} →
           </Link>
         )}
       </div>
@@ -4166,14 +4173,12 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
           <Icon name="CheckCircle2" size={26} className="text-emerald-600 dark:text-emerald-500 shrink-0" />
           <div className="flex-1 space-y-3">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {(t(closeTitleKeyFor(businessType)) || "Tonight's close — locked at {time} by {who}")
-                .replace("{time}", closedAt)
-                .replace("{who}", closedBy)}
+              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {t(closeTitleKeyFor(businessType), "Tonight's close — locked at {time} by {who}", { time: closedAt, who: closedBy })}
             </p>
             {emailLine}
             {ritual.push_status === "sent" && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                <Icon name="Bell" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedPushSent") || "Owner notified via push"}
+                <Icon name="Bell" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedPushSent", "Owner notified via push")}
               </p>
             )}
             {showBankDrop && (
@@ -4181,7 +4186,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
                 <Icon name="Landmark" size={20} className="text-amber-600 dark:text-amber-400 shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {t("bankDropReminderTitle") || "Bank-drop reminder"}
+                    {t("bankDropReminderTitle", "Bank-drop reminder")}
                   </p>
                   <p className="text-[12px] text-gray-600 dark:text-gray-300 mt-0.5 tabular-nums">
                     {/* The template carries "{currency}" of its own and
@@ -4189,21 +4194,21 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
                         print "4.200 kr. DKK". The formatted amounts go in and
                         the template's token (with the space before it) comes
                         out — one token per figure, "kr." everywhere. */}
-                    {(t("bankDropReminderBody") || "Put {amount} {currency} in safe / drop bag. Keep {float} {currency} float in the drawer.")
+                    {(t("bankDropReminderBody", "Put {amount} {currency} in safe / drop bag. Keep {float} {currency} float in the drawer."))
                       .replace("{amount}", formatOwnerMoney(bankDrop.to_drop_dkk ?? 0, currency, { decimals: GLANCE_DECIMALS }))
                       .replace("{float}", formatOwnerMoney(bankDrop.leave_in_drawer_dkk ?? 1000, currency, { decimals: GLANCE_DECIMALS }))
                       .replace(/\s*\{currency\}/g, "")}
                   </p>
                   <button onClick={handleBankDropDone}
                     className="mt-2 text-xs px-3 py-1 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600">
-                    {t("bankDropMarkDone") || "Marked as done"}
+                    {t("bankDropMarkDone", "Marked as done")}
                   </button>
                 </div>
               </div>
             )}
             {bankDropDone && (
               <p className="text-xs text-gray-700 dark:text-gray-300">
-                <Icon name="Check" size={13} className="inline align-text-bottom mr-1 text-emerald-600" />{t("bankDropDone") || "In safe"}
+                <Icon name="Check" size={13} className="inline align-text-bottom mr-1 text-emerald-600" />{t("bankDropDone", "✓ In safe")}
               </p>
             )}
           </div>
@@ -4442,7 +4447,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // {code: "plan_cap_exceeded", message, cap_days, plan} that we
       // parse via parseExportError() so the error banner contains
       // the upgrade link inline.
-      const parsed = await parseExportError(e);
+      const parsed = await parseExportError(e, t);
       setExportError(parsed.message);
       setExportErrorIsCap(parsed.isPlanCap);
       setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
@@ -4483,9 +4488,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         );
         if (r.data?.ok) {
           setSendStatus(
-            (t("sentToAccountantOk") || "Sent to") +
+            (t("sentToAccountantOk", "Sent to")) +
             ` ${r.data.sent_to}` +
-            (r.data.cc_self ? ` (${t("ccdYou") || "you cc'd"})` : "")
+            (r.data.cc_self ? ` (${t("ccdYou", "you cc'd")})` : "")
           );
           setTimeout(() => setSendStatus(""), 6000);
           setSendingToAccountant(false);
@@ -4527,7 +4532,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             return;
           }
           // Existing date-range plan-cap path
-          const parsed = await parseExportError(e);
+          const parsed = await parseExportError(e, t);
           setExportError(parsed.message);
           setExportErrorIsCap(parsed.isPlanCap);
           setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
@@ -4565,25 +4570,25 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       if (result.ok) {
         // Different toast per channel so the user knows what happened.
         if (result.channel === "share") {
-          setSendStatus(t("sentViaShare") || "Share sheet opened — pick Mail / WhatsApp");
+          setSendStatus(t("sentViaShare", "Share sheet opened — pick Mail / WhatsApp"));
         } else if (result.channel === "mailto") {
           setSendStatus(
             businessProfile?.accountant_email
-              ? (t("sentViaMailto") || "Email opened — attach the downloaded PDF and send")
-              : (t("sentViaMailtoNoTo") || "Email opened — add accountant address, attach PDF, send"),
+              ? (t("sentViaMailto", "Email opened — attach the downloaded PDF and send"))
+              : (t("sentViaMailtoNoTo", "Email opened — add revisor address, attach PDF, send")),
           );
         } else {
-          setSendStatus(t("downloadedFallback") || "Downloaded — attach manually to email");
+          setSendStatus(t("downloadedFallback", "Downloaded — attach manually to email"));
         }
         setTimeout(() => setSendStatus(""), 5000);
       } else {
-        setExportError(result.reason || "Could not start the share. Please try the PDF download instead.");
+        setExportError(result.reason || t("opsCloseShareFailed", "Could not start the share. Please try the PDF download instead."));
         setTimeout(() => setExportError(""), 5000);
       }
     } catch (e) {
       // Same parser as downloadRange — preserves the plan-cap CTA
       // when the user hits the cap via the Send-to-accountant flow.
-      const parsed = await parseExportError(e);
+      const parsed = await parseExportError(e, t);
       setExportError(parsed.message);
       setExportErrorIsCap(parsed.isPlanCap);
       setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
@@ -4692,7 +4697,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // Same blob-aware parser the range export uses, so a plan cap (402)
       // arrives here as a real sentence plus the upgrade link instead of a
       // button that flickers and does nothing.
-      const parsed = await parseExportError(e);
+      const parsed = await parseExportError(e, t);
       setRowError({ id, message: parsed.message, isPlanCap: parsed.isPlanCap });
     } finally {
       setDownloading(null);
@@ -4751,16 +4756,16 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       if (res.ok) {
         setShareToast(
           res.channel === "clipboard"
-            ? (t("shareCopiedToClipboard") || "Copied to clipboard — paste into your group")
-            : (t("shareOpened") || "Share sheet opened"),
+            ? (t("shareCopiedToClipboard", "Copied to clipboard — paste into your group"))
+            : (t("shareOpened", "Share sheet opened")),
         );
         setTimeout(() => setShareToast(""), 3000);
       } else {
-        setShareToast(t("shareFailed") || "Could not open share sheet");
+        setShareToast(t("shareFailed", "Could not open share sheet"));
         setTimeout(() => setShareToast(""), 4000);
       }
     } catch {
-      setShareToast(t("shareFailed") || "Could not open share sheet");
+      setShareToast(t("shareFailed", "Could not open share sheet"));
       setTimeout(() => setShareToast(""), 4000);
     } finally {
       setSharing(null);
@@ -4803,7 +4808,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <div className="flex justify-center mb-3"><Icon name="ClipboardList" size={36} className="text-gray-400 dark:text-gray-500" /></div>
         <p className="font-semibold dark:text-white">{t("noDailyClosesYet")}</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noDailyClosesYetHint") || "Submit your first end-of-day close to see history here."}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noDailyClosesYetHint", "Submit your first end-of-day close to see history here.")}</p>
       </div>
     );
   }
@@ -4880,12 +4885,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         <div className="flex items-center gap-2 mb-3">
           <Icon name="Package" size={18} className="text-gray-500 dark:text-gray-400" />
           <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">
-            {t("exportToAccountantTitle") || "Export to accountant"}
+            {t("exportToAccountantTitle", "Export to accountant")}
           </h3>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          {t("exportToAccountantDesc") ||
-            "Pick a date range and download all closes as PDF or CSV. CSV is semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly."}
+          {t("exportToAccountantDesc", "Pick a date range and download all closes as PDF or CSV. CSV is semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly.")}
         </p>
 
         {/* Preset buttons — cap-aware. Each preset declares its own
@@ -4894,11 +4898,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             (defense in depth) and returns 402 if anyone bypasses. */}
         <div className="flex flex-wrap gap-2 mb-3">
           {[
-            { id: "7d",     label: t("rangePreset7d")  || "Last 7 days",   days: 7 },
-            { id: "14d",    label: t("rangePreset14d") || "Last 14 days",  days: 14 },
-            { id: "1m",     label: t("rangePreset1m")  || "Last 1 month",  days: 31 },
-            { id: "3m",     label: t("rangePreset3m")  || "Last 3 months", days: 90 },
-            { id: "custom", label: t("rangePresetCustom") || "Custom",     days: 0 },
+            { id: "7d",     label: t("rangePreset7d", "Last 7 days"),   days: 7 },
+            { id: "14d",    label: t("rangePreset14d", "Last 14 days"),  days: 14 },
+            { id: "1m",     label: t("rangePreset1m", "Last 1 month"),  days: 31 },
+            { id: "3m",     label: t("rangePreset3m", "Last 3 months"), days: 90 },
+            { id: "custom", label: t("rangePresetCustom", "Custom"),     days: 0 },
           ].map(p => {
             // Custom is always allowed at the button level — the
             // date pickers themselves enforce the cap (max attribute
@@ -4914,9 +4918,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   // App Store compliance (Apple 3.1.1): native tooltip drops
                   // the "Upgrade to Pro" pitch — factual cap only.
                   ? (isNativeApp()
-                      ? (t("planCapTooltipNative") || "Your plan exports up to {days} days.")
+                      ? (t("planCapTooltipNative", "Your plan exports up to {days} days."))
                           .replace("{days}", String(exportCapDays))
-                      : (t("planCapTooltip") || "{tier} plan exports up to {days} days. Upgrade to Pro for full year.")
+                      : (t("planCapTooltip", "{tier} plan exports up to {days} days. Upgrade to Pro for full year."))
                           .replace("{tier}", planTier === "free" ? "Free" : planTier)
                           .replace("{days}", String(exportCapDays)))
                   : ""}
@@ -4946,15 +4950,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <Icon name="Lightbulb" size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
             {isNativeApp() ? (
               <span className="flex-1">
-                {t("planCapHintNativePrefix") || "Export covers up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
+                {t("planCapHintNativePrefix", "Export covers up to")}{" "}<strong>{exportCapDays} {t("planCapHintDays", "days")}</strong>.
               </span>
             ) : (
               <span className="flex-1">
-                <strong>{planTier === "free" ? "Free" : planTier} {t("planLabelSuffix") || "plan"}</strong>
-                {" "}{t("planCapHintMid") || "exports up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
+                <strong>{planTier === "free" ? t("pricingTierFree", "Free") : planTier} {t("planLabelSuffix", "plan")}</strong>
+                {" "}{t("planCapHintMid", "exports up to")}{" "}<strong>{exportCapDays} {t("planCapHintDays", "days")}</strong>.
                 {canPurchaseInApp() && (
                   <Link to="/subscription" className="ml-2 underline font-semibold hover:no-underline">
-                    {t("planCapHintCta") || "Upgrade for full year →"}
+                    {t("planCapHintCta", "Upgrade for full year →")}
                   </Link>
                 )}
               </span>
@@ -5019,8 +5023,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <strong className="text-gray-700 dark:text-gray-300">{activeRange.to}</strong>
             {"  ·  "}
             {rangeCount} {rangeCount === 1
-              ? (t("closeSingular") || "close")
-              : (t("closePlural") || "closes")}
+              ? (t("closeSingular", "close"))
+              : (t("closePlural", "closes"))}
           </p>
           <div className="flex flex-wrap gap-2 items-center">
             {/* Download buttons — one per format.
@@ -5039,7 +5043,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               iconLeft={exportingFmt === "xlsx" ? null : <Icon name="BarChart3" size={14} />}
               title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
             >
-              {exportingFmt === "xlsx" ? (t("generatingPdfBtn") || "Generating…") : "Excel"}
+              {exportingFmt === "xlsx" ? (t("generatingPdfBtn", "Generating…")) : "Excel"}
             </Button>
             <Button
               size="sm"
@@ -5051,7 +5055,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               className="border border-gray-200 dark:border-gray-700"
               title={t("pdfTooltip", "One-pager — easy to read, not editable")}
             >
-              {exportingFmt === "pdf" ? (t("generatingPdfBtn") || "Generating…") : "PDF"}
+              {exportingFmt === "pdf" ? (t("generatingPdfBtn", "Generating…")) : "PDF"}
             </Button>
             <Button
               size="sm"
@@ -5063,7 +5067,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               className="border border-gray-200 dark:border-gray-700"
               title={t("csvTooltip", "Raw data — for e-conomic / Dinero / Billy imports")}
             >
-              {exportingFmt === "csv" ? (t("generatingPdfBtn") || "Generating…") : "CSV"}
+              {exportingFmt === "csv" ? (t("generatingPdfBtn", "Generating…")) : "CSV"}
             </Button>
 
             {/* Vertical divider + send-to-accountant group */}
@@ -5087,13 +5091,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 className="px-3 py-1.5 rounded-r-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition border-l border-amber-700"
                 title={
                   businessProfile?.accountant_email
-                    ? `${t("sendToTooltip") || "Send to"} ${businessProfile.accountant_email}`
-                    : (t("sendToAccountantTooltipNoEmail") || "Send to accountant — set their email on Profile to skip typing it")
+                    ? `${t("sendToTooltip", "Send to")} ${businessProfile.accountant_email}`
+                    : (t("sendToAccountantTooltipNoEmail", "Send to revisor — set their email on Profile to skip typing it"))
                 }
               >
                 {sendingToAccountant
-                  ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("sendingBtn") || "Sending…"}</>
-                  : <><Icon name="Send" size={14} /> {t("sendToAccountantBtn") || "Send to revisor"}</>}
+                  ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("sendingBtn", "Sending…")}</>
+                  : <><Icon name="Send" size={14} /> {t("sendToAccountantBtn", "Send to revisor")}</>}
               </button>
             </div>
           </div>
@@ -5134,11 +5138,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             not tell an owner what is missing from a record we could not open. */}
         {profileKnown && !businessProfile?.accountant_email && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-            <Icon name="Lightbulb" size={12} className="inline align-text-bottom mr-1" /> {t("accountantHint") || "Tip: save your accountant's email on "}
+            <Icon name="Lightbulb" size={12} className="inline align-text-bottom mr-1" /> {t("accountantHint", "Tip: save your revisor's email on ")}
             <Link to="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
-              {t("profileLinkLabel") || "Profile"}
+              {t("profileLinkLabel", "Profile")}
             </Link>
-            {" "}{t("accountantHintTail") || "to skip typing it every time."}
+            {" "}{t("accountantHintTail", "to skip typing it every time.")}
           </p>
         )}
 
@@ -5298,7 +5302,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 )}
                 <Button size="sm" variant="secondary" onClick={() => shareDc(dc)} busy={sharing === dc.id}
                   iconLeft={sharing === dc.id ? null : <Icon name="Send" size={13} />} className="border border-gray-200 dark:border-gray-700">
-                  {t("send") || "Send"}
+                  {t("send", "Send")}
                 </Button>
                 <Button size="sm" variant="secondary"
                   onClick={() => downloadPdf(dc.id, dc.date, (dc.status || "confirmed") !== "confirmed")}

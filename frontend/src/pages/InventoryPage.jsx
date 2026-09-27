@@ -631,7 +631,6 @@ export default function InventoryPage() {
     <div className="p-4 sm:p-6 space-y-6">
       <FadeIn>
         <PageHeader
-          eyebrow="LAGER"
           title={heroTitle}
           actions={
             <>
@@ -1750,7 +1749,7 @@ export default function InventoryPage() {
                       <td className="px-3"></td>
                       <td colSpan={9} className="px-3 pb-3 pt-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("invSupplierSection", "Leverandør")}</span>
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("invSupplierSection", "Supplier")}</span>
                           <input type="text" value={editData.supplier_name || ""}
                             onChange={(e) => setEditData({ ...editData, supplier_name: e.target.value })}
                             placeholder={t("invSupplierName", "Leverandør (valgfri)")}

@@ -350,7 +350,7 @@ export function QuickSaleModal({
       <div className="bg-white dark:bg-gray-900 rounded-xl p-6 sm:p-8 w-full max-w-[400px] mx-4 shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-1">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {t("quickSale") || "Quick Sale"}
+            {t("quickSale", "Quick Sale")}
           </h3>
           {/* A visible way out. This sheet had none: Escape is meaningless on a
               phone and the backdrop tap is invisible, so the ONLY affordance an
@@ -359,14 +359,14 @@ export function QuickSaleModal({
           <button
             type="button"
             onClick={onClose}
-            aria-label={t("close") || "Close"}
+            aria-label={t("close", "Close")}
             className="-mr-2 -mt-1 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
           >
             <Icon name="X" size={18} aria-hidden="true" />
           </button>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-          {t("quickSaleSubtitle") || "Log today's revenue in seconds"}
+          {t("quickSaleSubtitle", "Log today's revenue in seconds")}
         </p>
 
         {/* MOMS handling — Incl. / Excl. segmented control. Visually
@@ -374,7 +374,7 @@ export function QuickSaleModal({
             for an exempt row, so we dim it to remove cognitive load). */}
         <div
           role="group"
-          aria-label={t("quickSaleMomsToggleAria") || "MOMS handling"}
+          aria-label={t("quickSaleMomsToggleAria", "MOMS handling")}
           className={
             "flex gap-1 p-1 mb-3 rounded-xl bg-gray-100 dark:bg-gray-800 " +
             (isTaxExempt ? "opacity-50" : "")
@@ -383,13 +383,13 @@ export function QuickSaleModal({
           <Pill
             active={inclMoms && !isTaxExempt}
             onClick={() => setInclMoms(true)}
-            label={t("quickSaleInclMoms") || "Incl. MOMS"}
+            label={t("quickSaleInclMoms", "Incl. MOMS")}
             disabled={isTaxExempt}
           />
           <Pill
             active={!inclMoms && !isTaxExempt}
             onClick={() => setInclMoms(false)}
-            label={t("quickSaleExclMoms") || "Excl. MOMS"}
+            label={t("quickSaleExclMoms", "Excl. MOMS")}
             disabled={isTaxExempt}
           />
         </div>
@@ -402,7 +402,7 @@ export function QuickSaleModal({
         <div
           className="flex gap-1 p-1 mb-5 rounded-xl bg-gray-100 dark:bg-gray-800"
           role="group"
-          aria-label={t("quickSaleMomsExemptAria") || "MOMS-fri toggle"}
+          aria-label={t("quickSaleMomsExemptAria", "MOMS-fri toggle")}
         >
           <button
             type="button"
@@ -415,7 +415,7 @@ export function QuickSaleModal({
                 : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800")
             }
           >
-            {t("quickSaleMomsExempt") || "MOMS-fri"}
+            {t("quickSaleMomsExempt", "MOMS-fri")}
           </button>
         </div>
 
@@ -463,10 +463,10 @@ export function QuickSaleModal({
               {currency === "DKK" ? "kr." : currency}
               <span className="ml-1.5 text-xs text-gray-500 dark:text-gray-400">
                 {isTaxExempt
-                  ? (t("quickSaleHintExempt") || "MOMS-fri")
+                  ? (t("quickSaleHintExempt", "MOMS-fri"))
                   : inclMoms
-                  ? (t("quickSaleHintIncl") || "incl. MOMS")
-                  : (t("quickSaleHintExcl") || "excl. MOMS")}
+                  ? (t("quickSaleHintIncl", "incl. MOMS"))
+                  : (t("quickSaleHintExcl", "excl. MOMS"))}
               </span>
             </div>
           </div>
@@ -495,7 +495,7 @@ export function QuickSaleModal({
             disabled={!(amountNum > 0)}
             className="w-full py-3 rounded-xl font-semibold text-white bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {t("quickSaleLogBtn") || "Log Sale"}
+            {t("quickSaleLogBtn", "Log sale")}
           </button>
         </form>
       </div>

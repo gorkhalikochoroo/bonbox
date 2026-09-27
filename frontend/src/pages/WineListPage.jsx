@@ -102,7 +102,7 @@ export default function WineListPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!(await confirm({ message: "Remove this wine?", destructive: true }))) return;
+    if (!(await confirm({ message: t("opsWineRemoveConfirm", "Remove this wine?"), destructive: true }))) return;
     try {
       await api.delete(`/wines/${id}`);
       fetchWines();
@@ -145,10 +145,10 @@ export default function WineListPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
-              🍷 {t("wineList") || "Wine List"}
+              🍷 {t("wineList", "Wine List")}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-              {t("wineListDesc") || "Manage your wine catalog, track stock & margins, export menus."}
+              {t("wineListDesc", "Manage your wine catalog, track stock & margins, export menus.")}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -317,7 +317,7 @@ function ScanButton({ onResult }) {
         toast({ message: res.data.error || t("wineLabelUnreadable"), severity: "critical" });
       }
     } catch (err) {
-      const msg = err.response?.data?.detail || "Scan failed";
+      const msg = err.response?.data?.detail || t("opsWineScanFailed", "Scan failed");
       if (msg.includes("not configured")) {
         toast({ message: t("wineScanNotConfigured"), severity: "critical" });
       } else {
@@ -1026,7 +1026,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
       });
       onDone();
     } catch (err) {
-      setError(errText(err, "Failed to save"));
+      setError(errText(err, t("opsFailedToSave", "Failed to save")));
     }
     setSaving(false);
   };
@@ -1052,7 +1052,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div><label className={labelClass}>{t("wineWineName") || "Wine name"} *</label>
+            <div><label className={labelClass}>{t("wineWineName", "Wine name")} *</label>
               <input className={inputClass} value={form.name} onChange={e => set("name", e.target.value)} placeholder="Sancerre" required /></div>
             <div><label className={labelClass}>{t("wineWinery")}</label>
               <input className={inputClass} value={form.winery} onChange={e => set("winery", e.target.value)} placeholder="Domaine Vacheron" /></div>
@@ -1073,9 +1073,9 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
 
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelClass}>{t("wineRegion")}</label>
-              <input className={inputClass} value={form.region} onChange={e => set("region", e.target.value)} placeholder="Loire Valley" /></div>
+              <input className={inputClass} value={form.region} onChange={e => set("region", e.target.value)} placeholder={t("opsWineRegionPlaceholder", "Loire Valley")} /></div>
             <div><label className={labelClass}>{t("wineCountry")}</label>
-              <input className={inputClass} value={form.country} onChange={e => set("country", e.target.value)} placeholder="France" /></div>
+              <input className={inputClass} value={form.country} onChange={e => set("country", e.target.value)} placeholder={t("opsWineCountryPlaceholder", "France")} /></div>
           </div>
 
           <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
@@ -1102,7 +1102,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
             <textarea className={inputClass} rows={2} value={form.tasting_notes} onChange={e => set("tasting_notes", e.target.value)} placeholder={t("wineTastingPlaceholder")} /></div>
           <div><label className={labelClass}>{t("wineFoodPairing")}</label>
             <input className={inputClass} value={form.food_pairing} onChange={e => set("food_pairing", e.target.value)} placeholder={t("winePairingPlaceholder")} /></div>
-          <div><label className={labelClass}>{t("wineStaffDescription") || "Staff description"}</label>
+          <div><label className={labelClass}>{t("wineStaffDescription", "Staff description")}</label>
             <textarea className={inputClass} rows={2} value={form.staff_description} onChange={e => set("staff_description", e.target.value)} placeholder={t("wineStaffDescPlaceholder")} /></div>
           <div><label className={labelClass}>{t("wineSupplier")}</label>
             <input className={inputClass} value={form.supplier} onChange={e => set("supplier", e.target.value)} placeholder="Vinimport A/S" /></div>

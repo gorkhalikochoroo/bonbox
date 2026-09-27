@@ -19,6 +19,21 @@ const PERSONAL_CATEGORIES = [
   "Clothing", "Personal Care", "Family", "Savings", "Investment", "Other",
 ];
 
+// The names above are STORED category names (created via the API and matched
+// on below), so they stay English in the data. What the owner reads is the
+// catalogue word for each default; a category the owner named stays as typed.
+const PERSONAL_CAT_KEYS = {
+  "Salary": "salary", "Freelance": "freelance", "Side Income": "sideIncome",
+  "Gift Received": "giftReceived", "Groceries": "groceries", "Rent": "rent",
+  "Transport": "transport", "Loan Payment": "loanPayment", "EMI": "opsPersCatEmi",
+  "Borrowed": "borrowed", "Lent Out": "lentOut", "Utilities": "utilities",
+  "Food & Dining": "foodDining", "Shopping": "shopping", "Entertainment": "entertainment",
+  "Health": "health", "Gym & Fitness": "opsPersCatGym", "Education": "education",
+  "Subscriptions": "subscriptions", "Insurance": "insurance", "Phone & Internet": "phoneInternet",
+  "Clothing": "invCatClothing", "Personal Care": "personalCare", "Family": "family",
+  "Savings": "savings", "Investment": "investment", "Other": "catOther",
+};
+
 const INCOME_CATS = ["Salary", "Freelance", "Side Income", "Gift Received", "Borrowed"];
 const LEND_BORROW_CATS = ["Borrowed", "Lent Out"];
 const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
@@ -26,6 +41,7 @@ const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 export default function PersonalPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const catLabel = (name) => (PERSONAL_CAT_KEYS[name] ? t(PERSONAL_CAT_KEYS[name], name) : name);
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const currency = displayCurrency(user?.currency);
   // The budget boxes and the custom-amount box below are text, not
@@ -304,7 +320,7 @@ export default function PersonalPage() {
       {!hasPersonalCats && (
         <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 p-5 rounded-xl">
           <p className="text-purple-800 dark:text-purple-300 font-medium mb-2">{t("setupPersonalCategories")}</p>
-          <p className="text-purple-600 dark:text-purple-400 text-sm mb-3">{PERSONAL_CATEGORIES.join(", ")}</p>
+          <p className="text-purple-600 dark:text-purple-400 text-sm mb-3">{PERSONAL_CATEGORIES.map(catLabel).join(", ")}</p>
           <button onClick={setupPersonalCategories}
             className="bg-purple-600 text-white px-5 py-2.5 rounded-lg hover:bg-purple-700 transition font-medium text-sm">
             {t("createCategories")}
@@ -370,7 +386,7 @@ export default function PersonalPage() {
           </p>
           {overBudgetCats.map(({ cat, limit, spent, over }) => (
             <div key={cat} className="flex items-center justify-between text-sm">
-              <span className="text-red-600 dark:text-red-400 font-medium">{cat}</span>
+              <span className="text-red-600 dark:text-red-400 font-medium">{catLabel(cat)}</span>
               <span className="text-red-600 dark:text-red-400">
                 {formatOwnerMoney(spent, currency)} / {formatOwnerMoney(limit, currency)}
                 <span className="ml-2 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-xs font-bold">
@@ -388,7 +404,7 @@ export default function PersonalPage() {
           </p>
           {nearBudgetCats.map(({ cat, limit, spent, pct }) => (
             <div key={cat} className="flex items-center justify-between text-sm">
-              <span className="text-amber-600 dark:text-amber-400 font-medium">{cat}</span>
+              <span className="text-amber-600 dark:text-amber-400 font-medium">{catLabel(cat)}</span>
               <span className="text-amber-600 dark:text-amber-400">
                 {formatOwnerMoney(spent, currency)} / {formatOwnerMoney(limit, currency)}
                 <span className="ml-2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded text-xs font-bold">
@@ -436,14 +452,14 @@ export default function PersonalPage() {
           <div className="flex items-center gap-3 pb-3 border-b border-gray-100 dark:border-gray-700">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t("totalMonthlyBudget")}:</label>
             <MoneyField locale={mLocale} value={totalBudget || ""} onChange={(e) => saveTotalBudget(e.target.value)}
-              placeholder="e.g. 15000" className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-40" />
+              placeholder={t("opsPersBudgetPlaceholder", "e.g. 15000")} className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-40" />
             <span className="text-sm text-gray-400">{currency}</span>
           </div>
           <p className="text-xs text-gray-400">{t("setLimitsPerCategory")}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {spendingCats.map((cat) => (
               <div key={cat} className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400 w-32 truncate">{cat}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400 w-32 truncate">{catLabel(cat)}</span>
                 <MoneyField locale={mLocale} value={budgets[cat] || ""} onChange={(e) => saveBudgets({ ...budgets, [cat]: e.target.value })}
                   placeholder="0" className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-24" />
               </div>
@@ -493,7 +509,7 @@ export default function PersonalPage() {
               <div className="space-y-2">
                 {Object.entries(incomeByCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
                   <div key={cat} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">{cat}</span>
+                    <span className="text-gray-600 dark:text-gray-400">{catLabel(cat)}</span>
                     <span className="font-medium text-emerald-600 dark:text-gray-300">+{formatOwnerMoney(amt, currency)}</span>
                   </div>
                 ))}
@@ -512,7 +528,7 @@ export default function PersonalPage() {
                 return (
                   <div key={cat}>
                     <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="text-gray-600 dark:text-gray-400">{cat}</span>
+                      <span className="text-gray-600 dark:text-gray-400">{catLabel(cat)}</span>
                       <span className={`font-medium ${exceeded ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
                         {formatOwnerMoney(amt, currency)}{limit > 0 ? ` / ${formatOwnerMoney(limit, currency)}` : ""}
                         {exceeded && <span className="ml-1 text-xs text-red-500 font-bold">{t("over").toUpperCase()}</span>}
@@ -554,7 +570,7 @@ export default function PersonalPage() {
             <div className="space-y-2">
               {topSpending.slice(0, 6).map(([cat, amt]) => (
                 <div key={cat} className="flex items-center gap-3">
-                  <span className="text-sm text-gray-600 dark:text-gray-400 w-28 truncate">{cat}</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400 w-28 truncate">{catLabel(cat)}</span>
                   <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div className="h-full bg-purple-500 rounded-full" style={{ width: `${(amt / totalSpent) * 100}%` }} />
                   </div>
@@ -631,7 +647,7 @@ export default function PersonalPage() {
                   : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
             >
-              {isIncome(c.name) ? "+" : "-"} {c.name}
+              {isIncome(c.name) ? "+" : "-"} {catLabel(c.name)}
             </button>
           ))}
         </div>
@@ -758,7 +774,7 @@ export default function PersonalPage() {
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                         income ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                       }`}>
-                        {income ? "+" : "-"} {catName}
+                        {income ? "+" : "-"} {catLabel(catName)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{e.description}</td>

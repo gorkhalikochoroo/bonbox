@@ -327,7 +327,7 @@ export default function CashBookPage() {
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <FadeIn>
-        <PageHeader eyebrow="MONEY" title={t("cashBook")} />
+        <PageHeader title={t("cashBook")} />
       </FadeIn>
 
       {success && <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}

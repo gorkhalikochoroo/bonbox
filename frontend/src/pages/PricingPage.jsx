@@ -120,7 +120,6 @@ export default function PricingPage({ embedded = false }) {
       {!embedded && (
         <FadeIn>
           <PageHeader
-            eyebrow="INTEL"
             title={t("priceOptimization") || "Price Optimization"}
             subtitle={t("pricingSubtitle") || "Find under-priced items, simulate increases, and benchmark against your neighborhood."}
           />

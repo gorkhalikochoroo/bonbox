@@ -167,7 +167,7 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
                   <div className="flex items-center gap-2 flex-wrap">
                     {pct < 100 && (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
-                        <Scale size={12} strokeWidth={1.75} aria-hidden="true" />Fradrag {pct}% · §42
+                        <Scale size={12} strokeWidth={1.75} aria-hidden="true" />{t("opsFradragPct", "Deductible {pct}% · §42", { pct })}
                       </span>
                     )}
                     {noAmount ? (
@@ -192,7 +192,7 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
                         <CircleCheck size={12} strokeWidth={1.75} aria-hidden="true" />{t("koReady", "Ready")}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">Ukategoriseret</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">{t("opsUncategorized", "Uncategorized")}</span>
                     )}
                     {noAmount || noRate ? (
                       <button type="button" onClick={() => onEdit?.(d)} className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">

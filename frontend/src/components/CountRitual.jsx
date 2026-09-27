@@ -231,7 +231,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {t("countTitle", "Optælling")}
+            {t("countTitle", "Stock count")}
           </div>
           {phase === "counting" && (
             <div className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
@@ -279,7 +279,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
             </p>
             <div className="mt-5 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between">
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                {t("countStockValue", "Lagerværdi")}
+                {t("countStockValue", "Stock value")}
               </span>
               <span className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
                 {/* `|| 0` turned a payload that never carried stock_value into

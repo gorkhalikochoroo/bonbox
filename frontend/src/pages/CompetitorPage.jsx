@@ -95,7 +95,7 @@ export default function CompetitorPage({ embedded = false }) {
       setData(res.data);
       // If user has competitors, default to overview tab
       if (res.data.total_competitors > 0 && tab === "discover") setTab("overview");
-    } catch { setError("Could not load competitor data"); }
+    } catch { setError(t("opsCmpLoadFailed", "Could not load competitor data")); }
     setLoading(false);
   };
 
@@ -110,7 +110,7 @@ export default function CompetitorPage({ embedded = false }) {
       setDiscoverSource(res.data.source || "");
       if (res.data.error) setDiscoverError(res.data.error);
     } catch {
-      setDiscoverError("Failed to discover nearby businesses");
+      setDiscoverError(t("opsCmpDiscoverFailed", "Failed to discover nearby businesses"));
     }
     setDiscoverLoading(false);
   };
@@ -136,7 +136,7 @@ export default function CompetitorPage({ embedded = false }) {
       ));
       fetchData();
     } catch (err) {
-      const msg = err.response?.data?.detail || err.response?.data?.error || err.message || "Failed to track";
+      const msg = err.response?.data?.detail || err.response?.data?.error || err.message || t("opsCmpTrackFailed", "Failed to track");
       toast({ message: `${t("cmpCouldNotTrack")}: ${msg}`, severity: "critical" });
     }
     setAddingId(null);
@@ -276,7 +276,7 @@ export default function CompetitorPage({ embedded = false }) {
       setScanConfidence(r.data?.confidence || null);
       setScanNote(r.data?.note || null);
       if (items.length === 0) {
-        setScanError(r.data?.error || "No menu items found. Try a clearer photo.");
+        setScanError(r.data?.error || t("scanMenuNothingFound", "No menu items found. Try a clearer photo."));
       }
       setScanStep("review");
     } catch (e) {
@@ -294,7 +294,7 @@ export default function CompetitorPage({ embedded = false }) {
         return;
       }
       const detail = e.response?.data?.detail;
-      setScanError(detail?.message || (typeof detail === "string" ? detail : "Extraction failed. Try again."));
+      setScanError(detail?.message || (typeof detail === "string" ? detail : t("opsCmpExtractFailedRetry", "Extraction failed. Try again.")));
       setScanStep("choose");
     }
   };
@@ -317,7 +317,7 @@ export default function CompetitorPage({ embedded = false }) {
       setScanConfidence(r.data?.confidence || null);
       setScanNote(r.data?.note || null);
       if (items.length === 0) {
-        setScanError(r.data?.error || "No menu items found in this photo.");
+        setScanError(r.data?.error || t("opsCmpNoItemsInPhoto", "No menu items found in this photo."));
       }
       setScanStep("review");
     } catch (e) {
@@ -333,7 +333,7 @@ export default function CompetitorPage({ embedded = false }) {
         return;
       }
       const detail = e.response?.data?.detail;
-      setScanError(detail?.message || (typeof detail === "string" ? detail : "Extraction failed."));
+      setScanError(detail?.message || (typeof detail === "string" ? detail : t("opsCmpExtractFailed", "Extraction failed.")));
       setScanStep("choose");
     }
   };
@@ -365,7 +365,7 @@ export default function CompetitorPage({ embedded = false }) {
         severity: "success",
       });
     } catch (e) {
-      setScanError(errText(e, "Couldn't import. Try again."));
+      setScanError(errText(e, t("opsCmpImportFailed", "Couldn't import. Try again.")));
     }
     setBulkSaving(false);
   };
@@ -426,8 +426,8 @@ export default function CompetitorPage({ embedded = false }) {
         <FadeIn>
           <PageHeader
             eyebrow={t("cpEyebrowIntel", "INTEL")}
-            title={t("competitorScan") || "Competitor Scan"}
-            subtitle={t("competitorSubtitle") || "Discover nearby businesses, track competitors & compare prices."}
+            title={t("competitorScan", "Competitor Scan")}
+            subtitle={t("competitorSubtitle", "Discover nearby businesses, track competitors & compare prices.")}
             actions={
               <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
                 {t("cpAddManually", "+ Add Manually")}
@@ -723,7 +723,7 @@ export default function CompetitorPage({ embedded = false }) {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-red-600">+{p.diff_pct}%</p>
-                      <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} vs {fmt(p.their_price)}</p>
+                      <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} {t("cpVs", "vs")} {fmt(p.their_price)}</p>
                     </div>
                   </div>
                 ))}
@@ -743,7 +743,7 @@ export default function CompetitorPage({ embedded = false }) {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-emerald-600">{p.diff_pct}%</p>
-                      <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} vs {fmt(p.their_price)}</p>
+                      <p className="text-[10px] sm:text-xs text-gray-400">{fmt(p.our_price)} {t("cpVs", "vs")} {fmt(p.their_price)}</p>
                     </div>
                   </div>
                 ))}

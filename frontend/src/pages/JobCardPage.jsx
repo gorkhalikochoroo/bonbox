@@ -10,10 +10,20 @@ import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
 
 const STATUS_FLOW = ["received", "diagnosing", "waiting_parts", "in_progress", "completed", "delivered", "invoiced"];
-const STATUS_LABELS = {
-  received: "Received", diagnosing: "Diagnosing", waiting_parts: "Waiting Parts",
-  in_progress: "In Progress", completed: "Completed", delivered: "Delivered", invoiced: "Invoiced",
-};
+// Status codes are what the API stores; the labels are catalogue copy (the
+// same keys WorkshopPage uses, so the board and the card never disagree).
+function statusLabel(t, status) {
+  switch (status) {
+    case "received": return t("opsWsStatusReceived", "Received");
+    case "diagnosing": return t("opsWsStatusDiagnosing", "Diagnosing");
+    case "waiting_parts": return t("opsWsStatusWaitingParts", "Waiting Parts");
+    case "in_progress": return t("opsWsStatusInProgress", "In Progress");
+    case "completed": return t("opsWsStatusCompleted", "Completed");
+    case "delivered": return t("opsWsStatusDelivered", "Delivered");
+    case "invoiced": return t("opsWsStatusInvoiced", "Invoiced");
+    default: return String(status || "").replace(/_/g, " ");
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════
    NEW JOB FORM — /workshop/new-job
@@ -77,7 +87,7 @@ export function NewJobPage() {
       }
 
       if (!vehicleId) {
-        setError("Please select or create a vehicle");
+        setError(t("opsJcPickVehicle", "Please select or create a vehicle"));
         setSaving(false);
         return;
       }
@@ -91,7 +101,7 @@ export function NewJobPage() {
       });
       nav(`/workshop/job/${res.data.id}`);
     } catch (err) {
-      setError(errText(err, "Failed to create job"));
+      setError(errText(err, t("opsJcCreateFailed", "Failed to create job")));
     } finally {
       setSaving(false);
     }
@@ -151,11 +161,11 @@ export function NewJobPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcPlateNumber", "Plate Number")} *</label>
-                <input type="text" className={inputClass} value={plate} onChange={e => setPlate(e.target.value)} placeholder="BA 1 PA 1234" />
+                <input type="text" className={inputClass} value={plate} onChange={e => setPlate(e.target.value)} placeholder={t("opsJcPlatePlaceholder", "BA 1 PA 1234")} />
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcMake", "Make")}</label>
-                <input type="text" className={inputClass} value={make} onChange={e => setMake(e.target.value)} placeholder="Toyota, Bajaj..." />
+                <input type="text" className={inputClass} value={make} onChange={e => setMake(e.target.value)} placeholder={t("opsJcMakePlaceholder", "Toyota, Bajaj...")} />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -169,7 +179,7 @@ export function NewJobPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcColor", "Color")}</label>
-                <input type="text" className={inputClass} value={color} onChange={e => setColor(e.target.value)} placeholder="White" />
+                <input type="text" className={inputClass} value={color} onChange={e => setColor(e.target.value)} placeholder={t("opsJcColorPlaceholder", "White")} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -264,7 +274,7 @@ export default function JobCardPage() {
       await api.patch(`/workshop/jobs/${id}/status`, { status: newStatus });
       fetchJob();
     } catch (err) {
-      setError(errText(err, "Failed to update"));
+      setError(errText(err, t("opsJcUpdateFailed", "Failed to update")));
     }
   };
 
@@ -282,7 +292,7 @@ export default function JobCardPage() {
       });
       setPartName(""); setPartQty("1"); setPartCost(""); setPartFromStock(false);
       fetchJob();
-    } catch (err) { setError(errText(err, "Failed")); }
+    } catch (err) { setError(errText(err, t("opsFailed", "Failed"))); }
   };
 
   const addLabor = async () => {
@@ -297,7 +307,7 @@ export default function JobCardPage() {
       });
       setLaborDesc(""); setLaborMechanic(""); setLaborHours(""); setLaborRate("");
       fetchJob();
-    } catch (err) { setError(errText(err, "Failed")); }
+    } catch (err) { setError(errText(err, t("opsFailed", "Failed"))); }
   };
 
   if (loading) return <div className="p-8 text-center text-gray-400">{t("loading", "Loading...")}</div>;
@@ -335,13 +345,13 @@ export default function JobCardPage() {
         <div className="flex items-center gap-1 min-w-[600px]">
           {STATUS_FLOW.map((s, i) => (
             <div key={s} className="flex items-center flex-1">
-              <button onClick={() => updateStatus(s)} title={`${t("jcSetTo", "Set to")} ${STATUS_LABELS[s]}`}
+              <button onClick={() => updateStatus(s)} title={`${t("jcSetTo", "Set to")} ${statusLabel(t, s)}`}
                 className={`w-full py-1.5 text-xs font-medium rounded-lg transition ${
                   i <= currentIdx
                     ? "bg-blue-600 text-white"
                     : "bg-gray-100 dark:bg-gray-700 text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                 }`}>
-                {STATUS_LABELS[s]}
+                {statusLabel(t, s)}
               </button>
               {i < STATUS_FLOW.length - 1 && <span className="text-gray-300 dark:text-gray-600 mx-0.5">→</span>}
             </div>

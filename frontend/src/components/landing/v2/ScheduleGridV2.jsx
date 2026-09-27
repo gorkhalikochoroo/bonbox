@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { formatHours } from "../../../utils/hours";
 
 /**
  * Landing v2 — the "You build the week" schedule-builder artifact.
@@ -11,6 +12,8 @@ import { useLanguage } from "../../../hooks/useLanguage";
  *
  * All figures are static demo values. Sums are internally consistent:
  * 8 shifts · 52.8 h · the wage total equals the sum of the chip estimates.
+ * Hours are NUMBERS here and printed through utils/hours, so a Danish visitor
+ * reads "6,25 t" and an English one "6.25 h" — never a typed-in unit.
  */
 
 const DEPARTMENTS = {
@@ -51,12 +54,12 @@ const ROWS = [
     name: "Agnes Kristensen",
     roleKey: "landingV2.schedule.roleServer",
     roleEn: "server",
-    contract: "18.75 h",
-    total: "18.8h",
+    contract: 18.75,
+    total: 18.75,
     shifts: {
-      0: { time: "16:00–23:00", hours: "6.25 h", dept: "floor", wage: "≈906 kr." },
-      4: { time: "16:00–23:00", hours: "6.25 h", dept: "floor", wage: "≈906 kr." },
-      6: { time: "16:00–23:00", hours: "6.25 h", dept: "floor", wage: "≈1.156 kr." },
+      0: { time: "16:00–23:00", hours: 6.25, dept: "floor", wage: "≈906 kr." },
+      4: { time: "16:00–23:00", hours: 6.25, dept: "floor", wage: "≈906 kr." },
+      6: { time: "16:00–23:00", hours: 6.25, dept: "floor", wage: "≈1.156 kr." },
     },
   },
   {
@@ -64,31 +67,31 @@ const ROWS = [
     roleKey: "landingV2.schedule.roleManager",
     roleEn: "manager",
     contract: null,
-    total: "6.5h",
+    total: 6.5,
     shifts: {
-      5: { time: "18:00–00:30", hours: "6.5 h", dept: "bar", wage: "≈1.235 kr." },
+      5: { time: "18:00–00:30", hours: 6.5, dept: "bar", wage: "≈1.235 kr." },
     },
   },
   {
     name: "Alma Rasmussen",
     roleKey: "landingV2.schedule.roleServer",
     roleEn: "server",
-    contract: "12.5 h",
-    total: "12.5h",
+    contract: 12.5,
+    total: 12.5,
     shifts: {
-      1: { time: "16:00–23:00", hours: "6.25 h", dept: "floor", wage: "≈925 kr." },
-      5: { time: "16:00–23:00", hours: "6.25 h", dept: "floor", wage: "≈1.175 kr." },
+      1: { time: "16:00–23:00", hours: 6.25, dept: "floor", wage: "≈925 kr." },
+      5: { time: "16:00–23:00", hours: 6.25, dept: "floor", wage: "≈1.175 kr." },
     },
   },
   {
     name: "Clara Larsen",
     roleKey: "landingV2.schedule.roleKitchen",
     roleEn: "kitchen",
-    contract: "25 h",
-    total: "15.0h",
+    contract: 25,
+    total: 15,
     shifts: {
-      2: { time: "15:00–23:00", hours: "7.5 h", dept: "kitchen", wage: "≈1.410 kr." },
-      3: { time: "15:00–23:00", hours: "7.5 h", dept: "kitchen", wage: "≈1.410 kr." },
+      2: { time: "15:00–23:00", hours: 7.5, dept: "kitchen", wage: "≈1.410 kr." },
+      3: { time: "15:00–23:00", hours: 7.5, dept: "kitchen", wage: "≈1.410 kr." },
     },
   },
 ];
@@ -96,7 +99,9 @@ const ROWS = [
 const GRID = "grid grid-cols-[168px_repeat(7,minmax(0,1fr))_74px]";
 
 export default function ScheduleGridV2() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  // Per-shift and contract figures keep two decimals (6.25); row totals one.
+  const hrs = (v, decimals = 2) => formatHours(v, { lang, decimals });
 
   const draft = t("landingV2.schedule.draftBadge", "DRAFT");
 
@@ -229,7 +234,7 @@ export default function ScheduleGridV2() {
                     </div>
                     <div className="text-[11.5px] text-slate-400">
                       {t(row.roleKey, row.roleEn)}
-                      {row.contract ? ` · ${row.contract}` : ""}
+                      {row.contract ? ` · ${hrs(row.contract)}` : ""}
                     </div>
                   </div>
                 </div>
@@ -254,7 +259,7 @@ export default function ScheduleGridV2() {
                           {shift.time}
                         </div>
                         <div className="mt-0.5 text-[10.5px] text-slate-500">
-                          {shift.hours} · {t(dept.key, dept.en)}
+                          {hrs(shift.hours)} · {t(dept.key, dept.en)}
                         </div>
                         <div className="mt-[3px] text-[10px] font-semibold text-amber-700">
                           {draft} · {shift.wage}
@@ -265,7 +270,7 @@ export default function ScheduleGridV2() {
                 })}
 
                 <div className="border-l border-slate-100 px-2.5 py-3.5 text-right font-display text-[15px] font-bold tracking-[-0.01em] text-slate-900">
-                  {row.total}
+                  {hrs(row.total, 1)}
                 </div>
               </div>
             ))}
@@ -275,7 +280,7 @@ export default function ScheduleGridV2() {
         {/* Footer totals */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-slate-200 bg-slate-50 px-[18px] py-3.5 text-[13px] text-slate-500">
           <span>
-            <strong className="font-semibold text-slate-900">52.8 h</strong>{" "}
+            <strong className="font-semibold text-slate-900">{hrs(52.75, 1)}</strong>{" "}
             {t("landingV2.schedule.totalRostered", "rostered")}
           </span>
           <span>

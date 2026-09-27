@@ -109,9 +109,9 @@ function ConfidenceBadge({ confidence, t }) {
 // Status colour is a 6px DOT only — never a card/banner fill. Collapsed
 // by default; expanding reveals the affected vare names (capped).
 const WARN_TAGS = [
-  { key: "late_for_lead_time", labelKey: "inventoryAutopilotWarnLate", labelFallback: "Ordered late for lead time", dot: "bg-red-500" },
-  { key: "perishable_waste_risk", labelKey: "inventoryAutopilotWarnPerishable", labelFallback: "Letfordærvelig — verify before bestilling", dot: "bg-amber-500" },
-  { key: "low_history", labelKey: "inventoryAutopilotWarnLowHistory", labelFallback: "Thin data", dot: "bg-gray-400" },
+  { key: "late_for_lead_time", labelKey: "inventoryAutopilotWarnLate", labelFallback: "Ordered late for lead time ({n})", dot: "bg-red-500" },
+  { key: "perishable_waste_risk", labelKey: "inventoryAutopilotWarnPerishable", labelFallback: "Letfordærvelig — verify before bestilling ({n})", dot: "bg-amber-500" },
+  { key: "low_history", labelKey: "inventoryAutopilotWarnLowHistory", labelFallback: "Thin data ({n})", dot: "bg-gray-400" },
 ];
 
 function WarningSummaryRow({ warn, t }) {
@@ -135,7 +135,7 @@ function WarningSummaryRow({ warn, t }) {
           className="shrink-0 text-gray-400"
         />
         <span className="font-medium text-gray-700 dark:text-gray-300">
-          {t("inventoryAutopilotWarnNote", "Bemærk")}
+          {t("inventoryAutopilotWarnNote", "Note")}
         </span>
         <span className="min-w-0 truncate text-gray-500 dark:text-gray-400">
           {active
@@ -191,17 +191,17 @@ function NotSetUpHero({ onAddSupplier, t }) {
         <Icon name="PackageSearch" size={26} />
       </span>
       <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 max-w-sm mx-auto leading-snug">
-        {t("inventoryAutopilotNotSetupHeadline", "Add your varer and BonBox flags what's running low")}
+        {t("inventoryAutopilotNotSetupHeadline", "Add your items and BonBox flags what's running low")}
       </h3>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
         {t(
           "inventoryAutopilotNotSetupBody",
-          "BonBox watches stock against usage and tells you what to reorder before you run out — you place the order, BonBox sends nothing. Add a vare with its current lager to start. A leverandør and price are optional; they just let BonBox group the list and estimate its value.",
+          "BonBox watches stock against usage and tells you what to reorder before you run out — you place the order, BonBox sends nothing. Add an item with its current stock to start. A supplier and price are optional; they just let BonBox group the list and estimate its value.",
         )}
       </p>
       <div className="mt-5">
         <Button variant="primary" onClick={onAddSupplier}>
-          {t("inventoryAutopilotNotSetupCta", "Add a vare to your lager")}
+          {t("inventoryAutopilotNotSetupCta", "Add an item to your stock")}
         </Button>
       </div>
     </div>
@@ -231,13 +231,13 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
-              {group.supplier_name || t("inventoryAutopilotNoSupplier", "No leverandør set")}
+              {group.supplier_name || t("inventoryAutopilotNoSupplier", "No supplier set")}
             </h3>
             <UrgencyBadge urgency={group.urgency} t={t} />
           </div>
           {!hasSupplier && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {t("inventoryAutopilotGroupHint", "Add a leverandør to group these varer (optional)")}
+              {t("inventoryAutopilotGroupHint", "Add a supplier to group these items (optional)")}
             </p>
           )}
         </div>
@@ -305,7 +305,7 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
                       setEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
                     }
                     className="w-full sm:w-24 h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 text-right focus:outline-none focus:ring-2 focus:ring-gray-900"
-                    aria-label={t("inventoryAutopilotQtyLabel", "Suggested antal")}
+                    aria-label={t("inventoryAutopilotQtyLabel", "Suggested qty")}
                   />
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0 min-w-[2rem]">
                     {it.unit}
@@ -331,8 +331,8 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
           <span className="inline-flex items-center gap-1.5">
             <Icon name="Copy" size={15} aria-hidden="true" />
             {copied
-              ? t("inventoryAutopilotCopied", "Kopieret")
-              : t("inventoryAutopilotCopyOrder", "Kopiér bestilling")}
+              ? t("inventoryAutopilotCopied", "Copied")
+              : t("inventoryAutopilotCopyOrder", "Copy order")}
           </span>
         </Button>
       </div>
@@ -378,7 +378,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       if (status === 402) {
         setError(
           err?.response?.data?.detail?.message ||
-            t("inventoryAutopilotProRequired", "Genbestilling is on Pro."),
+            t("inventoryAutopilotProRequired", "Reordering is on Pro."),
         );
       } else {
         setError(
@@ -489,12 +489,12 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       <Card>
         <div className="mb-3">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("inventoryAutopilotHeading", "Genbestilling")}
+            {t("inventoryAutopilotHeading", "Reorder")}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "inventoryAutopilotIntro",
-              "BonBox reads your vareforbrug and flags what's running low — how much to genbestil and roughly by when. You place the order.",
+              "BonBox reads your usage and flags what's running low — how much to reorder and roughly by when. You place the order.",
             )}
           </p>
         </div>
@@ -503,7 +503,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           tier={autopilotPlan}
           benefit={t(
             "inventoryAutopilotUpgradeBenefit",
-            "BonBox flags what's running low and how much to genbestil, grouped by leverandør — you place the order.",
+            "BonBox flags what's running low and how much to reorder, grouped by supplier — you place the order.",
           )}
           ctaLabel={t("seePlans", "See plans")}
           icon={<Icon name="Package" size={28} />}
@@ -521,7 +521,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("inventoryAutopilotHeading", "Genbestilling")}
+            {t("inventoryAutopilotHeading", "Reorder")}
           </h2>
           {!isNotSetUp && (
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -554,7 +554,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       {loading ? (
         <div className="px-4 py-12 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-            {t("inventoryAutopilotLoadingLager", "Reading your lager…")}
+            {t("inventoryAutopilotLoadingLager", "Reading your stock…")}
           </p>
         </div>
       ) : isNotSetUp ? (
@@ -587,7 +587,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               {t(
                 "inventoryAutopilotEmpty",
-                "Your lager looks healthy — BonBox flags varer before they run out.",
+                "Your stock looks healthy — BonBox flags items before they run out.",
               )}
             </div>
           ) : (

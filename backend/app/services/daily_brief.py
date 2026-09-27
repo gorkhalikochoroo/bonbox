@@ -1284,6 +1284,10 @@ def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None
         return {
             "greeting": _greeting_for(user),
             "date_label": _date_label_for(p),
+            # ISO date + a welcome flag so the page can say both in the
+            # owner's language; the English strings stay for older clients.
+            "date": p.today,
+            "welcome": True,
             "headline": "Welcome to BonBox — log a few sales and expenses to start seeing daily insights.",
             "insights": [],
             "ai_polished": False,
@@ -1294,6 +1298,7 @@ def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None
     return {
         "greeting": _greeting_for(user),
         "date_label": _date_label_for(p),
+        "date": p.today,
         "headline": head.text,
         # Brief 2.0 — pass cta through to the client so each insight can
         # render its own "Open X" action chip. The frontend handles the
@@ -1501,6 +1506,7 @@ def _try_llm_polish(
 
     validated["greeting"] = _greeting_for(user)
     validated["date_label"] = _date_label_for(p)
+    validated["date"] = p.today
     validated["ai_polished"] = True
     return validated, in_toks, out_toks, model
 

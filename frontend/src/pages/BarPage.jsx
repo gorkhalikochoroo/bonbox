@@ -147,7 +147,6 @@ export default function BarPage() {
     <div className="px-4 sm:px-6 py-6 max-w-6xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow="STOCK"
           title={t("barPageTitle") || "Bar Pour"}
           subtitle={
             t("barPageSubtitle") ||

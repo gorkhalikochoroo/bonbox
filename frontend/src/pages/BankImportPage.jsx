@@ -68,6 +68,17 @@ const AIIA_BANKS = [
   { slug: "sandbox", labelKey: "bankSandboxLabel" },
 ];
 
+// Default category NAMES travel to the API as-is (category_name) and are
+// matched there by name, so they stay English in the data. Only the option
+// text the owner reads is translated; the owner's own categories show as typed.
+const BANK_CAT_KEYS = {
+  Other: "catOther", Sales: "catSales", Ingredients: "opsBankCatIngredients",
+  Rent: "catRent", Wages: "catWages", Utilities: "opsBankCatUtilities",
+  Supplies: "opsBankCatSupplies", Transport: "transport", Insurance: "insurance",
+  Subscriptions: "subscriptions", Equipment: "opsBankCatEquipment",
+  Marketing: "opsBankCatMarketing",
+};
+
 export default function BankImportPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
@@ -117,7 +128,7 @@ export default function BankImportPage() {
     try {
       const res = await api.post("/bank-connect/init", { bank_slug: aiiaBank });
       const consentUrl = res?.data?.consent_url;
-      if (!consentUrl) throw new Error("Backend did not return a consent_url");
+      if (!consentUrl) throw new Error(t("opsBankNoConsentUrl", "Backend did not return a consent_url"));
       // Full redirect — the bank's SCA page expects a top-level navigation,
       // not an XHR follow. The bank then bounces back to our /api/bank-
       // connect/callback which redirects to /connections?bank_connected=1.
@@ -679,7 +690,7 @@ export default function BankImportPage() {
                             className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300 max-w-[140px]"
                           >
                             {allCategories.map((c) => (
-                              <option key={c} value={c}>{c}</option>
+                              <option key={c} value={c}>{BANK_CAT_KEYS[c] ? t(BANK_CAT_KEYS[c], c) : c}</option>
                             ))}
                           </select>
                           {txn.confidence > 0 && txn.confidence < 1 && (

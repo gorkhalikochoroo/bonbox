@@ -38,10 +38,12 @@ const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 // Mirrors backend whitelist in app/schemas/recurring_expense.py. Keep in
 // sync — adding a method on either side without the other will 422.
 const PAYMENT_METHODS = [
-  { value: "card", labelKey: "card" },
-  { value: "cash", labelKey: "cash" },
-  { value: "mobilepay", labelKey: "mobilePay" },
-  { value: "bank_transfer", labelKey: "bankTransfer" },
+  { value: "card", labelKey: "card", en: "Card" },
+  { value: "cash", labelKey: "cash", en: "Cash" },
+  // "mobilepay" — the catalogue key is lowercase; "mobilePay" never existed,
+  // so this option used to render the raw key.
+  { value: "mobilepay", labelKey: "mobilepay", en: "MobilePay" },
+  { value: "bank_transfer", labelKey: "bankTransfer", en: "Bank transfer" },
 ];
 
 function PaymentMethodSelect({ value, onChange, t }) {
@@ -53,7 +55,7 @@ function PaymentMethodSelect({ value, onChange, t }) {
     >
       {PAYMENT_METHODS.map((m) => (
         <option key={m.value} value={m.value}>
-          {t(m.labelKey, m.labelKey)}
+          {t(m.labelKey, m.en)}
         </option>
       ))}
     </select>

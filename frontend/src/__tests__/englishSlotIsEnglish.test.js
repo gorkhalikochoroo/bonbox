@@ -15,11 +15,11 @@
  *
  * WHAT THIS DOES NOT FLAG, because these are decisions and not defects:
  *   • the DK terms that stay Danish in every language — MOMS, SKAT,
- *     kasserapport, kreditnota, faktura, lønseddel, revisor, gavekort,
- *     vagtplan, kladde, khata, and the trade vocabulary the inventory and
- *     salon surfaces declare in their own headers (leverandør, lager,
- *     bestilling, behandler …). An English sentence built AROUND one of those
- *     is the house style, and rsvpErrStylist is the reference for it;
+ *     kasserapport, kreditnota, faktura, lønseddel, revisor, gavekort, kladde,
+ *     khata, and official names such as MOMS-angivelse. An English sentence
+ *     built AROUND one of those is the house style. (Sep 2026: everyday trade
+ *     words — leverandør, lager, vagtplan, behandler — are translated now;
+ *     "translation should be 100% when switching".);
  *   • statutory text that cites a Danish law or authority (Bogføringsloven,
  *     Skattestyrelsen) — it is quoted, not translated;
  *   • short strings where the two languages genuinely coincide ("OK", "Email").
@@ -54,13 +54,6 @@ const DANISH_GRAMMAR =
 const DELIBERATE = new Map([
   ["landingV2BookingCtaDa", "the key name says Da — it is the Danish CTA by design"],
   ["landingV2BookingTimeLabelDa", "same — the key name says Da"],
-  ["customersHowFooter", "cites CVR-registeret, Erhvervsstyrelsen and DAWA — Danish registries, quoted"],
-  ["taxReadyToFile", "SKAT-facing wording; the tax surfaces stay Danish"],
-  ["taxPdfEmailRevisorAria", "revisor-facing; the revisor surfaces stay Danish"],
-  ["profileRevisorMovedNotice", "revisor-facing"],
-  ["fakturaHowFooter", "quotes Bogføringsloven — statutory text is quoted, not translated"],
-  ["mileageHowFooter", "cites Skattestyrelsen's rate and Bogføringsloven §11"],
-  ["pillarGateGavekortTitle", "gavekort is a locked term and the sentence is two words around it"],
 ]);
 
 describe("no Danish sentence sits in the English slot", () => {

@@ -11,6 +11,7 @@
  */
 import { useState, useEffect } from "react";
 import { X, ImagePlus } from "lucide-react";
+import { useLanguage } from "../../hooks/useLanguage";
 
 const MAX_PHOTOS = 3;
 
@@ -126,6 +127,7 @@ export function usePhotoPicker(max = MAX_PHOTOS) {
 
 /** Thumbnail strip shown above the composer while photos are staged. */
 export function PendingPhotos({ picker }) {
+  const { t } = useLanguage();
   if (!picker.files.length) return null;
   return (
     <div className="flex flex-wrap gap-2 px-1 pb-2">
@@ -140,7 +142,7 @@ export function PendingPhotos({ picker }) {
             type="button"
             onClick={() => picker.removeAt(i)}
             className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center"
-            aria-label="Remove"
+            aria-label={t("portalPhotoRemove", "Remove photo")}
           >
             <X className="w-3 h-3" strokeWidth={2.5} aria-hidden />
           </button>
@@ -151,7 +153,9 @@ export function PendingPhotos({ picker }) {
 }
 
 /** The attach (image) button + its hidden file input. */
-export function AttachButton({ picker, label = "Add photo" }) {
+export function AttachButton({ picker, label: labelProp }) {
+  const { t } = useLanguage();
+  const label = labelProp || t("staffChatAddPhoto", "Add photo");
   return (
     <label
       className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition ${

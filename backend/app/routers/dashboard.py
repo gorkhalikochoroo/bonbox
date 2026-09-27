@@ -834,6 +834,10 @@ def get_dashboard_batch(
             "priority": "high",
             "title": f"Restock: {item.name}",
             "detail": f"{float(item.quantity):.0f} left (min: {float(item.min_threshold):.0f})",
+            # The numbers behind the English above, so the page can say it in
+            # the owner's language (title/detail stay for older clients).
+            "params": {"name": item.name, "qty": float(item.quantity),
+                       "min": float(item.min_threshold)},
         })
 
     # Expiring items
@@ -856,6 +860,7 @@ def get_dashboard_batch(
             "priority": "high" if days_left <= 2 else "medium",
             "title": f"Expiring: {item.name}",
             "detail": "Today!" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}",
+            "params": {"name": item.name, "days": days_left},
         })
 
     # Pending returns
@@ -872,6 +877,7 @@ def get_dashboard_batch(
                 "priority": "high",
                 "title": f"{pending_returns} return{'s' if pending_returns > 1 else ''} pending",
                 "detail": "Customer returns need your action \u2014 refund, replace, or restock",
+                "params": {"n": int(pending_returns)},
             })
     except Exception:
         pass
@@ -897,12 +903,14 @@ def get_dashboard_batch(
             action_items_list.append({
                 "type": "cost", "priority": "high",
                 "title": f"Expenses are {exp_ratio}% of revenue",
+                "params": {"pct": exp_ratio},
                 "detail": "Review your biggest expense categories to cut costs",
             })
         elif exp_ratio > 50:
             action_items_list.append({
                 "type": "cost", "priority": "medium",
                 "title": f"Expenses are {exp_ratio}% of revenue",
+                "params": {"pct": exp_ratio},
                 "detail": "Good, but there may be room to improve margins",
             })
 
@@ -1641,6 +1649,10 @@ def get_action_items(
             "priority": "high",
             "title": f"Restock: {item.name}",
             "detail": f"{float(item.quantity):.0f} left (min: {float(item.min_threshold):.0f})",
+            # The numbers behind the English above, so the page can say it in
+            # the owner's language (title/detail stay for older clients).
+            "params": {"name": item.name, "qty": float(item.quantity),
+                       "min": float(item.min_threshold)},
         })
 
     # 2. Expiring items (within 7 days)
@@ -1662,7 +1674,8 @@ def get_action_items(
             "type": "expiring",
             "priority": "high" if days_left <= 2 else "medium",
             "title": f"Expiring: {item.name}",
-            "detail": "Today!" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
+            "detail": "Today!" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}",
+            "params": {"name": item.name, "days": days_left},
         })
 
     # 3. Pending returns
@@ -1678,6 +1691,7 @@ def get_action_items(
                 "priority": "high",
                 "title": f"{pending_returns} return{'s' if pending_returns > 1 else ''} pending",
                 "detail": "Customer returns need your action — refund, replace, or restock",
+                "params": {"n": int(pending_returns)},
             })
     except Exception:
         pass  # status column may not exist yet
@@ -1712,6 +1726,7 @@ def get_action_items(
                 "type": "cost",
                 "priority": "high",
                 "title": f"Expenses are {exp_ratio}% of revenue",
+                "params": {"pct": exp_ratio},
                 "detail": "Review your biggest expense categories to cut costs",
             })
         elif exp_ratio > 50:
@@ -1719,6 +1734,7 @@ def get_action_items(
                 "type": "cost",
                 "priority": "medium",
                 "title": f"Expenses are {exp_ratio}% of revenue",
+                "params": {"pct": exp_ratio},
                 "detail": "Good, but there may be room to improve margins",
             })
 

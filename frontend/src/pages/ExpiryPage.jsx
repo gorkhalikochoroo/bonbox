@@ -29,11 +29,22 @@ import {
 } from "../components/ui";
 
 const STATUS_CONFIG = {
-  expired:  { labelKey: "expStatusExpired",  label: "Expired",   color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
-  critical: { labelKey: "expStatusCritical", label: "< 7 days",  color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
-  warning:  { labelKey: "expStatusWarning",  label: "7-14 days", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
-  upcoming: { labelKey: "expStatusUpcoming", label: "14-30 days",color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+  expired:  { color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
+  critical: { color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
+  warning:  { color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
+  upcoming: { color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
 };
+
+// The bucket word, from the catalogue. Unknown statuses read as "upcoming",
+// the same fallback STATUS_CONFIG uses for the colour.
+function statusLabel(t, status) {
+  switch (status) {
+    case "expired": return t("expStatusExpired", "Expired");
+    case "critical": return t("expStatusCritical", "< 7 days");
+    case "warning": return t("expStatusWarning", "7-14 days");
+    default: return t("expStatusUpcoming", "14-30 days");
+  }
+}
 
 export default function ExpiryPage() {
   const { user } = useAuth();
@@ -414,7 +425,7 @@ export default function ExpiryPage() {
       <FadeIn>
         <PageHeader
           eyebrow={t("expEyebrowStock", "STOCK")}
-          title={t("expiryForecasting") || "Expiry Forecasting"}
+          title={t("expiryForecasting", "Expiry Forecast")}
           subtitle={t("expSubtitle", "Track items approaching their expiry date and avoid waste.")}
         />
       </FadeIn>
@@ -641,7 +652,7 @@ export default function ExpiryPage() {
                 }`}>
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{item.name}</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{t(cfg.labelKey, cfg.label)}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{statusLabel(t, item.status)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>{item.quantity} {item.unit} | {item.category}</span>
@@ -697,7 +708,7 @@ export default function ExpiryPage() {
                       <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400"><Amount value={item.cost_at_risk} currency={currency} /></td>
                       <td className="py-3 px-2 text-center">
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${cfg.color}`}>
-                          {t(cfg.labelKey, cfg.label)}
+                          {statusLabel(t, item.status)}
                         </span>
                       </td>
                     </tr>

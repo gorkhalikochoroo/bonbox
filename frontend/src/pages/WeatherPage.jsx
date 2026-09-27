@@ -223,7 +223,6 @@ export default function WeatherPage({ embedded = false }) {
       ) : (
         <FadeIn>
           <PageHeader
-            eyebrow="INTEL"
             title={t("weatherSmart")}
             subtitle={t("weatherSubtitle") || "Weather-aware forecasting and revenue correlation."}
             actions={

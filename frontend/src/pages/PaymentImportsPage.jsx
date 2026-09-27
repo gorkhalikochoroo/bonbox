@@ -980,7 +980,6 @@ export default function PaymentImportsPage() {
   return (
     <PageShell width="narrow">
       <PageHeader
-        eyebrow="MONEY"
         title={t("paymentImports") || "Payment Imports"}
         subtitle={t(
           "paymentImportsSubtitleV2",

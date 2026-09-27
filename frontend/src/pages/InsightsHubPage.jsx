@@ -78,7 +78,6 @@ export default function InsightsHubPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow="INTEL"
           title={t("insightsHubTitle") || "Insights"}
           subtitle={
             t("insightsHubSubtitle") ||

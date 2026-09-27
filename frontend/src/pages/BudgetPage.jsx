@@ -153,7 +153,6 @@ export default function BudgetPage() {
 
       <FadeIn>
         <PageHeader
-          eyebrow="MONEY"
           title={t("budgetOverview") || "Budget"}
           subtitle={t("bgtSubtitle", "Track spending vs budget by category")}
           actions={

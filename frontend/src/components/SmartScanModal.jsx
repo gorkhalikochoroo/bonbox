@@ -641,7 +641,7 @@ export default function SmartScanModal({ open, onClose }) {
                   <Receipt size={20} strokeWidth={1.75} className="text-gray-700 dark:text-gray-200 shrink-0" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm text-gray-800 dark:text-gray-100">
-                      {t("smartScan.pick.receipt", "Kvittering")}
+                      {t("smartScan.pick.receipt", "Receipt")}
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       {t("smartScan.pick.receiptHint", "Til Udgifter")}

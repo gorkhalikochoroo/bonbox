@@ -115,7 +115,7 @@ export default function ProcedureCard() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {t("prcTitle", "Procedurebeskrivelse")}
+              {t("prcTitle", "Procedure description")}
             </span>
             <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
               {t("prcLegalChip", "Bogføringsloven § 6")}

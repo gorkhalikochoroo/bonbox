@@ -1059,7 +1059,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
               {t("hovEmptyAddStaff", "Add a staff member")}
             </Link>
             <p className="text-gray-400 dark:text-gray-500 text-xs mt-2">
-              {t("hovEmptyAddStaffWhere", "Under Manage staff on Vagtplan.")}
+              {t("hovEmptyAddStaffWhere", "Under Manage staff on the Schedule page.")}
             </p>
           </>
         ) : (
@@ -1111,7 +1111,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   // so a payload that carried no cost at all rendered "~0 kr" — a venue told
   // it paid nothing for a period nobody had actually costed.
   let costValue = cost.loaded_est == null ? "—" : `~${formatOwnerMoney(cost.loaded_est, currency)}`;
-  let costHelper = `${t("hovTileCostSub", "~ incl. feriepenge · estimate")}${soFar}`;
+  let costHelper = `${t("hovTileCostSub", "~ incl. holiday pay · estimate")}${soFar}`;
   if (!hasCostBasis) {
     costValue = "—";
     costHelper = t("hovTileCostNoRates", "set wage rates");

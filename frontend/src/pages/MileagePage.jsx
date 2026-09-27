@@ -55,7 +55,7 @@ export default function MileagePage() {
       setEntries(list.data);
       setSummary(sum.data);
     } catch (e) {
-      setError(errText(e, "Failed to load"));
+      setError(errText(e, t("opsFailedToLoad", "Failed to load")));
     } finally {
       setLoading(false);
     }
@@ -105,16 +105,15 @@ export default function MileagePage() {
           {/* App Store compliance (Apple 3.1.1): no tier name on native. */}
           <h1 className="text-xl font-bold mb-2 text-amber-900 dark:text-amber-200">
             {isNativeApp()
-              ? (t("featureNotOnPlanTitle") || "Not available on this plan")
-              : (t("mileageStarterRequired") || "Mileage tracker — Starter plan required")}
+              ? (t("featureNotOnPlanTitle", "Not available on this plan"))
+              : (t("mileageStarterRequired", "Mileage tracker — Starter plan required"))}
           </h1>
           <p className="text-sm text-amber-800 dark:text-amber-300 mb-4">
-            {t("mileageStarterDesc") ||
-              "Track business trips for kørselsgodtgørelse. Most owners miss 10-15k kr in deductions per year."}
+            {t("mileageStarterDesc", "Track business trips for the mileage allowance. Most owners miss 10-15k kr in deductions per year.")}
           </p>
           {canPurchaseInApp() && (
             <Link to="/subscription" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition">
-              {t("upgrade") || "Upgrade"}
+              {t("upgrade", "Upgrade")}
             </Link>
           )}
         </div>
@@ -127,10 +126,10 @@ export default function MileagePage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-            <span>🚗</span> {t("mileage") || "Mileage"}
+            <span>🚗</span> {t("mileage", "Mileage")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t("mileageDesc") || "Track business trips · kørselsgodtgørelse · auto-calculated deduction"}
+            {t("mileageDesc", "Track business trips · mileage allowance · auto-calculated deduction")}
           </p>
         </div>
         <button
@@ -140,43 +139,38 @@ export default function MileagePage() {
           }}
           className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition"
         >
-          + {t("newTrip") || "New trip"}
+          + {t("newTrip", "New trip")}
         </button>
       </div>
 
       <HowItWorksCard
         storageKey="mileage"
         iconName="Car"
-        title={t("mileageHowTitle") || "How Mileage works"}
+        title={t("mileageHowTitle", "How Mileage works")}
         steps={[
           {
-            title: t("mileageStep1Title") || "1. Log every business trip — same day",
+            title: t("mileageStep1Title", "1. Log every business trip — same day"),
             body:
-              t("mileageStep1Body") ||
-              "Date, km, purpose (e.g. \"supplier pickup — Grossisten\"), and your vehicle's registration. Skattestyrelsen requires contemporaneous logs — don't reconstruct trips at year-end.",
+              t("mileageStep1Body", "Date, km, purpose (e.g. \"supplier pickup — Grossisten\"), and your vehicle's registration. Skattestyrelsen requires contemporaneous logs — don't reconstruct trips at year-end."),
           },
           {
-            title: t("mileageStep2Title") || "2. Rate is auto-applied (2026)",
+            title: t("mileageStep2Title", "2. Rate is auto-applied (2026)"),
             body:
-              t("mileageStep2Body") ||
-              "First 20.000 km/year: 3,79 kr/km. Above 20.000 km: 2,23 kr/km. We freeze the rate on each entry, so even if Skattestyrelsen updates rates next year, your old entries stay accurate.",
+              t("mileageStep2Body", "First 20.000 km/year: 3,79 kr/km. Above 20.000 km: 2,23 kr/km. We freeze the rate on each entry, so even if Skattestyrelsen updates rates next year, your old entries stay accurate."),
           },
           {
-            title: t("mileageStep3Title") || "3. Watch the YTD card",
+            title: t("mileageStep3Title", "3. Watch the YTD card"),
             body:
-              t("mileageStep3Body") ||
-              "Top card shows total km logged this year, your tax-deductible kroner, and which rate tier you're currently in. Most owners miss 10-15k kr/year by not tracking — this card makes it real.",
+              t("mileageStep3Body", "Top card shows total km logged this year, your tax-deductible kroner, and which rate tier you're currently in. Most owners miss 10-15k kr/year by not tracking — this card makes it real."),
           },
           {
-            title: t("mileageStep4Title") || "4. Save your fuel receipts separately",
+            title: t("mileageStep4Title", "4. Save your fuel receipts separately"),
             body:
-              t("mileageStep4Body") ||
-              "Kørselsgodtgørelse replaces actual fuel/maintenance costs — you can't claim both. Keep receipts as documentation, but the deduction is calculated from the km log, not the receipts.",
+              t("mileageStep4Body", "The mileage allowance (kørselsgodtgørelse) replaces actual fuel/maintenance costs — you can't claim both. Keep receipts as documentation, but the deduction is calculated from the km log, not the receipts."),
           },
         ]}
         footer={
-          t("mileageHowFooter") ||
-          "Sats jf. Skattestyrelsens befordringsgodtgørelse 2026. Loggen skal være ført løbende (Bogføringsloven §11) — den kan kræves dokumenteret ved kontrol."
+          t("mileageHowFooter", "Rate per Skattestyrelsen's 2026 mileage allowance (befordringsgodtgørelse). The log must be kept as you go (Bogføringsloven §11) — you may be asked to document it in an audit.")
         }
       />
 
@@ -189,32 +183,32 @@ export default function MileagePage() {
 {summary && (
         <div className="bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-white rounded-xl p-6 shadow-sm">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-            {t("yearToDate") || "Year to date"} · {summary.year}
+            {t("yearToDate", "Year to date")} · {summary.year}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("totalKm") || "Total km"}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("totalKm", "Total km")}</p>
               <p className="text-3xl font-bold tabular-nums">{Number(summary.total_km).toLocaleString("da-DK")} km</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {summary.entries_count} {t("trips") || "trips"}
+                {summary.entries_count} {t("trips", "trips")}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("totalDeduction") || "Total deduction"}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("totalDeduction", "Total deduction")}</p>
               <p className="text-3xl font-bold tabular-nums">{fmtKr(summary.total_deduction)}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {t("taxDeductible") || "Tax-deductible"}
+                {t("taxDeductible", "Tax-deductible")}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("currentRate") || "Current rate"}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("currentRate", "Current rate")}</p>
               <p className="text-3xl font-bold tabular-nums">
                 {summary.rate_tier === "high" ? "2,23" : "3,79"} kr/km
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {summary.rate_tier === "high"
-                  ? (t("over20kKm") || "20.000+ km this year")
-                  : (t("under20kKm") || "First 20.000 km this year")}
+                  ? (t("over20kKm", "20.000+ km this year"))
+                  : (t("under20kKm", "First 20.000 km this year"))}
               </p>
             </div>
           </div>
@@ -228,15 +222,15 @@ export default function MileagePage() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
+        <div className="text-center py-12 text-gray-500">{t("loading", "Loading…")}</div>
       ) : entries.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">🚗</p>
           <p className="text-gray-600 dark:text-gray-300 font-medium mb-2">
-            {t("noTripsYet") || "No trips logged this year."}
+            {t("noTripsYet", "No trips logged this year.")}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {t("logTripHint") || "Skattestyrelsen requires same-day logging. Add today's trips before midnight."}
+            {t("logTripHint", "Skattestyrelsen requires same-day logging. Add today's trips before midnight.")}
           </p>
         </div>
       ) : (
@@ -251,12 +245,12 @@ export default function MileagePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
-                <th className="text-left px-5 py-3">{t("date") || "Date"}</th>
-                <th className="text-left px-5 py-3">{t("fromTo") || "From → To"}</th>
-                <th className="text-left px-5 py-3">{t("purpose") || "Purpose"}</th>
-                <th className="text-right px-5 py-3">{t("kmShort") || "km"}</th>
-                <th className="text-right px-5 py-3">{t("rate") || "Rate"}</th>
-                <th className="text-right px-5 py-3">{t("deduction") || "Deduction"}</th>
+                <th className="text-left px-5 py-3">{t("date", "Date")}</th>
+                <th className="text-left px-5 py-3">{t("fromTo", "From → To")}</th>
+                <th className="text-left px-5 py-3">{t("purpose", "Purpose")}</th>
+                <th className="text-right px-5 py-3">{t("kmShort", "km")}</th>
+                <th className="text-right px-5 py-3">{t("rate", "Rate")}</th>
+                <th className="text-right px-5 py-3">{t("deduction", "Deduction")}</th>
                 <th className="text-right px-5 py-3"></th>
               </tr>
             </thead>
@@ -287,13 +281,13 @@ export default function MileagePage() {
                           }}
                           className="text-xs text-blue-600 hover:underline mr-2"
                         >
-                          {t("edit") || "Edit"}
+                          {t("edit", "Edit")}
                         </button>
                         <button
                           onClick={() => deleteEntry(e)}
                           className="text-xs text-red-600 hover:underline"
                         >
-                          {t("delete") || "Delete"}
+                          {t("delete", "Delete")}
                         </button>
                       </>
                     )}
@@ -337,13 +331,13 @@ export default function MileagePage() {
                     onClick={() => { setEditingId(e.id); setShowForm(true); }}
                     className="flex-1 min-h-[44px] rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition"
                   >
-                    {t("edit") || "Edit"}
+                    {t("edit", "Edit")}
                   </button>
                   <button
                     onClick={() => deleteEntry(e)}
                     className="flex-1 min-h-[44px] rounded-lg border border-red-200 dark:border-red-800/60 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
                   >
-                    {t("delete") || "Delete"}
+                    {t("delete", "Delete")}
                   </button>
                 </div>
               )}
@@ -402,7 +396,7 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
       }
       onSaved();
     } catch (err) {
-      setError(errText(err, "Save failed"));
+      setError(errText(err, t("opsSaveFailed", "Save failed")));
     } finally {
       setSaving(false);
     }
@@ -413,14 +407,14 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-lg w-full">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">
-            {isEdit ? (t("editTrip") || "Edit trip") : (t("newTrip") || "New trip")}
+            {isEdit ? (t("editTrip", "Edit trip")) : (t("newTrip", "New trip"))}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-3">
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("tripDate") || "Trip date"} *
+              {t("tripDate", "Trip date")} *
             </label>
             <input
               type="date"
@@ -433,35 +427,35 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("from") || "From"} *
+              {t("from", "From")} *
             </label>
             <input
               type="text"
               value={form.from_address}
               onChange={update("from_address")}
               required
-              placeholder={t("fromPlaceholder") || "Hjem, Amager"}
+              placeholder={t("opsMileageFromPlaceholder", "Home, Amager")}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
             />
           </div>
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("to") || "To"} *
+              {t("to", "To")} *
             </label>
             <input
               type="text"
               value={form.to_address}
               onChange={update("to_address")}
               required
-              placeholder={t("toPlaceholder") || "Vesterbro Bryghus"}
+              placeholder={t("toPlaceholder", "Vesterbro Bryghus")}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
             />
           </div>
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("kmShort") || "Km"} *
+              {t("kmShort", "km")} *
             </label>
             <input
               type="number"
@@ -476,24 +470,24 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("purpose") || "Purpose"} *
+              {t("purpose", "Purpose")} *
             </label>
             <input
               type="text"
               value={form.purpose}
               onChange={update("purpose")}
               required
-              placeholder={t("purposePlaceholder") || "Tihar event setup"}
+              placeholder={t("opsMileagePurposePlaceholder", "Tihar event setup")}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
             />
             <p className="text-[10px] text-gray-400 mt-1">
-              {t("purposeRequired") || "Required by Skattestyrelsen for audit compliance."}
+              {t("purposeRequired", "Required by Skattestyrelsen for audit compliance.")}
             </p>
           </div>
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("vehicleReg") || "Vehicle reg (license plate)"}
+              {t("vehicleReg", "Vehicle reg (license plate)")}
             </label>
             <input
               type="text"
@@ -516,14 +510,14 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
               onClick={onClose}
               className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm"
             >
-              {t("cancel") || "Cancel"}
+              {t("cancel", "Cancel")}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
-              {saving ? (t("saving") || "Saving…") : (t("save") || "Save trip")}
+              {saving ? (t("saving", "Saving…")) : (t("save", "Save"))}
             </button>
           </div>
         </form>

@@ -1,7 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
-import { useState, useEffect, useMemo } from "react";
+import { Fragment, useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { stepPayPeriod } from "../utils/payPeriod";
@@ -14,10 +14,41 @@ import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 import { isStaffMemberRole } from "../config/navManifest";
+import { contractLabel } from "../config/scheduleGrid";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════════════════ */
+// Role names as the owner reads them. staff_members.role is free text, so the
+// stored value is never rewritten — only what is shown. Same map as the twins
+// in StaffSchedulePage, StaffTipsPage and StaffPortalPage; unknown roles (and
+// the salon vocabulary, Danish in both languages) show exactly as typed.
+const ROLE_NAME_KEYS = {
+  chef: ["stfRoleChef", "Chef"],
+  server: ["stfRoleServer", "Server"],
+  dishwasher: ["stfRoleDishwasher", "Dishwasher"],
+  manager: ["teamRoleManager", "Manager"],
+  kitchen: ["roleKitchen", "Kitchen"],
+  floor: ["roleFloor", "Floor"],
+  "full-time": ["contractFull", "Full-time"],
+  full_time: ["contractFull", "Full-time"],
+  "part-time": ["contractPart", "Part-time"],
+  part_time: ["contractPart", "Part-time"],
+  student: ["contractStudent", "Student"],
+};
+function roleName(role, t) {
+  const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
+  return hit ? t(hit[0], hit[1]) : role;
+}
+
+// A catalogue sentence whose {slot} holds markup (a bold phrase): split on the
+// placeholder so each language can put the phrase where its grammar wants it.
+function fillSlots(text, slots) {
+  return String(text).split(/(\{\w+\})/).map((part, i) => {
+    const m = /^\{(\w+)\}$/.exec(part);
+    return m && m[1] in slots ? <Fragment key={i}>{slots[m[1]]}</Fragment> : part;
+  });
+}
 // MONEY, the account's way — not the browser's.
 //
 // This built its own string with toLocaleString(undefined, ...), and
@@ -53,11 +84,12 @@ function addDays(dateStr, days) {
   return localIso(d);
 }
 
+// `value` is what the API stores (weather_condition); the label is t(labelKey).
 const REASON_OPTIONS = [
-  { value: "sick", labelKey: "sickReasonSick", label: "Sick", icon: "🤒" },
-  { value: "personal", labelKey: "sickReasonPersonal", label: "Personal", icon: "🏠" },
-  { value: "weather", labelKey: "sickReasonWeather", label: "Weather", icon: "🌧️" },
-  { value: "other", labelKey: "sickReasonOther", label: "Other", icon: "📝" },
+  { value: "sick", labelKey: "sickReasonSick", fallback: "Sick", icon: "🤒" },
+  { value: "personal", labelKey: "sickReasonPersonal", fallback: "Personal", icon: "🏠" },
+  { value: "weather", labelKey: "sickReasonWeather", fallback: "Weather", icon: "🌧️" },
+  { value: "other", labelKey: "sickReasonOther", fallback: "Other", icon: "📝" },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -288,8 +320,9 @@ export default function StaffPayrollPage() {
         return {
           id: s.id,
           name: s.name || s.staff_name || "—",
-          role: s.role || "Staff",
-          contract_type: s.contract_type || "hourly",
+          // Display-only; the fallback words are resolved at render (t()).
+          role: s.role || null,
+          contract_type: s.contract_type || null,
           hours: h.total_hours || 0,
           base_earned: baseEarned,
           overtime: overtimePay,
@@ -461,7 +494,6 @@ export default function StaffPayrollPage() {
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <PageHeader
-        eyebrow="STAFF"
         title={t("payroll", "Payroll")}
         subtitle={t("payrollSubtitle", "Generate payroll reports for your revisor")}
       />
@@ -472,15 +504,19 @@ export default function StaffPayrollPage() {
         title={t("payrollTipTitle", "DK payroll, the easy way")}
       >
         <p className="mb-1.5">
-          BonBox runs <strong>lønhjælp mode</strong> — from the hours you already log, we estimate
-          AM-bidrag (8%), A-skat (~36% after personfradrag), ATP and feriepenge, then generate a clean
-          Lønseddel PDF + a summary CSV (DKK, semikolon-separeret for Excel) your revisor can key into
-          DataLøn / Zenegy.
+          {fillSlots(
+            t(
+              "stfPayrollTipBody",
+              "BonBox runs {mode} — from the hours you already log, we estimate AM-bidrag (8%), A-skat (~36% after personfradrag), ATP and feriepenge, then generate a clean Lønseddel PDF + a summary CSV (DKK, semicolon-separated for Excel) your revisor can key into DataLøn / Zenegy.",
+            ),
+            { mode: <strong>{t("stfPayrollTipMode", "payroll-helper mode")}</strong> },
+          )}
         </p>
         <p className="text-xs opacity-75">
-          Built for timelønnet (hourly) staff — funktionærer på fast månedsløn køres via lønsystemet. We
-          don&rsquo;t store CPR, run eIndkomst, or file with SKAT — your lønsystem and revisor sign off on
-          the final numbers.
+          {t(
+            "stfPayrollTipScope",
+            "Built for hourly (timelønnet) staff — salaried funktionærer run through your payroll system. We don’t store CPR, run eIndkomst, or file with SKAT — your payroll system and revisor sign off on the final numbers.",
+          )}
         </p>
       </DismissibleTip>
 
@@ -607,10 +643,10 @@ export default function StaffPayrollPage() {
                           {s.name || s.staff_name || "—"}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300">
-                          {s.role || "Staff"}
+                          {s.role ? roleName(s.role, t) : t("teamRoleStaff", "Staff")}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300">
-                          {s.contract_type || "hourly"}
+                          {contractLabel(s.contract_type, t) || t("stfContractHourly", "Hourly")}
                         </span>
                       </div>
                     </div>
@@ -684,7 +720,11 @@ export default function StaffPayrollPage() {
                     <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
                       <td className="py-3 px-2">
                         <p className="font-medium text-gray-800 dark:text-white">{row.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{row.role} · {row.contract_type}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {row.role ? roleName(row.role, t) : t("teamRoleStaff", "Staff")}
+                          {" · "}
+                          {contractLabel(row.contract_type, t) || t("stfContractHourly", "Hourly")}
+                        </p>
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
                         {formatHours(row.hours, { lang })}
@@ -763,7 +803,7 @@ export default function StaffPayrollPage() {
               <div>
                 <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("danishPayrollBreakdown")}</h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  Estimate for SKAT remittance and FerieKonto. Submit via your lønsystem.
+                  {t("stfPayrollSkatNote", "Estimate for SKAT remittance and FerieKonto. Submit via your payroll system.")}
                 </p>
               </div>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
@@ -784,16 +824,17 @@ export default function StaffPayrollPage() {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <DkStat label="Gross wages" value={dkEstimate.totals.gross} currency={currency} accent="gray" />
+                  <DkStat label={t("stfPayrollGrossWages", "Gross wages")} value={dkEstimate.totals.gross} currency={currency} accent="gray" />
+                  {/* "AM-bidrag" is a locked DK term — the same label in every language. */}
                   <DkStat label="AM-bidrag (8%)" value={dkEstimate.totals.am_bidrag} currency={currency} accent="blue" />
-                  <DkStat label="A-skat (est. 36%)" value={dkEstimate.totals.a_skat} currency={currency} accent="blue" />
-                  <DkStat label="Net to staff" value={dkEstimate.totals.net_pay} currency={currency} accent="green" />
+                  <DkStat label={t("stfPayrollASkatEst", "A-skat (est. 36%)")} value={dkEstimate.totals.a_skat} currency={currency} accent="blue" />
+                  <DkStat label={t("stfPayrollNetToStaff", "Net to staff")} value={dkEstimate.totals.net_pay} currency={currency} accent="green" />
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                   <DkStat label="ATP" value={dkEstimate.totals.atp} currency={currency} small />
-                  <DkStat label="Feriepenge (12.5%)" value={dkEstimate.totals.feriepenge} currency={currency} small />
-                  <DkStat label="Employer total cost" value={dkEstimate.totals.employer_total_cost} currency={currency} small accent="dark" />
+                  <DkStat label={t("stfPayrollFeriepenge", "Feriepenge (12.5%)")} value={dkEstimate.totals.feriepenge} currency={currency} small />
+                  <DkStat label={t("stfPayrollEmployerCost", "Employer total cost")} value={dkEstimate.totals.employer_total_cost} currency={currency} small accent="dark" />
                 </div>
 
                 <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2.5 text-xs text-blue-800 dark:text-blue-200">
@@ -801,9 +842,18 @@ export default function StaffPayrollPage() {
                   <div>{fmtMoney(dkEstimate.skat_remit.total, currency)} = AM-bidrag {fmtMoney(dkEstimate.skat_remit.am_bidrag, currency)} + A-skat {fmtMoney(dkEstimate.skat_remit.a_skat, currency)}</div>
                 </div>
 
-                <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {dkEstimate.estimate_note}
-                </p>
+                {/* The API's estimate_note is one fixed English paragraph
+                    (payroll_service.py). It is rendered from the catalogue so a
+                    Danish owner reads it in Danish — if the backend's wording
+                    changes, change stfPayrollEstimateNote with it. */}
+                {dkEstimate.estimate_note && (
+                  <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                    {t(
+                      "stfPayrollEstimateNote",
+                      "A-skat varies per employee — typical hovedkort is ~36% after personfradrag, bikort is ~42% (no personfradrag), frikort is 0% until the annual limit. BonBox uses each staff member's trækkort type when set, otherwise defaults to hovedkort. The official A-skat comes from each employee's eSkattekort and your payroll system's eIndkomst submission — use this estimate for planning the 10th-of-month deadline only.",
+                    )}
+                  </p>
+                )}
 
                 {!isStaffSeat && (
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -856,9 +906,10 @@ export default function StaffPayrollPage() {
                             <th className="text-left py-1.5 px-2">{t("name", "Name")}</th>
                             <th className="text-right py-1.5 px-2">{t("hoursLabel")}</th>
                             <th className="text-right py-1.5 px-2">{t("gross")}</th>
+                            {/* AM(-bidrag) and A-skat are locked DK terms — same in every language. */}
                             <th className="text-right py-1.5 px-2">AM</th>
                             <th className="text-right py-1.5 px-2">A-skat</th>
-                            <th className="text-right py-1.5 px-2">Net</th>
+                            <th className="text-right py-1.5 px-2">{t("netLabel", "Net")}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -913,7 +964,9 @@ export default function StaffPayrollPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {selectedIds.size === 0
                 ? t("payrollSelectToExport", "Select at least one staff member to export")
-                : `${t(selectedIds.size > 1 ? "payrollStaffSelectedPlural" : "payrollStaffSelectedSingular", selectedIds.size > 1 ? "{count} staff members selected" : "{count} staff member selected").replace("{count}", selectedIds.size)} · ${period ? periodLabel(period.period_start, period.period_end) : ""}`}
+                : `${selectedIds.size > 1
+                    ? t("payrollStaffSelectedPlural", "{count} staff members selected", { count: selectedIds.size })
+                    : t("payrollStaffSelectedSingular", "{count} staff member selected", { count: selectedIds.size })} · ${period ? periodLabel(period.period_start, period.period_end) : ""}`}
             </p>
           </div>
           {sendToast && (
@@ -985,7 +1038,7 @@ export default function StaffPayrollPage() {
               <option value="">{t("reason", "Reason")}</option>
               {REASON_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.icon} {t(opt.labelKey, opt.label)}
+                  {opt.icon} {t(opt.labelKey, opt.fallback)}
                 </option>
               ))}
             </select>
@@ -1016,6 +1069,12 @@ export default function StaffPayrollPage() {
             <div className="space-y-2">
               {sickCalls.slice(0, 10).map((sc, i) => {
                 const reasonObj = REASON_OPTIONS.find(r => r.value === sc.weather_condition) || REASON_OPTIONS.find(r => r.value === "other");
+                // The stored code, shown in the owner's language. A code this
+                // form does not offer (rain / snow / storm from the weather
+                // flow) is shown as stored rather than folded into "Other".
+                const reasonCode = sc.weather_condition || "other";
+                const reasonHit = REASON_OPTIONS.find(r => r.value === reasonCode);
+                const reasonText = reasonHit ? t(reasonHit.labelKey, reasonHit.fallback) : reasonCode;
                 return (
                   <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
                     <div className="flex items-center gap-2">
@@ -1023,7 +1082,7 @@ export default function StaffPayrollPage() {
                       <div>
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{sc.staff_name}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {sc.weather_condition || "other"} · {formatDate(sc.date)}
+                          {reasonText} · {formatDate(sc.date)}
                         </p>
                       </div>
                     </div>

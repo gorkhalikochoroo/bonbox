@@ -258,7 +258,7 @@ function DailyCloseHero({ tx_ }) {
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
                 <span className="text-[15px] font-bold tabular-nums text-amber-700">13</span>
-                <span className="text-[8px] font-semibold text-amber-600 uppercase tracking-wide mt-0.5">dage</span>
+                <span className="text-[8px] font-semibold text-amber-600 uppercase tracking-wide mt-0.5">{tx_("opsLandingDaysUnit", "days")}</span>
               </div>
             </div>
           </div>
@@ -295,7 +295,12 @@ const FLOOR_TOK = {
   taken: { box: "bg-gray-100 ring-gray-200 text-gray-400",         chair: "bg-gray-200",        stool: "border-gray-300" },
   pick:  { box: "bg-gray-900 ring-gray-900 text-white",            chair: "bg-gray-700",        stool: "border-gray-500" },
 };
-const SCHED_DAYS = ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
+const SCHED_DAYS = [
+  { key: "day_mon_short", en: "Mon" }, { key: "day_tue_short", en: "Tue" },
+  { key: "day_wed_short", en: "Wed" }, { key: "day_thu_short", en: "Thu" },
+  { key: "day_fri_short", en: "Fri" }, { key: "day_sat_short", en: "Sat" },
+  { key: "day_sun_short", en: "Sun" },
+];
 const SCHED_ROWS = [
   { who: "Mette", init: "M", bar: "bg-gray-900", shifts: { 0: "10–18", 2: "10–18", 4: "12–20" } },
   { who: "Jonas", init: "J", bar: "bg-gray-500", shifts: { 1: "16–23", 3: "16–23", 5: "16–23" } },
@@ -317,7 +322,7 @@ function LandingScheduleMini({ tx_ }) {
           <div className="grid gap-1" style={{ gridTemplateColumns: "auto repeat(7, 1fr)" }}>
             <div className="border-b border-gray-100" />
             {SCHED_DAYS.map((d, i) => (
-              <div key={d} className={`text-center text-[10px] font-semibold uppercase tracking-wide pb-1.5 border-b border-gray-100 ${weekend(i) ? "text-gray-300" : "text-gray-400"}`}>{d}</div>
+              <div key={d.key} className={`text-center text-[10px] font-semibold uppercase tracking-wide pb-1.5 border-b border-gray-100 ${weekend(i) ? "text-gray-300" : "text-gray-400"}`}>{tx_(d.key, d.en)}</div>
             ))}
             {SCHED_ROWS.flatMap((r, ri) => [
               <div key={`l-${ri}`} className="flex items-center gap-2 pr-2 pt-1">
@@ -356,9 +361,9 @@ function LandingScheduleMini({ tx_ }) {
 // Honest illustration of a faktura: sequential number, line items, MOMS,
 // a paid (netbank-matched) chip, and the kreditnota path. Demo amounts add up.
 const FAKTURA_LINES = [
-  { d: "Catering · 40 couverts", a: "6.000,00" },
-  { d: "Drikkevarer", a: "1.850,00" },
-  { d: "Levering", a: "350,00" },
+  { key: "opsLandingFakLineCatering", en: "Catering · 40 covers", a: "6.000,00" },
+  { key: "opsLandingFakLineDrinks", en: "Drinks", a: "1.850,00" },
+  { key: "opsLandingFakLineDelivery", en: "Delivery", a: "350,00" },
 ];
 function LandingFakturaMini({ tx_ }) {
   return (
@@ -366,7 +371,7 @@ function LandingFakturaMini({ tx_ }) {
       <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${SHADOW_FLOAT}`}>
         <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Faktura</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{tx_("landingShowFakturaTag", "Faktura")}</p>
             <p className="text-[15px] font-semibold text-gray-900 mt-0.5 tabular-nums">2026-0042</p>
           </div>
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 text-[12px] font-semibold px-2.5 py-1">
@@ -375,12 +380,12 @@ function LandingFakturaMini({ tx_ }) {
         </div>
         <div className="px-5 sm:px-6 py-5">
           <p className="text-[12px] text-gray-500">
-            {tx_("landingShowFakturaTo", "To")} <span className="text-gray-800 font-medium">Café Nord ApS · CVR 00000000 (eksempel)</span>
+            {tx_("landingShowFakturaTo", "To")} <span className="text-gray-800 font-medium">{tx_("opsLandingFakCustomer", "Café Nord ApS · CVR 00000000 (example)")}</span>
           </p>
           <div className="mt-4 space-y-2.5">
             {FAKTURA_LINES.map((l) => (
-              <div key={l.d} className="flex items-center justify-between text-[13px]">
-                <span className="text-gray-600">{l.d}</span>
+              <div key={l.key} className="flex items-center justify-between text-[13px]">
+                <span className="text-gray-600">{tx_(l.key, l.en)}</span>
                 <span className="text-gray-900 tabular-nums">{l.a}</span>
               </div>
             ))}
@@ -445,9 +450,9 @@ function MomsCountdownSpotlight({ tx_ }) {
             <div className="h-full bg-gray-900 rounded-full" style={{ width: "79%" }} />
           </div>
           <div className="flex justify-between text-[13px] text-gray-500 mt-1.5 tabular-nums">
-            <span>1. apr.</span>
-            <span>19. maj · i dag</span>
-            <span>1. juni</span>
+            <span>{tx_("opsLandingMomsFrom", "1 Apr")}</span>
+            <span>{tx_("opsLandingMomsToday", "19 May · today")}</span>
+            <span>{tx_("opsLandingMomsTo", "1 Jun")}</span>
           </div>
         </div>
 
@@ -1709,9 +1714,9 @@ export default function LandingPage() {
             </Link>
 
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-gray-600">
-              <Link to="/privacy" className="hover:text-gray-900 transition-colors">{tx_("privacy", "Privacy")}</Link>
+              <Link to="/privacy" className="hover:text-gray-900 transition-colors">{tx_("landingFooterPrivacy", "Privacy")}</Link>
               <Link to="/terms" className="hover:text-gray-900 transition-colors">{tx_("terms", "Terms")}</Link>
-              <Link to="/cookies" className="hover:text-gray-900 transition-colors">{tx_("cookies", "Cookies")}</Link>
+              <Link to="/cookies" className="hover:text-gray-900 transition-colors">{tx_("opsLandingFooterCookies", "Cookies")}</Link>
               <Link to="/contact" className="hover:text-gray-900 transition-colors">{tx_("contact", "Contact")}</Link>
             </div>
 

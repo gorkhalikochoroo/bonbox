@@ -6,6 +6,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { formatOwnerMoney } from "../utils/currency";
+import { dateLocale } from "../utils/dateFormat";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
@@ -390,9 +391,10 @@ function ExtractStep({
         <div>
           <textarea
             className="w-full h-48 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-            placeholder={
-              "Tuborg 24 bottles\nVodka 5 liter\nLemons 30\nTomater 5 kg"
-            }
+            placeholder={t(
+              "opsSiTextExample",
+              "Tuborg 24 bottles\nVodka 5 liter\nLemons 30\nTomater 5 kg",
+            )}
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
           />
@@ -559,7 +561,7 @@ function HistoryList({ history, t }) {
       {history.map((h) => {
         const fmt = (iso) =>
           iso
-            ? new Date(iso).toLocaleString(undefined, {
+            ? new Date(iso).toLocaleString(dateLocale(), {
                 weekday: "short", day: "numeric", month: "short",
                 hour: "2-digit", minute: "2-digit",
               })
@@ -666,14 +668,13 @@ function SupplierUpgradeNudge({ t }) {
             {t(
               "smartImportSupplierGateTitle",
               "Supplier auto-detection — Starter+",
-            ) || "Supplier auto-detection — Starter+"}
+            )}
           </p>
           <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
             {t(
               "smartImportSupplierGateBody",
               "Upgrade to identify Hørkram / BC Catering / AB Catering and auto-categorize up to 30 items at once.",
-            ) ||
-              "Upgrade to identify Hørkram / BC Catering / AB Catering and auto-categorize up to 30 items at once."}
+            )}
           </p>
         </div>
         {canPurchaseInApp() && (
@@ -681,7 +682,7 @@ function SupplierUpgradeNudge({ t }) {
             to="/subscription"
             className="shrink-0 text-xs font-semibold px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90"
           >
-            {t("smartImportSupplierGateCta", "Upgrade") || "Upgrade"}
+            {t("smartImportSupplierGateCta", "Upgrade")}
           </Link>
         )}
       </div>
@@ -899,8 +900,8 @@ function ReviewStep({
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">
             {draft.invoice_totals?.grand_total
-              ? t("siReadGoesToLagerAndExpense", "Goes on your lager — and books as an expense for you to approve")
-              : t("siReadGoesToLager", "Goes on your lager when you save")}
+              ? t("siReadGoesToLagerAndExpense", "Goes into your stock — and books as an expense for you to approve")
+              : t("siReadGoesToLager", "Goes into your stock when you save")}
           </div>
         </div>
       </div>

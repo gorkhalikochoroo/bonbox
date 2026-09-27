@@ -58,7 +58,7 @@ export default function TerminalsPage() {
       setTerminals(Array.isArray(res.data) ? res.data : []);
       setError("");
     } catch (err) {
-      setError(errText(err, t("terminalsLoadFailed") || "Could not load terminals"));
+      setError(errText(err, t("terminalsLoadFailed", "Could not load terminals")));
     } finally {
       setLoading(false);
     }
@@ -100,7 +100,7 @@ export default function TerminalsPage() {
 
   async function save() {
     if (!form.name.trim()) {
-      setError(t("terminalNameRequired") || "Name is required");
+      setError(t("terminalNameRequired", "Name is required"));
       return;
     }
     setSaving(true);
@@ -134,7 +134,7 @@ export default function TerminalsPage() {
         setError(t("terminalsFreeOneCap", { planLabel }));
       } else {
         const detailMsg = typeof detail === "string" ? detail : null;
-        setError(detailMsg || t("terminalSaveFailed") || "Could not save terminal");
+        setError(detailMsg || t("terminalSaveFailed", "Could not save terminal"));
       }
     } finally {
       setSaving(false);
@@ -143,7 +143,7 @@ export default function TerminalsPage() {
 
   async function remove(term) {
     if (!(await confirm({
-      message: (t("terminalConfirmDelete") || "Delete terminal {name}? Past closes are preserved.")
+      message: (t("terminalConfirmDelete", "Delete terminal {name}? Past closes are preserved."))
         .replace("{name}", term.name),
       destructive: true,
     }))) {
@@ -153,7 +153,7 @@ export default function TerminalsPage() {
       await api.delete(`/terminals/${term.id}`);
       await fetchTerminals();
     } catch (err) {
-      setError(errText(err, t("terminalDeleteFailed") || "Could not delete"));
+      setError(errText(err, t("terminalDeleteFailed", "Could not delete")));
     }
   }
 
@@ -168,11 +168,10 @@ export default function TerminalsPage() {
         <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              💳 {t("terminalsPageTitle") || "POS Terminals"}
+              💳 {t("terminalsPageTitle", "POS Terminals")}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
-              {t("terminalsPageSubtitle") ||
-                "Each physical till station you close out at end of night. Takes 30 seconds to set up — once."}
+              {t("terminalsPageSubtitle", "Each physical till station you close out at end of night. Takes 30 seconds to set up — once.")}
             </p>
           </div>
           {!editing && (
@@ -180,7 +179,7 @@ export default function TerminalsPage() {
               onClick={startNew}
               className="px-4 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition shrink-0"
             >
-              + {t("addTerminal") || "Add terminal"}
+              + {t("addTerminal", "Add terminal")}
             </button>
           )}
         </div>
@@ -199,45 +198,42 @@ export default function TerminalsPage() {
             <summary className="cursor-pointer px-5 py-3 text-[13px] font-semibold text-gray-800 dark:text-gray-200 flex items-center justify-between list-none">
               <span className="flex items-center gap-2">
                 <span className="text-base">💡</span>
-                {t("terminalsHowTitle") || "How this works"}
+                {t("terminalsHowTitle", "How this works")}
               </span>
               <span className="text-gray-400 transition-transform group-open:rotate-180">▾</span>
             </summary>
             <div className="px-5 pb-5 grid sm:grid-cols-3 gap-4 sm:gap-5 border-t border-gray-100 dark:border-gray-700/60 pt-4">
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                  {t("terminalsHowStep1Tag") || "Step 1 (one-time)"}
+                  {t("terminalsHowStep1Tag", "Step 1 (one-time)")}
                 </div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                  {t("terminalsHowStep1Title") || "List your terminals here"}
+                  {t("terminalsHowStep1Title", "List your terminals here")}
                 </div>
                 <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                  {t("terminalsHowStep1Body") ||
-                    "One row per physical till — front bar, terrace, takeaway window, etc. Set the payment methods each one takes."}
+                  {t("terminalsHowStep1Body", "One row per physical till — front bar, terrace, takeaway window, etc. Set the payment methods each one takes (e.g. takeaway probably never takes Amex).")}
                 </div>
               </div>
               <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                  {t("terminalsHowStep2Tag") || "Step 2 (every night)"}
+                  {t("terminalsHowStep2Tag", "Step 2 (every night)")}
                 </div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                  {t("terminalsHowStep2Title") || "Snap each kasserapport"}
+                  {t("terminalsHowStep2Title", "Front-of-house snaps each kasserapport")}
                 </div>
                 <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                  {t("terminalsHowStep2Body") ||
-                    "Open the daily close, photograph each terminal's printed totals receipt. AI reads Dankort, MobilePay, cash, and the rest in ~6 seconds."}
+                  {t("terminalsHowStep2Body", "Whoever closes the shift — waiter, bartender, shift manager — opens the daily close on their phone and photographs each terminal's printed totals. AI reads Dankort, MobilePay, cash, and the rest in ~6 seconds. No typing, no math.")}
                 </div>
               </div>
               <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-5">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-gray-300">
-                  {t("terminalsHowStep3Tag") || "Step 3 (automatic)"}
+                  {t("terminalsHowStep3Tag", "Step 3 (one tap)")}
                 </div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                  {t("terminalsHowStep3Title") || "BonBox merges them into one close"}
+                  {t("terminalsHowStep3Title", "One consolidated PDF")}
                 </div>
                 <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                  {t("terminalsHowStep3Body") ||
-                    "All terminals roll up to a single daily total. Cash difference flagged. Send the consolidated PDF to owner or revisor in one tap."}
+                  {t("terminalsHowStep3Body", "All terminals roll up to a single daily total, with the cash difference flagged automatically. When the closer finishes, the merged PDF is ready to download and pass on.")}
                 </div>
               </div>
             </div>
@@ -252,21 +248,21 @@ export default function TerminalsPage() {
           <div className="mt-5 mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 sm:p-6 shadow-sm">
             <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4">
               {editing === "new"
-                ? (t("addTerminal") || "Add terminal")
-                : (t("editTerminal") || "Edit terminal")}
+                ? (t("addTerminal", "Add terminal"))
+                : (t("editTerminal", "Edit terminal"))}
             </h2>
 
             <div className="space-y-4">
               {/* Name */}
               <div>
                 <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5 block">
-                  {t("terminalName") || "Name"}
+                  {t("terminalName", "Name")}
                 </label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder={t("terminalNameExample") || "e.g. Front bar, Terrace, Takeaway"}
+                  placeholder={t("terminalNameExample", "e.g. Front bar, Terrace, Takeaway")}
                   maxLength={80}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-gray-200 dark:focus:ring-green-700 outline-none"
                 />
@@ -276,14 +272,14 @@ export default function TerminalsPage() {
               {isMultiBranch && (
                 <div>
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5 block">
-                    {t("branch") || "Branch"}
+                    {t("branch", "Branch")}
                   </label>
                   <select
                     value={form.branch_id || ""}
                     onChange={(e) => setForm({ ...form, branch_id: e.target.value || null })}
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                   >
-                    <option value="">— {t("notLinkedToBranch") || "not linked to a branch"} —</option>
+                    <option value="">— {t("notLinkedToBranch", "not linked to a branch")} —</option>
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
@@ -294,7 +290,7 @@ export default function TerminalsPage() {
               {/* Capability flags */}
               <div>
                 <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2 block">
-                  {t("paymentMethodsAccepted") || "Payment methods this terminal accepts"}
+                  {t("paymentMethodsAccepted", "Payment methods this terminal takes")}
                 </label>
                 <div className="flex flex-wrap gap-3">
                   <CapabilityToggle
@@ -314,37 +310,35 @@ export default function TerminalsPage() {
                   />
                 </div>
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
-                  {t("paymentMethodsHint") ||
-                    "Hidden methods won't appear as scan slots in the daily close — keeps the form clean."}
+                  {t("paymentMethodsHint", "Untoggle a method this till never sees (e.g. the takeaway window doesn't take Amex). Keeps your end-of-night screen clean.")}
                 </p>
               </div>
 
               {/* Receipt label — advanced */}
               <details className="rounded-lg border border-gray-100 dark:border-gray-700/40 px-3 py-2">
                 <summary className="text-xs font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">
-                  {t("advancedSettings") || "Advanced"}
+                  {t("advancedSettings", "Advanced")}
                 </summary>
                 <div className="mt-3 space-y-3">
                   <div>
                     <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">
-                      {t("receiptLabel") || "Receipt label (auto-routing)"}
+                      {t("receiptLabel", "Receipt label (auto-routing)")}
                     </label>
                     <input
                       type="text"
                       value={form.receipt_label}
                       onChange={(e) => setForm({ ...form, receipt_label: e.target.value })}
-                      placeholder={t("receiptLabelExample") || "e.g. Term 2, Terminal A"}
+                      placeholder={t("receiptLabelExample", "e.g. Term 2, Terminal A")}
                       maxLength={40}
                       className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                     />
                     <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                      {t("receiptLabelHint") ||
-                        "Optional. If the OCR sees this exact text on a kasserapport, BonBox auto-tags the scan to this terminal."}
+                      {t("receiptLabelHint", "Optional. If the OCR sees this exact text on a kasserapport, BonBox auto-tags the scan to this terminal.")}
                     </p>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">
-                      {t("displayOrder") || "Display order (0 = first)"}
+                      {t("displayOrder", "Display order (0 = first)")}
                     </label>
                     <input
                       type="number"
@@ -370,13 +364,13 @@ export default function TerminalsPage() {
                   disabled={saving || !form.name.trim()}
                   className="flex-1 sm:flex-none px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
                 >
-                  {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+                  {saving ? (t("saving", "Saving…")) : (t("save", "Save"))}
                 </button>
                 <button
                   onClick={cancel}
                   className="px-5 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
                 >
-                  {t("cancel") || "Cancel"}
+                  {t("cancel", "Cancel")}
                 </button>
               </div>
             </div>
@@ -388,7 +382,7 @@ export default function TerminalsPage() {
       <FadeIn delay={0.05}>
         {loading ? (
           <div className="text-sm text-gray-500 dark:text-gray-400 mt-6">
-            {t("loading") || "Loading…"}
+            {t("loading", "Loading…")}
           </div>
         ) : !editing && error ? (
           <div className="mt-6 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-4 py-3">
@@ -398,18 +392,17 @@ export default function TerminalsPage() {
           <div className="mt-6 bg-white dark:bg-gray-800 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center">
             <div className="text-4xl mb-2">💳</div>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">
-              {t("noTerminalsYet") || "No terminals yet"}
+              {t("noTerminalsYet", "No terminals yet")}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 max-w-sm mx-auto">
-              {t("noTerminalsHelp") ||
-                "Add one terminal per physical POS station you have. Café with one cash drawer = 1 terminal. Restaurant with bar + terrace = 2."}
+              {t("noTerminalsHelp", "One row per physical till — café with one cash drawer = 1 terminal, restaurant with bar + terrace + takeaway = 3.")}
             </p>
             {!editing && (
               <button
                 onClick={startNew}
                 className="px-5 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition"
               >
-                + {t("addFirstTerminal") || "Add your first terminal"}
+                + {t("addFirstTerminal", "Add your first terminal")}
               </button>
             )}
           </div>
@@ -447,13 +440,13 @@ export default function TerminalsPage() {
                     onClick={() => startEdit(term)}
                     className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
                   >
-                    {t("edit") || "Edit"}
+                    {t("edit", "Edit")}
                   </button>
                   <button
                     onClick={() => remove(term)}
                     className="px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
                   >
-                    {t("delete") || "Delete"}
+                    {t("delete", "Delete")}
                   </button>
                 </div>
               </div>

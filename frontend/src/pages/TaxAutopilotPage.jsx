@@ -546,7 +546,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
             <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-700 dark:text-emerald-400">
               {unlocked
                 ? filingPdfPlanName
-                : (t("taxPdfPlanLocked") || "{plan} · Locked").replace("{plan}", filingPdfPlanName)}
+                : (t("taxPdfPlanLocked", "{plan} · Locked")).replace("{plan}", filingPdfPlanName)}
               {" · "}{t("taxPdfFilingReadyShort")}
             </p>
             <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">

@@ -16,11 +16,55 @@ import { errText } from "../utils/errText";
 /* ═══════════════════════════════════════════════════════════
    SPLIT METHOD DEFINITIONS
    ═══════════════════════════════════════════════════════════ */
+// `id` is the split_method the API stores; label + description are display
+// copy, looked up through t() at render.
 const SPLIT_METHODS = [
-  { id: "hours", label: "By Hours Worked", icon: "⏱️", desc: "Proportional to hours logged today" },
-  { id: "role", label: "By Role Share", icon: "👔", desc: "Full-time = 1.0, Part-time/Student = 0.5" },
-  { id: "custom", label: "Custom Ratio", icon: "✏️", desc: "Set your own percentages" },
+  {
+    id: "hours", icon: "⏱️",
+    labelKey: "stfTipSplitHours", labelFallback: "By Hours Worked",
+    descKey: "stfTipSplitHoursDesc", descFallback: "Proportional to hours logged today",
+  },
+  {
+    id: "role", icon: "👔",
+    labelKey: "stfTipSplitRole", labelFallback: "By Role Share",
+    descKey: "stfTipSplitRoleDesc", descFallback: "Full-time = 1.0, Part-time/Student = 0.5",
+  },
+  {
+    id: "custom", icon: "✏️",
+    labelKey: "stfTipSplitCustom", labelFallback: "Custom Ratio",
+    descKey: "stfTipSplitCustomDesc", descFallback: "Set your own percentages",
+  },
 ];
+
+/** Localized name of a stored split_method; an unknown one shows as stored. */
+function splitMethodLabel(id, t) {
+  const m = SPLIT_METHODS.find((x) => x.id === id);
+  return m ? t(m.labelKey, m.labelFallback) : id;
+}
+
+// Role / employment names as the owner reads them. `role` here is free text
+// (staff_members.role, or employment_type, or the "full-time" default below)
+// and it also drives getRoleShare(), so the stored value is never rewritten —
+// only what is shown. Same map as the twins in StaffSchedulePage,
+// StaffPayrollPage and StaffPortalPage; unknown roles (and the salon
+// vocabulary, Danish in both languages) show exactly as typed.
+const ROLE_NAME_KEYS = {
+  chef: ["stfRoleChef", "Chef"],
+  server: ["stfRoleServer", "Server"],
+  dishwasher: ["stfRoleDishwasher", "Dishwasher"],
+  manager: ["teamRoleManager", "Manager"],
+  kitchen: ["roleKitchen", "Kitchen"],
+  floor: ["roleFloor", "Floor"],
+  "full-time": ["contractFull", "Full-time"],
+  full_time: ["contractFull", "Full-time"],
+  "part-time": ["contractPart", "Part-time"],
+  part_time: ["contractPart", "Part-time"],
+  student: ["contractStudent", "Student"],
+};
+function roleName(role, t) {
+  const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
+  return hit ? t(hit[0], hit[1]) : role;
+}
 
 const ROLE_SHARES = {
   "full-time": 1.0,
@@ -84,16 +128,15 @@ export default function StaffTipsPage() {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       <PageHeader
-        eyebrow="STAFF"
-        title={t("tips") || "Tips"}
-        subtitle={t("tipsDesc") || "Distribute tips fairly \u2014 by hours, role, or custom split"}
+        title={t("tips", "Tips")}
+        subtitle={t("tipsDesc", "Distribute tips fairly \u2014 by hours, role, or custom split")}
       />
 
       {/* Tab bar */}
       <TabPills
         tabs={[
-          { id: "new", label: t("newTipEntry") || "New Entry" },
-          { id: "history", label: t("tipHistory") || "History" },
+          { id: "new", label: t("newTipEntry", "New Entry") },
+          { id: "history", label: t("tipHistory", "History") },
         ]}
         activeId={tab}
         onChange={setTab}
@@ -142,6 +185,9 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
   // percentage columns beside it stay number inputs: neither is kroner.
   // See components/ui/MoneyField.jsx.
   const mLocale = moneyLocale(currency);
+  // A row with no name on file reads "Staff #12" — resolved at render so it
+  // follows the language, never baked into the row.
+  const nameOf = (s) => s.name || t("stfStaffNumber", "Staff #{id}", { id: s.staff_id });
   const [date, setDate] = useState(today());
   const [totalAmount, setTotalAmount] = useState("");
   const [splitMethod, setSplitMethod] = useState("hours");
@@ -165,7 +211,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           const hourEntry = hoursData.find(h => h.staff_id === member.id);
           return {
             staff_id: member.id,
-            name: member.name || member.full_name || `Staff #${member.id}`,
+            name: member.name || member.full_name || "",
             role: member.role || member.employment_type || "full-time",
             hours: hourEntry ? parseFloat(hourEntry.hours || hourEntry.total_hours || 0) : 0,
           };
@@ -175,7 +221,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         if (merged.length === 0 && staffMembers.length > 0) {
           setStaffHours(staffMembers.map(m => ({
             staff_id: m.id,
-            name: m.name || m.full_name || `Staff #${m.id}`,
+            name: m.name || m.full_name || "",
             role: m.role || m.employment_type || "full-time",
             hours: 0,
           })));
@@ -185,7 +231,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           // If we have hours data but no matching staff, use hours data directly
           setStaffHours(hoursData.map(h => ({
             staff_id: h.staff_id,
-            name: h.staff_name || h.name || `Staff #${h.staff_id}`,
+            name: h.staff_name || h.name || "",
             role: h.role || "full-time",
             hours: parseFloat(h.hours || h.total_hours || 0),
           })));
@@ -196,7 +242,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         if (staffMembers.length > 0) {
           setStaffHours(staffMembers.map(m => ({
             staff_id: m.id,
-            name: m.name || m.full_name || `Staff #${m.id}`,
+            name: m.name || m.full_name || "",
             role: m.role || m.employment_type || "full-time",
             hours: 0,
           })));
@@ -390,11 +436,11 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                     ? "text-gray-700 dark:text-gray-300"
                     : "dark:text-white"
                 }`}>
-                  {method.label}
+                  {t(method.labelKey, method.labelFallback)}
                 </span>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-7">
-                {method.desc}
+                {t(method.descKey, method.descFallback)}
               </p>
             </button>
           ))}
@@ -460,8 +506,8 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   <tr key={row.staff_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                     <td className="px-5 py-3">
                       <div>
-                        <p className="text-sm font-medium dark:text-white">{row.name}</p>
-                        <p className="text-xs text-gray-400 capitalize">{row.role}</p>
+                        <p className="text-sm font-medium dark:text-white">{nameOf(row)}</p>
+                        <p className="text-xs text-gray-400 capitalize">{roleName(row.role, t)}</p>
                       </div>
                     </td>
                     <td className="px-3 py-3 text-right">
@@ -547,7 +593,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         {/* Validation messages */}
         {splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5 && totalCustomPercent > 0 && (
           <div className="mx-5 mb-4 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 rounded-xl text-sm text-red-600 dark:text-red-400">
-            {"\u26A0\uFE0F"} {t("stPercentTotalPrefix", "Percentages total")} {totalCustomPercent.toFixed(1)}% \u2014 {t("stMustEqual100", "must equal 100%")}
+            {"\u26A0\uFE0F"} {t("stPercentTotalPrefix", "Percentages total")} {totalCustomPercent.toFixed(1)}% — {t("stMustEqual100", "must equal 100%")}
           </div>
         )}
 
@@ -592,7 +638,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
                     <span>{t("stMethod", "Method")}</span>
                     <span className="dark:text-gray-300">
-                      {SPLIT_METHODS.find(m => m.id === splitMethod)?.label}
+                      {splitMethodLabel(splitMethod, t)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm font-bold pt-2 border-t dark:border-gray-600 dark:text-white">
@@ -605,7 +651,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   {distribution.filter(d => d.share_amount > 0).map(d => (
                     <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
                       <div>
-                        <p className="text-sm font-medium dark:text-white">{d.name}</p>
+                        <p className="text-sm font-medium dark:text-white">{nameOf(d)}</p>
                         <p className="text-xs text-gray-400">{d.share_pct.toFixed(1)}% {t("stShareSuffix", "share")}</p>
                       </div>
                       <span className="text-lg font-bold text-emerald-600 dark:text-gray-300">
@@ -744,13 +790,18 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                         }) : t("stUnknownDate", "Unknown date")}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-gray-400 capitalize">
+                        {/* No `capitalize`: the label is already cased per
+                            language, and CSS would Title-Case the Danish
+                            ("Efter Rolle"). */}
+                        <span className="text-xs text-gray-400">
                           {SPLIT_METHODS.find(m => m.id === tip.split_method)?.icon}{" "}
-                          {SPLIT_METHODS.find(m => m.id === tip.split_method)?.label || tip.split_method}
+                          {splitMethodLabel(tip.split_method, t)}
                         </span>
                         <span className="text-xs text-gray-300 dark:text-gray-600">{"\u2022"}</span>
                         <span className="text-xs text-gray-400">
-                          {distributions.length} {t("stStaffCountSuffix", "staff")}
+                          {distributions.length === 1
+                            ? t("stfStaffCountOne", "1 staff member")
+                            : `${distributions.length} ${t("stStaffCountSuffix", "staff")}`}
                         </span>
                       </div>
                     </div>
@@ -775,7 +826,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                     <div className="flex flex-wrap gap-2 mt-3">
                       {distributions.slice(0, 3).map((d, i) => (
                         <span key={i} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
-                          {d.staff_name || d.name || `Staff #${d.staff_id}`}: {formatOwnerMoney(parseFloat(d.amount) || 0, currency, { decimals: 2 })}
+                          {d.staff_name || d.name || t("stfStaffNumber", "Staff #{id}", { id: d.staff_id })}: {formatOwnerMoney(parseFloat(d.amount) || 0, currency, { decimals: 2 })}
                         </span>
                       ))}
                       {distributions.length > 3 && (
@@ -795,7 +846,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                         <div key={i} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
                           <div>
                             <p className="text-sm font-medium dark:text-white">
-                              {d.staff_name || d.name || `Staff #${d.staff_id}`}
+                              {d.staff_name || d.name || t("stfStaffNumber", "Staff #{id}", { id: d.staff_id })}
                             </p>
                             <p className="text-xs text-gray-400">
                               {d.hours ? formatHoursMinutes(parseFloat(d.hours), { lang }) : ""}{d.hours && d.percentage ? " \u2022 " : ""}

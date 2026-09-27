@@ -112,7 +112,7 @@ export default function FakturaPage() {
       setPendingCount(pending.data?.pending_count || 0);
       setUsage(usageRes.data);
     } catch (e) {
-      setError(errText(e, "Failed to load"));
+      setError(errText(e, t("opsFailedToLoad", "Failed to load")));
     } finally {
       setLoading(false);
     }
@@ -131,21 +131,18 @@ export default function FakturaPage() {
     return (
       <div className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
         <PageHeader
-          eyebrow="MONEY"
-          title={t("faktura") || "Faktura"}
+          title={t("faktura", "Faktura")}
           subtitle={
-            t("fakturaStarterDesc") ||
-            "Send invoices, track payments, and replace your accountant's monthly data entry."
+            t("fakturaStarterDesc", "Send invoices, track payments, and replace your accountant's monthly data entry.")
           }
         />
         <UpgradeNudge
           intent="card"
           tier="starter"
           benefit={
-            t("fakturaStarterRequired") ||
-            "Send invoices and replace your accountant's monthly data entry"
+            t("fakturaStarterRequired", "Faktura — Starter plan required")
           }
-          ctaLabel={t("upgrade") || "See plans"}
+          ctaLabel={t("upgrade", "Upgrade")}
         />
       </div>
     );
@@ -154,27 +151,26 @@ export default function FakturaPage() {
   return (
     <div className="p-4 md:p-8 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <PageHeader
-        eyebrow="MONEY"
-        title={t("faktura") || "Faktura"}
-        subtitle={t("fakturaDesc") || "Send invoices · gap-less numbering · auto-paid via bank match"}
+        title={t("faktura", "Faktura")}
+        subtitle={t("fakturaDesc", "Send invoices · gap-less numbering · auto-paid via bank match")}
         actions={
           <>
             {pendingCount > 0 && (
               <Link
                 to="/faktura/review"
                 className="inline-flex items-center gap-2 px-3.5 h-9 rounded-lg text-sm font-medium border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 hover:bg-amber-100/80 dark:hover:bg-amber-900/30 transition"
-                title={t("reviewBadgeHint") || "Bank deposits that need your confirmation"}
+                title={t("reviewBadgeHint", "Bank deposits that need your confirmation")}
               >
-                {pendingCount} {t("toReview") || "to review"}
+                {pendingCount} {t("toReview", "to review")}
               </Link>
             )}
             <Button
               variant="accent"
               onClick={() => setShowForm(true)}
               disabled={customers.length === 0}
-              title={customers.length === 0 ? (t("addCustomerFirst") || "Add a customer first") : ""}
+              title={customers.length === 0 ? (t("addCustomerFirst", "Add a customer first")) : ""}
             >
-              + {t("newInvoice") || "New invoice"}
+              + {t("newInvoice", "New invoice")}
             </Button>
           </>
         }
@@ -221,10 +217,9 @@ export default function FakturaPage() {
 
       {customers.length === 0 && (
         <SectionBanner severity="info" icon="Users">
-          {t("fakturaNoCustomersHint") ||
-            "You need at least one customer before you can send an invoice. "}
+          {t("fakturaNoCustomersHint", "You need at least one customer before you can send an invoice. ")}
           <Link to="/customers" className="font-semibold underline">
-            {t("addCustomerNow") || "Add one now →"}
+            {t("addCustomerNow", "Add one now →")}
           </Link>
         </SectionBanner>
       )}
@@ -232,19 +227,17 @@ export default function FakturaPage() {
       <HowItWorksCard
         storageKey="faktura"
         iconName="Receipt"
-        title={t("fakturaHowTitle") || "How Faktura works"}
+        title={t("fakturaHowTitle", "How Faktura works")}
         steps={[
           {
-            title: t("fakturaStep1Title") || "1. Add a customer first",
+            title: t("fakturaStep1Title", "1. Add a customer first"),
             body:
-              t("fakturaStep1Body") ||
-              "Type a CVR and we auto-fill name + address from CVR/DAWA. For private clients, toggle Privatperson — no CVR needed.",
+              t("fakturaStep1Body", "Type a CVR and we auto-fill name + address from CVR/DAWA. For private clients, toggle Privatperson — no CVR needed."),
           },
           {
-            title: t("fakturaStep2Title") || "2. Create the invoice",
+            title: t("fakturaStep2Title", "2. Create the invoice"),
             body:
-              t("fakturaStep2Body") ||
-              "Add line items (description, qty, unit price). Moms (25 % default) and totals calculate live. Save as draft to edit later.",
+              t("fakturaStep2Body", "Add line items (description, qty, unit price). MOMS (25 % default) and totals calculate live. Save as draft to edit later."),
           },
           {
             // Updated 2026-05-19 — direct Resend send is now the
@@ -256,15 +249,13 @@ export default function FakturaPage() {
                 "Click Send: the invoice locks, the PDF goes straight to the customer's inbox via BonBox, and you're CC'd on every send. Reply-to is your email so the customer replies to you, not to noreply."),
           },
           {
-            title: t("fakturaStep4Title") || "4. Get paid — two ways",
+            title: t("fakturaStep4Title", "4. Get paid — auto-matched"),
             body:
-              t("fakturaStep4Body") ||
-              "Auto: export your bank's CSV (2 clicks in netbank), upload it under Bank Import — BonBox matches payments to open invoices within ±2 kr tolerance and flips status to Paid. Manual: when the money lands and you spot it yourself, tap Mark paid on the invoice row. Either way, status updates everywhere and the customer never sees a 'still open' invoice.",
+              t("fakturaStep4Body", "Export your bank's CSV (2 clicks in netbank), upload it under Bank Import. BonBox auto-matches the payment to the open invoice within ±2 kr tolerance and flips status to Paid — no manual reconciliation."),
           },
         ]}
         footer={
-          t("fakturaHowFooter") ||
-          "Fakturanummer er løbende og uden huller per branch per år, jf. Bogføringsloven §7. Sendte fakturaer kan ikke slettes — annullér med kreditnota i stedet (vi laver den automatisk)."
+          t("fakturaHowFooter", "Faktura numbers run in sequence with no gaps, per branch per year. A sent faktura can't be deleted — cancel it with a kreditnota instead (we create it automatically).")
         }
       />
 
@@ -277,27 +268,27 @@ export default function FakturaPage() {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-xs">
             <span className="text-gray-500 dark:text-gray-400 font-medium">
-              {t("dateRange") || "Date range"}:
+              {t("dateRange", "Date range")}:
             </span>
             {[
-              { label: t("allTime") || "All time", from: "", to: "" },
+              { label: t("allTime", "All time"), from: "", to: "" },
               {
-                label: t("thisMonth") || "This month",
+                label: t("thisMonth", "This Month"),
                 from: (() => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); })(),
                 to: localIso(),
               },
               {
-                label: t("lastMonth") || "Last month",
+                label: t("lastMonth", "Last Month"),
                 from: (() => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth() - 1, 1)); })(),
                 to: (() => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 0)); })(),
               },
               {
-                label: t("thisQuarter") || "This quarter",
+                label: t("thisQuarter", "This quarter"),
                 from: (() => { const d = new Date(); const q = Math.floor(d.getMonth() / 3); return localIso(new Date(d.getFullYear(), q * 3, 1)); })(),
                 to: localIso(),
               },
               {
-                label: t("yearToDate") || "Year to date",
+                label: t("yearToDate", "Year to date"),
                 from: `${new Date().getFullYear()}-01-01`,
                 to: localIso(),
               },
@@ -339,12 +330,12 @@ export default function FakturaPage() {
       <TabPills
         ariaLabel={t("fakturaStatusFilterAria", "Status filter")}
         tabs={[
-          { id: "", label: t("all") || "All" },
-          { id: "draft", label: t("draft") || "Draft" },
-          { id: "sent", label: t("sent") || "Sent" },
-          { id: "paid", label: t("paid") || "Paid" },
-          { id: "overdue", label: t("overdue") || "Overdue" },
-          { id: "credited", label: t("credited") || "Credited" },
+          { id: "", label: t("all", "All") },
+          { id: "draft", label: t("draft", "Draft") },
+          { id: "sent", label: t("sent", "Sent") },
+          { id: "paid", label: t("paid", "Paid") },
+          { id: "overdue", label: t("overdue", "Overdue") },
+          { id: "credited", label: t("credited", "Credited") },
         ]}
         activeId={statusFilter}
         onChange={setStatusFilter}
@@ -357,22 +348,21 @@ export default function FakturaPage() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-gray-500">{t("loading") || "Loading…"}</div>
+        <div className="text-center py-12 text-gray-500">{t("loading", "Loading…")}</div>
       ) : invoices.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-10 sm:p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">🧾</p>
           <p className="text-gray-800 dark:text-gray-100 font-semibold text-base mb-1.5">
-            {t("noInvoicesYet") || "No invoices yet"}
+            {t("noInvoicesYet", "No invoices yet")}
           </p>
           <p className="text-gray-500 dark:text-gray-400 text-sm max-w-md mx-auto leading-relaxed mb-5">
-            {t("noInvoicesYetHint") ||
-              "Tap + New invoice above to create your first. Customers can be auto-filled from CVR — no manual typing of address or company name."}
+            {t("noInvoicesYetHint", "Tap + New invoice above to create your first. Customers can be auto-filled from CVR — no manual typing of address or tax number.")}
           </p>
           <Link
             to="/connections"
             className="inline-flex items-center gap-1 text-[12.5px] font-medium text-gray-700 dark:text-emerald-400 hover:text-gray-800 dark:hover:text-gray-300 transition"
           >
-            {t("noInvoicesConnHint") || "Or finish your setup first"} <span aria-hidden="true">→</span>
+            {t("noInvoicesConnHint", "Or finish your setup first")} <span aria-hidden="true">→</span>
           </Link>
         </div>
       ) : (
@@ -382,12 +372,12 @@ export default function FakturaPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
                 <tr>
-                  <th className="text-left px-5 py-3">{t("invoiceNumber") || "Faktura nr."}</th>
-                  <th className="text-left px-5 py-3">{t("customer") || "Customer"}</th>
-                  <th className="text-left px-5 py-3">{t("issueDate") || "Issued"}</th>
-                  <th className="text-left px-5 py-3">{t("dueDate") || "Due"}</th>
-                  <th className="text-right px-5 py-3">{t("amount") || "Amount"}</th>
-                  <th className="text-center px-5 py-3">{t("status") || "Status"}</th>
+                  <th className="text-left px-5 py-3">{t("invoiceNumber", "Faktura no.")}</th>
+                  <th className="text-left px-5 py-3">{t("customer", "Customer")}</th>
+                  <th className="text-left px-5 py-3">{t("issueDate", "Issued")}</th>
+                  <th className="text-left px-5 py-3">{t("dueDate", "Due")}</th>
+                  <th className="text-right px-5 py-3">{t("amount", "Amount")}</th>
+                  <th className="text-center px-5 py-3">{t("status", "Status")}</th>
                   <th className="text-right px-5 py-3"></th>
                 </tr>
               </thead>
@@ -674,11 +664,11 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   const submitVoid = async () => {
     const trimmed = voidReason.trim();
     if (trimmed.length < 5) {
-      setVoidError(t("kreditnotaReasonTooShort") || "Reason must be at least 5 characters — your accountant will see this.");
+      setVoidError(t("kreditnotaReasonTooShort", "Reason must be at least 5 characters — your accountant will see this."));
       return;
     }
     if (trimmed.length > 200) {
-      setVoidError(t("kreditnotaReasonTooLong") || "Reason is too long (max 200 characters).");
+      setVoidError(t("kreditnotaReasonTooLong", "Reason is too long (max 200 characters)."));
       return;
     }
     setVoidSubmitting(true);
@@ -688,7 +678,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       setVoidOpen(false);
       onChanged();
     } catch (e) {
-      setVoidError(errText(e, t("voidFailed") || "Couldn't create kreditnota — please try again."));
+      setVoidError(errText(e, t("voidFailed", "Couldn't create kreditnota — please try again.")));
     } finally {
       setVoidSubmitting(false);
     }
@@ -755,11 +745,10 @@ function VoidInvoiceModal({
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm max-w-md w-full overflow-hidden">
         <div className="px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            ↩ {t("kreditnotaTitle") || "Create kreditnota"}
+            ↩ {t("kreditnotaTitle", "Create kreditnota")}
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-            {(t("kreditnotaBody") ||
-              "Sent fakturaer can't be deleted (Bogføringsloven §7). Voiding creates a kreditnota with the next number — the original keeps its number and stays in the ledger. Both records are locked and auditable.")}
+            {(t("kreditnotaBody", "Sent fakturaer cannot be deleted. Voiding creates a kreditnota with the next number — the original keeps its place in the audit trail."))}
           </p>
         </div>
         <div className="px-5 py-4 space-y-3">
@@ -773,15 +762,14 @@ function VoidInvoiceModal({
           </div>
           <label className="block">
             <span className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              {t("kreditnotaReasonLabel") || "Reason (visible to your accountant)"}
+              {t("kreditnotaReasonLabel", "Reason (visible to your accountant)")}
             </span>
             <textarea
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
               rows={3}
               maxLength={200}
-              placeholder={t("kreditnotaReasonPlaceholder") ||
-                "e.g. Customer canceled order — refunded via MobilePay 18/05"}
+              placeholder={t("kreditnotaReasonPlaceholder", "e.g. Customer canceled order — refunded via MobilePay 18/05")}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
               autoFocus
             />
@@ -799,7 +787,7 @@ function VoidInvoiceModal({
             disabled={voidSubmitting}
             className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 transition"
           >
-            {t("cancel") || "Cancel"}
+            {t("cancel", "Cancel")}
           </button>
           <button
             onClick={onSubmit}
@@ -807,8 +795,8 @@ function VoidInvoiceModal({
             className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition"
           >
             {voidSubmitting
-              ? (t("kreditnotaSubmitting") || "Creating…")
-              : (t("kreditnotaConfirm") || "Create kreditnota")}
+              ? (t("kreditnotaSubmitting", "Creating…"))
+              : (t("kreditnotaConfirm", "Create kreditnota"))}
           </button>
         </div>
       </div>
@@ -861,16 +849,16 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
         <div className="inline-flex items-center gap-2 justify-end">
           {invoice.status === "draft" && (
             <button onClick={handleSend} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition">
-              {t("send") || "Send"}
+              {t("send", "Send")}
             </button>
           )}
           {(invoice.status === "sent" || invoice.status === "overdue") && (
             <button
               onClick={handleMarkPaid}
               className="px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-semibold rounded-lg transition"
-              title={t("markPaidHint") || "Click when customer's payment lands in your bank"}
+              title={t("markPaidHint", "Click when customer's payment lands in your bank")}
             >
-              ✓ {t("markPaid") || "Mark paid"}
+              ✓ {t("markPaid", "Mark paid")}
             </button>
           )}
           {unmarkAvailable && (
@@ -879,20 +867,20 @@ function InvoiceRow({ invoice, customer, onChanged, t }) {
               className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-xs rounded-lg transition"
               title={
                 invoice.paid_via === "auto_match"
-                  ? (t("undoAutoMatchHint") || "Auto-matched — reversible within 7 days")
-                  : (t("undoManualHint") || "Reverse this paid status")
+                  ? (t("undoAutoMatchHint", "Auto-matched — reversible within 7 days"))
+                  : (t("undoManualHint", "Reverse this paid status"))
               }
             >
-              ↩ {t("undo") || "Undo"}
+              ↩ {t("undo", "Undo")}
             </button>
           )}
           {(invoice.status === "sent" || invoice.status === "overdue" || invoice.status === "paid") && !invoice.is_credit_note && (
             <button onClick={openVoidDialog} className="text-red-600 hover:underline text-xs font-medium px-2">
-              {t("voidInvoice") || "Void"}
+              {t("voidInvoice", "Void")}
             </button>
           )}
           <button onClick={handleDownloadPdf} className="text-gray-600 dark:text-gray-300 hover:underline text-xs">
-            {t("downloadPdf") || "PDF"}
+            {t("downloadPdf", "Download PDF")}
           </button>
         </div>
       </td>
@@ -970,11 +958,11 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
         {/* Dates — 2-col compact */}
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700 text-[12px]">
           <div>
-            <div className="text-gray-500 dark:text-gray-400">{t("issueDate") || "Issued"}</div>
+            <div className="text-gray-500 dark:text-gray-400">{t("issueDate", "Issued")}</div>
             <div className="font-medium text-gray-900 dark:text-white mt-0.5">{invoice.issue_date}</div>
           </div>
           <div>
-            <div className="text-gray-500 dark:text-gray-400">{t("dueDate") || "Due"}</div>
+            <div className="text-gray-500 dark:text-gray-400">{t("dueDate", "Due")}</div>
             <div className="font-medium text-gray-900 dark:text-white mt-0.5">{invoice.due_date}</div>
           </div>
         </div>
@@ -988,7 +976,7 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
               onClick={handleSend}
               className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-[13px] font-medium"
             >
-              {t("send") || "Send"}
+              {t("send", "Send")}
             </button>
           )}
           {(invoice.status === "sent" || invoice.status === "overdue") && (
@@ -996,7 +984,7 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
               onClick={handleMarkPaid}
               className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-[13px] font-medium"
             >
-              ✓ {t("markPaid") || "Mark paid"}
+              ✓ {t("markPaid", "Mark paid")}
             </button>
           )}
           {unmarkAvailable && (
@@ -1004,7 +992,7 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
               onClick={handleUnmarkPaid}
               className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-[13px] font-medium"
             >
-              ↩ {t("undo") || "Undo"}
+              ↩ {t("undo", "Undo")}
             </button>
           )}
           {(invoice.status === "sent" || invoice.status === "overdue" || invoice.status === "paid") && !invoice.is_credit_note && (
@@ -1012,14 +1000,14 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
               onClick={openVoidDialog}
               className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-red-200 dark:border-red-700 text-red-600 dark:text-red-400 text-[13px] font-medium"
             >
-              {t("voidInvoice") || "Void"}
+              {t("voidInvoice", "Void")}
             </button>
           )}
           <button
             onClick={handleDownloadPdf}
             className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-[13px] font-medium"
           >
-            {t("downloadPdf") || "PDF"}
+            {t("downloadPdf", "Download PDF")}
           </button>
         </div>
       </div>
@@ -1102,11 +1090,11 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
     const name = newCustomer.name.trim();
     const email = newCustomer.email.trim().toLowerCase();
     if (!name) {
-      setNewCustomerError(t("fakturaPrivateNameRequired") || "Name required");
+      setNewCustomerError(t("fakturaPrivateNameRequired", "Name required"));
       return;
     }
     if (!email || !email.includes("@")) {
-      setNewCustomerError(t("fakturaPrivateEmailRequired") || "Valid email required");
+      setNewCustomerError(t("fakturaPrivateEmailRequired", "Valid email required"));
       return;
     }
     setCreatingCustomer(true);
@@ -1131,15 +1119,14 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
         setShowNewPrivate(false);
         setNewCustomer({ name: "", email: "", address: "", zipcode: "", city: "" });
       } else {
-        setNewCustomerError(t("fakturaPrivateCreateFailed") || "Could not create customer. Try again.");
+        setNewCustomerError(t("fakturaPrivateCreateFailed", "Could not create customer. Try again."));
       }
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setNewCustomerError(
         (typeof detail === "string" && detail) ||
         detail?.message ||
-        t("fakturaPrivateCreateFailed") ||
-        "Could not create customer. Try again.",
+        t("fakturaPrivateCreateFailed", "Could not create customer. Try again."),
       );
     } finally {
       setCreatingCustomer(false);
@@ -1190,7 +1177,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
           })),
       };
       if (payload.lines.length === 0) {
-        setError(t("atLeastOneLine") || "At least one line item required");
+        setError(t("atLeastOneLine", "At least one line item required"));
         setSaving(false);
         return;
       }
@@ -1210,7 +1197,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
       }
       setError(
         detail?.message ||
-        (typeof detail === "string" ? detail : "Create failed")
+        (typeof detail === "string" ? detail : t("opsCreateFailed", "Create failed"))
       );
     } finally {
       setSaving(false);
@@ -1222,7 +1209,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">
-            {t("newInvoice") || "New invoice"}
+            {t("newInvoice", "New invoice")}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
@@ -1230,7 +1217,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("customer") || "Customer"} *
+                {t("customer", "Customer")} *
               </label>
               <select
                 value={customerId}
@@ -1258,13 +1245,13 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                   onClick={() => setShowNewPrivate(true)}
                   className="mt-1.5 text-xs text-blue-600 hover:underline"
                 >
-                  + {t("fakturaAddPrivateCustomer") || "New private customer (Privatperson)"}
+                  + {t("fakturaAddPrivateCustomer", "New private customer (Privatperson)")}
                 </button>
               ) : null}
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                {t("issueDate") || "Issue date"}
+                {t("issueDate", "Issued")}
               </label>
               <input
                 type="date"
@@ -1285,7 +1272,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
             <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10 p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
-                  {t("fakturaNewPrivateTitle") || "New private customer (Privatperson)"}
+                  {t("fakturaNewPrivateTitle", "New private customer (Privatperson)")}
                 </p>
                 <button
                   type="button"
@@ -1295,13 +1282,13 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                   }}
                   className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  {t("cancel") || "Cancel"}
+                  {t("cancel", "Cancel")}
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                    {t("name") || "Name"} *
+                    {t("name", "Name")} *
                   </label>
                   <input
                     type="text"
@@ -1314,7 +1301,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                 </div>
                 <div>
                   <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                    {t("email") || "Email"} *
+                    {t("email", "Email")} *
                   </label>
                   <input
                     type="email"
@@ -1328,7 +1315,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
               </div>
               <div>
                 <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                  {t("address") || "Address"}
+                  {t("address", "Address")}
                 </label>
                 <input
                   type="text"
@@ -1342,7 +1329,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                    {t("zipcode") || "Postal code"}
+                    {t("zipcode", "Zipcode")}
                   </label>
                   <input
                     type="text"
@@ -1356,7 +1343,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                 </div>
                 <div className="col-span-2">
                   <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                    {t("city") || "City"}
+                    {t("city", "City")}
                   </label>
                   <input
                     type="text"
@@ -1381,8 +1368,8 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                   className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {creatingCustomer
-                    ? (t("creating") || "Creating…")
-                    : (t("fakturaCreatePrivateCustomer") || "Create & select")}
+                    ? (t("creating", "Creating…"))
+                    : (t("fakturaCreatePrivateCustomer", "Create & select"))}
                 </button>
               </div>
             </div>
@@ -1393,7 +1380,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
               on the PDF in that case per Momsbekendtgørelsen §57. */}
           <details>
             <summary className="cursor-pointer text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-              {t("deliveryDateToggle") || "Set delivery date (only if different from issue date)"}
+              {t("deliveryDateToggle", "Set delivery date (only if different from issue date)")}
             </summary>
             <div className="mt-2">
               <input
@@ -1403,29 +1390,28 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                 className="w-full md:w-64 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
               />
               <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                {t("deliveryDateHint") ||
-                  "When the goods/service was actually delivered. Leave empty for same-day work."}
+                {t("deliveryDateHint", "When the goods/service was actually delivered. Leave empty for same-day work.")}
               </p>
             </div>
           </details>
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 block">
-              {t("lineItems") || "Line items"}
+              {t("lineItems", "Line items")}
             </label>
             <div className="space-y-2">
               {lines.map((line, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-start">
                   <input
                     type="text"
-                    placeholder={t("description") || "Description"}
+                    placeholder={t("description", "Description")}
                     value={line.description}
                     onChange={(e) => setLine(i, "description", e.target.value)}
                     className="col-span-5 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
                   />
                   <input
                     type="number"
-                    placeholder={t("qty") || "Qty"}
+                    placeholder={t("qty", "Qty")}
                     value={line.quantity}
                     step="0.01"
                     onChange={(e) => setLine(i, "quantity", e.target.value)}
@@ -1433,7 +1419,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                   />
                   <MoneyField
                     locale={LINE_LOCALE}
-                    placeholder={t("unitPrice") || "Unit price"}
+                    placeholder={t("unitPrice", "Unit price")}
                     value={line.unit_price_net}
                     onChange={(e) => setLine(i, "unit_price_net", e.target.value)}
                     wrapperClassName="col-span-3"
@@ -1463,34 +1449,34 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
               onClick={addLine}
               className="mt-2 text-sm text-blue-600 hover:underline"
             >
-              + {t("addLine") || "Add line"}
+              + {t("addLine", "Add line")}
             </button>
           </div>
 
           <div className="bg-gray-50 dark:bg-gray-900/40 rounded-xl p-4 space-y-1 text-sm">
             <div className="flex justify-between text-gray-600 dark:text-gray-300">
-              <span>{t("subtotal") || "Subtotal (excl. moms)"}</span>
+              <span>{t("subtotal", "Subtotal (excl. MOMS)")}</span>
               <span>{new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" }).format(totals.net)}</span>
             </div>
             <div className="flex justify-between text-gray-600 dark:text-gray-300">
-              <span>{t("momsTotal") || "Moms total"}</span>
+              <span>{t("momsTotal", "MOMS total")}</span>
               <span>{new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" }).format(totals.moms)}</span>
             </div>
             <div className="flex justify-between font-bold text-gray-900 dark:text-white pt-2 border-t border-gray-200 dark:border-gray-700">
-              <span>{t("totalGross") || "Total to pay"}</span>
+              <span>{t("totalGross", "Total to pay")}</span>
               <span>{new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" }).format(totals.net + totals.moms)}</span>
             </div>
           </div>
 
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-              {t("notes") || "Notes (optional)"}
+              {t("notes", "Notes")}
             </label>
             <textarea
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={t("notesPlaceholder") || "Tak for samarbejdet 🙏"}
+              placeholder={t("notesPlaceholder", "Thanks for your business 🙏")}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm resize-none"
             />
           </div>
@@ -1507,14 +1493,14 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
               onClick={onClose}
               className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm"
             >
-              {t("cancel") || "Cancel"}
+              {t("cancel", "Cancel")}
             </button>
             <button
               type="submit"
               disabled={saving || linesMoneyRejected}
               className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
-              {saving ? (t("creating") || "Creating…") : (t("createDraft") || "Create draft")}
+              {saving ? (t("creating", "Creating…")) : (t("createDraft", "Create draft"))}
             </button>
           </div>
         </form>

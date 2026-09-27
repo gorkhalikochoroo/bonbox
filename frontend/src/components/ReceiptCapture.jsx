@@ -536,7 +536,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       setMethod(isExpense ? "" : "mixed");
                     }}
                     className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white w-7 h-7 rounded-full text-sm transition"
-                    aria-label={t("clear") || "Clear"}
+                    aria-label={t("clear", "Clear")}
                   >
                     &times;
                   </button>
@@ -620,7 +620,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 {result.raw_text && (
                   <details className="mb-3">
                     <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                      {t("receiptText") || "Receipt text recognized"}
+                      {t("receiptText", "View recognized text")}
                     </summary>
                     <pre className="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-600">
                       {result.raw_text}
@@ -885,7 +885,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
                     >
                       {t("paidWith", "Paid with")}:{" "}
-                      <span className="font-medium text-gray-700 dark:text-gray-200">{t(method)}</span>
+                      <span className="font-medium text-gray-700 dark:text-gray-200">{t(method === "bank_transfer" ? "bankTransfer" : method, method)}</span>
                       <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
                     </button>
                   ) : (
@@ -923,7 +923,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   {isExpense && !methodRead && method && learnedMethod?.band === "prefill" && (
                     <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {t("paymentMethodLearned", "{method} — same as the last {n} times at {vendor}")
-                        .replace("{method}", t(learnedMethod.value))
+                        .replace("{method}", t(learnedMethod.value === "bank_transfer" ? "bankTransfer" : learnedMethod.value, learnedMethod.value))
                         .replace("{n}", String(learnedMethod.evidence_n))
                         .replace("{vendor}", learnedMethod.vendor_label || "")}
                     </p>
@@ -931,7 +931,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   {isExpense && !method && learnedMethod?.band === "suggest" && (
                     <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {t("paymentMethodUsually", "You usually pay {method} here — tap to confirm")
-                        .replace("{method}", t(learnedMethod.value))}
+                        .replace("{method}", t(learnedMethod.value === "bank_transfer" ? "bankTransfer" : learnedMethod.value, learnedMethod.value))}
                     </p>
                   )}
                   {isExpense && !method && !learnedMethod && (

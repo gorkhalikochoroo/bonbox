@@ -80,7 +80,7 @@ export default function KhataPage() {
       fetchCustomers();
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      setError(errText(err, "Failed"));
+      setError(errText(err, t("opsFailed", "Failed")));
     }
   };
 
@@ -182,20 +182,24 @@ export default function KhataPage() {
       // purchase_amount is 0 (no Sale) and again when paid_amount is 0 (no
       // cash-book entry). "Record payment" posts purchase_amount: 0 on every
       // tap, so promising both would be false on most rows in a busy khata.
-      message: t(
-        purchased > 0 && paid > 0
-          ? "khataDeleteTxnBodyBoth"
-          : purchased > 0
-            ? "khataDeleteTxnBodySale"
-            : "khataDeleteTxnBodyCashbook",
-        // Same trap as above — never a full stop right after the amount.
-        purchased > 0 && paid > 0
-          ? "This line records {amount} — it is removed from the khata for {name}, and so are the sale and the cash book entry it created. This cannot be undone."
-          : purchased > 0
-            ? "This line records {amount} — it is removed from the khata for {name}, and so is the sale it created. This cannot be undone."
-            : "This line records {amount} — it is removed from the khata for {name}, and so is the cash book entry it created. This cannot be undone.",
-        { amount: lineLabel, name: selectedCustomer?.name || "" },
-      ),
+      // Same trap as above — never a full stop right after the amount.
+      message: purchased > 0 && paid > 0
+        ? t(
+            "khataDeleteTxnBodyBoth",
+            "This line records {amount} — it is removed from the khata for {name}, and so are the sale and the cash book entry it created. This cannot be undone.",
+            { amount: lineLabel, name: selectedCustomer?.name || "" },
+          )
+        : purchased > 0
+          ? t(
+              "khataDeleteTxnBodySale",
+              "This line records {amount} — it is removed from the khata for {name}, and so is the sale it created. This cannot be undone.",
+              { amount: lineLabel, name: selectedCustomer?.name || "" },
+            )
+          : t(
+              "khataDeleteTxnBodyCashbook",
+              "This line records {amount} — it is removed from the khata for {name}, and so is the cash book entry it created. This cannot be undone.",
+              { amount: lineLabel, name: selectedCustomer?.name || "" },
+            ),
       confirmLabel: t("delete", "Delete"),
       cancelLabel: t("cancel", "Cancel"),
       destructive: true,
@@ -270,7 +274,6 @@ export default function KhataPage() {
     <div className="p-4 sm:p-6 space-y-6">
       <FadeIn>
         <PageHeader
-          eyebrow="MONEY"
           title={t("khataTitle")}
           subtitle={t("khataSubtitle")}
           actions={
@@ -283,7 +286,7 @@ export default function KhataPage() {
               className="inline-flex items-center gap-2 px-3 h-9 rounded-lg text-sm font-medium border border-gray-100 dark:border-gray-800/40 bg-gray-50/50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:bg-gray-100/60 dark:hover:bg-gray-800/50 transition"
             >
               <Icon name="Heart" size={14} />
-              {t("khataReachOut") || "Reach out to regulars"}
+              {t("khataReachOut", "Reach out to regulars")}
             </button>
           }
         />

@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
-import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso, dateLocale } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, TabPills, Amount } from "../components/ui";
 
@@ -38,6 +38,33 @@ const STATUS_BADGE = {
 };
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
+
+// The forecast and insights endpoints speak English codes: weekday names
+// ("Monday"), levels ("Slow" / "Normal" / "Busy" — also the values a staffing
+// rule stores) and confidence ("high" / "low"). They are shown in the owner's
+// language here; anything unrecognised is shown as the server sent it.
+const EN_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const DAY_SHORT_KEYS = [
+  "day_mon_short", "day_tue_short", "day_wed_short", "day_thu_short",
+  "day_fri_short", "day_sat_short", "day_sun_short",
+];
+function dayShortLabel(name, t) {
+  const i = EN_WEEKDAYS.indexOf(name);
+  return i < 0 ? String(name || "").slice(0, 3) : t(DAY_SHORT_KEYS[i], name.slice(0, 3));
+}
+const LEVEL_LABEL_KEYS = { slow: ["slow", "Slow"], normal: ["normal", "Normal"], busy: ["busy", "Busy"] };
+// A new rule's level. This is the STORED value (the <select> shows t("normal")),
+// so it stays the English code whatever language the owner reads.
+const DEFAULT_RULE_LEVEL = "Normal";
+function levelLabel(level, t) {
+  const hit = LEVEL_LABEL_KEYS[String(level || "").toLowerCase()];
+  return hit ? t(hit[0], hit[1]) : level;
+}
+const CONFIDENCE_LABEL_KEYS = { high: ["confidenceLevelHigh", "High"], low: ["confidenceLevelLow", "Low"] };
+function confidenceLabel(confidence, t) {
+  const hit = CONFIDENCE_LABEL_KEYS[String(confidence || "").toLowerCase()];
+  return hit ? t(hit[0], hit[1]) : confidence;
+}
 
 // `embedded` (C7 forecast panel) — when true this page renders as the
 // smart-staffing body inside the Schedule page's collapsed forecast panel
@@ -69,7 +96,7 @@ export default function StaffingPage({ embedded = false }) {
   // Forecast state
   const [forecast, setForecast] = useState(null);
   const [rules, setRules] = useState([]);
-  const [ruleForm, setRuleForm] = useState({ label: "Normal", revenue_min: "", revenue_max: "", recommended_staff: "" });
+  const [ruleForm, setRuleForm] = useState({ label: DEFAULT_RULE_LEVEL, revenue_min: "", revenue_max: "", recommended_staff: "" });
   const [days, setDays] = useState(14);
 
   // Intelligence state
@@ -128,7 +155,7 @@ export default function StaffingPage({ embedded = false }) {
         revenue_max: parseMoneyInput(ruleForm.revenue_max, mLocale),
         recommended_staff: parseInt(ruleForm.recommended_staff),
       });
-      setRuleForm({ label: "Normal", revenue_min: "", revenue_max: "", recommended_staff: "" });
+      setRuleForm({ label: DEFAULT_RULE_LEVEL, revenue_min: "", revenue_max: "", recommended_staff: "" });
       fetchData();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || t("failedToAddRule"));
@@ -229,7 +256,7 @@ export default function StaffingPage({ embedded = false }) {
 
   const dowData = patterns
     ? Object.entries(patterns.day_of_week).map(([day, avg]) => ({
-        day: day.slice(0, 3),
+        day: dayShortLabel(day, t),
         avg_revenue: avg,
       }))
     : [];
@@ -238,7 +265,7 @@ export default function StaffingPage({ embedded = false }) {
   const insightChartData = (insights?.weekday_analysis || [])
     .filter(w => w.avg_revenue > 0)
     .map(w => ({
-      day: w.day_name.slice(0, 3),
+      day: dayShortLabel(w.day_name, t),
       revenue: w.avg_revenue,
       rev_per_staff: w.rev_per_staff,
       staff: w.avg_staff,
@@ -251,7 +278,6 @@ export default function StaffingPage({ embedded = false }) {
       {!embedded && (
         <FadeIn>
           <PageHeader
-            eyebrow="INTEL"
             title={t("smartStaffing")}
             subtitle={t("staffingSubtitle", "Forecast headcount needs and spot over/under-staffed days.")}
           />
@@ -432,17 +458,19 @@ export default function StaffingPage({ embedded = false }) {
                       {recs.map((r) => (
                         <tr key={r.date}>
                           <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{formatDate(r.date)}</td>
-                          <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.day}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                            {new Date(r.date + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long" })}
+                          </td>
                           <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white"><Amount value={r.predicted_revenue} currency={currency} /></td>
                           <td className="px-6 py-4">
                             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${Object.entries(LEVEL_COLORS).find(([k]) => r.business_level?.toLowerCase().includes(k.toLowerCase()))?.[1] || ""}`}>
-                              {r.business_level}
+                              {levelLabel(r.business_level, t)}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm font-bold text-gray-800 dark:text-white">{r.recommended_staff != null ? `${r.staff_source === "estimate" ? "~" : ""}${r.recommended_staff}` : "—"}</td>
                           <td className="px-6 py-4">
                             <span className={`text-xs ${r.confidence === "high" ? "text-emerald-600 dark:text-gray-300" : "text-yellow-600 dark:text-yellow-400"}`}>
-                              {r.confidence}
+                              {confidenceLabel(r.confidence, t)}
                             </span>
                           </td>
                         </tr>
@@ -484,8 +512,12 @@ export default function StaffingPage({ embedded = false }) {
                 {rules.map((rule) => (
                   <div key={rule.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5 rounded-lg">
                     <span className="text-sm dark:text-gray-200">
-                      <span className="font-medium">{rule.label}</span> — <Amount value={rule.revenue_min} currency={currency} />–<Amount value={rule.revenue_max} currency={currency} />
-                      → <span className="font-bold">{rule.recommended_staff} {t("stStaffCountSuffix")}</span>
+                      <span className="font-medium">{levelLabel(rule.label, t)}</span> — <Amount value={rule.revenue_min} currency={currency} />–<Amount value={rule.revenue_max} currency={currency} />
+                      → <span className="font-bold">
+                        {rule.recommended_staff === 1
+                          ? t("stfStaffCountOne", "1 staff member")
+                          : `${rule.recommended_staff} ${t("stStaffCountSuffix", "staff")}`}
+                      </span>
                     </span>
                     <button onClick={() => deleteRule(rule.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm min-h-[44px] sm:min-h-0">{t("remove")}</button>
                   </div>
@@ -503,8 +535,8 @@ export default function StaffingPage({ embedded = false }) {
           {insights?.ready && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <StatCard label={t("stafDaysAnalyzed", "Days Analyzed")} value={insights.days_logged} />
-              <StatCard label={t("stafBestDay", "Best Day")} value={insights.peak_day?.slice(0, 3) || "—"} accent="success" />
-              <StatCard label={t("stafWeakestDay", "Weakest Day")} value={insights.weakest_day?.slice(0, 3) || "—"} accent="critical" />
+              <StatCard label={t("stafBestDay", "Best Day")} value={insights.peak_day ? dayShortLabel(insights.peak_day, t) : "—"} accent="success" />
+              <StatCard label={t("stafWeakestDay", "Weakest Day")} value={insights.weakest_day ? dayShortLabel(insights.weakest_day, t) : "—"} accent="critical" />
               <StatCard label={t("stafSavingsPotential", "Savings Potential")} value={<Amount value={insights.monthly_savings_potential} currency={currency} />} helper={t("stafPerMonth", "/month")} />
             </div>
           )}
@@ -546,7 +578,7 @@ export default function StaffingPage({ embedded = false }) {
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
                 {insights.weekday_analysis.map((w, i) => (
                   <div key={i} className={`p-3 rounded-xl border text-center ${STATUS_COLORS[w.status] || STATUS_COLORS.no_data}`}>
-                    <p className="text-sm font-bold text-gray-800 dark:text-white">{w.day_name.slice(0, 3)}</p>
+                    <p className="text-sm font-bold text-gray-800 dark:text-white">{dayShortLabel(w.day_name, t)}</p>
                     {w.avg_revenue > 0 ? (
                       <>
                         <p className="text-lg font-bold mt-1 text-gray-800 dark:text-white"><Amount value={w.rev_per_staff} currency={currency} /></p>
@@ -648,7 +680,7 @@ export default function StaffingPage({ embedded = false }) {
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {staffLogs.slice(0, 30).map((log) => {
                       const d = new Date(log.date + "T12:00:00");
-                      const dayName = d.toLocaleDateString("en", { weekday: "short" });
+                      const dayName = d.toLocaleDateString(dateLocale(), { weekday: "short" });
                       return (
                         <tr key={log.id}>
                           <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{log.date}</td>

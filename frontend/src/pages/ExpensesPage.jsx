@@ -1280,7 +1280,6 @@ export default function ExpensesPage() {
     <PageShell width="default">
       <FadeIn>
         <PageHeader
-          eyebrow="MONEY"
           title={t("expenseTracker")}
         />
       </FadeIn>

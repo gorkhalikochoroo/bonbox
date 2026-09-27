@@ -33,18 +33,23 @@ import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
 import { useUndoToast } from "../hooks/useUndoToast";
 
 
-const PATTERNS = [
-  { id: "per_unit",    label: { en: "Per unit (default)",      da: "Per enhed (standard)" } },
-  { id: "per_serving", label: { en: "Per serving",             da: "Per servering" } },
-  { id: "per_pour",    label: { en: "Per pour (drinks)",       da: "Per skænk (drikke)" } },
-  { id: "per_dish",    label: { en: "Per dish (ingredient)",   da: "Per ret (ingrediens)" } },
-  { id: "per_service", label: { en: "Per service (salon/shop)",da: "Per service (salon/værksted)" } },
-  { id: "per_use",     label: { en: "Per use (consumable)",    da: "Per brug (forbrugsvare)" } },
-];
+// Pattern ids are what the API stores; the labels are catalogue copy.
+const PATTERNS = ["per_unit", "per_serving", "per_pour", "per_dish", "per_service", "per_use"];
+
+function patternLabel(t, id) {
+  switch (id) {
+    case "per_serving": return t("opsConsPatternServing", "Per serving");
+    case "per_pour": return t("opsConsPatternPour", "Per pour (drinks)");
+    case "per_dish": return t("opsConsPatternDish", "Per dish (ingredient)");
+    case "per_service": return t("opsConsPatternService", "Per service (salon/shop)");
+    case "per_use": return t("opsConsPatternUse", "Per use (consumable)");
+    default: return t("opsConsPatternUnit", "Per unit (default)");
+  }
+}
 
 
 export default function InventoryConsumptionModal({ open, onClose, itemId, itemName }) {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const { track } = useSmartTelemetry();
   const { show: showUndo, ToastUI } = useUndoToast();
   const [loading, setLoading] = useState(false);
@@ -113,8 +118,6 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const labelFor = (label) => (label && (label[lang] || label.en)) || "";
-
   const handleSave = async () => {
     setSaving(true);
     setError("");
@@ -134,12 +137,12 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
         ? async () => { await api.patch(`/inventory/${itemId}/consumption`, priorConfig); }
         : null;
       showUndo({
-        message: t("inventoryConsumptionSavedToast") || "Updated this item's usage",
+        message: t("inventoryConsumptionSavedToast", "Updated this item's usage"),
         onUndo,
       });
       onClose?.();
     } catch (err) {
-      setError(errText(err, "Couldn't save."));
+      setError(errText(err, t("opsCouldntSave", "Couldn't save.")));
     } finally {
       setSaving(false);
     }
@@ -178,7 +181,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
         <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700/60 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {t("inventoryConsumptionTitle") || "Smart usage"}
+              {t("inventoryConsumptionTitle", "Smart usage")}
             </h2>
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
               {itemName}
@@ -186,7 +189,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
           </div>
           <button
             onClick={onClose}
-            aria-label={t("close") || "Close"}
+            aria-label={t("close", "Close")}
             className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 w-8 h-8 inline-flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
@@ -198,7 +201,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {loading ? (
-            <div className="text-sm text-gray-500">{t("loading") || "Loading…"}</div>
+            <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
           ) : (
             <>
               {/* Suggestion-first view — when we recognise the item +
@@ -216,8 +219,8 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                   }`}>
                     <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
                       {suggestion.confidence === "low"
-                        ? (t("inventoryConsumptionUnrecognisedTitle") || "Not in our recipe library yet")
-                        : (t("inventoryConsumptionRecognised") || "We recognise this item")}
+                        ? (t("inventoryConsumptionUnrecognisedTitle", "Not in our recipe library yet"))
+                        : (t("inventoryConsumptionRecognised", "We recognise this item"))}
                     </div>
                     <div className="text-xs text-gray-600 dark:text-gray-300 mt-1 leading-snug">
                       {suggestion.reasoning}
@@ -226,21 +229,21 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
 
                   <div className="text-[13px] text-gray-700 dark:text-gray-200 leading-relaxed">
                     <div className="flex items-start gap-2">
-                      <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionShape") || "Shape"}:</span>
+                      <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionShape", "Shape")}:</span>
                       <span className="font-medium">
                         {Number(suggestion.serving_size)} {suggestion.consumption_unit}
-                        {" "}{(t("inventoryConsumptionPerEach") || "per each").replace("{kind}", suggestion.consumption_pattern.replace("per_", ""))}
+                        {" "}{(t("inventoryConsumptionPerEach", "per {kind}")).replace("{kind}", suggestion.consumption_pattern.replace("per_", ""))}
                       </span>
                     </div>
                     {suggestion.usage_keywords && (
                       <div className="flex items-start gap-2 mt-1">
-                        <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionMatches") || "Matches"}:</span>
+                        <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionMatches", "Matches")}:</span>
                         <span>{suggestion.usage_keywords.split(",").join(" · ")}</span>
                       </div>
                     )}
                     {suggestion.matching_sales_preview?.length > 0 && (
                       <div className="flex items-start gap-2 mt-1">
-                        <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionWouldCatch") || "Would catch"}:</span>
+                        <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionWouldCatch", "Would catch")}:</span>
                         <span className="text-gray-700 dark:text-gray-300">
                           {suggestion.matching_sales_preview.join(", ")}
                         </span>
@@ -268,12 +271,12 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                             ? async () => { await api.patch(`/inventory/${itemId}/consumption`, priorConfig); }
                             : null;
                           showUndo({
-                            message: t("inventoryConsumptionSavedToast") || "Updated this item's usage",
+                            message: t("inventoryConsumptionSavedToast", "Updated this item's usage"),
                             onUndo,
                           });
                           onClose?.();
                         } catch (err) {
-                          setError(errText(err, "Couldn't save."));
+                          setError(errText(err, t("opsCouldntSave", "Couldn't save.")));
                         } finally {
                           setSaving(false);
                         }
@@ -282,10 +285,10 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                       className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition flex-1"
                     >
                       {suggestion.confidence === "low"
-                        ? (t("inventoryConsumptionUnknownItem") || "We don't recognise this — edit details")
+                        ? (t("inventoryConsumptionUnknownItem", "We don't recognise this — edit details"))
                         : (saving
-                            ? (t("saving") || "Saving…")
-                            : (t("inventoryConsumptionSaveAction") || "Save · {kind}").replace(
+                            ? (t("saving", "Saving…"))
+                            : (t("inventoryConsumptionSaveAction", "Save · {kind}")).replace(
                                 "{kind}",
                                 `${Number(suggestion.serving_size)} ${suggestion.consumption_unit} per ${suggestion.consumption_pattern.replace("per_", "")}`,
                               ))}
@@ -294,7 +297,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                       onClick={() => setShowForm(true)}
                       className="px-3 py-2 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                     >
-                      {t("smartStaffingEdit") || "Edit details"}
+                      {t("smartStaffingEdit", "Edit details")}
                     </button>
                   </div>
 
@@ -311,16 +314,16 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
               {/* Pattern picker */}
               <div>
                 <label className="block text-[11px] uppercase tracking-wide font-semibold text-gray-500 mb-1">
-                  {t("inventoryConsumptionPattern") || "How is this used?"}
+                  {t("inventoryConsumptionPattern", "How is this used?")}
                 </label>
                 <select
                   value={pattern}
                   onChange={(e) => setPattern(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                 >
-                  <option value="">— {t("inventoryConsumptionPick") || "pick one"} —</option>
-                  {PATTERNS.map((p) => (
-                    <option key={p.id} value={p.id}>{labelFor(p.label)}</option>
+                  <option value="">— {t("inventoryConsumptionPick", "pick one")} —</option>
+                  {PATTERNS.map((id) => (
+                    <option key={id} value={id}>{patternLabel(t, id)}</option>
                   ))}
                 </select>
               </div>
@@ -329,7 +332,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] uppercase tracking-wide font-semibold text-gray-500 mb-1">
-                    {t("inventoryConsumptionServingSize") || "Serving size"}
+                    {t("inventoryConsumptionServingSize", "Serving size")}
                   </label>
                   <input
                     type="number"
@@ -343,7 +346,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase tracking-wide font-semibold text-gray-500 mb-1">
-                    {t("inventoryConsumptionUnit") || "Unit"}
+                    {t("inventoryConsumptionUnit", "Unit")}
                   </label>
                   <input
                     type="text"
@@ -355,14 +358,13 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                 </div>
               </div>
               <div className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
-                {t("inventoryConsumptionExample") ||
-                  "Example: 20 g of coffee beans per espresso → serving size 20, unit g"}
+                {t("inventoryConsumptionExample", "Example: 20 g of coffee beans per espresso → serving size 20, unit g")}
               </div>
 
               {/* Usage keywords */}
               <div>
                 <label className="block text-[11px] uppercase tracking-wide font-semibold text-gray-500 mb-1">
-                  {t("inventoryConsumptionKeywords") || "Sale keywords (comma-separated)"}
+                  {t("inventoryConsumptionKeywords", "Sale keywords (comma-separated)")}
                 </label>
                 <textarea
                   value={keywords}
@@ -372,22 +374,21 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                   className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900 resize-none"
                 />
                 <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-snug">
-                  {t("inventoryConsumptionKeywordsHelp") ||
-                    "When a sale's name contains any of these, this item's stock auto-decrements. Min 2 chars per keyword."}
+                  {t("inventoryConsumptionKeywordsHelp", "When a sale's name contains any of these, this item's stock auto-decrements. Min 2 chars per keyword.")}
                 </div>
               </div>
 
               {/* Live preview */}
               <div className="border-t border-gray-100 dark:border-gray-700/60 pt-3">
                 <label className="block text-[11px] uppercase tracking-wide font-semibold text-gray-500 mb-1">
-                  {t("inventoryConsumptionPreviewLabel") || "Test against a sale name"}
+                  {t("inventoryConsumptionPreviewLabel", "Test against a sale name")}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={previewQuery}
                     onChange={(e) => setPreviewQuery(e.target.value)}
-                    placeholder="e.g. Espresso doppio"
+                    placeholder={t("opsConsPreviewPlaceholder", "e.g. Espresso doppio")}
                     className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-100 outline-none focus:border-gray-900"
                   />
                   <button
@@ -395,12 +396,12 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                     onClick={runPreview}
                     className="px-3 py-2 text-xs rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200"
                   >
-                    {t("inventoryConsumptionTest") || "Test"}
+                    {t("inventoryConsumptionTest", "Test")}
                   </button>
                 </div>
                 {previewMatches.length > 0 && (
                   <div className="mt-2 text-[11px] text-gray-700 dark:text-gray-300">
-                    ✓ {(t("inventoryConsumptionMatchHint") || "Would match: {names}")
+                    ✓ {(t("inventoryConsumptionMatchHint", "Would match: {names}"))
                       .replace("{names}", previewMatches.map((m) => m.name).join(", "))}
                   </div>
                 )}
@@ -409,7 +410,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
               {/* Depletion estimate */}
               {daysLeft != null && (
                 <div className="rounded-lg bg-blue-50 dark:bg-blue-900/30 px-3 py-2 text-xs text-blue-800 dark:text-blue-200">
-                  {(t("inventoryConsumptionDaysLeft") || "~{n} days of stock at current pace")
+                  {(t("inventoryConsumptionDaysLeft", "~{n} days of stock at current pace"))
                     .replace("{n}", String(daysLeft))}
                 </div>
               )}
@@ -431,14 +432,14 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
               onClick={onClose}
               className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
             >
-              {t("cancel") || "Cancel"}
+              {t("cancel", "Cancel")}
             </button>
             <button
               onClick={handleSave}
               disabled={saving || loading}
               className="px-4 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
             >
-              {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
+              {saving ? (t("saving", "Saving…")) : (t("save", "Save"))}
             </button>
           </div>
         )}

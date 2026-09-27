@@ -33,16 +33,68 @@ const DATA_CARD_MAP = {
 /* ------------------------------------------------------------------ */
 /*  Friendly tool labels                                               */
 /* ------------------------------------------------------------------ */
-const TOOL_LABELS = {
-  query_revenue: "Querying revenue",
-  query_expenses: "Checking expenses",
-  query_inventory: "Scanning inventory",
-  query_waste: "Analyzing waste",
-  query_khata: "Looking up credit",
-  query_staff: "Checking staff",
-  business_suggestions: "Analyzing your business",
-  business_overview: "Compiling overview",
+function toolLabel(t, tool) {
+  switch (tool) {
+    case "query_revenue": return t("opsAgentToolRevenue", "Querying revenue");
+    case "query_expenses": return t("opsAgentToolExpenses", "Checking expenses");
+    case "query_inventory": return t("opsAgentToolInventory", "Scanning inventory");
+    case "query_waste": return t("opsAgentToolWaste", "Analyzing waste");
+    case "query_khata": return t("opsAgentToolKhata", "Looking up credit");
+    case "query_cashbook": return t("opsAgentToolCashbook", "Checking the cash book");
+    case "query_staff": return t("opsAgentToolStaff", "Checking staff");
+    case "business_suggestions": return t("opsAgentToolSuggestions", "Analyzing your business");
+    case "business_overview": return t("opsAgentToolOverview", "Compiling overview");
+    default: return String(tool || "").replace(/_/g, " ");
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Suggestion chips                                                   */
+/* ------------------------------------------------------------------ */
+/* Each chip is { q, key }: `q` is the English question that is SENT —
+   the backend's keyword router is tuned to these exact phrasings (e.g.
+   "Low stock alerts" is what flips low_stock_only), so the payload never
+   changes with the UI language. `key` is only what the owner SEES, on the
+   chip and on their own message bubble. */
+const CHIP = {
+  yesterday: { q: "How was yesterday?", key: "opsAgentChipYesterday" },
+  lowStock: { q: "Low stock alerts", key: "opsAgentChipLowStock" },
+  whoOwes: { q: "Who owes us?", key: "opsAgentChipWhoOwes" },
+  weekSoFar: { q: "This week so far", key: "opsAgentChipWeekSoFar" },
+  todayGoing: { q: "How's today going?", key: "opsAgentChipTodayGoing" },
+  todayRevenue: { q: "Today's revenue", key: "opsAgentChipTodayRevenue" },
+  checkInventory: { q: "Check inventory", key: "opsAgentChipCheckInventory" },
+  overview: { q: "Business overview", key: "opsAgentChipOverview" },
+  todaySummary: { q: "Today's summary", key: "opsAgentChipTodaySummary" },
+  vsYesterday: { q: "Compare to yesterday", key: "opsAgentChipVsYesterday" },
+  weekRevenue: { q: "This week's revenue", key: "opsAgentChipWeekRevenue" },
+  actionItems: { q: "Any action items?", key: "opsAgentChipActionItems" },
+  expensesToo: { q: "Show expenses too", key: "opsAgentChipExpensesToo" },
+  vsLastWeek: { q: "Compare to last week", key: "opsAgentChipVsLastWeek" },
+  topSellers: { q: "Top sellers?", key: "opsAgentChipTopSellers" },
+  periodRevenue: { q: "Revenue this period?", key: "opsAgentChipPeriodRevenue" },
+  biggestExpense: { q: "Biggest expense category?", key: "opsAgentChipBiggestExpense" },
+  cashFlow: { q: "Cash flow?", key: "opsAgentChipCashFlow" },
+  expiring: { q: "What's expiring soon?", key: "opsAgentChipExpiring" },
+  restock: { q: "Restock list", key: "opsAgentChipRestock" },
+  inventoryValue: { q: "Inventory value?", key: "opsAgentChipInventoryValue" },
+  wasteCost: { q: "This month's waste cost?", key: "opsAgentChipWasteCost" },
+  revenueCheck: { q: "Revenue check", key: "opsAgentChipRevenueCheck" },
+  inventoryStatus: { q: "Inventory status?", key: "opsAgentChipInventoryStatus" },
+  mostOverdue: { q: "Who's most overdue?", key: "opsAgentChipMostOverdue" },
+  creditMonth: { q: "Total credit this month?", key: "opsAgentChipCreditMonth" },
+  revenue: { q: "Revenue?", key: "opsAgentChipRevenue" },
+  revenueDeepDive: { q: "Deep dive into revenue", key: "opsAgentChipRevenueDeepDive" },
+  staffSchedule: { q: "Staff schedule", key: "opsAgentChipStaffSchedule" },
+  weekShifts: { q: "This week's shifts", key: "opsAgentChipWeekShifts" },
+  revenueToday: { q: "Revenue today", key: "opsAgentChipRevenueToday" },
+  revenueDetails: { q: "Show revenue details", key: "opsAgentChipRevenueDetails" },
 };
+
+/** What a chip SAYS in the owner's language — the English `q` is the fallback. */
+function chipText(t, chip) {
+  return t(chip.key, chip.q);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Dynamic suggestion chips based on time of day                      */
@@ -52,28 +104,13 @@ function getQuickSuggestions() {
 
   if (hour < 12) {
     // Morning
-    return [
-      "How was yesterday?",
-      "Low stock alerts",
-      "Who owes us?",
-      "This week so far",
-    ];
+    return [CHIP.yesterday, CHIP.lowStock, CHIP.whoOwes, CHIP.weekSoFar];
   } else if (hour < 17) {
     // Afternoon
-    return [
-      "How's today going?",
-      "Today's revenue",
-      "Check inventory",
-      "Business overview",
-    ];
+    return [CHIP.todayGoing, CHIP.todayRevenue, CHIP.checkInventory, CHIP.overview];
   } else {
     // Evening
-    return [
-      "Today's summary",
-      "Compare to yesterday",
-      "This week's revenue",
-      "Any action items?",
-    ];
+    return [CHIP.todaySummary, CHIP.vsYesterday, CHIP.weekRevenue, CHIP.actionItems];
   }
 }
 
@@ -82,14 +119,14 @@ function getQuickSuggestions() {
 /* ------------------------------------------------------------------ */
 function getFollowUps(toolName) {
   const followUps = {
-    query_revenue: ["Show expenses too", "Compare to last week", "Top sellers?"],
-    query_expenses: ["Revenue this period?", "Biggest expense category?", "Cash flow?"],
-    query_inventory: ["What's expiring soon?", "Restock list", "Inventory value?"],
-    query_waste: ["This month's waste cost?", "Revenue check", "Inventory status?"],
-    query_khata: ["Who's most overdue?", "Total credit this month?", "Revenue?"],
-    business_overview: ["Deep dive into revenue", "Check inventory", "Staff schedule"],
-    query_staff: ["This week's shifts", "Revenue today", "Business overview"],
-    business_suggestions: ["Show revenue details", "Check inventory", "Business overview"],
+    query_revenue: [CHIP.expensesToo, CHIP.vsLastWeek, CHIP.topSellers],
+    query_expenses: [CHIP.periodRevenue, CHIP.biggestExpense, CHIP.cashFlow],
+    query_inventory: [CHIP.expiring, CHIP.restock, CHIP.inventoryValue],
+    query_waste: [CHIP.wasteCost, CHIP.revenueCheck, CHIP.inventoryStatus],
+    query_khata: [CHIP.mostOverdue, CHIP.creditMonth, CHIP.revenue],
+    business_overview: [CHIP.revenueDeepDive, CHIP.checkInventory, CHIP.staffSchedule],
+    query_staff: [CHIP.weekShifts, CHIP.revenueToday, CHIP.overview],
+    business_suggestions: [CHIP.revenueDetails, CHIP.checkInventory, CHIP.overview],
   };
   return followUps[toolName] || [];
 }
@@ -97,6 +134,10 @@ function getFollowUps(toolName) {
 /* ------------------------------------------------------------------ */
 /*  WELCOME MESSAGE                                                    */
 /* ------------------------------------------------------------------ */
+/* Messages keep their English `content` — that is what rides along in the
+   `history` sent to /agent/chat, unchanged by the UI language. A message
+   that carries an `i18nKey` is TRANSLATED AT RENDER from that key (with
+   `vars`), so the bubble follows the language, even after a switch. */
 const WELCOME_CONTENT =
   "Hey! I'm your BonBox copilot. Ask me anything about your business \u2014 I can check revenue, expenses, inventory, credit, waste, and staff. Try one of the suggestions below.";
 
@@ -114,7 +155,7 @@ export default function BonBoxAgent() {
   /* ---- state ---- */
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: "assistant", content: WELCOME_CONTENT, isWelcome: true },
+    { role: "assistant", content: WELCOME_CONTENT, isWelcome: true, i18nKey: "opsAgentWelcome" },
   ]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -165,7 +206,7 @@ export default function BonBoxAgent() {
   /*  SSE STREAMING                                                    */
   /* ---------------------------------------------------------------- */
   const sendMessage = useCallback(
-    async (overrideText) => {
+    async (overrideText, displayKey) => {
       const userMsg = (overrideText || input).trim();
       if (!userMsg || isStreaming) return;
       // Record THAT a question was asked — never WHAT. The raw prompt is the
@@ -176,7 +217,10 @@ export default function BonBoxAgent() {
       // consent (see docs/thesis/disclosure-decisions.md).
       trackEvent("ai_question_asked", "agent", null);
       setInput("");
-      setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+      setMessages((prev) => [
+        ...prev,
+        displayKey ? { role: "user", content: userMsg, i18nKey: displayKey } : { role: "user", content: userMsg },
+      ]);
       setIsStreaming(true);
       setActiveTools([]);
 
@@ -260,9 +304,18 @@ export default function BonBoxAgent() {
               : (limit != null
                   ? `You've used today's ${limit} BonBox AI messages. ${planLabel} unlocks more — see /subscription.`
                   : `Today's BonBox AI message limit reached. ${planLabel} unlocks more — see /subscription.`);
+            const msgKey = isNativeApp()
+              ? (limit != null ? "opsAgentLimitNative" : "opsAgentLimitNativeNoCount")
+              : (limit != null ? "opsAgentLimitWeb" : "opsAgentLimitWebNoCount");
             setMessages((prev) => [
               ...prev,
-              { role: "assistant", content: msg, isUpgradeNudge: true },
+              {
+                role: "assistant",
+                content: msg,
+                isUpgradeNudge: true,
+                i18nKey: msgKey,
+                vars: { limit, plan: planLabel },
+              },
             ]);
             return;
           }
@@ -333,10 +386,13 @@ export default function BonBoxAgent() {
             } else if (event === "error") {
               setMessages((prev) => [
                 ...prev,
-                {
-                  role: "assistant",
-                  content: data.message || "Something went wrong. Please try again.",
-                },
+                data.message
+                  ? { role: "assistant", content: data.message }
+                  : {
+                      role: "assistant",
+                      content: "Something went wrong. Please try again.",
+                      i18nKey: "somethingWentWrong",
+                    },
               ]);
             }
             // event === "done" handled by the loop ending
@@ -349,6 +405,7 @@ export default function BonBoxAgent() {
           {
             role: "assistant",
             content: "Sorry, something went wrong. Please try again.",
+            i18nKey: "opsAgentErrSorry",
           },
         ]);
       } finally {
@@ -372,10 +429,41 @@ export default function BonBoxAgent() {
 
   /* ---- suggestion chip click ---- */
   const handleSuggestion = useCallback(
-    (text) => {
-      sendMessage(text);
+    (chip) => {
+      sendMessage(chip.q, chip.key);
     },
     [sendMessage]
+  );
+
+  /* ---- what a bubble SAYS: the key's translation when it has one ---- */
+  const displayText = useCallback(
+    (msg) => {
+      if (!msg.i18nKey) return msg.content;
+      if (msg.i18nKey === "opsAgentWelcome") {
+        // Same English as WELCOME_CONTENT (which stays the history payload).
+        return t(
+          "opsAgentWelcome",
+          "Hey! I'm your BonBox copilot. Ask me anything about your business \u2014 I can check revenue, expenses, inventory, credit, waste, and staff. Try one of the suggestions below.",
+        );
+      }
+      if (msg.i18nKey === "somethingWentWrong") return t("somethingWentWrong", "Something went wrong. Please try again.");
+      if (msg.i18nKey === "opsAgentErrSorry") return t("opsAgentErrSorry", "Sorry, something went wrong. Please try again.");
+      if (msg.i18nKey === "opsAgentLimitNative") {
+        return t("opsAgentLimitNative", "You've used today's {limit} BonBox AI messages. They reset tomorrow.", msg.vars);
+      }
+      if (msg.i18nKey === "opsAgentLimitNativeNoCount") {
+        return t("opsAgentLimitNativeNoCount", "Today's BonBox AI message limit reached. It resets tomorrow.", msg.vars);
+      }
+      if (msg.i18nKey === "opsAgentLimitWeb") {
+        return t("opsAgentLimitWeb", "You've used today's {limit} BonBox AI messages. {plan} unlocks more — see /subscription.", msg.vars);
+      }
+      if (msg.i18nKey === "opsAgentLimitWebNoCount") {
+        return t("opsAgentLimitWebNoCount", "Today's BonBox AI message limit reached. {plan} unlocks more — see /subscription.", msg.vars);
+      }
+      // A chip the owner tapped: show it in their language.
+      return chipText(t, { key: msg.i18nKey, q: msg.content });
+    },
+    [t]
   );
 
   /* ================================================================ */
@@ -424,7 +512,7 @@ export default function BonBoxAgent() {
                   when x is non-empty (length > 4), and strip any stray/unpaired
                   ** from plain spans so the model emitting an empty or unbalanced
                   bold (e.g. a blank number) never shows a literal "**" to the user. */}
-              {msg.content.split(/(\*\*.*?\*\*)/).map((part, pi) =>
+              {displayText(msg).split(/(\*\*.*?\*\*)/).map((part, pi) =>
                 part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
                   <strong key={pi} className="font-semibold">
                     {part.slice(2, -2)}
@@ -445,10 +533,10 @@ export default function BonBoxAgent() {
               if (!followUps.length) return null;
               return (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {followUps.map((q) => (
+                  {followUps.map((chip) => (
                     <button
-                      key={q}
-                      onClick={() => handleSuggestion(q)}
+                      key={chip.key}
+                      onClick={() => handleSuggestion(chip)}
                       disabled={isStreaming}
                       className="
                         text-[10.5px] px-2.5 py-1 rounded-full
@@ -458,7 +546,7 @@ export default function BonBoxAgent() {
                         disabled:opacity-40 disabled:cursor-not-allowed
                       "
                     >
-                      {q}
+                      {chipText(t, chip)}
                     </button>
                   ))}
                 </div>
@@ -470,10 +558,10 @@ export default function BonBoxAgent() {
                 screen space on a populated conversation. */}
             {msg.isWelcome && messages.length <= 1 && (
               <div className="flex flex-wrap gap-2.5 mt-4">
-                {getQuickSuggestions().map((q, qi) => (
+                {getQuickSuggestions().map((chip, qi) => (
                   <button
-                    key={q}
-                    onClick={() => handleSuggestion(q)}
+                    key={chip.key}
+                    onClick={() => handleSuggestion(chip)}
                     disabled={isStreaming}
                     className="
                       text-[12.5px] px-4 py-2 rounded-full
@@ -488,7 +576,7 @@ export default function BonBoxAgent() {
                       animationDelay: `${400 + qi * 80}ms`,
                     }}
                   >
-                    {q}
+                    {chipText(t, chip)}
                   </button>
                 ))}
               </div>
@@ -498,7 +586,7 @@ export default function BonBoxAgent() {
       );
     },
     // messages.length included so welcome-pills hide after first user message
-    [renderDataCard, handleSuggestion, isStreaming, messages.length]
+    [renderDataCard, handleSuggestion, isStreaming, messages.length, displayText, t]
   );
 
   /* ================================================================ */
@@ -808,7 +896,7 @@ export default function BonBoxAgent() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about your business…"
+                placeholder={t("landingV2.ai.inputPlaceholder", "Ask about your business…")}
                 disabled={isStreaming}
                 rows={1}
                 className="
@@ -855,7 +943,7 @@ export default function BonBoxAgent() {
 
             {/* footer hint */}
             <p className="text-[10px] text-gray-600 text-center mt-2 select-none">
-              Shift+Enter for new line
+              {t("landingV2.ai.caption", "Shift+Enter for new line")}
             </p>
           </div>
         </div>
@@ -868,7 +956,8 @@ export default function BonBoxAgent() {
 /*  TOOL PILL SUB-COMPONENT                                            */
 /* ================================================================== */
 function ToolPill({ tool }) {
-  const label = TOOL_LABELS[tool] || tool.replace(/_/g, " ");
+  const { t } = useLanguage();
+  const label = toolLabel(t, tool);
 
   return (
     <div
