@@ -1,14 +1,15 @@
 """Nightly reservation jobs — reminder emails + GDPR purge.
 
   • send_reservation_reminders() — day-before reminder for confirmed
-    reservations (the v1 no-show defense, reminders-only).
+    reservations (the v1 no-show defense, reminders-only). The email itself
+    (bilingual, escaped, retried, logged) is services/reservation_emails.py;
+    the SMS text is still written here, in Danish.
   • purge_expired_reservations() — Art. 9 retention: null out guest PII +
     allergy on rows past purge_after, keeping the row for aggregate stats.
 
 Both isolate per-row errors so one bad row never poisons the batch, and
 both are idempotent (reminder_sent_at / purged_at short-circuit re-runs).
 """
-import html as _html
 import logging
 import uuid
 from datetime import timedelta
@@ -171,48 +172,28 @@ def send_reservation_reminders() -> int:
                             r.user_id,
                         )
                         continue
-                    from app.services.email_service import send_email
-                    from app.routers.public_reservations import _guest_cancel_url
-                    cancel_url = _guest_cancel_url(profile, r)
-                    cancel_line = (
-                        f'<p>Kan du ikke komme? '
-                        f'<a href="{cancel_url}">Aflys din reservation her</a>, '
-                        f'så en anden gæst kan få bordet.</p>'
-                        if cancel_url else
-                        "<p>Vi glæder os til at se dig! Skriv eller ring til os, "
-                        "hvis du skal ændre eller aflyse.</p>"
-                    )
-                    # guest_name is typed by an ANONYMOUS booker on the public
-                    # page — POST /public/reservations/{slug} accepts any 160
-                    # chars with no character restriction. Interpolated raw it
-                    # let a stranger author HTML (a phishing anchor, a tracking
-                    # pixel) inside a mail sent from noreply@bonbox.dk, SPF/DKIM
-                    # aligned, to any address they typed. Every sibling mailer
-                    # already escapes — _send_confirmation and _notify_owner_email
-                    # in routers/public_reservations.py, and
-                    # jobs/reservation_request_expiry.py — this one was missed.
-                    # Subject stays unescaped on purpose: it is not HTML, and
-                    # escaping there would render literal &amp; to the guest.
-                    html = (
-                        f"<p>Hej {_html.escape(r.guest_name or '')},</p>"
-                        f"<p>Bare en venlig påmindelse om din reservation hos "
-                        f"<strong>{_html.escape(biz or '')}</strong>:</p>"
-                        f"<p>{r.starts_at.strftime('%d/%m/%Y %H:%M')} · {r.party_size} personer</p>"
-                        f"{cancel_line}"
-                    )
-                    send_email(
-                        to=r.guest_email,
-                        subject=f"Påmindelse — {biz} {when}",
-                        html=html,
-                        reply_to=getattr(owner, "email", None),
-                    )
+                    # The words live in services/reservation_emails.py: in the
+                    # guest's language, every typed value escaped (guest_name
+                    # comes from an ANONYMOUS booker — raw, it let a stranger
+                    # author HTML in mail from our own domain), one retry, and
+                    # a NotificationLog row. It reports whether the mail really
+                    # went out: a failed send no longer stamps reminder_sent_at,
+                    # so tomorrow morning's run (still inside the window for a
+                    # same-day booking) gets a second chance.
+                    from app.services import reservation_emails
+                    delivered = reservation_emails.send_guest_reminder(db, owner, profile, r)
                     channel = "email"
-                    outcome = {"ok": True}
-                    mailed[key] += 1
+                    outcome = {"ok": bool(delivered)}
+                    if delivered:
+                        mailed[key] += 1
 
                 if channel and outcome.get("ok"):
                     r.reminder_sent_at = utc_now()
                     sent += 1
+                # The email path wrote its own NotificationLog row (event
+                # "guest_reminder"). The row below is the SMS ledger that the
+                # monthly SMS cap above counts — SMS only.
+                if channel == "sms" and outcome.get("ok"):
                     # notification_log.staff_id is NOT NULL in prod (verified
                     # 2026-08-31) — the table was built from the model, which
                     # declares it non-nullable because it was originally "log of

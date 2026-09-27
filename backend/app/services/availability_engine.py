@@ -268,6 +268,27 @@ def _pacing_blocked(start: datetime, busy, config: AvailabilityConfig) -> bool:
     return started >= config.pacing_max_per_slot
 
 
+def time_grid(*, windows, duration_min: int, config: AvailabilityConfig,
+              now: datetime | None = None):
+    """The venue's bookable START TIMES, before any table is considered: every
+    `slot_granularity_min` step from each window's opening, where the whole
+    turn fits inside the window and the start is past `now + lead_time_min`.
+
+    compute_slots walks exactly this grid and keeps the starts a table can
+    take; a group request (no table held until the owner approves) offers the
+    grid itself as preferred times. One walk, so the two can never disagree
+    about opening hours, interval or lead time."""
+    dur = timedelta(minutes=duration_min)
+    step = timedelta(minutes=max(1, config.slot_granularity_min))
+    earliest = (now + timedelta(minutes=config.lead_time_min)) if now else None
+    for w in windows:
+        start = w.start
+        while start + dur <= w.end:
+            if earliest is None or start >= earliest:
+                yield start
+            start += step
+
+
 def compute_slots(*, windows, resources, busy, party_size: int,
                   config: AvailabilityConfig, now: datetime | None = None,
                   duration_min: int | None = None) -> list[Slot]:
@@ -279,25 +300,19 @@ def compute_slots(*, windows, resources, busy, party_size: int,
 
     duration = duration_min if duration_min is not None else turn_time_minutes(party_size, config)
     dur = timedelta(minutes=duration)
-    step = timedelta(minutes=max(1, config.slot_granularity_min))
-    earliest = (now + timedelta(minutes=config.lead_time_min)) if now else None
 
     out: list[Slot] = []
-    for w in windows:
-        start = w.start
-        while start + dur <= w.end:
-            if earliest is None or start >= earliest:
-                if not _pacing_blocked(start, busy, config):
-                    ids = assign_seats(party_size, start, start + dur, resources, busy, config)
-                    if ids:
-                        out.append(Slot(
-                            start=start, end=start + dur, resource_id=ids[0],
-                            resource_ids=tuple(ids), available=True,
-                            remaining=count_free_singles(
-                                party_size, start, start + dur, resources, busy,
-                            ),
-                        ))
-            start += step
+    for start in time_grid(windows=windows, duration_min=duration, config=config, now=now):
+        if not _pacing_blocked(start, busy, config):
+            ids = assign_seats(party_size, start, start + dur, resources, busy, config)
+            if ids:
+                out.append(Slot(
+                    start=start, end=start + dur, resource_id=ids[0],
+                    resource_ids=tuple(ids), available=True,
+                    remaining=count_free_singles(
+                        party_size, start, start + dur, resources, busy,
+                    ),
+                ))
     return out
 
 

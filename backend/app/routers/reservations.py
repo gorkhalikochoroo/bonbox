@@ -19,7 +19,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -51,6 +51,7 @@ from app.services.billing import (
     has_feature,
 )
 from app.services import reservation_service as rsvc
+from app.services import reservation_emails
 from app.services import reservation_occupancy_service as occ_service
 # The ONE definition of "which statuses are booked covers". Imported, never
 # re-typed: the owner's book, the schedule grid and (later) the staff card must
@@ -259,6 +260,10 @@ class StatusUpdate(BaseModel):
     status: str = Field(pattern="^(requested|confirmed|seated|completed|no_show|cancelled)$")
     cancel_reason: str | None = Field(default=None, max_length=255)
     resource_id: UUID | None = None
+    # Email the guest about this change (request accepted / booking cancelled)?
+    # Default yes. False = a quiet correction — a duplicate or test booking the
+    # guest should not hear about.
+    notify_guest: bool = True
 
 
 # ─── Behandlinger (salon service catalog) schemas — S2 ───────────────
@@ -1893,10 +1898,31 @@ class ReservationEdit(BaseModel):
     allergen_tags: list[str] | None = None
     allergy_note: str | None = Field(default=None, max_length=2000)
     allergy_severity: str | None = None
+    # Email the guest when the date/time really moves? Default yes; False for
+    # a quiet correction the guest should not hear about.
+    notify_guest: bool = True
+
+
+def _queue_guest_email(background_tasks: BackgroundTasks, user: User, r: Reservation,
+                       change: str, **kw) -> None:
+    """Queue a "the venue changed your booking" email, OFF the request path.
+
+    Only for a booking still ahead (starts_at is naive LOCAL — compared with the
+    owner's local now) that has a guest email; the task re-checks both on a
+    fresh session before sending. Never raises: the owner's change is already
+    committed, and a mail problem must not turn it into an error."""
+    try:
+        if not r.guest_email or not reservation_emails.starts_in_future(r, user):
+            return
+        background_tasks.add_task(reservation_emails.run_venue_change,
+                                  str(r.id), str(user.id), change, **kw)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @router.patch("/reservations/{reservation_id}")
 def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Request,
+                     background_tasks: BackgroundTasks,
                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Edit a live booking. Time/party changes re-check the held table(s) for
     the NEW window through the same occupancy machinery as create/assign
@@ -1924,6 +1950,7 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
 
     before = {"starts_at": r.starts_at.isoformat() if r.starts_at else None,
               "party_size": r.party_size}
+    old_starts_at = r.starts_at
 
     for f in ("guest_name", "guest_phone", "guest_email", "guest_notes"):
         v = getattr(payload, f)
@@ -2014,11 +2041,26 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
+    # Tell the guest when the date/time REALLY moved. The owner app sends
+    # starts_at on every save (a phone-number fix included), so "sent" is not
+    # "changed" — compare the committed value with the one before the edit.
+    if (payload.notify_guest and payload.starts_at is not None
+            and r.status in ("requested", "confirmed")
+            and not reservation_emails.same_start(old_starts_at, r.starts_at, user)):
+        new_local = reservation_emails.to_naive_local(r.starts_at, user)
+        old_local = reservation_emails.to_naive_local(old_starts_at, user)
+        _queue_guest_email(
+            background_tasks, user, r, "moved",
+            old_starts_at=old_local.isoformat() if old_local else None,
+            new_starts_at=new_local.isoformat() if new_local else None,
+        )
     return _reservation_dict(r)
 
 
 @router.patch("/reservations/{reservation_id}/status")
 def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
+                  background_tasks: BackgroundTasks,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "reservations")
     r = (
@@ -2030,6 +2072,7 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     if r is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
 
+    prev_status = r.status
     prev_resource_id = r.resource_id
     r.status = payload.status
     # Owner may (re)assign a table as part of the transition. If they move it
@@ -2077,6 +2120,18 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # constraint). Roll back the whole transition and tell the owner.
         db.rollback()
         raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
+    # Tell the guest — only when the status REALLY changed, and only for the
+    # two changes a guest must hear about: their request was accepted, or their
+    # booking (or request) was cancelled. Seated / completed / no-show happen
+    # with the guest in the room (or not coming) — no mail.
+    if payload.notify_guest and payload.status != prev_status:
+        if prev_status == "requested" and payload.status == "confirmed":
+            _queue_guest_email(background_tasks, user, r, "request_confirmed",
+                               prev_status=prev_status)
+        elif payload.status == "cancelled" and prev_status in ("requested", "confirmed"):
+            _queue_guest_email(background_tasks, user, r, "cancelled_by_venue",
+                               prev_status=prev_status)
 
     out = _reservation_dict(r)
     # Auto-fill SURFACING (Venteliste): a cancel / no-show just freed a table,

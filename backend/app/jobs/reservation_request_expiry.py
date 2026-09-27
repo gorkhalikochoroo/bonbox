@@ -95,6 +95,9 @@ def expire_stale_requests(db: Session | None = None) -> dict:
         for r in rows:
             if _tell_the_guest(db, r):
                 notified += 1
+        if rows:
+            # Persist the mail ledger (NotificationLog rows) the sends wrote.
+            db.commit()
     except Exception:  # noqa: BLE001
         logger.warning("reservation request expiry sweep failed", exc_info=True)
         try:
@@ -109,77 +112,38 @@ def expire_stale_requests(db: Session | None = None) -> dict:
 
 
 def _tell_the_guest(db: Session, r: Reservation) -> bool:
-    """Best-effort "we couldn't take it" mail. Silence is the bug we are
-    fixing, so a send failure is logged rather than swallowed."""
+    """Best-effort "we couldn't take it" mail, in the guest's language.
+    Returns True only when it was actually delivered.
+
+    THE CANNON. A group request (party_size >= group_request_threshold) skips
+    the availability engine entirely — plain insert, always succeeds, no table
+    held — so an anonymous caller could park unlimited rows against one typed
+    address, and this sweep used to mail EVERY parked row: ~360/hour, ~8,640/day
+    at one victim, from noreply@bonbox.dk with our SPF/DKIM on it.
+
+    reservation_emails.send_guest_request_expired applies the same per-address
+    cap as the confirmation, read-only against the existing ledger:
+    confirmation_sent_at is stamped only on a DELIVERED confirmation, which
+    already refuses past the daily cap — so an abuser's 4th row onward is never
+    stamped and the count stays pinned. It does NOT stamp: writing a decline
+    into a column named confirmation_sent_at would make every surface that
+    reads it claim a confirmation was sent. A real guest is unaffected: one
+    booking is one stamp, so their decline mail is 1 < 3 and goes out, and
+    twelve real parties at one venue are twelve addresses."""
     if not r.guest_email:
         return False
-
-    # THE CANNON. A group request (party_size >= group_request_threshold) skips
-    # the availability engine entirely — plain insert, always succeeds, no table
-    # held — so an anonymous caller could park unlimited rows against one typed
-    # address. This sweep then mailed EVERY parked row. At the public rate limit
-    # that is ~360/hour, ~8,640/day at one victim, from noreply@bonbox.dk with
-    # our SPF/DKIM on it. That is BonBox's sending reputation, not just one
-    # inbox.
-    #
-    # The bound already existed — it was simply never consulted here. That is
-    # the drift worth naming: a cap enforced in ONE mailer is not a cap, and
-    # this is the third mailer to be found missing a control its siblings have.
-    #
-    # Read-only against the existing ledger, deliberately. _send_confirmation
-    # stamps confirmation_sent_at only when it really sends, and it already
-    # refuses past the daily cap — so an abuser's 4th row onward is never
-    # stamped and the count stays pinned. We do NOT stamp here: writing a
-    # decline into a column named confirmation_sent_at would make every surface
-    # that reads it claim a confirmation was sent, and the create-path stamp is
-    # already a sufficient ledger.
-    #
-    # A real guest is unaffected: one booking is one stamp, so their decline
-    # mail is 1 < 3 and goes out. Guests at the same venue are counted per
-    # address, so twelve real parties all still hear back.
-    from app.routers.public_reservations import _confirmation_quota_left
-    if not _confirmation_quota_left(db, r.user_id, r.guest_email):
-        logger.warning(
-            "request-expiry mail suppressed: per-address daily cap reached "
-            "(owner=%s reservation=%s)", r.user_id, r.id,
-        )
-        return False
-
     try:
-        from app.services.email_service import send_email
-        import html as _html
+        from app.services import reservation_emails
 
         owner = db.query(User).filter(User.id == r.user_id).first()
+        if owner is None:
+            return False
         profile = (
             db.query(BusinessProfile)
             .filter(BusinessProfile.user_id == r.user_id)
             .first()
         )
-        biz = (
-            getattr(owner, "business_name", None)
-            or getattr(profile, "company_name", None)
-            or "Restauranten"
-        )
-        when = r.starts_at.strftime("%d/%m/%Y") if r.starts_at else ""
-        phone = getattr(profile, "phone", None)
-        ring = (
-            f'<p>Ring gerne på <a href="tel:{_html.escape(phone)}">'
-            f"{_html.escape(phone)}</a>, hvis du stadig gerne vil komme.</p>"
-            if phone else ""
-        )
-        send_email(
-            to=r.guest_email,
-            subject=f"{biz} — vi kunne ikke bekræfte din forespørgsel",
-            html=(
-                f"<p>Hej {_html.escape(r.guest_name or '')},</p>"
-                f"<p>Vi kunne desværre ikke bekræfte din forespørgsel om bord "
-                f"til {r.party_size} personer den {when}.</p>"
-                f"{ring}"
-                f"<p>Beklager ventetiden.</p>"
-            ),
-            reply_to=getattr(owner, "email", None),
-        )
-        return True
+        return reservation_emails.send_guest_request_expired(db, owner, profile, r)
     except Exception:  # noqa: BLE001
         logger.warning("request-expiry mail failed for reservation=%s", r.id)
         return False
