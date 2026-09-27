@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
 
 /**
  * Cookie consent banner — GDPR + ePrivacy + Datatilsynet (DK) compliant.
@@ -165,6 +166,11 @@ export default function CookieConsent() {
     try { embedParam = new URLSearchParams(window.location.search).get("embed") === "1"; } catch { /* noop */ }
     if (framed || embedParam) return;
 
+    // The same booking page opened directly (/r/<slug>, bonbox.dk/<slug>) is
+    // the same case: strictly-necessary storage only, and the banner covered
+    // the form a guest came to fill in. See lib/guestSurface.js.
+    if (isGuestSurface()) return;
+
     // Multi-barrier defense: even if the user has DNT set, we still ask
     // (consent banners can't be skipped under EU rules) but pre-fill with
     // everything OFF so a default Accept-All click still respects DNT.
@@ -172,8 +178,22 @@ export default function CookieConsent() {
       setChoices({ necessary: true, functional: false, analytics: false, marketing: false });
     }
 
-    // Show banner if no valid consent saved
-    if (!getCookieConsent()) setOpen(true);
+    // Show banner if no valid consent saved — after a beat, so a guest
+    // booking page still fetching its code can mark itself first instead of
+    // the banner flashing over it. If it marks itself later, close again.
+    let openTimer = null;
+    if (!getCookieConsent()) {
+      openTimer = setTimeout(() => {
+        if (!isGuestSurface()) setOpen(true);
+      }, 600);
+    }
+    const onGuestSurface = () => {
+      setOpen(false);
+      setDrawer(false);
+    };
+    try {
+      window.addEventListener(GUEST_SURFACE_EVENT, onGuestSurface);
+    } catch { /* noop */ }
 
     // Allow re-opening from anywhere (e.g. footer "Cookieindstillinger" link)
     const reopen = () => {
@@ -186,7 +206,9 @@ export default function CookieConsent() {
       window.addEventListener("bonbox-open-cookie-settings", reopen);
     } catch { /* hardened browsers may block — fail silently, banner still works on first visit */ }
     return () => {
+      clearTimeout(openTimer);
       try { window.removeEventListener("bonbox-open-cookie-settings", reopen); } catch { /* noop */ }
+      try { window.removeEventListener(GUEST_SURFACE_EVENT, onGuestSurface); } catch { /* noop */ }
     };
   }, []);
 

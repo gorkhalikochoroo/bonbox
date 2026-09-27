@@ -29,7 +29,7 @@
 //
 // DK terminology lock applies: revisor / MOMS etc. stay Danish in all
 // locales. The public copy here defaults to Danish (DK-first market).
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useConfirm } from "../hooks/useConfirm";
 import { buildIcs, venueAddress } from "../utils/reservationIcs";
@@ -50,13 +50,19 @@ import {
   Scissors,
   Check,
   ChevronDown,
+  ChevronLeft,
+  X,
 } from "lucide-react";
 import api from "../services/api";
 import { slotNote } from "../utils/slotNote";
+import { markGuestSurface } from "../lib/guestSurface";
+import { venueMonogram } from "../utils/venueMonogram";
 import { useLanguage } from "../hooks/useLanguage";
 import Button from "../components/ui/Button";
 import Chip from "../components/ui/Chip";
 import Input from "../components/ui/Input";
+import Sheet from "../components/ui/Sheet";
+import MonthCalendar from "../components/MonthCalendar";
 import PublicFloorMap from "../components/PublicFloorMap";
 import { bookingModeFor, usesTableFloor } from "../config/venueProfiles";
 
@@ -92,43 +98,80 @@ function addDays(isoStr, n) {
 // checks a native date input, and never lands on a dead day. `dayMap` null =
 // the open/closed overview hasn't resolved yet → render enabled and let the
 // single-day fetch tell the truth (fail-soft, never a false "closed").
+// On a phone the rails (days, party size, times) bleed to the screen edge so a
+// cut-off chip says "swipe for more". scroll-padding keeps the first chip on
+// the page margin when the rail snaps — without it the snap pulled the first
+// chip flush against the edge of the phone. From sm up (tablet, desktop) the
+// chips WRAP instead: there is room, and a hidden-scrollbar rail is hard to
+// move with a mouse.
+const RAIL =
+  "-mx-4 px-4 scroll-px-4 flex gap-2 overflow-x-auto pb-1 snap-x " +
+  "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden " +
+  "sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible";
+
+// Each decision on step 1 (how many, which day, what time) is headed like a
+// question the guest is answering — 15px semibold ink, not the 12px grey
+// form label it used to be, which read as fine print on a phone.
+const SECTION_TITLE = "block text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100";
+
+// Weekday / date / month stacked in a compact card. The one-line
+// "Man. 28. Sep." chips fit two and a half days on a phone; these fit five.
+// Danish short forms carry dots ("man.", "28.", "sep.") — stripped here.
 function DateStrip({ today, dayMap, value, onPick, t, lang }) {
-  const days = Array.from({ length: 14 }, (_, i) => addDays(today, i));
-  const fmt = (iso) =>
-    new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(lang), {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
+  const rail = Array.from({ length: 14 }, (_, i) => addDays(today, i));
+  // A day picked in the calendar beyond the rail leads it, selected — the
+  // choice is never off-screen.
+  const days = value && value > rail[rail.length - 1] ? [value, ...rail] : rail;
+  const part = (iso, opts) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(lang), opts).replace(/\.$/, "");
+  const full = (iso) => fmtDayLabel(iso, lang);
+  const refs = useRef({});
+  const first = useRef(true);
+  // A day picked some other way (the "next open day" jump, the date field)
+  // scrolls into view — the rail never hides the day that is selected.
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    refs.current[value]?.scrollIntoView?.({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [value]);
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+    <div className={RAIL}>
       {days.map((iso) => {
         const known = dayMap && iso in dayMap;
         const closed = known && dayMap[iso] === false;
         const active = value === iso;
+        const quiet = active ? "text-white/70 dark:text-gray-500" : "text-gray-400 dark:text-gray-500";
         return (
           <button
             key={iso}
+            ref={(el) => { refs.current[iso] = el; }}
             type="button"
             disabled={closed}
             onClick={() => !closed && onPick(iso)}
             aria-pressed={active}
-            aria-label={closed ? `${fmt(iso)} — ${t("rsvpDayClosed", "lukket")}` : fmt(iso)}
+            aria-label={closed ? `${full(iso)} — ${t("rsvpDayClosed", "lukket")}` : full(iso)}
             className={[
-              "shrink-0 rounded-xl px-3 py-2 text-sm border transition text-center min-w-[76px] min-h-[44px] sm:min-h-0 leading-tight",
+              "shrink-0 snap-start w-14 h-[68px] rounded-xl border",
+              "transition-[background-color,border-color,color] duration-200 ease-out",
+              "flex flex-col items-center justify-center gap-1",
               active
                 ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900"
-                : "border-gray-200 text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:text-gray-300",
-              closed ? "opacity-40 cursor-not-allowed" : "",
+                : "border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100",
+              closed ? "opacity-45 cursor-not-allowed" : "",
             ].join(" ")}
           >
-            <span className="capitalize block">{fmt(iso)}</span>
-            {closed && (
-              <span className="block text-[10px] text-gray-400">
-                {/* rsvpDayClosed — the chip word. rsvpClosed is the page <h1>. */}
-                {t("rsvpDayClosed", "lukket")}
-              </span>
-            )}
+            <span className={"text-[10.5px] font-medium leading-none capitalize " + quiet}>
+              {part(iso, { weekday: "short" })}
+            </span>
+            <span className="text-lg font-semibold leading-none tabular-nums">
+              {part(iso, { day: "numeric" })}
+            </span>
+            <span className={"text-[10px] leading-none " + quiet}>
+              {/* rsvpDayClosed — the chip word. rsvpClosed is the page <h1>. */}
+              {closed ? t("rsvpDayClosed", "lukket") : part(iso, { month: "short" })}
+            </span>
           </button>
         );
       })}
@@ -175,21 +218,6 @@ function fmtDayLabel(isoStr, lang) {
   }
 }
 
-// ── Venue monogram ─────────────────────────────────────────────────
-// Fallback venue identity when the owner hasn't uploaded a brand logo: a
-// tasteful 1–2 letter monogram derived from the venue name purely
-// typographically — first letters of the first two words, else the first two
-// letters. Upper-cased, diacritics preserved (Café → C). Plain text — JSX escapes it.
-function venueMonogram(name) {
-  const clean = String(name || "").trim();
-  if (!clean) return "·";
-  const words = clean.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-  return clean.slice(0, 2).toUpperCase();
-}
-
 // ── Venue identity tile ────────────────────────────────────────────
 // The owner's uploaded brand logo (the SAME logo used on their invoices),
 // served as a short-lived signed url from the public meta. Falls back to the
@@ -204,7 +232,7 @@ function VenueBadge({ logoUrl, name }) {
         src={logoUrl}
         alt=""
         onError={() => setBroken(true)}
-        className="shrink-0 w-12 h-12 rounded-xl object-contain bg-white ring-1 ring-gray-200 dark:ring-gray-700 p-1"
+        className="shrink-0 w-11 h-11 rounded-xl object-contain bg-white ring-1 ring-gray-200 dark:ring-gray-700 p-1"
       />
     );
   }
@@ -215,7 +243,7 @@ function VenueBadge({ logoUrl, name }) {
   // and wearing our logo on it would be claiming their identity.
   return (
     <div
-      className="shrink-0 w-12 h-12 rounded-xl bg-bb-green text-white flex items-center justify-center text-base font-semibold tracking-tight select-none"
+      className="shrink-0 w-11 h-11 rounded-xl bg-bb-green text-white flex items-center justify-center text-[15px] font-semibold tracking-tight select-none"
       aria-hidden="true"
     >
       {venueMonogram(name)}
@@ -279,6 +307,24 @@ export default function ReservationPublicPage() {
   const [searchParams] = useSearchParams();
   const { t, lang, setLang } = useLanguage();
   const confirm = useConfirm();
+  // A guest page: no consent banner over the booking form (lib/guestSurface).
+  // Layout effect, so the mark is set before CookieConsent's own effect runs.
+  useLayoutEffect(() => markGuestSurface(), []);
+
+  // While the on-screen keyboard is up, the fixed action bar sat under iOS's
+  // form-navigation strip — half-covered and easy to mis-tap. On a touch
+  // device it steps aside while a text field has focus; return on the last
+  // field ("Done") closes the keyboard and brings it back.
+  const [typing, setTyping] = useState(false);
+  const coarsePointer =
+    typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)")?.matches;
+  const onFieldFocus = (e) => {
+    if (coarsePointer && isTypingField(e.target)) setTyping(true);
+  };
+  const onFieldBlur = (e) => {
+    // Moving from one field to the next is not "done typing".
+    if (coarsePointer && isTypingField(e.target) && !isTypingField(e.relatedTarget)) setTyping(false);
+  };
 
   // Embedded in an owner's website (iframe, ?embed=1): drop the forced
   // min-h-screen so the widget sizes to its content inside the frame instead
@@ -1211,7 +1257,7 @@ export default function ReservationPublicPage() {
             className={
               `inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto ${heroWrap} ` +
               // Single brief fade-scale on mount (≤300ms). No confetti.
-              "transition-all duration-300 ease-out motion-reduce:transition-none " +
+              "transition-all duration-500 ease-[cubic-bezier(0.2,0.9,0.3,1.2)] motion-reduce:transition-none " +
               (heroIn ? "opacity-100 scale-100" : "opacity-0 scale-90")
             }
           >
@@ -1348,7 +1394,10 @@ export default function ReservationPublicPage() {
             />
             {/* Restore the venue's location + a tappable number so the guest
                 can find the place and call it from the confirmation. The
-                address is a maps link built via encodeURIComponent (safe). */}
+                address is a maps link built via encodeURIComponent (safe).
+                min-h-0 on both links: at the global 44pt touch height these
+                two rows stood taller than the rest of the list. The map has
+                the big Directions button below; the phone link spans the row. */}
             {(page.address || page.city) && (
               <div className="flex items-center gap-3">
                 <span className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true">
@@ -1362,7 +1411,7 @@ export default function ReservationPublicPage() {
                     href={mapsHref(page.address, page.city)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
+                    className="inline-flex items-center min-h-0 min-w-0 break-words text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
                   >
                     {venueAddress(page.address, page.city)}
                   </a>
@@ -1383,7 +1432,7 @@ export default function ReservationPublicPage() {
                 </span>
                 <a
                   href={telHref(page.phone)}
-                  className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
+                  className="flex-1 inline-flex items-center min-h-0 py-1 text-sm font-medium tabular-nums text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   {page.phone}
                 </a>
@@ -1396,11 +1445,15 @@ export default function ReservationPublicPage() {
               carries the venue's first opening as a placeholder), and
               writing that into someone's calendar would invent a promise
               the venue has not made. */}
+          {/* The two things a guest does next — put it in the calendar,
+              find the way — side by side, equal weight. */}
+          <div className="grid grid-cols-2 gap-2 [&>*:only-child]:col-span-2">
           {isConfirmed && slot && day && (
             <Button
               variant="secondary"
               size="lg"
               className="w-full"
+              iconLeft={<CalendarPlus size={16} strokeWidth={1.75} aria-hidden="true" />}
               onClick={async () => {
                 const ics = buildIcs({
                   uid: `${result.id}@bonbox.dk`,
@@ -1431,10 +1484,21 @@ export default function ReservationPublicPage() {
                 setCalError(out.ok ? "" : t("calendarAddFailed"));
               }}
             >
-              <CalendarPlus size={16} strokeWidth={1.75} className="mr-1.5" aria-hidden="true" />
               {t("rsvpAddToCalendar", "Føj til kalender")}
             </Button>
           )}
+          {mapsHref(page.address, page.city) && (
+            <a
+              href={mapsHref(page.address, page.city)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <MapPin size={16} strokeWidth={1.75} aria-hidden="true" />
+              <span>{t("rsvpDirections", "Directions")}</span>
+            </a>
+          )}
+          </div>
           {calError && (
             <p role="alert" className="text-[12px] text-rose-600 dark:text-rose-400">
               {calError}
@@ -1445,13 +1509,16 @@ export default function ReservationPublicPage() {
               Hidden once the booking is cancelled/done. */}
           {canCancel && (
             <div className="space-y-2">
+              {/* Quiet on purpose: cancelling is the exception, and as a
+                  full-width grey button it carried the same weight as
+                  "Add to calendar". It still asks before it cancels. */}
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="lg"
                 onClick={onCancel}
                 busy={cancelling}
                 disabled={cancelling}
-                className="w-full"
+                className="w-full text-gray-500 dark:text-gray-400"
               >
                 {t("rsvpCancelBtn", "Aflys reservation")}
               </Button>
@@ -1477,8 +1544,24 @@ export default function ReservationPublicPage() {
 
   // ── Main wizard ────────────────────────────────────────────────────
   return (
-    <div className={`${rootMinH} bg-white dark:bg-gray-950 ${isEmbed ? "" : "pb-32"}`}>
-      <div className="max-w-md mx-auto px-4 sm:px-6 pt-8 sm:pt-10 space-y-6">
+    <div
+      className={`${rootMinH} bg-white dark:bg-gray-950 ${
+        // Tablet/desktop: the booking sits on a card over a quiet ground,
+        // instead of a narrow column floating on a white page. Not when
+        // embedded — the host site is the ground there.
+        isEmbed ? "" : "pb-32 sm:bg-gray-50 sm:dark:bg-gray-950"
+      }`}
+    >
+      <div
+        className={
+          "max-w-md mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
+          (isEmbed
+            ? ""
+            : "sm:mt-10 sm:pb-8 sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
+        }
+        onFocusCapture={onFieldFocus}
+        onBlurCapture={onFieldBlur}
+      >
         {/* ── Venue identity (brand logo or typographic monogram) ──
             Identity tile + eyebrow + venue name H1 + location row with a
             quiet right-aligned tappable phone. One trust line underneath. */}
@@ -1491,7 +1574,12 @@ export default function ReservationPublicPage() {
               <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 {isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
               </p>
-              <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2">
+              <h1
+                className={
+                  "font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2 " +
+                  (step === 1 ? "text-[22px]" : "text-lg")
+                }
+              >
                 {page.business_name}
               </h1>
             </div>
@@ -1502,7 +1590,11 @@ export default function ReservationPublicPage() {
                 page carries none. Two words, no flags — a flag is a country,
                 not a language. Choosing here also clears the auto-pick, so
                 the choice survives through to the confirmation. */}
-            <div className="shrink-0 flex items-center gap-0.5 -mt-0.5">
+            {/* A segmented pill, so the current language reads as SELECTED,
+                not just as darker text. Each segment is 36x44: this is the
+                control a guest reaches for when the page opened in a language
+                they do not read, so it has to be an easy thumb target. */}
+            <div className="shrink-0 flex items-center p-0.5 rounded-full bg-gray-100 dark:bg-gray-800">
               {["da", "en"].map((code) => (
                 <button
                   key={code}
@@ -1510,15 +1602,10 @@ export default function ReservationPublicPage() {
                   onClick={() => setLang(code)}
                   aria-pressed={lang === code}
                   className={
-                    // Padding is the substantive half of this: at px-1.5 py-1
-                    // a two-letter language code is a ~22x18px tap target on a
-                    // phone, well under the ~44px guideline, and this is the
-                    // control a guest reaches for when the page opened in a
-                    // language they do not read.
-                    "px-2.5 py-2 rounded-md text-xs font-medium uppercase tracking-wide transition-colors " +
+                    "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " +
                     (lang === code
-                      ? "text-gray-900 dark:text-gray-100"
-                      : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300")
+                      ? "bg-white text-gray-900 shadow-sm dark:bg-gray-950 dark:text-gray-100"
+                      : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300")
                   }
                 >
                   {code}
@@ -1527,26 +1614,47 @@ export default function ReservationPublicPage() {
             </div>
           </div>
 
-          {/* Location row + quiet right-aligned call link on the same line. */}
-          {(page.city || page.address || page.phone) && (
-            <div className="flex items-center justify-between gap-3">
-              {(page.city || page.address) ? (
-                <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 min-w-0">
-                  <MapPin size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-                  <span className="line-clamp-2 break-words">{page.address || page.city}</span>
-                </div>
-              ) : (
-                <span />
-              )}
+          {/* Where it is and how to reach it — one quiet line of two links.
+              As two text rows each 44pt touch target left a gap between the
+              address and the number; as bordered pills they were the loudest
+              thing in the header. Here they keep the 44pt target (global
+              touch rule) but read as the light detail they are: the address
+              opens the map, the number dials. A long address wraps the number
+              under it. Step 1 only — on the details step the form starts high. */}
+          {step === 1 && (page.city || page.address || telHref(page.phone)) && (
+            <div className="-my-2 flex flex-wrap items-center gap-x-4 text-[13px] text-gray-500 dark:text-gray-400">
+              {(page.address || page.city) && (() => {
+                const where = page.address || page.city;
+                const map = mapsHref(page.address, page.city);
+                const inner = (
+                  <>
+                    <MapPin size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">{where}</span>
+                  </>
+                );
+                const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0";
+                return map ? (
+                  <a
+                    href={map}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cls + " hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"}
+                  >
+                    {inner}
+                  </a>
+                ) : (
+                  <span className={cls}>{inner}</span>
+                );
+              })()}
               {/* Owner's contact number — tappable "call us" for big groups or
                   questions. tel: built from digits via encodeURIComponent. */}
               {telHref(page.phone) && (
                 <a
                   href={telHref(page.phone)}
-                  className="shrink-0 inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+                  className="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"
                 >
                   <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-                  <span>{page.phone}</span>
+                  <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
                 </a>
               )}
             </div>
@@ -1558,12 +1666,14 @@ export default function ReservationPublicPage() {
               green-tinted strip with a check it reads as reassurance, which is
               what it is. This is the guest-facing page, so brand green is the
               right accent here even though the owner app stays gray-900. */}
-          <div className="flex items-center gap-2 rounded-xl bg-bb-green-icon dark:bg-bb-green-dark/15 px-3.5 py-2.5">
-            <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
-            <p className="text-[13px] font-medium leading-snug text-bb-green-dark dark:text-bb-green-edge">
-              {t("rsvpTrustLine", "No account needed · Free cancellation")}
-            </p>
-          </div>
+          {step === 1 && (
+            <div className="flex items-center gap-2 rounded-xl bg-bb-green-icon dark:bg-bb-green-dark/15 px-3.5 py-2">
+              <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
+              <p className="text-[13px] font-medium leading-snug text-bb-green-dark dark:text-bb-green-edge">
+                {t("rsvpTrustLine", "No account needed · Free cancellation")}
+              </p>
+            </div>
+          )}
         </header>
 
         <StepDots step={step} t={t} />
@@ -1571,7 +1681,7 @@ export default function ReservationPublicPage() {
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
         {step === 1 && (
-          <section className="space-y-5">
+          <section className="space-y-6 motion-safe:animate-fadeIn">
             {/* Provider (salon): behandling → behandler come FIRST. The chosen
                 behandling drives slot length (server-resolved); behandler
                 defaults to Valgfri behandler. */}
@@ -1580,7 +1690,7 @@ export default function ReservationPublicPage() {
                 <div>
                   <label
                     htmlFor="rsvp-behandling"
-                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                    className={SECTION_TITLE + " mb-2.5"}
                   >
                     {t("rsvpPublicPickBehandling", "Vælg behandling")}
                   </label>
@@ -1618,7 +1728,7 @@ export default function ReservationPublicPage() {
                 <div>
                   <label
                     htmlFor="rsvp-behandler"
-                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                    className={SECTION_TITLE + " mb-2.5"}
                   >
                     {t("rsvpPublicPickBehandler", "Vælg behandler")}
                   </label>
@@ -1647,48 +1757,11 @@ export default function ReservationPublicPage() {
                 </div>
               </>
             )}
-            {/* Date */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {t("rsvpPickDate", "Vælg dato")}
-                </p>
-                {/* Quiet escape hatch for a far-out date, revealed on demand so
-                    the native field never clutters the default clean strip. */}
-                <button
-                  type="button"
-                  onClick={() => setShowDateInput((v) => !v)}
-                  aria-expanded={showDateInput}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors"
-                >
-                  <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
-                  {t("rsvpOtherDate", "Anden dato")}
-                </button>
-              </div>
-              {/* One-tap date strip (closed days disabled) — the primary picker. */}
-              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} lang={lang} />
-              {showDateInput && (
-                <div className="mt-2">
-                  <Input
-                    id="rsvp-day"
-                    type="date"
-                    size="lg"
-                    value={day}
-                    min={today}
-                    max={latestDay}
-                    onChange={(e) => setDay(e.target.value)}
-                    aria-label={t("rsvpPickDate", "Vælg dato")}
-                    prefix={<Calendar size={16} strokeWidth={1.75} />}
-                  />
-                </div>
-              )}
-            </div>
-
             {/* Party size — TABLE venues only. A salon tidsbestilling is one
                 customer; the behandling sets the length, not party size. */}
             {!isProvider && (
               <div>
-                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <p className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpPartySize", "Antal gæster")}
                 </p>
                 {/* HORIZONTAL RAIL, not a grid. As a 5-across grid this was two
@@ -1699,7 +1772,7 @@ export default function ReservationPublicPage() {
                     -mx-4 px-4 lets the row bleed to the screen edge so the last
                     chip is visibly cut off, which is what tells a thumb there is
                     more to swipe. */}
-                <div className="-mx-4 px-4 flex gap-2 overflow-x-auto pb-1 snap-x">
+                <div className={RAIL}>
                   {partyOptions.map((n) => (
                     <Chip
                       key={n}
@@ -1707,7 +1780,7 @@ export default function ReservationPublicPage() {
                       selected={party === n}
                       onClick={() => setParty(n)}
                       aria-label={t("rsvpPartyN", "{n} guests", { n })}
-                      className="shrink-0 w-12 h-12 snap-start tabular-nums"
+                      className="shrink-0 w-11 h-11 snap-start tabular-nums text-[15px] duration-200 ease-out"
                     >
                       {n}
                     </Chip>
@@ -1750,6 +1823,71 @@ export default function ReservationPublicPage() {
                 )}
               </div>
             )}
+
+            {/* Date */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <p className={SECTION_TITLE}>
+                  {t("rsvpPickDate", "Vælg dato")}
+                </p>
+                {/* Quiet escape hatch for a far-out date, revealed on demand so
+                    the native field never clutters the default clean strip. */}
+                <button
+                  type="button"
+                  onClick={() => setShowDateInput((v) => !v)}
+                  aria-expanded={showDateInput}
+                  // -my-3: keeps its 44pt touch target without making this
+                  // header row taller than the other two questions'.
+                  className="-my-3 inline-flex items-center gap-1 text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors"
+                >
+                  <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
+                  {t("rsvpOtherDate", "Anden dato")}
+                </button>
+              </div>
+              {/* One-tap date strip (closed days disabled) — the primary picker. */}
+              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} lang={lang} />
+              {/* A later date: the page's own month grid in a sheet. The
+                  native date field looked different on every phone and could
+                  not show which days the place is closed. */}
+              {showDateInput && (
+                <Sheet
+                  onClose={() => setShowDateInput(false)}
+                  ariaLabel={t("rsvpPickDate", "Vælg dato")}
+                  panelClassName="bg-white dark:bg-gray-900 sm:max-w-sm"
+                >
+                  {/* Padding on an inner box: the sheet sets its own side
+                      padding inline (safe-area insets), which beats a class. */}
+                  <div className="px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className={SECTION_TITLE}>{t("rsvpPickDate", "Vælg dato")}</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDateInput(false)}
+                      aria-label={t("close", "Close")}
+                      className="-mr-2 w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+                    >
+                      <X className="w-5 h-5" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <MonthCalendar
+                    value={day}
+                    min={today}
+                    max={latestDay}
+                    isClosed={(iso) => (dayMap && iso in dayMap ? dayMap[iso] === false : undefined)}
+                    onPick={(iso) => {
+                      setDay(iso);
+                      setShowDateInput(false);
+                    }}
+                    locale={dateLocale(lang)}
+                    labels={{
+                      prev: t("rsvpPrevMonth", "Previous month"),
+                      next: t("rsvpNextMonth", "Next month"),
+                    }}
+                  />
+                  </div>
+                </Sheet>
+              )}
+            </div>
 
             {/* Time — for a normal booking we show the period-grouped slot
                 grid. For a group request the grid is REPLACED by a calm
@@ -1798,7 +1936,7 @@ export default function ReservationPublicPage() {
                     </p>
                   </div>
                 )}
-                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <p className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpPickTime", "Vælg tidspunkt")}
                 </p>
                 {isProvider && !behandlingId ? (
@@ -1902,9 +2040,15 @@ export default function ReservationPublicPage() {
                   <div className="space-y-4">
                     {slotGroups.map((group) => (
                       <div key={group.key}>
-                        <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">
-                          {t(group.labelKey)}
-                        </p>
+                        {/* LUNCH / DINNER as a quiet label with a hairline to
+                            the edge — it groups the rail below without
+                            competing with the question above it. */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500">
+                            {t(group.labelKey)}
+                          </p>
+                          <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" aria-hidden="true" />
+                        </div>
                         {/* Rail, not a 4-col grid. A full evening service is
                             ~11 slots = three stacked rows, and with the party
                             grid above it the guest had to scroll past two walls
@@ -1912,15 +2056,18 @@ export default function ReservationPublicPage() {
                             Per service group the times stay on one swipeable
                             line, and the groups (LUNCH / DINNER) do the work
                             the rows were doing badly. */}
-                        <div className="-mx-4 px-4 flex gap-2 overflow-x-auto pb-1 snap-x">
-                          {group.slots.map((s) => {
+                        <div className={RAIL}>
+                          {group.slots.map((s, _i, all) => {
                             // Scarcity, only when it is genuinely scarce and
                             // only from a real server count. Silence is the
                             // default: a hint on every slot is noise, and an
                             // invented one is a lie told to make someone book
-                            // faster. The note line keeps its height either
-                            // way so the chips stay aligned.
+                            // faster. The note line keeps its height across a
+                            // rail that has any note, so the chips stay
+                            // aligned; a rail with none drops the line, so the
+                            // time sits centred instead of floating high.
                             const note = slotNote(slotRemaining[s], t);
+                            const withNotes = all.some((x) => slotNote(slotRemaining[x], t));
                             return (
                               <Chip
                                 key={s}
@@ -1928,19 +2075,22 @@ export default function ReservationPublicPage() {
                                 selected={slot === s}
                                 onClick={() => { setSlot(s); setSubmitError(""); }}
                                 className={
-                                  "shrink-0 h-14 px-4 snap-start tabular-nums flex-col justify-center gap-0 " +
+                                  "shrink-0 min-w-[68px] px-3.5 snap-start tabular-nums text-[15px] flex-col justify-center gap-0 duration-200 ease-out " +
+                                  (withNotes ? "h-[52px] " : "h-11 ") +
                                   (slot === s ? "font-semibold shadow-sm" : "")
                                 }
                               >
                                 <span className="leading-none">{s}</span>
-                                <span
-                                  className={
-                                    "block text-[10px] leading-none h-3 mt-1 font-medium " +
-                                    (slot === s ? "text-white/80" : "text-bb-green")
-                                  }
-                                >
-                                  {note}
-                                </span>
+                                {withNotes && (
+                                  <span
+                                    className={
+                                      "block text-[10px] leading-none h-3 mt-1 font-medium " +
+                                      (slot === s ? "text-white/80" : "text-bb-green")
+                                    }
+                                  >
+                                    {note}
+                                  </span>
+                                )}
                               </Chip>
                             );
                           })}
@@ -1960,7 +2110,7 @@ export default function ReservationPublicPage() {
             */}
             {page.guest_can_pick_table && (usesTableFloor(page.business_type) || floor.length > 0) && !groupRequest && slot && (floorLoading || floor.length > 0) && (
               <div>
-                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <p className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpFloorPickTitle", "Vælg dit bord")}
                 </p>
                 {floorLoading ? (
@@ -1992,13 +2142,24 @@ export default function ReservationPublicPage() {
 
         {/* ── Step 2 — guest details ────────────────────────────────── */}
         {step === 2 && (
-          <section className="space-y-5">
+          <section className="space-y-5 motion-safe:animate-fadeIn">
             {/* Recap of the picks from step 1. Provider (salon): behandling +
                 behandler + duration + dato/tid (e.g. "Klip · Marta · 30 min ·
                 lørdag 13. juni 14:00", or "Valgfri behandler"). Table venues
                 keep the date · time · party · table line. */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-4 py-3 flex flex-wrap sm:flex-nowrap items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
-              <Calendar size={16} strokeWidth={1.75} className="text-gray-500 shrink-0" />
+            {/* The recap is also the way back: tapping it returns to step 1
+                with every pick intact ("Change" says so), instead of leaving
+                the guest to find the Back button in the bar below. */}
+            <button
+              type="button"
+              onClick={() => {
+                setStep(1);
+                setSubmitError("");
+              }}
+              className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-600 transition-colors px-4 py-3 flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300"
+            >
+              <Calendar size={18} strokeWidth={1.75} className="text-bb-green shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
               {isProvider ? (
                 <span className="min-w-0">
                   {chosenBehandling && (
@@ -2028,30 +2189,31 @@ export default function ReservationPublicPage() {
                   )}
                 </span>
               ) : (
-                <>
-                  <span className="font-medium">{fmtDayLabel(day, lang)}</span>
-                  {!groupRequest && slot && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span>{slot}</span>
-                    </>
-                  )}
-                  <span aria-hidden="true">·</span>
-                  <span>
-                    {t("rsvpPartyN", "{n} guests", { n: party })}
+                // Two lines on purpose: the day, then time · party · table.
+                // As one wrapping line it broke wherever the width ran out,
+                // leaving a stray "·" at the end of a row.
+                <span className="min-w-0">
+                  <span className="block font-medium text-gray-900 dark:text-gray-100 first-letter:uppercase">
+                    {fmtDayLabel(day, lang)}
                   </span>
-                  {!groupRequest && selectedTable && (() => {
-                    const tb = floor.find((x) => String(x.id) === String(selectedTable));
-                    return tb ? (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span className="font-medium">{tb.label}</span>
-                      </>
-                    ) : null;
-                  })()}
-                </>
+                  <span className="block text-gray-500 dark:text-gray-400">
+                    {[
+                      !groupRequest && slot ? slot : null,
+                      t("rsvpPartyN", "{n} guests", { n: party }),
+                      !groupRequest && selectedTable
+                        ? floor.find((x) => String(x.id) === String(selectedTable))?.label || null
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </span>
               )}
-            </div>
+              </span>
+              <span className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400">
+                {t("rsvpEditPicks", "Change")}
+              </span>
+            </button>
 
             {/* Field discipline: NAME is the one first-class field (lg).
                 Email + phone are secondary; email carries a calm "why"
@@ -2080,6 +2242,12 @@ export default function ReservationPublicPage() {
                   autoComplete="name"
                   maxLength={160}
                   required
+                  enterKeyHint="next"
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    document.getElementById(contactMode === "phone" ? "rsvp-phone" : "rsvp-email")?.focus();
+                  }}
                 />
               </div>
 
@@ -2089,7 +2257,7 @@ export default function ReservationPublicPage() {
                   rule honestly (no more "(optional)" on a field that, together,
                   is required). Email gets the "why" helper. */}
               <div className="space-y-3">
-                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                <p className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                   {t("rsvpContactHow", "How should we reach you?")}
                 </p>
                 {/* One choice, then one field. Two always-visible boxes under a
@@ -2134,6 +2302,13 @@ export default function ReservationPublicPage() {
                     autoComplete="email"
                     inputMode="email"
                     maxLength={255}
+                    enterKeyHint="done"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 ) : (
                   <Input
@@ -2148,6 +2323,13 @@ export default function ReservationPublicPage() {
                     autoComplete="tel"
                     inputMode="tel"
                     maxLength={40}
+                    enterKeyHint="done"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
                   />
                 )}
                 {contactTouched && !contactValid && (
@@ -2307,25 +2489,42 @@ export default function ReservationPublicPage() {
               )}
             </div>
 
-            {/* Marketing consent — default OFF (GDPR) */}
-            <div className="space-y-1.5">
-              <Chip
-                selected={consentMarketing}
-                onClick={() => setConsentMarketing((v) => !v)}
-                size="md"
-                iconLeft={
-                  consentMarketing ? <CheckCircle2 size={14} strokeWidth={2} /> : null
+            {/* Marketing consent — default OFF (GDPR). A switch row, not a
+                chip: on/off is what a switch says at a glance, and the whole
+                row is the tap target. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={consentMarketing}
+              onClick={() => setConsentMarketing((v) => !v)}
+              className="w-full flex items-center gap-4 text-left"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {t("rsvpMarketing", "Send mig nyheder og tilbud")}
+                </span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">
+                  {t(
+                    "rsvpMarketingHint",
+                    "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
+                  )}
+                </span>
+              </span>
+              <span
+                aria-hidden="true"
+                className={
+                  "relative shrink-0 w-12 h-7 rounded-full transition-colors " +
+                  (consentMarketing ? "bg-bb-green-dark" : "bg-gray-200 dark:bg-gray-700")
                 }
               >
-                {t("rsvpMarketing", "Send mig nyheder og tilbud")}
-              </Chip>
-              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                {t(
-                  "rsvpMarketingHint",
-                  "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
-                )}
-              </p>
-            </div>
+                <span
+                  className={
+                    "absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-sm transition-transform " +
+                    (consentMarketing ? "translate-x-5" : "")
+                  }
+                />
+              </span>
+            </button>
 
             {/* GDPR — a calm data-use line right by the submit action. */}
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -2358,26 +2557,32 @@ export default function ReservationPublicPage() {
           Embedded (?embed=1): `sticky` so it flows with the content-sized
           widget — it settles under the form in a short frame and pins to the
           frame bottom while scrolling a tall one, never detaching. */}
+      {!(typing && !isEmbed) && (
       <div
-        className={`${isEmbed ? "sticky" : "fixed"} bottom-0 inset-x-0 z-40 bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800`}
+        className={`${isEmbed ? "sticky glass-static" : "fixed glass"} bottom-0 inset-x-0 z-40 border-t border-gray-200/80 dark:border-gray-800`}
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)" }}
       >
         <div className="max-w-md mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+          {/* Back as a square chevron: beside a disabled Confirm, a grey
+              "Tilbage" read as a second button of the same weight. The recap
+              card above ("Change") is the other way back. */}
           {step === 2 && (
             <Button
               variant="secondary"
               size="lg"
+              aria-label={t("rsvpBack", "Tilbage")}
+              className="w-12 px-0 shrink-0"
               onClick={() => {
                 setStep(1);
                 setSubmitError("");
               }}
             >
-              {t("rsvpBack", "Tilbage")}
+              <ChevronLeft className="w-5 h-5" aria-hidden="true" />
             </Button>
           )}
           {step === 1 ? (
             <Button
-              variant="primary"
+              variant="main"
               size="lg"
               onClick={() => setStep(2)}
               disabled={!groupRequest && !slot}
@@ -2396,7 +2601,7 @@ export default function ReservationPublicPage() {
             </Button>
           ) : (
             <Button
-              variant="accent"
+              variant="main"
               size="lg"
               onClick={onSubmit}
               busy={submitting}
@@ -2422,7 +2627,19 @@ export default function ReservationPublicPage() {
           )}
         </div>
       </div>
+      )}
     </div>
+  );
+}
+
+// A field that raises the on-screen keyboard (not a toggle, not the native
+// date picker, which brings its own sheet).
+function isTypingField(el) {
+  if (!el) return false;
+  if (el.tagName === "TEXTAREA") return true;
+  return (
+    el.tagName === "INPUT" &&
+    !["checkbox", "radio", "button", "submit", "date", "range", "hidden"].includes(el.type)
   );
 }
 

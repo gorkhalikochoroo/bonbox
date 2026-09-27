@@ -2102,7 +2102,7 @@ export const en = {
     rsvpAllergyNotePh: "E.g. severe nut allergy — no traces of nuts.",
     rsvpMarketing: "Send me news and offers",
     rsvpMarketingHint: "Optional — this only covers newsletters, not your booking confirmation.",
-    rsvpBack: "Back", rsvpNext: "Next →",
+    rsvpBack: "Back", rsvpNext: "Next →", rsvpEditPicks: "Change", rsvpDirections: "Directions", rsvpPrevMonth: "Previous month", rsvpNextMonth: "Next month",
     rsvpConfirm: "Confirm reservation →", rsvpSendRequest: "Send request →",
     // Provider (salon) confirm CTA — DK "tidsbestilling" stays Danish in EN.
     rsvpConfirmTime: "Confirm appointment →",

@@ -37,12 +37,16 @@ const BASE =
   // byte-identical to before.
   "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--surface-card))] " +
-  "disabled:opacity-50 " +
+  // `disabled:opacity-50` lives on each variant, not here: `main` must not
+  // fade (see below), and two opacity utilities on one element would be
+  // settled by stylesheet order, not by intent.
   "disabled:cursor-not-allowed disabled:pointer-events-none whitespace-nowrap";
+
+const FADE_WHEN_DISABLED = "disabled:opacity-50 ";
 
 const VARIANTS = {
   // The colour inverts for dark mode; the DISABLED treatment has to invert
-  // too. Base gives every variant `disabled:opacity-50`, which works in light
+  // too. The variants fade to `disabled:opacity-50`, which works in light
   // (a dimmed gray-900 recedes against white) and fails in dark: a gray-100
   // block at 50% over a dark ground is still light, so the disabled primary
   // became the brightest element on the screen — measured on /sales, where the
@@ -50,6 +54,7 @@ const VARIANTS = {
   // In dark it becomes a muted dark surface instead, which is what "inactive"
   // should look like on a dark ground.
   primary:
+    FADE_WHEN_DISABLED +
     "bg-gray-900 text-white hover:bg-gray-800 " +
     "dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white " +
     "dark:disabled:opacity-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 " +
@@ -58,22 +63,33 @@ const VARIANTS = {
   // button green, every other stays gray-900). #15803D, not the logo's
   // #16A34A: white text reads ~5:1 on it (AA) and ~3.3:1 on the logo green.
   // Green does not invert in dark mode — it is the brand, not the ink.
+  // Disabled it turns a calm grey instead of fading: the booking page's
+  // disabled CTA carries the instruction ("Pick a time", "Add your name"),
+  // and a half-transparent green read as washed-out mint, hard to read.
+  // While it is working (busy) it stays green — the button just pressed
+  // should not look switched off while the booking is being sent.
   main:
     "bg-bb-green-dark text-white hover:bg-bb-green-deep " +
-    "dark:disabled:opacity-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 " +
+    "disabled:bg-gray-200 disabled:text-gray-600 " +
+    "dark:disabled:bg-gray-800 dark:disabled:text-gray-400 " +
+    "disabled:aria-busy:bg-bb-green-dark disabled:aria-busy:text-white " +
     "focus-visible:ring-bb-green-dark",
   accent:
+    FADE_WHEN_DISABLED +
     "bg-emerald-600 text-white hover:bg-emerald-700 " +
     "focus-visible:ring-emerald-600",
   secondary:
+    FADE_WHEN_DISABLED +
     "bg-gray-100 text-gray-800 hover:bg-gray-200 " +
     "dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 " +
     "focus-visible:ring-gray-400",
   ghost:
+    FADE_WHEN_DISABLED +
     "bg-transparent text-gray-700 hover:bg-gray-100 " +
     "dark:text-gray-300 dark:hover:bg-gray-800 " +
     "focus-visible:ring-gray-400",
   danger:
+    FADE_WHEN_DISABLED +
     "bg-red-600 text-white hover:bg-red-700 " +
     "focus-visible:ring-red-600",
 };

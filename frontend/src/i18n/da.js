@@ -2056,7 +2056,7 @@ export const da = {
     rsvpAllergyNotePh: "F.eks. svær nøddeallergi — ingen spor af nødder.",
     rsvpMarketing: "Send mig nyheder og tilbud",
     rsvpMarketingHint: "Valgfrit — dette dækker kun nyhedsbreve, ikke din reservationsbekræftelse.",
-    rsvpBack: "Tilbage", rsvpNext: "Næste →",
+    rsvpBack: "Tilbage", rsvpNext: "Næste →", rsvpEditPicks: "Ændr", rsvpDirections: "Rutevejledning", rsvpPrevMonth: "Forrige måned", rsvpNextMonth: "Næste måned",
     rsvpConfirm: "Bekræft reservation →", rsvpSendRequest: "Send forespørgsel →",
     rsvpConfirmTime: "Bekræft tidsbestilling →",
     rsvpConfirmedTitle: "Reservation bekræftet", rsvpRequestTitle: "Forespørgsel modtaget",
