@@ -44,6 +44,21 @@ _ZERO_FRADRAG = ("repræsentation", "representation", "repræs", "repr.")
 # reader relaxing §42 rules must not accidentally re-enable this.
 _NO_PURCHASE_FRADRAG = ("waste", "spild", "svind")
 
+# 0 % — costs that carry NO MOMS AT ALL, so there is nothing to deduct.
+#
+# Wages, holiday pay and pension are not supplies with moms, and insurance
+# premiums are momsfri (Momsloven §13). "Løn" is a starter category for every
+# restaurant, bar, shop and salon, and the 1.0 default deducted a fifth of the
+# wage bill as købsmoms: 100.000 kr. of wages became 20.000 kr. of input VAT
+# that was never paid — on the dashboard and on the MOMS-angivelse PDF, i.e.
+# under-reported MOMS for the owner to answer for. Rent is NOT here: many
+# commercial landlords charge moms (frivillig registrering); an owner whose
+# rent has none marks it moms-free on the expense.
+_NO_VAT_SUPPLY = (
+    "løn", "wage", "salar", "payroll", "feriepenge", "pension",
+    "forsikring", "insurance",
+)
+
 # 25 % fradrag — restaurant- og hotelydelser i erhverv (Momsloven §42 stk. 2).
 _QUARTER_FRADRAG = (
     "restaurantbesøg", "restaurantbesoeg", "restauration",
@@ -76,6 +91,8 @@ def fradrag_factor(category_name) -> float:
     # Checked FIRST and kept distinct from §42: a write-off is not a purchase,
     # so there is no købsmoms to deduct at any rate. See _NO_PURCHASE_FRADRAG.
     if any(k in n for k in _NO_PURCHASE_FRADRAG):
+        return 0.0
+    if any(k in n for k in _NO_VAT_SUPPLY):
         return 0.0
     if any(k in n for k in _ZERO_FRADRAG):
         return 0.0

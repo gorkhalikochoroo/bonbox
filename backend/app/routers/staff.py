@@ -4381,6 +4381,7 @@ def resolve_hours(
         # of a measurement must read as an absence, not be disguised as one.
         entry.clock_hours = entry.total_hours
 
+    hours_before = float(entry.total_hours or 0)
     if action == "adjust":
         entry.total_hours = data.total_hours
         entry.resolution = "adjusted"
@@ -4389,6 +4390,21 @@ def resolve_hours(
         entry.resolution = "confirmed"
     else:
         entry.resolution = "confirmed"
+
+    # The PAY follows the corrected hours. `earned` is priced when the hours
+    # are logged, and the payroll CSV and the lønseddel pay `earned` — so a
+    # 23-hour forgotten punch corrected to 8 still paid 23, and "absent" still
+    # paid the whole shift. Re-price at the rate that row was costed at.
+    hours_after = float(entry.total_hours or 0)
+    if hours_after != hours_before:
+        rate = float(entry.rate_applied or 0)
+        if rate > 0:
+            entry.earned = round(hours_after * rate, 2)
+        elif entry.earned and hours_before > 0:
+            entry.earned = round(float(entry.earned) * hours_after / hours_before, 2)
+        else:
+            # No rate on the row: payroll re-costs it from the member's rate.
+            entry.earned = None
 
     entry.resolved_by = user.id
     entry.resolved_at = utc_now()

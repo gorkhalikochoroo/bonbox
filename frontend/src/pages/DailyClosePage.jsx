@@ -1958,8 +1958,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         tipsTotal,
         gavekortSold,
         momsMode === "manual" ? momsManual : "",
+        scanResult?.revenue_total_text ?? "",
       ].some((v) => isMoneyRejected(v, mLocale)),
-    [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale],
+    [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult],
   );
 
   // WHICH group holds it. The lock button sits on the review step, three
@@ -1969,7 +1970,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // earliest step the owner has to go back to.
   const rejectedArea = useMemo(() => {
     const groups = [
-      ["revenue", Object.values(revAmounts)],
+      ["revenue", [...Object.values(revAmounts), scanResult?.revenue_total_text ?? ""]],
       ["payments", Object.values(payAmounts)],
       ["cash", [cashCounted]],
       ["tips", [tipsTotal]],
@@ -1980,7 +1981,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       if (values.some((v) => isMoneyRejected(v, mLocale))) return name;
     }
     return null;
-  }, [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale]);
+  }, [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult]);
 
   // Taxable base = entered revenue MINUS today's exempt sales total.
   // Clamp at 0: if the user only entered a placeholder and the exempt
@@ -2928,10 +2929,34 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   DECIMAL separator — seventeen kroner. This is the figure the
                   "another terminal?" question is asked about, so it has to be
                   the one the owner would recognise. */}
-              {scanResult.revenue_total && (
-                <div className="flex justify-between pt-2 border-t dark:border-gray-600 text-[14px] font-semibold text-gray-900 dark:text-white">
-                  <span>{t("totalRevenue")}</span>
-                  <span>{formatOwnerMoney(scanResult.revenue_total, currency, { decimals: GLANCE_DECIMALS })}</span>
+              {/* The scanned TOTAL is editable. The close saves the larger of
+                  this and the categories (so a half-read breakdown never saves
+                  too little), which made a misread total impossible to correct
+                  DOWNWARD: 17.300 read for 17.030 stayed 17.300 whatever the
+                  owner typed in the categories. Now the owner fixes the total
+                  itself. Kept as typed (like the category boxes) and read by
+                  the strict parser; an unreadable entry blocks the save. */}
+              {(scanResult.revenue_total || scanResult.revenue_total_text != null) && (
+                <div className="flex items-center justify-between gap-3 pt-2 border-t dark:border-gray-600">
+                  <label htmlFor="scan-total" className="text-[14px] font-semibold text-gray-900 dark:text-white">
+                    {t("totalRevenue")}
+                  </label>
+                  <MoneyField
+                    id="scan-total"
+                    locale={mLocale}
+                    wrapperClassName="w-40 shrink-0"
+                    className={`${inputClass} font-semibold`}
+                    value={scanResult.revenue_total_text ?? String(scanResult.revenue_total)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const n = readMoney(v);
+                      setScanResult((prev) => ({
+                        ...prev,
+                        revenue_total_text: v,
+                        revenue_total: Number.isFinite(n) && n > 0 ? n : null,
+                      }));
+                    }}
+                  />
                 </div>
               )}
             </div>

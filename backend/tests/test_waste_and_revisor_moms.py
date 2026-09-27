@@ -90,7 +90,7 @@ def test_a_write_off_claims_no_kobsmoms(name):
 
 @pytest.mark.parametrize("name,expected", [
     ("Varekøb", 1.0),                      # ordinary purchase, untouched
-    ("Løn", 1.0),
+    ("Løn", 0.0),                          # wages carry no moms — nothing to deduct
     ("Gavekort", 1.0),                     # deliberate §42 non-match, preserved
     ("Repræsentation & gaver", 0.0),       # §42 stk. 1
     ("Restaurantbesøg, erhverv", 0.25),    # §42 stk. 2
@@ -201,3 +201,27 @@ def test_an_empty_period_produces_zeroes_not_a_crash(db):
     rows = _summary_rows(owner, db)
     assert rows
     assert float(rows[0]["Netto moms (positiv = skyldig)"]) == 0.0
+
+
+def test_wages_add_no_kobsmoms_to_the_angivelse(db):
+    """"Løn" is a starter category for every restaurant. At the old 1.0 factor
+    the angivelse deducted a fifth of the wage bill as købsmoms that was never
+    paid — under-reported MOMS on the PDF an owner files."""
+    from app.services.tax_filing_pdf import compute_filing_data
+
+    owner = _owner(db)
+    varer = _cat(db, owner, "Varekøb")
+    loen = _cat(db, owner, "Løn")
+    db.add(Expense(user_id=owner.id, date=P_START, category_id=varer.id,
+                   amount=12500.0, description="Leverandør",
+                   is_personal=False, status="confirmed"))
+    db.commit()
+    before = compute_filing_data(db, owner, P_START, P_END)["moms_af_kob"]
+    db.add(Expense(user_id=owner.id, date=P_START, category_id=loen.id,
+                   amount=100000.0, description="Løn september",
+                   is_personal=False, status="confirmed"))
+    db.commit()
+    after = compute_filing_data(db, owner, P_START, P_END)["moms_af_kob"]
+    assert before == pytest.approx(2500.0, abs=0.01)   # 12.500 incl. moms → 2.500 moms
+    assert after == pytest.approx(before, abs=0.01), "wages must add no købsmoms"
+

@@ -284,3 +284,47 @@ def test_an_edit_counts_as_an_answer(client, db):
     row = db.query(HoursLogged).one()
     assert row.resolution == "adjusted"
     assert row.resolved_by == o.id
+
+
+
+# ── the pay follows the corrected hours ─────────────────────────────────
+#
+# `earned` is priced when hours are logged and it is what the payroll CSV and
+# the lønseddel pay. Correcting a 23-hour forgotten punch to 8 changed only
+# total_hours, so the payslip still paid 23 hours.
+
+def _priced(db, owner, member, hours, rate):
+    h = _worked(db, owner, member, hours)
+    h.rate_applied = rate
+    h.earned = round(hours * rate, 2)
+    db.commit(); db.refresh(h)
+    return h
+
+
+def test_adjusting_hours_reprices_the_pay(client, db):
+    o = _owner(db); m = _staff(db, o)
+    _priced(db, o, m, 23.0, 150.0)                 # forgot to clock out
+    r = _resolve(client, m, "adjust", hours=8.0)
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
+    assert float(row.total_hours) == 8.0
+    assert float(row.earned) == 1200.0              # 8 × 150, not 23 × 150
+
+
+def test_absent_pays_nothing(client, db):
+    o = _owner(db); m = _staff(db, o)
+    _priced(db, o, m, 7.5, 160.0)
+    assert _resolve(client, m, "absent").status_code == 200
+    db.expire_all()
+    row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
+    assert float(row.earned) == 0.0
+
+
+def test_confirming_leaves_the_pay_alone(client, db):
+    o = _owner(db); m = _staff(db, o)
+    _priced(db, o, m, 6.0, 150.0)
+    assert _resolve(client, m, "confirm").status_code == 200
+    db.expire_all()
+    row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
+    assert float(row.earned) == 900.0
