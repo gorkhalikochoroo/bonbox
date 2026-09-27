@@ -51,6 +51,33 @@ def _get_current_balance(user_id, db: Session) -> float:
     return total_in - total_out
 
 
+def _cashbook_has_entries(user_id, db: Session) -> bool:
+    return (
+        db.query(CashTransaction.id)
+        .filter(CashTransaction.user_id == user_id, CashTransaction.is_deleted.isnot(True))
+        .first()
+        is not None
+    )
+
+
+def _starting_balance(user_id, db: Session, manual_balance) -> tuple[float | None, str | None]:
+    """Where the projection starts — or None when nothing tells us.
+
+    The Kassebog when the owner keeps one (unchanged behaviour); otherwise the
+    bank balance they typed in — the "Indtast din banksaldo" this same page
+    asks for; otherwise UNKNOWN. It used to be 0: a Kassebog with no entries
+    summed to 0 kr., the projection subtracted a month of expenses from
+    nothing, and the page raised a red "Cash shortfall predicted … 70,006
+    short" over a balance nobody had ever entered. Couldn't-check must not
+    look like at-risk.
+    """
+    if _cashbook_has_entries(user_id, db):
+        return _get_current_balance(user_id, db), "cashbook"
+    if manual_balance is not None:
+        return float(manual_balance), "bank_manual"
+    return None, None
+
+
 def _get_weekday_revenue(user_id, db: Session) -> dict[int, float]:
     """Average revenue per weekday from last 4 weeks of sales."""
     cutoff = date.today() - timedelta(days=28)
@@ -209,7 +236,7 @@ def _get_khata_receivables(user_id, db: Session) -> list[dict]:
     return receivables
 
 
-def get_cashflow_forecast(user_id, db: Session) -> dict:
+def get_cashflow_forecast(user_id, db: Session, manual_balance=None) -> dict:
     """
     Generate 30-day cash flow projection with alerts and action items.
 
@@ -217,15 +244,20 @@ def get_cashflow_forecast(user_id, db: Session) -> dict:
       projected_balance = previous_balance + expected_revenue - known_expenses
 
     Safety threshold = 7 × average daily expenses
+
+    A projection needs BOTH a known starting balance and a sales history.
+    Without either there is no forecast — no lowest point, no risk days, no
+    shortfall alarm — only the honest "tell us / keep logging" state.
     """
     today = date.today()
 
-    # 1. Current balance
-    current_balance = _get_current_balance(user_id, db)
+    # 1. Current balance — None when we don't know it (see _starting_balance)
+    current_balance, balance_source = _starting_balance(user_id, db, manual_balance)
 
     # 2. Revenue patterns by weekday
     weekday_revenue = _get_weekday_revenue(user_id, db)
     has_revenue_data = any(v > 0 for v in weekday_revenue.values())
+    forecast_ready = current_balance is not None and has_revenue_data
 
     # 3. Recurring expenses
     recurring_expenses = _get_recurring_expenses(user_id, db)
@@ -240,14 +272,14 @@ def get_cashflow_forecast(user_id, db: Session) -> dict:
     receivables = _get_khata_receivables(user_id, db)
     total_receivable = sum(r["outstanding"] for r in receivables)
 
-    # 7. Build 30-day projection
+    # 7. Build 30-day projection (only when there is something to project from)
     projection = []
     running_balance = current_balance
     lowest_balance = current_balance
     lowest_date = str(today)
     danger_days = 0
 
-    for i in range(30):
+    for i in range(30 if forecast_ready else 0):
         proj_date = today + timedelta(days=i)
         weekday = proj_date.weekday()
         day_name = WEEKDAY_NAMES[weekday]
@@ -298,16 +330,19 @@ def get_cashflow_forecast(user_id, db: Session) -> dict:
         total_receivable=total_receivable,
         recurring_expenses=recurring_expenses,
         daily_expense_avg=daily_expense_avg,
+        forecast_ready=forecast_ready,
+        has_revenue_data=has_revenue_data,
     )
 
     return {
-        "current_balance": round(current_balance, 2),
+        "current_balance": round(current_balance, 2) if current_balance is not None else None,
+        "balance_source": balance_source,        # cashbook | bank_manual | None
+        "forecast_ready": forecast_ready,
         "safety_threshold": round(safety_threshold, 2),
-        "lowest_point": {
-            "date": lowest_date,
-            "balance": round(lowest_balance, 2),
-        },
-        "danger_days": danger_days,
+        "lowest_point": (
+            {"date": lowest_date, "balance": round(lowest_balance, 2)} if forecast_ready else None
+        ),
+        "danger_days": danger_days if forecast_ready else None,
         "projection": projection,
         "alerts": alerts,
         "receivables": receivables[:5],  # Top 5
@@ -322,12 +357,20 @@ def _generate_alerts(
     projection, current_balance, lowest_balance, lowest_date,
     safety_threshold, danger_days, receivables, total_receivable,
     recurring_expenses, daily_expense_avg,
+    forecast_ready=True, has_revenue_data=True,
 ) -> list[dict]:
-    """Generate actionable cash flow alerts."""
+    """Generate actionable cash flow alerts.
+
+    Every alert carries `params` — the raw numbers — so the page renders it in
+    the owner's language and money format; `title`/`detail`/`action` remain
+    as an English fallback. Balance-based alerts (shortfall, tight, heavy
+    day, healthy) need a real forecast: without one they are not raised.
+    """
     alerts = []
+    names = [{"name": r["customer_name"], "amount": round(r["outstanding"], 2)} for r in receivables[:3]]
 
     # Alert 1: Cash shortfall predicted
-    if lowest_balance < 0:
+    if forecast_ready and lowest_balance < 0:
         shortfall = abs(lowest_balance)
         alert = {
             "type": "shortfall",
@@ -335,6 +378,8 @@ def _generate_alerts(
             "icon": "🚨",
             "title": f"Cash shortfall predicted on {lowest_date}",
             "detail": f"Projected balance drops to {round(lowest_balance):,}. You'll be {round(shortfall):,} short.",
+            "params": {"date": lowest_date, "amount": round(lowest_balance, 2), "short": round(shortfall, 2),
+                       "names": names, "total": round(total_receivable, 2)},
         }
         # Suggest collections
         if receivables:
@@ -345,13 +390,15 @@ def _generate_alerts(
             alert["action"] = "Consider delaying non-essential expenses or securing a short-term credit line."
         alerts.append(alert)
 
-    elif lowest_balance < safety_threshold:
+    elif forecast_ready and lowest_balance < safety_threshold:
         alert = {
             "type": "tight",
             "severity": "warning",
             "icon": "⚠️",
             "title": f"Cash gets tight on {lowest_date}",
             "detail": f"Balance drops to {round(lowest_balance):,} — below your {round(safety_threshold):,} safety buffer.",
+            "params": {"date": lowest_date, "amount": round(lowest_balance, 2),
+                       "threshold": round(safety_threshold, 2), "names": names[:2]},
         }
         if receivables:
             top = receivables[:2]
@@ -372,10 +419,12 @@ def _generate_alerts(
                 "title": f"Heavy expense day: {p['date']} ({p['day']})",
                 "detail": f"Expected outflow: {round(p['expenses']):,} ({recurring_names}). Balance after: {round(p['balance']):,}.",
                 "action": "Consider spreading payments across different dates.",
+                "params": {"date": p["date"], "amount": round(p["expenses"], 2),
+                           "recurring": list(p["recurring"]), "balance": round(p["balance"], 2)},
             })
 
     # Alert 3: Healthy cash flow
-    if lowest_balance >= safety_threshold and danger_days == 0:
+    if forecast_ready and lowest_balance >= safety_threshold and danger_days == 0:
         alerts.append({
             "type": "healthy",
             "severity": "positive",
@@ -383,6 +432,7 @@ def _generate_alerts(
             "title": "Cash flow looks healthy!",
             "detail": f"No danger days in the next 30 days. Lowest point: {round(lowest_balance):,} on {lowest_date}.",
             "action": None,
+            "params": {"amount": round(lowest_balance, 2), "date": lowest_date},
         })
 
     # Alert 4: Outstanding receivables reminder
@@ -394,10 +444,13 @@ def _generate_alerts(
             "title": f"{round(total_receivable):,} outstanding from {len(receivables)} customers",
             "detail": f"Top: {receivables[0]['customer_name']} owes {round(receivables[0]['outstanding']):,}.",
             "action": "Send payment reminders to improve cash position.",
+            "params": {"total": round(total_receivable, 2), "n": len(receivables),
+                       "name": receivables[0]["customer_name"],
+                       "amount": round(receivables[0]["outstanding"], 2)},
         })
 
     # Alert 5: No data
-    if not any(p["revenue"] > 0 for p in projection[1:]):
+    if not has_revenue_data or not any(p["revenue"] > 0 for p in projection[1:]):
         alerts.append({
             "type": "no_data",
             "severity": "info",
@@ -405,6 +458,7 @@ def _generate_alerts(
             "title": "Not enough sales data yet",
             "detail": "Log sales for at least 2 weeks to unlock accurate cash flow predictions.",
             "action": "Start logging daily sales to build your prediction model.",
+            "params": {},
         })
 
     return alerts

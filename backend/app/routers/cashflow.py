@@ -21,11 +21,21 @@ log = logging.getLogger("bonbox.cashflow")
 
 
 def _safe_empty():
+    # A failed forecast must read as a failure, not as a measurement: no
+    # "0 kr." balance (it used to say current_balance 0 — and name the list
+    # `projected`, which the page never reads, so the page crashed on it).
+    # The page renders `_error` as its error state.
     return {
-        "current_balance": 0,
-        "projected": [],
+        "current_balance": None,
+        "balance_source": None,
+        "forecast_ready": False,
+        "lowest_point": None,
+        "danger_days": None,
+        "projection": [],
         "alerts": [],
-        "action_items": [],
+        "receivables": [],
+        "recurring_expenses": [],
+        "has_data": False,
         "_error": "Could not load cash flow forecast. Please try again.",
         "_recoverable": True,
     }
@@ -40,7 +50,9 @@ def cashflow_forecast(
     forward MOMS-deadline foresight payload (#354) under `foresight`.
     """
     try:
-        result = get_cashflow_forecast(user.id, db)
+        result = get_cashflow_forecast(
+            user.id, db, manual_balance=getattr(user, "manual_bank_balance", None),
+        )
         result = result if result is not None else _safe_empty()
     except Exception as e:
         log.exception("cashflow_forecast failed for user=%s: %s", user.id, e)

@@ -21,7 +21,8 @@ import {
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatKr } from "../utils/currency";
+import { formatKr, isMoneyRejected, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { formatDateClear } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, Button, Amount } from "../components/ui";
@@ -122,6 +123,126 @@ const CONFIDENCE_KEY = {
   low: "cfpConfidenceLow",
 };
 
+/* Alerts arrive with their raw numbers in `params`; the words are built here
+   so they read in the owner's language and money format. The server's
+   `title`/`detail` are English with "70,006"-style numbers — kept only as the
+   fallback for an alert type this page doesn't know. */
+function alertText(t, a) {
+  const p = a.params || {};
+  const kr = (v) => formatKr(v, { decimals: 0 });
+  const day = (iso) => (iso ? formatDateClear(iso) : "");
+  const who = (list) => (list || []).map((x) => `${x.name} (${kr(x.amount)})`).join(", ");
+  switch (a.type) {
+    case "shortfall":
+      return {
+        title: t("cfpAlertShortfallTitle", "Cash may run short around {date}", { date: day(p.date) }),
+        detail: t("cfpAlertShortfallDetail", "The forecast bottoms out at {amount} — {short} below zero.",
+          { amount: kr(p.amount), short: kr(p.short) }),
+        action: p.names?.length
+          ? t("cfpAlertCollectFrom", "Collect from: {names}. {total} outstanding in total.",
+            { names: who(p.names), total: kr(p.total) })
+          : t("cfpAlertShortfallAction", "Hold back expenses that can wait, or talk to your bank about a credit line in good time."),
+      };
+    case "tight":
+      return {
+        title: t("cfpAlertTightTitle", "Cash gets tight around {date}", { date: day(p.date) }),
+        detail: t("cfpAlertTightDetail", "The balance drops to {amount} — below your buffer of {threshold}.",
+          { amount: kr(p.amount), threshold: kr(p.threshold) }),
+        action: p.names?.length
+          ? t("cfpAlertTightCollect", "Getting paid by {names} would cover it.", { names: who(p.names) })
+          : t("cfpAlertTightWatch", "Keep a close eye on expenses over the coming weeks."),
+      };
+    case "expense_cluster":
+      return {
+        title: t("cfpAlertHeavyTitle", "Heavy expense day: {date}", { date: day(p.date) }),
+        detail: t("cfpAlertHeavyDetail", "{amount}{what} goes out that day, leaving {balance} in the account.", {
+          amount: kr(p.amount),
+          what: p.recurring?.length ? ` (${p.recurring.join(", ")})` : "",
+          balance: kr(p.balance),
+        }),
+        action: t("cfpAlertHeavyAction", "Consider spreading the payments over several dates."),
+      };
+    case "healthy":
+      return {
+        title: t("cfpAlertHealthyTitle", "Cash flow looks healthy"),
+        detail: t("cfpAlertHealthyDetail", "No risk days in the next 30 days. Lowest point: {amount} on {date}.",
+          { amount: kr(p.amount), date: day(p.date) }),
+        action: null,
+      };
+    case "receivables":
+      return {
+        title: t("cfpAlertReceivablesTitle", "{total} outstanding from {n} customers", { total: kr(p.total), n: p.n }),
+        detail: t("cfpAlertReceivablesDetail", "Largest: {amount} from {name}.", { name: p.name, amount: kr(p.amount) }),
+        action: t("cfpAlertReceivablesAction", "Send payment reminders to strengthen your cash position."),
+      };
+    case "no_data":
+      return {
+        title: t("cfpAlertNoDataTitle", "Not enough sales data yet"),
+        detail: t("cfpAlertNoDataDetail", "Log sales for at least 2 weeks and the forecast can be worked out reliably."),
+        action: null,
+      };
+    default:
+      return { title: a.title, detail: a.detail, action: a.action };
+  }
+}
+
+/* "What's in the account today?" — the one thing the forecast needs when the
+   owner keeps no Kassebog. Same parser as the dashboard's balance editor
+   (a Dane types 125.000 for a hundred and twenty-five thousand), but an
+   unreadable entry is refused, never saved as 0 kr. */
+function BalanceInline({ t, onSaved }) {
+  const LOCALE = "da-DK";
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const rejected = isMoneyRejected(value, LOCALE);
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (value === "" || rejected) return;
+    const n = parseMoneyInput(value, LOCALE);
+    if (!Number.isFinite(n)) return;
+    setSaving(true);
+    setFailed(false);
+    try {
+      await api.put("/cashflow/balance", { balance: n });
+      onSaved();
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save} className="mt-3">
+      <label htmlFor="cfp-balance" className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+        {t("cfpBalanceAsk", "What's in the account today?")}
+      </label>
+      <div className="mt-1.5 flex items-center gap-2">
+        <MoneyField
+          id="cfp-balance"
+          locale={LOCALE}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="0"
+          wrapperClassName="flex-1 max-w-[14rem]"
+          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 py-2 text-base text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
+        />
+        <span className="text-sm text-gray-500 dark:text-gray-400">kr.</span>
+        <Button type="submit" disabled={saving || value === "" || rejected}>
+          {t("fsBalanceSave", "Save")}
+        </Button>
+      </div>
+      {failed && (
+        <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">
+          {t("cfpBalanceSaveFailed", "Couldn't save the balance — try again.")}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export default function CashFlowPage() {
   const { t, lang } = useLanguage();
 
@@ -157,7 +278,8 @@ export default function CashFlowPage() {
     );
   }
 
-  if (error || !data) {
+  // A failed forecast arrives as `_error` — say so, never draw its placeholders.
+  if (error || !data || data._error) {
     return (
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
         <BarChart3 size={32} strokeWidth={1.5} className="mx-auto mb-4 text-gray-400" />
@@ -171,7 +293,14 @@ export default function CashFlowPage() {
 
   const { projection, alerts, current_balance, safety_threshold, lowest_point,
     danger_days, receivables, total_receivable, recurring_expenses,
-    has_data, foresight } = data;
+    has_data, foresight, forecast_ready } = data;
+
+  // A forecast needs a KNOWN starting balance and a sales history. Without a
+  // balance there is nothing to project from: no tiles, no chart, no alarm —
+  // just the one question. (The server used to call an empty Kassebog 0 kr.
+  // and the page screamed "shortfall" over a balance nobody had entered.)
+  const balanceKnown = current_balance != null;
+  const ready = forecast_ready ?? (has_data && balanceKnown);
 
   // The real uncertainty + fail-closed signals the engine already computes.
   const fs = foresight && foresight.available ? foresight : null;
@@ -187,6 +316,7 @@ export default function CashFlowPage() {
       ? Math.max(0, Number(fs.moms.high) - Number(fs.moms.low))
       : 0;
   const horizon = Math.max(1, projection.length - 1);
+  const hasPoints = ready && projection.length > 0;
   const chartData = projection.map((p, i) => {
     // Widen linearly from 0 (today, known) to the full MOMS spread at the
     // far edge. half-spread above/below the projected balance.
@@ -201,8 +331,8 @@ export default function CashFlowPage() {
 
   const todayDate = projection[0]?.date;
 
-  const minBalance = Math.min(...projection.map(p => p.balance), 0) - momsSpread / 2;
-  const maxBalance = Math.max(...projection.map(p => p.balance)) + momsSpread / 2;
+  const minBalance = (hasPoints ? Math.min(...projection.map(p => p.balance), 0) : 0) - momsSpread / 2;
+  const maxBalance = (hasPoints ? Math.max(...projection.map(p => p.balance)) : 0) + momsSpread / 2;
   const yMin = Math.floor(minBalance / 1000) * 1000 - 1000;
   const yMax = Math.ceil(maxBalance / 1000) * 1000 + 1000;
 
@@ -211,6 +341,8 @@ export default function CashFlowPage() {
   const lowBal = lowest_point?.balance ?? current_balance;
   const lineStatus =
     lowBal < 0 ? "#dc2626" : lowBal < safety_threshold ? "#d97706" : "#059669";
+
+  const visibleAlerts = (alerts || []).filter((a) => !(a.type === "no_data" && !has_data));
 
   // Alert severity → Lucide icon + status tone (no rainbow, no raw emoji).
   const alertVisual = (severity) => {
@@ -232,7 +364,6 @@ export default function CashFlowPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow="MONEY"
           title={t("cfpTitle")}
           actions={
             <Button variant="secondary" onClick={fetchForecast}>
@@ -273,13 +404,38 @@ export default function CashFlowPage() {
                 {fs.balance_stale && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{t("cfpStale")}</p>
                 )}
+                {!balanceKnown && <BalanceInline t={t} onSaved={fetchForecast} />}
               </div>
             </div>
           </div>
         );
       })()}
 
-      {/* ─── KEY METRICS — accents only when the data warrants it ─── */}
+      {/* No foresight band to hold the question (foresight off) — ask on its own. */}
+      {!fs && !balanceKnown && (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+          <p className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("fsVerdictEnterBalance")}</p>
+          <BalanceInline t={t} onSaved={fetchForecast} />
+        </div>
+      )}
+
+      {/* ─── KEY METRICS — only numbers that are known; accents only when the
+          data warrants it. No balance → no tiles at all. ─── */}
+      {balanceKnown && !ready && (
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          <StatCard
+            label={t("cfpCurrentBalance")}
+            value={<Amount value={current_balance} />}
+            accent={current_balance >= 0 ? "neutral" : "critical"}
+          />
+          <StatCard
+            label={t("cfpReceivables")}
+            value={<Amount value={total_receivable} />}
+            helper={t("cfpCustomersCount").replace("{n}", String(receivables.length))}
+          />
+        </div>
+      )}
+      {ready && lowest_point && (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           label={t("cfpCurrentBalance")}
@@ -310,24 +466,27 @@ export default function CashFlowPage() {
           helper={t("cfpCustomersCount").replace("{n}", String(receivables.length))}
         />
       </div>
+      )}
 
-      {/* ─── ALERTS ─── */}
-      {alerts.length > 0 && (
+      {/* ─── ALERTS ─── "not enough data" is left to the empty state below,
+          which says the same thing once, in Danish. */}
+      {visibleAlerts.length > 0 && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => {
+          {visibleAlerts.map((alert, i) => {
             const v = alertVisual(alert.severity);
             const Icon = v.Icon;
+            const text = alertText(t, alert);
             return (
               <div key={i} className={`p-4 rounded-xl border-l-4 ${v.border} ${v.bg}`}>
                 <div className="flex items-start gap-3">
                   <Icon size={20} strokeWidth={2} className={`shrink-0 mt-0.5 ${v.icon}`} aria-hidden="true" />
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                    {alert.action && (
+                    <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{text.title}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{text.detail}</p>
+                    {text.action && (
                       <p className="text-xs text-gray-700 dark:text-gray-300 mt-2 font-medium flex items-start gap-1.5">
                         <Lightbulb size={13} strokeWidth={2} className="shrink-0 mt-0.5 text-gray-500" aria-hidden="true" />
-                        <span>{alert.action}</span>
+                        <span>{text.action}</span>
                       </p>
                     )}
                   </div>
@@ -339,7 +498,7 @@ export default function CashFlowPage() {
       )}
 
       {/* ─── 30-DAY CHART ─── */}
-      {has_data && (
+      {hasPoints && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
             <h2 className="font-bold text-gray-800 dark:text-white">{t("cfpChartTitle")}</h2>
@@ -436,7 +595,7 @@ export default function CashFlowPage() {
       )}
 
       {/* ─── DAILY BREAKDOWN TABLE ─── */}
-      {has_data && (
+      {hasPoints && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("cfpDailyBreakdown")}</h2>
           <div className="overflow-x-auto">
