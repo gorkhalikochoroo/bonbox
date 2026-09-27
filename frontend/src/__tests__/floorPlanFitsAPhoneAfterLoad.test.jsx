@@ -60,7 +60,9 @@ const cell = (id, label, seats) => ({
   booking: null,
 });
 
-const canvasEl = (c) => c.querySelector('[class*="min-w-"]');
+// The room canvas carries a marker attribute; its minimum width is computed
+// from its tables now (utils/floorFit roomMinWidth), not a fixed class.
+const canvasEl = (c) => c.querySelector("[data-floor-canvas]");
 
 describe("the floor plan on a phone", () => {
   it("measures AFTER a late load — mounts empty, tables arrive, hint appears", () => {

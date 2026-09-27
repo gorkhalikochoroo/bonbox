@@ -89,6 +89,7 @@ import {
   TableMark,
   ShapeGlyph,
 } from "../config/tableArchetypes";
+import { fitRoom, roomMinWidth } from "../utils/floorFit";
 
 // ── Status → visual tokens ────────────────────────────────────────────
 // Mirrors deriveFloorState's status vocabulary, mapped onto the brand
@@ -279,6 +280,9 @@ function TableNode({
   onTap,
   onPointerDownDrag,
   onToggleShape,
+  // Room-fit scale (view mode only, see utils/floorFit): a crowded room draws
+  // every table a little smaller rather than stacking them. 1 in Arrange mode.
+  fitScale = 1,
 }) {
   const { res } = cell;
   const status = visualStatus(cell, nowMs);
@@ -296,7 +300,8 @@ function TableNode({
   // Drawn-size multiplier (draft edit wins; 1 = seat-derived default). Scales the
   // whole FOOTPRINT — body + chairs — but NOT the label/seat chip (fixed font
   // below), so the seat number reads the same on a huge table as a small one.
-  const sizeScale = pos.size_scale != null ? pos.size_scale : res.size_scale || 1;
+  const sizeScale =
+    (pos.size_scale != null ? pos.size_scale : res.size_scale || 1) * fitScale;
   const sizePx = tableSizePx(seats);
   // Chairs scale with the table so big tables get chunky seats, not tiny dots.
   const chairW = Math.round(
@@ -352,11 +357,22 @@ function TableNode({
           Math.round((nowMs - new Date(booking.reservation.ends_at).getTime()) / 60000),
         )
       : null;
+  // "+2940m over" is not a number a host can read — that is a party seated
+  // two days ago that nobody cleared. Minutes up to an hour, then hours, then
+  // days.
+  // Compact on purpose: the red fill and the legend already say "overdue", and
+  // this line has to fit a 2-top.
+  const overText = (m) =>
+    m < 60
+      ? t("rsvpOverBy", "+{n} min", { n: m })
+      : m < 1440
+        ? t("rsvpOverByHours", "+{h} h {m}", { h: Math.floor(m / 60), m: String(m % 60).padStart(2, "0") })
+        : t("rsvpOverByDays", "+{n} d", { n: Math.floor(m / 1440) });
   const sub =
     status === "free"
       ? null
       : status === "overdue"
-        ? t("rsvpOverBy", "+{n}m over", { n: overMin ?? 0 })
+        ? overText(overMin ?? 0)
         : status === "upcoming" && booking?.eta != null
           ? t("rsvpEtaIn", "in {n}m", { n: booking.eta })
           : // Seated: lead with WHEN it frees — the host's decision number when a
@@ -369,6 +385,53 @@ function TableNode({
             : booking
               ? `${booking.time}${booking.name ? " · " + booking.name : ""}`
               : null;
+
+  // ── Fit the words to the table ──────────────────────────────────────
+  // The label, seat count and detail line used to render at fixed sizes into
+  // whatever box the table happened to be: "Bord 3 · …" truncated, a detail
+  // line spilling past a 4-top's circle into its chairs. Now the text is
+  // chosen for the width the table actually has (a circle's usable chord is
+  // ~¾ of its diameter), and the detail line appears only where it fits.
+  const isRound = shape === "round" || shape === "hightop";
+  // The body's own padding is 4px a side (px-1); a circle's usable chord for
+  // the middle lines is ~0.78 of its diameter.
+  const innerW = isRound
+    ? dims.w * 0.78
+    : shape === "rect"
+      ? dims.w - 14
+      : shape === "bar"
+        ? dims.w - 12
+        : dims.w - 8;
+  const fullLabel = String(res.label || "");
+  // "Bord 1 · Vindue" → "Bord 1" when the whole name cannot fit: the table's
+  // own name is what a host navigates by; the rest lives in the tooltip.
+  const shortLabel = fullLabel.split(/\s+[·•|–—-]\s+/)[0] || fullLabel;
+  const iconW = allergy && !editing ? 17 : 0;
+  const maxFs = dims.w >= 80 ? 14 : 13;
+  // ~0.55em a character for Inter semibold; 10px is the last step before an
+  // ellipsis — "Bord 10" must never read "Bord…".
+  const fitFs = (text) => {
+    for (const fs of [14, 13, 12, 11, 10]) {
+      if (fs <= maxFs && text.length * fs * 0.55 + iconW <= innerW) return fs;
+    }
+    return null;
+  };
+  let labelText = fullLabel;
+  let labelFs = fitFs(fullLabel);
+  if (labelFs == null && shortLabel !== fullLabel) {
+    labelText = shortLabel;
+    labelFs = fitFs(shortLabel);
+  }
+  if (labelFs == null) labelFs = 10; // still too long: 10px + ellipsis
+  // Room for a third line: a circle needs more diameter than a box needs height.
+  // The line carries the number a host acts on (arrives 12.30, over by 13
+  // min), so it shows on everything but the smallest tables — short form.
+  const showSub = !!sub && innerW >= 34 && (isRound ? dims.w >= 56 : dims.h >= 44);
+  // A narrow table shows when, not who ("13.00", not "13.00 · Firmafrokost").
+  const subText =
+    showSub && innerW < 96 && booking && status !== "overdue" && typeof sub === "string" && sub.includes(" · ")
+      ? sub.split(" · ")[0]
+      : sub;
 
   return (
     <div
@@ -429,8 +492,10 @@ function TableNode({
           res.label +
           " · " +
           seats +
+          (status === "overdue" ? " · " + t("rsvpPlanOverdue", "Overdue") : "") +
           (sub ? " · " + sub : "")
         }
+        title={res.label + (sub ? " · " + sub : "")}
         className={
           "relative w-full h-full flex flex-col items-center justify-center gap-0.5 px-1 ring-2 transition-all duration-200 " +
           style.fill +
@@ -459,31 +524,11 @@ function TableNode({
           benchClass={style.chair}
           ringClass={STOOL_BORDER[status] || STOOL_BORDER.free}
         />
-        {/* Status dot — top-right corner of the table */}
-        <span
-          className={"absolute top-1 right-1 w-2.5 h-2.5 rounded-full " + style.dot}
-          aria-hidden
-        />
-        {/* Allergy badge — hangs off the tile edge so it reads from across
-            the room. Red = severe, amber = any other recorded allergy. */}
-        {allergy && !editing && (
-          <span
-            className={
-              "absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center shadow-sm ring-2 ring-white dark:ring-gray-900 pointer-events-none " +
-              (allergy === "severe" ? "bg-red-500" : "bg-amber-500")
-            }
-            aria-label={allergy === "severe" ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
-            role="img"
-          >
-            <AlertTriangle className="w-3 h-3 text-white" aria-hidden />
-          </span>
-        )}
-        {combined && (
-          <Link2
-            className="absolute top-1 left-1 w-3 h-3 opacity-70"
-            aria-hidden
-          />
-        )}
+        {/* No corner badges. A status dot on the rim repeated what the fill
+            already says, and the rim is where the chairs are — the dot, the
+            allergy badge and the combined-table link all landed on a chair
+            or off the table's edge. The allergy mark and the link now sit in
+            the text, where they cannot collide with anything. */}
         {/* Faint venue icon centred behind the label — the per-business
             signature (chair / beer / scissors). Decorative only: very low
             opacity so the label + count stay the focus, no brand color. */}
@@ -499,22 +544,27 @@ function TableNode({
           className="relative flex flex-col items-center gap-0.5 max-w-full"
           style={{ transform: rotation ? `rotate(${-rotation}deg)` : undefined }}
         >
-          <span
-            className={
-              "font-semibold leading-none truncate max-w-full " +
-              style.text +
-              " " +
-              // Gate on the width actually DRAWN, not on sizePx. They diverge:
-              // a hightop 4-top has sizePx 84 (so it took text-sm) but is drawn
-              // as a 59px circle, and the label is truncate + max-w-full — so
-              // "Bord 12" rendered as "Bord…" on the one string a host
-              // navigates by. Width, not height: nothing here is
-              // overflow-hidden, so a tall-constrained shape (bar, h=30) spills
-              // harmlessly, while a narrow one silently loses characters.
-              (dims.w >= 80 ? "text-sm" : "text-xs")
-            }
-          >
-            {res.label}
+          <span className="inline-flex items-center gap-1 max-w-full" style={{ maxWidth: innerW }}>
+            {/* Allergy — red = severe, amber = any other recorded allergy. In
+                the label row, ringed so it reads on any table colour. */}
+            {allergy && !editing && (
+              <span
+                className={
+                  "inline-flex items-center justify-center w-3.5 h-3.5 rounded-full shrink-0 ring-1 ring-white/90 dark:ring-gray-900/80 " +
+                  (allergy === "severe" ? "bg-red-500" : "bg-amber-500")
+                }
+                aria-label={allergy === "severe" ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+                role="img"
+              >
+                <AlertTriangle className="w-2.5 h-2.5 text-white" aria-hidden />
+              </span>
+            )}
+            <span
+              className={"font-semibold leading-none truncate min-w-0 " + style.text}
+              style={{ fontSize: labelFs }}
+            >
+              {labelText}
+            </span>
           </span>
           <span
             className={"inline-flex items-center gap-0.5 leading-none " + style.text}
@@ -532,19 +582,21 @@ function TableNode({
                     ? `${partySize}/${seats}`
                     : seats}
                 </span>
+                {combined && <Link2 className="w-3 h-3 opacity-70 ml-0.5" aria-hidden />}
               </>
             )}
           </span>
-          {sub && sizePx >= 72 && (
+          {showSub && (
             <span
               className={
-                "text-[10px] leading-tight truncate max-w-full tabular-nums " +
+                "text-[10px] leading-tight truncate tabular-nums " +
                 style.text +
                 " " +
                 (status === "overdue" ? "font-bold" : "opacity-90")
               }
+              style={{ maxWidth: innerW }}
             >
-              {sub}
+              {subText}
             </span>
           )}
         </div>
@@ -709,6 +761,29 @@ export default function FloorPlan({
   // the whole tree is torn down in a way that skips it.
   useEffect(() => () => roRef.current?.disconnect(), []);
 
+  // The canvas's drawn size, for fitRoom. A callback ref for the same reason
+  // as the scroller's: the canvas renders after the empty-state early return.
+  // canvasRef stays the handle the drag code reads.
+  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+  const canvasRoRef = useRef(null);
+  const setCanvasEl = useCallback((el) => {
+    canvasRef.current = el;
+    canvasRoRef.current?.disconnect();
+    canvasRoRef.current = null;
+    if (!el) return;
+    const read = () =>
+      setCanvasSize((prev) => {
+        const w = el.clientWidth;
+        const h = el.clientHeight;
+        return Math.abs(prev.w - w) < 1 && Math.abs(prev.h - h) < 1 ? prev : { w, h };
+      });
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    canvasRoRef.current = ro;
+  }, []);
+  useEffect(() => () => canvasRoRef.current?.disconnect(), []);
+
   // Freshest known server-truth layout (post-save override wins over the
   // memoized base until the parent re-derives cells).
   const currentLayout = savedLayout || baseLayout;
@@ -850,6 +925,21 @@ export default function FloorPlan({
           : f,
       ),
     [liveFixtures, fixtureDraft],
+  );
+
+  // View mode draws the room FITTED to the size it is shown at: overlapping
+  // tables nudged apart, a crowded room drawn a touch smaller (utils/floorFit).
+  // Arrange mode draws exactly what is saved — that is where the owner decides.
+  // The room is never drawn narrower than its tables need at the legible
+  // floor scale — on a phone a crowded room pans further instead of stacking.
+  const roomMinW = useMemo(() => roomMinWidth(cells, layout), [cells, layout]);
+
+  const fitted = useMemo(
+    () =>
+      editing
+        ? { scale: 1, pos: {}, moved: 0 }
+        : fitRoom(cells, layout, canvasSize, shownFixtures),
+    [editing, cells, layout, canvasSize, shownFixtures],
   );
 
   const enterEdit = useCallback(() => {
@@ -1500,10 +1590,11 @@ export default function FloorPlan({
         className="overflow-x-auto rounded-2xl"
       >
         <div
-          ref={canvasRef}
+          ref={setCanvasEl}
+          data-floor-canvas=""
           onPointerDown={editing ? () => setSelectedId(null) : undefined}
           className={
-            "relative w-full min-w-[560px] rounded-2xl border overflow-hidden " +
+            "relative w-full rounded-2xl border overflow-hidden " +
             // The canvas body is the WALL (see RoomShell) — so the border has
             // to be wall-coloured too, or a light hairline haloes the masonry.
             "bg-slate-900 dark:bg-slate-950 " +
@@ -1511,7 +1602,7 @@ export default function FloorPlan({
               ? "border-slate-700 ring-2 ring-white/15"
               : "border-slate-900 dark:border-black")
           }
-          style={{ aspectRatio: "16 / 10" }}
+          style={{ aspectRatio: "16 / 10", minWidth: roomMinW }}
         >
           {/* Walls + drafting grid + paper floor. FIRST child on purpose:
               nothing here is positioned or z-indexed, so paint order is DOM
@@ -1559,7 +1650,8 @@ export default function FloorPlan({
           {/* Tables */}
           {cells.map((c) => {
             const id = String(c.res.id);
-            const pos = layout[id] || { pos_x: 50, pos_y: 50, shape: "round" };
+            const savedPos = layout[id] || { pos_x: 50, pos_y: 50, shape: "round" };
+            const pos = fitted.pos[id] ? { ...savedPos, ...fitted.pos[id] } : savedPos;
             const isNext =
               !editing &&
               nextBookingId != null &&
@@ -1587,6 +1679,7 @@ export default function FloorPlan({
                   onTap={handleTap}
                   onPointerDownDrag={onPointerDownDrag}
                   onToggleShape={toggleShape}
+                  fitScale={fitted.scale}
                 />
                 {/* "Your next booking" accent ring — track the DRAWN footprint so
                     it keeps hugging a scaled table (same size_scale the body uses). */}
@@ -1594,7 +1687,7 @@ export default function FloorPlan({
                   const nextScale =
                     pos.size_scale != null ? pos.size_scale : c.res.size_scale || 1;
                   const ringPx =
-                    Math.round(tableSizePx(c.res.capacity_seats) * nextScale) + 6;
+                    Math.round(tableSizePx(c.res.capacity_seats) * nextScale * fitted.scale) + 6;
                   return (
                     <span
                       className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-gray-900/60 dark:ring-gray-100/60 ring-offset-2 ring-offset-transparent pointer-events-none animate-pulse"

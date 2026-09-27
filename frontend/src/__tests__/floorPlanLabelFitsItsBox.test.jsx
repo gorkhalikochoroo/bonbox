@@ -18,8 +18,11 @@
  * 182px to 244px wide, the most legible labels in the room — to fix a
  * clipping problem that does not exist.
  *
- * WHAT THIS PINS: the gate follows the drawn width, so narrow shapes step down
+ * WHAT THIS PINS: the size follows the drawn width, so narrow shapes step down
  * (keeping their characters) and wide-but-short shapes keep the larger type.
+ * (Sep 2026: the size is now CHOSEN to fit — 14/13/12/11/10px by the width the
+ * text actually has — instead of a two-step class, so the test reads the
+ * rendered font size.)
  */
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
@@ -56,24 +59,23 @@ function cell(id, { seats, shape, label }) {
   };
 }
 
-function labelClassFor(seats, shape, label = "Bord 12") {
+function labelSizeFor(seats, shape, label = "Bord 12") {
   const { container } = render(
     <FloorPlan cells={[cell(`${shape}-${seats}`, { seats, shape, label })]} nowMs={0} t={t} />,
   );
   const node = [...container.querySelectorAll("span")].find(
     (el) => el.textContent === label && el.className.includes("truncate"),
   );
-  return node ? node.className : null;
+  return node ? parseFloat(node.style.fontSize) : null;
 }
 
 describe("floor plan label is sized by the drawn box", () => {
   it("a high-top steps DOWN so its label keeps its characters", () => {
     // 59px circle — the case that was truncating.
     expect(tableDims("hightop", 4).w).toBeLessThan(80);
-    const cls = labelClassFor(4, "hightop");
-    expect(cls, "label span not found — test needs updating").not.toBeNull();
-    expect(cls).toContain("text-xs");
-    expect(cls).not.toContain("text-sm");
+    const px = labelSizeFor(4, "hightop");
+    expect(px, "label span not found — test needs updating").not.toBeNull();
+    expect(px).toBeLessThan(13);
   });
 
   it("a wide-but-short bar keeps the LARGER label", () => {
@@ -82,19 +84,16 @@ describe("floor plan label is sized by the drawn box", () => {
     const dims = tableDims("bar", 4);
     expect(dims.w).toBeGreaterThanOrEqual(80);
     expect(dims.h).toBeLessThan(44);
-    const cls = labelClassFor(4, "bar");
-    expect(cls).toContain("text-sm");
+    expect(labelSizeFor(4, "bar")).toBe(14);
   });
 
   it("a wide rect steps UP — it had room all along", () => {
     expect(tableDims("rect", 2).w).toBeGreaterThanOrEqual(80);
-    const cls = labelClassFor(2, "rect");
-    expect(cls).toContain("text-sm");
+    expect(labelSizeFor(2, "rect")).toBe(14);
   });
 
   it("a small round table still steps down", () => {
     expect(tableDims("round", 2).w).toBeLessThan(80);
-    const cls = labelClassFor(2, "round");
-    expect(cls).toContain("text-xs");
+    expect(labelSizeFor(2, "round")).toBeLessThan(14);
   });
 });
