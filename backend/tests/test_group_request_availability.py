@@ -199,6 +199,38 @@ def test_the_guest_can_request_one_of_those_times(client, db):
     assert row.resource_id is None, "a request holds no table until the owner approves"
 
 
+@pytest.mark.parametrize("party", [9, 10])
+def test_the_reviewers_dead_end_is_gone(client, db, party):
+    """The path a reviewer walked: a party of 9–10 (≥ the threshold of 8) saw
+    every day in the strip closed — the selected one included — and
+    /availability offered nothing, so the page stored a made-up 18:00. Now:
+    the selected open day is open, it offers that day's normal time grid as
+    group_request, and the guest's pick books as a request."""
+    _, profile = _venue(db)
+    selected = _weekday_after(date.today() + timedelta(days=4))
+    strip = client.get(
+        f"/api/public/reservations/{profile.reservation_slug}/availability-summary",
+        params={"from": (selected - timedelta(days=2)).isoformat(), "days": 7, "party": party},
+    ).json()
+    assert strip["group_request"] is True
+    chosen = next(d for d in strip["days"] if d["date"] == selected.isoformat())
+    assert chosen == {"date": selected.isoformat(), "has_slots": True, "reason": None}
+
+    avail = client.get(f"/api/public/reservations/{profile.reservation_slug}/availability",
+                       params={"day": selected.isoformat(), "party": party}).json()
+    assert avail["group_request"] is True
+    assert avail["slots"] == ["17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00"]
+
+    r = client.post(f"/api/public/reservations/{profile.reservation_slug}",
+                    json={"day": selected.isoformat(), "time": "19:30", "party_size": party,
+                          "guest_name": "Stor Gruppe", "guest_email": "gruppe@example.com"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "requested"
+    db.expire_all()
+    assert db.query(Reservation).one().starts_at == datetime.combine(
+        selected, datetime.strptime("19:30", "%H:%M").time())
+
+
 def test_the_grid_keeps_lead_time_and_the_party_ceiling(db):
     owner, profile = _venue(db, settings={**_SETTINGS, "lead_time_min": 60})
     day = _weekday_after(date.today() + timedelta(days=3))
