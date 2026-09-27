@@ -245,17 +245,20 @@ def _app_base_url() -> str:
     return base()
 
 
-def public_booking_url(profile) -> str | None:
+def public_booking_url(profile, *, lang: str | None = None) -> str | None:
+    """The venue's public booking page. `lang` ("da"/"en") rides along as
+    ?lang= so the page opens in the language the guest booked in."""
     slug = getattr(profile, "reservation_slug", None) if profile is not None else None
     if not slug:
         return None
     try:
-        return f"{_app_base_url()}/r/{slug}"
+        lang = normalize_lang(lang)
+        return f"{_app_base_url()}/r/{slug}" + (f"?lang={lang}" if lang else "")
     except Exception:  # noqa: BLE001 — a link is never a hard dependency
         return None
 
 
-def venue_context(owner, profile) -> Venue:
+def venue_context(owner, profile, *, guest_lang: str | None = None) -> Venue:
     name = (getattr(owner, "business_name", None)
             or getattr(profile, "company_name", None) or "BonBox")
     phone = None
@@ -277,7 +280,7 @@ def venue_context(owner, profile) -> Venue:
         name=str(name).strip() or "BonBox",
         phone=(" ".join(str(phone).split()) or None) if phone else None,
         address=(" ".join(str(address).split()) or None) if address else None,
-        booking_url=public_booking_url(profile),
+        booking_url=public_booking_url(profile, lang=guest_lang),
         reply_to=(getattr(owner, "email", None) or None),
     )
 
@@ -289,7 +292,8 @@ def guest_cancel_url(profile, r) -> str | None:
     ahead never expires before the guest can use it. None if unbuildable — the
     link is a nice-to-have, never a hard dependency of a send. The URL carries
     a server-minted booking-poll token; the visitor SPA seeds it into the
-    existing token-cancel flow (no new route)."""
+    existing token-cancel flow (no new route). When the guest booked in a
+    known language, &lang= makes the receipt open in it on any device."""
     try:
         slug = getattr(profile, "reservation_slug", None) if profile is not None else None
         if not slug:
@@ -300,7 +304,9 @@ def guest_cancel_url(profile, r) -> str | None:
             delta_h = (r.starts_at - datetime.now()).total_seconds() / 3600.0
             ttl = max(24, int(delta_h) + 48)
         token = sign_booking_token(str(r.id), ttl_hours=ttl)
-        return f"{_app_base_url()}/r/{slug}?booking={r.id}&token={token}"
+        lang = normalize_lang(getattr(r, "guest_lang", None))
+        return (f"{_app_base_url()}/r/{slug}?booking={r.id}&token={token}"
+                + (f"&lang={lang}" if lang else ""))
     except Exception:  # noqa: BLE001 — never block a send
         return None
 
@@ -911,7 +917,7 @@ def send_guest_confirmation(db: Session | None, owner, profile, r) -> bool:
              status="failed", error="address_capped")
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_confirmation(r, venue, lang,
                                               cancel_url=guest_cancel_url(profile, r))
     ok = deliver(db, owner_id=r.user_id, reservation_id=r.id, event_type=GUEST_CONFIRMATION,
@@ -937,7 +943,7 @@ def send_guest_cancelled_by_guest(db: Session | None, owner, profile, r, *,
              status="failed", error="no_prior_mail")
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_cancelled_by_guest(r, venue, lang, was_request=was_request)
     return deliver(db, owner_id=r.user_id, reservation_id=r.id,
                    event_type=GUEST_CANCELLED_BY_GUEST, to=r.guest_email,
@@ -952,7 +958,7 @@ def send_guest_cancelled_by_venue(db: Session | None, owner, profile, r, *,
     if not starts_in_future(r, owner):
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_cancelled_by_venue(r, venue, lang, was_request=was_request)
     return deliver(db, owner_id=r.user_id, reservation_id=r.id,
                    event_type=GUEST_CANCELLED_BY_VENUE, to=r.guest_email,
@@ -966,7 +972,7 @@ def send_guest_request_confirmed(db: Session | None, owner, profile, r) -> bool:
     if not starts_in_future(r, owner):
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_request_confirmed(r, venue, lang,
                                                    cancel_url=guest_cancel_url(profile, r))
     return deliver(db, owner_id=r.user_id, reservation_id=r.id,
@@ -985,7 +991,7 @@ def send_guest_moved(db: Session | None, owner, profile, r, *,
     if not starts_in_future(r, owner):
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_moved(r, venue, lang,
                                        old_starts_at=to_naive_local(old_starts_at, owner),
                                        cancel_url=guest_cancel_url(profile, r))
@@ -999,7 +1005,7 @@ def send_guest_reminder(db: Session | None, owner, profile, r) -> bool:
     if db is None or not r.guest_email:
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_reminder(r, venue, lang,
                                           cancel_url=guest_cancel_url(profile, r))
     return deliver(db, owner_id=r.user_id, reservation_id=r.id, event_type=GUEST_REMINDER,
@@ -1021,7 +1027,7 @@ def send_guest_request_expired(db: Session | None, owner, profile, r) -> bool:
              status="failed", error="address_capped")
         return False
     lang = guest_language(r, profile, owner)
-    venue = venue_context(owner, profile)
+    venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
     subject, html = render_guest_request_expired(r, venue, lang)
     return deliver(db, owner_id=r.user_id, reservation_id=r.id,
                    event_type=GUEST_REQUEST_EXPIRED, to=r.guest_email,

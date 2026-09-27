@@ -20,6 +20,7 @@ from __future__ import annotations
 import html as _html
 import json
 import logging
+import re
 import uuid
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
@@ -816,3 +817,92 @@ def test_a_list_of_addresses_is_refused(db, outbox):
     assert mail.send_guest_cancelled_by_venue(db, owner, None, r) is False
     assert outbox == []
     assert [x.error_message for x in _logs(db)] == ["bad_address"]
+
+
+# ── 7. the guest's receipt: the email link and the lookup behind it ─────
+
+def _receipt_link(html: str) -> str:
+    """The self-cancel / receipt link in a guest email (it carries the token).
+    The href is HTML-escaped (`&amp;token=`), as it should be — unescape it."""
+    m = re.search(r'href="([^"]*token=[^"]*)"', html)
+    assert m, "no receipt link in the email"
+    return _html.unescape(m.group(1))
+
+
+def test_the_receipt_link_opens_in_the_guests_language(client, db, outbox):
+    _, profile = _venue(db)
+    booking = _book(client, profile.reservation_slug, lang="en").json()
+    link = _receipt_link(_to(outbox, GUEST)[0]["html"])
+    assert f"/r/{profile.reservation_slug}?booking={booking['id']}&token=" in link
+    assert link.endswith("&lang=en")
+
+
+def test_the_receipt_link_has_no_lang_when_the_guest_did_not_say(client, db, outbox):
+    _, profile = _venue(db)
+    _book(client, profile.reservation_slug)
+    assert "lang=" not in _receipt_link(_to(outbox, GUEST)[0]["html"])
+
+
+@pytest.mark.parametrize("stored,suffix", [("da", "&lang=da"), ("en", "&lang=en"),
+                                           (None, None), ("fr", None)])
+def test_guest_cancel_url_lang_parameter(db, stored, suffix):
+    owner, profile = _venue(db)
+    r = _booking(db, owner, lang=stored)
+    url = mail.guest_cancel_url(profile, r)
+    assert "&token=" in url
+    if suffix:
+        assert url.endswith(suffix)
+    else:
+        assert "lang=" not in url
+
+
+def test_book_again_opens_the_booking_page_in_the_guests_language(client, db, outbox):
+    _, profile = _venue(db)
+    booking = _book(client, profile.reservation_slug, lang="en").json()
+    outbox.clear()
+    _cancel(client, booking)
+    html = _to(outbox, GUEST)[0]["html"]
+    assert f'href="https://www.bonbox.dk/r/{profile.reservation_slug}?lang=en"' in html
+
+
+_LOOKUP_FIELDS = {"id", "status", "party_size", "starts_at", "guest_name",
+                  "occasion", "allergen_tags", "allergy_severity", "guest_lang"}
+
+
+def test_the_booking_lookup_returns_what_the_guest_told_the_venue(client, db, outbox):
+    _, profile = _venue(db)
+    b = _book(client, profile.reservation_slug, lang="en", occasion="Birthday",
+              allergen_tags=["peanuts", "not-a-tag"], allergy_severity="severe",
+              allergy_note="anaphylaxis, carries an EpiPen", guest_notes="window please",
+              guest_phone="+45 11 22 33 44").json()
+    res = client.get(f"/api/public/reservations/booking/{b['id']}",
+                     params={"token": b["booking_token"]})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert set(body) == _LOOKUP_FIELDS, "the token holder gets exactly these fields"
+    assert body["occasion"] == "Birthday"
+    assert body["allergen_tags"] == ["peanuts"]          # sanitised keys only
+    assert body["allergy_severity"] == "severe"
+    assert body["guest_lang"] == "en"
+    assert body["guest_name"] == "Sita Sharma" and body["party_size"] == 2
+    blob = json.dumps(body)
+    for private in (GUEST, "11 22 33 44", "window please", "EpiPen", "anaphylaxis"):
+        assert private not in blob, f"{private!r} leaked to the token holder"
+
+
+def test_the_booking_lookup_with_nothing_told_is_empty_not_missing(client, db, outbox):
+    _, profile = _venue(db)
+    b = _book(client, profile.reservation_slug).json()
+    body = client.get(f"/api/public/reservations/booking/{b['id']}",
+                      params={"token": b["booking_token"]}).json()
+    assert body["occasion"] is None and body["allergen_tags"] == []
+    assert body["allergy_severity"] is None and body["guest_lang"] is None
+
+
+def test_the_booking_lookup_still_needs_the_right_token(client, db, outbox):
+    _, profile = _venue(db)
+    a = _book(client, profile.reservation_slug).json()
+    b = _book(client, profile.reservation_slug, time="20:00").json()
+    res = client.get(f"/api/public/reservations/booking/{a['id']}",
+                     params={"token": b["booking_token"]})
+    assert res.status_code == 404

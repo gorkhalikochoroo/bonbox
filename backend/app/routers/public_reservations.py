@@ -998,6 +998,16 @@ def poll(request: Request, reservation_id: UUID = Path(...),
         "id": str(r.id), "status": r.status, "party_size": r.party_size,
         "starts_at": r.starts_at.isoformat() if r.starts_at else None,
         "guest_name": r.guest_name,
+        # What the guest told the venue, so a receipt reopened from the email
+        # link or a reload can show it — in the language they booked in.
+        # Structured values only: allergen_tags are sanitised catalogue keys
+        # and severity is one of three words. Deliberately NOT returned to the
+        # token holder: guest_email, guest_phone, guest_notes and allergy_note
+        # (free-text health data). Purged rows come back empty.
+        "occasion": r.occasion,
+        "allergen_tags": [t for t in (r.allergen_tags or []) if isinstance(t, str)],
+        "allergy_severity": r.allergy_severity,
+        "guest_lang": r.guest_lang,
     }
 
 
