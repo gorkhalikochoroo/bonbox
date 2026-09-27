@@ -71,7 +71,6 @@ const buildTiers = (t) => [
     job:
       t("pricingJobFree", "BonBox closes my day in 90 seconds.") ||
       "BonBox closes my day in 90 seconds.",
-    timeSaved: t("pricingTimeFree", "~10 min saved every day"),
     tagline:
       t("pricingTaglineFree") ||
       "Daily close in 90 seconds. Every day, free.",
@@ -105,7 +104,6 @@ const buildTiers = (t) => [
         "pricingJobStarter",
         "I never paste-attach a PDF to my bogholder again.",
       ) || "I never paste-attach a PDF to my bogholder again.",
-    timeSaved: t("pricingTimeStarter", "~3 hours saved every month"),
     tagline:
       t("pricingTaglineStarter") ||
       "For the café or shop that closes every night.",
@@ -158,7 +156,7 @@ const buildTiers = (t) => [
       // (Keys keep their featPro* names — only their tier placement moved.)
       { text: t("featProScheduleAutopilot", "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap") || "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap" },
       { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
-      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — a pre-filled MOMS-angivelse your revisor can upload to SKAT") || "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT" },
+      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — a pre-filled MOMS-angivelse with the figures for SKAT.dk or your revisor") },
       { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
       { text: t("featProExpiryPush", "Push notification when items expire today — never lose a perishable to a forgotten reminder") || "Push notification when items expire today — never lose a perishable to a forgotten reminder" },
       { text: t("featStarterReservationInsights", "Reservation Insights — demand forecast + no-show detail per weekday") || "Reservation Insights — demand forecast + no-show detail per weekday" },
@@ -181,7 +179,6 @@ const buildTiers = (t) => [
         "I run three locations from one login — bigger limits, my brand on every faktura, support that answers first.",
       ) ||
       "I run three locations from one login — bigger limits, my brand on every faktura, support that answers first.",
-    timeSaved: t("pricingTimePro", "~12 hours saved every month"),
     tagline:
       t("pricingTaglinePro") ||
       "For 2-3 locations — more branches, more seats, higher limits, white-label, priority support.",
@@ -880,10 +877,9 @@ export default function SubscriptionPage() {
                 {tier.job}
               </p>
 
-              {/* Time saved */}
-              <div className="mt-3 inline-flex items-center text-[12px] font-medium text-gray-700 dark:text-emerald-400">
-                {tier.timeSaved}
-              </div>
+              {/* No "~3 hours saved every month" line: nobody has measured it,
+                  and the landing page already dropped the same claims for that
+                  reason (markedsføringsloven: a claim must be documentable). */}
 
               {/* Price block — founding rate big + bold, regular strikethrough */}
               <div className="mt-5">

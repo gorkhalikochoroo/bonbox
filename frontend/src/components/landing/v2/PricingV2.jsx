@@ -138,7 +138,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.free.f6",
-                  "1 user, 1 branch, 7 days of export history"
+                  "1 user, 1 location, up to 3 staff on the rota, 7 days of export history"
                 )}
               </Feature>
               {/* The reservation ceiling. It was enforced in the public create
@@ -167,13 +167,13 @@ export default function PricingV2() {
                 {t("landingV2.pricing.starter.name", "Starter")}
               </span>
               <span className="rounded-full bg-bb-green-tint px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bb-green-dark">
-                {t("landingV2.pricing.starter.badge", "Most popular")}
+                {t("landingV2.pricing.starter.badge", "Recommended")}
               </span>
             </div>
             <div className={position}>
               {t(
                 "landingV2.pricing.starter.position",
-                "For sending fakturaer and letting the bank reconcile itself."
+                "For sending fakturaer and matching payments from your bank CSV."
               )}
             </div>
             <div className="mb-[14px] flex flex-wrap items-baseline gap-2">

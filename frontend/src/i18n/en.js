@@ -2420,7 +2420,7 @@ export const en = {
     // Tax Autopilot — Filing-ready PDF card (Task #51, Pro tier)
     filingPdfPro: "Filing-ready PDF",
     filingPdfReady: "Ready to file?",
-    filingPdfSubtitle: "Pre-filled MOMS-angivelse — download, sign, upload to SKAT.dk.",
+    filingPdfSubtitle: "Pre-filled MOMS-angivelse — the figures ready to enter on SKAT.dk, or for your revisor.",
     filingPdfDownload: "Download PDF",
     filingPdfDownloading: "Generating…",
     filingPdfDownloaded: "PDF downloaded.",
@@ -2432,8 +2432,8 @@ export const en = {
     filingPdfNet: "Net to tax authority",
     filingPdfNeedsAccountantEmail: "Set your accountant's email on Profile first.",
     filingPdfSetRevisorEmail: "Add accountant's email",
-    filingPdfUpsell: "Download a pre-filled MOMS-angivelse — saves ~30 min per filing. Sign, then upload to SKAT.dk or forward to your revisor.",
-    filingPdfUpgradeBenefit: "Pre-filled MOMS-angivelse — ready for SKAT in 90 seconds.",
+    filingPdfUpsell: "Download a pre-filled MOMS-angivelse — the figures ready to enter on SKAT.dk, or forward it to your revisor.",
+    filingPdfUpgradeBenefit: "Pre-filled MOMS-angivelse — the figures ready for your filing.",
     // DK i18n leak fix — TaxAutopilotPage chrome. `revisor` and `MOMS` stay
     // Danish in EN per Manoj's DK terminology lock; only the verbs/labels
     // translate. `Skat Autopilot` is the product brand-name (mixed-case).
@@ -2732,7 +2732,7 @@ export const en = {
     pricingTrialStep3BodyLocked: "If locked in: founding rate charged to your card",
     pricingTrialStep3BodyDropped: "If not: dropped to Free (caps return, data stays, no charge ever)",
     // Tier card badges
-    mostPopular: "Most popular",
+    mostPopular: "Recommended",
     yourTrial: "Your trial",
     currentPlan: "Current plan",
     pricingManageOnWebNote: "You can't change your plan in the app. To upgrade or manage your subscription, sign in to BonBox in a web browser at bonbox.dk.",
@@ -3248,7 +3248,7 @@ export const en = {
     pricingUpgradePro: "Upgrade to Pro",
     pricingStartTrial: "Start 14-day free trial",
     pricingBadgeFreeTrial: "🎁 14 days free · No card required",
-    pricingBadgeFreeTrialPopular: "🎁 14 days free · No card required · Most popular",
+    pricingBadgeFreeTrialPopular: "🎁 14 days free · No card required",
     // Tier names (kept identical across languages — they're the brand SKU)
     pricingTierFree: "Free",
     pricingTierStarter: "Starter",
@@ -3291,7 +3291,7 @@ export const en = {
     // SubscriptionPage and the locked-state UpgradeNudge both pull
     // from the single source of truth.
     featStarterExpiryAlerts:
-      "Inventory expiry alerts — we warn you before items spoil, saves 5,000+ DKK/year",
+      "Inventory expiry alerts — we warn you before items spoil, so less ends up in the bin",
     featProExpiryPush:
       "Push notification when items expire today — never lose a perishable to a forgotten reminder",
     // ExpiryForecastingPage UI strings — Free UpgradeNudge + Starter+
@@ -6146,11 +6146,11 @@ export const en = {
     "landingV2.pricing.free.f3": "MOMS countdown — when SKAT is due, and roughly how much",
     "landingV2.pricing.free.f4": "Receipt OCR, 10 a month",
     "landingV2.pricing.free.f5": "Sales & expense logging",
-    "landingV2.pricing.free.f6": "1 user, 1 branch, 7 days of export history",
+    "landingV2.pricing.free.f6": "1 user, 1 location, up to 3 staff on the rota, 7 days of export history",
     "landingV2.pricing.free.f7": "Reservations, 20 a month — booking page, floor plan, waitlist",
     "landingV2.pricing.starter.name": "Starter",
-    "landingV2.pricing.starter.badge": "Most popular",
-    "landingV2.pricing.starter.position": "For sending fakturaer and letting the bank reconcile itself.",
+    "landingV2.pricing.starter.badge": "Recommended",
+    "landingV2.pricing.starter.position": "For sending fakturaer and matching payments from your bank CSV.",
     "landingV2.pricing.starter.foundingTag": "First 100",
     "landingV2.pricing.starter.trial": "14 days free · no card required · that price stays as long as you do",
     "landingV2.pricing.starter.cta": "Start on Starter",
@@ -7172,7 +7172,7 @@ export const en = {
     onbStep1Card1Body: "Snap your kasserapport — we file the numbers.",
     // Task #113 honesty: we generate the MOMS PDF; the owner submits.
     onbStep1Card2Title: "MOMS prep on autopilot",
-    onbStep1Card2Body: "Pre-filled MOMS-angivelse PDF — upload to SKAT.dk in 90 seconds.",
+    onbStep1Card2Body: "Pre-filled MOMS-angivelse — the figures ready to enter on SKAT.dk.",
     onbStep1Card3Title: "One-tap to revisor",
     onbStep1Card3Body: "Share a clean export with your accountant.",
     onbStep1Cta: "Get started",
@@ -8656,7 +8656,7 @@ export const en = {
     pricingTimePro: '~12 hours saved every month',
     featProAdds: 'Everything in Starter, plus:',
     featProScheduleAutopilot: 'Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap',
-    featProTaxFilingPdf: "MOMS filing-ready PDF — a pre-filled MOMS-angivelse your revisor can upload to SKAT",
+    featProTaxFilingPdf: "MOMS filing-ready PDF — a pre-filled MOMS-angivelse with the figures for SKAT.dk or your revisor",
     featProLoyalty: 'Customer loyalty signal in the Brief — top regulars who haven\'t been back',
     featProFakturaUnlimited: 'Faktura — unlimited',
     featProMultiTerm: 'Multi-terminal close — merge Z-reports from every POS into one PDF',
