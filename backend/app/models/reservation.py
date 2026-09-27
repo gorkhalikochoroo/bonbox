@@ -79,6 +79,11 @@ class Reservation(Base):
     guest_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     guest_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     guest_consent_marketing: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The language the guest booked in ("da" | "en"), sent by the public page.
+    # Every email to the guest is written in it (services/reservation_emails.py).
+    # NULL = not sent (older page, owner-typed booking) → the venue's default
+    # language. A language preference, not an identifier: kept after the purge.
+    guest_lang: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     # ── The booking ────────────────────────────────────────────────────
     party_size: Mapped[int] = mapped_column(Integer, nullable=False, default=2)

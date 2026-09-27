@@ -6,7 +6,8 @@ expose a per-vertical tag set plus an always-present free-text + "other".
 
 Tag keys are stable, locale-independent identifiers (stored on
 Reservation.allergen_tags). Human labels are resolved in the frontend
-i18n layer (en + da), so we keep only the keys + English fallback here.
+i18n layer (en + da); the only server-side labels are `allergen_label`'s,
+for the emails the server writes.
 
 GDPR: these tags, once attached to a named guest, are Art. 9 health data.
 The reservation layer is responsible for retention-bounding them — this
@@ -75,6 +76,48 @@ _VERTICAL_SETS: dict[str, list[dict]] = {
     "wellness": MEDICAL_ALLERGENS,
     "dental": MEDICAL_ALLERGENS,
 }
+
+
+# Labels for text the SERVER writes (guest + owner emails). The app resolves
+# its own labels in frontend i18n (allergen_<key>); these mirror
+# frontend/src/i18n/{da,en}.js so an email names an allergen exactly as the
+# booking form did. A key missing here falls back to the key itself.
+_LABELS: dict[str, dict[str, str]] = {
+    "da": {
+        "gluten": "Gluten (korn)", "crustaceans": "Krebsdyr", "eggs": "Æg",
+        "fish": "Fisk", "peanuts": "Jordnødder", "soybeans": "Soja",
+        "milk": "Mælk (inkl. laktose)", "nuts": "Trænødder", "celery": "Selleri",
+        "mustard": "Sennep", "sesame": "Sesam", "sulphites": "Sulfitter",
+        "lupin": "Lupin", "molluscs": "Bløddyr",
+        "ppd_hair_dye": "PPD / hårfarve", "ammonia": "Ammoniak / blegemiddel",
+        "latex": "Latex", "fragrance": "Parfume / duftstoffer", "nickel": "Nikkel",
+        "acrylates": "Akrylater (gel / akrylnegle)", "formaldehyde": "Formaldehyd",
+        "penicillin": "Penicillin / antibiotika", "local_anaesthetic": "Lokalbedøvelse",
+        "nsaids": "NSAID (f.eks. ibuprofen)", "iodine": "Jod / kontrast",
+        "adhesives": "Klæbemidler / plastre",
+    },
+    "en": {
+        "gluten": "Gluten (cereals)", "crustaceans": "Crustaceans", "eggs": "Eggs",
+        "fish": "Fish", "peanuts": "Peanuts", "soybeans": "Soybeans",
+        "milk": "Milk (incl. lactose)", "nuts": "Tree nuts", "celery": "Celery",
+        "mustard": "Mustard", "sesame": "Sesame", "sulphites": "Sulphites",
+        "lupin": "Lupin", "molluscs": "Molluscs",
+        "ppd_hair_dye": "PPD / hair dye", "ammonia": "Ammonia / bleach",
+        "latex": "Latex", "fragrance": "Fragrance / perfume", "nickel": "Nickel",
+        "acrylates": "Acrylates (gel / acrylic nails)", "formaldehyde": "Formaldehyde",
+        "penicillin": "Penicillin / antibiotics", "local_anaesthetic": "Local anaesthetic",
+        "nsaids": "NSAIDs (e.g. ibuprofen)", "iodine": "Iodine / contrast",
+        "adhesives": "Adhesives / plasters",
+    },
+}
+
+
+def allergen_label(key: str, lang: str = "en") -> str:
+    """Human label for a tag key in "da" or "en" (anything else → English).
+    Unknown keys come back unchanged — the caller escapes the result."""
+    labels = _LABELS.get(lang) or _LABELS["en"]
+    k = (key or "").strip().lower()
+    return labels.get(k) or _LABELS["en"].get(k) or (key or "")
 
 
 def allergen_set_for(business_type: str | None) -> list[dict]:

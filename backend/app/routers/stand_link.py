@@ -36,7 +36,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from app.utils.client_ip import client_ip
@@ -541,13 +541,16 @@ def stand_update_status(
     reservation_id: UUID,
     payload: R.StatusUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    """Seat / no-show / complete — the core of working a service."""
+    """Seat / no-show / complete — the core of working a service. A cancel or
+    an accepted request made here is the venue's decision like any other, so
+    the guest is told exactly as from the owner app (after the response)."""
     _, user = _bind(db, token)
     return R.update_status(
         reservation_id=reservation_id, payload=payload, request=request,
-        db=db, user=user,
+        background_tasks=background_tasks, db=db, user=user,
     )
 
 
@@ -569,12 +572,14 @@ def stand_edit_booking(
     reservation_id: UUID,
     payload: R.ReservationEdit,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Guest details, party size, time — and the allergy the guest just told
-    the host about, which is why the stand's urgent chime exists."""
+    the host about, which is why the stand's urgent chime exists. A real move
+    of the time emails the guest, as from the owner app."""
     _, user = _bind(db, token)
     return R.edit_reservation(
         reservation_id=reservation_id, payload=payload, request=request,
-        db=db, user=user,
+        background_tasks=background_tasks, db=db, user=user,
     )

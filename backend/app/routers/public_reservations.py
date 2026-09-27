@@ -33,7 +33,6 @@ from app.utils.client_ip import client_ip
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.config import settings as app_config  # `settings` is a local dict in handlers
 from app.database import SessionLocal, get_db
 from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
@@ -41,12 +40,13 @@ from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.staff import StaffMember
 from app.models.user import User
-from app.services.mailbox import count_same_mailbox
 from app.services import audit_service, reservation_service as rsvc
+from app.services import reservation_emails
 from app.services import reservation_occupancy_service as occ_service
 from app.services.allergens import allergen_set_for, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
 from app.services.logo_service import logo_signed_url
+from app.services.owner_language import venue_language
 from app.services.qr_signer import sign_booking_token, verify_booking_token
 from app.utils.time import utc_now
 
@@ -140,6 +140,16 @@ class PublicReservationCreate(BaseModel):
     # provider auto-assigned).
     behandling_id: str | None = Field(default=None, max_length=64)
     stylist_id: str | None = Field(default=None, max_length=64)
+    # The language the guest is booking in — every email to them is written in
+    # it. Only "da" / "en" are kept ("en-GB" → "en"); anything else, or a
+    # non-string, becomes None (→ the venue's default language) rather than a
+    # 422, so a client sending junk still books. Older clients omit it.
+    lang: str | None = None
+
+    @field_validator("lang", mode="before")
+    @classmethod
+    def _clean_lang(cls, v):
+        return reservation_emails.normalize_lang(v)
 
 
 def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
@@ -277,25 +287,6 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         {"id": str(r.id), "name": (staff_name or r.label or "Behandler")}
         for r, staff_name in _provider_rows
     ]
-    # Best-effort venue UI language so a DK restaurant shows Danish to any
-    # visitor by default (the guest can still switch). ONLY a genuine DK signal
-    # picks "da": profile.country == "DK", OR (when country is blank) an actual
-    # Danish-realm timezone — Copenhagen, the Faroe Islands, or Greenland.
-    # A broad "any Europe/* → da" would wrongly default a German or French venue
-    # to Danish, so we no longer do that; everything non-DK falls back to "en".
-    # Tax / receipt / DK-terminology strings are unaffected (they stay Danish
-    # regardless per the terminology lock); this only sets the default UI chrome
-    # language on the public page.
-    _DK_TIMEZONES = {
-        "Europe/Copenhagen",   # Denmark
-        "Atlantic/Faroe",      # Faroe Islands (DK realm)
-        "America/Nuuk",        # Greenland (DK realm, current IANA id)
-        "America/Godthab",     # Greenland (legacy IANA alias)
-    }
-    _country = (getattr(profile, "country", None) or "").strip().upper()
-    _tz = (getattr(owner, "timezone", None) or "").strip()
-    _is_dk_venue = _country == "DK" or (not _country and _tz in _DK_TIMEZONES)
-    venue_language = "da" if _is_dk_venue else "en"
     return {
         # Consumer-facing venue name: prefer the owner's editable trading name
         # (Profile → business_name — what they manage and expect guests to see),
@@ -330,8 +321,10 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "guest_can_pick_table": bool(settings.get("guest_can_pick_table")),
         "max_advance_days": settings.get("max_advance_days"),
         "lead_time_min": settings.get("lead_time_min"),
-        # Best-effort default UI language for this venue's public page (see above).
-        "language": venue_language,
+        # Best-effort default UI language for this venue's public page — Danish
+        # only on a genuine DK signal (owner_language.venue_language). The
+        # guest can still switch; guest emails fall back to the same language.
+        "language": venue_language(profile, owner),
     }
 
 
@@ -574,190 +567,58 @@ def provider_availability(request: Request, slug: str = Path(...),
     }
 
 
-def _guest_cancel_url(profile: BusinessProfile, r: Reservation) -> str | None:
-    """Booking-lifetime signed self-cancel deep-link for guest messages.
+# ── Booking email (services/reservation_emails.py owns every template) ──────
+# The names below are kept as thin aliases/wrappers: the jobs and the tests
+# reach them here, and the wiring reads better at the call sites.
 
-    TTL = hours-until-start + 48h grace (min 24h) so a confirmation sent
-    days ahead never expires before the guest can use it. Returns None if
-    unbuildable — the link is a nice-to-have, never a hard dependency of a
-    send. The URL carries a server-minted booking-poll token; the visitor
-    SPA seeds it into the existing token-cancel flow (no new route)."""
-    try:
-        slug = getattr(profile, "reservation_slug", None)
-        if not slug:
-            return None
-        from app.services.daily_brief_email import _app_base_url
-        ttl = 24
-        if r.starts_at:
-            delta_h = (r.starts_at - datetime.now()).total_seconds() / 3600.0
-            ttl = max(24, int(delta_h) + 48)
-        token = sign_booking_token(str(r.id), ttl_hours=ttl)
-        return f"{_app_base_url()}/r/{slug}?booking={r.id}&token={token}"
-    except Exception:  # noqa: BLE001 — never block a send
-        return None
+# Booking-lifetime signed self-cancel link for guest messages.
+_guest_cancel_url = reservation_emails.guest_cancel_url
 
-
-# Confirmations one venue may send to one address per day. A guest who
-# books, cancels and rebooks is normal and must not be throttled into
-# silence; a script pointing the venue's confirmation at a stranger is
-# not. Three covers both.
-_CONFIRMATIONS_PER_ADDRESS_PER_DAY = 3
-
-
-def _confirmation_quota_left(db: Session, owner_id, email: str) -> bool:
-    """Has this venue already mailed this address enough for one day?
-
-    Without a bound, the public booking form is an open relay: anyone can
-    make BonBox send branded mail to any address, from our sending domain,
-    reply-to the venue, at the public rate limit. That is a deliverability
-    risk to every other owner on the platform, not just this one.
-
-    Counted from reservations rather than a new table — confirmation_sent_at
-    is already stamped on every send, so the ledger exists.
-
-    Counted by MAILBOX, not by spelling (services/mailbox.py): matching the
-    typed address let "anna+1@…", "anna+2@…" and "a.nna@gmail.com" each
-    start a fresh quota while every one of them lands in the same inbox.
-    One venue's confirmations over a day are a handful of rows, so they are
-    folded in Python rather than in SQL — no new column, no migration.
-    """
-    since = utc_now() - timedelta(days=1)
-    sent_to = (
-        db.query(Reservation.guest_email)
-        .filter(Reservation.user_id == owner_id,
-                Reservation.guest_email.isnot(None),
-                Reservation.confirmation_sent_at.isnot(None),
-                Reservation.confirmation_sent_at >= since)
-        .all()
-    )
-    n = count_same_mailbox((a for (a,) in sent_to), email)
-    return n < _CONFIRMATIONS_PER_ADDRESS_PER_DAY
+# Confirmations one venue may send to one address per day — see
+# reservation_emails.confirmation_quota_left for why this bound exists.
+_CONFIRMATIONS_PER_ADDRESS_PER_DAY = reservation_emails.CONFIRMATIONS_PER_ADDRESS_PER_DAY
+_confirmation_quota_left = reservation_emails.confirmation_quota_left
 
 
 def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation,
-                       db: Session | None = None) -> None:
-    """Best-effort confirmation email — never blocks the booking."""
-    if not r.guest_email:
-        return
-    # Skip silently: the BOOKING is real and already committed, and the
-    # guest sees the reference on screen. A relay attempt must not turn
-    # into an error the real guest sees.
-    if db is not None and not _confirmation_quota_left(db, r.user_id, r.guest_email):
-        logger.warning(
-            "confirmation suppressed: per-address daily cap reached (owner=%s)",
-            r.user_id,
-        )
-        return
+                       db: Session | None = None) -> bool:
+    """Guest confirmation ("request received" for a group request), in the
+    guest's language. Never blocks the booking; returns True only when the
+    email was delivered, and only then stamps confirmation_sent_at — the
+    per-address cap counts those stamps, so a failed send must not claim one."""
     try:
-        from app.services.email_service import send_email
-        biz = getattr(owner, "business_name", None) or getattr(profile, "company_name", None) or "BonBox"
-        when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
-        # Guest-supplied free-text is interpolated into email HTML — escape it
-        # so a name/note like "<img src=x onerror=…>" can't inject markup into
-        # the guest's confirmation OR (worse) the owner's inbox.
-        import html as _html
-        g_name = _html.escape(r.guest_name or "")
-        g_note = _html.escape(r.allergy_note or "")
-        allergy_line = ""
-        if r.allergen_tags or r.allergy_note:
-            tags = _html.escape(", ".join(r.allergen_tags or []))
-            allergy_line = f"<p><strong>Allergi noteret:</strong> {tags} {g_note}</p>"
-        status_line = (
-            "Vi har modtaget din forespørgsel og vender tilbage."
-            if r.status == "requested"
-            else "Din reservation er bekræftet."
-        )
-        # Self-cancel deep-link (server-minted URL, no guest input → no escape
-        # needed). Lets the guest free the table with one tap so it can go to
-        # another guest. Mutates the string inside the EXISTING send below —
-        # no new send is introduced.
-        cancel_url = _guest_cancel_url(profile, r)
-        cancel_line = (
-            f'<p style="margin-top:16px">Kan du ikke komme? '
-            f'<a href="{cancel_url}">Aflys din reservation her</a>, '
-            f'så en anden gæst kan få bordet.</p>'
-            if cancel_url else ""
-        )
-        html = (
-            f"<p>Hej {g_name},</p><p>{status_line}</p>"
-            f"<p><strong>{biz}</strong><br>{when} · {r.party_size} personer</p>"
-            f"{allergy_line}"
-            f"{cancel_line}"
-            f"<p>Vi glæder os til at se dig.</p>"
-        )
-        send_email(
-            to=r.guest_email,
-            subject=f"{biz} — reservation {when}",
-            html=html,
-            reply_to=getattr(owner, "email", None),
-        )
-        r.confirmation_sent_at = utc_now()
+        return reservation_emails.send_guest_confirmation(db, owner, profile, r)
     except Exception as exc:  # noqa: BLE001 — best-effort
-        logger.warning("reservation confirmation email failed: %s", exc)
+        logger.warning("reservation confirmation email failed: %s", type(exc).__name__)
+        return False
 
 
-def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -> None:
-    """Best-effort email to the OWNER when a guest books via /r/<slug>.
-
-    This is the dependable companion to the device push (which only fires
-    when the owner has actually enabled notifications + has a subscription).
-    Email always lands, so the owner never misses a booking. Carries the
-    guest's contact details so the owner can call back. Never blocks the
-    booking. Danish (the owner's operational language, like the push)."""
-    owner_email = getattr(owner, "email", None)
-    if not owner_email:
-        return
+def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation,
+                        db: Session | None = None) -> bool:
+    """Owner email for a new online booking, in the owner's language — the
+    dependable companion to the device push (which only lands when the owner
+    enabled notifications). Carries the guest's contact so the owner can call
+    back; replying goes to the guest. Never blocks the booking."""
     try:
-        from app.services.email_service import send_email
-        biz = getattr(owner, "business_name", None) or getattr(profile, "company_name", None) or "BonBox"
-        when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
-        is_request = r.status == "requested"
-        head = "Ny forespørgsel" if is_request else "Ny reservation"
-        # Escape all guest-supplied free-text before it enters the owner's
-        # inbox HTML — a crafted name/note is otherwise stored HTML injection
-        # against the (trusted) owner. Sanitized tag keys are escaped too.
-        import html as _html
-        contact_bits = []
-        if r.guest_phone:
-            contact_bits.append(f"Tlf: {_html.escape(r.guest_phone)}")
-        if r.guest_email:
-            contact_bits.append(f"E-mail: {_html.escape(r.guest_email)}")
-        contact_line = " · ".join(contact_bits) or "Ingen kontaktinfo opgivet"
-        notes_line = (
-            f"<p><strong>Besked:</strong> {_html.escape(r.guest_notes)}</p>"
-            if r.guest_notes else ""
-        )
-        allergy_line = ""
-        if r.allergen_tags or r.allergy_note:
-            tags = _html.escape(", ".join(r.allergen_tags or []))
-            allergy_line = f"<p><strong>Allergi:</strong> {tags} {_html.escape(r.allergy_note or '')}</p>"
-        # Deep link straight to this booking (the ?booking= consumer opens the
-        # drawer on the right day; dead links get an honest note). One tap from
-        # the email to Confirm, instead of "open the app and find it".
-        _day = r.starts_at.date().isoformat() if r.starts_at else ""
-        booking_url = (
-            f"{app_config.FRONTEND_URL.rstrip('/')}/reservations?booking={r.id}"
-            + (f"&date={_day}" if _day else "")
-        )
-        cta_text = "Åbn og bekræft" if is_request else "Åbn reservationen"
-        html = (
-            f"<p><strong>{head} via din bookingside</strong></p>"
-            f"<p><strong>{_html.escape(r.guest_name or 'Gæst')}</strong> · {r.party_size} personer<br>"
-            f"{when}<br>{contact_line}</p>"
-            f"{notes_line}{allergy_line}"
-            f'<p><a href="{booking_url}" style="display:inline-block;background:#111827;'
-            f'color:#ffffff;padding:10px 18px;border-radius:10px;text-decoration:none;'
-            f'font-weight:600">{cta_text}</a></p>'
-        )
-        send_email(
-            to=owner_email,
-            subject=f"{biz} — {head.lower()}: {r.party_size} pers · {when}",
-            html=html,
-            # Replying goes straight to the guest when they left an email.
-            reply_to=r.guest_email or None,
-        )
+        return reservation_emails.send_owner_new_booking(db, owner, profile, r)
     except Exception as exc:  # noqa: BLE001 — best-effort
-        logger.warning("owner reservation email failed: %s", exc)
+        logger.warning("owner reservation email failed: %s", type(exc).__name__)
+        return False
+
+
+def _load_for_notify(db: Session, reservation_id: str, owner_id: str):
+    r = (
+        db.query(Reservation)
+        .filter(Reservation.id == reservation_id, Reservation.user_id == owner_id)
+        .first()
+    )
+    owner = db.query(User).filter(User.id == owner_id).first()
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == owner_id)
+        .first()
+    )
+    return r, owner, profile
 
 
 def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
@@ -769,33 +630,26 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
     objects on commit — so the request's ``r``/``owner``/``profile`` can't be
     reused here. Reloading by id is cheap and correct.
 
-    This is the scale win: a slow email/push provider (≈0.3–2s of network I/O)
-    no longer holds a pooled DB connection or delays the guest's response — the
-    booking commits and returns in milliseconds, and this runs after. Each send
-    is individually best-effort; one failing never affects the booking or the
-    others. ``_send_confirmation`` re-stamps ``confirmation_sent_at`` here, which
-    this task's commit persists."""
+    This is the scale win: a slow email/push provider (≈0.3–2s of network I/O,
+    plus one retry on failure) no longer holds a pooled DB connection or delays
+    the guest's response — the booking commits and returns in milliseconds, and
+    this runs after. Each send is individually best-effort; one failing never
+    affects the booking or the others. Committed after each step so a later
+    failure cannot roll back an earlier send's stamp or log row."""
     db = SessionLocal()
     try:
-        r = db.query(Reservation).filter(Reservation.id == reservation_id).first()
-        if r is None:
+        r, owner, profile = _load_for_notify(db, reservation_id, owner_id)
+        if r is None or owner is None or profile is None:
             return
-        owner = db.query(User).filter(User.id == owner_id).first()
-        profile = (
-            db.query(BusinessProfile)
-            .filter(BusinessProfile.user_id == owner_id)
-            .first()
-        )
-        if owner is None or profile is None:
-            return
-        _send_confirmation(owner, profile, r, db)      # guest email (+ sent stamp)
+        _send_confirmation(owner, profile, r, db)       # guest email (+ stamp on delivery)
+        db.commit()
         try:
             from app.services.notification_service import notify_owner_new_reservation
             notify_owner_new_reservation(db, owner, r)  # owner device push
         except Exception as exc:  # noqa: BLE001
             logger.warning("owner reservation notify failed: %s", exc)
-        _notify_owner_email(owner, profile, r)          # owner email fallback
-        db.commit()                                     # persist sent stamp + push writes
+        _notify_owner_email(owner, profile, r, db)       # owner email
+        db.commit()
     except Exception:  # noqa: BLE001 — never let a notification break anything
         logger.exception("booking notifications task failed")
         db.rollback()
@@ -803,8 +657,75 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
         db.close()
 
 
+def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
+                                     was_request: bool = False) -> None:
+    """After a guest cancels online: tell the guest it worked, email the owner,
+    and ping the owner's devices (freed-table nudge when a waiting party fits).
+
+    Same shape as _send_booking_notifications — OFF the request path, fresh
+    session, every step best-effort: a notification failure must never turn a
+    successful self-cancel into an error for the guest."""
+    db = SessionLocal()
+    try:
+        r, owner, profile = _load_for_notify(db, reservation_id, owner_id)
+        if r is None or owner is None:
+            return
+        # 1. Guest — "your booking is cancelled" (only to a guest we already
+        #    mailed about this booking; see send_guest_cancelled_by_guest).
+        try:
+            reservation_emails.send_guest_cancelled_by_guest(
+                db, owner, profile, r, was_request=was_request)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("guest cancel email failed: %s", type(exc).__name__)
+        db.commit()
+
+        # 2. Owner devices. Prefer the freed-table nudge when a waiting party
+        #    actually FITS the just-freed table: one owner push ("Bord frigivet
+        #    — Navn (N) passer") deep-linking into the Venteliste so the host
+        #    stand can re-offer the seat. Push ONLY — no waiting guest is
+        #    messaged here. If no waiting party fits, fall back to the plain
+        #    cancel ping (create-path template, cancelled=True).
+        try:
+            from app.routers.reservations import _waitlist_matches, _local_date_of
+            from app.services.sms_service import sms_configured
+            matches = []
+            try:
+                matches = _waitlist_matches(
+                    db, owner,
+                    waitlist_date=_local_date_of(r.starts_at, owner),
+                    capacity=int(r.party_size or 0),
+                )
+            except Exception:  # noqa: BLE001
+                matches = []
+            if matches:
+                from app.services.notification_service import notify_owner_freed_table
+                notify_owner_freed_table(
+                    db, owner, r, matches[0],
+                    sms_available=(has_feature(owner, "sms_reminders") and sms_configured()),
+                )
+            else:
+                from app.services.notification_service import notify_owner_new_reservation
+                notify_owner_new_reservation(db, owner, r, cancelled=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("owner reservation cancel notify failed: %s", exc)
+
+        # 3. Owner email — the one that lands even without push enabled.
+        try:
+            reservation_emails.send_owner_guest_cancelled(
+                db, owner, profile, r, was_request=was_request)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("owner cancel email failed: %s", type(exc).__name__)
+        db.commit()
+    except Exception:  # noqa: BLE001 — never let a notification break anything
+        logger.exception("guest cancel notifications task failed")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _create_public_provider_booking(db: Session, owner: User, profile, payload,
-                                    start, settings, idempotency_key):
+                                    start, settings, idempotency_key,
+                                    background_tasks: BackgroundTasks | None = None):
     """Public SALON booking (S3a) — books a PROVIDER for a behandling.
 
     In its own function so create_reservation's table flow is untouched.
@@ -860,6 +781,7 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         guest_name=payload.guest_name, guest_email=payload.guest_email,
         guest_phone=payload.guest_phone,
         guest_consent_marketing=payload.consent_marketing,
+        guest_lang=payload.lang,
         party_size=1,
         starts_at=start, ends_at=start + timedelta(minutes=duration),
         duration_min=duration, service_name=service_name,
@@ -887,15 +809,15 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         err = "stylist_unavailable" if payload.stylist_id else "slot_unavailable"
         raise HTTPException(status_code=409, detail={"error": err})
 
-    _send_confirmation(owner, profile, r, db)
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     db.commit()
-    try:
-        from app.services.notification_service import notify_owner_new_reservation
-        notify_owner_new_reservation(db, owner, r)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("owner reservation notify failed: %s", exc)
-    _notify_owner_email(owner, profile, r)
+    # Same post-commit notifications as the table path, OFF the request path
+    # (guest confirmation + owner push + owner email). They used to run inline
+    # here, holding the guest's response for every provider round trip.
+    if background_tasks is not None:
+        background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
+    else:  # direct callers without a request — still best-effort, never raises
+        _send_booking_notifications(str(r.id), str(owner.id))
     return {"id": str(r.id), "status": r.status, "booking_token": sign_booking_token(str(r.id))}
 
 
@@ -959,6 +881,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     if payload.behandling_id or payload.stylist_id:
         return _create_public_provider_booking(
             db, owner, profile, payload, start, settings, idempotency_key,
+            background_tasks,
         )
 
     duration = rsvc.resolve_duration(profile, payload.party_size)
@@ -1000,6 +923,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         guest_name=payload.guest_name, guest_email=payload.guest_email,
         guest_phone=payload.guest_phone,
         guest_consent_marketing=payload.consent_marketing,
+        guest_lang=payload.lang,
         party_size=payload.party_size,
         starts_at=start, ends_at=start + timedelta(minutes=duration),
         duration_min=duration,
@@ -1079,7 +1003,8 @@ def poll(request: Request, reservation_id: UUID = Path(...),
 
 @router.post("/booking/{reservation_id}/cancel")
 @_limiter.limit("6/minute")
-def visitor_cancel(request: Request, reservation_id: UUID = Path(...),
+def visitor_cancel(request: Request, background_tasks: BackgroundTasks,
+                   reservation_id: UUID = Path(...),
                    token: str | None = Query(default=None),
                    authorization: str | None = Header(default=None),
                    db: Session = Depends(get_db)):
@@ -1087,6 +1012,7 @@ def visitor_cancel(request: Request, reservation_id: UUID = Path(...),
     r = _verify(raw, reservation_id, db)
     if r.status in ("cancelled", "completed", "no_show"):
         return {"id": str(r.id), "status": r.status}
+    was_request = r.status == "requested"
     r.status = "cancelled"
     r.cancelled_at = utc_now()
     r.cancel_reason = "guest_cancelled"
@@ -1096,45 +1022,12 @@ def visitor_cancel(request: Request, reservation_id: UUID = Path(...),
     audit_service.record(db, r.user_id, "reservation.cancelled_public", "reservation", r.id)
     db.commit()
 
-    # Tell the OWNER a guest just freed a table — same channels the create
-    # path uses (device push + the always-lands email), so the host stand
-    # can re-offer the slot. Runs AFTER the cancel is durably committed and
-    # is strictly best-effort: a notification failure must NEVER turn a
-    # successful self-cancel into an error for the guest.
-    try:
-        owner = db.query(User).filter(User.id == r.user_id).first()
-        if owner is not None:
-            # Prefer the freed-table nudge when a waiting party actually FITS
-            # the just-freed table: one owner push ("Bord frigivet — Navn (N)
-            # passer") deep-linking into the Venteliste so the host stand can
-            # re-offer the seat. Push ONLY — no guest is messaged here.
-            #
-            # If no waiting party fits, fall back to the plain cancel ping
-            # (create-path template, cancelled=True) so the owner still learns
-            # the table freed. Both are strictly best-effort: a notification
-            # failure must NEVER turn a successful self-cancel into an error.
-            from app.routers.reservations import _waitlist_matches, _local_date_of
-            from app.services.sms_service import sms_configured
-            from app.services.billing import has_feature
-            matches = []
-            try:
-                matches = _waitlist_matches(
-                    db, owner,
-                    waitlist_date=_local_date_of(r.starts_at, owner),
-                    capacity=int(r.party_size or 0),
-                )
-            except Exception:  # noqa: BLE001
-                matches = []
-            if matches:
-                from app.services.notification_service import notify_owner_freed_table
-                notify_owner_freed_table(
-                    db, owner, r, matches[0],
-                    sms_available=(has_feature(owner, "sms_reminders") and sms_configured()),
-                )
-            else:
-                from app.services.notification_service import notify_owner_new_reservation
-                notify_owner_new_reservation(db, owner, r, cancelled=True)
-    except Exception as exc:  # noqa: BLE001 — best-effort, never break cancel
-        logger.warning("owner reservation cancel notify failed: %s", exc)
-
+    # Tell everyone, AFTER the cancel is durably committed and OFF the request
+    # path: the guest ("your booking is cancelled"), the owner's devices (the
+    # freed-table nudge / cancel ping) and the owner's inbox — the one channel
+    # that lands for an owner who never enabled push, which is most of them.
+    # Strictly best-effort: a notification failure must NEVER turn a successful
+    # self-cancel into an error for the guest.
+    background_tasks.add_task(_send_guest_cancel_notifications,
+                              str(r.id), str(r.user_id), was_request)
     return {"id": str(r.id), "status": r.status}
