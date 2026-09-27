@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useToast } from "../hooks/useToast";
 import api from "../services/api";
+import { publicUrl } from "../utils/publicUrl";
 import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -927,7 +928,7 @@ function SommelierTab({ currency }) {
    ═══════════════════════════════════════════════════════════ */
 function QRModal({ token, onClose }) {
   const { t } = useLanguage();
-  const menuUrl = `${window.location.origin}${token.url}`;
+  const menuUrl = publicUrl(token.url);
 
   // Simple QR code SVG generation (using Google Charts API for simplicity)
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(menuUrl)}`;

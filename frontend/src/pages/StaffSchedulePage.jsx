@@ -46,6 +46,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { useBranch } from "../components/BranchSelector";
+import { publicUrl } from "../utils/publicUrl";
 import { displayCurrency, formatKr, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { errText } from "../utils/errText";
@@ -2177,7 +2178,7 @@ export default function StaffSchedulePage() {
       const opened = {};
       for (const row of r.data || []) {
         if (row.staff_id && row.portal_url) {
-          map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
+          map[row.staff_id] = publicUrl(row.portal_url);
         }
         if (row.staff_id && row.join_code) codes[row.staff_id] = row.join_code;
         if (row.staff_id) pins[row.staff_id] = !!row.has_pin;
@@ -2252,7 +2253,7 @@ export default function StaffSchedulePage() {
   const mintLinkFor = async (member) => {
     if (shareLinks[member.id]) return shareLinks[member.id];
     const res = await api.post(`/staff/members/${member.id}/link`);
-    const fullUrl = `${window.location.origin}${res.data.portal_url}`;
+    const fullUrl = publicUrl(res.data.portal_url);
     setShareLinks((prev) => ({ ...prev, [member.id]: fullUrl }));
     if (res.data.join_code) {
       setShareCodes((prev) => ({ ...prev, [member.id]: res.data.join_code }));
@@ -4471,8 +4472,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
     setLinkModal({ staffName: member.name, portalUrl: null, loading: true });
     try {
       const res = await api.post(`/staff/members/${member.id}/link`);
-      const origin = window.location.origin;
-      const fullUrl = `${origin}${res.data.portal_url}`;
+      const fullUrl = publicUrl(res.data.portal_url);
       // This endpoint routes through _ensure_join_code, so its join_code is the
       // one value guaranteed live — it re-mints a burned or expired one. The
       // response used to be read for portal_url only and the code thrown away,

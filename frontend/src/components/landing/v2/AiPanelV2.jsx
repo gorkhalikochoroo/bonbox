@@ -1,35 +1,26 @@
 import { Send, Sparkles, TrendingUp, X } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
-import {
-  formatFrist,
-  formatPeriod,
-  nextMomsDeadline,
-} from "../../../utils/nextMomsDeadline";
 
 /**
  * Landing v2 — "BonBox AI" section.
  * Left: eyebrow + h2 + body + four example-prompt chips (mixed DA/EN by design).
  * Right: a static mock of the copilot chat panel (max 400px).
  *
- * Fix-list #5 applied: the MOMS figure is 88.777 kr. everywhere (the design's
- * 41.061 kr. contradicted the dashboard and the ~17.800 kr./week pace).
- * The panel is a picture of a conversation, so its glyph controls are
- * decorative (aria-hidden) rather than focusable no-op buttons.
+ * Every question on this panel is one the copilot can actually answer with
+ * its tools (revenue, expenses, inventory, waste, credit, cash book, overview,
+ * staff, suggestions). It used to feature "how much MOMS do I owe?" ending in
+ * "shall I add it as a reminder?" — the copilot has no MOMS tool and cannot set
+ * reminders. The panel is a picture of a conversation, so its glyph controls
+ * are decorative (aria-hidden) rather than focusable no-op buttons.
  */
 export default function AiPanelV2() {
-  const { t, lang } = useLanguage();
-
-  // Same computed frist the hero card uses. These two surfaces sit on one
-  // scroll and both quoted the deadline from frozen copy — so when it aged,
-  // it aged in two places, and a reader comparing them would have seen the
-  // product disagree with itself as well as with the calendar.
-  const moms = nextMomsDeadline();
+  const { t } = useLanguage();
 
   const chips = [
-    t("landingV2.ai.chip1", "Hvor meget skylder jeg i MOMS?"),
-    t("landingV2.ai.chip2", "Which expenses have no bilag?"),
+    t("landingV2.ai.chip1", "Hvordan gik sidste uge?"),
+    t("landingV2.ai.chip2", "What did we spend on stock this month?"),
     t("landingV2.ai.chip3", "Hvad spildte vi sidste uge?"),
-    t("landingV2.ai.chip4", "Who's on overtime?"),
+    t("landingV2.ai.chip4", "Who's working this weekend?"),
   ];
 
   return (
@@ -122,42 +113,36 @@ export default function AiPanelV2() {
 
                 <div className="flex justify-end">
                   <p className="max-w-[80%] rounded-[14px] bg-bb-green px-[15px] py-[11px] text-[14px] font-medium text-white">
-                    {t("landingV2.ai.question", "Hvor meget skylder jeg i MOMS?")}
+                    {t("landingV2.ai.question", "How did last week go?")}
                   </p>
                 </div>
 
                 <p className="rounded-[14px] bg-chat-bubble px-[15px] py-[14px] text-[14px] leading-[1.5] text-slate-300">
-                  {t("landingV2.ai.answerPre", "About ")}
+                  {t("landingV2.ai.answerPre", "Revenue came to ")}
                   <strong className="font-semibold text-slate-50">
-                    {t("landingV2.ai.answerAmount", "88.777 kr.")}
+                    {t("landingV2.ai.answerAmount", "62.480 kr.")}
                   </strong>
-                  {(t("landingV2.ai.answerMid", " for {period}, due ") || "")
-                    .replace("{period}", formatPeriod(moms, lang))}
-                  <strong className="font-semibold text-slate-50">
-                    {(t("landingV2.ai.answerDue", "{frist}") || "")
-                      .replace("{frist}", formatFrist(moms.date, lang))}
-                  </strong>
-                  {(t(
+                  {t(
                     "landingV2.ai.answerPost",
-                    " — {days} days out. At this pace you'd want to set aside ~17.800 kr. a week. Shall I add it as a reminder?"
-                  ) || "").replace("{days}", String(moms.daysUntil))}
+                    " — 6% up on the week before. Friday was the best day, and waste fell to 1.2% of purchases.",
+                  )}
                 </p>
 
                 {/* Inline metric card */}
                 <div className="flex items-center justify-between gap-3 rounded-[14px] bg-white px-[15px] py-[14px]">
                   <div>
                     <div className="mb-1 text-[12px] min-[1041px]:text-[10.5px] font-semibold uppercase tracking-[0.13em] text-slate-400">
-                      {t("landingV2.ai.metricLabel", "MOMS payable")}
+                      {t("landingV2.ai.metricLabel", "Revenue last week")}
                     </div>
                     <div className="font-display text-[24px] font-bold tracking-[-0.02em] text-slate-900">
-                      {t("landingV2.ai.metricValue", "88.777")}
+                      {t("landingV2.ai.metricValue", "62.480")}
                       <span className="text-[13px] font-medium text-slate-500">
                         {" "}
                         {t("landingV2.ai.metricUnit", "kr.")}
                       </span>
                     </div>
                     <div className="mt-0.5 text-[12px] text-slate-500">
-                      {t("landingV2.ai.metricSub", "to SKAT · H1 2026")}
+                      {t("landingV2.ai.metricSub", "+6% on the week before")}
                     </div>
                   </div>
 

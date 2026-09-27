@@ -6969,6 +6969,25 @@ function SettingsSection({ t }) {
           </p>
         </div>
 
+        {/* No hours saved yet: the editor below shows SUGGESTED hours, and the
+            booking page offers no times until real ones are saved. It used to
+            show 11–22 every day as if the owner had set them — and the page
+            went live on those invented hours. */}
+        {data?.hours_declared === false && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+            <span>
+              {t(
+                "rsvpHoursNotSet",
+                "Not saved yet — these are suggestions. Until you save your opening hours, guests see no times to book.",
+              )}
+            </span>
+          </div>
+        )}
+
         <WeekHoursEditor
           t={t}
           hours={hours}

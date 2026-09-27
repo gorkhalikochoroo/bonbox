@@ -71,6 +71,7 @@ import FilterBar from "../components/ui/FilterBar";
 import Card from "../components/ui/Card";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import GavekortPrintModal from "../components/GavekortPrintModal";
+import { publicUrl as shareableUrl } from "../utils/publicUrl";
 import { formatKr, isMoneyRejected, moneyExample, parseMoneyInput } from "../utils/currency";
 import { errText } from "../utils/errText";
 
@@ -693,7 +694,7 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
   // so a customer scanning it with their phone camera lands on the live card —
   // and the same link is what "Kopiér link" shares.
   const publicUrl = qrToken
-    ? `${window.location.origin}/g/${encodeURIComponent(qrToken)}`
+    ? shareableUrl(`/g/${encodeURIComponent(qrToken)}`)
     : "";
 
   const copyLink = async () => {
