@@ -99,6 +99,17 @@ const Input = React.forwardRef(function Input(
   },
   ref,
 ) {
+  // Our own handle on the <input> (the forwarded ref may be a callback or
+  // absent), so a tap on the box around it can focus it.
+  const inputRef = React.useRef(null);
+  const setRefs = React.useCallback(
+    (node) => {
+      inputRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
   const isInvalid = invalid || !!error;
   const hasDecoration = !!prefix || !!suffix;
 
@@ -109,12 +120,13 @@ const Input = React.forwardRef(function Input(
     (disabled ? " " + DISABLED_WRAPPER : "") +
     (className ? " " + className : "");
 
-  // The bare <input> — chrome-less when wrapped, otherwise inherits the
-  // wrapper's classes by virtue of being the whole element. Either way
-  // it stays focusable; the wrapper renders the visual border via
-  // `focus-within` so click-anywhere-in-the-row still focuses the input.
+  // The bare <input> — chrome-less inside the wrapper, which draws the border
+  // via `focus-within`. It stretches to the wrapper's full height, and a tap
+  // on the wrapper's padding or on a prefix/suffix focuses it (onClick
+  // below): the input used to be ~24px tall inside a 48px box, so the top
+  // and bottom of every field — and its sides — ignored a tap.
   const inputClasses =
-    "flex-1 min-w-0 bg-transparent outline-none border-0 p-0 " +
+    "flex-1 self-stretch min-w-0 bg-transparent outline-none border-0 p-0 " +
     "text-gray-900 dark:text-gray-100 " +
     "placeholder-gray-400 dark:placeholder-gray-500 " +
     "disabled:cursor-not-allowed";
@@ -129,7 +141,14 @@ const Input = React.forwardRef(function Input(
 
   return (
     <div className="w-full">
-      <div className={wrapperClasses}>
+      <div
+        className={wrapperClasses}
+        onClick={(e) => {
+          if (disabled) return;
+          if (e.target.closest?.("input, textarea, select, button, a")) return;
+          inputRef.current?.focus();
+        }}
+      >
         {prefix && (
           <span
             className="shrink-0 inline-flex items-center text-gray-500 dark:text-gray-400"
@@ -139,7 +158,7 @@ const Input = React.forwardRef(function Input(
           </span>
         )}
         <input
-          ref={ref}
+          ref={setRefs}
           type={type}
           id={id}
           disabled={disabled}
