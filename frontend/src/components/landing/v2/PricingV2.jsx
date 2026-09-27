@@ -238,7 +238,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.starter.f5",
-                  "Schedule autopilot — forecast, weather and DK labour law"
+                  "Schedule autopilot — forecast, weather and the 11-hour rest rule"
                 )}
               </Feature>
               <Feature>
