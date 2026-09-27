@@ -71,7 +71,19 @@ function WithGoogleAuth({ children }) {
  */
 function GuestPage({ children }) {
   useLayoutEffect(() => markGuestSurface(), []);
-  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
+  // A quiet, language-free spinner — the app's own loader says "Loading…" in
+  // English on a Danish restaurant's page.
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-950">
+          <div className="w-6 h-6 rounded-full border-2 border-gray-200 border-t-gray-500 animate-spin" aria-hidden="true" />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
 }
 
 // Loading spinner for lazy-loaded pages

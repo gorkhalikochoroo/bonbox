@@ -15,6 +15,12 @@ export function useKeyboardInset() {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv) return undefined;
     const sync = () => {
+      // Pinch-zoom shrinks the visual viewport too — that is not a keyboard,
+      // and lifting the bar mid-screen while zoomed would be absurd.
+      if (vv.scale && vv.scale > 1.01) {
+        setInset(0);
+        return;
+      }
       const hidden = window.innerHeight - vv.height - vv.offsetTop;
       setInset(hidden > 80 ? Math.round(hidden) : 0);
     };

@@ -71,7 +71,7 @@ const VARIANTS = {
   main:
     "bg-bb-green-dark text-white hover:bg-bb-green-deep " +
     "disabled:bg-gray-200 disabled:text-gray-600 " +
-    "dark:disabled:bg-gray-800 dark:disabled:text-gray-400 " +
+    "dark:disabled:bg-gray-700 dark:disabled:text-gray-300 " +
     "disabled:aria-busy:bg-bb-green-dark disabled:aria-busy:text-white " +
     "focus-visible:ring-bb-green-dark",
   accent:

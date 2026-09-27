@@ -168,7 +168,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
               className={
                 "relative flex-1 h-9 rounded-lg text-[13px] font-semibold transition-colors duration-200 ease-out " +
                 (g.key === active
-                  ? "bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-gray-100"
+                  ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
                   : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200")
               }
             >
@@ -214,7 +214,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
                 <span
                   className={
                     "block text-[10px] leading-none h-3 mt-1 font-medium " +
-                    (slot === s ? "text-white/80" : "text-bb-green-dark")
+                    (slot === s ? "text-white/80 dark:text-gray-900/70" : "text-bb-green-dark dark:text-emerald-400")
                   }
                 >
                   {note}
@@ -251,14 +251,9 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
   useEffect(() => {
     const prev = shown.current;
     shown.current = value || "";
-    if (!prev || !value || prev === value) return;
-    const railEl = railRef.current;
-    const chip = refs.current[value];
-    if (!railEl || !chip || railEl.scrollWidth <= railEl.clientWidth) return;
-    const left = chip.offsetLeft;
-    const right = left + chip.offsetWidth;
-    if (left >= railEl.scrollLeft && right <= railEl.scrollLeft + railEl.clientWidth) return;
-    railEl.scrollTo?.({ left: Math.max(0, left - 16), behavior: "smooth" });
+    if (!value || prev === value) return;
+    // First value (a ?d= link far along the row): jump; later picks glide.
+    revealInRail(railRef.current, refs.current[value], prev ? "smooth" : "auto");
   }, [value]);
   return (
     // From sm up: two neat weeks of seven instead of a ragged wrap.
@@ -493,6 +488,28 @@ export default function ReservationPublicPage() {
   // keyboard without blurring the field, and a bar tied to focus stayed
   // hidden with no way to confirm.
   const kbInset = useKeyboardInset();
+  // With the keyboard up, the bar rides on it — make sure the field being
+  // typed in is not hidden behind the bar (iOS scrolls it into view against
+  // the keyboard only).
+  const barRef = useRef(null);
+  useEffect(() => {
+    if (!kbInset) return undefined;
+    const keepClear = () => {
+      const el = document.activeElement;
+      const vv = window.visualViewport;
+      if (!el || !vv || !/^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
+      const barH = barRef.current?.getBoundingClientRect().height || 0;
+      const visibleBottom = vv.offsetTop + vv.height - barH - 8;
+      const r = el.getBoundingClientRect();
+      if (r.bottom > visibleBottom) window.scrollBy({ top: r.bottom - visibleBottom, behavior: "smooth" });
+    };
+    const t1 = setTimeout(keepClear, 320);
+    document.addEventListener("focusin", keepClear);
+    return () => {
+      clearTimeout(t1);
+      document.removeEventListener("focusin", keepClear);
+    };
+  }, [kbInset]);
 
 
   // Embedded in an owner's website (iframe, ?embed=1): drop the forced
@@ -823,6 +840,9 @@ export default function ReservationPublicPage() {
           time: tm ? tm.slice(0, 5) : "",
           party: b.party_size || null,
           name: b.guest_name || "",
+          occasion: b.occasion || "",
+          allergenTags: Array.isArray(b.allergen_tags) ? b.allergen_tags : [],
+          allergySeverity: b.allergy_severity || "",
         });
       })
       .catch(() => {
@@ -879,7 +899,7 @@ export default function ReservationPublicPage() {
 
     // Validate the query day is within [today, today+maxAdvance].
     let initialDay = today;
-    if (qDay && /^\d{4}-\d{2}-\d{2}$/.test(qDay)) {
+    if (qDay && /^\d{4}-\d{2}-\d{2}$/.test(qDay) && isoDay(new Date(`${qDay}T00:00:00`)) === qDay) {
       const latest = addDays(today, maxAdvance);
       if (qDay >= today && qDay <= latest) initialDay = qDay;
     }
@@ -1086,6 +1106,14 @@ export default function ReservationPublicPage() {
   );
 
   const fetchedDay = useRef("");
+  const partyRailRef = useRef(null);
+  const partyShown = useRef(0);
+  useEffect(() => {
+    const first = !partyShown.current;
+    partyShown.current = party;
+    const rail = partyRailRef.current;
+    revealInRail(rail, rail?.querySelector('[aria-checked="true"]'), first ? "auto" : "smooth");
+  }, [party]);
   useEffect(() => {
     if (!page || !day) return;
     if (fetchedDay.current !== day) {
@@ -1420,16 +1448,28 @@ export default function ReservationPublicPage() {
     // have to ring the venue to get their evening back. One confirmation
     // is the right price for an irreversible action; the booking flow
     // itself stays one-tap.
-    const sure = await confirm({
-      title: t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
-      message: t(
-        "rsvpCancelConfirmBody",
-        "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
-      ),
-      confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
-      cancelLabel: t("rsvpCancelConfirmNo", "Behold reservationen"),
-      destructive: true,
-    });
+    const isReq = (liveStatus || result?.status) === "requested";
+    const sure = await confirm(
+      isReq
+        ? {
+            // A request holds no table — "the table is freed" was untrue.
+            title: t("rsvpWithdrawConfirmTitle", "Withdraw your request?"),
+            message: t("rsvpWithdrawConfirmBody", "We'll let the venue know. This can't be undone."),
+            confirmLabel: t("rsvpWithdrawConfirmYes", "Yes, withdraw"),
+            cancelLabel: t("rsvpWithdrawConfirmNo", "Keep request"),
+            destructive: true,
+          }
+        : {
+            title: t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
+            message: t(
+              "rsvpCancelConfirmBody",
+              "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
+            ),
+            confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
+            cancelLabel: t("rsvpCancelConfirmNo", "Behold reservationen"),
+            destructive: true,
+          },
+    );
     if (!sure) return;
     const token = bookingToken();
     if (!token) {
@@ -1517,6 +1557,13 @@ export default function ReservationPublicPage() {
     setLinkState(null);
     setSlot("");
     setStep(1);
+    // Keep name and contact (the same guest is rebooking); drop the details
+    // that belong to the old booking — and never carry health data over.
+    setOccasion("");
+    setGuestNotes("");
+    setAllergenTags([]);
+    setAllergySeverity("");
+    setAllergyNote("");
     idempotencyKey.current = null;
     setSearchParams(
       (prev) => {
@@ -1655,20 +1702,26 @@ export default function ReservationPublicPage() {
     }
     // What the kitchen was told, including how serious — the guest's proof
     // that "severe" reached the restaurant.
+    // From the booking itself when the receipt was reopened from a link.
+    const rOccasion = linked ? linked.occasion : occasion.trim();
+    const rTags = linked ? linked.allergenTags : allergenTags;
+    const rSeverity = linked ? linked.allergySeverity : allergySeverity;
     const kitchen = [
-      allergenTags.map((k) => t(`allergen_${k}`, k)).join(", ") || null,
-      allergenTags.length && allergySeverity
-        ? t(`rsvpSeverity_${allergySeverity}`, severityFallback(allergySeverity))
-        : null,
-      allergyNote.trim() || null,
+      rTags.map((k) => t(`allergen_${k}`, k)).join(", ") || null,
+      rTags.length && rSeverity ? t(`rsvpSeverity_${rSeverity}`, severityFallback(rSeverity)) : null,
+      !linked ? allergyNote.trim() || null : null,
     ].filter(Boolean).join(" · ");
     const rows = [
       { k: "when", label: t("rsvpRowWhen", "When"), value: capFirst(fmtDayLabel(rDay, lang)) },
-      rTime && !(isRequest && groupRequest && !linked)
-        ? { k: "time", label: t("rsvpTimeLabel", "Time"), value: rTime }
-        : rTime
-          ? { k: "time", label: t("rsvpRowWishedTime", "Preferred time"), value: rTime }
-          : null,
+      rTime
+        ? {
+            k: "time",
+            // A request's time is the one the guest asked for, until the venue
+            // confirms it — on a reopened receipt too.
+            label: isRequest ? t("rsvpRowWishedTime", "Preferred time") : t("rsvpTimeLabel", "Time"),
+            value: rTime,
+          }
+        : null,
       isProvider
         ? chosenBehandling
           ? { k: "svc", label: t("rsvpColBehandling", "Service"), value: chosenBehandling.name }
@@ -1678,8 +1731,8 @@ export default function ReservationPublicPage() {
         ? { k: "who", label: t("rsvpColBehandler", "Stylist"), value: chosenStylistName || t("rsvpBookValgfri", "Any stylist") }
         : null,
       rName ? { k: "name", label: t("rsvpGuestLabel", "Name"), value: rName } : null,
-      !linked && occasion.trim() ? { k: "occ", label: t("rsvpRowOccasion", "Occasion"), value: occasion.trim() } : null,
-      !linked && kitchen ? { k: "kitchen", label: t("rsvpRowKitchen", "Kitchen"), value: kitchen } : null,
+      rOccasion ? { k: "occ", label: t("rsvpRowOccasion", "Occasion"), value: rOccasion } : null,
+      kitchen ? { k: "kitchen", label: t("rsvpRowKitchen", "Kitchen"), value: kitchen } : null,
       !linked && guestNotes.trim() ? { k: "note", label: t("rsvpRowNote", "Note"), value: guestNotes.trim() } : null,
     ].filter(Boolean);
     const address = venueAddress(page.address, page.city);
@@ -1734,10 +1787,13 @@ export default function ReservationPublicPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {rDay === today
                 ? t("rsvpRequestExpectationToday", "We'll get back to you shortly. To be sure, give us a call.")
-                : t(
-                    "rsvpRequestExpectation",
-                    "Du hører fra os på email inden dagen. Vil du være sikker, så ring til os.",
-                  )}
+                : !linked && !sentEmail
+                  ? // Phone only — never promise an email they will not get.
+                    t("rsvpRequestExpectationPhone", "We'll contact you by phone to confirm. To be sure, give us a call.")
+                  : t(
+                      "rsvpRequestExpectation",
+                      "Du hører fra os på email inden dagen. Vil du være sikker, så ring til os.",
+                    )}
               {page?.phone && (
                 <>
                   {" "}
@@ -1907,7 +1963,9 @@ export default function ReservationPublicPage() {
                 disabled={cancelling}
                 className="w-full text-gray-500! dark:text-gray-400!"
               >
-                {t("rsvpCancelOrChange", "Cancel this booking")}
+                {isRequest
+                  ? t("rsvpWithdrawRequest", "Withdraw request")
+                  : t("rsvpCancelOrChange", "Cancel this booking")}
               </Button>
               {cancelError && (
                 <p role="alert" className="text-xs text-red-600 dark:text-red-400">
@@ -2141,6 +2199,7 @@ export default function ReservationPublicPage() {
                     chip is visibly cut off, which is what tells a thumb there is
                     more to swipe. */}
                 <div
+                  ref={partyRailRef}
                   role="radiogroup"
                   aria-label={t("rsvpPartySize", "Antal gæster")}
                   onKeyDown={rovingKeyDown}
@@ -2228,7 +2287,45 @@ export default function ReservationPublicPage() {
               {/* A later date: the page's own month grid in a sheet. The
                   native date field looked different on every phone and could
                   not show which days the place is closed. */}
-              {showDateInput && (
+              {showDateInput && isEmbed && (
+                // Embedded on the restaurant's own site: the calendar opens in
+                // place. A sheet is fixed to the bottom of the iframe, which is
+                // as tall as the widget — far below what the guest can see.
+                <div className="mt-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                  {/* Padding on an inner box: the sheet sets its own side
+                      padding inline (safe-area insets), which beats a class. */}
+                  <div className="px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className={SECTION_TITLE}>{t("rsvpPickDate", "Vælg dato")}</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDateInput(false)}
+                      aria-label={t("close", "Close")}
+                      className="-mr-2 w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+                    >
+                      <X className="w-5 h-5" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <MonthCalendar
+                    value={day}
+                    min={today}
+                    max={latestDay}
+                    isClosed={(iso) => (dayMap && iso in dayMap ? dayMap[iso] === false : undefined)}
+                    onPick={(iso) => {
+                      setDay(iso);
+                      setShowDateInput(false);
+                    }}
+                    locale={dateLocale(lang)}
+                    labels={{
+                      prev: t("rsvpPrevMonth", "Previous month"),
+                      next: t("rsvpNextMonth", "Next month"),
+                      closed: t("rsvpDayClosed", "lukket"),
+                    }}
+                  />
+                  </div>
+                </div>
+              )}
+              {showDateInput && !isEmbed && (
                 <Sheet
                   onClose={() => setShowDateInput(false)}
                   ariaLabel={t("rsvpPickDate", "Vælg dato")}
@@ -2317,9 +2414,23 @@ export default function ReservationPublicPage() {
                     ))}
                   </div>
               ) : slotsError ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {t("rsvpSlotsError", "Couldn't load times — please try again.")}
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t("rsvpSlotsError", "Couldn't load times — please try again.")}
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="shrink-0"
+                    onClick={() =>
+                      isProvider
+                        ? fetchAvailability(day, party, behandlingId, stylistId)
+                        : fetchAvailability(day, party)
+                    }
+                  >
+                    {t("rsvpRetry", "Try again")}
+                  </Button>
+                </div>
               ) : closedReason === "not_accepting" ? (
                   // The venue is at its monthly ceiling, so NO date works. This
                   // sits above the slotGroups branch on purpose: the branches
@@ -2530,7 +2641,7 @@ export default function ReservationPublicPage() {
                   </span>
                   <span className="block text-gray-500 dark:text-gray-400">
                     {[
-                      !groupRequest && slot ? slot : null,
+                      slot || null,
                       partyLabel(party, t),
                       !groupRequest && selectedTable
                         ? floor.find((x) => String(x.id) === String(selectedTable))?.label || null
@@ -2613,7 +2724,7 @@ export default function ReservationPublicPage() {
                       className={
                         "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors duration-200 ease-out " +
                         (contactMode === m.k
-                          ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                          ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm"
                           : "text-gray-500 dark:text-gray-400")
                       }
                     >
@@ -2934,14 +3045,16 @@ export default function ReservationPublicPage() {
             widget — it settles under the form in a short frame and pins to the
             frame bottom while scrolling a tall one, never detaching. */}
         <div
+          ref={barRef}
           className={
             (isEmbed
-              ? "sticky glass-static bottom-0"
-              : // Phone: fixed to the screen. Tablet/desktop: the booking
+              ? "sticky glass-static bottom-0 -mx-4 sm:-mx-6"
+              : // Phone: fixed to the screen, edge to edge (negative margins
+                  // pushed it 16px past both edges). Tablet/desktop: the booking
                 // card's own sticky footer — a full-width bar cut across the
                 // card at 1280 and floated 190px below it at 768.
-                "fixed glass bottom-0 inset-x-0 sm:sticky sm:inset-x-auto sm:rounded-b-xl sm:transform-none!") +
-            " -mx-4 sm:-mx-6 z-40 border-t border-gray-200/80 dark:border-gray-800"
+                "fixed glass bottom-0 inset-x-0 sm:sticky sm:inset-x-auto sm:-mx-6 sm:rounded-b-xl sm:transform-none!") +
+            " z-40 border-t border-gray-200/80 dark:border-gray-800 dark:bg-gray-950/90!"
           }
           style={
             isEmbed
@@ -2991,7 +3104,7 @@ export default function ReservationPublicPage() {
                   variant="secondary"
                   size="lg"
                   aria-label={t("rsvpBack", "Tilbage")}
-                  className="w-[52px]! h-[52px]! rounded-xl! px-0 shrink-0"
+                  className="w-[52px]! h-[52px]! rounded-xl! px-0 shrink-0 dark:bg-white/10! dark:hover:bg-white/15!"
                   onClick={backToChoices}
                 >
                   <ChevronLeft className="w-5 h-5" aria-hidden="true" />
@@ -3057,7 +3170,7 @@ function LangPill({ lang, setLang }) {
           className={
             "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " +
             (lang === code
-              ? "bg-white text-gray-900 shadow-sm dark:bg-gray-950 dark:text-gray-100"
+              ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
               : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200")
           }
         >
@@ -3066,6 +3179,17 @@ function LangPill({ lang, setLang }) {
       ))}
     </div>
   );
+}
+
+// Scroll a horizontal rail — and nothing else: scrollIntoView also scrolls
+// every scrollable ancestor, which in the embed iframe moved the restaurant's
+// own page — so that the chip is fully visible.
+function revealInRail(railEl, chip, behavior = "smooth") {
+  if (!railEl || !chip || railEl.scrollWidth <= railEl.clientWidth) return;
+  const left = chip.offsetLeft;
+  const right = left + chip.offsetWidth;
+  if (left >= railEl.scrollLeft && right <= railEl.scrollLeft + railEl.clientWidth) return;
+  railEl.scrollTo?.({ left: Math.max(0, left - 16), behavior });
 }
 
 // Button labels carry their arrow as an icon; strip a typed "→" some language
