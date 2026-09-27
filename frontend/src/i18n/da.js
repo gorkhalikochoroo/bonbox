@@ -1753,7 +1753,7 @@ export const da = {
     rsvpNextArrival: "Næste ankomst", rsvpNothingUpcoming: "Ingen på vej",
     rsvpPartyOf: "Selskab på {n}", rsvpUtilization: "Belægning",
     rsvpUtilHelper: "af {n} pladser", rsvpUtilNoSeats: "angiv pladser",
-    rsvpEtaIn: "om {n} min", rsvpOverBy: "+{n} min",
+    rsvpEtaIn: "om {n} min", rsvpEtaInShort: "{n} min", rsvpOverBy: "+{n} min",
     rsvpOverByHours: "+{h} t {m}", rsvpOverByDays: "+{n} d",
     rsvpFreesAt: "fri {time}",
     rsvpFreesInM: "fri ~{n}m",

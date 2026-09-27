@@ -427,11 +427,18 @@ function TableNode({
   // The line carries the number a host acts on (arrives 12.30, over by 13
   // min), so it shows on everything but the smallest tables — short form.
   const showSub = !!sub && innerW >= 34 && (isRound ? dims.w >= 56 : dims.h >= 44);
-  // A narrow table shows when, not who ("13.00", not "13.00 · Firmafrokost").
-  const subText =
-    showSub && innerW < 96 && booking && status !== "overdue" && typeof sub === "string" && sub.includes(" · ")
-      ? sub.split(" · ")[0]
-      : sub;
+  // A narrow table shows when, not who ("13.00", not "13.00 · Firmafrokost"),
+  // and a countdown that fits rather than an ellipsis ("13 min", not
+  // "om 13 …"). At 10px most characters are ~5.5px but m and w run ~8.5px —
+  // "om 13 min" is wider than its nine characters suggest.
+  const subW = (s) => [...s].reduce((w, ch) => w + (/[mwMW]/.test(ch) ? 8.5 : 5.5), 0);
+  let subText = sub;
+  if (showSub && innerW < 96 && booking && status !== "overdue" && typeof sub === "string" && sub.includes(" · ")) {
+    subText = sub.split(" · ")[0];
+  }
+  if (showSub && status === "upcoming" && booking?.eta != null && subW(sub) > innerW) {
+    subText = t("rsvpEtaInShort", "{n}m", { n: booking.eta });
+  }
 
   return (
     <div

@@ -1795,7 +1795,7 @@ export const en = {
     rsvpNextArrival: "Next arrival", rsvpNothingUpcoming: "Nothing upcoming",
     rsvpPartyOf: "Party of {n}", rsvpUtilization: "Occupancy",
     rsvpUtilHelper: "of {n} seats", rsvpUtilNoSeats: "set table seats",
-    rsvpEtaIn: "in {n}m", rsvpOverBy: "+{n} min",
+    rsvpEtaIn: "in {n}m", rsvpEtaInShort: "{n}m", rsvpOverBy: "+{n} min",
     rsvpOverByHours: "+{h} h {m}", rsvpOverByDays: "+{n} d",
     rsvpFreesAt: "free {time}",
     rsvpFreesInM: "free ~{n}m",

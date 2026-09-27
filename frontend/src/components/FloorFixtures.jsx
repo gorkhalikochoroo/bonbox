@@ -147,7 +147,9 @@ function Fixture({ f, t, editing, selected, onPointerDownDrag, onTap }) {
             borderRadius: "0 100% 0 0",
           }}
         />
-        <span className="absolute -top-3.5 left-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
+        {/* left-2 clears the door leaf: at left-0 the 2px line sat on the
+            first letter and a thin one vanished ("INDGANG" read "NDGANG") */}
+        <span className="absolute -top-3.5 left-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
           {name}
         </span>
       </div>
