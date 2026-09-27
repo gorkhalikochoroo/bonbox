@@ -18,11 +18,12 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { readDictionarySource } from "../test/dictionarySource";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE = readFileSync(join(HERE, "..", "hooks", "useLanguage.jsx"), "utf8");
+const SOURCE = readDictionarySource();
 const I18N = join(HERE, "..", "i18n");
 
 /**
@@ -37,7 +38,7 @@ const offeredPacks = () => {
   const codes = [...catalog.matchAll(/\{\s*code:\s*"([a-z_]+)"[^}]*offered:\s*true\s*\}/g)].map(
     (m) => m[1],
   );
-  // en and da live inline in useLanguage.jsx and are covered above.
+  // en and da are covered above (SOURCE = both, from src/i18n/en.js + da.js).
   return codes.filter((c) => c !== "en" && c !== "da");
 };
 
@@ -89,7 +90,7 @@ describe("en and da agree on what a string interpolates", () => {
 describe("an offered locale pack keeps the placeholders too", () => {
   const PACK_ENTRY = /^ {2}([A-Za-z0-9_]+): "((?:[^"\\]|\\.)*)",\s*$/gm;
 
-  /** English is the first definition of each key in useLanguage.jsx. */
+  /** English is the first definition of each key in SOURCE. */
   const english = new Map();
   for (const [, key, value] of SOURCE.matchAll(ENTRY)) {
     if (!english.has(key)) english.set(key, placeholdersOf(value));

@@ -29,12 +29,12 @@
  * and would never survive into English prose.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readDictionarySource } from "../test/dictionarySource";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE = readFileSync(join(HERE, "..", "hooks", "useLanguage.jsx"), "utf8");
+const SOURCE = readDictionarySource();
 
 const ENTRY = /^ {4}([A-Za-z0-9_]+): "((?:[^"\\]|\\.)*)",\s*$/gm;
 

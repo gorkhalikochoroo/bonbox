@@ -2,9 +2,46 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// ── Start the visitor's dictionary download with the page ─────────
+// The English and Danish dictionaries are their own chunks, loaded on
+// demand (src/lib/localeStore.js) so a visitor downloads one, not both.
+// Left to the dynamic import, that download would only START once the whole
+// app bundle had arrived and run — a second, serial wait before first paint.
+// This writes a tiny script into index.html that picks the likely language
+// (the stored choice, else the browser's) and adds a modulepreload for that
+// dictionary, so it downloads alongside the app. A wrong guess costs one
+// spare download, never a wrong page: the loader still decides.
+function preloadDictionary() {
+  return {
+    name: 'bonbox-preload-dictionary',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const files = {}
+        for (const chunk of Object.values(ctx.bundle || {})) {
+          const m = chunk.type === 'chunk' && chunk.facadeModuleId &&
+            chunk.facadeModuleId.match(/[\\/]src[\\/]i18n[\\/](en|da)\.js$/)
+          if (m) files[m[1]] = '/' + chunk.fileName
+        }
+        if (!files.en || !files.da) return html
+        const script =
+          '<script>(function(){try{' +
+          `var f=${JSON.stringify(files)};` +
+          'var l=null;try{l=localStorage.getItem("lang")}catch(e){}' +
+          'if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}' +
+          'var h=l==="da"?f.da:f.en;' +
+          'var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)' +
+          '}catch(e){}})()</script>'
+        return html.replace('</head>', script + '</head>')
+      },
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), preloadDictionary()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires

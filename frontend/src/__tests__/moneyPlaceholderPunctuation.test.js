@@ -26,8 +26,8 @@ const SRC = join(HERE, "..");
 /** Placeholders that carry a formatted money value in this codebase. */
 const MONEY_VARS = ["amount", "sum", "price", "cost", "balance", "beloeb"];
 
+// Every dictionary — en.js and da.js included — lives in src/i18n/.
 const FILES = [
-  join(SRC, "hooks", "useLanguage.jsx"),
   ...readdirSync(join(SRC, "i18n"))
     .filter((f) => f.endsWith(".js"))
     .map((f) => join(SRC, "i18n", f)),

@@ -15,7 +15,7 @@ const fs = require("fs");
 const path = require("path");
 
 const SRC = path.join(__dirname, "..", "src");
-const DICT = path.join(SRC, "hooks", "useLanguage.jsx");
+const { readDictionarySource } = require("./lib/dictionary-source.cjs");
 
 /** Parse `  en: { … }` / `  da: { … }` blocks into {key: value} with a small
  *  tokenizer that respects strings (so "Note: x" inside a value is not a key). */
@@ -66,7 +66,7 @@ function walk(dir, out = []) {
   return out;
 }
 
-const src = fs.readFileSync(DICT, "utf8");
+const src = readDictionarySource();
 const en = parseBlock(src, "\n  en: {");
 const da = parseBlock(src, "\n  da: {");
 

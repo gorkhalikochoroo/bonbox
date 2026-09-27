@@ -65,9 +65,8 @@ describe("the catalog and the picker agree", () => {
   });
 
   it("every offered language has a dictionary that loads", async () => {
-    // en and da live inside useLanguage.jsx itself; the rest are lazy chunks.
-    const lazy = OFFERED.filter((c) => c !== "en" && c !== "da");
-    for (const code of lazy) {
+    // Every language is its own chunk now, en and da included.
+    for (const code of OFFERED) {
       const mod = await import(`../i18n/${code}.js`);
       // no.js exports `no_` because `no` is awkward as an identifier.
       const dict = mod[code] ?? mod[`${code}_`];
@@ -77,7 +76,7 @@ describe("the catalog and the picker agree", () => {
   });
 
   it("no NEW orphan dictionary appears", async () => {
-    // Eight packs sit in src/i18n/ with working loaders in useLanguage.jsx but
+    // Eight packs sit in src/i18n/ with working loaders (lib/localeStore) but
     // appear in NEITHER the catalog NOR SUPPORTED, so no user can select them.
     // They still build: ~210KB of lazy chunks shipped to the CDN that nobody
     // can ever load. They are lazy, so this costs deploy weight rather than

@@ -17,6 +17,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { readDictionarySource } from "../test/dictionarySource";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { globSync } from "node:fs";
@@ -33,7 +34,7 @@ const FILES = globSync("**/*.{jsx,js}", { cwd: SRC })
 
 describe("no interpolated fallback sits behind a translation key", () => {
   it("every t(key) || `…${…}` is gone", () => {
-    const keys = readFileSync(join(SRC, "hooks", "useLanguage.jsx"), "utf8");
+    const keys = readDictionarySource();
     const offenders = [];
     for (const file of FILES) {
       const text = readFileSync(file, "utf8");

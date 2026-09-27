@@ -18,6 +18,14 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { en } from "../i18n/en.js";
+import { da } from "../i18n/da.js";
+import { primeLocales } from "../lib/localeStore";
+
+// English and Danish load on demand in the app (lib/localeStore). Tests prime
+// both up front so a component renders its real text in the same tick — a
+// test never waits on a dictionary download.
+primeLocales({ en, da });
 
 // localStorage / sessionStorage stubs — vitest's jsdom env in some
 // configurations exposes the namespace but doesn't wire the real

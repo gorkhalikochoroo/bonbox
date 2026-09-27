@@ -39,7 +39,9 @@ const path = require("path");
 
 const FRONTEND_DIR = path.resolve(__dirname, "..");
 const SRC_DIR = path.join(FRONTEND_DIR, "src");
-const LANG_FILE = path.join(SRC_DIR, "hooks", "useLanguage.jsx");
+// The EN dictionary lives in src/i18n/en.js; readDictionarySource() returns
+// it (with DA) in the layout this guard parses.
+const { readDictionarySource } = require("./lib/dictionary-source.cjs");
 
 // Known runtime-composed key prefixes — keys built like `t("allergen_" + x)`
 // surface in source as a bare prefix string and must NOT be flagged.
@@ -64,7 +66,7 @@ function extractBlockBody(text, blockKey) {
   const marker = new RegExp("(^|\\n)\\s*" + blockKey + "\\s*:\\s*\\{");
   const m = marker.exec(text);
   if (!m) {
-    throw new Error(`Could not locate "${blockKey}:" block in useLanguage.jsx`);
+    throw new Error(`Could not locate "${blockKey}:" block in src/i18n/${blockKey}.js`);
   }
   // Index of the opening brace of the block.
   let i = text.indexOf("{", m.index + m[0].length - 1);
@@ -130,7 +132,7 @@ function extractBlockBody(text, blockKey) {
  * that's fine — we only need Object.keys afterwards.
  */
 function loadEnKeys() {
-  const text = fs.readFileSync(LANG_FILE, "utf8");
+  const text = readDictionarySource();
   const body = extractBlockBody(text, "en");
   let obj;
   try {
@@ -354,7 +356,7 @@ function main() {
 
   if (errors.length) {
     console.error(`\n❌ i18n raw-key-leak guard: ${errors.length} key(s) called WITHOUT a fallback and MISSING from the EN block.`);
-    console.error("   These render the literal key string to the user. Add each to BOTH en{} and da{} in src/hooks/useLanguage.jsx.\n");
+    console.error("   These render the literal key string to the user. Add each to BOTH src/i18n/en.js and src/i18n/da.js.\n");
     for (const e of errors) {
       console.error(`   ${e.file}:${e.line}  t("${e.key}")`);
     }

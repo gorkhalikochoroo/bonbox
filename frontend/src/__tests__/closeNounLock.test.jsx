@@ -24,7 +24,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CATALOGUE = fs.readFileSync(path.join(SRC, "hooks/useLanguage.jsx"), "utf8");
+import { readDictionarySource } from "../test/dictionarySource";
+const CATALOGUE = readDictionarySource();
 
 /** Pull one language block's key → value pairs out of the catalogue source. */
 function localeTable(code) {

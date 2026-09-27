@@ -34,7 +34,9 @@ if (process.env.I18N_LOCKED_TERMS_SKIP === "1") {
 }
 
 const SRC = path.join(__dirname, "..", "src");
-const HOOK = path.join(SRC, "hooks", "useLanguage.jsx");
+// EN + DA live in src/i18n/en.js and da.js; readDictionarySource() hands
+// them over in the block layout this guard slices.
+const { readDictionarySource } = require("./lib/dictionary-source.cjs");
 const I18N_DIR = path.join(SRC, "i18n");
 
 /**
@@ -80,10 +82,10 @@ function sliceBlock(src, name) {
   return src.slice(m.index + m[0].length, i);
 }
 
-const hookSrc = fs.readFileSync(HOOK, "utf8");
+const hookSrc = readDictionarySource();
 const enBody = sliceBlock(hookSrc, "en");
 if (!enBody) {
-  console.error("✖ i18n locked-terms guard: could not find the `en` block in useLanguage.jsx");
+  console.error("✖ i18n locked-terms guard: could not find the `en` dictionary (src/i18n/en.js)");
   process.exit(1);
 }
 const en = extractPairs(enBody);
@@ -122,12 +124,14 @@ const skipped = [];
 for (const inline of ["da", "np"]) {
   const body = sliceBlock(hookSrc, inline);
   if (!body) continue;
-  const entry = { name: `useLanguage.jsx (${inline})`, code: inline, pairs: extractPairs(body) };
+  const entry = { name: `i18n/${inline}.js`, code: inline, pairs: extractPairs(body) };
   (isOffered(inline) ? locales : skipped).push(entry);
 }
 if (fs.existsSync(I18N_DIR)) {
   for (const f of fs.readdirSync(I18N_DIR).filter((f) => f.endsWith(".js")).sort()) {
     if (f === "languageCatalog.js") continue;
+    // en.js is the reference and da.js was checked above, from the same source.
+    if (f === "en.js" || f === "da.js") continue;
     const code = f.replace(/\.js$/, "");
     const body = fs.readFileSync(path.join(I18N_DIR, f), "utf8");
     const entry = { name: `i18n/${f}`, code, pairs: extractPairs(body) };
