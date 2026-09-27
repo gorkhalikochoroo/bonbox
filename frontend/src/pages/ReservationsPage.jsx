@@ -29,6 +29,7 @@
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarCheck,
   Plus,
@@ -84,7 +85,10 @@ import Sheet from "../components/ui/Sheet";
 import TabPills from "../components/ui/TabPills";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import DataTable from "../components/ui/DataTable";
-import StatCard from "../components/ui/StatCard";
+import StatStrip from "../components/ui/StatStrip";
+import UpcomingRail from "../components/reservations/UpcomingRail";
+import { selectUpcoming } from "../utils/upcomingArrivals";
+import { monthName } from "../utils/monthlyRecord";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
 import FloorPlan from "../components/FloorPlan";
@@ -319,6 +323,9 @@ export default function ReservationsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const { hasFeature, isReady } = useEntitlements();
+  // The side column's second card ("Kommende") needs the book's own data and
+  // actions, so the book portals it into this slot instead of lifting state.
+  const [railSlot, setRailSlot] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -511,7 +518,7 @@ export default function ReservationsPage() {
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
           // "Reservation book"; the booking primitive underneath is unchanged.
-          { id: "book", label: isProvider ? t("rsvpTabBookProvider", "Aftaler") : t("rsvpTabBook", "Reservation book") },
+          { id: "book", label: isProvider ? t("rsvpTabBookProvider", "Appointments") : t("rsvpTabBook", "Reservation book") },
           // Floor/station tab — table venues, venues with existing tables, AND
           // provider venues (where it authors stylist stations). Provider venues
           // read "Behandlere"; table venues keep "Floor".
@@ -528,7 +535,7 @@ export default function ReservationsPage() {
           // Behandlinger (salon service catalog) — salon (provider) venues only.
           // "Behandlinger" stays Danish in every UI language (DK terminology lock).
           ...(isProvider
-            ? [{ id: "behandlinger", label: t("rsvpTabBehandlinger", "Behandlinger") }]
+            ? [{ id: "behandlinger", label: t("rsvpTabBehandlinger", "Services") }]
             : []),
           { id: "insights", label: t("rsvpTabInsights", "Insights") },
           { id: "settings", label: t("rsvpTabSettings", "Settings") },
@@ -557,6 +564,7 @@ export default function ReservationsPage() {
           {!isHostStand && (
           <div className="hidden xl:block xl:sticky xl:top-6">
             <DayRail day={bookDay} onPick={setBookDay} t={t} />
+            <div ref={setRailSlot} className="mt-4 empty:hidden" />
           </div>
           )}
           <div className="min-w-0">
@@ -566,6 +574,7 @@ export default function ReservationsPage() {
               tableFloor={tablePlan}
               day={bookDay}
               onDayChange={setBookDay}
+              railSlot={isHostStand ? null : railSlot}
             />
           </div>
         </div>
@@ -588,7 +597,7 @@ function PageTitle({ t, isProvider = false }) {
     <div>
       <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
         <CalendarCheck className="w-6 h-6 text-gray-700 dark:text-gray-200" aria-hidden />
-        {isProvider ? t("rsvpOwnerTitleProvider", "Tidsbestilling") : t("rsvpOwnerTitle", "Reservations")}
+        {isProvider ? t("rsvpOwnerTitleProvider", "Appointments") : t("rsvpOwnerTitle", "Reservations")}
       </h1>
       {/* Hidden on a phone. It tells a first-time owner what this page IS,
           which is worth 40px on a laptop and worth nothing to a host at 19:30
@@ -1002,11 +1011,11 @@ function ReservationDrawer({
             {isProvider ? (
               <>
                 {r.service_name && (
-                  <DetailRow label={t("rsvpColBehandling", "Behandling")} value={r.service_name} />
+                  <DetailRow label={t("rsvpColBehandling", "Service")} value={r.service_name} />
                 )}
                 <DetailRow
-                  label={t("rsvpColBehandler", "Behandler")}
-                  value={behandlerName || t("rsvpBookValgfriOwner", "Valgfri behandler")}
+                  label={t("rsvpColBehandler", "Stylist")}
+                  value={behandlerName || t("rsvpBookValgfriOwner", "Any stylist")}
                 />
               </>
             ) : (
@@ -1624,7 +1633,7 @@ function NewBookingSheet({
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {isProvider
-              ? t("rsvpNewBookingProvider", "Book en tid")
+              ? t("rsvpNewBookingProvider", "Book an appointment")
               : t("rsvpNewBooking", "New booking")}
           </h3>
           <button
@@ -1644,7 +1653,7 @@ function NewBookingSheet({
           <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300">
             {t(
               "rsvpBookNoBehandlinger",
-              "Add a behandling first (Behandlinger tab) to take a tidsbestilling.",
+              "Add a service first (Services tab) to take an appointment.",
             )}
           </div>
         )}
@@ -1652,7 +1661,7 @@ function NewBookingSheet({
           <>
             <div>
               <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {t("rsvpBookBehandlingLabel", "Behandling")}
+                {t("rsvpBookBehandlingLabel", "Service")}
               </label>
               <select
                 value={behandlingId}
@@ -1682,13 +1691,13 @@ function NewBookingSheet({
               </select>
               {behandlingMissing && (
                 <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-                  {t("rsvpBookBehandlingRequired", "Choose a behandling.")}
+                  {t("rsvpBookBehandlingRequired", "Choose a service.")}
                 </p>
               )}
             </div>
             <div>
               <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {t("rsvpBookBehandlerLabel", "Behandler")}
+                {t("rsvpBookBehandlerLabel", "Stylist")}
               </label>
               <select
                 value={stylistId}
@@ -1697,7 +1706,7 @@ function NewBookingSheet({
                 className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
               >
                 {/* Default = Valgfri behandler (no pinned behandler). */}
-                <option value="">{t("rsvpBookValgfriOwner", "Valgfri behandler")}</option>
+                <option value="">{t("rsvpBookValgfriOwner", "Any stylist")}</option>
                 {providerStations.map((s) => (
                   <option key={s.id} value={String(s.id)}>
                     {s.staff_name || s.label}
@@ -1913,6 +1922,31 @@ function blockTitle(r, labels, t) {
       ? t("rsvpSevSevere", "Severe allergy")
       : t("rsvpAllergyFlag", "Allergy");
   return `${base}\n⚠ ${label}${detail ? ": " + detail : ""}`;
+}
+
+// Width of the chair control on a timeline bar (see TimelineView).
+const SEAT_W = 32;
+
+// A bar's top line is "HH.MM · N" (+ a link icon for a combined table).
+// Estimated, not measured: 11px semibold tabular digits run ~6.3px a
+// character, which is all the chair's placement needs — it only has to
+// know whether the line leaves room beside it.
+function timelineTopLineWidth(r, combined) {
+  const text = `${fmtTime(r.starts_at)} · ${r.party_size}`;
+  return Math.ceil(text.length * 6.3) + (combined ? 14 : 0);
+}
+
+// A bar's time + name, kept in view. A booking that started before the
+// scrolled-to hour used to slide its label under the sticky table column —
+// "amilien Berg". The label now sticks just right of that column and rides
+// along inside its own bar. (The bar clips with overflow:clip, not hidden:
+// hidden would make the bar a scroll container and pin the label to it.)
+function TimelineBarLabel({ stickyLeft, children }) {
+  return (
+    <span className="sticky self-start flex flex-col min-w-0 max-w-full" style={{ left: stickyLeft }}>
+      {children}
+    </span>
+  );
 }
 
 function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
@@ -2132,26 +2166,28 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                     title={blockTitle(r, labels, t)}
                     style={{ left, width, top: lane * 44 + 5, height: 34 }}
                     className={
-                      "absolute rounded-md border border-dashed border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-1.5 overflow-hidden text-left flex flex-col justify-center" +
+                      "absolute rounded-md border border-dashed border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-1.5 overflow-clip text-left flex flex-col justify-center" +
                       (allergy === "severe" ? " ring-2 ring-inset ring-red-500 dark:ring-red-400" : "")
                     }
                   >
-                    <span className="text-[11px] font-semibold leading-none truncate">
-                      {fmtTime(r.starts_at)} · {r.party_size}
-                    </span>
-                    {/* Was text-[10px] opacity-90 — the guest name, the one
-                        string a host scans the timeline FOR, rendered under
-                        the 11px floor and faded. 11px + 11px still clears the
-                        34px lane (11 + 2 + ~14). */}
-                    <span className="text-[11px] leading-tight truncate mt-0.5 flex items-center gap-0.5">
-                      {allergy && (
-                        <AlertTriangle
-                          className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
-                          aria-hidden
-                        />
-                      )}
-                      {r.guest_name || t("rsvpGuest", "Guest")}
-                    </span>
+                    <TimelineBarLabel stickyLeft={RAIL_W + 6}>
+                      <span className="text-[11px] font-semibold leading-none truncate">
+                        {fmtTime(r.starts_at)} · {r.party_size}
+                      </span>
+                      {/* Was text-[10px] opacity-90 — the guest name, the one
+                          string a host scans the timeline FOR, rendered under
+                          the 11px floor and faded. 11px + 11px still clears the
+                          34px lane (11 + 2 + ~14). */}
+                      <span className="text-[11px] leading-tight truncate mt-0.5 flex items-center gap-0.5">
+                        {allergy && (
+                          <AlertTriangle
+                            className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
+                            aria-hidden
+                          />
+                        )}
+                        {r.guest_name || t("rsvpGuest", "Guest")}
+                      </span>
+                    </TimelineBarLabel>
                   </button>
                 );
               })}
@@ -2208,10 +2244,21 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                   // that the 44px seat control still leaves ≥44px of body tap zone
                   // for the drawer (88 − 44 = 44). Narrow bars keep drawer-only
                   // seating — a graceful fallback, never a hidden dead-end.
+                  // One-tap seat. The chair used to sit over the right end of
+                  // the bar at full height — on top of the guest NAME, so
+                  // "Sofie Holm" read "Sofie Hol🪑" and a long party name lost
+                  // its last word. It now sits on the TOP line, beside the
+                  // short "12.00 · 2", and the name keeps the bar's whole
+                  // width. It only appears where that line has room for it
+                  // (estimated from the line's own characters); a bar too
+                  // short keeps drawer-only seating, as before. Only a
+                  // CONFIRMED bar — a 'requested' booking is confirmed in the
+                  // drawer first, mirroring the drawer's state machine.
+                  const topLineW = timelineTopLineWidth(r, combined);
                   const showSeat =
                     !!onStatus &&
                     r.status === "confirmed" &&
-                    width >= 88;
+                    width >= 6 + topLineW + 4 + SEAT_W;
                   return (
                     <Fragment key={r.id + id}>
                     <button
@@ -2220,7 +2267,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                       title={blockTitle(r, labels, t)}
                       style={{ left, width, top: 5, height: ROW_H - 12 }}
                       className={
-                        "absolute rounded-md border px-1.5 overflow-hidden text-left flex flex-col justify-center transition-colors duration-500 " +
+                        "absolute rounded-md border px-1.5 overflow-clip text-left flex flex-col justify-center transition-colors duration-500 " +
                         blockClass(r.status) +
                         (justSeatedId === r.id ? " bb-seat-settle" : "") +
                         (allergy === "severe"
@@ -2230,22 +2277,24 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                             : "")
                       }
                     >
-                      <span className="text-[11px] font-semibold leading-none truncate flex items-center gap-0.5">
-                        {fmtTime(r.starts_at)} · {r.party_size}
-                        {combined && <Link2 className="w-3 h-3 shrink-0" aria-hidden />}
-                      </span>
-                      {/* Same as the unassigned lane: the name was 10px and
-                          faded. Bar height is ROW_H − 12 = 40px, so two 11px
-                          lines fit with room to spare. */}
-                      <span className="text-[11px] leading-tight truncate flex items-center gap-0.5 mt-0.5">
-                        {allergy && (
-                          <AlertTriangle
-                            className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
-                            aria-hidden
-                          />
-                        )}
-                        {r.guest_name || t("rsvpGuest", "Guest")}
-                      </span>
+                      <TimelineBarLabel stickyLeft={RAIL_W + 6}>
+                        <span className="text-[11px] font-semibold leading-none truncate flex items-center gap-0.5">
+                          {fmtTime(r.starts_at)} · {r.party_size}
+                          {combined && <Link2 className="w-3 h-3 shrink-0" aria-hidden />}
+                        </span>
+                        {/* Same as the unassigned lane: the name was 10px and
+                            faded. Bar height is ROW_H − 12 = 40px, so two 11px
+                            lines fit with room to spare. */}
+                        <span className="text-[11px] leading-tight truncate flex items-center gap-0.5 mt-0.5">
+                          {allergy && (
+                            <AlertTriangle
+                              className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
+                              aria-hidden
+                            />
+                          )}
+                          {r.guest_name || t("rsvpGuest", "Guest")}
+                        </span>
+                      </TimelineBarLabel>
                     </button>
                     {showSeat && (
                       <button
@@ -2258,8 +2307,11 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
                         aria-label={t("rsvpSeatNowAria", "Seat {name}", {
                           name: r.guest_name || t("rsvpGuest", "Guest"),
                         })}
-                        style={{ left: left + width - 44, width: 44, top: (ROW_H - 44) / 2, height: 44 }}
-                        className="absolute z-10 flex items-center justify-center rounded-r-md text-gray-500 hover:text-gray-900 hover:bg-gray-900/5 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-white/10 transition-colors"
+                        // Top half of the bar's right end — the time line's
+                        // free space. Its own surface, so a name scrolled
+                        // under it (the sticky label) is cut, not overprinted.
+                        style={{ left: left + width - SEAT_W - 1, width: SEAT_W, top: 6, height: (ROW_H - 14) / 2 }}
+                        className="absolute z-10 flex items-center justify-center rounded-tr-md bg-white dark:bg-[rgb(var(--surface-card))] text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-white/10 transition-colors"
                       >
                         <Armchair className="w-4 h-4 shrink-0" aria-hidden />
                       </button>
@@ -2401,7 +2453,7 @@ function SalonFirstRunCard({
           <span>
             {t(
               "rsvpSalonAddBehandlingNudge",
-              "Add a behandling so guests can pick a service.",
+              "Add a service so guests can pick one.",
             )}
           </span>
         </div>
@@ -2448,6 +2500,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
   const { lang } = useLanguage();
   const [month, setMonth] = useState(() => (day || isoDay(new Date())).slice(0, 7));
   const [load, setLoad] = useState({});
+  const [totals, setTotals] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Follow the book when the owner jumps to a date in another month (arrows,
@@ -2467,8 +2520,9 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
         const map = {};
         (res.data?.days || []).forEach((d) => { map[d.date] = d; });
         setLoad(map);
+        setTotals(res.data?.month_totals || null);
       })
-      .catch(() => { if (alive) setLoad({}); })
+      .catch(() => { if (alive) { setLoad({}); setTotals(null); } })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [month]);
@@ -2524,7 +2578,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
       </div>
 
       <div className="grid grid-cols-7 gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 text-center mb-1">
-        {(t("rsvpRailWeekdays", "M,T,O,T,F,L,S") || "M,T,O,T,F,L,S")
+        {t("rsvpRailWeekdays", "M,T,W,T,F,S,S")
           .split(",")
           .map((w, i) => <div key={i}>{w}</div>)}
       </div>
@@ -2594,6 +2648,26 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
           );
         })}
       </div>
+
+      {/* The month as a record — "how did September go?". Same definitions as
+          Indsigt → Måned for måned (cancelled bookings don't count; guests
+          are confirmed/seated/completed parties), so the two always agree. */}
+      {!loading && totals?.bookings > 0 && (
+        <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+          {(() => {
+            // One key per singular/plural shape — both counts can be 1.
+            const vars = { month: monthName(month, lang, false), bookings: totals.bookings, guests: totals.guests };
+            if (totals.bookings === 1) {
+              return totals.guests === 1
+                ? t("opsRsvpRailMonthOneBookingOneGuest", "{month}: 1 booking · 1 guest", vars)
+                : t("rsvpRailMonthTotalOne", "{month}: 1 booking · {guests} guests", vars);
+            }
+            return totals.guests === 1
+              ? t("opsRsvpRailMonthOneGuest", "{month}: {bookings} bookings · 1 guest", vars)
+              : t("rsvpRailMonthTotal", "{month}: {bookings} bookings · {guests} guests", vars);
+          })()}
+        </p>
+      )}
 
       {/* Selected day — covers vs roster, the answer the book alone can't give */}
       <div className="mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800">
@@ -2892,7 +2966,7 @@ function StandMenu({ t, onLogout }) {
 // omit them (host-stand pop-out, tests) and it keeps its own state exactly as
 // before. Every internal setDay call passes a plain value, never a functional
 // updater, so the alias below is a faithful swap.
-function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange }) {
+function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange, railSlot = null }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
   // Host-stand pop-out chrome lives in THIS component's return (the top bar +
@@ -3727,6 +3801,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   }, [resources]);
 
   const seatedCount = summary.by_status?.seated || 0;
+  // Guests at the tables right now — what "Sidder nu" means to a host. The
+  // strip used to show the number of seated PARTIES, which reads as people:
+  // "Sidder nu 4 · i lokalet" for 16 guests at 4 tables.
+  const seatedGuests = useMemo(
+    () => reservations.reduce((s, r) => s + (r.status === "seated" ? Number(r.party_size) || 0 : 0), 0),
+    [reservations],
+  );
   const requestedCount = summary.by_status?.requested || 0;
 
   // ── Cockpit metrics — the day's vitals, host-stand style ───────────────
@@ -3810,8 +3891,19 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       ? `${name} · ${nextArrival.party_size}`
       : t("rsvpPartyOf", "Party of {n}", { n: nextArrival.party_size });
     const table = resolveTableLabel(nextArrival, labelById);
-    return table ? `${who} · ${table}` : who;
+    // Table FIRST: the cockpit strip truncates the end of this line in a slim
+    // cell, and where the party sits matters more to a host than the name.
+    if (!table) return who;
+    return name
+      ? `${table} · ${nextArrival.party_size} · ${name}`
+      : `${table} · ${who}`;
   }, [nextArrival, labelById, t]);
+  // "Kommende" (desktop side column): the day's bookings nobody has seated yet.
+  const todayIso = isoDay(new Date());
+  const upcomingRows = useMemo(
+    () => selectUpcoming(reservations, { day, today: todayIso }),
+    [reservations, day, todayIso],
+  );
   // Click a status tile → jump to the list, filtered to that status.
   const focusStatus = (status) => {
     pickView("liste");
@@ -3974,7 +4066,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       ? [
           {
             id: "behandling",
-            label: t("rsvpColBehandling", "Behandling"),
+            label: t("rsvpColBehandling", "Service"),
             width: "w-40",
             render: (r) => (
               <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
@@ -3984,14 +4076,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           },
           {
             id: "behandler",
-            label: t("rsvpColBehandler", "Behandler"),
+            label: t("rsvpColBehandler", "Stylist"),
             width: "w-36",
             render: (r) => {
               const who = r.resource_id ? behandlerByResourceId[String(r.resource_id)] : "";
               return (
                 <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300 truncate">
                   <Scissors className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />
-                  {who || t("rsvpBookValgfriOwner", "Valgfri behandler")}
+                  {who || t("rsvpBookValgfriOwner", "Any stylist")}
                 </span>
               );
             },
@@ -4205,6 +4297,29 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           : "space-y-4"
       }
     >
+      {/* The "Kommende" list lives in the page's side column (desktop only —
+          that column is hidden below xl, so this costs a phone nothing), and
+          only beside the floor PLAN: there the host sees the room but not the
+          queue. Beside Liste or Tidslinje it repeated what the page already
+          shows. A day that is over has nothing coming, so no list at all. */}
+      {railSlot && !loading && view === "plan" && day >= todayIso &&
+        createPortal(
+          <UpcomingRail
+            t={t}
+            rows={upcomingRows}
+            isToday={isViewingToday}
+            nowMs={nowTs}
+            tableLabel={(r) => resolveTableLabel(r, labelById)}
+            onOpen={openDrawer}
+            onShowAll={() => {
+              pickView("liste");
+              setStatusFilter("all");
+            }}
+            waitlistCount={waitlistCount}
+            onOpenWaitlist={focusWaitlist}
+          />,
+          railSlot,
+        )}
       {/* Host-stand top bar — only in the /reservations/stand pop-out, which
           renders outside the app <Layout />. A slim brand row + a Luk that
           closes the popped tab (or falls back to the full app). */}
@@ -4423,109 +4538,111 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             onClick={openNewBooking}
           >
             {isProvider
-              ? t("rsvpNewBookingProvider", "Book en tid")
+              ? t("rsvpNewBookingProvider", "Book an appointment")
               : t("rsvpNewBooking", "New booking")}
           </Button>
         </div>
       </div>
 
-      {/* Cockpit — the day's vitals as a host-stand command center. Covers
-          is the headline (booking count folded into its helper); Seated and
-          Awaiting are click-to-filter into the list; Next arrival opens that
-          booking; Belægning is a calm fill gauge. Awaiting goes amber when
-          requests pile up — otherwise the whole row stays calm gray. */}
-      {/* On mobile these six vitals pack into a compact 3-across grid (dense
-          tiles, tighter gap) so they read as a glance-bar instead of four rows
-          of tall cards. From sm: up it's the original 3-col → 6-col layout.
+      {/* Cockpit — the day's vitals, as ONE slim strip above the room.
+          Covers is the headline (booking count in its helper); Seated and
+          Awaiting click through to the filtered list; Next arrival opens that
+          booking; On waitlist jumps to the Venteliste. Colour only when a
+          number needs attention — otherwise the strip stays calm grey.
 
-          AND ON A PHONE, A SECONDARY TILE THAT HAS NOTHING TO SAY HIDES.
-          Measured on a 390px phone: 877px of chrome sat above the floor plan —
-          a full screen of scrolling before a host could see their own room,
-          and this grid was the single biggest block at 228px. Awaiting,
-          Occupancy and On-waitlist each ALREADY turn amber/red exactly when
-          they matter, so "0 to confirm" and "0 waiting" are the two rows of
-          noise pushing the room off-screen mid-service.
+          WHY A STRIP AND NOT SIX TILES. These were six StatCards in a row: a
+          ~95px band of boxes over the floor plan and timeline, which are what a
+          host actually works from — and on most shifts four of the six say
+          "0". The room is the product; the numbers support it. StatStrip is one
+          card with hairline dividers, ~80px tall.
 
-          They hide only below sm: and only when genuinely quiet — a non-zero
-          count, or an occupancy at the 85% warn threshold, always renders. So
-          nothing that is signalling can ever be hidden by this, which is the
-          only version of this idea that is safe. Covers, Seated now and Next
-          arrival always show: those are the three a host reads during service. */}
-      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
-        <StatCard
-          dense
-          label={t("rsvpCovers", "Covers")}
-          value={summary.covers}
-          helper={
-            summary.total === 1
-              ? t("rsvpCoversBookingsOne", "{n} booking", { n: summary.total })
-              : t("rsvpCoversBookings", "{n} bookings", { n: summary.total })
-          }
-        />
-        <StatCard
-          dense
-          label={t("rsvpSeatedNow", "Seated now")}
-          value={seatedCount}
-          // The one LIVE number on the page — guests physically in the room
-          // right now. Emerald only while that's true; the moment the room is
-          // empty it falls back to neutral so the colour always means
-          // "something is happening", never decoration.
-          accent={seatedCount > 0 ? "success" : "neutral"}
-          helper={t("rsvpSeatedHelper", "in the room")}
-          onClick={() => focusStatus("seated")}
-          selected={view === "liste" && statusFilter === "seated"}
-        />
-        <StatCard
-          dense
-          label={t("rsvpNextArrival", "Next arrival")}
-          value={nextArrival ? fmtTime(nextArrival.starts_at) : "—"}
-          helper={nextArrivalHelper}
-          onClick={nextArrival ? () => openDrawer(nextArrival) : null}
-        />
-        <StatCard
-          dense
-          className={requestedCount > 0 ? "" : "hidden sm:flex"}
-          label={t("rsvpAwaiting", "Awaiting")}
-          value={requestedCount}
-          accent={requestedCount > 0 ? "warn" : "neutral"}
-          helper={t("rsvpAwaitingHelper", "to confirm")}
-          onClick={() => focusStatus("requested")}
-          selected={view === "liste" && statusFilter === "requested"}
-        />
-        <StatCard
-          dense
-          className={peakPct != null && peakPct >= 85 ? "" : "hidden sm:flex"}
-          label={t("rsvpUtilization", "Occupancy")}
-          value={peakPct == null ? "—" : `${peakPct}%`}
-          // Over 100% means more covers than seats at the peak — a real
-          // problem the owner should see before service, not a neutral fact.
-          // It was rendering 192% in plain gray. 85%+ is "nearly full" (amber:
-          // worth knowing), past 100% is red. Unknown capacity stays neutral —
-          // with no seat count there's no honest claim to make.
-          accent={
-            peakPct == null ? "neutral"
-              : peakPct > 100 ? "critical"
-                : peakPct >= 85 ? "warn"
-                  : "neutral"
-          }
-          helper={
-            totalCapacity <= 0
-              ? t("rsvpUtilNoSeats", "set table seats")
-              : peakTime
-                ? t("rsvpUtilPeakAt", "peak {time}", { time: peakTime })
-                : t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity })
-          }
-        />
-        <StatCard
-          dense
-          className={waitlistCount > 0 ? "" : "hidden sm:flex"}
-          label={t("rsvpWlCockpitToday", "On waitlist")}
-          value={waitlistCount}
-          accent={waitlistCount > 0 ? "warn" : "neutral"}
-          helper={t("rsvpWlWaiting", "Waiting")}
-          onClick={focusWaitlist}
-        />
-      </div>
+          ON A PHONE it is three across, and a secondary cell with nothing to
+          say hides (hideOnPhone). Measured on a 390px phone, 877px of chrome
+          once sat above the floor plan, and this block was the biggest part of
+          it. Awaiting, Occupancy and On waitlist each turn amber/red exactly
+          when they matter, so they hide only when genuinely quiet — a non-zero
+          count, or occupancy at the 85% warn threshold, always renders.
+          Covers, Seated now and Next arrival always show: those are the three
+          a host reads during service. */}
+      <StatStrip
+        items={[
+          {
+            key: "covers",
+            label: t("rsvpCovers", "Covers"),
+            value: summary.covers,
+            helper:
+              summary.total === 1
+                ? t("rsvpCoversBookingsOne", "{n} booking", { n: summary.total })
+                : t("rsvpCoversBookings", "{n} bookings", { n: summary.total }),
+          },
+          {
+            key: "seated",
+            label: t("rsvpSeatedNow", "Seated now"),
+            value: seatedGuests,
+            // The one LIVE number on the page — guests physically in the room
+            // right now. Emerald only while that's true; the moment the room is
+            // empty it falls back to neutral so the colour always means
+            // "something is happening", never decoration.
+            accent: seatedCount > 0 ? "success" : "neutral",
+            helper:
+              seatedCount === 0
+                ? t("rsvpSeatedHelper", "in the room")
+                : seatedCount === 1
+                  ? t("rsvpSeatedAtTableOne", "at 1 table")
+                  : t("rsvpSeatedAtTables", "at {n} tables", { n: seatedCount }),
+            onClick: () => focusStatus("seated"),
+            selected: view === "liste" && statusFilter === "seated",
+          },
+          {
+            key: "next",
+            label: t("rsvpNextArrival", "Next arrival"),
+            value: nextArrival ? fmtTime(nextArrival.starts_at) : "—",
+            helper: nextArrivalHelper,
+            onClick: nextArrival ? () => openDrawer(nextArrival) : null,
+          },
+          {
+            key: "awaiting",
+            label: t("rsvpAwaiting", "Awaiting"),
+            value: requestedCount,
+            accent: requestedCount > 0 ? "warn" : "neutral",
+            helper: t("rsvpAwaitingHelper", "to confirm"),
+            onClick: () => focusStatus("requested"),
+            selected: view === "liste" && statusFilter === "requested",
+            hideOnPhone: requestedCount === 0,
+          },
+          {
+            key: "occupancy",
+            label: t("rsvpUtilization", "Occupancy"),
+            value: peakPct == null ? "—" : `${peakPct}%`,
+            // Over 100% means more covers than seats at the peak — a real
+            // problem the owner should see before service, not a neutral fact.
+            // It was rendering 192% in plain gray. 85%+ is "nearly full" (amber:
+            // worth knowing), past 100% is red. Unknown capacity stays neutral —
+            // with no seat count there's no honest claim to make.
+            accent:
+              peakPct == null ? "neutral"
+                : peakPct > 100 ? "critical"
+                  : peakPct >= 85 ? "warn"
+                    : "neutral",
+            helper:
+              totalCapacity <= 0
+                ? t("rsvpUtilNoSeats", "set table seats")
+                : peakTime
+                  ? t("rsvpUtilPeakAt", "peak {time}", { time: peakTime })
+                  : t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity }),
+            hideOnPhone: !(peakPct != null && peakPct >= 85),
+          },
+          {
+            key: "waitlist",
+            label: t("rsvpWlCockpitToday", "On waitlist"),
+            value: waitlistCount,
+            accent: waitlistCount > 0 ? "warn" : "neutral",
+            helper: t("rsvpWlWaiting", "Waiting"),
+            onClick: focusWaitlist,
+            hideOnPhone: waitlistCount === 0,
+          },
+        ]}
+      />
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
@@ -4660,20 +4777,30 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             }
           />
 
-          {/* Venteliste — parties we couldn't seat. A cancel/no-show above
-              hands us the fitting matches (spotMatches) to highlight. The id
-              is the scroll target for the cockpit's waitlist tile. */}
-          <div id="rsvp-venteliste" className="scroll-mt-4">
-            <WaitlistSection
-              day={day}
-              spotMatches={spotMatches}
-              refreshTick={bookTick}
-              onCountChange={setWaitlistCount}
-              onConverted={() => fetchBook(day)}
-            />
-          </div>
         </>
       )}
+
+      {/* Venteliste — parties we couldn't seat. A cancel/no-show above hands us
+          the fitting matches (spotMatches) to highlight. The id is the scroll
+          target for the cockpit's waitlist cell.
+
+          Mounted in EVERY view, hidden outside Liste: this section owns the
+          waitlist fetch, and the cockpit's "På venteliste" count and the side
+          column's waitlist line both read the count it reports. Mounted only
+          inside Liste, both said 0 in Plan and Tidslinje after a fresh load —
+          with a party actually waiting. */}
+      <div
+        id="rsvp-venteliste"
+        className={"scroll-mt-4" + (view === "liste" ? "" : " hidden")}
+      >
+        <WaitlistSection
+          day={day}
+          spotMatches={spotMatches}
+          refreshTick={bookTick}
+          onCountChange={setWaitlistCount}
+          onConverted={() => fetchBook(day)}
+        />
+      </div>
 
       {/* ── Plan (visual floor) ── */}
       {view === "plan" &&
@@ -5370,7 +5497,7 @@ function FloorSection({ t, businessType }) {
           <p className="text-xs text-gray-400 dark:text-gray-500">
             {t(
               "rsvpProviderShiftHint",
-              "A stylist is bookable only during their published shifts. Add shifts in Vagtplan.",
+              "A stylist is bookable only during their published shifts. Add shifts on the Schedule page.",
             )}
           </p>
           <div className="flex justify-end">
@@ -5821,7 +5948,7 @@ function BehandlingerSection({ t }) {
     } catch (e) {
       setError(
         e?.response?.data?.detail?.error ||
-          t("rsvpBehandlingError", "Couldn't load your behandlinger."),
+          t("rsvpBehandlingError", "Couldn't load your services."),
       );
     } finally {
       setLoading(false);
@@ -5834,7 +5961,7 @@ function BehandlingerSection({ t }) {
 
   const addItem = async () => {
     if (!name.trim()) {
-      setError(t("rsvpBehandlingNameRequired", "Give the behandling a name."));
+      setError(t("rsvpBehandlingNameRequired", "Give the service a name."));
       return;
     }
     setSaving(true);
@@ -5870,7 +5997,7 @@ function BehandlingerSection({ t }) {
       } else {
         setError(
           e?.response?.data?.detail?.error ||
-            t("rsvpBehandlingAddError", "Couldn't add the behandling."),
+            t("rsvpBehandlingAddError", "Couldn't add the service."),
         );
       }
     } finally {
@@ -5898,7 +6025,7 @@ function BehandlingerSection({ t }) {
     const ok = await confirm({
       title: name
         ? t("rsvpRemoveNamedTitle", "Remove {label}?", { label: name })
-        : t("rsvpBehandlingDeleteConfirm", "Remove this behandling?"),
+        : t("rsvpBehandlingDeleteConfirm", "Remove this service?"),
       message:
         b.price_kr != null
           ? t(
@@ -5928,7 +6055,7 @@ function BehandlingerSection({ t }) {
     <div className="space-y-4">
       <div>
         <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
-          {t("rsvpBehandlingerTitle", "Behandlinger")}
+          {t("rsvpBehandlingerTitle", "Services")}
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           {t(
@@ -5947,7 +6074,7 @@ function BehandlingerSection({ t }) {
         className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-          {t("rsvpBehandlingAddTitle", "Add a behandling")}
+          {t("rsvpBehandlingAddTitle", "Add a service")}
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input
@@ -5956,7 +6083,7 @@ function BehandlingerSection({ t }) {
             onChange={(e) => setName(e.target.value)}
             placeholder={t("rsvpBehandlingNamePh", "Name (e.g. Klip dame)")}
             maxLength={120}
-            aria-label={t("rsvpBehandlingNameLabel", "Behandling name")}
+            aria-label={t("rsvpBehandlingNameLabel", "Service name")}
             className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
           />
           <div className="relative">
@@ -5990,7 +6117,7 @@ function BehandlingerSection({ t }) {
         </div>
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
-            {t("rsvpBehandlingAddBtn", "Add behandling")}
+            {t("rsvpBehandlingAddBtn", "Add service")}
           </Button>
         </div>
       </form>
@@ -6001,14 +6128,14 @@ function BehandlingerSection({ t }) {
           <p className="text-sm text-gray-700 dark:text-gray-300">
             {t(
               "rsvpBehandlingCapHit",
-              "You've reached your plan's behandling limit ({limit}). Upgrade to add more.",
+              "You've reached your plan's service limit ({limit}). Upgrade to add more.",
               { limit: capMsg.limit ?? capMsg.current ?? "" },
             )}
           </p>
           <UpgradeNudge
             intent="inline"
             tier={capMsg.upgrade_to === "pro" ? "pro" : "starter"}
-            benefit={t("rsvpBehandlingCapBenefit", "More behandlinger")}
+            benefit={t("rsvpBehandlingCapBenefit", "More services")}
           />
         </div>
       )}
@@ -6026,7 +6153,7 @@ function BehandlingerSection({ t }) {
         <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] py-10 text-center">
           <Clock className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("rsvpBehandlingEmpty", "No behandlinger yet — add your first above.")}
+            {t("rsvpBehandlingEmpty", "No services yet — add your first above.")}
           </p>
         </div>
       ) : (

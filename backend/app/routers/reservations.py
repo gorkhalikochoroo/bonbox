@@ -43,6 +43,7 @@ from app.services import audit_service
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
 from app.services.auth import get_current_user
 from app.services.billing import (
+    at_cap,
     cap_exceeded_detail,
     enforce_cap,
     enforce_feature,
@@ -55,6 +56,7 @@ from app.services import reservation_occupancy_service as occ_service
 # re-typed: the owner's book, the schedule grid and (later) the staff card must
 # all count the same night the same way, or the number silently lies.
 from app.services.reservation_insights_service import BOOKED_COVER_STATUSES
+from app.services import reservation_monthly
 from app.services.tz_utils import now_local, business_today_local, business_day_window_local
 from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
@@ -1427,6 +1429,10 @@ def reservation_month_load(
         "month": f"{y:04d}-{m:02d}",
         "today": today.isoformat(),
         "days": [{"date": k, **v} for k, v in sorted(days.items())],
+        # The month as a record ("58 bookings · 190 guests") — same rows, same
+        # definitions as the Indsigt month-by-month table, so they always agree.
+        # Additive: `days[].bookings` above still counts cancelled bookings too.
+        "month_totals": reservation_monthly.month_totals(rows, cutoff, first, last),
     }
 
 
@@ -2373,8 +2379,17 @@ def notify_waitlist(entry_id: UUID, request: Request,
     if int(w.notify_count or 0) >= 2:
         raise HTTPException(status_code=429, detail={"error": "notify_cap"})
 
-    channel, sms_sent = "call", False
+    channel, sms_sent, sms_limit = "call", False, False
     if w.guest_phone and has_feature(user, "sms_reminders") and sms_configured():
+        # Venue-wide daily ceiling (billing cap `waitlist_sms_per_day`). The
+        # door tablet wraps this handler, so one bound covers both; before it,
+        # N waiting parties authorised 2N paid messages with no daily limit.
+        # A count that can't be read fails CLOSED: no SMS, the host calls.
+        try:
+            sms_limit = at_cap(user, "waitlist_sms_per_day", _waitlist_sms_last_24h(db, user))
+        except Exception:  # noqa: BLE001
+            sms_limit = True
+    if w.guest_phone and not sms_limit and has_feature(user, "sms_reminders") and sms_configured():
         biz = (getattr(user, "business_name", None) or "").strip() or "restauranten"
         navn = (w.guest_name or "").strip()
         hej = f"Hej {navn}" if navn else "Hej"
@@ -2388,6 +2403,10 @@ def notify_waitlist(entry_id: UUID, request: Request,
             res = {"ok": False}
         if res.get("ok"):
             channel, sms_sent = "sms", True
+            # The ledger the daily ceiling counts — one row per SMS that
+            # actually went out (the notify row below is written either way).
+            audit_service.record(db, user, "reservation.waitlist_sms_sent",
+                                 "reservation_waitlist", w.id)
 
     w.status = "notified"
     w.notify_count = int(w.notify_count or 0) + 1
@@ -2396,7 +2415,21 @@ def notify_waitlist(entry_id: UUID, request: Request,
                          "reservation_waitlist", w.id)
     db.commit()
     return {"entry": _waitlist_dict(w), "channel": channel,
-            "sms_sent": sms_sent, "phone": w.guest_phone}
+            "sms_sent": sms_sent, "sms_limit_reached": sms_limit,
+            "phone": w.guest_phone}
+
+
+def _waitlist_sms_last_24h(db: Session, user: User) -> int:
+    """Waitlist SMS this venue actually sent in the last 24 hours."""
+    from app.models.audit_log import AuditLog
+    since = utc_now() - timedelta(days=1)
+    return int(
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.user_id == user.id,
+                AuditLog.action == "reservation.waitlist_sms_sent",
+                AuditLog.created_at >= since)
+        .scalar() or 0
+    )
 
 
 @router.post("/waitlist/{entry_id}/convert")

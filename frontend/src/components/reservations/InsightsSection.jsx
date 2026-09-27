@@ -37,6 +37,7 @@ import {
   BarChart3,
   AlertTriangle,
   HeartHandshake,
+  CalendarRange,
 } from "lucide-react";
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
@@ -47,6 +48,8 @@ import StatCard from "../ui/StatCard";
 import Chip from "../ui/Chip";
 import Card from "../ui/Card";
 import FilterBar from "../ui/FilterBar";
+import { useLanguage } from "../../hooks/useLanguage";
+import { visibleMonths, monthName } from "../../utils/monthlyRecord";
 import UpgradeNudge from "../ui/UpgradeNudge";
 
 // ─── small format helpers ─────────────────────────────────────────────────
@@ -646,6 +649,85 @@ function RecoveredCard({ data, t }) {
 // ─── Pro forecast block ─────────────────────────────────────────────────────
 // forecast present → "Next 7 days" mini-list. forecast_locked → UpgradeNudge.
 // forecast === null && !locked → calm "not enough data yet" (Pro, thin data).
+/* Måned for måned — the booking book read as a record. Counts, not estimates,
+   so it shows from the first booking on (no "collecting data" wait) and does
+   not follow the Period filter above: it is always the last 12 months.
+   Deliberately plain — three columns, a quiet second line only when there
+   were no-shows or online bookings, no chart. */
+export function MonthlyCard({ t }) {
+  const { lang } = useLanguage();
+  // null = not answered yet. A failed load sets `failed` and says so — it
+  // never becomes an empty record, which would read as "no bookings".
+  const [months, setMonths] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get("/reservations/monthly", { params: { months: 12 } })
+      .then((res) => { if (alive) setMonths(visibleMonths(res.data?.months)); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  if (failed) {
+    return (
+      <Card>
+        <Card.Header
+          icon={<CalendarRange className="w-4 h-4" aria-hidden />}
+          title={t("rsvpMonthlyTitle", "Month by month")}
+        />
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {t("rsvpMonthlyFailed", "Couldn't load the monthly record right now.")}
+        </p>
+      </Card>
+    );
+  }
+  if (!months || months.length === 0) return null;
+  const cols = "grid grid-cols-[minmax(0,1fr)_6.5rem_4.5rem] gap-x-3 items-baseline";
+  return (
+    <Card>
+      <Card.Header
+        icon={<CalendarRange className="w-4 h-4" aria-hidden />}
+        title={t("rsvpMonthlyTitle", "Month by month")}
+        subtitle={t("rsvpMonthlySub", "Bookings and guests per month")}
+      />
+      <div className={cols + " pb-1.5 text-[11px] text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-[rgb(var(--surface-line))]"}>
+        <span>{t("rsvpMonthlyMonth", "Month")}</span>
+        <span className="text-right">{t("rsvpMonthlyBookings", "Bookings")}</span>
+        <span className="text-right">{t("rsvpMonthlyGuests", "Guests")}</span>
+      </div>
+      <ul className="divide-y divide-gray-100 dark:divide-[rgb(var(--surface-line))]">
+        {months.map((m) => {
+          const extra = [
+            m.no_shows > 0 ? t("rsvpMonthlyNoShows", "No-shows {n}", { n: m.no_shows }) : null,
+            m.online > 0 ? t("rsvpMonthlyOnline", "Online {n}", { n: m.online }) : null,
+          ].filter(Boolean);
+          return (
+            <li key={m.month} className={cols + " py-2"}>
+              <span className="min-w-0">
+                <span className="text-sm text-gray-900 dark:text-gray-100">{monthName(m.month, lang)}</span>
+                {m.current && (
+                  <span className="ml-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    {t("rsvpMonthlyThisMonth", "this month")}
+                  </span>
+                )}
+                {extra.length > 0 && (
+                  <span className="block text-[11px] text-gray-500 dark:text-gray-400">{extra.join(" · ")}</span>
+                )}
+              </span>
+              <span className="text-sm font-semibold tabular-nums text-right text-gray-900 dark:text-gray-100">
+                {m.bookings}
+              </span>
+              <span className="text-sm tabular-nums text-right text-gray-700 dark:text-gray-300">{m.guests}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
 function ForecastBlock({ forecast, forecastLocked, t }) {
   // This component takes `t` as a PROP and calls no hook of its own, so the
   // plan cannot be read from an outer scope — it needs its own hook call.
@@ -904,6 +986,10 @@ export default function InsightsSection({ t, zones = [] }) {
           <ForecastBlock forecast={forecast} forecastLocked={forecastLocked} t={t} />
         </>
       )}
+
+      {/* The record — outside the loading/collecting states above on purpose:
+          counts need no confidence, and the Period filter doesn't apply. */}
+      <MonthlyCard t={t} />
     </div>
   );
 }

@@ -59,8 +59,8 @@ const NOT_A_TARGET = /pointer-events-none/;
  */
 function stripComments(src) {
   return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")   // block + JSX {/* … */} bodies
-    .replace(/^\s*\/\/.*$/gm, "");      // whole-line //
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ""))  // block + JSX {/* … */}; newlines kept
+    .replace(/^[ \t]*\/\/.*$/gm, "");      // whole-line // (not \s*: that eats blank lines)
 }
 
 describe("no control is invisible-but-tappable on touch", () => {

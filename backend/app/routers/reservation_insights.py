@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.services import reservation_insights_service as insights_service
+from app.services import reservation_monthly
 from app.services.auth import get_current_user
 from app.services.billing import enforce_feature
 
@@ -70,3 +71,23 @@ def reservation_insights(
         )
     except Exception:  # noqa: BLE001
         return insights_service._empty_insights(range_days, (zone or "all"), reason="error")
+
+
+@router.get("/monthly")
+def reservation_monthly_record(
+    months: int = Query(default=reservation_monthly.DEFAULT_MONTHS, ge=1, le=reservation_monthly.MAX_MONTHS,
+                        description="How many months back, this one included."),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Month by month: bookings, guests, no-shows, cancellations and online
+    bookings for the last N business months, newest first.
+
+    Same barriers as /insights: L1 auth; L2 tenant scope (the service filters
+    every row by user.id and takes no client id); L3 bounds (months validated
+    1-24 here, clamped again in the service); L5 feature gate — reservations,
+    on every tier: this is the owner's own record, not an analytics upsell.
+    Definitions live in app/services/reservation_monthly.py.
+    """
+    enforce_feature(user, "reservations")
+    return reservation_monthly.monthly_summary(db, user, months)

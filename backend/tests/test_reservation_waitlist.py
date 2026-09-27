@@ -162,6 +162,60 @@ def test_notify_anti_spam_and_honesty(client, db, monkeypatch):
     assert client.post(f"/api/reservations/waitlist/{eid}/notify").status_code == 429
 
 
+def _sms_on(monkeypatch, ceiling):
+    """SMS available, every send succeeds, and a small daily ceiling."""
+    import app.routers.reservations as R
+    import app.services.billing as billing
+    sent = []
+    monkeypatch.setattr(R, "sms_configured", lambda: True)
+    monkeypatch.setattr(R, "send_sms", lambda to=None, text=None, **k: (sent.append(to), {"ok": True})[1])
+    real = billing.get_cap
+    monkeypatch.setattr(billing, "get_cap",
+                        lambda user, key: ceiling if key == "waitlist_sms_per_day" else real(user, key))
+    return sent
+
+
+def test_waitlist_sms_has_a_venue_wide_daily_ceiling(client, db, monkeypatch):
+    """2 per waiting party was the only bound, so N parties authorised 2N paid
+    messages — from a door tablet anyone in the room can reach. Past the
+    ceiling the host still gets the number to call; nothing is lost."""
+    sent = _sms_on(monkeypatch, ceiling=2)
+    u = _seed(db, plan="pro")
+    _as(u)
+    ids = [_add(client, guest_phone=f"+452020300{i}").json()["id"] for i in range(4)]
+    out = [client.post(f"/api/reservations/waitlist/{i}/notify").json() for i in ids]
+
+    assert [o["sms_sent"] for o in out] == [True, True, False, False]
+    assert len(sent) == 2
+    assert out[2]["channel"] == "call" and out[2]["sms_limit_reached"] is True
+    assert out[2]["phone"] == "+4520203002"
+    assert out[2]["entry"]["status"] == "notified"
+
+
+def test_waitlist_sms_ceiling_fails_closed(client, db, monkeypatch):
+    """If today's count can't be read, send nothing — never 'unlimited'."""
+    import app.routers.reservations as R
+    sent = _sms_on(monkeypatch, ceiling=50)
+    monkeypatch.setattr(R, "_waitlist_sms_last_24h", lambda *a, **k: 1 / 0)
+    u = _seed(db, plan="pro")
+    _as(u)
+    eid = _add(client).json()["id"]
+    body = client.post(f"/api/reservations/waitlist/{eid}/notify").json()
+    assert body["sms_sent"] is False and body["sms_limit_reached"] is True
+    assert sent == []
+
+
+def test_waitlist_sms_ceiling_is_per_venue(client, db, monkeypatch):
+    sent = _sms_on(monkeypatch, ceiling=1)
+    a = _seed(db, plan="pro")
+    _as(a)
+    assert client.post(f"/api/reservations/waitlist/{_add(client).json()['id']}/notify").json()["sms_sent"] is True
+    b = _seed(db, plan="pro")
+    _as(b)
+    assert client.post(f"/api/reservations/waitlist/{_add(client).json()['id']}/notify").json()["sms_sent"] is True
+    assert len(sent) == 2
+
+
 def test_convert_links_a_real_reservation(client, db, monkeypatch):
     u = _seed(db)
     _as(u)

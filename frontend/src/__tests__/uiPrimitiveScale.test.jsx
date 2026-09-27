@@ -180,9 +180,10 @@ describe("Primitives — 400/500/600, with 700 only on a hero figure", () => {
   const WEIGHT = /\bfont-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)\b/g;
   const ALLOWED = new Set(["font-normal", "font-medium", "font-semibold"]);
 
-  // The two slots where a 700 is the point: the money hero, and the number a
-  // StatCard exists to show. Anything else in this layer shouts by proxy.
-  const BOLD_BUDGET = { "Amount.jsx": 1, "StatCard.jsx": 1 };
+  // The slots where a 700 is the point: the money hero, and the number a
+  // StatCard — or a StatStrip cell, its compact sibling — exists to show.
+  // Anything else in this layer shouts by proxy.
+  const BOLD_BUDGET = { "Amount.jsx": 1, "StatCard.jsx": 1, "StatStrip.jsx": 1 };
 
   it.each(PRIMITIVES)("%s stays within the weight budget", (file) => {
     const found = stripComments(read(file)).match(WEIGHT) || [];
