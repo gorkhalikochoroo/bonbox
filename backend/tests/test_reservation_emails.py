@@ -866,7 +866,8 @@ def test_book_again_opens_the_booking_page_in_the_guests_language(client, db, ou
 
 
 _LOOKUP_FIELDS = {"id", "status", "party_size", "starts_at", "guest_name",
-                  "occasion", "allergen_tags", "allergy_severity", "guest_lang"}
+                  "occasion", "allergen_tags", "allergy_severity", "guest_lang",
+                  "outcome"}
 
 
 def test_the_booking_lookup_returns_what_the_guest_told_the_venue(client, db, outbox):
@@ -906,3 +907,57 @@ def test_the_booking_lookup_still_needs_the_right_token(client, db, outbox):
     res = client.get(f"/api/public/reservations/booking/{a['id']}",
                      params={"token": b["booking_token"]})
     assert res.status_code == 404
+
+
+# ── How a cancelled booking ended — for the guest's receipt ─────────────
+#
+# The receipt said "Reservation cancelled — the table has been released" for
+# a request the guest had WITHDRAWN (reopened from its link), and a request
+# the VENUE declined read as the guest's own withdrawal. The server now keeps
+# how it ended and returns one of four plain outcomes — never the stored
+# cancel_reason itself.
+
+def _lookup(client, b):
+    return client.get(f"/api/public/reservations/booking/{b['id']}",
+                      params={"token": b["booking_token"]}).json()
+
+
+def _row(db, b):
+    import uuid as _uuid
+    db.expire_all()
+    return db.query(Reservation).filter(Reservation.id == _uuid.UUID(b["id"])).one()
+
+
+def test_receipt_outcome_guest_cancelled_their_booking(client, db, outbox):
+    _, profile = _venue(db)
+    b = _book(client, profile.reservation_slug).json()
+    assert _lookup(client, b)["outcome"] is None
+    assert _cancel(client, b).json()["outcome"] == "cancelled_by_guest"
+    assert _lookup(client, b)["outcome"] == "cancelled_by_guest"
+
+
+def test_receipt_outcome_request_withdrawn_by_the_guest(client, db, outbox):
+    _, profile = _venue(db)
+    b = _book(client, profile.reservation_slug, party_size=10).json()
+    assert b["status"] == "requested"
+    assert _cancel(client, b).json()["outcome"] == "withdrawn"
+    assert _lookup(client, b)["outcome"] == "withdrawn"
+    assert _row(db, b).cancel_reason == "guest_withdrew"
+
+
+def test_receipt_outcome_request_declined_by_the_venue(client, db, outbox):
+    owner, profile = _venue(db)
+    b = _book(client, profile.reservation_slug, party_size=10).json()
+    assert _status(client, owner, _row(db, b), "cancelled",
+                   cancel_reason="owner_cancelled").status_code == 200
+    assert _lookup(client, b)["outcome"] == "declined"
+
+
+def test_receipt_outcome_booking_cancelled_by_the_venue(client, db, outbox):
+    owner, profile = _venue(db)
+    b = _book(client, profile.reservation_slug).json()
+    assert _status(client, owner, _row(db, b), "cancelled",
+                   cancel_reason="owner_cancelled").status_code == 200
+    assert _lookup(client, b)["outcome"] == "cancelled_by_venue"
+    assert "owner_cancelled" not in json.dumps(_lookup(client, b))
+

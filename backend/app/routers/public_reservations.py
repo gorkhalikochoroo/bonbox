@@ -1008,7 +1008,25 @@ def poll(request: Request, reservation_id: UUID = Path(...),
         "allergen_tags": [t for t in (r.allergen_tags or []) if isinstance(t, str)],
         "allergy_severity": r.allergy_severity,
         "guest_lang": r.guest_lang,
+        "outcome": booking_outcome(r),
     }
+
+
+# How a cancelled booking ended, in words the guest's receipt can use. Only
+# these four values ever leave the server — never the stored cancel_reason,
+# which an older owner client may have filled with free text.
+_OUTCOME_BY_REASON = {
+    "guest_withdrew": "withdrawn",
+    "guest_cancelled": "cancelled_by_guest",
+    "owner_declined": "declined",
+    "request_expired_no_answer": "declined",
+}
+
+
+def booking_outcome(r) -> str | None:
+    if r.status != "cancelled":
+        return None
+    return _OUTCOME_BY_REASON.get(r.cancel_reason or "", "cancelled_by_venue")
 
 
 @router.post("/booking/{reservation_id}/cancel")
@@ -1021,11 +1039,13 @@ def visitor_cancel(request: Request, background_tasks: BackgroundTasks,
     raw = token or (authorization.split(" ", 1)[1] if authorization and " " in authorization else None)
     r = _verify(raw, reservation_id, db)
     if r.status in ("cancelled", "completed", "no_show"):
-        return {"id": str(r.id), "status": r.status}
+        return {"id": str(r.id), "status": r.status, "outcome": booking_outcome(r)}
     was_request = r.status == "requested"
     r.status = "cancelled"
     r.cancelled_at = utc_now()
-    r.cancel_reason = "guest_cancelled"
+    # A request that is called off is WITHDRAWN — kept apart from a
+    # cancelled booking so the receipt, reopened later, still says so.
+    r.cancel_reason = "guest_withdrew" if was_request else "guest_cancelled"
     # Free the slot: flip the occupancy row(s) inactive so the exclusion
     # constraint stops blocking this table for other guests.
     occ_service.release_occupancy(db, r.id)
@@ -1040,4 +1060,4 @@ def visitor_cancel(request: Request, background_tasks: BackgroundTasks,
     # self-cancel into an error for the guest.
     background_tasks.add_task(_send_guest_cancel_notifications,
                               str(r.id), str(r.user_id), was_request)
-    return {"id": str(r.id), "status": r.status}
+    return {"id": str(r.id), "status": r.status, "outcome": booking_outcome(r)}

@@ -2092,7 +2092,13 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         r.seated_at = utc_now()
     elif payload.status == "cancelled":
         r.cancelled_at = utc_now()
-        r.cancel_reason = payload.cancel_reason
+        # Cancelling a REQUEST is declining it — recorded as such, so the
+        # guest's receipt can say "we couldn't confirm" instead of "you
+        # withdrew" or "your reservation is cancelled".
+        r.cancel_reason = (
+            "owner_declined" if prev_status == "requested"
+            else payload.cancel_reason
+        )
 
     # ── Occupancy lifecycle ───────────────────────────────────────────
     # Terminal states free the slot; holding states (re)claim it. The DB

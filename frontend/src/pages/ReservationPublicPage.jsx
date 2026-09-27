@@ -182,7 +182,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
                 "relative flex-1 h-9 rounded-lg text-[13px] font-semibold transition-colors duration-200 ease-out " + FOCUS + " " +
                 (g.key === active
                   ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
-                  : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200")
+                  : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200")
               }
             >
               {t(g.labelKey)}
@@ -294,7 +294,10 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             tabIndex={active || (!days.includes(value) && idx === 0) ? 0 : -1}
             aria-label={closed ? `${full(iso)} — ${t("rsvpDayClosed", "lukket")}` : full(iso)}
             className={[
-              "shrink-0 snap-start w-14 sm:w-auto h-[68px] rounded-xl border " + FOCUS,
+              // Width from the screen, like the party chips: 5½ across, so a
+              // half day always sits at the edge (at 390 the 6th was cut by
+              // 2px — nothing said the row went on).
+              "shrink-0 snap-start w-[max(3.25rem,calc((100vw-3.5rem)/5.5))] sm:w-auto h-[68px] rounded-xl border " + FOCUS,
               // A day picked beyond the 14-day row stands apart from it, so
               // "Lør 10 okt · Tors 15 okt" never reads as consecutive days.
               idx === 14 ? "ml-4 sm:ml-0 sm:col-start-1" : "",
@@ -376,7 +379,8 @@ function partyLabel(n, t) {
 const RECEIPT_ACTION =
   "inline-flex items-center justify-center gap-2 h-12 px-5 rounded-xl text-sm font-medium " +
   "bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 " +
-  "dark:bg-gray-900 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 transition-colors duration-200";
+  "dark:bg-gray-900 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 transition-colors duration-200 " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-2";
 
 // The receipt's torn bottom edge: 16 teeth across a strip the card's colour.
 const TORN_EDGE = `polygon(0% 0%, 100% 0%, ${Array.from({ length: 31 }, (_, i) => {
@@ -739,10 +743,20 @@ export default function ReservationPublicPage() {
     // Focus first, without scrolling: a focus() issued during a smooth scroll
     // cancels it in Chrome.
     heading.parentElement?.querySelector('[role="radio"][tabindex="0"]')?.focus({ preventScroll: true });
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     // Scroll only when the times sit low enough that the grid is out of view.
     if (heading.getBoundingClientRect().top > window.innerHeight * 0.4) {
-      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
       heading.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    }
+    // When they are already on screen the tap did nothing visible: one small
+    // ripple across the times says "these". Skipped under reduced motion.
+    if (!reduce) {
+      heading.parentElement?.querySelectorAll('[role="radio"]').forEach((chip, i) => {
+        chip.animate?.(
+          [{ transform: "scale(1)" }, { transform: "scale(1.06)" }, { transform: "scale(1)" }],
+          { duration: 360, delay: Math.min(i, 16) * 16, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        );
+      });
     }
   };
   const goToDetails = () => {
@@ -806,6 +820,11 @@ export default function ReservationPublicPage() {
   // withdrawn REQUEST from a cancelled booking, also on a receipt reopened
   // from its link (where the create response is not there to ask).
   const [cancelledFrom, setCancelledFrom] = useState(null);
+  // How a cancelled booking ended, as the server tells it: "withdrawn",
+  // "declined", "cancelled_by_guest" or "cancelled_by_venue". A request the
+  // venue DECLINED used to read "Request withdrawn — thanks for letting us
+  // know", and a withdrawal reopened from its link read "cancelled".
+  const [liveOutcome, setLiveOutcome] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState(false);
 
@@ -866,6 +885,7 @@ export default function ReservationPublicPage() {
         const b = r?.data || {};
         setLinkState("ok");
         setLiveStatus(b.status || null);
+        setLiveOutcome(b.outcome || null);
         const [d, tm] = String(b.starts_at || "").split("T");
         setLinked({
           day: d || "",
@@ -1001,12 +1021,14 @@ export default function ReservationPublicPage() {
     const showsBooking = !!result && linkState !== "loading" && linkState !== "failed";
     const title = !showsBooking
       ? t("rsvpDocTitle", "Book bord · {venue}", { venue })
-      : resultStatus === "cancelled" && (cancelledFrom === "requested" || result?.status === "requested")
+      : resultStatus === "cancelled" && (liveOutcome === "withdrawn" || cancelledFrom === "requested")
         ? t("rsvpDocTitleWithdrawn", "Request withdrawn · {venue}", { venue })
+        : resultStatus === "cancelled" && liveOutcome === "declined"
+        ? t("rsvpDocTitleDeclined", "Request not confirmed · {venue}", { venue })
         : resultStatus === "cancelled" || resultStatus === "no_show"
         ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
         : resultStatus === "requested"
-          ? t("rsvpDocTitleRequest", "Request sent · {venue}", { venue })
+          ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
           : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue });
     document.title = title;
     const setMeta = (prop, val) => {
@@ -1023,7 +1045,7 @@ export default function ReservationPublicPage() {
       t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
-  }, [page, t, result, resultStatus, linkState, cancelledFrom]);
+  }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome]);
 
   // ── Provider venue: load the active behandlinger catalog (S3b) ────
   // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
@@ -1467,7 +1489,10 @@ export default function ReservationPublicPage() {
           { params: { token } },
         );
         const next = res?.data?.status;
-        if (alive && next) setLiveStatus(next);
+        if (alive && next) {
+          setLiveStatus(next);
+          setLiveOutcome(res?.data?.outcome || null);
+        }
       } catch {
         /* transient — keep the last known status, try again next tick */
       }
@@ -1544,6 +1569,7 @@ export default function ReservationPublicPage() {
       const next = res?.data?.status || "cancelled";
       setCancelledFrom(isReq ? "requested" : "confirmed");
       setLiveStatus(next);
+      setLiveOutcome(res?.data?.outcome || null);
       // Token is spent — drop it so a stale return visit can't reuse it.
       try {
         localStorage.removeItem(`${TOKEN_STORE_PREFIX}${result.id}`);
@@ -1612,6 +1638,7 @@ export default function ReservationPublicPage() {
     setResult(null);
     setLiveStatus(null);
     setCancelledFrom(null);
+    setLiveOutcome(null);
     setLinked(null);
     setLinkState(null);
     setSlot("");
@@ -1687,10 +1714,13 @@ export default function ReservationPublicPage() {
     const isConfirmed = status === "confirmed" || status === "seated";
     const isCancelled = status === "cancelled" || status === "no_show";
     const isDone = status === "completed";
-    // A request the guest withdrew here. It never held a table, so "the
-    // table has been released" was untrue — and its time stays "preferred".
-    const withdrawn =
-      isCancelled && (cancelledFrom === "requested" || result.status === "requested");
+    // How it ended. The server's word first (it survives a reload); the
+    // guest's own tap on this page covers a server that has not said yet.
+    // A withdrawn request never held a table, so "the table has been
+    // released" was untrue — and its time stays "preferred".
+    const withdrawn = isCancelled && (liveOutcome === "withdrawn" || cancelledFrom === "requested");
+    const declined = isCancelled && !withdrawn && liveOutcome === "declined";
+    const venueCancelled = isCancelled && liveOutcome === "cancelled_by_venue";
     // Self-cancel only makes sense while the booking is still live.
     const canCancel = isRequest || isConfirmed;
 
@@ -1745,6 +1775,24 @@ export default function ReservationPublicPage() {
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = t("rsvpWithdrawnTitle", "Request withdrawn");
       body = t("rsvpWithdrawnBody", "We've been told. You're welcome to send a new request.");
+    } else if (declined) {
+      HeroIcon = XCircle;
+      heroWrap = "bg-gray-100 dark:bg-gray-800";
+      heroIconCls = "text-gray-500 dark:text-gray-400";
+      title = t("rsvpDeclinedTitle", "We couldn't confirm your request");
+      body = t(
+        "rsvpDeclinedBody",
+        "Sorry — we can't take you at that time. Call us and we'll find something, or send a new request.",
+      );
+    } else if (venueCancelled) {
+      HeroIcon = XCircle;
+      heroWrap = "bg-gray-100 dark:bg-gray-800";
+      heroIconCls = "text-gray-500 dark:text-gray-400";
+      title = t("rsvpCancelledTitle", "Reservation aflyst");
+      body = t(
+        "rsvpCancelledByVenueBody",
+        "Sorry — we've had to cancel your reservation. Call us, or book another day.",
+      );
     } else if (isCancelled) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
@@ -1777,13 +1825,27 @@ export default function ReservationPublicPage() {
         ? t("rsvpEmailOnItsWay", "A confirmation is on its way to {email}.", {
             email: sentEmail,
           })
-        : t("rsvpNoEmailSaved", "Save this page — we don't have your email.");
+        : sentPhone
+          ? t("rsvpPhoneOnlyReceipt", "We have your number, {phone}. Keep this page as your receipt.", {
+              phone: sentPhone,
+            })
+          : t("rsvpNoEmailSaved", "Save this page — we don't have your email.");
     }
     // What the kitchen was told, including how serious — the guest's proof
     // that "severe" reached the restaurant.
     // From the booking itself when the receipt was reopened from a link.
+    // The booking stores the occasion in the venue's language; reopened in
+    // another language, a known chip label is shown in the guest's.
+    const occasionAsGuestReads = (stored) => {
+      if (!stored) return "";
+      const dicts = loadedLocales();
+      const k = OCCASION_KEYS.find((key) =>
+        [dicts.da?.[`rsvpOccasion_${key}`], dicts.en?.[`rsvpOccasion_${key}`], OCCASION_FALLBACK[key]].includes(stored),
+      );
+      return k ? t(`rsvpOccasion_${k}`, OCCASION_FALLBACK[k]) : stored;
+    };
     const rOccasion = linked
-      ? linked.occasion
+      ? occasionAsGuestReads(linked.occasion)
       : occasion
         ? t(`rsvpOccasion_${occasion}`, OCCASION_FALLBACK[occasion])
         : "";
@@ -1801,7 +1863,7 @@ export default function ReservationPublicPage() {
             k: "time",
             // A request's time is the one the guest asked for, until the venue
             // confirms it — on a reopened receipt too.
-            label: isRequest || withdrawn ? t("rsvpRowWishedTime", "Preferred time") : t("rsvpTimeLabel", "Time"),
+            label: isRequest || withdrawn || declined ? t("rsvpRowWishedTime", "Preferred time") : t("rsvpTimeLabel", "Time"),
             value: rTime,
           }
         : null,
@@ -1866,14 +1928,6 @@ export default function ReservationPublicPage() {
               {t("rsvpStatusPending", "Awaiting confirmation")}
             </div>
           )}
-          {isRequest && telHref(page?.phone) && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {t("rsvpRequestHurry", "In a hurry? Call")}{" "}
-              <a href={telHref(page.phone)} className="min-h-0! font-medium text-gray-700 dark:text-gray-200 underline tabular-nums">
-                {page.phone}
-              </a>
-            </p>
-          )}
           {/* Only when a request the guest sent HERE flips to confirmed —
               on a reopened receipt the headline already says so. A grey pill
               with a status dot, per the house rules. */}
@@ -1905,7 +1959,7 @@ export default function ReservationPublicPage() {
                 )}
               </div>
               <div className="my-4 border-t-2 border-dashed border-gray-200 dark:border-gray-700" aria-hidden="true" />
-              <dl className={isCancelled ? "opacity-60" : ""}>
+              <dl>
                 {rows.map((row) => (
                   <div key={row.k} className="flex items-baseline justify-between gap-4 py-2">
                     <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">{row.label}</dt>
@@ -1960,7 +2014,7 @@ export default function ReservationPublicPage() {
             // Nothing left to add to a calendar or navigate to — the one
             // useful thing is to book again, which the copy already invites.
             <Button variant="main" size="lg" className="w-full" onClick={startOver}>
-              {t("rsvpBookAgain", "Book again")}
+              {withdrawn || declined ? t("rsvpNewRequest", "Send a new request") : t("rsvpBookAgain", "Book again")}
             </Button>
           ) : (
             !isDone && (
@@ -2157,7 +2211,7 @@ export default function ReservationPublicPage() {
               quiet strip with a green check it reads as reassurance. The strip
               itself is neutral: the green is spent on the one main action. */}
           {step === 1 && (
-            <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-gray-900 px-3.5 py-2">
+            <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
               <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
               <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">
                 {t("rsvpTrustLine", "No account needed · Free cancellation")}
@@ -2349,7 +2403,7 @@ export default function ReservationPublicPage() {
                   aria-expanded={showDateInput}
                   // -my-3: keeps its 44pt touch target without making this
                   // header row taller than the other two questions'.
-                  className="-my-3 inline-flex items-center gap-1 text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors"
+                  className={"-my-3 inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
                 >
                   <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
                   {t("rsvpOtherDate", "Anden dato")}
@@ -2672,7 +2726,7 @@ export default function ReservationPublicPage() {
             <button
               type="button"
               onClick={backToChoices}
-              className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-600 transition-colors px-4 py-3 flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300"
+              className={"w-full text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-600 transition-colors px-4 py-3 flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300 " + FOCUS}
             >
               <Calendar size={18} strokeWidth={1.75} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
               <span className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -2745,6 +2799,7 @@ export default function ReservationPublicPage() {
                 <Input
                   id="rsvp-name"
                   size="lg"
+                  className="rounded-xl!"
                   value={guestName}
                   onChange={(e) => setGuestName(e.target.value)}
                   onBlur={() => setNameTouched(true)}
@@ -2782,6 +2837,7 @@ export default function ReservationPublicPage() {
                 <div
                   role="radiogroup"
                   aria-label={t("rsvpContactHow", "How should we reach you?")}
+                  onKeyDown={rovingKeyDown}
                   className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
                 >
                   {[
@@ -2793,6 +2849,7 @@ export default function ReservationPublicPage() {
                       type="button"
                       role="radio"
                       aria-checked={contactMode === m.k}
+                      tabIndex={contactMode === m.k ? 0 : -1}
                       // Straight into the field that just appeared: render it
                       // now, then focus inside the same tap, so a phone's
                       // keyboard opens (iOS only honours focus from a gesture).
@@ -2804,7 +2861,7 @@ export default function ReservationPublicPage() {
                         "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors duration-200 ease-out " + FOCUS + " " +
                         (contactMode === m.k
                           ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm"
-                          : "text-gray-500 dark:text-gray-400")
+                          : "text-gray-600 dark:text-gray-400")
                       }
                     >
                       {m.label}
@@ -2816,6 +2873,7 @@ export default function ReservationPublicPage() {
                     id="rsvp-email"
                     type="email"
                     size="lg"
+                    className="rounded-xl!"
                     aria-label={t("rsvpContactEmailLabel", "Email")}
                     value={guestEmail}
                     onChange={(e) => {
@@ -2847,6 +2905,7 @@ export default function ReservationPublicPage() {
                     id="rsvp-phone"
                     type="tel"
                     size="lg"
+                    className="rounded-xl!"
                     aria-label={t("rsvpContactPhoneLabel", "Phone")}
                     value={guestPhone}
                     onChange={(e) => {
@@ -2881,7 +2940,7 @@ export default function ReservationPublicPage() {
                   />
                 )}
                 {contactTouched && !contactValid && !contact.activeInvalid && (
-                  <p className="text-xs text-red-600 dark:text-red-400">
+                  <p role="alert" className="text-xs text-red-600 dark:text-red-400">
                     {t(
                       "rsvpContactRequired",
                       "Add an email or phone so we can confirm your booking.",
@@ -2895,12 +2954,19 @@ export default function ReservationPublicPage() {
                 Default closed. Its title names what is inside — allergies
                 first, because the kitchen needs them and a guest scanning
                 for "allergy" must find it without opening anything. */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden scroll-mb-32 sm:scroll-mb-4">
               <button
                 type="button"
-                onClick={() => setDetailsOpen((v) => !v)}
+                onClick={(e) => {
+                  const opening = !detailsOpen;
+                  const box = e.currentTarget.parentElement;
+                  flushSync(() => setDetailsOpen(opening));
+                  // At 375 the allergies opened under the bottom bar, out of
+                  // sight: bring the opened section up, above the bar.
+                  if (opening) box?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }}
                 aria-expanded={detailsOpen}
-                className="w-full min-h-[56px] px-4 py-3 flex items-center gap-3 text-left"
+                className={"w-full min-h-[56px] px-4 py-3 flex items-center gap-3 text-left rounded-xl " + FOCUS}
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14.5px] font-semibold text-gray-900 dark:text-gray-100">
@@ -3059,7 +3125,7 @@ export default function ReservationPublicPage() {
               role="switch"
               aria-checked={consentMarketing}
               onClick={() => setConsentMarketing((v) => !v)}
-              className="w-full flex items-center gap-4 text-left"
+              className={"w-full flex items-center gap-4 text-left rounded-lg " + FOCUS}
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -3110,7 +3176,7 @@ export default function ReservationPublicPage() {
 
             {/* Submit-error surfaces */}
             {submitError && (
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-start gap-2">
+              <div role="alert" className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-start gap-2">
                 <AlertCircle
                   size={16}
                   strokeWidth={1.75}
@@ -3174,10 +3240,10 @@ export default function ReservationPublicPage() {
                   variant="main"
                   size="lg"
                   onClick={needsTime ? revealTimes : goToDetails}
-                  className="shrink-0 px-6 h-[52px]! rounded-xl! text-[15.5px]! font-semibold!"
+                  className="shrink-0 min-w-[9.5rem] px-6 h-[52px]! rounded-xl! text-[15.5px]! font-semibold!"
                   iconRight={needsTime ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
                 >
-                  {needsTime ? t("rsvpPickTimeCta", "Vælg et tidspunkt") : t("rsvpContinue", "Continue")}
+                  {needsTime ? t("rsvpPickTimeShort", "Pick a time") : t("rsvpContinue", "Continue")}
                 </Button>
               </>
             ) : (
@@ -3267,7 +3333,7 @@ function LangPill({ lang, setLang }) {
             "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " + FOCUS + " " +
             (lang === code
               ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
-              : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200")
+              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200")
           }
         >
           {code}
@@ -3340,22 +3406,6 @@ function StepDots({ step, t }) {
           }
         />
       ))}
-    </div>
-  );
-}
-
-function SummaryRow({ icon, label, value }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true">
-        {icon}
-      </span>
-      <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 w-24 shrink-0">
-        {label}
-      </span>
-      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-        {value}
-      </span>
     </div>
   );
 }
