@@ -529,6 +529,9 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # the iframe title accurately (falls back to "BonBox" in the UI if null).
         "business_name": (getattr(user, "business_name", None) or "").strip() or None,
         "settings": settings,
+        # False ⇒ no opening hours on record: the page offers no times (the
+        # engine no longer invents 11–22) and the owner's hours card says so.
+        "hours_declared": rsvc.hours_declared(profile, settings),
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
         "resources_cap": get_cap(user, "bookable_resources_max"),

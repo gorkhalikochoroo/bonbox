@@ -56,10 +56,12 @@ def test_falls_back_to_operating_hours_when_no_booking_hours():
     assert windows[0].start.hour == 8 and windows[0].end.hour == 16
 
 
-def test_falls_back_to_default_open_close_when_nothing_set():
-    # No booking_hours, no operating_hours_json → fallback 11:00-22:00.
-    windows = rsvc.restaurant_windows(_Profile(), DAY, _settings())
-    assert windows[0].start.hour == 11 and windows[0].end.hour == 22
+def test_no_hours_declared_means_no_window():
+    # No booking_hours, no operating_hours_json → NO window. It used to fall
+    # back to 11:00-22:00 every day, and a page went live on those invented
+    # hours the moment the venue added its first table.
+    assert rsvc.restaurant_windows(_Profile(), DAY, _settings()) == []
+    assert rsvc.hours_declared(_Profile(), _settings()) is False
 
 
 def test_booking_hours_crossing_midnight_rolls_end_to_next_day():
@@ -70,9 +72,9 @@ def test_booking_hours_crossing_midnight_rolls_end_to_next_day():
 
 
 def test_booking_hours_for_other_weekday_does_not_apply_to_this_day():
-    # Hours set only for a DIFFERENT weekday → this day falls through to the
-    # fallback window, not the other day's hours.
+    # Hours set only for a DIFFERENT weekday → this day has no window of its
+    # own (and never borrows the other day's hours or invented ones).
     other = rsvc._WEEKDAY_KEYS[(DAY.weekday() + 1) % 7]
     s = _settings(booking_hours={other: "10:00-12:00"})
-    windows = rsvc.restaurant_windows(_Profile(), DAY, s)
-    assert windows[0].start.hour == 11 and windows[0].end.hour == 22
+    assert rsvc.restaurant_windows(_Profile(), DAY, s) == []
+    assert rsvc.hours_declared(_Profile(), s) is True

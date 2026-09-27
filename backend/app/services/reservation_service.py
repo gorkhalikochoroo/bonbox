@@ -108,14 +108,35 @@ def _parse_hhmm(s: str) -> time | None:
         return None
 
 
+def hours_declared(profile: BusinessProfile | None, settings: dict) -> bool:
+    """Has the venue told us when it is open — booking hours, or the
+    business's opening hours — for at least one day?"""
+    bh = settings.get("booking_hours")
+    if isinstance(bh, dict) and any(isinstance(v, str) and "-" in v for v in bh.values()):
+        return True
+    raw = getattr(profile, "operating_hours_json", None) if profile else None
+    if raw:
+        try:
+            hours = json.loads(raw)
+        except (ValueError, TypeError):
+            return False
+        if isinstance(hours, dict):
+            return any(isinstance(v, str) and "-" in v for v in hours.values())
+    return False
+
+
 def restaurant_windows(profile: BusinessProfile | None, day: date,
                        settings: dict) -> list[TimeWindow]:
     """The day's open window for bookings. Source precedence:
       1. `booking_hours` in reservation settings — owner-set "we take bookings
          Mon 17:00–23:00, Tue closed, …" (a dict keyed by mon..sun, values
          "HH:MM-HH:MM" or "closed"). This is the explicit control.
-      2. the business's `operating_hours_json` (same format),
-      3. the `fallback_open`/`fallback_close` defaults.
+      2. the business's `operating_hours_json` (same format).
+    Nothing declared for the day ⇒ no window (fail-closed), exactly like the
+    salon path. It used to fall back to `fallback_open`/`fallback_close`
+    (11:00–22:00 every day), and a venue's page went live on those invented
+    hours the moment it added its first table: a café closing at 17:00 and
+    shut on Mondays took bookings for Monday at 21:00.
     Closes past midnight roll to the next day (e.g. '18:00-02:00')."""
     key = _WEEKDAY_KEYS[day.weekday()]
     spec = None
@@ -135,13 +156,9 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
             except (ValueError, TypeError):
                 spec = None
 
-    if spec == "closed":
+    if spec is None or spec == "closed" or "-" not in str(spec):
         return []
-    # 3. Else the fallback open/close.
-    open_s, close_s = settings["fallback_open"], settings["fallback_close"]
-    if spec and "-" in spec:
-        parts = spec.split("-")
-        open_s, close_s = parts[0], parts[1]
+    open_s, close_s = str(spec).split("-")[:2]
 
     o, c = _parse_hhmm(open_s), _parse_hhmm(close_s)
     if not o or not c:
