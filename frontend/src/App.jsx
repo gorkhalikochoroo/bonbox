@@ -156,13 +156,29 @@ const CRASH_COPY = {
     home: "Gå til forsiden",
   },
 };
-function crashCopy() {
+// A restaurant's GUEST never heard of BonBox and has no "start page" here —
+// the old exit sent a crashed booking page to bonbox.dk's front page. For
+// them: no BonBox in the words, and the one way on is their booking page.
+const CRASH_COPY_GUEST = {
+  en: {
+    title: "Something went wrong",
+    body: "It is usually the connection. Reloading brings the booking page back.",
+    reload: "Reload the page",
+  },
+  da: {
+    title: "Noget gik galt",
+    body: "Det skyldes som regel forbindelsen. Hent siden igen, så er bookingen tilbage.",
+    reload: "Hent siden igen",
+  },
+};
+function crashCopy(guest = false) {
+  const table = guest ? CRASH_COPY_GUEST : CRASH_COPY;
   try {
-    return detectInitialLanguage().lang === "da" ? CRASH_COPY.da : CRASH_COPY.en;
+    return detectInitialLanguage().lang === "da" ? table.da : table.en;
   } catch {
     // localStorage/navigator can throw in a hardened browser — never let the
     // crash screen crash while deciding which language to apologise in.
-    return CRASH_COPY.en;
+    return table.en;
   }
 }
 
@@ -230,7 +246,13 @@ class ErrorBoundary extends Component {
       // the product, shown at the moment they trust it least. Now the house
       // empty-state chip with a Lucide glyph, the house Button, and Danish for
       // a Danish owner.
-      const copy = crashCopy();
+      let guest = false;
+      try {
+        guest = wasGuestPath(window.location.pathname);
+      } catch {
+        /* no window — the owner copy is the safe default */
+      }
+      const copy = crashCopy(guest);
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900 px-4">
           <div className="text-center max-w-md">
@@ -247,9 +269,11 @@ class ErrorBoundary extends Component {
               <Button size="lg" onClick={this.handleClearAndReload} busy={this.state.retrying}>
                 {copy.reload}
               </Button>
-              <Button size="lg" variant="ghost" onClick={this.handleGoHome}>
-                {copy.home}
-              </Button>
+              {!guest && (
+                <Button size="lg" variant="ghost" onClick={this.handleGoHome}>
+                  {copy.home}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -271,7 +295,7 @@ import CookieConsent from "./components/CookieConsent";
 // NEVER wraps public (/r, /e, /s, /scan), spine, accountant, or auth routes.
 import PillarGate from "./components/PillarGate";
 import AccountLanguageSync from "./components/AccountLanguageSync";
-import { markGuestSurface } from "./lib/guestSurface";
+import { markGuestSurface, wasGuestPath } from "./lib/guestSurface";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the

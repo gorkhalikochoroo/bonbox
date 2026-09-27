@@ -20,6 +20,10 @@ import { useSyncExternalStore } from "react";
 export const GUEST_SURFACE_EVENT = "bonbox-guest-surface";
 
 let mounted = 0;
+// The path of the last guest page shown. Unlike `mounted` it outlives the
+// page: when a guest page crashes, React unmounts it BEFORE the crash screen
+// renders, so by then the counter already says "no guest page here".
+let lastGuestPath = null;
 
 function announce() {
   try {
@@ -31,6 +35,11 @@ function announce() {
 
 export function markGuestSurface() {
   mounted += 1;
+  try {
+    lastGuestPath = window.location.pathname;
+  } catch {
+    /* no window — nothing to remember */
+  }
   announce();
   return () => {
     mounted = Math.max(0, mounted - 1);
@@ -45,6 +54,11 @@ export function isGuestSurface() {
   } catch {
     return false;
   }
+}
+
+/** Was this path showing a guest page — even one that has just crashed? */
+export function wasGuestPath(path) {
+  return isGuestSurface() || (!!lastGuestPath && lastGuestPath === path);
 }
 
 function subscribe(onChange) {

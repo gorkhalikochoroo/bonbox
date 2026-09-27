@@ -21,7 +21,7 @@ vi.mock("../hooks/useLanguage", () => ({
 import { venueMonogram } from "../utils/venueMonogram";
 import MonthCalendar from "../components/MonthCalendar";
 import CookieConsent from "../components/CookieConsent";
-import { markGuestSurface } from "../lib/guestSurface";
+import { markGuestSurface, isGuestSurface, wasGuestPath } from "../lib/guestSurface";
 
 describe("venueMonogram", () => {
   it("takes letters, not brackets", () => {
@@ -93,5 +93,20 @@ describe("cookie banner on guest pages", () => {
     act(() => vi.advanceTimersByTime(700));
     expect(document.body.textContent).not.toMatch(/cookie/i);
     unmark();
+  });
+});
+
+describe("a crashed guest page is still known as one", () => {
+  // React unmounts a crashed page BEFORE the crash screen renders, so the live
+  // counter already says "no guest page". The crash screen asks wasGuestPath —
+  // a guest must be offered their booking page back, not bonbox.dk's front page.
+  it("remembers the guest path after the page unmounts", () => {
+    window.history.replaceState(null, "", "/bistro");
+    const unmark = markGuestSurface();
+    unmark();
+    expect(isGuestSurface()).toBe(false);
+    expect(wasGuestPath("/bistro")).toBe(true);
+    expect(wasGuestPath("/dashboard")).toBe(false);
+    window.history.replaceState(null, "", "/");
   });
 });

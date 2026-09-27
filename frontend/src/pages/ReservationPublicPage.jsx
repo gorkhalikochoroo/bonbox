@@ -30,6 +30,7 @@
 // DK terminology lock applies: revisor / MOMS etc. stay Danish in all
 // locales. The public copy here defaults to Danish (DK-first market).
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useConfirm } from "../hooks/useConfirm";
 import { buildIcs, venueAddress } from "../utils/reservationIcs";
@@ -62,6 +63,7 @@ import { contactState } from "../utils/guestContact";
 import { rescueDay } from "../utils/bookingDay";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useLanguage } from "../hooks/useLanguage";
+import { loadLocale, loadedLocales } from "../lib/localeStore";
 import Button from "../components/ui/Button";
 import Chip from "../components/ui/Chip";
 import Input from "../components/ui/Input";
@@ -75,8 +77,10 @@ import { bookingModeFor, usesTableFloor } from "../config/venueProfiles";
 // the stable key; the human label is resolved through the i18n layer.
 const SEVERITY_KEYS = ["preference", "intolerance", "severe"];
 
-// Occasion chips (design spec: five, single-select). The chosen label is
-// stored as the booking's occasion text, in the guest's language.
+// Occasion chips (design spec: five, single-select). The page holds the KEY,
+// so the chip stays selected and reads right when the guest switches DA/EN.
+// The booking stores the label in the VENUE's language — it is the owner who
+// reads it; a Danish owner got "Birthday" from an English-speaking guest.
 const OCCASION_KEYS = ["birthday", "anniversary", "date", "business", "celebration"];
 const OCCASION_FALLBACK = {
   birthday: "Birthday",
@@ -129,6 +133,15 @@ const RAIL =
 // form label it used to be, which read as fine print on a phone.
 const SECTION_TITLE = "block text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100";
 
+// One keyboard focus ring for every control on the page. The chips wore a
+// faint grey ring (~2.6:1) and the day chips and links the browser's own
+// outline — two looks, one of them nearly invisible.
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950";
+// The same, for the shared Chip primitive (its own ring is the faint one).
+const CHIP_FOCUS = "focus-visible:ring-gray-900! dark:focus-visible:ring-gray-100! focus-visible:ring-offset-2!";
+
 // The day's times: a segmented control for the services (Frokost /
 // Eftermiddag / Aften) and that service's times four across. As horizontal
 // rails a full day (~40 times) showed 13 and hid the rest behind swipes; here
@@ -166,7 +179,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
               aria-pressed={g.key === active}
               onClick={() => setTab(g.key)}
               className={
-                "relative flex-1 h-9 rounded-lg text-[13px] font-semibold transition-colors duration-200 ease-out " +
+                "relative flex-1 h-9 rounded-lg text-[13px] font-semibold transition-colors duration-200 ease-out " + FOCUS + " " +
                 (g.key === active
                   ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
                   : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200")
@@ -204,7 +217,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
               aria-pressed={undefined}
               tabIndex={focusable ? 0 : -1}
               className={
-                "w-full px-0 tabular-nums text-[15px] flex-col justify-center gap-0 duration-200 ease-out " +
+                "w-full px-0 tabular-nums text-[15px] flex-col justify-center gap-0 duration-200 ease-out rounded-xl! " + CHIP_FOCUS + " " +
                 (withNotes ? "h-[52px] " : "h-11 ") +
                 (slot === s ? "font-semibold shadow-sm" : "")
               }
@@ -281,7 +294,7 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             tabIndex={active || (!days.includes(value) && idx === 0) ? 0 : -1}
             aria-label={closed ? `${full(iso)} — ${t("rsvpDayClosed", "lukket")}` : full(iso)}
             className={[
-              "shrink-0 snap-start w-14 sm:w-auto h-[68px] rounded-xl border",
+              "shrink-0 snap-start w-14 sm:w-auto h-[68px] rounded-xl border " + FOCUS,
               // A day picked beyond the 14-day row stands apart from it, so
               // "Lør 10 okt · Tors 15 okt" never reads as consecutive days.
               idx === 14 ? "ml-4 sm:ml-0 sm:col-start-1" : "",
@@ -293,13 +306,13 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
               closed ? "opacity-45 cursor-not-allowed" : "",
             ].join(" ")}
           >
-            <span className={"text-[10.5px] font-medium leading-none capitalize " + quiet}>
+            <span className={"text-[11px] font-medium leading-none capitalize " + quiet}>
               {part(iso, { weekday: "short" })}
             </span>
             <span className="text-lg font-semibold leading-none tabular-nums">
               {part(iso, { day: "numeric" })}
             </span>
-            <span className={"text-[10px] leading-none " + quiet}>
+            <span className={"text-[11px] leading-none " + quiet}>
               {/* rsvpDayClosed — the chip word. rsvpClosed is the page <h1>. */}
               {closed ? t("rsvpDayClosed", "lukket") : part(iso, { month: "short" }).replace(/^Sept$/, "Sep")}
             </span>
@@ -404,14 +417,15 @@ function VenueBadge({ logoUrl, name, size = "md" }) {
       />
     );
   }
-  // No uploaded logo → the monogram, on BRAND GREEN rather than the app's
-  // gray-900. This is the one page a stranger sees, and a black square with two
-  // letters read as a missing image; green reads as a mark. It stays the
-  // VENUE's monogram, never BonBox's own mark — this is the restaurant's page,
-  // and wearing our logo on it would be claiming their identity.
+  // No uploaded logo → the monogram, as a soft neutral tile: a black square
+  // with two letters read as a missing image, and a green one competed with
+  // the green trust strip and the green button — three greens before the
+  // guest had chosen anything. It stays the VENUE's monogram, never BonBox's
+  // own mark — this is the restaurant's page, and wearing our logo on it
+  // would be claiming their identity.
   return (
     <div
-      className={`shrink-0 ${box} bg-bb-green text-white flex items-center justify-center font-semibold tracking-tight select-none`}
+      className={`shrink-0 ${box} bg-gray-100 text-gray-800 ring-1 ring-inset ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700 flex items-center justify-center font-semibold tracking-tight select-none`}
       aria-hidden="true"
     >
       {venueMonogram(name)}
@@ -676,7 +690,7 @@ export default function ReservationPublicPage() {
   // label, and the guest cannot tell whether the kitchen was told.
   const extrasSummary = useMemo(() => {
     const bits = [];
-    if (occasion.trim()) bits.push(occasion.trim());
+    if (occasion) bits.push(t(`rsvpOccasion_${occasion}`, OCCASION_FALLBACK[occasion]));
     if (allergenTags.length) {
       bits.push(
         allergenTags.length === 1
@@ -717,6 +731,20 @@ export default function ReservationPublicPage() {
   // a dead press.
   const navigate = useNavigate();
   const location = useLocation();
+  // "Pick a time" in the bar: bring the times into view and put focus on the
+  // first one, so a keyboard or screen-reader user lands in the right place.
+  const revealTimes = () => {
+    const heading = document.getElementById("rsvp-times");
+    if (!heading) return;
+    // Focus first, without scrolling: a focus() issued during a smooth scroll
+    // cancels it in Chrome.
+    heading.parentElement?.querySelector('[role="radio"][tabindex="0"]')?.focus({ preventScroll: true });
+    // Scroll only when the times sit low enough that the grid is out of view.
+    if (heading.getBoundingClientRect().top > window.innerHeight * 0.4) {
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+      heading.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    }
+  };
   const goToDetails = () => {
     setStep(2);
     if (location.hash !== "#details") {
@@ -774,6 +802,10 @@ export default function ReservationPublicPage() {
   // `liveStatus` is the authoritative status once polling starts; before
   // that we fall back to the create response's status.
   const [liveStatus, setLiveStatus] = useState(null); // null | backend status
+  // The status a booking had when the guest cancelled it here — tells a
+  // withdrawn REQUEST from a cancelled booking, also on a receipt reopened
+  // from its link (where the create response is not there to ask).
+  const [cancelledFrom, setCancelledFrom] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState(false);
 
@@ -969,7 +1001,9 @@ export default function ReservationPublicPage() {
     const showsBooking = !!result && linkState !== "loading" && linkState !== "failed";
     const title = !showsBooking
       ? t("rsvpDocTitle", "Book bord · {venue}", { venue })
-      : resultStatus === "cancelled" || resultStatus === "no_show"
+      : resultStatus === "cancelled" && (cancelledFrom === "requested" || result?.status === "requested")
+        ? t("rsvpDocTitleWithdrawn", "Request withdrawn · {venue}", { venue })
+        : resultStatus === "cancelled" || resultStatus === "no_show"
         ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
         : resultStatus === "requested"
           ? t("rsvpDocTitleRequest", "Request sent · {venue}", { venue })
@@ -989,7 +1023,7 @@ export default function ReservationPublicPage() {
       t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
-  }, [page, t, result, resultStatus, linkState]);
+  }, [page, t, result, resultStatus, linkState, cancelledFrom]);
 
   // ── Provider venue: load the active behandlinger catalog (S3b) ────
   // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
@@ -1230,10 +1264,33 @@ export default function ReservationPublicPage() {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
+  // The occasion as the OWNER will read it: the venue's language when its
+  // dictionary is here (the page opens in it, so it nearly always is), else
+  // the guest's own — never a raw key.
+  const venueOccasionLabel = (k) =>
+    loadedLocales()[page?.language]?.[`rsvpOccasion_${k}`] ||
+    t(`rsvpOccasion_${k}`, OCCASION_FALLBACK[k]);
+
+  // A guest who reads the page in another language than the venue's: fetch the
+  // venue's dictionary while they fill in details, so the occasion can be
+  // stored in it. A returning visitor who picked English before is the only
+  // one who has not already loaded it.
+  useEffect(() => {
+    if (step === 2 && page?.language && page.language !== lang) {
+      loadLocale(page.language).catch(() => {});
+    }
+  }, [step, page?.language, lang]);
+
   const onSubmit = async () => {
     if (!canSubmit) {
       setNameTouched(true);
       setContactTouched(true);
+      const missing = !nameValid
+        ? "rsvp-name"
+        : !contactValid
+          ? contactMode === "phone" ? "rsvp-phone" : "rsvp-email"
+          : null;
+      if (missing) document.getElementById(missing)?.focus();
       return;
     }
     setSubmitting(true);
@@ -1260,7 +1317,7 @@ export default function ReservationPublicPage() {
       // The page's language, so every email about this booking (confirmation,
       // reminder, a change by the venue) reaches the guest in it.
       lang: lang === "da" || lang === "en" ? lang : null,
-      occasion: occasion.trim() || null,
+      occasion: occasion ? venueOccasionLabel(occasion) : null,
       guest_notes: guestNotes.trim() || null,
       allergen_tags: hasAllergy ? allergenTags : [],
       allergy_note: hasAllergy ? allergyNote.trim() || null : null,
@@ -1485,6 +1542,7 @@ export default function ReservationPublicPage() {
         { params: { token } },
       );
       const next = res?.data?.status || "cancelled";
+      setCancelledFrom(isReq ? "requested" : "confirmed");
       setLiveStatus(next);
       // Token is spent — drop it so a stale return visit can't reuse it.
       try {
@@ -1553,6 +1611,7 @@ export default function ReservationPublicPage() {
     leftBooking.current = result?.id || null;
     setResult(null);
     setLiveStatus(null);
+    setCancelledFrom(null);
     setLinked(null);
     setLinkState(null);
     setSlot("");
@@ -1628,8 +1687,27 @@ export default function ReservationPublicPage() {
     const isConfirmed = status === "confirmed" || status === "seated";
     const isCancelled = status === "cancelled" || status === "no_show";
     const isDone = status === "completed";
+    // A request the guest withdrew here. It never held a table, so "the
+    // table has been released" was untrue — and its time stays "preferred".
+    const withdrawn =
+      isCancelled && (cancelledFrom === "requested" || result.status === "requested");
     // Self-cancel only makes sense while the booking is still live.
     const canCancel = isRequest || isConfirmed;
+
+    // What the receipt shows: the booking the page just made — or, when the
+    // guest arrived from the email link / a reload / a bookmark, the booking
+    // the server returned for that link. The form state is empty then, and
+    // the receipt used to show today's date, no time and a blank name.
+    const rDay = linked?.day || day;
+    const rTime = linked ? linked.time : slot;
+    const rParty = linked?.party || party;
+    const rName = linked ? linked.name : guestName.trim();
+    // The contact the booking was actually SENT with — not whatever is in the
+    // box. A typo left on the Email tab is dropped from the booking, and
+    // naming it here promised a confirmation that would never arrive.
+    const sentEmail = !linked ? contact.payload.guest_email : null;
+    const sentPhone = !linked ? contact.payload.guest_phone : null;
+    const emailGiven = !!sentEmail;
 
     // Status-driven hero icon + headline + body. Emerald is reserved for the
     // one confirmed "money moment"; pending/closed states stay gray.
@@ -1639,17 +1717,34 @@ export default function ReservationPublicPage() {
     let title = t("rsvpConfirmedTitle", "Reservation bekræftet");
     let body = t(
       "rsvpConfirmedBody",
-      // The email sentence used to live here too, hedged as "hvis du har\n      // angivet en email" — directly under a line that names the address we\n      // sent it to. Contradicting yourself about whether the guest will hear\n      // from you is the one thing a confirmation screen must not do.\n      "Vi glæder os til at se dig.",
+      // The email sentence used to live here too, hedged as "hvis du har
+      // angivet en email" — directly under a line that names the address we
+      // sent it to. Contradicting yourself about whether the guest will hear
+      // from you is the one thing a confirmation screen must not do.
+      "Vi glæder os til at se dig.",
     );
     if (isRequest) {
       HeroIcon = Clock;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = t("rsvpRequestTitle", "Forespørgsel modtaget");
-      body = t(
-        "rsvpRequestBody",
-        "Vi har modtaget din forespørgsel — stedet vender tilbage for at bekræfte.",
-      );
+      // ONE sentence on what happens next, naming the channel the guest gave.
+      // The screen used to say it four times: this line, "save this page",
+      // a spinning pill, and a paragraph under it.
+      body =
+        rDay === today
+          ? t("rsvpRequestNextToday", "We'll get back to you shortly.")
+          : sentEmail
+            ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })
+            : sentPhone
+              ? t("rsvpRequestNextPhone", "We'll call you on {phone} to confirm.", { phone: sentPhone })
+              : t("rsvpRequestNextLater", "We'll get back to you before the day.");
+    } else if (withdrawn) {
+      HeroIcon = XCircle;
+      heroWrap = "bg-gray-100 dark:bg-gray-800";
+      heroIconCls = "text-gray-500 dark:text-gray-400";
+      title = t("rsvpWithdrawnTitle", "Request withdrawn");
+      body = t("rsvpWithdrawnBody", "We've been told. You're welcome to send a new request.");
     } else if (isCancelled) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
@@ -1672,38 +1767,26 @@ export default function ReservationPublicPage() {
     const refCode = result?.id
       ? `#${String(result.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
       : "";
-    // What the receipt shows: the booking the page just made — or, when the
-    // guest arrived from the email link / a reload / a bookmark, the booking
-    // the server returned for that link. The form state is empty then, and
-    // the receipt used to show today's date, no time and a blank name.
-    const rDay = linked?.day || day;
-    const rTime = linked ? linked.time : slot;
-    const rParty = linked?.party || party;
-    const rName = linked ? linked.name : guestName.trim();
-    // The address the booking was actually SENT with — not whatever is in the
-    // email box. A typo left on the Email tab is dropped from the booking, and
-    // naming it here promised a confirmation that would never arrive.
-    const sentEmail = !linked ? contact.payload.guest_email : null;
-    const emailGiven = !!sentEmail;
-    // An honest delivery line: the email goes out right after this screen
-    // appears, so it is "on its way" — never "sent" before it has been. From
+    // An honest delivery line for a CONFIRMED booking: the email goes out
+    // right after this screen appears, so it is "on its way" — never "sent"
+    // before it has been. A request says its channel in the body above. From
     // a link we don't know which contact the guest gave, so we say nothing.
     let deliveryLine = null;
-    if (!linked && !isCancelled && !isDone) {
+    if (!linked && isConfirmed) {
       deliveryLine = emailGiven
-        ? isRequest
-          ? t("rsvpRequestOnItsWay", "Your request details are on their way to {email}.", {
-              email: sentEmail,
-            })
-          : t("rsvpEmailOnItsWay", "A confirmation is on its way to {email}.", {
-              email: sentEmail,
-            })
+        ? t("rsvpEmailOnItsWay", "A confirmation is on its way to {email}.", {
+            email: sentEmail,
+          })
         : t("rsvpNoEmailSaved", "Save this page — we don't have your email.");
     }
     // What the kitchen was told, including how serious — the guest's proof
     // that "severe" reached the restaurant.
     // From the booking itself when the receipt was reopened from a link.
-    const rOccasion = linked ? linked.occasion : occasion.trim();
+    const rOccasion = linked
+      ? linked.occasion
+      : occasion
+        ? t(`rsvpOccasion_${occasion}`, OCCASION_FALLBACK[occasion])
+        : "";
     const rTags = linked ? linked.allergenTags : allergenTags;
     const rSeverity = linked ? linked.allergySeverity : allergySeverity;
     const kitchen = [
@@ -1718,7 +1801,7 @@ export default function ReservationPublicPage() {
             k: "time",
             // A request's time is the one the guest asked for, until the venue
             // confirms it — on a reopened receipt too.
-            label: isRequest ? t("rsvpRowWishedTime", "Preferred time") : t("rsvpTimeLabel", "Time"),
+            label: isRequest || withdrawn ? t("rsvpRowWishedTime", "Preferred time") : t("rsvpTimeLabel", "Time"),
             value: rTime,
           }
         : null,
@@ -1773,35 +1856,22 @@ export default function ReservationPublicPage() {
             )}
           </div>
 
+          {/* The state, once: a still pill. It used to spin — and kept
+              spinning after the page had stopped checking (8 polls, ~2 min),
+              promising activity that was not happening. The page still
+              updates itself if the venue confirms while it is open. */}
           {isRequest && (
-            <div
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300"
-              role="status"
-              aria-live="polite"
-            >
-              <Loader2 size={13} strokeWidth={2} className="animate-spin text-gray-400" aria-hidden="true" />
-              {t("rsvpStatusWaiting", "Afventer bekræftelse fra stedet…")}
+            <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              {t("rsvpStatusPending", "Awaiting confirmation")}
             </div>
           )}
-          {isRequest && (
+          {isRequest && telHref(page?.phone) && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {rDay === today
-                ? t("rsvpRequestExpectationToday", "We'll get back to you shortly. To be sure, give us a call.")
-                : !linked && !sentEmail
-                  ? // Phone only — never promise an email they will not get.
-                    t("rsvpRequestExpectationPhone", "We'll contact you by phone to confirm. To be sure, give us a call.")
-                  : t(
-                      "rsvpRequestExpectation",
-                      "Du hører fra os på email inden dagen. Vil du være sikker, så ring til os.",
-                    )}
-              {page?.phone && (
-                <>
-                  {" "}
-                  <a href={telHref(page.phone)} className="underline">
-                    {page.phone}
-                  </a>
-                </>
-              )}
+              {t("rsvpRequestHurry", "In a hurry? Call")}{" "}
+              <a href={telHref(page.phone)} className="min-h-0! font-medium text-gray-700 dark:text-gray-200 underline tabular-nums">
+                {page.phone}
+              </a>
             </p>
           )}
           {/* Only when a request the guest sent HERE flips to confirmed —
@@ -1838,7 +1908,7 @@ export default function ReservationPublicPage() {
               <dl className={isCancelled ? "opacity-60" : ""}>
                 {rows.map((row) => (
                   <div key={row.k} className="flex items-baseline justify-between gap-4 py-2">
-                    <dt className="w-[88px] shrink-0 text-[13.5px] text-gray-500 dark:text-gray-400">{row.label}</dt>
+                    <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">{row.label}</dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 break-words">
                       {row.value}
                     </dd>
@@ -1846,7 +1916,7 @@ export default function ReservationPublicPage() {
                 ))}
                 {address && (
                   <div className="flex items-baseline justify-between gap-4 py-2">
-                    <dt className="w-[88px] shrink-0 text-[13.5px] text-gray-500 dark:text-gray-400">
+                    <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">
                       {t("rsvpRowWhere", "Where")}
                     </dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 break-words">
@@ -1866,7 +1936,7 @@ export default function ReservationPublicPage() {
                 )}
                 {telHref(page.phone) && (
                   <div className="flex items-baseline justify-between gap-4 py-2">
-                    <dt className="w-[88px] shrink-0 text-[13.5px] text-gray-500 dark:text-gray-400">
+                    <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">
                       {t("rsvpCallLabel", "Phone")}
                     </dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 tabular-nums">
@@ -1989,7 +2059,7 @@ export default function ReservationPublicPage() {
         // Tablet/desktop: the booking sits on a card over a quiet ground,
         // instead of a narrow column floating on a white page. Not when
         // embedded — the host site is the ground there.
-        isEmbed ? "" : "pb-32 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
+        isEmbed ? "" : "pb-32 sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
       }`}
     >
       <div
@@ -1997,7 +2067,7 @@ export default function ReservationPublicPage() {
           "max-w-md mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
           (isEmbed
             ? ""
-            : "sm:mt-10 sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
+            : "sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
         }
       >
         {/* ── Venue identity (brand logo or typographic monogram) ──
@@ -2053,7 +2123,7 @@ export default function ReservationPublicPage() {
                 // Tailwind's layers, so only the important form beats it. With
                 // a long address the number wraps under it, and two 44pt rows
                 // left a loose gap.
-                const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8!";
+                const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8! rounded-md " + FOCUS;
                 return map ? (
                   <a
                     href={map}
@@ -2072,7 +2142,7 @@ export default function ReservationPublicPage() {
               {telHref(page.phone) && (
                 <a
                   href={telHref(page.phone)}
-                  className="inline-flex items-center gap-1.5 min-h-8! hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"
+                  className={"inline-flex items-center gap-1.5 min-h-8! rounded-md hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200 " + FOCUS}
                 >
                   <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
                   <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
@@ -2083,14 +2153,13 @@ export default function ReservationPublicPage() {
 
           {/* The two objections a stranger has before booking — "do I need an
               account?" and "am I locked in?" — answered before they scroll.
-              As plain grey body text it read as legalese and was skipped; as a
-              green-tinted strip with a check it reads as reassurance, which is
-              what it is. This is the guest-facing page, so brand green is the
-              right accent here even though the owner app stays gray-900. */}
+              As plain grey body text it read as legalese and was skipped; on a
+              quiet strip with a green check it reads as reassurance. The strip
+              itself is neutral: the green is spent on the one main action. */}
           {step === 1 && (
-            <div className="flex items-center gap-2 rounded-xl bg-bb-green-icon dark:bg-bb-green-dark/15 px-3.5 py-2">
+            <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-gray-900 px-3.5 py-2">
               <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
-              <p className="text-[13px] font-medium leading-snug text-bb-green-dark dark:text-bb-green-edge">
+              <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">
                 {t("rsvpTrustLine", "No account needed · Free cancellation")}
               </p>
             </div>
@@ -2218,7 +2287,11 @@ export default function ReservationPublicPage() {
                       aria-checked={party === n}
                       aria-pressed={undefined}
                       tabIndex={party === n ? 0 : -1}
-                      className="shrink-0 w-11 sm:w-auto h-11 snap-start tabular-nums text-[15px] duration-200 ease-out"
+                      // Width from the screen: 7½ chips across, so a half chip
+                      // always sits at the edge. At 44px a 375px phone showed
+                      // exactly 1–7 and hid 8–10 — the group sizes — with
+                      // nothing to say the row went on.
+                      className={"shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-11 snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS}
                     >
                       {n}
                     </Chip>
@@ -2385,7 +2458,7 @@ export default function ReservationPublicPage() {
                   </p>
                 </div>
               )}
-              <h2 className={SECTION_TITLE + " mb-2.5"}>
+              <h2 id="rsvp-times" className={SECTION_TITLE + " mb-2.5 scroll-mt-6"}>
                 {groupRequest
                   ? t("rsvpPickWishedTime", "Preferred time")
                   : t("rsvpPickTime", "Vælg tidspunkt")}
@@ -2601,7 +2674,7 @@ export default function ReservationPublicPage() {
               onClick={backToChoices}
               className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-600 transition-colors px-4 py-3 flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300"
             >
-              <Calendar size={18} strokeWidth={1.75} className="text-bb-green shrink-0" aria-hidden="true" />
+              <Calendar size={18} strokeWidth={1.75} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
               <span className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
               {isProvider ? (
                 <span className="min-w-0">
@@ -2720,9 +2793,15 @@ export default function ReservationPublicPage() {
                       type="button"
                       role="radio"
                       aria-checked={contactMode === m.k}
-                      onClick={() => setContactMode(m.k)}
+                      // Straight into the field that just appeared: render it
+                      // now, then focus inside the same tap, so a phone's
+                      // keyboard opens (iOS only honours focus from a gesture).
+                      onClick={() => {
+                        flushSync(() => setContactMode(m.k));
+                        document.getElementById(m.k === "phone" ? "rsvp-phone" : "rsvp-email")?.focus();
+                      }}
                       className={
-                        "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors duration-200 ease-out " +
+                        "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors duration-200 ease-out " + FOCUS + " " +
                         (contactMode === m.k
                           ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm"
                           : "text-gray-500 dark:text-gray-400")
@@ -2782,7 +2861,13 @@ export default function ReservationPublicPage() {
                         ? t("rsvpPhoneCheck", "Check your phone number — e.g. +45 12 34 56 78")
                         : null
                     }
-                    hint={t("rsvpPhoneWhy", "We only call if something changes.")}
+                    // A request is confirmed by a call; "we only call if
+                    // something changes" contradicted the receipt after it.
+                    hint={
+                      groupRequest
+                        ? t("rsvpPhoneWhyRequest", "We'll call you to confirm your request.")
+                        : t("rsvpPhoneWhy", "We only call if something changes.")
+                    }
                     autoComplete="tel"
                     inputMode="tel"
                     maxLength={40}
@@ -2860,7 +2945,7 @@ export default function ReservationPublicPage() {
                               aria-pressed={on}
                               onClick={() => toggleAllergen(a.key)}
                               className={
-                                "h-9 px-3.5 rounded-full border text-[13px] transition-colors duration-200 ease-out " +
+                                "h-9 px-3.5 rounded-xl border text-[13px] transition-colors duration-200 ease-out " + FOCUS + " " +
                                 (on
                                   ? "bg-bb-green-dark border-bb-green-dark text-white font-medium"
                                   : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
@@ -2887,7 +2972,7 @@ export default function ReservationPublicPage() {
                                 aria-checked={allergySeverity === k}
                                 onClick={() => setAllergySeverity((cur) => (cur === k ? "" : k))}
                                 className={
-                                  "h-10 rounded-xl border text-[13px] transition-colors duration-200 ease-out " +
+                                  "h-10 rounded-xl border text-[13px] transition-colors duration-200 ease-out " + FOCUS + " " +
                                   (allergySeverity === k
                                     ? "bg-gray-900 border-gray-900 text-white font-semibold dark:bg-white dark:border-white dark:text-gray-900"
                                     : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
@@ -2924,15 +3009,15 @@ export default function ReservationPublicPage() {
                     <div className="flex flex-wrap gap-1.5">
                       {OCCASION_KEYS.map((k) => {
                         const label = t(`rsvpOccasion_${k}`, OCCASION_FALLBACK[k]);
-                        const on = occasion === label;
+                        const on = occasion === k;
                         return (
                           <button
                             key={k}
                             type="button"
                             aria-pressed={on}
-                            onClick={() => setOccasion(on ? "" : label)}
+                            onClick={() => setOccasion(on ? "" : k)}
                             className={
-                              "h-9 px-3.5 rounded-full border text-[13.5px] transition-colors duration-200 ease-out " +
+                              "h-9 px-3.5 rounded-xl border text-[13.5px] transition-colors duration-200 ease-out " + FOCUS + " " +
                               (on
                                 ? "bg-gray-900 border-gray-900 text-white font-medium dark:bg-white dark:border-white dark:text-gray-900"
                                 : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
@@ -3017,7 +3102,7 @@ export default function ReservationPublicPage() {
                 href="/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-0! underline hover:text-gray-900 dark:hover:text-gray-100"
+                className={"min-h-0! underline rounded-sm hover:text-gray-900 dark:hover:text-gray-100 " + FOCUS}
               >
                 {t("rsvpPrivacyLink", "Privacy policy")}
               </a>
@@ -3073,9 +3158,7 @@ export default function ReservationPublicPage() {
                     {[fmtDayShort(day, lang), slot || null].filter(Boolean).join(" · ")}
                   </p>
                   <p className="text-[12.5px] text-gray-500 dark:text-gray-400 truncate">
-                    {needsTime
-                      ? t("rsvpPickTimeToContinue", "Pick a time to continue")
-                      : groupRequest
+                    {groupRequest
                         ? t("rsvpGroupTimeNote", "{party} · request", {
                             party: partyLabel(party, t),
                           })
@@ -3084,15 +3167,17 @@ export default function ReservationPublicPage() {
                           : partyLabel(party, t)}
                   </p>
                 </div>
+                {/* Never a dead grey block: until a time is picked the button
+                    says so, and a tap scrolls to the times. Grey here, then
+                    green, then grey again on step 2 read as "something broke". */}
                 <Button
                   variant="main"
                   size="lg"
-                  onClick={goToDetails}
-                  disabled={needsTime}
+                  onClick={needsTime ? revealTimes : goToDetails}
                   className="shrink-0 px-6 h-[52px]! rounded-xl! text-[15.5px]! font-semibold!"
-                  iconRight={<ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
+                  iconRight={needsTime ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
                 >
-                  {t("rsvpContinue", "Continue")}
+                  {needsTime ? t("rsvpPickTimeCta", "Vælg et tidspunkt") : t("rsvpContinue", "Continue")}
                 </Button>
               </>
             ) : (
@@ -3116,7 +3201,6 @@ export default function ReservationPublicPage() {
                   // the button into the way back instead of a dead grey block.
                   onClick={needsTime ? backToChoices : onSubmit}
                   busy={submitting}
-                  disabled={needsTime ? false : !canSubmit}
                   className="flex-1 h-[52px]! rounded-xl! text-[15.5px]! font-semibold!"
                   iconRight={
                     needsTime || !canSubmit ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />
@@ -3158,17 +3242,29 @@ export default function ReservationPublicPage() {
 // Each segment is 40×32 (44pt with the global touch rule): this is the
 // control a guest reaches for when the page opened in a language they do not
 // read — on the booking form and on the receipt alike.
+// Each language is named in itself ("Dansk", "English") for a screen reader —
+// it read the bare codes "da" / "en" — and marked with its own `lang`, so the
+// name is pronounced in that language. The group is named in both.
+const LANG_NAMES = { da: "Dansk", en: "English" };
+
 function LangPill({ lang, setLang }) {
   return (
-    <div className="shrink-0 flex items-center p-0.5 rounded-full bg-gray-100 dark:bg-gray-800">
+    <div
+      role="group"
+      aria-label="Sprog · Language"
+      className="shrink-0 flex items-center p-0.5 rounded-full bg-gray-100 dark:bg-gray-800"
+    >
       {["da", "en"].map((code) => (
         <button
           key={code}
           type="button"
+          lang={code}
           onClick={() => setLang(code)}
           aria-pressed={lang === code}
+          aria-label={LANG_NAMES[code]}
+          title={LANG_NAMES[code]}
           className={
-            "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " +
+            "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " + FOCUS + " " +
             (lang === code
               ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
               : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200")
@@ -3227,6 +3323,8 @@ function StepDots({ step, t }) {
       aria-valuemin={1}
       aria-valuemax={2}
       aria-valuenow={step}
+      // Read as "Step 1 of 2", not as a bare number.
+      aria-valuetext={t("rsvpStepOf", "Step {n} of {total}", { n: step, total: 2 })}
       aria-label={t("rsvpStepAria", "Reservation step")}
     >
       {[1, 2].map((n) => (
