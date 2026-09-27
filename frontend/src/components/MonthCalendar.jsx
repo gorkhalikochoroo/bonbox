@@ -21,6 +21,8 @@ const monthIndex = ({ y, m }) => y * 12 + m;
  * and the time list then says whether the place is open.
  */
 export default function MonthCalendar({ value, min, max, isClosed, onPick, locale, labels }) {
+  // `labels`: { prev, next, closed } — screen-reader words for the arrows and
+  // for a day the venue is closed.
   const [cursor, setCursor] = useState(() => monthOf(value && value >= min ? value : min));
   const first = monthOf(min);
   const last = monthOf(max || min);
@@ -52,21 +54,24 @@ export default function MonthCalendar({ value, min, max, isClosed, onPick, local
       return { y: Math.floor(n / 12), m: n % 12 };
     });
 
-  const navBtn =
-    "w-10 h-10 rounded-full flex items-center justify-center text-gray-700 dark:text-gray-200 " +
-    "hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:pointer-events-none " +
-    "transition-colors duration-200 ease-out";
+  // aria-disabled, not disabled: a real `disabled` on the arrow that has just
+  // been pressed to reach the first/last month drops keyboard focus out of
+  // the sheet.
+  const navBtn = (enabled) =>
+    "w-11 h-11 rounded-full flex items-center justify-center text-gray-700 dark:text-gray-200 " +
+    "transition-colors duration-200 ease-out " +
+    (enabled ? "hover:bg-gray-100 dark:hover:bg-gray-800" : "opacity-30 cursor-default");
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <button type="button" onClick={() => step(-1)} disabled={!canPrev} aria-label={labels.prev} className={navBtn}>
+        <button type="button" onClick={() => canPrev && step(-1)} aria-disabled={!canPrev} aria-label={labels.prev} className={navBtn(canPrev)}>
           <ChevronLeft className="w-5 h-5" aria-hidden="true" />
         </button>
         <p className="text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 first-letter:uppercase">
           {title}
         </p>
-        <button type="button" onClick={() => step(1)} disabled={!canNext} aria-label={labels.next} className={navBtn}>
+        <button type="button" onClick={() => canNext && step(1)} aria-disabled={!canNext} aria-label={labels.next} className={navBtn(canNext)}>
           <ChevronRight className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
@@ -90,13 +95,15 @@ export default function MonthCalendar({ value, min, max, isClosed, onPick, local
               disabled={disabled}
               onClick={() => onPick(iso)}
               aria-pressed={selected}
-              aria-label={new Date(`${iso}T00:00:00`).toLocaleDateString(locale, {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              })}
+              aria-label={
+                new Date(`${iso}T00:00:00`).toLocaleDateString(locale, {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                }) + (closed && labels.closed ? ` — ${labels.closed}` : "")
+              }
               className={[
-                "mx-auto w-10 h-10 rounded-full text-sm tabular-nums",
+                "mx-auto w-11 h-11 rounded-full text-sm tabular-nums",
                 "transition-[background-color,color,box-shadow] duration-200 ease-out",
                 selected
                   ? "bg-gray-900 text-white font-semibold dark:bg-white dark:text-gray-900"

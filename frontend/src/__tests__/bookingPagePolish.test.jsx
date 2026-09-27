@@ -60,7 +60,7 @@ describe("MonthCalendar", () => {
     fireEvent.click(day(28));
     expect(onPick).toHaveBeenCalledWith("2026-09-28");
     // Cannot page back before the first bookable month.
-    expect(screen.getByRole("button", { name: "Previous month" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Previous month" }).getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Next month" }));
     expect(screen.getByText("October 2026")).toBeTruthy();
   });

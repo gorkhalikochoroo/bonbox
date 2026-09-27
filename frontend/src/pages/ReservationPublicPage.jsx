@@ -51,12 +51,16 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  ArrowRight,
   X,
 } from "lucide-react";
 import api from "../services/api";
 import { slotNote } from "../utils/slotNote";
 import { markGuestSurface } from "../lib/guestSurface";
 import { venueMonogram } from "../utils/venueMonogram";
+import { contactState } from "../utils/guestContact";
+import { rescueDay } from "../utils/bookingDay";
+import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useLanguage } from "../hooks/useLanguage";
 import Button from "../components/ui/Button";
 import Chip from "../components/ui/Chip";
@@ -70,6 +74,17 @@ import { bookingModeFor, usesTableFloor } from "../config/venueProfiles";
 // Mirrors backend app/services/allergens.py SEVERITY_LEVELS. Stored as
 // the stable key; the human label is resolved through the i18n layer.
 const SEVERITY_KEYS = ["preference", "intolerance", "severe"];
+
+// Occasion chips (design spec: five, single-select). The chosen label is
+// stored as the booking's occasion text, in the guest's language.
+const OCCASION_KEYS = ["birthday", "anniversary", "date", "business", "celebration"];
+const OCCASION_FALLBACK = {
+  birthday: "Birthday",
+  anniversary: "Anniversary",
+  date: "Date",
+  business: "Business",
+  celebration: "Celebration",
+};
 
 // localStorage key prefix — we stash the signed booking_token per
 // reservation id so a returning visitor on the same device can poll
@@ -114,35 +129,129 @@ const RAIL =
 // form label it used to be, which read as fine print on a phone.
 const SECTION_TITLE = "block text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100";
 
+// The day's times: a segmented control for the services (Frokost /
+// Eftermiddag / Aften) and that service's times four across. As horizontal
+// rails a full day (~40 times) showed 13 and hid the rest behind swipes; here
+// every time of the chosen service is on screen. Opens on the service holding
+// the picked time, else dinner, else the first. A dot marks the service that
+// holds the pick when another one is open.
+function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
+  const groupOf = (s) => groups.find((g) => g.slots.includes(s))?.key || null;
+  const fallback = groupOf(slot) || (groups.some((g) => g.key === "dinner") ? "dinner" : groups[0]?.key);
+  const [tab, setTab] = useState(fallback);
+  const active = groups.some((g) => g.key === tab) ? tab : fallback;
+  const current = groups.find((g) => g.key === active) || groups[0];
+  if (!current) return null;
+  const pickedIn = groupOf(slot);
+  // The scarcity line ("2 left") only when the server says so — and the chips
+  // only get taller when a line exists, so times sit centred otherwise.
+  const withNotes = current.slots.some((s) => slotNote(slotRemaining[s], t));
+  return (
+    <div className={loading ? "opacity-50 pointer-events-none transition-opacity duration-200" : "transition-opacity duration-200"}>
+      {groups.length > 1 && (
+        <div
+          className="mb-3 flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
+          role="group"
+          aria-label={t("rsvpPickTime", "Vælg tidspunkt")}
+        >
+          {groups.map((g) => (
+            <button
+              key={g.key}
+              type="button"
+              aria-pressed={g.key === active}
+              onClick={() => setTab(g.key)}
+              className={
+                "relative flex-1 h-9 rounded-lg text-[13px] font-semibold transition-colors duration-200 ease-out " +
+                (g.key === active
+                  ? "bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-gray-100"
+                  : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200")
+              }
+            >
+              {t(g.labelKey)}
+              {pickedIn === g.key && g.key !== active && (
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-gray-100" aria-hidden="true" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      <div key={current.key} className="grid grid-cols-4 sm:grid-cols-5 gap-2 motion-safe:animate-[fadeIn_0.25s_ease-out]">
+        {current.slots.map((s) => {
+          // Scarcity, only when genuinely scarce and only from a real server
+          // count. Silence is the default: an invented hint is a lie told to
+          // make someone book faster.
+          const note = slotNote(slotRemaining[s], t);
+          return (
+            <Chip
+              key={s}
+              size="md"
+              selected={slot === s}
+              onClick={() => onPick(s)}
+              className={
+                "w-full px-0 tabular-nums text-[15px] flex-col justify-center gap-0 duration-200 ease-out " +
+                (withNotes ? "h-[52px] " : "h-11 ") +
+                (slot === s ? "font-semibold shadow-sm" : "")
+              }
+            >
+              <span className="leading-none">{s}</span>
+              {withNotes && (
+                <span
+                  className={
+                    "block text-[10px] leading-none h-3 mt-1 font-medium " +
+                    (slot === s ? "text-white/80" : "text-bb-green-dark")
+                  }
+                >
+                  {note}
+                </span>
+              )}
+            </Chip>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Weekday / date / month stacked in a compact card. The one-line
 // "Man. 28. Sep." chips fit two and a half days on a phone; these fit five.
 // Danish short forms carry dots ("man.", "28.", "sep.") — stripped here.
 function DateStrip({ today, dayMap, value, onPick, t, lang }) {
   const rail = Array.from({ length: 14 }, (_, i) => addDays(today, i));
-  // A day picked in the calendar beyond the rail leads it, selected — the
-  // choice is never off-screen.
-  const days = value && value > rail[rail.length - 1] ? [value, ...rail] : rail;
+  // A day picked in the calendar beyond the rail joins it at the end — the
+  // row stays in date order, and the effect below scrolls it into view.
+  const days = value && value > rail[rail.length - 1] ? [...rail, value] : rail;
   const part = (iso, opts) =>
     new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(lang), opts).replace(/\.$/, "");
   const full = (iso) => fmtDayLabel(iso, lang);
   const refs = useRef({});
-  const first = useRef(true);
-  // A day picked some other way (the "next open day" jump, the date field)
+  const railRef = useRef(null);
+  const shown = useRef("");
+  // A day picked some other way (the calendar, the "next open day" jump)
   // scrolls into view — the rail never hides the day that is selected.
+  // The RAIL scrolls, sideways, and nothing else: scrollIntoView also scrolls
+  // every scrollable ancestor, and inside the embed <iframe> that jumped the
+  // restaurant's own website down to the widget on every load. The first real
+  // value (the page seeding today) leaves the rail at its start.
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    refs.current[value]?.scrollIntoView?.({ inline: "nearest", block: "nearest", behavior: "smooth" });
+    const prev = shown.current;
+    shown.current = value || "";
+    if (!prev || !value || prev === value) return;
+    const railEl = railRef.current;
+    const chip = refs.current[value];
+    if (!railEl || !chip || railEl.scrollWidth <= railEl.clientWidth) return;
+    const left = chip.offsetLeft;
+    const right = left + chip.offsetWidth;
+    if (left >= railEl.scrollLeft && right <= railEl.scrollLeft + railEl.clientWidth) return;
+    railEl.scrollTo?.({ left: Math.max(0, left - 16), behavior: "smooth" });
   }, [value]);
   return (
-    <div className={RAIL}>
+    // From sm up: two neat weeks of seven instead of a ragged wrap.
+    <div ref={railRef} className={RAIL + " relative sm:grid sm:grid-cols-7 sm:gap-1.5"}>
       {days.map((iso) => {
         const known = dayMap && iso in dayMap;
         const closed = known && dayMap[iso] === false;
         const active = value === iso;
-        const quiet = active ? "text-white/70 dark:text-gray-500" : "text-gray-400 dark:text-gray-500";
+        const quiet = active ? "text-white/75 dark:text-gray-500" : "text-gray-500 dark:text-gray-400";
         return (
           <button
             key={iso}
@@ -153,7 +262,7 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             aria-pressed={active}
             aria-label={closed ? `${full(iso)} — ${t("rsvpDayClosed", "lukket")}` : full(iso)}
             className={[
-              "shrink-0 snap-start w-14 h-[68px] rounded-xl border",
+              "shrink-0 snap-start w-14 sm:w-auto h-[68px] rounded-xl border",
               "transition-[background-color,border-color,color] duration-200 ease-out",
               "flex flex-col items-center justify-center gap-1",
               active
@@ -170,7 +279,7 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             </span>
             <span className={"text-[10px] leading-none " + quiet}>
               {/* rsvpDayClosed — the chip word. rsvpClosed is the page <h1>. */}
-              {closed ? t("rsvpDayClosed", "lukket") : part(iso, { month: "short" })}
+              {closed ? t("rsvpDayClosed", "lukket") : part(iso, { month: "short" }).replace(/^Sept$/, "Sep")}
             </span>
           </button>
         );
@@ -204,6 +313,36 @@ function dateLocale(lang) {
   return DATE_LOCALES[lang] || "da-DK";
 }
 
+// "Fre. 2. okt." / "Fri 2 Oct" — the bottom bar's compact date. en-GB writes
+// September as "Sept" while every other month is three letters; "Sep" keeps
+// the rhythm.
+function fmtDayShort(isoStr, lang) {
+  if (!isoStr) return "";
+  try {
+    return new Date(`${isoStr}T00:00:00`)
+      .toLocaleDateString(dateLocale(lang), { weekday: "short", day: "numeric", month: "short" })
+      .replace(/\bSept\b/, "Sep");
+  } catch {
+    return isoStr;
+  }
+}
+
+function capFirst(text) {
+  const v = String(text || "");
+  return v ? v[0].toLocaleUpperCase() + v.slice(1) : v;
+}
+
+// "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster".
+function partyLabel(n, t) {
+  return Number(n) === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n });
+}
+
+// The receipt's torn bottom edge: 16 teeth across a strip the card's colour.
+const TORN_EDGE = `polygon(0% 0%, 100% 0%, ${Array.from({ length: 31 }, (_, i) => {
+  const j = 31 - i;
+  return `${(j * 3.125).toFixed(3)}% ${j % 2 ? 100 : 0}%`;
+}).join(", ")}, 0% 0%)`;
+
 function fmtDayLabel(isoStr, lang) {
   if (!isoStr) return "";
   try {
@@ -224,15 +363,16 @@ function fmtDayLabel(isoStr, lang) {
 // typographic monogram when there's no logo — or if the image fails to load /
 // the url has expired — so the header is never empty. The logo sits on a light
 // tile (logos often carry transparency and need light contrast).
-function VenueBadge({ logoUrl, name }) {
+function VenueBadge({ logoUrl, name, size = "md" }) {
   const [broken, setBroken] = useState(false);
+  const box = size === "sm" ? "w-8 h-8 rounded-[10px] text-[12px]" : "w-11 h-11 rounded-xl text-[15px]";
   if (logoUrl && !broken) {
     return (
       <img
         src={logoUrl}
         alt=""
         onError={() => setBroken(true)}
-        className="shrink-0 w-11 h-11 rounded-xl object-contain bg-white ring-1 ring-gray-200 dark:ring-gray-700 p-1"
+        className={`shrink-0 ${box} object-contain bg-white ring-1 ring-gray-200 dark:ring-gray-700 p-1`}
       />
     );
   }
@@ -243,7 +383,7 @@ function VenueBadge({ logoUrl, name }) {
   // and wearing our logo on it would be claiming their identity.
   return (
     <div
-      className="shrink-0 w-11 h-11 rounded-xl bg-bb-green text-white flex items-center justify-center text-[15px] font-semibold tracking-tight select-none"
+      className={`shrink-0 ${box} bg-bb-green text-white flex items-center justify-center font-semibold tracking-tight select-none`}
       aria-hidden="true"
     >
       {venueMonogram(name)}
@@ -304,27 +444,22 @@ function mapsHref(address, city) {
 
 export default function ReservationPublicPage() {
   const { slug } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t, lang, setLang } = useLanguage();
   const confirm = useConfirm();
   // A guest page: no consent banner over the booking form (lib/guestSurface).
   // Layout effect, so the mark is set before CookieConsent's own effect runs.
   useLayoutEffect(() => markGuestSurface(), []);
 
-  // While the on-screen keyboard is up, the fixed action bar sat under iOS's
-  // form-navigation strip — half-covered and easy to mis-tap. On a touch
-  // device it steps aside while a text field has focus; return on the last
-  // field ("Done") closes the keyboard and brings it back.
-  const [typing, setTyping] = useState(false);
-  const coarsePointer =
-    typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)")?.matches;
-  const onFieldFocus = (e) => {
-    if (coarsePointer && isTypingField(e.target)) setTyping(true);
-  };
-  const onFieldBlur = (e) => {
-    // Moving from one field to the next is not "done typing".
-    if (coarsePointer && isTypingField(e.target) && !isTypingField(e.relatedTarget)) setTyping(false);
-  };
+  // The action bar rides ABOVE the on-screen keyboard. `position: fixed;
+  // bottom: 0` pins it to the layout viewport, which iOS does not shrink for
+  // the keyboard — so it sat under the keyboard's form strip, half-covered.
+  // The visual viewport is the only API that reports the visible box; the
+  // inset it yields lifts the bar clear (same measurement as ui/Sheet.jsx).
+  // It follows the KEYBOARD, not focus: an Android back-gesture closes the
+  // keyboard without blurring the field, and a bar tied to focus stayed
+  // hidden with no way to confirm.
+  const kbInset = useKeyboardInset();
 
   // Embedded in an owner's website (iframe, ?embed=1): drop the forced
   // min-h-screen so the widget sizes to its content inside the frame instead
@@ -479,7 +614,10 @@ export default function ReservationPublicPage() {
   // Optional allergy block (invite, not require) — lives inside the
   // disclosure above. allergenTags etc. carry the user's selections.
   const [allergenTags, setAllergenTags] = useState([]); // array of keys
-  const [allergySeverity, setAllergySeverity] = useState("preference");
+  // No default. It used to start at "preference", so a guest who ticked
+  // peanuts and moved on was recorded as having a preference, not an allergy.
+  // Unanswered, nothing is claimed and the kitchen sees the allergen as is.
+  const [allergySeverity, setAllergySeverity] = useState("");
   const [allergyNote, setAllergyNote] = useState("");
 
   // What the collapsed disclosure says it is holding. Without this, folding the
@@ -509,6 +647,18 @@ export default function ReservationPublicPage() {
   const resultHeadingRef = useRef(null);
   const [submitError, setSubmitError] = useState(""); // "" | error-key
   const [result, setResult] = useState(null); // {id, status, booking_token}
+  // The booking a link points at (email self-cancel link, reload, bookmark):
+  // {day, time, party, name} from the server, rendered on the receipt instead
+  // of the empty form state.
+  const [linked, setLinked] = useState(null);
+  // A booking the guest has left with "Book again". The address bar is
+  // cleared in the same tap, but that lands a render later — without this
+  // the link effect saw the old ?booking= once more and re-opened the
+  // cancelled receipt.
+  const leftBooking = useRef(null);
+  // null (booked here) | "loading" | "ok" | "failed" — a link that no
+  // longer resolves must never render as "Reservation confirmed".
+  const [linkState, setLinkState] = useState(null);
 
   // Move focus to the confirmation once, when the booking first lands.
   // Keyed on the id, not the object: the status poll replaces `result`
@@ -577,12 +727,27 @@ export default function ReservationPublicPage() {
     if (result?.id) return; // booked in-session — don't clobber
     const bid = searchParams.get("booking");
     const tok = searchParams.get("token");
-    if (!bid || !tok) return;
+    if (!bid || !tok || bid === leftBooking.current) return;
     setResult({ id: bid, booking_token: tok, status: null });
+    setLinkState("loading");
     api
       .get(`/public/reservations/booking/${bid}`, { params: { token: tok } })
-      .then((r) => setLiveStatus(r?.data?.status || null))
-      .catch(() => setLiveStatus(null)); // bad/expired → inert screen; cancel POST 404s via existing cancelError
+      .then((r) => {
+        const b = r?.data || {};
+        setLinkState("ok");
+        setLiveStatus(b.status || null);
+        const [d, tm] = String(b.starts_at || "").split("T");
+        setLinked({
+          day: d || "",
+          time: tm ? tm.slice(0, 5) : "",
+          party: b.party_size || null,
+          name: b.guest_name || "",
+        });
+      })
+      .catch(() => {
+        setLiveStatus(null);
+        setLinkState("failed"); // expired or mistyped link — say so, offer a way on
+      });
   }, [searchParams, result]);
 
   // ── Default the public page to the venue's language ───────────────
@@ -660,9 +825,11 @@ export default function ReservationPublicPage() {
         const map = Object.fromEntries(list.map((d) => [d.date, !!d.has_slots]));
         setDayMap(map);
         setNextOpenDay(res.data?.next_open_day || null);
-        // Never override a day that actually has slots (a valid ?d= link or a
-        // day the diner tapped); only rescue a closed selection.
-        setDay((cur) => (cur && map[cur] ? cur : res.data?.next_open_day || cur));
+        // Only rescue a day the summary KNOWS is closed. A date picked in the
+        // calendar (or a ?d= link) beyond the summary's 14 days is not in the
+        // map at all — it used to be treated as closed and silently swapped
+        // for the next open day the moment the party size changed.
+        setDay((cur) => rescueDay(cur, map, res.data?.next_open_day));
       })
       .catch(() => {
         if (alive) {
@@ -682,10 +849,22 @@ export default function ReservationPublicPage() {
   // so social/SMS link-unfurl crawlers read the STATIC index.html title before
   // JS runs — the live tab updates, but shared-link previews still show the app
   // default until we add SSR/prerender. Still worth it for the tab + trust.
+  const resultStatus = liveStatus || result?.status || null;
   useEffect(() => {
     if (!page?.business_name) return;
     const prev = document.title;
-    const title = t("rsvpDocTitle", "Book bord · {venue}", { venue: page.business_name });
+    const venue = page.business_name;
+    // Once booked, the tab says what happened — a guest switching back to it
+    // should not read "Book a table" over a finished booking.
+    // A link still loading or no longer resolving is not a booking yet.
+    const showsBooking = !!result && linkState !== "loading" && linkState !== "failed";
+    const title = !showsBooking
+      ? t("rsvpDocTitle", "Book bord · {venue}", { venue })
+      : resultStatus === "cancelled" || resultStatus === "no_show"
+        ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
+        : resultStatus === "requested"
+          ? t("rsvpDocTitleRequest", "Request sent · {venue}", { venue })
+          : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue });
     document.title = title;
     const setMeta = (prop, val) => {
       let m = document.querySelector(`meta[property="${prop}"]`);
@@ -701,7 +880,7 @@ export default function ReservationPublicPage() {
       t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
-  }, [page, t]);
+  }, [page, t, result, resultStatus, linkState]);
 
   // ── Provider venue: load the active behandlinger catalog (S3b) ────
   // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
@@ -795,19 +974,20 @@ export default function ReservationPublicPage() {
           // behave exactly as before.
           setClosedReason(res.data?.closed_reason || "");
         }
-      } catch (err) {
+      } catch {
         setSlots([]);
         setGroupRequest(false);
         setClosedReason("");
-        setSlotsError(
-          err?.response?.data?.detail?.error ||
-            t("rsvpSlotsError", "Couldn't load times — please try again."),
-        );
+        // A flag, translated where it is shown. This callback used to depend
+        // on `t` for the message, so switching DA/EN re-created it, re-ran
+        // the fetch and wiped the time the guest had picked — on step 2 that
+        // left a grey Confirm button with no way to tell why.
+        setSlotsError("load_failed");
       } finally {
         setSlotsLoading(false);
       }
     },
-    [slug, t, isProvider],
+    [slug, isProvider],
   );
 
   useEffect(() => {
@@ -873,18 +1053,18 @@ export default function ReservationPublicPage() {
   );
   const chosenStylistName = stylistId ? providerNameById[String(stylistId)] || "" : "";
   const nameValid = guestName.trim().length >= 1 && guestName.trim().length <= 160;
-  // Require at least one contact channel (email OR phone, never both) so we
-  // can actually confirm the booking — otherwise a name-only booking is a
-  // dead end. Either one is enough.
-  const contactValid = !!(guestEmail.trim() || guestPhone.trim());
-  // A group request doesn't need a chosen slot (the visitor sends a
-  // request for the day; the restaurant confirms a time). A normal
-  // booking requires a slot. A provider (salon) tidsbestilling also needs a
-  // chosen behandling.
+  // One way to reach the guest, checked against the server's own rules
+  // (utils/guestContact.js) so a typo is caught here, next to the field.
+  const contact = contactState(contactMode, guestEmail, guestPhone);
+  const contactValid = contact.ok;
+  // A time is required — for a group request too, where it is the guest's
+  // PREFERRED time and the venue confirms it. Only when the server offers no
+  // times at all (an older backend) does a group request go without one.
+  const needsTime = !slot && !(groupRequest && slots.length === 0);
   const canSubmit =
     nameValid &&
     contactValid &&
-    (groupRequest || !!slot) &&
+    !needsTime &&
     (!isProvider || !!behandlingId) &&
     !submitting;
 
@@ -948,13 +1128,15 @@ export default function ReservationPublicPage() {
       time: slot || slots[0] || "18:00",
       party_size: party,
       guest_name: guestName.trim(),
-      guest_email: guestEmail.trim() || null,
-      guest_phone: guestPhone.trim() || null,
+      ...contact.payload,
+      // The page's language, so every email about this booking (confirmation,
+      // reminder, a change by the venue) reaches the guest in it.
+      lang: lang === "da" || lang === "en" ? lang : null,
       occasion: occasion.trim() || null,
       guest_notes: guestNotes.trim() || null,
       allergen_tags: hasAllergy ? allergenTags : [],
       allergy_note: hasAllergy ? allergyNote.trim() || null : null,
-      allergy_severity: hasAllergy ? allergySeverity : null,
+      allergy_severity: hasAllergy && allergySeverity ? allergySeverity : null,
       consent_marketing: !!consentMarketing,
       // The table the guest tapped on the 2D floor map (a preference — the
       // server honors it only if still free, else auto-assigns). Group
@@ -985,6 +1167,19 @@ export default function ReservationPublicPage() {
         } catch {
           /* private mode / storage blocked — non-fatal */
         }
+        // …and put the booking in the address bar. "Save this page" (shown
+        // when there is no email) used to be advice nobody could follow: a
+        // reload or a bookmark brought back an empty form. With the same
+        // ?booking=&token= the email link uses, it reopens this receipt.
+        setSearchParams(
+          (prev) => {
+            const n = new URLSearchParams(prev);
+            n.set("booking", data.id);
+            n.set("token", data.booking_token);
+            return n;
+          },
+          { replace: true },
+        );
       }
     } catch (err) {
       const status = err?.response?.status;
@@ -1016,6 +1211,21 @@ export default function ReservationPublicPage() {
           setSlotRemaining({});
           idempotencyKey.current = null;
           setStep(1);
+        }
+      } else if (status === 422) {
+        // The server's shape check refused a field. Say which, next to it —
+        // not "something went wrong", which sent guests round in circles.
+        const text = JSON.stringify(err?.response?.data || "");
+        if (text.includes("invalid_email")) {
+          setContactMode("email");
+          setContactTouched(true);
+          setSubmitError("invalid_email");
+        } else if (text.includes("invalid_phone")) {
+          setContactMode("phone");
+          setContactTouched(true);
+          setSubmitError("invalid_phone");
+        } else {
+          setSubmitError("generic");
         }
       } else {
         setSubmitError("generic");
@@ -1194,6 +1404,70 @@ export default function ReservationPublicPage() {
     );
   }
 
+  // Leave a finished (or unreachable) booking and start a new one.
+  function startOver() {
+    leftBooking.current = result?.id || null;
+    setResult(null);
+    setLiveStatus(null);
+    setLinked(null);
+    setLinkState(null);
+    setSlot("");
+    setStep(1);
+    idempotencyKey.current = null;
+    setSearchParams(
+      (prev) => {
+        const n = new URLSearchParams(prev);
+        n.delete("booking");
+        n.delete("token");
+        return n;
+      },
+      { replace: true },
+    );
+  }
+
+  // ── A booking link that is still loading, or no longer resolves ─────
+  if (result && linkState === "loading") {
+    return (
+      <div className={`${rootMinH} bg-gray-50 dark:bg-gray-950 flex items-center justify-center`}>
+        <Loader2 className="w-6 h-6 animate-spin text-gray-400" aria-label={t("loading", "Loading…")} />
+      </div>
+    );
+  }
+  if (result && linkState === "failed") {
+    return (
+      <div className={`${rootMinH} bg-gray-50 dark:bg-gray-950 px-4 py-16`}>
+        <div className="max-w-md mx-auto space-y-5 text-center" role="status">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto bg-gray-100 dark:bg-gray-800">
+            <AlertCircle size={28} strokeWidth={1.75} className="text-gray-500" aria-hidden="true" />
+          </div>
+          <h1 className="text-[22px] font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+            {t("rsvpLinkFailedTitle", "We couldn't open this booking")}
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            {t(
+              "rsvpLinkFailedBody",
+              "The link may have expired. Call the venue about an existing booking — or book a new table.",
+            )}
+          </p>
+          <div className="space-y-2">
+            <Button variant="main" size="lg" className="w-full" onClick={startOver}>
+              {t("rsvpBookATable", "Book a table")}
+            </Button>
+            {telHref(page.phone) && (
+              <a
+                href={telHref(page.phone)}
+                className="inline-flex w-full items-center justify-center gap-2 h-11 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+              >
+                <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span className="tabular-nums">{page.phone}</span>
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Success screen ─────────────────────────────────────────────────
   if (result) {
     // `liveStatus` is the authoritative status (seeded from the create
@@ -1247,35 +1521,81 @@ export default function ReservationPublicPage() {
     const refCode = result?.id
       ? `#${String(result.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
       : "";
-    // Did the guest leave an email? Drives the honest confirmation line.
-    const emailGiven = guestEmail.trim().length > 0;
+    // What the receipt shows: the booking the page just made — or, when the
+    // guest arrived from the email link / a reload / a bookmark, the booking
+    // the server returned for that link. The form state is empty then, and
+    // the receipt used to show today's date, no time and a blank name.
+    const rDay = linked?.day || day;
+    const rTime = linked ? linked.time : slot;
+    const rParty = linked?.party || party;
+    const rName = linked ? linked.name : guestName.trim();
+    // The address the booking was actually SENT with — not whatever is in the
+    // email box. A typo left on the Email tab is dropped from the booking, and
+    // naming it here promised a confirmation that would never arrive.
+    const sentEmail = !linked ? contact.payload.guest_email : null;
+    const emailGiven = !!sentEmail;
+    // An honest delivery line: the email goes out right after this screen
+    // appears, so it is "on its way" — never "sent" before it has been. From
+    // a link we don't know which contact the guest gave, so we say nothing.
+    let deliveryLine = null;
+    if (!linked && !isCancelled && !isDone) {
+      deliveryLine = emailGiven
+        ? isRequest
+          ? t("rsvpRequestOnItsWay", "Your request details are on their way to {email}.", {
+              email: sentEmail,
+            })
+          : t("rsvpEmailOnItsWay", "A confirmation is on its way to {email}.", {
+              email: sentEmail,
+            })
+        : t("rsvpNoEmailSaved", "Save this page — we don't have your email.");
+    }
+    // What the kitchen was told, including how serious — the guest's proof
+    // that "severe" reached the restaurant.
+    const kitchen = [
+      allergenTags.map((k) => t(`allergen_${k}`, k)).join(", ") || null,
+      allergenTags.length && allergySeverity
+        ? t(`rsvpSeverity_${allergySeverity}`, severityFallback(allergySeverity))
+        : null,
+      allergyNote.trim() || null,
+    ].filter(Boolean).join(" · ");
+    const rows = [
+      { k: "when", label: t("rsvpRowWhen", "When"), value: capFirst(fmtDayLabel(rDay, lang)) },
+      rTime && !(isRequest && groupRequest && !linked)
+        ? { k: "time", label: t("rsvpTimeLabel", "Time"), value: rTime }
+        : rTime
+          ? { k: "time", label: t("rsvpRowWishedTime", "Preferred time"), value: rTime }
+          : null,
+      isProvider
+        ? chosenBehandling
+          ? { k: "svc", label: t("rsvpColBehandling", "Service"), value: chosenBehandling.name }
+          : null
+        : { k: "party", label: t("rsvpRowGuests", "Guests"), value: String(rParty) },
+      isProvider
+        ? { k: "who", label: t("rsvpColBehandler", "Stylist"), value: chosenStylistName || t("rsvpBookValgfri", "Any stylist") }
+        : null,
+      rName ? { k: "name", label: t("rsvpGuestLabel", "Name"), value: rName } : null,
+      !linked && occasion.trim() ? { k: "occ", label: t("rsvpRowOccasion", "Occasion"), value: occasion.trim() } : null,
+      !linked && kitchen ? { k: "kitchen", label: t("rsvpRowKitchen", "Kitchen"), value: kitchen } : null,
+      !linked && guestNotes.trim() ? { k: "note", label: t("rsvpRowNote", "Note"), value: guestNotes.trim() } : null,
+    ].filter(Boolean);
+    const address = venueAddress(page.address, page.city);
+    const mapUrl = mapsHref(page.address, page.city);
 
     return (
-      <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-12`}>
+      <div className={`${rootMinH} bg-gray-50 dark:bg-gray-950 px-4 py-10`}>
         <div className="max-w-md mx-auto space-y-6 text-center">
           <div
             className={
               `inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto ${heroWrap} ` +
-              // Single brief fade-scale on mount (≤300ms). No confetti.
+              // One brief pop on arrival (a small overshoot). No confetti.
               "transition-all duration-500 ease-[cubic-bezier(0.2,0.9,0.3,1.2)] motion-reduce:transition-none " +
               (heroIn ? "opacity-100 scale-100" : "opacity-0 scale-90")
             }
           >
-            <HeroIcon
-              size={28}
-              strokeWidth={1.75}
-              className={heroIconCls}
-              aria-hidden="true"
-            />
+            <HeroIcon size={28} strokeWidth={1.75} className={heroIconCls} aria-hidden="true" />
           </div>
-          {/* The whole outcome, announced as one thing.
-              Booking replaces the form in place and the URL never changes,
-              so a screen reader said nothing at all — and focus fell to the
-              body the moment the submit button unmounted. A blind guest was
-              left with no way to know whether they had a table, on the one
-              screen where that is the only question. role="status" reads
-              the result; the heading takes focus so the next Tab starts at
-              the confirmation rather than back at the top of the document. */}
+          {/* The whole outcome, announced as one thing — role="status" reads
+              it; the heading takes focus so the next Tab starts here. */}
           <div className="space-y-1" role="status" aria-live="polite">
             <h1
               ref={resultHeadingRef}
@@ -1285,40 +1605,23 @@ export default function ReservationPublicPage() {
               {title}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">{body}</p>
-            {/* Honest email line — confirms where (or that no) email went. */}
-            <p className="text-sm text-gray-500 dark:text-gray-400 pt-0.5">
-              {emailGiven
-                ? t("rsvpEmailedTo", "We've sent a confirmation to {email}.", {
-                    email: guestEmail.trim(),
-                  })
-                : t("rsvpNoEmailSaved", "Save this page — we don't have your email.")}
-            </p>
+            {deliveryLine && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 pt-0.5 break-words">{deliveryLine}</p>
+            )}
           </div>
 
-          {/* Live status pill — while a group request is pending we poll and
-              flip this to "Bekræftet" the moment the restaurant confirms. */}
           {isRequest && (
             <div
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300"
+              className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300"
               role="status"
               aria-live="polite"
             >
-              <Loader2
-                size={13}
-                strokeWidth={2}
-                className="animate-spin text-gray-400"
-                aria-hidden="true"
-              />
+              <Loader2 size={13} strokeWidth={2} className="animate-spin text-gray-400" aria-hidden="true" />
               {t("rsvpStatusWaiting", "Afventer bekræftelse fra stedet…")}
             </div>
           )}
-          {/* An expectation, not just a spinner. The page stops polling
-              after ~2 minutes, so without this the guest is left watching
-              nothing with no idea when — or whether — they will hear.
-              The nightly sweep now guarantees an answer before the
-              sitting; this is that promise, said out loud. */}
           {isRequest && (
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               {t(
                 "rsvpRequestExpectation",
                 "Du hører fra os på email inden dagen. Vil du være sikker, så ring til os.",
@@ -1344,186 +1647,156 @@ export default function ReservationPublicPage() {
             </div>
           )}
 
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 text-left space-y-2">
-            {refCode && (
-              <SummaryRow
-                icon={<Hash size={16} strokeWidth={1.75} />}
-                label={t("rsvpRefLabel", "Reference")}
-                value={refCode}
-              />
-            )}
-            <SummaryRow
-              icon={<Calendar size={16} strokeWidth={1.75} />}
-              label={t("rsvpDateLabel", "Dato")}
-              value={fmtDayLabel(day, lang)}
-            />
-            {!isRequest && slot && (
-              <SummaryRow
-                icon={<Clock size={16} strokeWidth={1.75} />}
-                label={t("rsvpTimeLabel", "Tidspunkt")}
-                value={slot}
-              />
-            )}
-            {/* Provider (salon): behandling + behandler instead of party. */}
-            {isProvider ? (
-              <>
-                {chosenBehandling && (
-                  <SummaryRow
-                    icon={<Scissors size={16} strokeWidth={1.75} />}
-                    label={t("rsvpColBehandling", "Service")}
-                    value={chosenBehandling.name}
-                  />
-                )}
-                <SummaryRow
-                  icon={<Users size={16} strokeWidth={1.75} />}
-                  label={t("rsvpColBehandler", "Stylist")}
-                  value={chosenStylistName || t("rsvpBookValgfri", "Any stylist")}
-                />
-              </>
-            ) : (
-              <SummaryRow
-                icon={<Users size={16} strokeWidth={1.75} />}
-                label={t("rsvpPartyLabel", "Antal gæster")}
-                value={String(party)}
-              />
-            )}
-            <SummaryRow
-              icon={<Info size={16} strokeWidth={1.75} />}
-              label={t("rsvpGuestLabel", "Navn")}
-              value={guestName.trim()}
-            />
-            {/* Restore the venue's location + a tappable number so the guest
-                can find the place and call it from the confirmation. The
-                address is a maps link built via encodeURIComponent (safe).
-                min-h-0 on both links: at the global 44pt touch height these
-                two rows stood taller than the rest of the list. The map has
-                the big Directions button below; the phone link spans the row. */}
-            {(page.address || page.city) && (
+          {/* The receipt — BonBox's own mark is a receipt, so the proof of a
+              booking is one: the venue on top, a dashed tear line, the
+              details in even rows, and a torn edge at the bottom. */}
+          <div className="text-left motion-safe:animate-[bbRise_0.45s_ease-out]">
+            <div className="rounded-t-xl bg-white dark:bg-gray-900 px-5 pt-5 pb-2 shadow-[0_18px_44px_-24px_rgba(15,23,42,0.30)]">
               <div className="flex items-center gap-3">
-                <span className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true">
-                  <MapPin size={16} strokeWidth={1.75} />
-                </span>
-                <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 w-24 shrink-0">
-                  {t("rsvpAddressLabel", "Address")}
-                </span>
-                {mapsHref(page.address, page.city) ? (
-                  <a
-                    href={mapsHref(page.address, page.city)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center min-h-0 min-w-0 break-words text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    {venueAddress(page.address, page.city)}
-                  </a>
-                ) : (
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {venueAddress(page.address, page.city)}
-                  </span>
+                <VenueBadge logoUrl={page.logo_url} name={page.business_name} size="sm" />
+                <p className="min-w-0 flex-1 text-[17px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate">
+                  {page.business_name}
+                </p>
+                {refCode && (
+                  <p className="shrink-0 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-500 dark:text-gray-400 tabular-nums">
+                    {refCode}
+                  </p>
                 )}
               </div>
-            )}
-            {telHref(page.phone) && (
-              <div className="flex items-center gap-3">
-                <span className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true">
-                  <Phone size={16} strokeWidth={1.75} />
-                </span>
-                <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 w-24 shrink-0">
-                  {t("rsvpCallLabel", "Phone")}
-                </span>
-                <a
-                  href={telHref(page.phone)}
-                  className="flex-1 inline-flex items-center min-h-0 py-1 text-sm font-medium tabular-nums text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  {page.phone}
-                </a>
-              </div>
-            )}
+              <div className="my-4 border-t-2 border-dashed border-gray-200 dark:border-gray-700" aria-hidden="true" />
+              <dl className={isCancelled ? "opacity-60" : ""}>
+                {rows.map((row) => (
+                  <div key={row.k} className="flex items-start justify-between gap-4 py-2">
+                    <dt className="w-[88px] shrink-0 text-[13.5px] text-gray-500 dark:text-gray-400">{row.label}</dt>
+                    <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 break-words">
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+                {address && (
+                  <div className="flex items-start justify-between gap-4 py-2">
+                    <dt className="w-[88px] shrink-0 text-[13.5px] text-gray-500 dark:text-gray-400">
+                      {t("rsvpRowWhere", "Where")}
+                    </dt>
+                    <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 break-words">
+                      {mapUrl ? (
+                        // min-h-0!: a class loses to the global 44pt touch
+                        // rule (it is not in a Tailwind layer), so only the
+                        // important form keeps this row as tall as the rest.
+                        // The Directions button below is the big map target.
+                        <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="min-h-0! hover:underline">
+                          {address}
+                        </a>
+                      ) : (
+                        address
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {telHref(page.phone) && (
+                  <div className="flex items-start justify-between gap-4 py-2">
+                    <dt className="w-[88px] shrink-0 text-[13.5px] text-gray-500 dark:text-gray-400">
+                      {t("rsvpCallLabel", "Phone")}
+                    </dt>
+                    <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 tabular-nums">
+                      <a href={telHref(page.phone)} className="min-h-0! hover:underline">
+                        {page.phone}
+                      </a>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+            {/* Torn edge: 16 teeth cut into a strip the colour of the card. */}
+            <div
+              aria-hidden="true"
+              className="h-3 bg-white dark:bg-gray-900"
+              style={{ clipPath: TORN_EDGE }}
+            />
           </div>
 
-          {/* Add to calendar — only for a CONFIRMED booking with a real
-              time. A pending request has no agreed time yet (the payload
-              carries the venue's first opening as a placeholder), and
-              writing that into someone's calendar would invent a promise
-              the venue has not made. */}
-          {/* The two things a guest does next — put it in the calendar,
-              find the way — side by side, equal weight. */}
-          <div className="grid grid-cols-2 gap-2 [&>*:only-child]:col-span-2">
-          {isConfirmed && slot && day && (
-            <Button
-              variant="secondary"
-              size="lg"
-              className="w-full"
-              iconLeft={<CalendarPlus size={16} strokeWidth={1.75} aria-hidden="true" />}
-              onClick={async () => {
-                const ics = buildIcs({
-                  uid: `${result.id}@bonbox.dk`,
-                  day,
-                  time: slot,
-                  minutes: isProvider ? chosenBehandling?.duration_min : 120,
-                  // business_name, not name — the public payload has no
-                  // `name` field at all, so the first cut of this would
-                  // have written a bare "Bord hos " into every calendar.
-                  summary: page.business_name
-                    ? t("rsvpIcsSummary", "Bord hos {venue}", {
-                        venue: page.business_name,
-                      })
-                    : t("rsvpIcsSummaryNoVenue", "Bordreservation"),
-                  location: venueAddress(page.address, page.city),
-                  description: [refCode, guestName.trim()]
-                    .filter(Boolean)
-                    .join(" · "),
-                });
-                // The guest is on a phone, so the share sheet is the path
-                // that actually lands this in their calendar app — and that is
-                // the path that can silently deliver nothing, so the outcome
-                // is read rather than dropped.
-                const out = await saveFile(ics, "reservation.ics", {
-                  type: "text/calendar;charset=utf-8",
-                  title: t("rsvpAddToCalendar", "Føj til kalender"),
-                });
-                setCalError(out.ok ? "" : t("calendarAddFailed"));
-              }}
-            >
-              {t("rsvpAddToCalendar", "Føj til kalender")}
+          {isCancelled ? (
+            // Nothing left to add to a calendar or navigate to — the one
+            // useful thing is to book again, which the copy already invites.
+            <Button variant="main" size="lg" className="w-full" onClick={startOver}>
+              {t("rsvpBookAgain", "Book again")}
             </Button>
+          ) : (
+            !isDone && (
+              <div className="grid grid-cols-2 gap-2 [&>*:only-child]:col-span-2">
+                {/* Add to calendar — only for a CONFIRMED booking with a real
+                    time. A pending request has no agreed time yet, and writing
+                    one into someone's calendar would invent a promise the venue
+                    has not made. */}
+                {isConfirmed && rTime && rDay && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    className="w-full"
+                    iconLeft={<CalendarPlus size={16} strokeWidth={1.75} aria-hidden="true" />}
+                    onClick={async () => {
+                      const ics = buildIcs({
+                        uid: `${result.id}@bonbox.dk`,
+                        day: rDay,
+                        time: rTime,
+                        minutes: isProvider ? chosenBehandling?.duration_min : 120,
+                        // business_name, not name — the public payload has no
+                        // `name` field at all.
+                        summary: page.business_name
+                          ? t("rsvpIcsSummary", "Bord hos {venue}", { venue: page.business_name })
+                          : t("rsvpIcsSummaryNoVenue", "Bordreservation"),
+                        location: address,
+                        description: [refCode, rName].filter(Boolean).join(" · "),
+                      });
+                      // On a phone the share sheet is the path that lands this
+                      // in a calendar app — and the one that can silently
+                      // deliver nothing, so the outcome is read, not dropped.
+                      const out = await saveFile(ics, "reservation.ics", {
+                        type: "text/calendar;charset=utf-8",
+                        title: t("rsvpAddToCalendar", "Føj til kalender"),
+                      });
+                      setCalError(out.ok ? "" : t("calendarAddFailed"));
+                    }}
+                  >
+                    {t("rsvpAddToCalendarShort", "Calendar")}
+                  </Button>
+                )}
+                {mapUrl && (
+                  <a
+                    href={mapUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium bg-white text-gray-800 border border-gray-200 hover:bg-gray-100 dark:bg-gray-900 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 transition-colors duration-200"
+                  >
+                    <MapPin size={16} strokeWidth={1.75} aria-hidden="true" />
+                    <span>{t("rsvpDirections", "Directions")}</span>
+                  </a>
+                )}
+              </div>
+            )
           )}
-          {mapsHref(page.address, page.city) && (
-            <a
-              href={mapsHref(page.address, page.city)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 transition-colors"
-            >
-              <MapPin size={16} strokeWidth={1.75} aria-hidden="true" />
-              <span>{t("rsvpDirections", "Directions")}</span>
-            </a>
-          )}
-          </div>
           {calError && (
             <p role="alert" className="text-[12px] text-rose-600 dark:text-rose-400">
               {calError}
             </p>
           )}
 
-          {/* Self-cancel — frees the table and notifies the restaurant.
-              Hidden once the booking is cancelled/done. */}
+          {/* Self-cancel — frees the table and tells the restaurant. Quiet on
+              purpose: cancelling is the exception. It still asks first. */}
           {canCancel && (
             <div className="space-y-2">
-              {/* Quiet on purpose: cancelling is the exception, and as a
-                  full-width grey button it carried the same weight as
-                  "Add to calendar". It still asks before it cancels. */}
               <Button
                 variant="ghost"
                 size="lg"
                 onClick={onCancel}
                 busy={cancelling}
                 disabled={cancelling}
-                className="w-full text-gray-500 dark:text-gray-400"
+                className="w-full text-gray-500! dark:text-gray-400!"
               >
-                {t("rsvpCancelBtn", "Aflys reservation")}
+                {t("rsvpCancelOrChange", "Cancel this booking")}
               </Button>
               {cancelError && (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p role="alert" className="text-xs text-red-600 dark:text-red-400">
                   {t(
                     "rsvpCancelError",
                     "Kunne ikke aflyse. Prøv igen, eller kontakt stedet direkte.",
@@ -1532,11 +1805,6 @@ export default function ReservationPublicPage() {
               )}
             </div>
           )}
-
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            {page.business_name}
-            {page.city ? ` · ${page.city}` : ""}
-          </p>
         </div>
       </div>
     );
@@ -1559,8 +1827,6 @@ export default function ReservationPublicPage() {
             ? ""
             : "sm:mt-10 sm:pb-8 sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
         }
-        onFocusCapture={onFieldFocus}
-        onBlurCapture={onFieldBlur}
       >
         {/* ── Venue identity (brand logo or typographic monogram) ──
             Identity tile + eyebrow + venue name H1 + location row with a
@@ -1571,7 +1837,7 @@ export default function ReservationPublicPage() {
                 one, else a typographic monogram derived from the name. */}
             <VenueBadge logoUrl={page.logo_url} name={page.business_name} />
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
               </p>
               <h1
@@ -1605,7 +1871,7 @@ export default function ReservationPublicPage() {
                     "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " +
                     (lang === code
                       ? "bg-white text-gray-900 shadow-sm dark:bg-gray-950 dark:text-gray-100"
-                      : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300")
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200")
                   }
                 >
                   {code}
@@ -1622,7 +1888,7 @@ export default function ReservationPublicPage() {
               opens the map, the number dials. A long address wraps the number
               under it. Step 1 only — on the details step the form starts high. */}
           {step === 1 && (page.city || page.address || telHref(page.phone)) && (
-            <div className="-my-2 flex flex-wrap items-center gap-x-4 text-[13px] text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap items-center gap-x-4 text-[13px] text-gray-500 dark:text-gray-400">
               {(page.address || page.city) && (() => {
                 const where = page.address || page.city;
                 const map = mapsHref(page.address, page.city);
@@ -1632,7 +1898,11 @@ export default function ReservationPublicPage() {
                     <span className="truncate">{where}</span>
                   </>
                 );
-                const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0";
+                // min-h-8! (32pt): the global 44pt touch rule sits outside
+                // Tailwind's layers, so only the important form beats it. With
+                // a long address the number wraps under it, and two 44pt rows
+                // left a loose gap.
+                const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8!";
                 return map ? (
                   <a
                     href={map}
@@ -1651,7 +1921,7 @@ export default function ReservationPublicPage() {
               {telHref(page.phone) && (
                 <a
                   href={telHref(page.phone)}
-                  className="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"
+                  className="inline-flex items-center gap-1.5 min-h-8! hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"
                 >
                   <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
                   <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
@@ -1681,7 +1951,7 @@ export default function ReservationPublicPage() {
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
         {step === 1 && (
-          <section className="space-y-6 motion-safe:animate-fadeIn">
+          <section className="space-y-6 motion-safe:animate-[fadeIn_0.35s_ease-out]">
             {/* Provider (salon): behandling → behandler come FIRST. The chosen
                 behandling drives slot length (server-resolved); behandler
                 defaults to Valgfri behandler. */}
@@ -1761,9 +2031,9 @@ export default function ReservationPublicPage() {
                 customer; the behandling sets the length, not party size. */}
             {!isProvider && (
               <div>
-                <p className={SECTION_TITLE + " mb-2.5"}>
+                <h2 className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpPartySize", "Antal gæster")}
-                </p>
+                </h2>
                 {/* HORIZONTAL RAIL, not a grid. As a 5-across grid this was two
                     stacked rows that pushed the time slots — the thing the guest
                     actually came to choose — below the fold on a phone. A rail
@@ -1779,7 +2049,7 @@ export default function ReservationPublicPage() {
                       size="md"
                       selected={party === n}
                       onClick={() => setParty(n)}
-                      aria-label={t("rsvpPartyN", "{n} guests", { n })}
+                      aria-label={partyLabel(n, t)}
                       className="shrink-0 w-11 h-11 snap-start tabular-nums text-[15px] duration-200 ease-out"
                     >
                       {n}
@@ -1827,9 +2097,9 @@ export default function ReservationPublicPage() {
             {/* Date */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
-                <p className={SECTION_TITLE}>
+                <h2 className={SECTION_TITLE}>
                   {t("rsvpPickDate", "Vælg dato")}
-                </p>
+                </h2>
                 {/* Quiet escape hatch for a far-out date, revealed on demand so
                     the native field never clutters the default clean strip. */}
                 <button
@@ -1882,6 +2152,7 @@ export default function ReservationPublicPage() {
                     labels={{
                       prev: t("rsvpPrevMonth", "Previous month"),
                       next: t("rsvpNextMonth", "Next month"),
+                      closed: t("rsvpDayClosed", "lukket"),
                     }}
                   />
                   </div>
@@ -1889,75 +2160,58 @@ export default function ReservationPublicPage() {
               )}
             </div>
 
-            {/* Time — for a normal booking we show the period-grouped slot
-                grid. For a group request the grid is REPLACED by a calm
-                explainer panel (sets the mental model: no time to pick; the
-                place confirms). The sticky CTA flips to "Send forespørgsel"
-                in the same render. */}
-            {groupRequest ? (
-              <div
-                className="rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 p-4 flex items-start gap-3"
-                role="status"
-              >
-                <Users
-                  size={18}
-                  strokeWidth={1.75}
-                  className="text-gray-500 shrink-0 mt-0.5"
-                  aria-hidden="true"
-                />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {t("rsvpGroupPanelTitle", "Bigger group")}
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    {t(
-                      "rsvpGroupPanelBody",
-                      "Parties of {n} go to the place as a request — no time to pick. They'll confirm a time and get back to you.",
-                      { n: party },
-                    )}
+            {/* Time. One question, answered from a grid: the day's services
+                (Frokost / Eftermiddag / Aften) as a segmented control, and
+                that service's times four across — every time visible, no
+                sideways scrolling to find 19:30. For a group request the same
+                grid asks for a PREFERRED time; the venue confirms it. */}
+            <div>
+              {/* The lost-the-race message, rendered WHERE THE GUEST LANDS.
+                  The 409 handler bounces to step 1; their name and contact
+                  stay filled. */}
+              {submitError && step === 1 && (
+                <div
+                  role="alert"
+                  className="mb-2.5 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/10 px-3 py-2"
+                >
+                  <p className="text-sm text-amber-900 dark:text-amber-200">
+                    {submitErrorMessage(submitError, t)}
                   </p>
                 </div>
-              </div>
-            ) : (
-              <div>
-                {/* The lost-the-race message, rendered WHERE THE GUEST
-                    LANDS. The 409 handler bounces to step 1, and the only
-                    other copy of this banner lives inside the step-2
-                    block — so it unmounted in the same commit and the
-                    message written for exactly this race had never been
-                    seen by anyone. Their name and contact stay filled. */}
-                {submitError && step === 1 && (
-                  <div
-                    role="alert"
-                    className="mb-2.5 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/10 px-3 py-2"
-                  >
-                    <p className="text-sm text-amber-900 dark:text-amber-200">
-                      {submitErrorMessage(submitError, t)}
-                    </p>
-                  </div>
-                )}
-                <p className={SECTION_TITLE + " mb-2.5"}>
-                  {t("rsvpPickTime", "Vælg tidspunkt")}
+              )}
+              <h2 className={SECTION_TITLE + " mb-2.5"}>
+                {groupRequest
+                  ? t("rsvpPickWishedTime", "Preferred time")
+                  : t("rsvpPickTime", "Vælg tidspunkt")}
+              </h2>
+              {groupRequest && (
+                <p className="-mt-1 mb-3 text-[13px] leading-snug text-gray-500 dark:text-gray-400">
+                  {t(
+                    "rsvpGroupWishedTimeHint",
+                    "Parties of {n} are sent as a request — pick the time you'd like and the venue confirms it.",
+                    { n: party },
+                  )}
                 </p>
-                {isProvider && !behandlingId ? (
-                  // Provider: no behandling chosen yet → don't imply "no times".
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t("rsvpPublicPickBehandling", "Vælg behandling")}
-                  </p>
-                ) : slotsLoading ? (
-                  <div className="grid grid-cols-4 gap-2">
-                    {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              )}
+              {isProvider && !behandlingId ? (
+                // Provider: no behandling chosen yet → don't imply "no times".
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {t("rsvpPublicPickBehandling", "Vælg behandling")}
+                </p>
+              ) : slotsLoading && slotGroups.length === 0 ? (
+                <div className="grid grid-cols-4 gap-2" aria-hidden="true">
+                    {Array.from({ length: 8 }).map((_, i) => (
                       <div
                         key={i}
                         className="animate-pulse h-11 rounded-lg bg-gray-100 dark:bg-gray-800"
                       />
                     ))}
                   </div>
-                ) : slotsError ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {slotsError}
-                  </p>
-                ) : closedReason === "not_accepting" ? (
+              ) : slotsError ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {t("rsvpSlotsError", "Couldn't load times — please try again.")}
+                </p>
+              ) : closedReason === "not_accepting" ? (
                   // The venue is at its monthly ceiling, so NO date works. This
                   // sits above the slotGroups branch on purpose: the branches
                   // below offer "next open day" and a 14-day hunt, and sending
@@ -1984,6 +2238,22 @@ export default function ReservationPublicPage() {
                         </span>
                       </a>
                     )}
+                  </div>
+                ) : slotGroups.length === 0 && groupRequest ? (
+                  // An older server offers no preferred times for a group:
+                  // keep the calm explainer — the venue picks the time.
+                  <div
+                    className="rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 p-4 flex items-start gap-3"
+                    role="status"
+                  >
+                    <Users size={18} strokeWidth={1.75} className="text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {t(
+                        "rsvpGroupPanelBody",
+                        "Parties of {n} go to the place as a request — no time to pick. They'll confirm a time and get back to you.",
+                        { n: party },
+                      )}
+                    </p>
                   </div>
                 ) : slotGroups.length === 0 ? (
                   !isProvider && dayMap === null ? (
@@ -2035,72 +2305,21 @@ export default function ReservationPublicPage() {
                     </div>
                   )
                 ) : (
-                  // Period groups — render a label only when the group has
-                  // slots; slots align in a 4-col grid (44px tap height).
-                  <div className="space-y-4">
-                    {slotGroups.map((group) => (
-                      <div key={group.key}>
-                        {/* LUNCH / DINNER as a quiet label with a hairline to
-                            the edge — it groups the rail below without
-                            competing with the question above it. */}
-                        <div className="flex items-center gap-2 mb-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500">
-                            {t(group.labelKey)}
-                          </p>
-                          <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" aria-hidden="true" />
-                        </div>
-                        {/* Rail, not a 4-col grid. A full evening service is
-                            ~11 slots = three stacked rows, and with the party
-                            grid above it the guest had to scroll past two walls
-                            of buttons to reach the one decision that matters.
-                            Per service group the times stay on one swipeable
-                            line, and the groups (LUNCH / DINNER) do the work
-                            the rows were doing badly. */}
-                        <div className={RAIL}>
-                          {group.slots.map((s, _i, all) => {
-                            // Scarcity, only when it is genuinely scarce and
-                            // only from a real server count. Silence is the
-                            // default: a hint on every slot is noise, and an
-                            // invented one is a lie told to make someone book
-                            // faster. The note line keeps its height across a
-                            // rail that has any note, so the chips stay
-                            // aligned; a rail with none drops the line, so the
-                            // time sits centred instead of floating high.
-                            const note = slotNote(slotRemaining[s], t);
-                            const withNotes = all.some((x) => slotNote(slotRemaining[x], t));
-                            return (
-                              <Chip
-                                key={s}
-                                size="md"
-                                selected={slot === s}
-                                onClick={() => { setSlot(s); setSubmitError(""); }}
-                                className={
-                                  "shrink-0 min-w-[68px] px-3.5 snap-start tabular-nums text-[15px] flex-col justify-center gap-0 duration-200 ease-out " +
-                                  (withNotes ? "h-[52px] " : "h-11 ") +
-                                  (slot === s ? "font-semibold shadow-sm" : "")
-                                }
-                              >
-                                <span className="leading-none">{s}</span>
-                                {withNotes && (
-                                  <span
-                                    className={
-                                      "block text-[10px] leading-none h-3 mt-1 font-medium " +
-                                      (slot === s ? "text-white/80" : "text-bb-green")
-                                    }
-                                  >
-                                    {note}
-                                  </span>
-                                )}
-                              </Chip>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <TimeGrid
+                    groups={slotGroups}
+                    slot={slot}
+                    onPick={(s) => {
+                      setSlot(s);
+                      setSubmitError("");
+                    }}
+                    slotRemaining={slotRemaining}
+                    // A day change keeps the old times on screen, dimmed, until
+                    // the new ones arrive — no flash of placeholders, no jump.
+                    loading={slotsLoading}
+                    t={t}
+                  />
                 )}
-              </div>
-            )}
+            </div>
             {/* ── Pick your table on the 2D floor (matches the owner room) ──
                 Honesty gate #1 (+ grandfather): TABLE venues (dining/bar) show the
                 floor; a provider (salon) never fetches one so floor stays empty and
@@ -2110,9 +2329,9 @@ export default function ReservationPublicPage() {
             */}
             {page.guest_can_pick_table && (usesTableFloor(page.business_type) || floor.length > 0) && !groupRequest && slot && (floorLoading || floor.length > 0) && (
               <div>
-                <p className={SECTION_TITLE + " mb-2.5"}>
+                <h2 className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpFloorPickTitle", "Vælg dit bord")}
-                </p>
+                </h2>
                 {floorLoading ? (
                   <div className="animate-pulse h-44 rounded-xl bg-gray-100 dark:bg-gray-800" />
                 ) : floor.some((tb) => tb.status === "free") ? (
@@ -2142,7 +2361,7 @@ export default function ReservationPublicPage() {
 
         {/* ── Step 2 — guest details ────────────────────────────────── */}
         {step === 2 && (
-          <section className="space-y-5 motion-safe:animate-fadeIn">
+          <section className="space-y-5 motion-safe:animate-[fadeIn_0.35s_ease-out]">
             {/* Recap of the picks from step 1. Provider (salon): behandling +
                 behandler + duration + dato/tid (e.g. "Klip · Marta · 30 min ·
                 lørdag 13. juni 14:00", or "Valgfri behandler"). Table venues
@@ -2199,7 +2418,7 @@ export default function ReservationPublicPage() {
                   <span className="block text-gray-500 dark:text-gray-400">
                     {[
                       !groupRequest && slot ? slot : null,
-                      t("rsvpPartyN", "{n} guests", { n: party }),
+                      partyLabel(party, t),
                       !groupRequest && selectedTable
                         ? floor.find((x) => String(x.id) === String(selectedTable))?.label || null
                         : null,
@@ -2264,7 +2483,7 @@ export default function ReservationPublicPage() {
                     line saying "only one is needed" made the guest do the
                     reasoning; a segment answers it before they start typing. */}
                 <div
-                  role="tablist"
+                  role="radiogroup"
                   aria-label={t("rsvpContactHow", "How should we reach you?")}
                   className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
                 >
@@ -2275,11 +2494,11 @@ export default function ReservationPublicPage() {
                     <button
                       key={m.k}
                       type="button"
-                      role="tab"
-                      aria-selected={contactMode === m.k}
+                      role="radio"
+                      aria-checked={contactMode === m.k}
                       onClick={() => setContactMode(m.k)}
                       className={
-                        "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors " +
+                        "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors duration-200 ease-out " +
                         (contactMode === m.k
                           ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
                           : "text-gray-500 dark:text-gray-400")
@@ -2293,11 +2512,21 @@ export default function ReservationPublicPage() {
                   <Input
                     id="rsvp-email"
                     type="email"
-                    size="md"
+                    size="lg"
+                    aria-label={t("rsvpContactEmailLabel", "Email")}
                     value={guestEmail}
-                    onChange={(e) => setGuestEmail(e.target.value)}
+                    onChange={(e) => {
+                      setGuestEmail(e.target.value);
+                      if (submitError === "invalid_email") setSubmitError("");
+                    }}
                     onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpEmailPh", "anna@eksempel.dk")}
+                    invalid={contactTouched && contact.activeInvalid}
+                    error={
+                      contactTouched && contact.activeInvalid
+                        ? t("rsvpEmailCheck", "Check your email — e.g. anna@example.com")
+                        : null
+                    }
                     hint={t("rsvpEmailWhy", "So we can send your confirmation.")}
                     autoComplete="email"
                     inputMode="email"
@@ -2314,11 +2543,21 @@ export default function ReservationPublicPage() {
                   <Input
                     id="rsvp-phone"
                     type="tel"
-                    size="md"
+                    size="lg"
+                    aria-label={t("rsvpContactPhoneLabel", "Phone")}
                     value={guestPhone}
-                    onChange={(e) => setGuestPhone(e.target.value)}
+                    onChange={(e) => {
+                      setGuestPhone(e.target.value);
+                      if (submitError === "invalid_phone") setSubmitError("");
+                    }}
                     onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
+                    invalid={contactTouched && contact.activeInvalid}
+                    error={
+                      contactTouched && contact.activeInvalid
+                        ? t("rsvpPhoneCheck", "Check your phone number — e.g. +45 12 34 56 78")
+                        : null
+                    }
                     hint={t("rsvpPhoneWhy", "We only call if something changes.")}
                     autoComplete="tel"
                     inputMode="tel"
@@ -2332,7 +2571,7 @@ export default function ReservationPublicPage() {
                     }}
                   />
                 )}
-                {contactTouched && !contactValid && (
+                {contactTouched && !contactValid && !contact.activeInvalid && (
                   <p className="text-xs text-red-600 dark:text-red-400">
                     {t(
                       "rsvpContactRequired",
@@ -2343,64 +2582,141 @@ export default function ReservationPublicPage() {
               </div>
             </div>
 
-            {/* ── ONE optional disclosure: occasion + notes + allergies ──
-                Default closed. A single quiet toggle keeps the form short;
-                the kitchen-relevant fields are an invite, never a barrier. */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-              {/* The header stays put and TOGGLES. It used to be replaced by
-                  the body on open, so there was no way back — a guest who
-                  tapped it to look was left with fourteen allergen chips and
-                  no way to fold them away again. It also now says what is
-                  inside when closed, so a filled-in note is never hidden
-                  behind a generic label. */}
+            {/* ── ONE optional disclosure: allergies, occasion, a note ──
+                Default closed. Its title names what is inside — allergies
+                first, because the kitchen needs them and a guest scanning
+                for "allergy" must find it without opening anything. */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
               <button
                 type="button"
                 onClick={() => setDetailsOpen((v) => !v)}
                 aria-expanded={detailsOpen}
-                className="w-full min-h-[44px] flex items-center gap-3 text-left"
+                className="w-full min-h-[56px] px-4 py-3 flex items-center gap-3 text-left"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-gray-800 dark:text-gray-200">
-                    {t("rsvpAddNote", "Add a message or special request (optional)")}
+                  <span className="block text-[14.5px] font-semibold text-gray-900 dark:text-gray-100">
+                    {t("rsvpExtrasTitle", "Allergies, occasion or a note?")}
                   </span>
-                  {extrasSummary && (
-                    <span className="block text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
-                      {extrasSummary}
-                    </span>
-                  )}
+                  <span className="block text-[12.5px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                    {extrasSummary || t("rsvpExtrasHint", "Optional — it helps the kitchen take care")}
+                  </span>
                 </span>
                 <ChevronDown
                   className={
-                    "w-4 h-4 shrink-0 text-gray-400 transition-transform duration-200 " +
+                    "w-[18px] h-[18px] shrink-0 text-gray-400 transition-transform duration-200 ease-out " +
                     (detailsOpen ? "rotate-180" : "")
                   }
                   aria-hidden
                 />
               </button>
               {detailsOpen && (
-                <div className="space-y-4 pt-4">
-                  <div>
-                    <label
-                      htmlFor="rsvp-occasion"
-                      className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                    >
-                      {t("rsvpOccasion", "Anledning (valgfrit)")}
-                    </label>
-                    <Input
-                      id="rsvp-occasion"
-                      size="md"
-                      value={occasion}
-                      onChange={(e) => setOccasion(e.target.value)}
-                      placeholder={t("rsvpOccasionPh", "Fødselsdag, jubilæum…")}
-                      maxLength={60}
-                    />
+                <div className="border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 px-4 pt-4 pb-5 space-y-5 motion-safe:animate-[fadeIn_0.25s_ease-out]">
+                  {/* Allergies — invite, never require; only when the venue
+                      type defines an allergen set. Selection is GREEN here, the
+                      one place it isn't ink: it marks kitchen-critical data. */}
+                  {allergenSet.length > 0 && (
+                    <div className="space-y-2.5">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {t("rsvpXAllergies", "Allergies or diet")}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allergenSet.map((a) => {
+                          const on = allergenTags.includes(a.key);
+                          return (
+                            <button
+                              key={a.key}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => toggleAllergen(a.key)}
+                              className={
+                                "h-9 px-3.5 rounded-full border text-[13px] transition-colors duration-200 ease-out " +
+                                (on
+                                  ? "bg-bb-green-dark border-bb-green-dark text-white font-medium"
+                                  : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
+                              }
+                            >
+                              {t(`allergen_${a.key}`, a.en)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* How serious — asked only once there is something to
+                          be serious about, and never pre-answered. */}
+                      {allergenTags.length > 0 && (
+                        <div className="pt-1 space-y-2 motion-safe:animate-[fadeIn_0.25s_ease-out]">
+                          <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">
+                            {t("rsvpSeverity", "Hvor alvorligt?")}
+                          </p>
+                          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t("rsvpSeverity", "Hvor alvorligt?")}>
+                            {SEVERITY_KEYS.map((k) => (
+                              <button
+                                key={k}
+                                type="button"
+                                role="radio"
+                                aria-checked={allergySeverity === k}
+                                onClick={() => setAllergySeverity((cur) => (cur === k ? "" : k))}
+                                className={
+                                  "h-10 rounded-xl border text-[13px] transition-colors duration-200 ease-out " +
+                                  (allergySeverity === k
+                                    ? "bg-gray-900 border-gray-900 text-white font-semibold dark:bg-white dark:border-white dark:text-gray-900"
+                                    : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
+                                }
+                              >
+                                {t(`rsvpSeverity_${k}`, severityFallback(k))}
+                              </button>
+                            ))}
+                          </div>
+                          <textarea
+                            id="rsvp-allergy-note"
+                            aria-label={t("rsvpXAllergyDetail", "Tell the kitchen more")}
+                            value={allergyNote}
+                            onChange={(e) => setAllergyNote(e.target.value)}
+                            placeholder={t(
+                              "rsvpAllergyNotePh",
+                              "F.eks. svær nøddeallergi — ingen spor af nødder.",
+                            )}
+                            rows={2}
+                            maxLength={2000}
+                            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3.5 py-2.5 text-[15px] leading-snug resize-none focus:outline-none focus:border-gray-900 dark:focus:border-gray-300"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Occasion — five taps instead of a text box; tap again to
+                      clear. */}
+                  <div className="space-y-2.5">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {t("rsvpXOccasion", "Occasion")}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {OCCASION_KEYS.map((k) => {
+                        const label = t(`rsvpOccasion_${k}`, OCCASION_FALLBACK[k]);
+                        const on = occasion === label;
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => setOccasion(on ? "" : label)}
+                            className={
+                              "h-9 px-3.5 rounded-full border text-[13.5px] transition-colors duration-200 ease-out " +
+                              (on
+                                ? "bg-gray-900 border-gray-900 text-white font-medium dark:bg-white dark:border-white dark:text-gray-900"
+                                : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
+                            }
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div>
-                    <label
-                      htmlFor="rsvp-notes"
-                      className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                    >
-                      {t("rsvpNotes", "Besked til stedet (valgfrit)")}
+
+                  <div className="space-y-2">
+                    <label htmlFor="rsvp-notes" className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {t("rsvpXNote", "A note for us")}
                     </label>
                     <textarea
                       id="rsvp-notes"
@@ -2412,79 +2728,9 @@ export default function ReservationPublicPage() {
                       )}
                       rows={3}
                       maxLength={2000}
-                      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
+                      className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3.5 py-3 text-[15px] leading-snug resize-none focus:outline-none focus:border-gray-900 dark:focus:border-gray-300"
                     />
                   </div>
-
-                  {/* Allergy sub-block (invite, not require) — only when the
-                      venue type defines an allergen set. */}
-                  {allergenSet.length > 0 && (
-                    <div className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-800">
-                      <div className="pt-3">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {t("rsvpAllergyTitle", "Allergier eller kost (valgfrit)")}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {t(
-                            "rsvpAllergyHint",
-                            "Helt valgfrit — det hjælper køkkenet med at tage hensyn.",
-                          )}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {allergenSet.map((a) => (
-                          <Chip
-                            key={a.key}
-                            size="sm"
-                            selected={allergenTags.includes(a.key)}
-                            onClick={() => toggleAllergen(a.key)}
-                          >
-                            {t(`allergen_${a.key}`, a.en)}
-                          </Chip>
-                        ))}
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="rsvp-severity"
-                          className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                        >
-                          {t("rsvpSeverity", "Hvor alvorligt?")}
-                        </label>
-                        <select
-                          id="rsvp-severity"
-                          value={allergySeverity}
-                          onChange={(e) => setAllergySeverity(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-3 h-10 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
-                        >
-                          {SEVERITY_KEYS.map((s) => (
-                            <option key={s} value={s}>
-                              {t(`rsvpSeverity_${s}`, severityFallback(s))}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="rsvp-allergy-note"
-                          className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                        >
-                          {t("rsvpAllergyNote", "Uddyb (valgfrit)")}
-                        </label>
-                        <textarea
-                          id="rsvp-allergy-note"
-                          value={allergyNote}
-                          onChange={(e) => setAllergyNote(e.target.value)}
-                          placeholder={t(
-                            "rsvpAllergyNotePh",
-                            "F.eks. svær nøddeallergi — ingen spor af nødder.",
-                          )}
-                          rows={2}
-                          maxLength={2000}
-                          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -2557,89 +2803,100 @@ export default function ReservationPublicPage() {
           Embedded (?embed=1): `sticky` so it flows with the content-sized
           widget — it settles under the form in a short frame and pins to the
           frame bottom while scrolling a tall one, never detaching. */}
-      {!(typing && !isEmbed) && (
       <div
         className={`${isEmbed ? "sticky glass-static" : "fixed glass"} bottom-0 inset-x-0 z-40 border-t border-gray-200/80 dark:border-gray-800`}
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)" }}
+        style={
+          isEmbed
+            ? { paddingBottom: "env(safe-area-inset-bottom, 0px)" }
+            : { bottom: kbInset, paddingBottom: kbInset ? 0 : "env(safe-area-inset-bottom, 0px)" }
+        }
       >
         <div className="max-w-md mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          {/* Back as a square chevron: beside a disabled Confirm, a grey
-              "Tilbage" read as a second button of the same weight. The recap
-              card above ("Change") is the other way back. */}
-          {step === 2 && (
-            <Button
-              variant="secondary"
-              size="lg"
-              aria-label={t("rsvpBack", "Tilbage")}
-              className="w-12 px-0 shrink-0"
-              onClick={() => {
-                setStep(1);
-                setSubmitError("");
-              }}
-            >
-              <ChevronLeft className="w-5 h-5" aria-hidden="true" />
-            </Button>
-          )}
           {step === 1 ? (
-            <Button
-              variant="main"
-              size="lg"
-              onClick={() => setStep(2)}
-              disabled={!groupRequest && !slot}
-              className="flex-1"
-            >
-              {groupRequest
-                ? // Group request — set the "we'll send a request" mental
-                  // model on step 1 already.
-                  t("rsvpSendRequest", "Send forespørgsel →")
-                : slot
-                  ? // CTA echoes the picked time: "Fortsæt · 19:00 →".
-                    t("rsvpCtaWithTime", "Continue · {time} →", { time: slot })
-                  : // No slot yet → the button is disabled; make its label the
-                    // instruction so the greyed CTA guides instead of dead-ending.
-                    t("rsvpPickTimeCta", "Vælg et tidspunkt")}
-            </Button>
+            <>
+              {/* The whole selection stays in view — date, time and party —
+                  so the guest never has to scroll back up to check what the
+                  button is about to continue with. */}
+              <div className="min-w-0 flex-1" aria-live="polite">
+                <p className="text-[14.5px] font-semibold text-gray-900 dark:text-gray-100 truncate first-letter:uppercase">
+                  {[fmtDayShort(day, lang), slot || null].filter(Boolean).join(" · ")}
+                </p>
+                <p className="text-[12.5px] text-gray-500 dark:text-gray-400 truncate">
+                  {needsTime
+                    ? t("rsvpPickTimeToContinue", "Pick a time to continue")
+                    : groupRequest
+                      ? t("rsvpGroupTimeNote", "{party} · the venue confirms the time", {
+                          party: partyLabel(party, t),
+                        })
+                      : isProvider && chosenBehandling
+                        ? chosenBehandling.name
+                        : partyLabel(party, t)}
+                </p>
+              </div>
+              <Button
+                variant="main"
+                size="lg"
+                onClick={() => setStep(2)}
+                disabled={needsTime}
+                className="shrink-0 px-5"
+                iconRight={<ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
+              >
+                {t("rsvpContinue", "Continue")}
+              </Button>
+            </>
           ) : (
-            <Button
-              variant="main"
-              size="lg"
-              onClick={onSubmit}
-              busy={submitting}
-              disabled={!canSubmit}
-              className="flex-1"
-            >
-              {/* A disabled button reading "Confirm reservation" tells the guest
-                  nothing about why it will not press. Say what is missing —
-                  the label becomes the instruction, same principle as step 1's
-                  "Pick a time". */}
-              {!nameValid
-                ? t("rsvpCtaNeedName", "Tilføj dit navn")
-                : !contactValid
-                  ? contactMode === "phone"
-                    ? t("rsvpCtaNeedPhone", "Tilføj dit telefonnummer")
-                    : t("rsvpCtaNeedEmail", "Tilføj din email")
-                  : groupRequest
-                    ? t("rsvpSendRequest", "Send forespørgsel →")
-                    : isProvider
-                      ? t("rsvpConfirmTime", "Confirm appointment →")
-                      : t("rsvpConfirm", "Bekræft reservation →")}
-            </Button>
+            <>
+              {/* Back as a square chevron: beside a disabled Confirm, a grey
+                  "Tilbage" read as a second button of the same weight. The
+                  recap card above ("Change") is the other way back. */}
+              <Button
+                variant="secondary"
+                size="lg"
+                aria-label={t("rsvpBack", "Tilbage")}
+                className="w-12 px-0 shrink-0"
+                onClick={() => {
+                  setStep(1);
+                  setSubmitError("");
+                }}
+              >
+                <ChevronLeft className="w-5 h-5" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="main"
+                size="lg"
+                // A missing time is not fixable here, so that one case turns
+                // the button into the way back instead of a dead grey block.
+                onClick={needsTime ? () => setStep(1) : onSubmit}
+                busy={submitting}
+                disabled={needsTime ? false : !canSubmit}
+                className="flex-1"
+              >
+                {/* A disabled button reading "Confirm reservation" tells the
+                    guest nothing about why it will not press. Say what is
+                    missing — the label becomes the instruction. */}
+                {needsTime
+                  ? t("rsvpPickTimeCta", "Vælg et tidspunkt")
+                  : !nameValid
+                    ? t("rsvpCtaNeedName", "Tilføj dit navn")
+                    : contact.activeInvalid
+                      ? contactMode === "phone"
+                        ? t("rsvpCtaCheckPhone", "Check your phone number")
+                        : t("rsvpCtaCheckEmail", "Check your email")
+                      : !contactValid
+                        ? contactMode === "phone"
+                          ? t("rsvpCtaNeedPhone", "Tilføj dit telefonnummer")
+                          : t("rsvpCtaNeedEmail", "Tilføj din email")
+                        : groupRequest
+                          ? t("rsvpSendRequest", "Send forespørgsel →")
+                          : isProvider
+                            ? t("rsvpConfirmTime", "Confirm appointment →")
+                            : t("rsvpConfirm", "Bekræft reservation →")}
+              </Button>
+            </>
           )}
         </div>
       </div>
-      )}
     </div>
-  );
-}
-
-// A field that raises the on-screen keyboard (not a toggle, not the native
-// date picker, which brings its own sheet).
-function isTypingField(el) {
-  if (!el) return false;
-  if (el.tagName === "TEXTAREA") return true;
-  return (
-    el.tagName === "INPUT" &&
-    !["checkbox", "radio", "button", "submit", "date", "range", "hidden"].includes(el.type)
   );
 }
 
@@ -2759,6 +3016,10 @@ function submitErrorMessage(code, t) {
         "rsvpErrClosed",
         "Stedet tager ikke imod flere reservationer lige nu.",
       );
+    case "invalid_email":
+      return t("rsvpEmailCheck", "Check your email — e.g. anna@example.com");
+    case "invalid_phone":
+      return t("rsvpPhoneCheck", "Check your phone number — e.g. +45 12 34 56 78");
     default:
       return t("rsvpErrGeneric", "Noget gik galt. Prøv igen om et øjeblik.");
   }
