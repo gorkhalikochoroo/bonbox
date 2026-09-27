@@ -38,7 +38,7 @@
  * enforces the right entitlements where needed).
  *
  * Aiia / PSD2 status: the integration spec exists (see
- * docs/aiia-integration-spec.md) but is feature-flagged off by
+ * docs/product/aiia-integration-spec.md) but is feature-flagged off by
  * default (useFeatures().bank_connect_enabled). When it ships,
  * /bank-import is the natural home for it — NOT this page. This
  * page stays focused on "I have a MobilePay CSV or a Vipps API key".

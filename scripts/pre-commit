@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+#
+# BonBox pre-commit hook.
+#
+# Install once per clone:  ln -s ../../scripts/pre-commit .git/hooks/pre-commit
+#
+# Runs the repo's commit-time guards. Each guard is invoked only if its
+# script is present, so the hook degrades gracefully across worktrees.
+# A non-zero exit from any guard aborts the commit (normal hook — no
+# --no-verify trickery; use `git commit --no-verify` only in a genuine
+# emergency, or the documented per-guard override env vars).
+#
+# Guards, in order:
+#   1. Migration-pattern guard (scripts/check-migration-pattern.sh)
+#      — Layer 3 of the schema-drift safety net (2026-05-26 incident).
+#        Override for doc-only Alembic edits: BONBOX_SKIP_MIGRATION_GUARD=1
+#   2. i18n raw-key-leak guard (frontend/scripts/check-i18n-keys.cjs)
+#      — Fails the commit if any statically-called t("key") is missing
+#        from the English dictionary, src/i18n/en.js (which would render the raw
+#        key string to the user). See that script's header for details.
+
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "pre-commit: not inside a git repository — skipping hooks." >&2
+    exit 0
+}
+
+status=0
+
+# ── 1. Migration-pattern guard ────────────────────────────────────────
+if [ -f "$REPO_ROOT/scripts/check-migration-pattern.sh" ]; then
+    bash "$REPO_ROOT/scripts/check-migration-pattern.sh" || status=1
+fi
+
+# ── 2. i18n raw-key-leak guard ────────────────────────────────────────
+# Only run when frontend sources are part of the staged change-set (keeps
+# pure-backend commits fast), but always run if the guard script itself or
+# the translation file changed.
+if [ -f "$REPO_ROOT/frontend/scripts/check-i18n-keys.cjs" ]; then
+    staged="$(git diff --cached --name-only)"
+    if printf '%s\n' "$staged" | grep -qE '^frontend/src/.*\.(jsx?|cjs|mjs)$|^frontend/scripts/check-i18n-keys\.cjs$'; then
+        # `cd` into frontend so the script's relative resolution + Node
+        # module context match `npm run lint:i18n`.
+        ( cd "$REPO_ROOT/frontend" && node scripts/check-i18n-keys.cjs ) || status=1
+    fi
+fi
+
+# ── 3. ESLint no-undef guard ──────────────────────────────────────────
+# Catches undefined-variable references in staged frontend source — the
+# runtime ReferenceError class that `npm run build` + the i18n guard miss
+# (2026-06-04: a renamed useState var left a dangling reference, shipped, and
+# took /staff/schedule down with "Something went wrong"). Fails ONLY on
+# no-undef; scoped to staged files; degrades gracefully if ESLint can't run.
+if [ -f "$REPO_ROOT/frontend/scripts/check-undef-staged.cjs" ]; then
+    staged="$(git diff --cached --name-only)"
+    if printf '%s\n' "$staged" | grep -qE '^frontend/src/.*\.(jsx?|mjs)$'; then
+        ( cd "$REPO_ROOT/frontend" && node scripts/check-undef-staged.cjs ) || status=1
+    fi
+fi
+
+# ── 3b. i18n duplicate-key guard ──────────────────────────────────────
+# A duplicate key in a translation object is legal JS — the LAST one wins and
+# the earlier one is unreachable. 274 had accumulated by 2026-08-30; 113 of
+# them had DIFFERING values, meaning one key served two contexts and one of
+# its call sites rendered the wrong text (the owner reservation-cancel dialog
+# showed the guest's copy and dropped {name}; the public booking page for an
+# un-named venue was headlined "closed"). eslint reports these but is not run
+# at commit time. Override: I18N_DUPE_KEYS_SKIP=1
+if [ -f "$REPO_ROOT/frontend/scripts/check-i18n-dupe-keys.cjs" ]; then
+    staged="$(git diff --cached --name-only)"
+    if printf '%s\n' "$staged" | grep -qE '^frontend/src/hooks/useLanguage\.jsx$|^frontend/src/i18n/.*\.js$|^frontend/scripts/check-i18n-dupe-keys\.cjs$'; then
+        ( cd "$REPO_ROOT/frontend" && node scripts/check-i18n-dupe-keys.cjs ) || status=1
+    fi
+fi
+
+# ── 3c. i18n locked-terminology guard ─────────────────────────────────
+# MOMS / kasserapport / SKAT etc. name Denmark-bound legal artefacts; a
+# translation that renders them in the local language tells a user to file a
+# tax that does not exist. Scoped to the locales the picker OFFERS — a hidden
+# pack cannot mislead anyone, and a guard that blocks on hidden packs is a
+# guard everyone learns to skip. Flip a language to offered:true and its
+# violations become blocking in that same commit, which is the right gate.
+# Override: I18N_LOCKED_TERMS_SKIP=1
+if [ -f "$REPO_ROOT/frontend/scripts/check-i18n-locked-terms.cjs" ]; then
+    staged="$(git diff --cached --name-only)"
+    if printf '%s\n' "$staged" | grep -qE '^frontend/src/hooks/useLanguage\.jsx$|^frontend/src/i18n/.*\.js$|^frontend/scripts/check-i18n-locked-terms\.cjs$'; then
+        ( cd "$REPO_ROOT/frontend" && node scripts/check-i18n-locked-terms.cjs ) || status=1
+    fi
+fi
+
+# ── 4. Money-write red-line guard ─────────────────────────
+# Blocks NEW non-interactive (cron/webhook/bot/sync) writes to
+# money/MOMS/gavekort/invoice-paid/close-total fields that lack an audit row
+# + reversibility. Pre-existing debt is tolerated (added-lines scoping); only
+# new offenders fail. Enforces Layer 7 (audit) of the multi-barrier doctrine.
+if [ -f "$REPO_ROOT/scripts/check_money_writes_staged.py" ]; then
+    staged="$(git diff --cached --name-only)"
+    if printf '%s\n' "$staged" | grep -qE '^backend/app/.*\.py$'; then
+        ( cd "$REPO_ROOT" && python3 scripts/check_money_writes_staged.py ) || status=1
+    fi
+fi
+
+if [ "$status" -ne 0 ]; then
+    echo
+    echo "pre-commit: one or more guards failed — commit aborted." >&2
+    echo "Fix the issues above, re-stage, and commit again." >&2
+fi
+
+exit "$status"

@@ -5,7 +5,7 @@
 # Blocks new color-bleed outside components/ui/.
 # Run: bash scripts/check-design-doctrine.sh
 # Wire into pre-commit + CI.
-# Reference: docs/design-system-doctrine.md
+# Reference: docs/architecture/design-system-doctrine.md
 # ============================================================
 set -e
 
@@ -21,8 +21,8 @@ EXCLUDE_PATTERN='LandingPage\.jsx|PricingPage\.jsx|TermsPage\.jsx|PrivacyPolicyP
 # Files that are allowed to use raw color utilities (the primitive layer +
 # the persona-aware Dashboard cards, which compose ui/ primitives and use
 # the doctrine-authorized signal colors: status dots / Check / Alert /
-# TrendingUp. See docs/design-system-doctrine.md and
-# docs/tier-4-dashboard-restructure.md.)
+# TrendingUp. See docs/architecture/design-system-doctrine.md and
+# docs/product/tier-4-dashboard-restructure.md.)
 #
 # Layout.jsx is also allowed because the sidebar IS the brand surface:
 # the BonBox logo tile + the active-nav left-rail are the locked
@@ -134,7 +134,7 @@ if [ $EXIT -eq 0 ]; then
   echo "✅ Design doctrine clean. 0 violations."
 else
   echo ""
-  echo "📖 Reference: docs/design-system-doctrine.md"
+  echo "📖 Reference: docs/architecture/design-system-doctrine.md"
   echo "💡 Most violations are fixed by switching to <Button>/<Input>/<Chip>/<Icon> primitives."
 fi
 

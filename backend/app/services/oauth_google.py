@@ -137,7 +137,7 @@ def verify_google_token(id_token: str) -> dict:
                 "oauth_google: AUDIENCE MISMATCH — token aud=%r but "
                 "settings.GOOGLE_CLIENT_ID=%r. The frontend's "
                 "VITE_GOOGLE_CLIENT_ID must match the backend's "
-                "GOOGLE_CLIENT_ID exactly. See docs/DEPLOYMENT.md §1.",
+                "GOOGLE_CLIENT_ID exactly. See docs/runbooks/DEPLOYMENT.md §1.",
                 token_aud, audience,
             )
     except Exception:  # noqa: BLE001

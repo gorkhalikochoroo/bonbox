@@ -24,7 +24,7 @@ Three implementations behind one Protocol:
 
 Defensive design notes:
   • The real Aiia request/response shapes aren't fully documented
-    publicly — the spec at docs/aiia-integration-spec.md notes we
+    publicly — the spec at docs/product/aiia-integration-spec.md notes we
     should pull the Postman collection on day 1 of v0.2. For v0.1
     (this implementation), the sandbox + live clients raise
     NotImplementedError on real network calls so we ship a known-

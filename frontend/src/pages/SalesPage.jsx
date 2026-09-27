@@ -1,5 +1,5 @@
 // Tier 4 — Phase C: SalesPage restructured to the v2 spec
-// (docs/tier-4-dashboard-restructure.md §4 + §7).
+// (docs/product/tier-4-dashboard-restructure.md §4 + §7).
 //
 //   • Outer wrapper → <PageShell width="default"> (gutters + max-w + rhythm)
 //   • Right rail reframed from period KPIs → session reconciliation tiles

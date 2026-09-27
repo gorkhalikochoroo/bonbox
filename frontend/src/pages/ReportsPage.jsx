@@ -4,7 +4,7 @@
 //
 // Tier 4 — Phase E (2026-05-25): absorbed four cards demoted from
 // DashboardPage so /reports becomes the period-analytics home (see
-// docs/tier-4-dashboard-restructure.md §7). The previous Reports UX
+// docs/product/tier-4-dashboard-restructure.md §7). The previous Reports UX
 // (TodaysBooks / TaxBundle) is preserved under the "Pulse" tab via
 // an inner sub-toggle so no functionality is lost. Forecast / Payment
 // methods / Expense categories / Week-over-week / Budget sit as new

@@ -1,6 +1,6 @@
 """Booking → Sale bridge — the financial keystone.
 
-Per `docs/event-booking-product-spec.md` §5.4. Single code path that
+Per `docs/product/event-booking-product-spec.md` §5.4. Single code path that
 materialises a Sale row from a paid Booking:
 
   1. Resolves event = booking.event (via FK).

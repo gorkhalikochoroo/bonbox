@@ -1,6 +1,6 @@
 """Pending-booking expiry sweep.
 
-Per `docs/event-booking-product-spec.md` §5.3. A booking left in
+Per `docs/product/event-booking-product-spec.md` §5.3. A booking left in
 `pending` past its `expires_at` is swept back to `expired` by this
 service, releasing the capacity for the next visitor.
 

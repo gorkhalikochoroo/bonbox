@@ -5,7 +5,9 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Build output and the native shells (their public/ folders are copies of
+  // the built bundle) — generated code, never hand-written.
+  globalIgnores(['dist', 'dist-*', 'coverage', 'ios', 'ios-scheduler', 'android']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -34,5 +36,10 @@ export default defineConfig([
         { name: 'alert', message: 'Use toast() from hooks/useToast (see components/ui/index.js:26).' },
       ],
     },
+  },
+  // Build config and repo scripts run in Node, not the browser.
+  {
+    files: ['*.config.js', 'scripts/**/*.{js,cjs,mjs}'],
+    languageOptions: { globals: globals.node },
   },
 ])

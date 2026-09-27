@@ -1,6 +1,6 @@
 """EventCustomer ORM — one row per (organizer, unique visitor email).
 
-Per `docs/event-booking-product-spec.md` §5.1. The de-duplicated
+Per `docs/product/event-booking-product-spec.md` §5.1. The de-duplicated
 customer profile across bookings. Used by:
 
   • Pro-tier customer outreach ("regulars at risk" → re-engage email).

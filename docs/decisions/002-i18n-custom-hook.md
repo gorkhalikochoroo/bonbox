@@ -13,3 +13,10 @@ Built custom `useLanguage()` hook with a translations object and `t(key)` functi
 - All translations in one file (useLanguage.jsx)
 - Easy to add new languages (add code to LANGUAGES array + translations)
 - No pluralization or interpolation features (not needed yet)
+
+## Update — September 2026
+- The dictionaries moved out of useLanguage.jsx into one file per language
+  (`src/i18n/en.js`, `src/i18n/da.js`, …). `src/lib/localeStore.js` loads
+  only the language in use, so a visit downloads one dictionary, not all of
+  them. The hook and `t(key, fallback, vars)` are unchanged (`vars` fills
+  `{name}` placeholders).

@@ -2,7 +2,7 @@
 //
 // Mobile-first (390px reference). Doctrine-compliant: cover photo is the
 // only color moment. Page chrome stays on the 13-token gray palette per
-// docs/design-system-doctrine.md. DK terminology lock applies — MOMS /
+// docs/architecture/design-system-doctrine.md. DK terminology lock applies — MOMS /
 // revisor / faktura / bilagsnummer / kreditnota stay Danish in every
 // locale on this surface.
 //

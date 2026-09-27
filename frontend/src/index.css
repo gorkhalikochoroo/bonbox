@@ -964,7 +964,7 @@ body.modal-open {
    (Button.accent, StatCard.success, Check icon, UpgradeNudge) is already on
    the emerald scale. Migrating the favicon is a separate cosmetic pass.
 
-   Reference: docs/design-system-doctrine.md (#164)
+   Reference: docs/architecture/design-system-doctrine.md (#164)
    ═══════════════════════════════════════════════════════════════════════ */
 :root {
   --brand-green: 5 150 105;          /* emerald-600 — the mark, both themes */

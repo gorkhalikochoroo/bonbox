@@ -1,6 +1,6 @@
 """Ticket ORM — one row per individual ticket issued by a Booking.
 
-Per `docs/event-booking-product-spec.md` §5.1. A booking of 4 tickets
+Per `docs/product/event-booking-product-spec.md` §5.1. A booking of 4 tickets
 fans into 4 Ticket rows so the door-scan endpoint can mark each one
 attended idempotently. The tier label + frozen price ride on the
 Ticket row so the visitor's web ticket page (/t/{id}) can render the

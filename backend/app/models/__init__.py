@@ -94,7 +94,7 @@ from app.models.reservation import Reservation
 # P0 integrity backbone (Migration 023) — overlap-protected physical-table
 # rows. The gist EXCLUDE constraint (Postgres-only) makes double-booking a
 # resource physically impossible. See reservation_occupancy.py + §2 of
-# docs/reservations-architecture.md.
+# docs/architecture/reservations-architecture.md.
 from app.models.reservation_occupancy import ReservationOccupancy
 # Venteliste — parties the venue couldn't seat; a dedicated table so it can
 # never hold a resource or leak into the availability engine. user_id FK puts

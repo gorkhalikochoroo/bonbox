@@ -1,6 +1,6 @@
 """Public-facing event-detail surface (no auth).
 
-Per `docs/event-booking-product-spec.md` §4 + §5.3:
+Per `docs/product/event-booking-product-spec.md` §4 + §5.3:
 
   • GET /e/{slug}                     — SSR HTML with OG/Twitter meta
                                         tags so FB/Messenger unfurl

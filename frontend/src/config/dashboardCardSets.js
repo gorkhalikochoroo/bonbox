@@ -2,7 +2,7 @@
  * dashboardCardSets — the single declarative source of truth for what
  * appears on the Dashboard, in what order, and under what conditions.
  *
- * Architecture (locked 2026-05-25 per `docs/tier-4-dashboard-restructure.md`):
+ * Architecture (locked 2026-05-25 per `docs/product/tier-4-dashboard-restructure.md`):
  *
  *   1. `ARCHETYPES` — the user's business archetype is a SEED, not a runtime
  *      driver. Two archetypes (transactionalDaily, projectWeekly) cover all

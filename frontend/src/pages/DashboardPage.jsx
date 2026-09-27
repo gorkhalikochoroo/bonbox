@@ -6,8 +6,8 @@
 //
 // All the inline card components that used to live here have been
 // extracted to `components/dashboard/` so this file stays at orchestrator
-// scope. See `docs/tier-4-dashboard-restructure.md` for the v2 spec and
-// `docs/design-system-doctrine.md` for the color / component discipline
+// scope. See `docs/product/tier-4-dashboard-restructure.md` for the v2 spec and
+// `docs/architecture/design-system-doctrine.md` for the color / component discipline
 // every extracted card already follows.
 //
 // What still lives in DashboardPage:

@@ -13,7 +13,7 @@ Idempotent UPSERT on `slug` runs at every boot (see
 `services/terminal_providers_seeder.py`). Adding a provider = one PR
 appending a JSON entry; no schema change required.
 
-RLS doctrine (docs/security-rls-doctrine.md): even though this is
+RLS doctrine (docs/architecture/security-rls-doctrine.md): even though this is
 global metadata with no PII, the table gets the standard deny policy
 for anon/authenticated roles. The backend connects as `postgres`
 (BYPASSRLS=true) so server-side queries are unaffected; the policy

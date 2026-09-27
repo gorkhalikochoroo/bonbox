@@ -2,7 +2,7 @@
  * AgentDataCards — the rich data cards the BonBox AI chat renders under a
  * reply (revenue, expenses, inventory, khata, staff, health…).
  *
- * Design-system locked (see docs/design-system-doctrine.md): white card +
+ * Design-system locked (see docs/architecture/design-system-doctrine.md): white card +
  * gray-900 text in both the light app and the dark chat panel (the card is
  * a light island — its text must be DARK), status colors only (red/amber/
  * emerald where they carry data, never per-card identity colors), money via

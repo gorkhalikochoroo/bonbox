@@ -1,6 +1,6 @@
 """Visitor-facing booking endpoints (no user auth).
 
-Per `docs/event-booking-product-spec.md` §5.3:
+Per `docs/product/event-booking-product-spec.md` §5.3:
 
   • POST /api/public/bookings              — create pending booking.
   • GET  /api/public/bookings/{id}         — visitor poll (token JWT).

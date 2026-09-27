@@ -1,6 +1,6 @@
 """Booking ORM — public-facing event ticket reservations (v3 ledger-only).
 
-Per `docs/event-booking-product-spec.md` §5.1. The Booking row is the
+Per `docs/product/event-booking-product-spec.md` §5.1. The Booking row is the
 durable record across the visitor lifecycle:
 
     pending → paid → attended

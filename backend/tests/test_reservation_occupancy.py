@@ -1,6 +1,6 @@
 """Reservation integrity backbone — occupancy + insert-and-catch tests.
 
-Covers the P0 "no double-booking, ever" fix (docs/reservations-architecture.md
+Covers the P0 "no double-booking, ever" fix (docs/architecture/reservations-architecture.md
 §2 + app/services/reservation_occupancy_service.py). Two layers:
 
   • App-level (SQLite, fast, deterministic) — proves the insert-and-catch

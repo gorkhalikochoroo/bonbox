@@ -1,7 +1,7 @@
 """ReservationOccupancy — the overlap-protected physical-table row.
 
 This is the integrity backbone for "no double-booking, ever" (see
-docs/reservations-architecture.md §2). One row marks a resource as
+docs/architecture/reservations-architecture.md §2). One row marks a resource as
 physically occupied by a reservation for a half-open `[starts_at, ends_at)`
 range. On Postgres a gist EXCLUDE constraint on
 `(resource_id WITH =, tsrange(starts_at, ends_at) WITH &&) WHERE (active)`

@@ -12,13 +12,13 @@ export async function exportToCsv(filename, rows, columns) {
       return val;
     }).join(",")
   );
-  // UTF-8 BOM ("﻿") is critical for Danish accountants: Windows Excel
+  // UTF-8 BOM ("\uFEFF") is critical for Danish accountants: Windows Excel
   // defaults to Windows-1252 when no BOM is present, mangling Æ Ø Å in
   // column headers + supplier names. Mac Numbers / LibreOffice autodetect
   // UTF-8 fine either way. Without this, every Dinero / e-conomic / Billy
   // import from BonBox shows garbled Danish characters.
   const blob = new Blob(
-    ["﻿" + header + "\n" + csv.join("\n")],
+    ["\uFEFF" + header + "\n" + csv.join("\n")],
     { type: "text/csv;charset=utf-8" },
   );
   // DELIVERY goes through the one helper (utils/download.js). `<a download>`

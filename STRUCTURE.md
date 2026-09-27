@@ -11,9 +11,12 @@ moves code — it just documents the layout. For conventions & rules, see
 smallbiz-dashboard/
 ├── backend/          FastAPI API + tests
 ├── frontend/         Vite + React app
-├── docs/             specs, notes, design docs
-├── scripts/          one-off / maintenance scripts (e.g. check-i18n-keys.cjs)
+├── docs/             architecture · decisions · product specs · research ·
+│                     strategy · runbooks — indexed in docs/README.md
+├── scripts/          repo-wide commit guards + the pre-commit hook
+│                     (frontend guards live in frontend/scripts/)
 ├── deploy.sh         one-tap frontend prod deploy (vercel --prod)
+├── README.md         what BonBox is, how to run it
 ├── CLAUDE.md         project rules & conventions (read this first)
 └── STRUCTURE.md      ← you are here
 ```
@@ -73,9 +76,11 @@ frontend/
     │   └── ui/           LOCKED design system primitives — Button, Input, Chip,
     │                       EntryCard, DataTable, FilterBar, PageShell, StatCard,
     │                       TabPills, Icon (Lucide), UpgradeNudge  (+ index.js)
-    ├── hooks/            useAuth, useLanguage (i18n), useFeatures, useEntitlements…
+    ├── hooks/            useAuth, useLanguage (i18n provider + t()), useFeatures…
     ├── services/         API client (axios `api` = authed, `portalApi` = public)
-    ├── i18n/             translation bundles (da/en + th/vi/tr/np)
+    ├── i18n/             one dictionary per language — en.js and da.js complete,
+    │                       the others partial (English fills the gaps)
+    ├── lib/              localeStore.js — loads only the language in use
     ├── config/           frontend config
     ├── assets/           images / fonts
     └── utils/            helpers
@@ -84,9 +89,10 @@ frontend/
 **Design system (LOCKED — see CLAUDE.md):** gray-900 primary, status colors
 only, Lucide outline icons, Inter, rounded-xl. Build UI from `components/ui/*`.
 
-**i18n discipline:** every `t("key")` needs a real entry (en + da) in
-`hooks/useLanguage.jsx` — `t()` returns the *key string* when missing, so a
-missing key renders as raw text. Guard: `node scripts/check-i18n-keys.cjs`.
+**i18n discipline:** every `t("key")` needs a real entry in both
+`src/i18n/en.js` and `src/i18n/da.js` — `t()` returns the *key string* when
+missing, so a missing key renders as raw text. Guard:
+`node scripts/check-i18n-keys.cjs`.
 
 **Verify frontend:** `cd frontend && npm run build` ·
 `node scripts/check-i18n-keys.cjs`.
@@ -103,7 +109,8 @@ missing key renders as raw text. Guard: `node scripts/check-i18n-keys.cjs`.
 | A DB column add | `backend/app/main.py` → `_migrations` **and** the model |
 | A screen | `frontend/src/pages/<Name>Page.jsx` |
 | A reusable UI primitive | `frontend/src/components/ui/` |
-| Translations | `frontend/src/hooks/useLanguage.jsx` (+ `src/i18n/`) |
+| Translations | `frontend/src/i18n/en.js` + `da.js` (other languages beside them) |
+| A spec, audit, decision or runbook | `docs/README.md` (index) |
 | Auth / current user | backend `services/auth.py` · frontend `hooks/useAuth.jsx` |
 | Tier gating / caps | `backend/app/services/billing.py` |
 | Deploy | backend → push (Render auto) · frontend → `./deploy.sh` |

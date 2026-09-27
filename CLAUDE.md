@@ -50,7 +50,7 @@ cd backend && uvicorn app.main:app --reload
 ## Conventions
 - All user-facing strings must use `t("key")` from useLanguage hook
 - Payment methods: cash, card, mobilepay, dankort, bank_transfer, mixed
-- Translation keys go in `frontend/src/hooks/useLanguage.jsx`
+- Translation keys go in `frontend/src/i18n/en.js` and `frontend/src/i18n/da.js` (both, real text)
 - New DB columns: add `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` to main.py _migrations list
 - Commit messages: concise, include Co-Authored-By for Claude
 

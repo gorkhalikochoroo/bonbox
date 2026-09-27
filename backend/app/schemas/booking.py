@@ -1,6 +1,6 @@
 """Pydantic shapes for the Booking endpoints (v3 ledger-only).
 
-Per `docs/event-booking-product-spec.md` §4.5 + §5.3. Three surface
+Per `docs/product/event-booking-product-spec.md` §4.5 + §5.3. Three surface
 groups:
 
   • Public — visitor-facing (no auth). Hard input bounds (L3) live

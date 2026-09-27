@@ -1,7 +1,7 @@
 """Occupancy lifecycle + insert-and-catch — the integrity backbone glue.
 
 This is the *only* place that writes / flips `reservation_occupancy` rows,
-so the "no double-booking, ever" guarantee (docs/reservations-architecture.md
+so the "no double-booking, ever" guarantee (docs/architecture/reservations-architecture.md
 §2) has a single, well-tested chokepoint shared by every create path
 (public, owner-manual, walk-in, request-approval).
 

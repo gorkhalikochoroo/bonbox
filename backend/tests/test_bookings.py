@@ -1,6 +1,6 @@
 """Event-booking v3 (ledger-only) — happy path + 10-layer regression tests.
 
-Covers the multi-barrier matrix per `docs/event-booking-product-spec.md`
+Covers the multi-barrier matrix per `docs/product/event-booking-product-spec.md`
 §7 across the new visitor-facing surface + organizer Path A
 "mark paid" flow.
 

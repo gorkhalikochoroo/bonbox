@@ -1546,7 +1546,7 @@ _migrations = [
     # at boot from backend/app/data/terminal_providers.json. Per-tenant
     # `terminals` row gains a soft FK + confidence + owner-lock columns
     # so future auto-detect (Commit 2) can stamp the provider on each
-    # Z-report scan. RLS deny policy applied per docs/security-rls-doctrine.md
+    # Z-report scan. RLS deny policy applied per docs/architecture/security-rls-doctrine.md
     # — global metadata still gets the standard anon/authenticated deny
     # as defense-in-depth.
     #
@@ -1568,7 +1568,7 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_terminal_providers_slug ON terminal_providers (slug)",
     "CREATE INDEX IF NOT EXISTS ix_terminal_providers_active ON terminal_providers (is_active)",
-    # RLS doctrine — see docs/security-rls-doctrine.md. Global catalog
+    # RLS doctrine — see docs/architecture/security-rls-doctrine.md. Global catalog
     # has no per-tenant PII, but anon/authenticated still get a RESTRICTIVE
     # deny so a leaked Supabase anon key can't SELECT the table. Backend
     # connects as `postgres` (BYPASSRLS=true), unaffected.
@@ -1578,7 +1578,7 @@ _migrations = [
 
     # ── RLS doctrine, SELF-HEALING sweep ──────────────────────────────────
     #
-    # docs/security-rls-doctrine.md has been locked since 2026-05-27 and says
+    # docs/architecture/security-rls-doctrine.md has been locked since 2026-05-27 and says
     # every new public table ships with RLS + a RESTRICTIVE deny. It was written
     # down and not enforced, so it drifted: by 2026-08-04 three tables had been
     # created without it -- stand_links (which carries pairing TOKENS) and
@@ -1737,7 +1737,7 @@ _migrations = [
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservation_floor_bg_key TEXT",
     # ── Migration 055 (2026-05-30): Reservation integrity backbone (P0) ──
     # The DB-enforced "no double-booking, ever" guarantee. See §2 of
-    # docs/reservations-architecture.md + app/models/reservation_occupancy.py.
+    # docs/architecture/reservations-architecture.md + app/models/reservation_occupancy.py.
     #
     # POSTGRES-ONLY. Every statement below uses btree_gist / tsrange / a
     # PL/pgSQL DO-block — none of which SQLite understands. This is safe
@@ -1813,7 +1813,7 @@ _migrations = [
     # tables (a 6 across a 4-top + 2-top). Each combined table keeps its OWN
     # reservation_occupancy row, so Migration 055's exclusion constraint still
     # guarantees no double-booking per table — combining never weakens the
-    # guarantee. See docs/reservations-architecture.md §10 +
+    # guarantee. See docs/architecture/reservations-architecture.md §10 +
     # app/services/availability_engine.py:find_combo.
     #
     # Both columns ALSO live in the emergency-restore CREATE TABLE blocks
@@ -5604,7 +5604,7 @@ def keepalive():
       • /api/keepalive is explicitly opted into by the operator,
         with a documented external pinger.  Both metrics stay clean.
 
-    See docs/DEPLOYMENT.md §11 for the setup instructions.
+    See docs/runbooks/DEPLOYMENT.md §11 for the setup instructions.
     """
     from fastapi import Response
     return Response(status_code=204)

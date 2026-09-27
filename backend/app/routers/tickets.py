@@ -1,6 +1,6 @@
 """Ticket scan + visitor's web-ticket page.
 
-Per `docs/event-booking-product-spec.md` §5.3:
+Per `docs/product/event-booking-product-spec.md` §5.3:
 
   • POST /api/tickets/{id}/scan   — organizer-auth door scan; idempotent.
   • GET  /t/{ticket_id}?sig=...   — visitor's web-ticket HTML page (signed URL).

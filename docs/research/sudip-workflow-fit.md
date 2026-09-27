@@ -250,4 +250,4 @@ Build only what changes Sudip's first-week experience:
 - Billing: `backend/app/services/billing.py` — `:118` PLAN_CAPS, `:295` PLAN_FEATURES, `:946` enforce_cap, `:972` enforce_feature
 - Audit: `backend/app/services/audit_service.py:47`
 - Connections UI: `frontend/src/pages/ConnectionsPage.jsx`
-- Adjacent parked spec: `docs/passive-auto-capture-spec.md`
+- Adjacent parked spec: `docs/product/passive-auto-capture-spec.md`

@@ -312,6 +312,6 @@ Realistic: **one dedicated working week for v0.1**, then a **2–6 week wall-clo
 - General knowledge — Vipps MobilePay merger ([press 2022 announcement](https://www.vippsmobilepay.com/about), full unification 2024).
 - MobilePay merchant pricing — public price-list typically 0.85–1.5 % + 0.49 DKK per transaction; verify the merchant's actual rate during onboarding.
 - PSD2 / merchant data scopes — standard practice that merchant-side reporting APIs do not require TPP authorisation when consent flows through the merchant's own login.
-- Internal: [`docs/aiia-integration-spec.md`](./aiia-integration-spec.md) — the sibling pattern this spec mirrors.
+- Internal: [`docs/product/aiia-integration-spec.md`](./aiia-integration-spec.md) — the sibling pattern this spec mirrors.
 - Internal: `backend/app/services/bank_reconciliation.py` — the matcher MobilePay settlements feed into.
 - Internal: `backend/app/services/billing.py` — `PLAN_FEATURES` tier-gate pattern.

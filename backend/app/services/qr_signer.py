@@ -1,6 +1,6 @@
 """QR signing + booking-token JWT helpers.
 
-Per `docs/event-booking-product-spec.md` §5.3 + §7 L1. Two small JWT
+Per `docs/product/event-booking-product-spec.md` §5.3 + §7 L1. Two small JWT
 families that share signing infrastructure:
 
   • Ticket QR    — signed payload encoded inside the QR image.
