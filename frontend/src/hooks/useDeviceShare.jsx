@@ -111,8 +111,10 @@ export function DeviceShareProvider({ children }) {
     // idle timers re-arm via the effect above (locked flipped false).
   }, []);
 
-  const setPin = useCallback(async (pin) => {
-    await api.post("/auth/device-pin/set", { pin });
+  // Changing an existing PIN needs the account password (server-enforced);
+  // the first PIN doesn't.
+  const setPin = useCallback(async (pin, password) => {
+    await api.post("/auth/device-pin/set", password ? { pin, password } : { pin });
     setHasPin(true);
   }, []);
 

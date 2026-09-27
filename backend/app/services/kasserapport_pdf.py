@@ -43,7 +43,7 @@ from app.utils.document_hash import (
     make_numbered_canvas,
     short_hash,
 )
-from app.services.bonbox_pdf_kit import money_dk
+from app.services.bonbox_pdf_kit import escape_pdf_text, money_dk
 
 logger = logging.getLogger("bonbox.kasserapport_pdf")
 
@@ -132,7 +132,8 @@ def _closer_segment(aggregated: dict) -> str | None:
     claim to print.
     """
     closer = (aggregated.get("closed_by") or "").strip()
-    return f"Lukket af: <b>{closer}</b>" if closer else None
+    # Typed text is escaped at the Paragraph boundary — a Paragraph parses markup (security review, Sep 2026).
+    return f"Lukket af: <b>{escape_pdf_text(closer)}</b>" if closer else None
 
 
 def _closer_signature_cell(aggregated: dict) -> str:
@@ -383,7 +384,7 @@ def _render_close_pdf(
     story.extend(_draft_band(is_locked_signed))
 
     # ─── Business name ────────────────────────────────────────────
-    story.append(Paragraph(business_name or "BonBox", h_business))
+    story.append(Paragraph(escape_pdf_text(business_name or "BonBox"), h_business))
 
     # ─── CVR + VAT + address line ────────────────────────────────
     cvr = (business_profile.get("org_number") or "").strip()
@@ -391,16 +392,16 @@ def _render_close_pdf(
     addr = _format_dk_address(business_profile)
     meta_parts = []
     if cvr:
-        meta_parts.append(f"CVR {cvr}")
+        meta_parts.append(f"CVR {escape_pdf_text(cvr)}")
     # Show VAT number only when distinct from CVR. In Denmark the two are
     # typically identical (CVR = VAT), but EU-cross-border filers have
     # separate numbers and a revisor expects both surfaced.
     if vat_no and vat_no != cvr:
-        meta_parts.append(f"VAT {vat_no}")
+        meta_parts.append(f"VAT {escape_pdf_text(vat_no)}")
     elif vat_no and not cvr:
-        meta_parts.append(f"VAT {vat_no}")
+        meta_parts.append(f"VAT {escape_pdf_text(vat_no)}")
     if addr:
-        meta_parts.append(addr)
+        meta_parts.append(escape_pdf_text(addr))
     if meta_parts:
         story.append(Paragraph(
             " &nbsp;·&nbsp; ".join(meta_parts),
@@ -409,14 +410,14 @@ def _render_close_pdf(
 
     # ─── Date / closer / bilagsnummer line ────────────────────────
     date_short, day_name = _danish_date_label(date_label)
-    line_parts = [f"<b>{date_short}</b>"]
+    line_parts = [f"<b>{escape_pdf_text(date_short)}</b>"]
     if day_name:
-        line_parts.append(day_name)
+        line_parts.append(escape_pdf_text(day_name))
     _closer = _closer_segment(aggregated)
     if _closer:
         line_parts.append(_closer)
     if bilagsnummer:
-        line_parts.append(f"Bilag: <b>{bilagsnummer}</b>")
+        line_parts.append(f"Bilag: <b>{escape_pdf_text(bilagsnummer)}</b>")
     story.append(Paragraph(" &nbsp;·&nbsp; ".join(line_parts), h_meta))
 
     story.append(HRFlowable(
@@ -454,7 +455,7 @@ def _render_close_pdf(
         for i, t in enumerate(terminals, start=1):
             t_name = t.get("terminal_name") or f"Terminal {i}"
             story.append(Spacer(1, 3))
-            story.append(Paragraph(f"<b>{i}. {t_name}</b>", styles["Normal"]))
+            story.append(Paragraph(f"<b>{i}. {escape_pdf_text(t_name)}</b>", styles["Normal"]))
             term_rows = [
                 ["Dankort",                _money(t.get("dankort"), currency)],
                 ["Teller",                 _money(t.get("teller"), currency)],
@@ -525,7 +526,7 @@ def _render_close_pdf(
     if diff_flagged and flagged_reason:
         story.append(Spacer(1, 4))
         story.append(Paragraph(
-            f"<font color='#b45309'>⚠ {flagged_reason}</font>",
+            f"<font color='#b45309'>⚠ {escape_pdf_text(flagged_reason)}</font>",
             ParagraphStyle("Flag", parent=styles["Normal"], fontSize=8),
         ))
 
@@ -541,7 +542,7 @@ def _render_close_pdf(
             [
                 Paragraph(
                     f"<font color='#9ca3af' size='8'>"
-                    f"{_closer_signature_cell(aggregated)}</font>",
+                    f"{escape_pdf_text(_closer_signature_cell(aggregated))}</font>",
                     h_meta,
                 ),
                 Paragraph("<font color='#9ca3af' size='8'>____________________</font>", h_meta),
@@ -615,6 +616,7 @@ def _render_close_pdf(
         business_profile=business_profile,
         bilagsnummer=bilagsnummer,
         logo_bytes=logo_bytes,
+        is_locked_signed=is_locked_signed,
     ) + _hash_block(real_hash)
     doc2.build(story2, canvasmaker=canvas_maker)
     return buf2.getvalue()
@@ -629,6 +631,7 @@ def _build_kasserapport_story(
     business_profile: dict,
     bilagsnummer: str | None,
     logo_bytes: bytes | None = None,
+    is_locked_signed: bool = False,
 ) -> list:
     """Recreate the kasserapport story as fresh flowables.
 
@@ -688,32 +691,32 @@ def _build_kasserapport_story(
 
     story.append(Paragraph(_doc_type_label(is_locked_signed), h_doc))
     story.extend(_draft_band(is_locked_signed))
-    story.append(Paragraph(business_name or "BonBox", h_business))
+    story.append(Paragraph(escape_pdf_text(business_name or "BonBox"), h_business))
 
     cvr = (business_profile.get("org_number") or "").strip()
     vat_no = (business_profile.get("vat_number") or "").strip()
     addr = _format_dk_address(business_profile)
     meta_parts = []
     if cvr:
-        meta_parts.append(f"CVR {cvr}")
+        meta_parts.append(f"CVR {escape_pdf_text(cvr)}")
     if vat_no and vat_no != cvr:
-        meta_parts.append(f"VAT {vat_no}")
+        meta_parts.append(f"VAT {escape_pdf_text(vat_no)}")
     elif vat_no and not cvr:
-        meta_parts.append(f"VAT {vat_no}")
+        meta_parts.append(f"VAT {escape_pdf_text(vat_no)}")
     if addr:
-        meta_parts.append(addr)
+        meta_parts.append(escape_pdf_text(addr))
     if meta_parts:
         story.append(Paragraph(" &nbsp;·&nbsp; ".join(meta_parts), h_meta_dim))
 
     date_short, day_name = _danish_date_label(date_label)
-    line_parts = [f"<b>{date_short}</b>"]
+    line_parts = [f"<b>{escape_pdf_text(date_short)}</b>"]
     if day_name:
-        line_parts.append(day_name)
+        line_parts.append(escape_pdf_text(day_name))
     _closer = _closer_segment(aggregated)
     if _closer:
         line_parts.append(_closer)
     if bilagsnummer:
-        line_parts.append(f"Bilag: <b>{bilagsnummer}</b>")
+        line_parts.append(f"Bilag: <b>{escape_pdf_text(bilagsnummer)}</b>")
     story.append(Paragraph(" &nbsp;·&nbsp; ".join(line_parts), h_meta))
     story.append(HRFlowable(
         width="100%", color=colors.HexColor("#e5e7eb"),
@@ -744,7 +747,7 @@ def _build_kasserapport_story(
         for i, t in enumerate(terminals, start=1):
             t_name = t.get("terminal_name") or f"Terminal {i}"
             story.append(Spacer(1, 3))
-            story.append(Paragraph(f"<b>{i}. {t_name}</b>", styles["Normal"]))
+            story.append(Paragraph(f"<b>{i}. {escape_pdf_text(t_name)}</b>", styles["Normal"]))
             term_rows = [
                 ["Dankort",             _money(t.get("dankort"), currency)],
                 ["Teller",              _money(t.get("teller"), currency)],
@@ -807,7 +810,7 @@ def _build_kasserapport_story(
     if diff_flagged and flagged_reason:
         story.append(Spacer(1, 4))
         story.append(Paragraph(
-            f"<font color='#b45309'>⚠ {flagged_reason}</font>",
+            f"<font color='#b45309'>⚠ {escape_pdf_text(flagged_reason)}</font>",
             ParagraphStyle("Flag", parent=styles["Normal"], fontSize=8),
         ))
 
@@ -823,7 +826,7 @@ def _build_kasserapport_story(
             [
                 Paragraph(
                     f"<font color='#9ca3af' size='8'>"
-                    f"{_closer_signature_cell(aggregated)}</font>",
+                    f"{escape_pdf_text(_closer_signature_cell(aggregated))}</font>",
                     h_meta,
                 ),
                 Paragraph("<font color='#9ca3af' size='8'>____________________</font>", h_meta),
@@ -890,7 +893,7 @@ def _render_error_pdf(reason: str) -> bytes:
         doc.build([
             Paragraph(
                 f"<b>BonBox PDF generation failed.</b><br/><br/>"
-                f"Reason: {reason[:200]}<br/><br/>"
+                f"Reason: {escape_pdf_text(reason[:200])}<br/><br/>"
                 f"Please try again or send the close as text from the share sheet.",
                 styles["Normal"],
             ),

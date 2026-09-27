@@ -654,7 +654,10 @@ def cashup_event(
         # the same request session. We don't have a request-side
         # idempotency-key header on the cashup endpoint yet; the unique
         # constraint is the safety net for genuinely-double posts.
-        idempotency_key=f"cashup-{ev.id}-{sale_date.isoformat()}-{int(now.timestamp())}",
+        # ev.id.hex, not str(ev.id): the hyphenated form made this 65
+        # characters against a VARCHAR(64) column — Postgres refuses the
+        # insert, so every cash-up failed there (SQLite doesn't check).
+        idempotency_key=f"cashup-{ev.id.hex}-{sale_date.isoformat()}-{int(now.timestamp())}",
     )
     db.add(booking)
     db.flush()  # populate booking.id

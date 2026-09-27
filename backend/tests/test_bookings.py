@@ -575,6 +575,8 @@ def test_cashup_refactor_writes_booking_and_sale(client, db):
     booking = bookings[0]
     assert booking.status == "paid"
     assert booking.payment_provider == "manual_cashup"
+    # bookings.idempotency_key is VARCHAR(64) on Postgres; SQLite never checks.
+    assert len(booking.idempotency_key) <= 64, booking.idempotency_key
     # Sale row tied to the booking via sale_id.
     sale = db.query(Sale).filter(Sale.id == booking.sale_id).one()
     assert sale.event_id == ev.id

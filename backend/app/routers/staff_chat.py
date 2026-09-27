@@ -43,7 +43,6 @@ from app.database import get_db
 from app.models.user import User
 from app.models.staff import (
     StaffMember,
-    StaffLink,
     StaffChatThread,
     StaffChatMember,
     StaffChatMessage,
@@ -56,7 +55,11 @@ from app.services.chat_image import sanitize_chat_photo
 from app.utils.time import utc_now
 
 # Two independent routers, mounted under two different prefixes in main.py.
-staff_router = APIRouter()   # /api/portal  (token-auth)
+# The portal's request stash is what lets the shared token check read the
+# X-BonBox-Pin proof header.
+from app.routers.staff_portal import _stash_portal_request  # noqa: E402
+
+staff_router = APIRouter(dependencies=[Depends(_stash_portal_request)])   # /api/portal  (token-auth)
 owner_router = APIRouter()   # /api/staff   (session-auth)
 
 _limiter = Limiter(key_func=client_ip)
@@ -95,22 +98,14 @@ class SendMessageRequest(BaseModel):
 
 def _staff_from_token(token: str, db: Session):
     """Resolve (link, member) from a portal token — READ-ONLY (no last_accessed
-    write, since chat polls frequently and we don't want write amplification)."""
-    link = (
-        db.query(StaffLink)
-        .filter(StaffLink.token == token, StaffLink.active.is_(True))
-        .first()
-    )
-    if not link:
-        raise HTTPException(status_code=404, detail="Link not found or inactive")
-    member = (
-        db.query(StaffMember)
-        .filter(StaffMember.id == link.staff_id, StaffMember.is_deleted.isnot(True))
-        .first()
-    )
-    if not member:
-        raise HTTPException(status_code=404, detail="Staff member not found")
-    return link, member
+    write, since chat polls frequently and we don't want write amplification).
+
+    Security review, Sep 2026: this used to be its own copy of the portal's
+    check and had drifted from it — a FIRED staffer (member.active False), a
+    PIN-protected link without proof-of-PIN, and an expired link all still
+    read and wrote chat. It now runs the portal's one chokepoint."""
+    from app.routers.staff_portal import _get_staff_from_token
+    return _get_staff_from_token(token, db, touch=False)
 
 
 def _get_or_create_thread(db: Session, user_id, staff_id) -> StaffChatThread:

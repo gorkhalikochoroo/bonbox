@@ -41,6 +41,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.staff import StaffMember
 from app.models.user import User
+from app.services.mailbox import count_same_mailbox
 from app.services import audit_service, reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
 from app.services.allergens import allergen_set_for, sanitize_severity, sanitize_tags
@@ -594,20 +595,23 @@ def _confirmation_quota_left(db: Session, owner_id, email: str) -> bool:
 
     Counted from reservations rather than a new table — confirmation_sent_at
     is already stamped on every send, so the ledger exists.
+
+    Counted by MAILBOX, not by spelling (services/mailbox.py): matching the
+    typed address let "anna+1@…", "anna+2@…" and "a.nna@gmail.com" each
+    start a fresh quota while every one of them lands in the same inbox.
+    One venue's confirmations over a day are a handful of rows, so they are
+    folded in Python rather than in SQL — no new column, no migration.
     """
     since = utc_now() - timedelta(days=1)
-    n = (
-        db.query(func.count(Reservation.id))
+    sent_to = (
+        db.query(Reservation.guest_email)
         .filter(Reservation.user_id == owner_id,
-                # trim as well as lower: the schema validator strips new
-                # rows, but a legacy row with stray whitespace would
-                # otherwise read as a different address and hand the
-                # sender a fresh quota.
-                func.lower(func.trim(Reservation.guest_email)) == email.strip().lower(),
+                Reservation.guest_email.isnot(None),
                 Reservation.confirmation_sent_at.isnot(None),
                 Reservation.confirmation_sent_at >= since)
-        .scalar()
-    ) or 0
+        .all()
+    )
+    n = count_same_mailbox((a for (a,) in sent_to), email)
     return n < _CONFIRMATIONS_PER_ADDRESS_PER_DAY
 
 

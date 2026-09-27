@@ -248,6 +248,9 @@ export default function ProfilePage() {
   // Only refreshUser — this page keeps its own `user` state above.
   const { refreshUser } = useAuth();
   const [form, setForm] = useState({ business_name: "", business_type: "", currency: "", email: "" });
+  // Changing the login email needs the current password (server-enforced) —
+  // it is where a password reset goes.
+  const [emailPw, setEmailPw] = useState("");
   // The SAVED business type — so the venue preview can be honest that a changed
   // selection is only a preview until the profile is actually saved. Set from
   // /auth/me on load and again on a successful save.
@@ -705,8 +708,15 @@ export default function ProfilePage() {
     setSaving(true);
     setError("");
     setSuccess("");
+    const emailChanged = !!user && form.email.trim() !== (user.email || "");
+    if (emailChanged && !emailPw) {
+      setError(t("profileEmailPwNeeded", "Enter your current password to change your login email."));
+      setSaving(false);
+      return;
+    }
     try {
-      const res = await api.patch("/auth/profile", form);
+      const res = await api.patch("/auth/profile", emailChanged ? { ...form, current_password: emailPw } : form);
+      setEmailPw("");
       setUser(res.data);
       setSavedBusinessType(form.business_type);
       // Push it into the auth context too — `setUser` above is this page's
@@ -724,7 +734,10 @@ export default function ProfilePage() {
       setSuccess(t("profileUpdated"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(errText(err, t("failedToUpdateProfile")));
+      const code = err?.response?.data?.detail?.code;
+      setError(code === "password_required"
+        ? t("profileEmailPwWrong", "That password isn't right. Signed up with Google, Apple or a login link? Set a password with “Forgot?” on the login page first.")
+        : errText(err, t("failedToUpdateProfile")));
     }
     setSaving(false);
   };
@@ -800,7 +813,6 @@ export default function ProfilePage() {
           + i18n + a11y unchanged. */}
       <FadeIn>
         <PageHeader
-          eyebrow="ACCOUNT"
           title={t("profile")}
           subtitle={t("profileSubtitle")}
         />
@@ -829,6 +841,17 @@ export default function ProfilePage() {
                     className={INPUT_CLASS}
                   />
                 </Field>
+                {!!user && form.email.trim() !== (user.email || "") && (
+                  <Field label={t("currentPassword")} hint={t("profileEmailPwHint", "Needed to change the email you log in with.")}>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={emailPw}
+                      onChange={(e) => setEmailPw(e.target.value)}
+                      className={INPUT_CLASS}
+                    />
+                  </Field>
+                )}
                 {error && <Message tone="error">{error}</Message>}
                 {success && <Message tone="success">{success}</Message>}
                 <div className="flex justify-end pt-1">

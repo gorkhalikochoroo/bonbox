@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy import (
     String, Boolean, Date, DateTime, LargeBinary, Numeric, ForeignKey, Text, Integer,
-    UniqueConstraint, CheckConstraint, Index,
+    UniqueConstraint, CheckConstraint, Index, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -257,6 +257,19 @@ class StaffAvailability(Base):
 
 class HoursLogged(Base):
     __tablename__ = "hours_logged"
+    __table_args__ = (
+        # One open clock punch per person. Clock-in checked for an open punch
+        # and then inserted, so two taps landing together both saw none and
+        # opened two — double the paid labour, and an open punch blocks the
+        # lønseddel. The database now refuses the second; portal_clock_in
+        # reads that as "already clocked in". Manual entries (NULL end_time
+        # is normal for them) are outside the index. (Security review, Sep 2026.)
+        Index(
+            "ux_hours_open_clock", "staff_id", unique=True,
+            sqlite_where=text("end_time IS NULL AND entry_method = 'clock'"),
+            postgresql_where=text("end_time IS NULL AND entry_method = 'clock'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))

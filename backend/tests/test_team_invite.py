@@ -554,3 +554,46 @@ def test_pending_invites_endpoint(client, db):
     assert pending[0]["role"] == "cashier"
     assert pending[0]["expired"] is False
     assert pending[0]["days_remaining"] >= 6  # 7 days TTL minus test slop
+
+
+# ─── Invite must never re-parent an independent account ──────────────
+#
+# Security review, Sep 2026 (P0). The existing-row branch refused only an
+# active member of another team and an independent owner WITH a password
+# hash; every other existing account fell through to the "re-arm" step, which
+# set role + owner_id and committed. One POST from any owner turned a
+# revisor's account into a viewer in the inviter's tenant and demoted a
+# super-admin out of /admin — no action from the victim.
+
+
+@pytest.mark.parametrize("role, pw", [
+    ("accountant", True),     # a revisor's own login
+    ("super_admin", True),    # the platform admin
+    ("owner", True),          # an independent owner (Google/Apple owners get a random hash too)
+    ("staff", True),          # any role we don't hand out as a team seat
+])
+def test_invite_cannot_take_over_an_independent_account(client, db, role, pw):
+    victim = User(
+        email=f"victim-{role}@firma.dk",
+        password_hash=hash_password("victimpw123"),
+        business_name="Victim", business_type="cafe", currency="DKK",
+        role=role, owner_id=None,
+    )
+    db.add(victim); db.commit(); db.refresh(victim)
+
+    attacker = _owner(db, email_suffix="-attacker")
+    _override_user(attacker)
+    res = client.post("/api/team/invite",
+                      json={"email": victim.email, "role": "viewer", "name": "x"})
+
+    # Same shape as any other invite — says nothing about the account…
+    assert res.status_code == 200, res.text
+    assert res.json()["email_sent"] is False
+    # …and changes nothing on it.
+    db.expire_all()
+    fresh = db.query(User).filter(User.id == victim.id).first()
+    assert fresh.role == role
+    assert fresh.owner_id is None
+    assert fresh.business_name == "Victim"
+    assert fresh.invite_token_hash is None
+    assert client.sent == [], "an invite email went to someone else's account"

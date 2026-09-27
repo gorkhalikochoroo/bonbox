@@ -42,6 +42,7 @@ from app.utils.document_hash import (
     short_hash,
 )
 from app.utils.time import utc_now
+from app.services.bonbox_pdf_kit import escape_pdf_text
 
 
 # Danish month names matching tax_filing_pdf.py — keep visual consistency.
@@ -618,7 +619,10 @@ def _build_story(
 
     # ─── Employer + Employee blocks (two columns) ─────────────────
     # Arbejdsgiver column
-    employer_lines = [f"<font name='Helvetica-Bold' size='10.5'>{biz_display}</font>"]
+    # Names, addresses, roles and contract words are typed by people — the
+    # staffer edits some of their own from the portal — and a Paragraph parses
+    # markup. Escaped here, at the boundary. (Security review, Sep 2026.)
+    employer_lines = [f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(biz_display)}</font>"]
     if profile:
         addr_parts = []
         if getattr(profile, "address", None):
@@ -629,24 +633,24 @@ def _build_story(
             addr_parts.append(f"{z} {c}".strip())
         if addr_parts:
             employer_lines.append(
-                f"<font color='#6b7280'>{', '.join(addr_parts)}</font>"
+                f"<font color='#6b7280'>{escape_pdf_text(', '.join(addr_parts))}</font>"
             )
         cvr = getattr(profile, "org_number", None)
         if cvr:
-            employer_lines.append(f"<font color='#6b7280'>CVR {cvr}</font>")
+            employer_lines.append(f"<font color='#6b7280'>CVR {escape_pdf_text(cvr)}</font>")
 
     # Medarbejder column — Danish labels per DK terminology lock
     employee_lines = [
-        f"<font name='Helvetica-Bold' size='10.5'>{employee.name}</font>",
+        f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(employee.name)}</font>",
     ]
     role = getattr(employee, "role", None)
     if role:
-        employee_lines.append(f"<font color='#6b7280'>Rolle: {role}</font>")
+        employee_lines.append(f"<font color='#6b7280'>Rolle: {escape_pdf_text(role)}</font>")
     contract = getattr(employee, "contract_type", None)
     if contract:
-        employee_lines.append(f"<font color='#6b7280'>Kontrakt: {contract}</font>")
+        employee_lines.append(f"<font color='#6b7280'>Kontrakt: {escape_pdf_text(contract)}</font>")
     employee_lines.append(
-        f"<font color='#6b7280'>Trækkort: {data['tax_card_type']}</font>"
+        f"<font color='#6b7280'>Trækkort: {escape_pdf_text(data['tax_card_type'])}</font>"
     )
 
     info_table = Table(

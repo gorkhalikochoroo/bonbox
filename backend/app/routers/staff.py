@@ -190,6 +190,26 @@ def _wage_visible(user: User) -> bool:
     )
 
 
+# Money fields in the schedule autopilot/forecast payloads. Per shift and per
+# day they are the same kr ÷ hours division the wage round closed on
+# week-cost: one person on a shift makes `cost` their exact hourly rate, and
+# the forecast's `avg_rate` IS the roster's average base rate.
+_SCHEDULE_WAGE_FIELDS = frozenset({
+    "cost", "total_cost", "week_total_cost", "avg_rate", "last_week_cost",
+})
+
+
+def _strip_schedule_wages(obj):
+    """Null every schedule money field, at any depth, leaving hours, shifts
+    and the demand forecast intact — a manager still plans the week."""
+    if isinstance(obj, dict):
+        return {k: (None if k in _SCHEDULE_WAGE_FIELDS else _strip_schedule_wages(v))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_strip_schedule_wages(v) for v in obj]
+    return obj
+
+
 def _require_uncurtained_wages(user: User) -> None:
     """403 device_pin_required when a shared device's curtain is up.
 
@@ -837,6 +857,24 @@ def update_staff_member(
     return member
 
 
+def _drop_staff_push(db: Session, owner_id, staff_id) -> None:
+    """Forget every push device registered for this staffer.
+
+    Push rows are keyed on (owner, staff), not on the link a device subscribed
+    through — so after the owner rotated a leaked link, the leaker's device
+    kept receiving that staffer's pushes, and the schedule push carries a deep
+    link built from the NEW token: rotating handed the fresh link straight to
+    the device it was meant to lock out. Revoking, rotating or removing the
+    person drops the devices; the staffer's own phone re-registers the next
+    time it opens the new link. (Security review, Sep 2026.)"""
+    from app.models.push_subscription import PushSubscription
+
+    db.query(PushSubscription).filter(
+        PushSubscription.user_id == owner_id,
+        PushSubscription.staff_id == staff_id,
+    ).delete(synchronize_session=False)
+
+
 @router.delete("/members/{member_id}", status_code=204)
 def deactivate_staff_member(
     member_id: str,
@@ -851,6 +889,7 @@ def deactivate_staff_member(
         raise HTTPException(status_code=404, detail="Staff member not found")
     member.active = False
     member.updated_at = utc_now()
+    _drop_staff_push(db, user.id, member.id)
     db.commit()
 
 
@@ -1295,6 +1334,7 @@ def generate_staff_link(
         StaffLink.user_id == user.id,
         StaffLink.active.is_(True),
     ).update({"active": False})
+    _drop_staff_push(db, user.id, member.id)
 
     token = secrets.token_urlsafe(24)  # ~32 chars, 192 bits of entropy
     link = StaffLink(
@@ -1364,6 +1404,10 @@ def deactivate_staff_link(
         StaffLink.user_id == user.id,
         StaffLink.active.is_(True),
     ).update({"active": False})
+    try:
+        _drop_staff_push(db, user.id, uuid.UUID(str(member_id)))
+    except ValueError:
+        pass  # not a UUID — no link matched either
     db.commit()
 
 
@@ -3172,7 +3216,9 @@ def schedule_autopilot_suggest(
         ip_address=getattr(request.client, "host", None) if request and request.client else None,
     )
     db.commit()
-    return payload
+    # Security review Sep 2026: this route sat on no wage deny-list, so a
+    # delegated seat and a curtained shared device read per-shift `cost`.
+    return payload if _wage_visible(user) else _strip_schedule_wages(payload)
 
 
 @router.get("/schedules/forecast")
@@ -3199,9 +3245,12 @@ def schedule_demand_forecast(
 
     from app.services import schedule_autopilot
 
-    return schedule_autopilot.forecast_week_demand(
+    out = schedule_autopilot.forecast_week_demand(
         db, user=user, week_start=week_start, branch_id=branch_id,
     )
+    # `avg_rate` is the roster's average base rate — per-person pay by another
+    # name. Same audience as every other wage redaction: _wage_visible.
+    return out if _wage_visible(user) else _strip_schedule_wages(out)
 
 
 @router.post("/schedules/autopilot/apply")

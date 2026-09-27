@@ -3,12 +3,38 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr, field_validator, Field, model_validator
 
 
+# The currencies the app can format and pick (frontend utils/currency.js and
+# the Profile picker). `currency` is printed inside money on PDFs a Paragraph
+# parses, so a free-text value like "<b>" broke the owner's own documents —
+# and nothing else in the app knows what to do with an unknown code.
+# Covers every value in production when added (Sep 2026: DKK, NPR, SEK, EUR, GBP).
+SUPPORTED_CURRENCIES = frozenset({
+    "DKK", "SEK", "NOK", "EUR", "USD", "GBP", "CHF", "NPR", "INR", "JPY",
+    "AUD", "CAD", "BRL", "MXN", "ZAR", "THB", "PHP",
+})
+
+
+def _supported_currency(v):
+    if v is None:
+        return v
+    code = str(v).strip().upper()
+    if code not in SUPPORTED_CURRENCIES:
+        raise ValueError("Unsupported currency")
+    return code
+
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
     business_name: str = Field(..., min_length=1, max_length=200)
     business_type: str = "restaurant"
     currency: str = "DKK"
+
+    @field_validator("currency")
+    @classmethod
+    def _currency_ok(cls, v):
+        return _supported_currency(v)
+
     # Anti-bot honeypot. The frontend renders this as a visually-hidden
     # input that real users never see or touch. Naive form-fillers populate
     # every visible-looking input, so a non-empty value here = bot.
@@ -137,6 +163,14 @@ class UserUpdate(BaseModel):
     # the preference is writable on any plan; gate enforced at lock
     # time). Default True; toggle lives on the Daily Close page.
     auto_email_on_close: bool | None = None
+    # Required only when `email` changes — the login email is how a password
+    # reset reaches the account (see update_profile).
+    current_password: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def _currency_ok(cls, v):
+        return _supported_currency(v)
 
 
 class PasswordChange(BaseModel):

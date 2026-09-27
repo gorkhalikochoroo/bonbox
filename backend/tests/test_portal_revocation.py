@@ -150,3 +150,65 @@ def test_owner_deactivate_endpoint_revokes_the_link_end_to_end(client, db):
     assert client.get("/api/portal/e2eTok/schedule").status_code == 404, (
         "the owner removed this employee and their link still works"
     )
+
+
+# ─── Push devices follow the link (security review, Sep 2026) ─────────────
+# Push rows are keyed on (owner, staff), not on the link a device came in
+# through, and the schedule push deep-links with the CURRENT token. So after a
+# rotate, the leaker's device received the fresh link on the next publish.
+
+def _push_row(db, u, m, endpoint="https://push.example/leaker"):
+    from app.models.push_subscription import PushSubscription
+    db.add(PushSubscription(user_id=u.id, staff_id=m.id, endpoint=endpoint,
+                            p256dh="k", auth="a"))
+    db.commit()
+
+
+def _push_count(db, m):
+    from app.models.push_subscription import PushSubscription
+    db.expire_all()
+    return db.query(PushSubscription).filter(PushSubscription.staff_id == m.id).count()
+
+
+def _as_owner(db, u):
+    from app.models.user import User as U
+    from app.services.auth import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: db.query(U).filter(U.id == u.id).first()
+
+
+@pytest.mark.parametrize("action", ["rotate", "revoke", "remove"])
+def test_rotating_revoking_or_removing_drops_the_push_devices(client, db, action):
+    u, m = _seed(db, token=f"push{action}")
+    _push_row(db, u, m)
+    other = StaffMember(id=uuid.uuid4(), user_id=u.id, name="Bo", role="server", active=True)
+    db.add(other); db.commit()
+    _push_row(db, u, other, endpoint="https://push.example/bo")
+    _as_owner(db, u)
+    try:
+        if action == "rotate":
+            r = client.post(f"/api/staff/members/{m.id}/link?rotate=true")
+            assert r.status_code == 200 and r.json()["token"] != f"push{action}"
+        elif action == "revoke":
+            assert client.delete(f"/api/staff/members/{m.id}/link").status_code == 204
+        else:
+            assert client.delete(f"/api/staff/members/{m.id}").status_code == 204
+    finally:
+        from app.services.auth import get_current_user
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert _push_count(db, m) == 0, "the old device still receives this staffer's pushes"
+    assert _push_count(db, other) == 1, "a colleague's device must be untouched"
+
+
+def test_reusing_the_link_keeps_the_push_devices(client, db):
+    """The everyday 'copy link' path (no rotate) must not unsubscribe anyone."""
+    u, m = _seed(db, token="pushKeep")
+    _push_row(db, u, m)
+    _as_owner(db, u)
+    try:
+        r = client.post(f"/api/staff/members/{m.id}/link")
+        assert r.status_code == 200 and r.json()["token"] == "pushKeep"
+    finally:
+        from app.services.auth import get_current_user
+        app.dependency_overrides.pop(get_current_user, None)
+    assert _push_count(db, m) == 1

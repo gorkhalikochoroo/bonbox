@@ -20,9 +20,17 @@ from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.staff import NotificationLog
 from app.models.user import User
+from app.services.mailbox import canonical_mailbox, count_same_mailbox
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
+
+# Reminder emails one venue may send to one MAILBOX per day. A guest with a
+# lunch and a dinner booking still gets both; a script that books the same
+# stranger twenty times under "+tag" spellings gets three, not twenty — the
+# same bound the booking confirmation already has, counted the same way
+# (services/mailbox.py).
+_REMINDERS_PER_MAILBOX_PER_DAY = 3
 
 
 def _month_start(now):
@@ -38,6 +46,7 @@ def send_reservation_reminders() -> int:
     db = SessionLocal()
     sent = 0
     sms_used: dict = {}   # owner_id -> SMS count this month (live tally)
+    mailed: dict = {}     # (owner_id, mailbox) -> reminder emails in the last 24h
     owners: dict = {}
     profiles: dict = {}
     try:
@@ -141,6 +150,27 @@ def send_reservation_reminders() -> int:
 
                 # ── Email fallback (no SMS, or SMS send failed) ────────
                 if (channel is None or not outcome.get("ok")) and r.guest_email:
+                    key = (r.user_id, canonical_mailbox(r.guest_email))
+                    if key not in mailed:
+                        prior = (
+                            db.query(Reservation.guest_email)
+                            .filter(
+                                Reservation.user_id == r.user_id,
+                                Reservation.guest_email.isnot(None),
+                                Reservation.reminder_sent_at.isnot(None),
+                                Reservation.reminder_sent_at >= now - timedelta(days=1),
+                            )
+                            .all()
+                        )
+                        mailed[key] = count_same_mailbox((a for (a,) in prior), r.guest_email)
+                    if mailed[key] >= _REMINDERS_PER_MAILBOX_PER_DAY:
+                        # Left unsent (reminder_sent_at stays empty) — the
+                        # booking is untouched; only the mail is withheld.
+                        logger.warning(
+                            "reminder suppressed: per-mailbox daily cap reached (owner=%s)",
+                            r.user_id,
+                        )
+                        continue
                     from app.services.email_service import send_email
                     from app.routers.public_reservations import _guest_cancel_url
                     cancel_url = _guest_cancel_url(profile, r)
@@ -178,6 +208,7 @@ def send_reservation_reminders() -> int:
                     )
                     channel = "email"
                     outcome = {"ok": True}
+                    mailed[key] += 1
 
                 if channel and outcome.get("ok"):
                     r.reminder_sent_at = utc_now()

@@ -126,3 +126,30 @@ def test_real_punch_is_kept_and_computed(client, db):
     assert len(rows) == 1
     assert rows[0].start_time == "10:00" and rows[0].end_time == "10:30"
     assert float(rows[0].total_hours) == 0.5
+
+
+def test_two_taps_racing_open_only_one_punch(client, db, monkeypatch):
+    """Security review, Sep 2026: clock-in checked for an open punch and then
+    inserted, so two taps landing together both saw none and opened two
+    (double paid labour; an open punch also blocks the lønseddel). Here the
+    second tap's check misses the first tap's punch, exactly as in a race —
+    the database refuses the duplicate and the tap still answers "clocked in"."""
+    from app.routers import staff_portal as sp
+
+    _, s = _seed(db)
+    assert client.post("/api/portal/tok/clock-in").status_code == 200
+
+    real = sp._open_punch
+    calls = {"n": 0}
+
+    def _missed_it_once(dbs, member):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else real(dbs, member)
+
+    monkeypatch.setattr(sp, "_open_punch", _missed_it_once)
+    r = client.post("/api/portal/tok/clock-in")
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    open_rows = [h for h in _clock_rows(db, s.id) if h.end_time is None]
+    assert len(open_rows) == 1

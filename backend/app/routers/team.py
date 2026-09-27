@@ -483,7 +483,34 @@ def invite_member(
                 "expires_at": None,
                 "invite_token_sent": False,
             }
-        # Otherwise: a previously-invited pending row on THIS team — re-arm.
+        # Only a pending seat on THIS team may be re-armed. Everything else —
+        # an independent account of ANY role: a revisor/accountant, a
+        # super-admin, an owner without a password hash — used to fall
+        # through to the re-arm below, which set role + owner_id on it and
+        # committed: one POST from any owner silently re-parented a stranger's
+        # account into the inviter's tenant (and demoted an admin out of
+        # /admin). Refused exactly like another team's member: silently, so
+        # the response still says nothing about who has an account.
+        if not (existing.owner_id == user.id and existing.role in VALID_ROLES):
+            audit_service.record(
+                db,
+                user=user,
+                action="team.invite_rejected",
+                entity_type="user",
+                entity_id=existing.id,
+                after={"reason": "email_not_invitable", "role": role},
+                ip_address=_client_ip(request),
+            )
+            db.commit()
+            return {
+                "status": "invited",
+                "email": email,
+                "role": role,
+                "email_sent": False,
+                "expires_at": None,
+                "invite_token_sent": False,
+            }
+        # A previously-invited pending row on THIS team — re-arm.
         invitee = existing
     else:
         invitee = None

@@ -354,6 +354,22 @@ def test_the_cap_is_case_and_whitespace_insensitive(client, db, monkeypatch):
     assert len(sent) == m._CONFIRMATIONS_PER_ADDRESS_PER_DAY
 
 
+def test_plus_tags_and_gmail_dots_share_one_quota(client, db, monkeypatch):
+    """'+tag' rotation and Gmail dots all land in ONE inbox, so they share one
+    quota — matching the typed spelling handed a sender a fresh 3 per variant."""
+    import app.routers.public_reservations as m
+    import app.services.email_service as es
+    sent = []
+    monkeypatch.setattr(es, "send_email", lambda **k: (sent.append(k.get("to")), True)[1])
+
+    owner, profile = _restaurant(db)
+    for addr in ("victim+1@gmail.com", "victim+2@gmail.com", "v.ictim@gmail.com",
+                 "victim@googlemail.com", "vic.tim+3@gmail.com"):
+        m._send_confirmation(owner, profile, _res(db, owner, addr), db)
+
+    assert len(sent) == m._CONFIRMATIONS_PER_ADDRESS_PER_DAY
+
+
 def test_different_addresses_are_not_throttled_by_each_other(client, db, monkeypatch):
     """A busy Friday is many guests, one venue. The bound is per address."""
     import app.routers.public_reservations as m

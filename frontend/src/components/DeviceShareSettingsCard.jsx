@@ -41,13 +41,25 @@ export default function DeviceShareSettingsCard() {
 
   if (!ready) return null;
 
-  const reset = () => { setPin(""); setPinValue(""); setPassword(""); setErr(""); };
+  const reset = () => { setPinValue(""); setPassword(""); setErr(""); };
 
+  // A refused password and a rate limit are different answers — "Wrong
+  // password" on a 429 would send the owner guessing.
+  const failText = (e, wrong) => {
+    const status = e?.response?.status;
+    if (status === 429) return t("deviceCfgTooMany", "Too many tries. Wait a minute and try again.");
+    if (status === 403) return wrong;
+    return t("deviceCfgFailed", "Couldn't update. Try again.");
+  };
+
+  // With a PIN already on the account, turning on another device reuses it —
+  // re-setting it here would silently change the PIN every other shared device
+  // uses (and now needs the password anyway).
   const doEnable = async () => {
-    if (pin.length !== 4) { setErr(t("deviceCfgPin4", "PIN must be 4 digits.")); return; }
+    if (!hasPin && pin.length !== 4) { setErr(t("deviceCfgPin4", "PIN must be 4 digits.")); return; }
     setBusy(true); setErr(""); setMsg("");
     try {
-      await setPin(pin);
+      if (!hasPin) await setPin(pin);
       await enableShared();
       setMode("idle"); reset();
       setMsg(t("deviceCfgEnabled", "Shared mode is on for this device."));
@@ -57,12 +69,13 @@ export default function DeviceShareSettingsCard() {
 
   const doChangePin = async () => {
     if (pin.length !== 4) { setErr(t("deviceCfgPin4", "PIN must be 4 digits.")); return; }
+    if (!password) { setErr(t("deviceCfgPwNeeded", "Enter your password.")); return; }
     setBusy(true); setErr(""); setMsg("");
     try {
-      await setPin(pin);
-      setPinValue(""); setMode("idle");
+      await setPin(pin, password);
+      setPinValue(""); setPassword(""); setMode("idle");
       setMsg(t("deviceCfgPinChanged", "PIN updated."));
-    } catch { setErr(t("deviceCfgFailed", "Couldn't update. Try again.")); }
+    } catch (e) { setErr(failText(e, t("deviceCfgPwWrong", "Wrong password."))); }
     finally { setBusy(false); }
   };
 
@@ -73,7 +86,7 @@ export default function DeviceShareSettingsCard() {
       await disableShared(password);
       setMode("idle"); setPassword("");
       setMsg(t("deviceCfgDisabled", "Shared mode is off for this device."));
-    } catch { setErr(t("deviceCfgPwWrong", "Wrong password.")); }
+    } catch (e) { setErr(failText(e, t("deviceCfgPwWrong", "Wrong password."))); }
     finally { setBusy(false); }
   };
 
@@ -98,13 +111,13 @@ export default function DeviceShareSettingsCard() {
               </span>
               <div className="mt-3 flex flex-wrap gap-2">
                 {mode !== "changePin" && (
-                  <button type="button" onClick={() => { setMode("changePin"); setErr(""); setMsg(""); }}
+                  <button type="button" onClick={() => { setMode("changePin"); reset(); setMsg(""); }}
                     className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">
                     {t("deviceCfgChangePin", "Change PIN")}
                   </button>
                 )}
                 {mode !== "disabling" && (
-                  <button type="button" onClick={() => { setMode("disabling"); setErr(""); setMsg(""); }}
+                  <button type="button" onClick={() => { setMode("disabling"); reset(); setMsg(""); }}
                     className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">
                     {t("deviceCfgTurnOff", "Turn off")}
                   </button>
@@ -112,8 +125,12 @@ export default function DeviceShareSettingsCard() {
               </div>
 
               {mode === "changePin" && (
-                <div className="mt-3 flex items-center gap-2">
-                  <PinField value={pin} onChange={setPinValue} placeholder="••••" />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <PinField value={pin} onChange={setPinValue} placeholder={t("deviceCfgNewPin", "New PIN")} />
+                  <input type="password" autoComplete="current-password" value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t("password", "Password")}
+                    className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100" />
                   <button type="button" disabled={busy} onClick={doChangePin}
                     className="text-sm px-3 py-2 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 disabled:opacity-50">
                     {t("save", "Save")}
@@ -137,7 +154,13 @@ export default function DeviceShareSettingsCard() {
             <div className="mt-3">
               {mode === "enabling" ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <PinField value={pin} onChange={setPinValue} placeholder={t("deviceCfgSetPin", "Set PIN")} />
+                  {hasPin ? (
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      {t("deviceCfgUsesExistingPin", "Uses the PIN you already set.")}
+                    </span>
+                  ) : (
+                    <PinField value={pin} onChange={setPinValue} placeholder={t("deviceCfgSetPin", "Set PIN")} />
+                  )}
                   <button type="button" disabled={busy} onClick={doEnable}
                     className="text-sm px-3 py-2 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 disabled:opacity-50">
                     {t("deviceCfgTurnOn", "Turn on")}
@@ -148,7 +171,7 @@ export default function DeviceShareSettingsCard() {
                   </button>
                 </div>
               ) : (
-                <button type="button" onClick={() => { setMode("enabling"); setErr(""); setMsg(""); }}
+                <button type="button" onClick={() => { setMode("enabling"); reset(); setMsg(""); }}
                   className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">
                   {hasPin ? t("deviceCfgTurnOnHere", "Turn on for this device") : t("deviceCfgSetUp", "Set up on this device")}
                 </button>

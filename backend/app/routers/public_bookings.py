@@ -199,11 +199,26 @@ def _compute_total_dkk(
 
 def _sold_tickets_count(db: Session, event: Event) -> int:
     """Sum of all live ticket counts (pending + paid + attended) for
-    capacity checks. Cancelled/expired/refunded don't count."""
+    capacity checks. Cancelled/expired/refunded don't count — and neither
+    does a pending hold whose 30-minute window has run out.
+
+    Security review, Sep 2026: expiry used to be left entirely to
+    sweep_expired_pending, which only an internal cron endpoint calls — and
+    nothing calls that. So one anonymous POST with a large `qty` held the
+    whole event "sold out" forever, and the organiser had no way to release
+    it. Reading the hold's own expires_at here makes capacity correct with or
+    without the sweep."""
+    from sqlalchemy import or_
+
+    now = utc_now().replace(tzinfo=None)
     rows = (
         db.query(Booking.ticket_lines)
         .filter(Booking.event_id == event.id)
-        .filter(Booking.status.in_(("pending", "paid", "attended")))
+        .filter(or_(
+            Booking.status.in_(("paid", "attended")),
+            (Booking.status == "pending")
+            & (Booking.expires_at.is_(None) | (Booking.expires_at > now)),
+        ))
         .all()
     )
     total = 0

@@ -17,6 +17,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from io import BytesIO
 from typing import Any
+from app.services.bonbox_pdf_kit import escape_pdf_text
 from app.utils.time import utc_now
 
 
@@ -161,7 +162,8 @@ def build_property_report_pdf(
                              spaceBefore=4, spaceAfter=12))
 
     # ─── Business block ───────────────────────────────────────────
-    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{biz_display}</font>"]
+    # Typed text is escaped at the Paragraph boundary — a Paragraph parses markup (security review, Sep 2026).
+    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(biz_display)}</font>"]
     if profile:
         addr_parts = []
         if profile.get("address"):
@@ -171,11 +173,11 @@ def build_property_report_pdf(
         if z or c:
             addr_parts.append(f"{z} {c}".strip())
         if addr_parts:
-            biz_lines.append(f"<font color='#6b7280'>{', '.join(addr_parts)}</font>")
+            biz_lines.append(f"<font color='#6b7280'>{escape_pdf_text(', '.join(addr_parts))}</font>")
         if profile.get("org_number"):
-            biz_lines.append(f"<font color='#6b7280'>CVR {profile['org_number']}</font>")
+            biz_lines.append(f"<font color='#6b7280'>CVR {escape_pdf_text(profile['org_number'])}</font>")
     if closer_name:
-        biz_lines.append(f"<font color='#6b7280'>Closed by: {closer_name}</font>")
+        biz_lines.append(f"<font color='#6b7280'>Closed by: {escape_pdf_text(closer_name)}</font>")
     story.append(Paragraph("<br/>".join(biz_lines), val))
     story.append(Spacer(1, 6 * mm))
 
@@ -214,7 +216,7 @@ def build_property_report_pdf(
             # even when checks > 0, making PDF misleading vs the UI.
             count = ch.get("checks") or ch.get("count") or 0
             rows.append([
-                Paragraph(label, val),
+                Paragraph(escape_pdf_text(label), val),
                 Paragraph(f"{count} orders", ParagraphStyle("ct", parent=val, textColor=MUTED)),
                 Paragraph(_money(amount, currency), val_r),
             ])
@@ -237,7 +239,7 @@ def build_property_report_pdf(
             amount = tm.get("amount") or 0
             count = tm.get("count") or 0
             rows.append([
-                Paragraph(label, val),
+                Paragraph(escape_pdf_text(label), val),
                 Paragraph(f"×{count}", ParagraphStyle("ct", parent=val, textColor=MUTED)),
                 Paragraph(_money(amount, currency), val_r),
             ])

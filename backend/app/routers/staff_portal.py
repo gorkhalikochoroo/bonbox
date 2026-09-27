@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from slowapi import Limiter
@@ -114,6 +115,22 @@ def _pin_proof_valid(link: "StaffLink", proof: str | None) -> bool:
     return hmac.compare_digest(_pin_proof_sig(link, ts), parts[2])
 
 
+def _calendar_key(link: "StaffLink") -> str:
+    """The calendar feed's own credential on a PIN-protected link.
+
+    A calendar app re-polls schedule.ics by itself and cannot send the
+    X-BonBox-Pin header, so the feed was simply PIN-exempt — a leaked link
+    alone read eight weeks of the staffer's shifts, the thing the PIN layer
+    promises it never does. The key is only handed out to a PIN-proven request
+    (get_portal_info), is stable so a subscription keeps working, and binds to
+    pin_hash, so changing the PIN retires every subscribed copy.
+    (Security review, Sep 2026.)"""
+    from app.config import settings
+
+    msg = f"ics:{link.id}:{link.pin_hash}".encode()
+    return hmac.new(str(settings.SECRET_KEY).encode(), msg, hashlib.sha256).hexdigest()[:32]
+
+
 router = APIRouter(dependencies=[Depends(_stash_portal_request)])
 limiter = Limiter(key_func=client_ip)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -179,6 +196,9 @@ class PortalInfo(BaseModel):
     # about other staff.
     business_type: str | None = None
     has_pin: bool = False
+    # PIN-protected links only, and only once the PIN is proven: appended to
+    # the schedule.ics URL as ?k= (see _calendar_key).
+    calendar_key: str | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
 
@@ -271,8 +291,11 @@ def _calc_hours(start: str, end: str, brk: int) -> float:
         e += 24.0
     return round(max(e - s - brk / 60.0, 0), 2)
 
-def _get_staff_from_token(token: str, db: Session):
-    """Validate magic link token, return (link, staff_member)."""
+def _get_staff_from_token(token: str, db: Session, touch: bool = True):
+    """Validate magic link token, return (link, staff_member).
+
+    touch=False skips the two telemetry writes (rolling expiry, last_accessed)
+    for callers that poll — staff chat — while keeping every access check."""
     link = db.query(StaffLink).filter(
         StaffLink.token == token,
         StaffLink.active.is_(True),
@@ -306,7 +329,11 @@ def _get_staff_from_token(token: str, db: Session):
     if link.pin_hash and os.getenv("PORTAL_PIN_ENFORCE", "1") == "1":
         req = _portal_request.get()
         path = (req.url.path if req is not None else "").rstrip("/")
-        exempt = path.endswith(f"/{token}") or path.endswith("/manifest.webmanifest") or path.endswith("/stream") or path.endswith("/schedule.ics")
+        exempt = path.endswith(f"/{token}") or path.endswith("/manifest.webmanifest") or path.endswith("/stream")
+        if path.endswith("/schedule.ics"):
+            # The calendar app's stand-in for the PIN proof — see _calendar_key.
+            k = req.query_params.get("k") if req is not None else None
+            exempt = bool(k) and hmac.compare_digest(str(k), _calendar_key(link))
         if not exempt:
             proof = req.headers.get("x-bonbox-pin") if req is not None else None
             if not _pin_proof_valid(link, proof):
@@ -329,6 +356,9 @@ def _get_staff_from_token(token: str, db: Session):
             # naive/aware mismatch from a future column change — treat as
             # valid rather than lock a staffer out over a type error.
             pass
+
+    if not touch:
+        return link, member
 
     # Push the window forward, at most daily.
     try:
@@ -435,7 +465,13 @@ def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depend
         raise HTTPException(status_code=404, detail="Ukendt kode")
     member = (
         db.query(StaffMember)
-        .filter(StaffMember.id == link.staff_id, StaffMember.is_deleted.isnot(True))
+        .filter(
+            StaffMember.id == link.staff_id,
+            StaffMember.is_deleted.isnot(True),
+            # A removed staffer's code must not hand out a path either — the
+            # portal would refuse it anyway, but the code is a credential.
+            StaffMember.active.is_(True),
+        )
         .first()
     )
     if not member:
@@ -448,7 +484,23 @@ def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depend
     # only widens the window for whoever else can see it. The owner can mint a
     # fresh one any time; _ensure_join_code re-mints automatically once a code
     # is used or expired, so they never have to think about it.
-    link.code_used_at = utc_now()
+    #
+    # Burned FIRST and atomically: the "unused?" check above and this write
+    # were separate steps, so two devices redeeming at once both passed the
+    # check and both got the link — single-use in name only. The conditional
+    # UPDATE lets exactly one request win; the loser gets the same 404 as every
+    # other failure. (Security review, Sep 2026.)
+    from sqlalchemy import update as sa_update
+
+    won = db.execute(
+        sa_update(StaffLink)
+        .where(StaffLink.id == link.id, StaffLink.code_used_at.is_(None))
+        .values(code_used_at=utc_now())
+    ).rowcount
+    db.commit()
+    if won != 1:
+        raise HTTPException(status_code=404, detail="Ukendt kode")
+
     try:
         from app.services import audit_service
 
@@ -463,9 +515,6 @@ def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depend
 
         logging.getLogger(__name__).warning("join_code redeem audit failed: %s", e)
         db.rollback()
-        # The burn itself is not optional — retry it alone.
-        link.code_used_at = utc_now()
-        db.commit()
 
     return {"path": portal_path(link.token, biz, member.name)}
 
@@ -578,6 +627,7 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         business_type=(getattr(owner, "business_type", None) if owner else None),
         has_pin=bool(link.pin_hash),
         pin_ok=pin_ok,
+        calendar_key=_calendar_key(link) if pin_ok else None,
         max_hours_month=float(member.max_hours_month) if (pii_ok and member.max_hours_month) else None,
         max_hours_week=float(member.max_hours_week) if (pii_ok and member.max_hours_week) else None,
     )
@@ -1551,6 +1601,13 @@ def portal_clock_in(
         entry_method="clock",
         notes=geo_note,
     ))
+    try:
+        db.flush()
+    except IntegrityError:
+        # A second tap raced this one and its punch landed first
+        # (ux_hours_open_clock). The staffer IS clocked in — say so.
+        db.rollback()
+        return _clock_status_dict(db, member, owner)
     # L7 best-effort audit: a self-service punch becomes paid labor, so the
     # owner gets an immutable "who clocked in, from the portal, when" trail
     # (mirrors the contact-edit audit). Fail-soft — never blocks the punch.
@@ -1826,24 +1883,54 @@ def verify_pin(token: str, body: PinVerifyRequest, request: Request, db: Session
     if link.pin_locked_until and link.pin_locked_until > now:
         raise HTTPException(status_code=429, detail="Too many attempts — try again later")
 
-    if not pwd_context.verify(body.pin, link.pin_hash):
-        link.pin_failed_count = (link.pin_failed_count or 0) + 1
-        if link.pin_failed_count >= _PIN_MAX_FAILS:
-            link.pin_locked_until = now + timedelta(minutes=_PIN_LOCK_MINUTES)
-            link.pin_failed_count = 0
-            try:
-                from app.services import audit_service
+    # RESERVE the attempt atomically, THEN check the PIN. The counter used to
+    # be read, bumped in Python and written back after the bcrypt check, so a
+    # burst of parallel guesses all read the same count and the 8-try lockout
+    # admitted as many guesses as the burst was wide. One UPDATE … RETURNING
+    # hands each request its own number; past the limit, nothing is checked.
+    # (Security review, Sep 2026.) A correct PIN resets the count below.
+    from sqlalchemy import func as sa_func, update as sa_update
 
-                audit_service.record(
-                    db, link.user_id, "staff.portal.pin_locked", "staff_link",
-                    entity_id=link.id,
-                    after={"staff_id": str(link.staff_id), "lock_minutes": _PIN_LOCK_MINUTES},
-                    actor_type="staff",
-                )
-            except Exception:  # noqa: BLE001 — audit is best-effort
-                pass
+    attempt = db.execute(
+        sa_update(StaffLink)
+        .where(StaffLink.id == link.id)
+        .values(pin_failed_count=sa_func.coalesce(StaffLink.pin_failed_count, 0) + 1)
+        .returning(StaffLink.pin_failed_count)
+    ).scalar_one()
+    db.commit()
+
+    def _lock():
+        db.execute(
+            sa_update(StaffLink)
+            .where(StaffLink.id == link.id)
+            .values(pin_locked_until=now + timedelta(minutes=_PIN_LOCK_MINUTES),
+                    pin_failed_count=0)
+        )
+        try:
+            from app.services import audit_service
+
+            audit_service.record(
+                db, link.user_id, "staff.portal.pin_locked", "staff_link",
+                entity_id=link.id,
+                after={"staff_id": str(link.staff_id), "lock_minutes": _PIN_LOCK_MINUTES},
+                actor_type="staff",
+            )
+        except Exception:  # noqa: BLE001 — audit is best-effort
+            pass
         db.commit()
+
+    if attempt > _PIN_MAX_FAILS:
+        # Only reachable by guesses racing each other — sequential ones lock
+        # at exactly _PIN_MAX_FAILS below.
+        _lock()
+        raise HTTPException(status_code=429, detail="Too many attempts — try again later")
+
+    if not pwd_context.verify(body.pin, link.pin_hash):
+        if attempt >= _PIN_MAX_FAILS:
+            _lock()
         raise HTTPException(status_code=401, detail="Invalid PIN")
+
+    db.refresh(link)
 
     link.pin_failed_count = 0
     link.pin_locked_until = None

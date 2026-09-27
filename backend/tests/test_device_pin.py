@@ -35,6 +35,7 @@ from app.services.auth import (
     hash_password,
     mint_device_pin_proof,
     device_pin_proof_valid,
+    verify_password,
 )
 
 
@@ -246,3 +247,57 @@ def test_locked_shared_device_hides_moms_in_brief(db, monkeypatch):
     pc = compute_precompute(owner, db)
     assert pc.moms_days_left is None and pc.moms_estimated_owed is None
     assert [c for c in generate_candidates(pc) if c.cta_url == "/tax"] == []
+
+
+# ─── Changing the PIN needs the password (security review, Sep 2026) ──────
+@pytest.fixture
+def _fresh_pin_limiter():
+    from app.routers import device_pin as dp
+    dp.limiter.reset()
+    yield
+    dp.limiter.reset()
+
+
+def test_the_shared_ipad_cannot_set_its_own_pin(db, client, _fresh_pin_limiter):
+    """The attack: whoever holds the shared device sets a PIN they know, then
+    reveals the owner's finances with it."""
+    owner = _owner(db)
+    owner.device_pin_hash = hash_password("4271")
+    owner.device_pin_failed_count = 5
+    db.commit()
+    sd_token = create_access_token(str(owner.id), 0, shared_device=True, device_nonce="n1")
+
+    r = client.post("/api/auth/device-pin/set", json={"pin": "1111"}, headers=_auth(sd_token))
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "bad_password"
+    r = client.post("/api/auth/device-pin/set", json={"pin": "1111", "password": "guess"},
+                    headers=_auth(sd_token))
+    assert r.status_code == 403
+
+    db.refresh(owner)
+    assert verify_password("4271", owner.device_pin_hash), "the owner's PIN must be unchanged"
+    assert owner.device_pin_failed_count == 5, "a refused change must not clear the lockout count"
+    r = client.post("/api/auth/device-pin/verify", json={"pin": "1111"}, headers=_auth(sd_token))
+    assert r.status_code == 401
+
+
+def test_the_owner_changes_the_pin_with_the_password(db, client, _fresh_pin_limiter):
+    owner = _owner(db)
+    owner.device_pin_hash = hash_password("4271")
+    db.commit()
+    normal = create_access_token(str(owner.id), 0)
+
+    r = client.post("/api/auth/device-pin/set", json={"pin": "8642", "password": "ownerpw123"},
+                    headers=_auth(normal))
+    assert r.status_code == 200
+    db.refresh(owner)
+    assert verify_password("8642", owner.device_pin_hash)
+
+
+def test_the_password_check_is_rate_limited(db, client, _fresh_pin_limiter):
+    owner = _owner(db)
+    owner.device_pin_hash = hash_password("4271")
+    db.commit()
+    sd_token = create_access_token(str(owner.id), 0, shared_device=True, device_nonce="n1")
+    codes = [client.post("/api/auth/device-pin/set", json={"pin": "1111", "password": f"g{i}"},
+                         headers=_auth(sd_token)).status_code for i in range(7)]
+    assert 429 in codes, f"no rate limit on a password oracle: {codes}"

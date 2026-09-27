@@ -264,3 +264,57 @@ def test_gen_pin_avoids_weak_codes():
         p = _gen_pin()
         assert len(p) == 4 and p.isdigit()
         assert p not in weak
+
+
+def test_guesses_racing_past_the_limit_are_not_checked(client, db):
+    """Security review, Sep 2026: the counter was read-bump-write after the
+    bcrypt check, so parallel guesses all saw the same count. Attempts are now
+    reserved atomically first — once 8 are spoken for, the next is refused
+    unchecked, even with the right PIN, and the link locks."""
+    _, _, link = _seed(db, pin="1234")
+    link.pin_failed_count = 8  # eight guesses in flight / already spent
+    db.commit()
+
+    r = client.post("/api/portal/tokP/verify-pin", json={"pin": "1234"})
+    assert r.status_code == 429
+    db.refresh(link)
+    assert link.pin_locked_until is not None
+
+
+def test_seven_misses_then_the_right_pin_still_opens(client, db):
+    """Sequential behaviour is unchanged: the lock is at the 8th miss."""
+    _, _, link = _seed(db, pin="1234")
+    for _ in range(7):
+        assert client.post("/api/portal/tokP/verify-pin", json={"pin": "0000"}).status_code == 401
+    r = client.post("/api/portal/tokP/verify-pin", json={"pin": "1234"})
+    assert r.status_code == 200 and r.json()["pin_proof"]
+    db.refresh(link)
+    assert link.pin_failed_count == 0 and link.pin_locked_until is None
+
+
+def test_the_calendar_feed_needs_the_pin_bound_key(client, db):
+    """Security review, Sep 2026: schedule.ics was PIN-exempt (a calendar app
+    can't send the header), so a leaked link alone read the shifts. A PIN link
+    now needs ?k=, which only a PIN-proven portal is given."""
+    _, _, link = _seed(db, pin="1234")
+    assert client.get("/api/portal/tokP/schedule.ics").status_code == 401
+    assert client.get("/api/portal/tokP/schedule.ics?k=deadbeef").status_code == 401
+
+    # Before the PIN: no key handed out.
+    assert client.get("/api/portal/tokP").json()["calendar_key"] is None
+
+    proof = _mint(client)
+    key = client.get("/api/portal/tokP", headers={"X-BonBox-Pin": proof}).json()["calendar_key"]
+    assert key
+    r = client.get(f"/api/portal/tokP/schedule.ics?k={key}")
+    assert r.status_code == 200 and r.text.startswith("BEGIN:VCALENDAR")
+
+    # Changing the PIN retires every subscribed copy.
+    link.pin_hash = pwd_context.hash("9876")
+    db.commit()
+    assert client.get(f"/api/portal/tokP/schedule.ics?k={key}").status_code == 401
+
+
+def test_a_no_pin_calendar_feed_is_unchanged(client, db):
+    _seed(db)
+    assert client.get("/api/portal/tokP/schedule.ics").status_code == 200

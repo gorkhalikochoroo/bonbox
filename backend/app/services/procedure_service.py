@@ -55,6 +55,7 @@ from app.models.expense import Expense
 from app.models.invoice import Invoice
 from app.models.payment_match_suggestion import PaymentMatchSuggestion
 from app.models.user import User
+from app.services.bonbox_pdf_kit import escape_pdf_text
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -401,10 +402,11 @@ def build_procedure_pdf(
             textColor="#6b7280", spaceBefore=14,
         )
 
+        # Typed text is escaped at the Paragraph boundary — a Paragraph parses markup (security review, Sep 2026).
         s = [
             Paragraph("Beskrivelse af bogføringsprocedurer", h1),
             Paragraph(
-                f"{business}" + (f" · CVR {cvr}" if cvr else "") +
+                f"{escape_pdf_text(business)}" + (f" · CVR {escape_pdf_text(cvr)}" if cvr else "") +
                 " · jf. bogføringslovens § 6",
                 sub,
             ),
@@ -418,10 +420,10 @@ def build_procedure_pdf(
                 if not text:
                     continue  # owner chose to leave the point out
                 s.append(Paragraph(p["label"], point_label))
-                s.append(Paragraph(text.replace("\n", "<br/>"), body))
+                s.append(Paragraph(escape_pdf_text(text).replace("\n", "<br/>"), body))
         s.append(Spacer(1, 6 * mm))
         s.append(Paragraph(
-            f"Udarbejdet og godkendt af {business} den {saved_at_str}. "
+            f"Udarbejdet og godkendt af {escape_pdf_text(business)} den {saved_at_str}. "
             "Grundlaget er virksomhedens egne oplysninger; felter markeret som "
             "aflæst bygger på virksomhedens faktiske registreringer i BonBox. "
             "Beskrivelsen opbevares sammen med regnskabsmaterialet og skal "

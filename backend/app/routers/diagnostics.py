@@ -17,7 +17,6 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
@@ -110,7 +109,7 @@ def report_client_error(
 
         ua = (request.headers.get("user-agent") or "")[:500]
         try:
-            ip = (get_remote_address(request) or "")[:64]
+            ip = (client_ip(request) or "")[:64]
         except Exception:
             ip = ""
 

@@ -50,7 +50,11 @@ from app.services.daily_close_range_export import (
     closes_to_csv_bytes,
     build_daily_close_range_xlsx,
 )
-from app.services.bonbox_pdf_kit import export_bilagsnummer, write_export_audit_row
+from app.services.bonbox_pdf_kit import (
+    escape_pdf_text,
+    export_bilagsnummer,
+    write_export_audit_row,
+)
 from app.services import audit_service
 from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
@@ -3120,21 +3124,25 @@ def daily_close_pdf(
     # BusinessProfile uses `company_name` (CVR-style legal entity name);
     # User uses `business_name` (signup-time DBA). Profile wins if both set
     # because that's the legal name an accountant needs on the kasserapport.
+    # Everything a person typed is escaped here, at the Paragraph boundary —
+    # a Paragraph parses markup, so "Mad & drikke" broke the page and an
+    # `<img src=…>` in a name made the server read a file or a URL.
+    # (Security review, Sep 2026.)
     biz_lines = [
-        f"<font name='Helvetica-Bold' size='10.5'>{claims['business_name']}</font>"
+        f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(claims['business_name'])}</font>"
     ]
     # The stored `address` in DK almost always already ends with the postal town
     # ("Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby") while zipcode + city are
     # ALSO filled in, so the naive join printed "…, 2500 Valby, 2500 Valby".
     # One shared composer now (bonbox_pdf_kit.compose_business_address).
     if claims["address_line"]:
-        biz_lines.append(f"<font color='#6b7280'>{claims['address_line']}</font>")
+        biz_lines.append(f"<font color='#6b7280'>{escape_pdf_text(claims['address_line'])}</font>")
     if profile and getattr(profile, "org_number", None):
-        biz_lines.append(f"<font color='#6b7280'>CVR {profile.org_number}</font>")
+        biz_lines.append(f"<font color='#6b7280'>CVR {escape_pdf_text(profile.org_number)}</font>")
     if dc.closed_by:
         # Danish document, Danish label — this said "Closed by:" on a page
         # otherwise written entirely in Danish.
-        biz_lines.append(f"<font color='#6b7280'>{L['closed_by']}: {dc.closed_by}</font>")
+        biz_lines.append(f"<font color='#6b7280'>{L['closed_by']}: {escape_pdf_text(dc.closed_by)}</font>")
     story.append(Paragraph("<br/>".join(biz_lines), val))
     story.append(Spacer(1, 6 * mm))
 
@@ -3149,7 +3157,7 @@ def daily_close_pdf(
         story.append(Paragraph(L["revenue"], section_title))
         rows = []
         for line in claims["revenue_lines"]:
-            label = line["label"]
+            label = escape_pdf_text(line["label"])
             if line["is_correction"]:
                 label = (f"{label} <font color='{MUTED.hexval()}' size='8.5'>"
                          f"({line['correction_tag']})</font>")
@@ -3254,12 +3262,12 @@ def daily_close_pdf(
                 # lines summing to far more than its own stated total.
                 rows.append([
                     Paragraph(f"<font color='{MUTED.hexval()}' size='9'>"
-                              f"&nbsp;&nbsp;&nbsp;&nbsp;{line['label']}</font>", val),
+                              f"&nbsp;&nbsp;&nbsp;&nbsp;{escape_pdf_text(line['label'])}</font>", val),
                     Paragraph(f"<font color='{MUTED.hexval()}' size='9'>"
                               f"{line['amount']}</font>", val_r),
                 ])
             else:
-                rows.append([Paragraph(line["label"], val),
+                rows.append([Paragraph(escape_pdf_text(line["label"]), val),
                              Paragraph(line["amount"], val_r)])
         if claims["payment_discrepancy"] is not None:
             # Same rule as the revenue block: lines and total may not disagree
@@ -3366,7 +3374,8 @@ def daily_close_pdf(
     # ─── Notes ───
     if dc.notes:
         story.append(Paragraph(L["notes"], section_title))
-        story.append(Paragraph(dc.notes, val))
+        # Escaped, and the owner's own line breaks kept.
+        story.append(Paragraph(escape_pdf_text(dc.notes).replace("\n", "<br/>"), val))
 
     # ─── Accountant readiness badge ───
     # EVERY line in this badge is derived from the row (see build_close_claims).

@@ -35,6 +35,7 @@ from app.services.expense_status import not_pending
 from collections import namedtuple
 from app.services.revenue_resolver import effective_revenue_total, effective_revenue_by_date, effective_revenue_for_date
 from app.services.billing import PLAN_CAPS, effective_plan, get_cap
+from app.services.bonbox_pdf_kit import escape_pdf_text
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
 )
@@ -98,7 +99,8 @@ def _get_business_profile(db: Session, user_id) -> dict:
 def _pdf_business_header(elements, bp: dict, user, title_style, subtitle_style, small_style, report_title: str, period_label: str, extra_line: str = ""):
     """Build a professional PDF header block with business profile info."""
     biz_name = bp.get("company_name") or user.business_name or "My Business"
-    elements.append(Paragraph(biz_name, title_style))
+    # Typed text is escaped at the Paragraph boundary — a Paragraph parses markup (security review, Sep 2026).
+    elements.append(Paragraph(escape_pdf_text(biz_name), title_style))
     elements.append(Paragraph(report_title + f" &mdash; {period_label}", subtitle_style))
 
     # Business registration details line
@@ -134,7 +136,7 @@ def _pdf_business_header(elements, bp: dict, user, title_style, subtitle_style, 
         details_parts.append(f"Tel: {bp['phone']}")
 
     if details_parts:
-        elements.append(Paragraph(" | ".join(details_parts), small_style))
+        elements.append(Paragraph(escape_pdf_text(" | ".join(details_parts)), small_style))
     if extra_line:
         elements.append(Paragraph(extra_line, small_style))
 

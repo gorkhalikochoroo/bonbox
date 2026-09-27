@@ -39,6 +39,7 @@ from app.models.expense import Expense
 from app.models.invoice import Invoice
 from app.models.sale import Sale
 from app.models.user import User
+from app.services.bonbox_pdf_kit import escape_pdf_text
 from app.services.tax_service import _calc_vat, _get_vat_rate, TAX_CONFIG
 from app.utils.document_hash import (
     compute_document_hash,
@@ -434,7 +435,8 @@ def build_moms_filing_pdf(
                              spaceBefore=4, spaceAfter=12))
 
     # ─── Business block ──────────────────────────────────────
-    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{biz_display}</font>"]
+    # Typed text is escaped at the Paragraph boundary — a Paragraph parses markup (security review, Sep 2026).
+    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(biz_display)}</font>"]
     if profile:
         addr_parts = []
         if getattr(profile, "address", None):
@@ -444,7 +446,7 @@ def build_moms_filing_pdf(
         if z or c:
             addr_parts.append(f"{z} {c}".strip())
         if addr_parts:
-            biz_lines.append(f"<font color='#6b7280'>{', '.join(addr_parts)}</font>")
+            biz_lines.append(f"<font color='#6b7280'>{escape_pdf_text(', '.join(addr_parts))}</font>")
         # Surface CVR + VAT number (when distinct) — a SKAT-auditor
         # expects to see both. For DK the two are typically identical
         # but EU-cross-border filers carry separate numbers.
@@ -453,11 +455,11 @@ def build_moms_filing_pdf(
         if cvr:
             cvr_label = "CVR" if is_danish else "Org. nr."
             biz_lines.append(
-                f"<font color='#6b7280'>{cvr_label} {cvr}</font>"
+                f"<font color='#6b7280'>{cvr_label} {escape_pdf_text(cvr)}</font>"
             )
         if vat_no and vat_no != cvr:
             biz_lines.append(
-                f"<font color='#6b7280'>VAT {vat_no}</font>"
+                f"<font color='#6b7280'>VAT {escape_pdf_text(vat_no)}</font>"
             )
     # MOMS-registered confirmation footer
     if is_danish:
@@ -729,68 +731,10 @@ def build_moms_filing_pdf(
         story.append(tv)
 
     # ─── Section D4 — Gavekort-indløsning (MPV) ──────────────────
-    # MPV gavekort were redeemed (door-scan) on these dates but the meal may
-    # not be in the MOMS base. BonBox NEVER adds the redemption to revenue (a
-    # gavekort is a tender, not a second sale — that would over-declare MOMS).
-    # This note prompts the revisor to confirm the sale was bogført, since DK
-    # MPV VAT falls at redemption on the meal. Detect-only.
-    _gk = data.get("gavekort_warnings") or []
-    if _gk:
-        GK_AMBER = colors.HexColor("#b45309")
-        GK_AMBER_BG = colors.HexColor("#fffbeb")
-        story.append(Spacer(1, 4 * mm))
-        if is_danish:
-            story.append(Paragraph(
-                "D4 · GAVEKORT-INDLØSNING",
-                ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
-            ))
-            story.append(Paragraph(
-                "Gavekort (MPV) er indløst på følgende datoer. MOMS afregnes ved "
-                "indløsning — kontrollér at måltidet er bogført som salg, så det "
-                "indgår i MOMS-grundlaget.",
-                ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
-            ))
-            gk_header = ["Dato", "Gavekort indløst", "Bemærkning"]
-        else:
-            story.append(Paragraph(
-                "D4 · GIFT CARD (GAVEKORT) REDEMPTION",
-                ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
-            ))
-            story.append(Paragraph(
-                "Gavekort (MPV) were redeemed on these dates. VAT falls at "
-                "redemption — verify the meal is booked as a sale so it enters "
-                "the MOMS base.",
-                ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
-            ))
-            gk_header = ["Date", "Gavekort redeemed", "Note"]
-        _gk_note_dk = {
-            "unmatched_redemption": "Intet salg/dagsafslutning fundet",
-            "tender_short": "Mindre end indløst i dagsafslutningen",
-        }
-        _gk_note_en = {
-            "unmatched_redemption": "No sale/daily close found",
-            "tender_short": "Less than redeemed in the close",
-        }
-        gk_rows = [[Paragraph(h, val_b) for h in gk_header]]
-        for w in _gk:
-            note_map = _gk_note_dk if is_danish else _gk_note_en
-            note = note_map.get(w.get("status", ""), w.get("status", ""))
-            gk_rows.append([
-                Paragraph(str(w.get("date", "")), val),
-                Paragraph(_money_dk(w.get("redeemed", 0), currency), val_r),
-                Paragraph(note, ParagraphStyle("gkr", parent=val, textColor=GK_AMBER)),
-            ])
-        tgk = Table(gk_rows, colWidths=[28 * mm, 46 * mm, 92 * mm])
-        tgk.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BACKGROUND", (0, 0), (-1, 0), GK_AMBER_BG),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.4, GK_AMBER),
-        ]))
-        story.append(tgk)
+    story.extend(_gavekort_redemption_section(
+        data, is_danish=is_danish, currency=currency, section_title=section_title,
+        val=val, val_b=val_b, val_r=val_r, mm_unit=mm,
+    ))
 
     # ─── Section E — Signering (Signature) ───────────────────
     story.append(Spacer(1, 8 * mm))
@@ -894,6 +838,85 @@ def build_moms_filing_pdf(
     return buf2.getvalue()
 
 
+def _gavekort_redemption_section(
+    data: dict, *, is_danish: bool, currency: str, section_title, val, val_b, val_r, mm_unit,
+) -> list:
+    """Section D4 — Gavekort-indløsning (MPV), as flowables.
+
+    MPV gavekort were redeemed (door-scan) on these dates but the meal may
+    not be in the MOMS base. BonBox NEVER adds the redemption to revenue (a
+    gavekort is a tender, not a second sale — that would over-declare MOMS).
+    This note prompts the revisor to confirm the sale was bogført, since DK
+    MPV VAT falls at redemption on the meal. Detect-only.
+
+    ONE builder for both render passes. The section used to live only in the
+    first pass, whose bytes are thrown away after hashing — so the PDF the
+    owner downloaded never carried the warning at all. (Found Sep 2026.)"""
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+    _gk = data.get("gavekort_warnings") or []
+    if not _gk:
+        return []
+    GK_AMBER = colors.HexColor("#b45309")
+    GK_AMBER_BG = colors.HexColor("#fffbeb")
+    out: list = [Spacer(1, 4 * mm_unit)]
+    if is_danish:
+        out.append(Paragraph(
+            "D4 · GAVEKORT-INDLØSNING",
+            ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
+        ))
+        out.append(Paragraph(
+            "Gavekort (MPV) er indløst på følgende datoer. MOMS afregnes ved "
+            "indløsning — kontrollér at måltidet er bogført som salg, så det "
+            "indgår i MOMS-grundlaget.",
+            ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
+        ))
+        gk_header = ["Dato", "Gavekort indløst", "Bemærkning"]
+    else:
+        out.append(Paragraph(
+            "D4 · GIFT CARD (GAVEKORT) REDEMPTION",
+            ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
+        ))
+        out.append(Paragraph(
+            "Gavekort (MPV) were redeemed on these dates. VAT falls at "
+            "redemption — verify the meal is booked as a sale so it enters "
+            "the MOMS base.",
+            ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
+        ))
+        gk_header = ["Date", "Gavekort redeemed", "Note"]
+    _gk_note_dk = {
+        "unmatched_redemption": "Intet salg/dagsafslutning fundet",
+        "tender_short": "Mindre end indløst i dagsafslutningen",
+    }
+    _gk_note_en = {
+        "unmatched_redemption": "No sale/daily close found",
+        "tender_short": "Less than redeemed in the close",
+    }
+    gk_rows = [[Paragraph(h, val_b) for h in gk_header]]
+    for w in _gk:
+        note_map = _gk_note_dk if is_danish else _gk_note_en
+        note = note_map.get(w.get("status", ""), w.get("status", ""))
+        gk_rows.append([
+            Paragraph(str(w.get("date", "")), val),
+            Paragraph(_money_dk(w.get("redeemed", 0), currency), val_r),
+            Paragraph(note, ParagraphStyle("gkr", parent=val, textColor=GK_AMBER)),
+        ])
+    tgk = Table(gk_rows, colWidths=[28 * mm_unit, 46 * mm_unit, 92 * mm_unit])
+    tgk.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, 0), (-1, 0), GK_AMBER_BG),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, GK_AMBER),
+    ]))
+    out.append(tgk)
+    return out
+
+
 def _rebuild_filing_story(
     *, data: dict, profile: Any, biz_display: str,
     period_start: date, period_end: date, bilagsnummer: str,
@@ -965,7 +988,7 @@ def _rebuild_filing_story(
                              spaceBefore=4, spaceAfter=12))
 
     # Business block
-    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{biz_display}</font>"]
+    biz_lines = [f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(biz_display)}</font>"]
     if profile:
         addr_parts = []
         if getattr(profile, "address", None):
@@ -975,14 +998,14 @@ def _rebuild_filing_story(
         if z or c:
             addr_parts.append(f"{z} {c}".strip())
         if addr_parts:
-            biz_lines.append(f"<font color='#6b7280'>{', '.join(addr_parts)}</font>")
+            biz_lines.append(f"<font color='#6b7280'>{escape_pdf_text(', '.join(addr_parts))}</font>")
         cvr = getattr(profile, "org_number", None)
         vat_no = getattr(profile, "vat_number", None)
         if cvr:
             cvr_label = "CVR" if is_danish else "Org. nr."
-            biz_lines.append(f"<font color='#6b7280'>{cvr_label} {cvr}</font>")
+            biz_lines.append(f"<font color='#6b7280'>{cvr_label} {escape_pdf_text(cvr)}</font>")
         if vat_no and vat_no != cvr:
-            biz_lines.append(f"<font color='#6b7280'>VAT {vat_no}</font>")
+            biz_lines.append(f"<font color='#6b7280'>VAT {escape_pdf_text(vat_no)}</font>")
     rate_label = ("Momssats" if is_danish else "VAT rate")
     biz_lines.append(
         f"<font color='#6b7280' size='9'>{rate_label}: {data['vat_rate_pct']}%</font>"
@@ -1230,6 +1253,12 @@ def _rebuild_filing_story(
             ("LINEBELOW", (0, 0), (-1, 0), 0.4, _AMBER),
         ]))
         story.append(tv2)
+
+    # D4 — Gavekort-indløsning (MPV). Same builder as the first pass.
+    story.extend(_gavekort_redemption_section(
+        data, is_danish=is_danish, currency=currency, section_title=section_title,
+        val=val, val_b=val_b, val_r=val_r, mm_unit=_mm,
+    ))
 
     # E — signature
     story.append(Spacer(1, 8 * _mm))

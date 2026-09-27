@@ -56,6 +56,12 @@ class PinBody(BaseModel):
     pin: str
 
 
+class SetPinBody(BaseModel):
+    pin: str
+    # Required once a PIN exists — see set_device_pin.
+    password: str | None = None
+
+
 class PasswordBody(BaseModel):
     password: str
 
@@ -114,17 +120,32 @@ def device_pin_status(request: Request, user: User = Depends(get_current_user)):
 
 
 @router.post("/set")
+@limiter.limit("5/minute")
 def set_device_pin(
-    body: PinBody,
+    body: SetPinBody,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Set (or change) the account's 4-digit reveal PIN. Changing it clears any
     lockout; because reveal proofs bind to the hash, every outstanding reveal is
-    instantly voided (shared devices re-enter the new PIN once)."""
+    instantly voided (shared devices re-enter the new PIN once).
+
+    CHANGING an existing PIN needs the account PASSWORD, same as un-sharing.
+    Security review, Sep 2026: it needed nothing, and this endpoint isn't
+    behind the curtain — so whoever held the shared iPad could set a PIN of
+    their own, reveal the owner's finances with it, and clear the lockout on
+    the way. The first PIN needs no password: until one exists no device can
+    be shared, so there is no curtain to lift. Rate-limited because a password
+    check is a password oracle."""
     _require_real_owner(user)
     pin = _valid_pin(body.pin)
+    if getattr(user, "device_pin_hash", None):
+        if not verify_password(body.password or "", user.password_hash or ""):
+            audit_service.record(db, user, "device_pin.change_refused", "user", entity_id=user.id)
+            db.commit()
+            raise HTTPException(status_code=403, detail={"code": "bad_password", "message": "Wrong password."})
     user.device_pin_hash = hash_password(pin)
     user.device_pin_failed_count = 0
     user.device_pin_locked_until = None
@@ -155,6 +176,7 @@ def enable_shared(
 
 
 @router.post("/disable-shared")
+@limiter.limit("5/minute")
 def disable_shared(
     body: PasswordBody,
     response: Response,

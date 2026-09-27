@@ -196,6 +196,29 @@ function roleBarColor(role, businessType) {
   }
 }
 
+// Role names as the staffer reads them. role / role_on_shift is free text the
+// owner picked (the schedule maker's restaurant roles are English words), so
+// the stored value is never rewritten — only what is shown. Same map as the
+// twins in StaffSchedulePage, StaffPayrollPage and StaffTipsPage; unknown roles
+// (and the salon vocabulary, Danish in both languages) show exactly as typed.
+const ROLE_NAME_KEYS = {
+  chef: ["stfRoleChef", "Chef"],
+  server: ["stfRoleServer", "Server"],
+  dishwasher: ["stfRoleDishwasher", "Dishwasher"],
+  manager: ["teamRoleManager", "Manager"],
+  kitchen: ["roleKitchen", "Kitchen"],
+  floor: ["roleFloor", "Floor"],
+  "full-time": ["contractFull", "Full-time"],
+  full_time: ["contractFull", "Full-time"],
+  "part-time": ["contractPart", "Part-time"],
+  part_time: ["contractPart", "Part-time"],
+  student: ["contractStudent", "Student"],
+};
+function roleName(role, t) {
+  const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
+  return hit ? t(hit[0], hit[1]) : role;
+}
+
 // ─── Client-side .ics (calendar) export for a single shift ─────────────────
 //
 // buildShiftIcs(shift, venueName, summaryFn) → a self-contained VCALENDAR
@@ -351,7 +374,7 @@ function HolidaySection({ token }) {
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
       <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
-        {t("portalHolidaySection", "Feriedage")}
+        {t("portalHolidaySection", "Holiday")}
       </div>
       <div className="flex items-baseline gap-2">
         <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
@@ -1625,7 +1648,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts}) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1710,7 +1733,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Next shift (drives the hero, countdown, teammate strip, .ics).
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const nextShift = upcoming[0];
-  const nextShiftRole = nextShift?.role_on_shift || t("portalRoleStaff", "Staff");
+  const nextShiftRole = nextShift?.role_on_shift
+    ? roleName(nextShift.role_on_shift, t)
+    : t("portalRoleStaff", "Staff");
 
   // Countdown chip. The Date.now() read lives inside the pure helper,
   // recomputed each 15s render — minutes tick, days do not need to.
@@ -1751,7 +1776,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const subscribeCalendar = () => {
     if (!token) return;
     const base = (portalApi.defaults.baseURL || "https://api.bonbox.dk/api").replace(/\/+$/, "");
-    const url = `${base}/portal/${token}/schedule.ics`;
+    // A PIN-protected link's feed needs its own key (the calendar app can't
+    // send the PIN header); the server hands it over only once the PIN is proven.
+    const url = `${base}/portal/${token}/schedule.ics${calendarKey ? `?k=${encodeURIComponent(calendarKey)}` : ""}`;
     window.open(url.replace(/^https?:/, "webcal:"), "_blank", "noopener");
     try { if (calKey) localStorage.setItem(calKey, "1"); } catch { /* private mode */ }
     setCalTapped(true);
@@ -2373,7 +2400,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                       </span>
                       {all[0]?.role_on_shift && (
                         <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
-                          {all[0].role_on_shift}
+                          {roleName(all[0].role_on_shift, t)}
                         </span>
                       )}
                     </div>
@@ -2387,7 +2414,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                               {fs.start_time}–{fs.end_time}
                             </div>
                             <div className="text-[11px] text-gray-500 truncate">
-                              {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fmtHM(fs.net_hours)}
+                              {fs.role_on_shift ? `${roleName(fs.role_on_shift, t)} · ` : ""}{fmtHM(fs.net_hours)}
                             </div>
                             {/* Who you are on with, for EVERY shift — not just
                                 the hero's next one. "Who am I on with?" was
@@ -2467,7 +2494,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                           <div key={`${x.date}-${xi}`} className="tabular-nums">
                                             {new Date(x.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })}
                                             {" · "}{x.start_time}–{x.end_time}
-                                            {x.role ? ` · ${x.role}` : ""}
+                                            {x.role ? ` · ${roleName(x.role, t)}` : ""}
                                           </div>
                                         ))}
                                       </div>
@@ -3430,7 +3457,7 @@ function SwapRow({ swap, token, onChanged }) {
   const statusLabel = swap.status === "proposed"
     ? (isGiveaway ? t("portalGaStatusOpen", "Up for grabs") : t("portalSwapStatusProposed", "Pending"))
     : swap.status === "done"
-      ? (isGiveaway ? t("portalGaStatusTaken", "Taken") : t("portalSwapStatusDone", "Byttet"))
+      ? (isGiveaway ? t("portalGaStatusTaken", "Taken") : t("portalSwapStatusDone", "Swapped"))
       : swap.status === "declined"
         ? t("portalSwapStatusDeclined", "Declined")
         : swap.status === "withdrawn"
@@ -4201,7 +4228,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
                       </span>
                       {c.role && (
                         <span className="block truncate" style={{ marginTop: 3, font: "400 11px/1 var(--font-text)", color: "#94a3b8" }}>
-                          {c.role}
+                          {roleName(c.role, t)}
                         </span>
                       )}
                     </span>
@@ -6113,6 +6140,13 @@ function StaffPushOptIn({ token }) {
 
   // Step 3: probe the existing subscription so re-opens of the portal
   // reflect "Push on" without prompting again.
+  //
+  // The browser's subscription is not the server's. When the owner rotates or
+  // revokes a link, the server forgets every device registered for that
+  // staffer (a leaked link's device must stop getting pushes), while this
+  // phone still holds its subscription — so "Push on" would be a claim with
+  // nothing behind it. Re-send it under the link in hand (an idempotent
+  // upsert); if the server refuses, show push as off so one tap re-enables it.
   useEffect(() => {
     if (!supported || !tierAllowed) return;
     let cancel = false;
@@ -6121,12 +6155,19 @@ function StaffPushOptIn({ token }) {
       .then((sub) => {
         if (cancel) return;
         setSubscribed(!!sub);
+        if (!sub) return;
+        const json = sub.toJSON();
+        portalApi.post(`/portal/${token}/push/subscribe`, {
+          endpoint: json.endpoint,
+          keys: { p256dh: json.keys?.p256dh, auth: json.keys?.auth },
+          user_agent: navigator.userAgent?.slice(0, 500) || null,
+        }).catch(() => { if (!cancel) setSubscribed(false); });
       })
       .catch(() => {});
     return () => {
       cancel = true;
     };
-  }, [supported, tierAllowed]);
+  }, [supported, tierAllowed, token]);
 
   useEffect(() => {
     if (!subscribed) return;
@@ -6605,9 +6646,11 @@ export default function StaffPortalPage() {
         // let the screen use the da/en catalogue copy, and keep the server's
         // own text for statuses we did not anticipate, where it is the only
         // clue anyone gets. Backend untouched — this is a rendering decision.
+        // No clue at all → an empty text, so PortalError shows its da/en
+        // catalogue body instead of an English "Link not found".
         setError({
           expected: err?.response?.status === 404,
-          text: errText(err, "Link not found"),
+          text: errText(err, ""),
         });
         setLoading(false);
         // A dead link must not keep booting an installed app (PWA or the
@@ -7409,7 +7452,7 @@ export default function StaffPortalPage() {
                     {info?.staff_name}
                   </div>
                   <div style={{ marginTop: 6, font: "500 12px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
-                    {[info?.role, info?.restaurant_name].filter(Boolean).join(" · ")}
+                    {[info?.role ? roleName(info.role, t) : null, info?.restaurant_name].filter(Boolean).join(" · ")}
                   </div>
                   {info?.since && (
                     <div style={{ marginTop: 10 }}>
@@ -7446,7 +7489,7 @@ export default function StaffPortalPage() {
                   type="email"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder="your@email.com"
+                  placeholder={t("stfEmailPlaceholder", "your@email.com")}
                   className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                 />
               </div>
@@ -7645,6 +7688,7 @@ export default function StaffPortalPage() {
             // The venue's vertical, so role→section resolves the same way the
             // owner's schedule maker does. New field on PortalInfo.
             businessType={info?.business_type}
+            calendarKey={info?.calendar_key}
             onShiftsChanged={loadData}
           />
         )}

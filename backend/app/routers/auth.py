@@ -1075,7 +1075,9 @@ def get_me(request: Request, response: Response, current_user: User = Depends(ge
 
 
 @router.patch("/profile", response_model=UserResponse)
+@limiter.limit("10/minute")
 def update_profile(
+    request: Request,
     data: UserUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1087,10 +1089,27 @@ def update_profile(
     if data.currency is not None:
         current_user.currency = data.currency
     if data.email is not None and data.email != current_user.email:
+        # The login email is where a password reset goes, so changing it is a
+        # takeover in two steps: whoever holds a session — the shared iPad
+        # passed to staff, a stolen phone — sets their own address, then resets
+        # the password. It needs the current password, like change-password.
+        # (Security review, Sep 2026.) Rate-limited above: a password check is
+        # a password oracle.
+        if not verify_password(data.current_password or "", current_user.password_hash or ""):
+            raise HTTPException(status_code=403, detail={
+                "code": "password_required",
+                "message": "Enter your current password to change your login email.",
+            })
         existing = db.query(User).filter(User.email == data.email).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
         current_user.email = data.email
+        try:
+            from app.services import audit_service
+            audit_service.record(db, current_user, "auth.email_changed", "user",
+                                 entity_id=current_user.id)
+        except Exception:  # noqa: BLE001 — audit is best-effort, never block the change
+            pass
     if data.analytics_opt_out is not None:
         current_user.analytics_opt_out = bool(data.analytics_opt_out)
     if data.timezone is not None:

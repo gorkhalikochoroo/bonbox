@@ -2341,6 +2341,10 @@ _migrations = [
     "ALTER TABLE hours_logged ADD COLUMN IF NOT EXISTS clock_hours NUMERIC(5,2)",
     "CREATE INDEX IF NOT EXISTS ix_hours_unresolved ON hours_logged (user_id, date) "
     "WHERE resolution IS NULL",
+    # One open clock punch per person — see HoursLogged.__table_args__.
+    # Production had no duplicates when this was added (checked Sep 2026).
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_hours_open_clock ON hours_logged (staff_id) "
+    "WHERE end_time IS NULL AND entry_method = 'clock'",
     "CREATE INDEX IF NOT EXISTS ix_staff_chat_msg_sender ON staff_chat_messages (thread_id, sender_staff_id)",
 
     """CREATE TABLE IF NOT EXISTS staff_chat_members (
@@ -3062,6 +3066,9 @@ def _run_migrations():
                 "CREATE INDEX IF NOT EXISTS ix_inventory_user_stock ON inventory_items (user_id, quantity, min_threshold)",
                 # Mirror of the cash-sync key index in the PG list above.
                 "CREATE INDEX IF NOT EXISTS ix_cash_txn_user_ref ON cash_transactions (user_id, reference_id)",
+                # Mirror of ux_hours_open_clock in the PG list above.
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_hours_open_clock ON hours_logged (staff_id) "
+                "WHERE end_time IS NULL AND entry_method = 'clock'",
             ]
             ix_ok = 0
             for stmt in _index_stmts:
@@ -3221,6 +3228,20 @@ async def lifespan(app):
             # anyway so a transient error here doesn't poison
             # graceful shutdown.
             pass
+
+
+# ReportLab fetches `<img src="http…">` found in Paragraph markup by itself.
+# No BonBox PDF loads an image by URL (logos and QR codes arrive as bytes), so
+# the fetch is switched off: user text that ever slips past escape_pdf_text
+# cannot make this server request an internal address. Plain local paths are
+# read before this check runs — escaping at the Paragraph is the real fix.
+# (Security review, Sep 2026.)
+try:
+    from reportlab import rl_config as _rl_config
+    _rl_config.trustedHosts = ["remote-fetch-disabled.invalid"]
+    _rl_config.trustedSchemes = ["data"]
+except Exception:  # noqa: BLE001 — reportlab absent in a slim test env
+    pass
 
 
 app = FastAPI(
@@ -4108,6 +4129,13 @@ _MEMBER_READ_DENY_PREFIXES = (
     "/api/staff/schedules/week-cost",
     "/api/staff/hours/overview",
     "/api/staff/tips",
+    # The GDPR data export IS the owner's whole business — sales, expenses,
+    # cashbook, inventory, khata customers' phone numbers — as one CSV.
+    # get_current_user hands a member the OWNER's identity, so without this a
+    # cashier downloaded it with their own token (security review, Sep 2026).
+    # A member's own-data request goes through the owner, who is the
+    # controller of that data.
+    "/api/auth/export-data",
     # The same kr ÷ hours division, in a router the wage round did not look at.
     # /api/staffing/logs returns labor_cost + total_hours + staff_count per day,
     # and on any day logged with one person on, that division IS their exact

@@ -39,7 +39,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -52,7 +52,10 @@ from app.services.billing import enforce_feature
 from app.utils.time import utc_now
 
 router = APIRouter(prefix="/stand", tags=["stand"])
-limiter = Limiter(key_func=get_remote_address)
+# client_ip, not the socket peer: behind Render's proxy the peer is the proxy,
+# so every guesser on the internet shared ONE bucket — the pairing-code limit
+# throttled real venues and no attacker. (Security review, Sep 2026.)
+limiter = Limiter(key_func=client_ip)
 
 # Same alphabet as the staff join code: 32 chars with I/O/0/1 removed, because
 # these get read aloud across a noisy dining room and typed by someone who has

@@ -242,6 +242,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservation_waitlist_active_max": 10,
         "bookable_resources_max": 3,
         "sms_reminders_per_month": 0,   # SMS is a Pro perk (cost-bearing)
+        # Waitlist "a table may be free" SMS per venue per rolling 24h. The door
+        # tablet can trigger these, so an unlocked tablet must not be able to
+        # run up the SMS bill; 2 per waiting party was the only bound before.
+        "waitlist_sms_per_day": 0,
         # Salon service catalog (Behandlinger, S2) — how many services a salon
         # can list. Free taste = 5 (enough to list the core menu: klip, farve,
         # vask+føn, …); hitting it is a clean "upgrade to add your full menu"
@@ -325,6 +329,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservation_waitlist_active_max": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 300,   # Starter SMS allowance (Pro = 1000)
+        "waitlist_sms_per_day": 40,       # safety ceiling, not a product limit
         # Salon service catalog (Behandlinger, S2) — 25 covers a full salon menu
         # with headroom; deliberately bounded (not -1) so a runaway script can't
         # grow the list unboundedly, while normal salons never hit it.
@@ -370,6 +375,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservation_waitlist_active_max": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Trial mirrors Pro
+        "waitlist_sms_per_day": 60,        # Trial mirrors Pro
         "salon_services_max": 100,         # Trial mirrors Pro
         "gavekort_active_max": 1000,       # Trial mirrors Pro
         "smart_scan_classify_per_day": 300,  # Trial mirrors Pro
@@ -418,6 +424,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservation_waitlist_active_max": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Pro perk; bounded for SMS cost
+        "waitlist_sms_per_day": 60,        # safety ceiling, not a product limit
         # Salon service catalog (Behandlinger, S2) — top tier ceiling. 100 is
         # effectively unlimited for any real salon menu while still bounded
         # against an abusive/runaway client.

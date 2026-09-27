@@ -39,12 +39,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models.booking import Booking
 from app.models.event import Event
 
 logger = logging.getLogger(__name__)
@@ -95,13 +93,10 @@ def _public_event_payload(db: Session, event: Event) -> dict[str, Any]:
     don't surface `organizer_user_id` or any field that would leak
     tier / billing state.
     """
-    sold = (
-        db.query(func.count(Booking.id))
-        .filter(Booking.event_id == event.id)
-        .filter(Booking.status.in_(("pending", "paid", "attended")))
-        .scalar()
-        or 0
-    )
+    # Tickets, not booking rows — capacity_total is a ticket count, and a
+    # lapsed pending hold no longer reads as sold (security review, Sep 2026).
+    from app.routers.public_bookings import _sold_tickets_count
+    sold = _sold_tickets_count(db, event)
     capacity = event.capacity_total
     # L10 honest claim — only surface the capacity progress line when
     # we have a known capacity AND sold >= 25% (spec §4). Below the

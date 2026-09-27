@@ -160,3 +160,44 @@ def test_join_deactivated_link_404(client, db):
 
     _override_user(None)
     assert client.post("/api/portal/join", json={"code": code}).status_code == 404
+
+
+def test_join_code_of_a_removed_staffer_404(client, db):
+    owner = _owner(db)
+    staff = _staff(db, owner)
+    _override_user(owner)
+    code = client.post(f"/api/staff/members/{staff.id}/link").json()["join_code"]
+    staff.active = False  # the owner removed them
+    db.commit()
+    _override_user(None)
+    assert client.post("/api/portal/join", json={"code": code}).status_code == 404
+
+
+def test_a_code_burned_by_a_racing_redeem_is_refused(client, db, engine_and_session):
+    """Security review, Sep 2026: the "unused?" check and the burn were two
+    steps, so two devices redeeming at once both got the link. Here another
+    device burns the code between this request's check and its write — this
+    request must lose."""
+    from sqlalchemy import event
+
+    owner = _owner(db)
+    staff = _staff(db, owner)
+    _override_user(owner)
+    code = client.post(f"/api/staff/members/{staff.id}/link").json()["join_code"]
+    _override_user(None)
+
+    engine, _ = engine_and_session
+    raced = []
+
+    def _other_device_wins(conn, cursor, statement, params, context, executemany):
+        if not raced and statement.lstrip().upper().startswith("UPDATE STAFF_LINKS SET CODE_USED_AT"):
+            raced.append(True)
+            cursor.execute("UPDATE staff_links SET code_used_at = CURRENT_TIMESTAMP")
+
+    event.listen(engine, "before_cursor_execute", _other_device_wins)
+    try:
+        r = client.post("/api/portal/join", json={"code": code})
+    finally:
+        event.remove(engine, "before_cursor_execute", _other_device_wins)
+    assert raced, "the race hook never fired — the test proves nothing"
+    assert r.status_code == 404
