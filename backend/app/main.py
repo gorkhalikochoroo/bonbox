@@ -2544,6 +2544,14 @@ _migrations = [
     # both engines — this line only covers the create_all-bypassed path.
     "CREATE INDEX IF NOT EXISTS ix_floor_fixture_user_active ON floor_fixtures (user_id, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_floor_fixtures_user_id ON floor_fixtures (user_id)",
+    # GDPR Art. 17: the legal-hold tables keep their rows after an erasure,
+    # and their users.id FKs (ON DELETE NO ACTION) made EVERY "delete my
+    # account" fail — 72 of 75 accounts have audit rows. The ids stay as a
+    # pseudonymous reference; the FKs go (models/audit_log.py,
+    # models/security_event.py no longer declare them).
+    "ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_user_id_fkey",
+    "ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_actor_id_fkey",
+    "ALTER TABLE security_events DROP CONSTRAINT IF EXISTS security_events_user_id_fkey",
 ]
 
 

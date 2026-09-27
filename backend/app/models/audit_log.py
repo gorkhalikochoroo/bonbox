@@ -28,7 +28,7 @@ Migration 034.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Index
+from sqlalchemy import String, DateTime, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
@@ -42,14 +42,20 @@ class AuditLog(Base):
 
     # Tenant scope. Indexed because the most-common query is "show me
     # audit history for this user's invoices".
+    #
+    # NO ForeignKey to users.id, on purpose (here and on actor_id). Audit rows
+    # are kept after a GDPR Art. 17 erasure (Bogføringsloven §10) and may
+    # never be updated or deleted (the audit_logs rules) — so a FK could only
+    # BLOCK the user row's deletion, which is exactly what it did: every
+    # "delete my account" failed. The id is kept as a pseudonymous reference.
     user_id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), ForeignKey("users.id"), nullable=False, index=True,
+        GUID(), nullable=False, index=True,
     )
 
     # Who made the request. Same as user_id for self-initiated actions
     # but differs when admin (future) or scheduled job ('system') acts.
     actor_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID(), ForeignKey("users.id"), nullable=True,
+        GUID(), nullable=True,
     )
     # Free-text actor description for non-user actors:
     # 'user', 'system.retention_scheduler', 'system.payment_match', 'admin'

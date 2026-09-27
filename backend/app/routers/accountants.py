@@ -57,7 +57,9 @@ from app.services.auth import (
     get_current_user,
     hash_password,
     is_accountant_view,
+    verify_password,
 )
+from app.utils import login_guard
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -541,8 +543,7 @@ def accountant_signup(
         db.add(user)
         db.flush()
     else:
-        # Existing user — only refresh their password if the user is
-        # already an accountant. Refuse to repurpose owner / team rows.
+        # Existing user — refuse to repurpose owner / team rows.
         if (user.role or "").lower() != "accountant":
             raise HTTPException(
                 status_code=409,
@@ -551,7 +552,27 @@ def accountant_signup(
                     "message": "An account with this email already exists. Sign in and ask the owner to invite you again so we can link your existing account.",
                 },
             )
-        user.password_hash = hash_password(body.password)
+        # An EXISTING revisor proves they are that revisor: the password
+        # they already have. This used to OVERWRITE it — and the owner who
+        # sent the invite gets the accept link back in their own response
+        # (the copy-link fallback), so any owner could invite a revisor's
+        # address, open the link, set a new password and be logged in AS
+        # that revisor, with every other client's books one switch away.
+        # Same per-account lockout and same generic answer as /auth/login.
+        if (
+            login_guard.is_locked_out(user.email)
+            or getattr(user, "is_locked", False)
+            or not verify_password(body.password, user.password_hash)
+        ):
+            login_guard.record_failure(user.email)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "code": "existing_account_password",
+                    "message": "You already have a BonBox revisor login. Accept with your existing password — or reset it from the login page first.",
+                },
+            )
+        login_guard.clear(user.email)
         if not user.business_name:
             user.business_name = full_name
 

@@ -43,7 +43,7 @@ function PrivacyEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 26 July 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 27 September 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -181,6 +181,16 @@ function PrivacyEn() {
               ["Google Cloud Vision", "Reading text from receipt photos (when enabled)", "US", "Photos of receipts you upload"],
               ["Stripe", "Subscription payments", "US/EU", "Billing email, subscription status; card details go straight to Stripe and never reach our servers"],
               ["cvrapi.dk", "Business registration lookup", "Denmark", "CVR numbers (public data)"],
+              ["Mindee", "Reading receipts and invoices (when enabled)", "EU", "Photos of receipts and invoices you upload"],
+              ["Cloudflare", "Network security and routing in front of our servers", "Global", "IP address and request data, in transit only"],
+              ["GatewayAPI", "SMS reminders to guests (when a venue turns them on)", "EU (Denmark)", "Guest phone number, message text"],
+              ["Twilio", "SMS/WhatsApp messages (when enabled)", "US/EU", "Phone number, message text"],
+              ["Apple Push Notification service", "Notifications to the BonBox iPhone apps", "US", "A device token and the notification text"],
+              ["Web push (Google, Apple, Mozilla)", "Browser notifications you switch on", "US/EU", "A push subscription and the notification text"],
+              ["Google / Apple sign-in", "Signing in with your Google or Apple account (if you choose to)", "US", "Your email address and name from that account"],
+              ["Google Places", "Looking up nearby businesses in the competitor view (when used)", "US", "The area and business type you search for"],
+              ["Sentry", "Error reports from our servers (when enabled)", "EU/US", "Technical error details; personal data is stripped"],
+              ["Slack", "Alerting us to urgent support requests", "US", "The request's subject and your account email"],
             ]}
           />
           <p>
@@ -239,7 +249,7 @@ function PrivacyEn() {
           <ul className="list-disc pl-6 space-y-1">
             <li>All data in transit is encrypted via HTTPS/TLS</li>
             <li>Passwords are hashed using bcrypt (never stored in plain text)</li>
-            <li>Database access is restricted by Row Level Security (RLS) — each user can only access their own data</li>
+            <li>Every request is limited to your own business in our server code, and the database cannot be reached directly from outside (row-level security denies it)</li>
             <li>API endpoints require JWT authentication</li>
             <li>Bank CSV files are processed in memory and deleted after import</li>
             <li>We do not store bank login credentials under any circumstances</li>
@@ -287,7 +297,7 @@ function PrivacyDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privatlivspolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 26. juli 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 27. september 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -425,6 +435,16 @@ function PrivacyDa() {
               ["Google Cloud Vision", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "USA", "Billeder af kvitteringer, du uploader"],
               ["Stripe", "Betaling af abonnementer", "USA/EU", "E-mail til fakturering, abonnementsstatus; kortoplysninger går direkte til Stripe og når aldrig vores servere"],
               ["cvrapi.dk", "Opslag i virksomhedsregistret", "Danmark", "CVR-numre (offentlige data)"],
+              ["Mindee", "Aflæsning af kvitteringer og fakturaer (når slået til)", "EU", "Billeder af kvitteringer og fakturaer, du uploader"],
+              ["Cloudflare", "Netværkssikkerhed og routing foran vores servere", "Globalt", "IP-adresse og forespørgselsdata, kun under overførsel"],
+              ["GatewayAPI", "SMS-påmindelser til gæster (når et spisested slår dem til)", "EU (Danmark)", "Gæstens telefonnummer, beskedens tekst"],
+              ["Twilio", "SMS/WhatsApp-beskeder (når slået til)", "USA/EU", "Telefonnummer, beskedens tekst"],
+              ["Apple Push Notification service", "Notifikationer til BonBox-apps på iPhone", "USA", "Et enheds-token og notifikationens tekst"],
+              ["Web push (Google, Apple, Mozilla)", "Browser-notifikationer, du slår til", "USA/EU", "Et push-abonnement og notifikationens tekst"],
+              ["Google / Apple-login", "Log ind med din Google- eller Apple-konto (hvis du vælger det)", "USA", "Din e-mail og dit navn fra den konto"],
+              ["Google Places", "Opslag af virksomheder i nærheden i konkurrentvisningen (når den bruges)", "USA", "Området og den virksomhedstype, du søger på"],
+              ["Sentry", "Fejlrapporter fra vores servere (når slået til)", "EU/USA", "Tekniske fejldetaljer; personoplysninger fjernes"],
+              ["Slack", "Besked til os om hastende supporthenvendelser", "USA", "Henvendelsens emne og din kontos e-mail"],
             ]}
           />
           <p>
@@ -483,7 +503,7 @@ function PrivacyDa() {
           <ul className="list-disc pl-6 space-y-1">
             <li>Alle data krypteres under overførsel via HTTPS/TLS</li>
             <li>Adgangskoder hashes med bcrypt (gemmes aldrig i klartekst)</li>
-            <li>Adgang til databasen er begrænset med Row Level Security (RLS) — hver bruger kan kun få adgang til sine egne data</li>
+            <li>Hver forespørgsel er begrænset til din egen virksomhed i vores serverkode, og databasen kan ikke nås direkte udefra (row-level security afviser det)</li>
             <li>API-endepunkter kræver JWT-autentificering</li>
             <li>Bank-CSV-filer behandles i hukommelsen og slettes efter import</li>
             <li>Vi gemmer under ingen omstændigheder loginoplysninger til banken</li>

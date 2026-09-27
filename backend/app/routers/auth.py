@@ -1931,34 +1931,21 @@ def delete_account(
 
     # ── PSD2 bank + MobilePay connections (Art.17 erasure + consent
     # withdrawal) — #358.  These rows hold a Fernet-encrypted 90-day PSD2
-    # grant and aiia_account_id.  Two reasons this MUST run before the user
-    # delete: (1) PSD2 consent stays LIVE at the bank for up to 90 days
-    # unless we revoke it — owner believes erasure withdrew bank access;
-    # (2) the FK (bank_connections.user_id → users.id, ON DELETE NO ACTION)
-    # would make db.delete(current_user) raise IntegrityError and ROLL BACK
-    # the entire erasure for any user who ever connected a bank.  Revoke is
-    # best-effort (never blocks erasure); then purge the rows.
+    # grant and aiia_account_id.  The ROWS go before the user delete (their
+    # FK, ON DELETE NO ACTION, would otherwise fail it); the consent REVOKE
+    # at the provider happens after the erasure has flushed (below) — the
+    # consent stays live at the bank for up to 90 days unless revoked.
     from app.routers.bank_connect import best_effort_revoke
-    for _bc in db.query(BankConnection).filter(BankConnection.user_id == uid).all():
-        best_effort_revoke(_bc)
+    # Loaded now — the provider revoke needs the stored consent — but the
+    # provider is only CALLED once the database erasure has flushed cleanly
+    # (below). Revoking first meant a later failure (the audit-log FK made
+    # every erasure fail) left the bank consent withdrawn and the files
+    # purged while the account itself stayed: irreversible, and undone for
+    # nothing.
+    _bank_conns = db.query(BankConnection).filter(BankConnection.user_id == uid).all()
+    _stripe_sub_id = getattr(current_user, "stripe_subscription_id", None)
     db.query(BankConnection).filter(BankConnection.user_id == uid).delete(synchronize_session=False)
     db.query(MobilePayConnection).filter(MobilePayConnection.user_id == uid).delete(synchronize_session=False)
-
-    # ── GDPR Art.17: purge storage blobs with no retention basis ──
-    # The row sweep above deletes the POINTERS; the BLOBS in Supabase
-    # Storage must be removed too or staff-chat photos, staff avatars and
-    # the business logo orphan forever (no row left to find them by). We
-    # delete by path prefix (<uid>/<kind>/), so it works regardless of DB
-    # state. Accounting source-doc images (kasserapport / expense / sale /
-    # inventory_import) are DELIBERATELY kept — Bogføringsloven §10 requires
-    # 5-year retention. Best-effort: a storage error must never abort the
-    # erasure that already committed the DB deletes.
-    try:
-        from app.services.storage import purge_user_blobs
-        _purged = purge_user_blobs(uid)
-        logger.info("delete_account: purged %s storage blob(s)", _purged)
-    except Exception:  # noqa: BLE001
-        logger.warning("delete_account: storage blob purge failed (non-fatal)", exc_info=True)
 
     # --- Finally, delete the user ---
     # Tombstone FIRST, same commit: it is the ONLY remaining pointer to the
@@ -1969,6 +1956,45 @@ def delete_account(
     from app.models.erasure_tombstone import ErasureTombstone
     db.merge(ErasureTombstone(user_id=uid))
     db.delete(current_user)
+    try:
+        # Every constraint problem surfaces HERE, while nothing outside the
+        # database has been touched yet.
+        db.flush()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("delete_account: erasure failed before any external step — nothing changed")
+        raise HTTPException(
+            status_code=500,
+            detail="We couldn't delete your account right now, and nothing was changed. Please try again or contact support.",
+        )
+
+    # ── The irreversible, outside-the-database steps — only now. ──
+    # PSD2: consent stays live at the bank for up to 90 days unless revoked.
+    for _bc in _bank_conns:
+        best_effort_revoke(_bc)
+    # Billing: a deleted customer must not go on being charged. Best-effort;
+    # the webhook that follows finds no user and is a no-op.
+    if _stripe_sub_id:
+        try:
+            from app.services.stripe_billing import _stripe
+            _s = _stripe()
+            if _s is not None:
+                _s.Subscription.cancel(_stripe_sub_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("delete_account: Stripe subscription cancel failed (non-fatal)", exc_info=True)
+    # GDPR Art.17: purge storage blobs with no retention basis. The row sweep
+    # above deletes the POINTERS; the BLOBS in Supabase Storage must go too or
+    # staff-chat photos, staff avatars and the business logo orphan forever.
+    # By path prefix (<uid>/<kind>/). Accounting source-doc images
+    # (kasserapport / expense / sale / inventory_import) are DELIBERATELY kept
+    # — Bogføringsloven §10 requires 5-year retention.
+    try:
+        from app.services.storage import purge_user_blobs
+        _purged = purge_user_blobs(uid)
+        logger.info("delete_account: purged %s storage blob(s)", _purged)
+    except Exception:  # noqa: BLE001
+        logger.warning("delete_account: storage blob purge failed (non-fatal)", exc_info=True)
+
     db.commit()
 
     return {

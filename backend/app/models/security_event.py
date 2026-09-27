@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Text, ForeignKey, Index
+from sqlalchemy import String, DateTime, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
@@ -19,8 +19,11 @@ class SecurityEvent(Base):
     __tablename__ = "security_events"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    # No ForeignKey to users.id: security events are retained after a GDPR
+    # Art. 17 erasure, and a FK would block the user row's deletion (see
+    # models/audit_log.py). The id stays as a pseudonymous reference.
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID(), ForeignKey("users.id"), nullable=True, index=True
+        GUID(), nullable=True, index=True
     )
     event_type: Mapped[str] = mapped_column(String(64), index=True)
     # Examples:

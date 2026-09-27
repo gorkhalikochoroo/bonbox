@@ -1,6 +1,18 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import api from "../services/api";
+import { getCookieConsent } from "../components/CookieConsent";
+
+// The cookie banner's "Analytics" choice says it "helps us understand which
+// features are useful and where the app breaks" — which is exactly this log.
+// An owner who DECLINED it was still being logged on every page. A decline now
+// stops it: nothing is queued, and anything queued before the choice is
+// dropped rather than sent. (Before any choice, this first-party log — no
+// cookie, nothing stored on the device — runs as before.)
+function analyticsDeclined() {
+  const c = getCookieConsent();
+  return !!c && c.analytics === false;
+}
 
 // Queue events and flush periodically to avoid too many API calls
 let eventQueue = [];
@@ -8,6 +20,10 @@ let flushTimer = null;
 
 function flushEvents() {
   if (eventQueue.length === 0) return;
+  if (analyticsDeclined()) {
+    eventQueue = [];
+    return;
+  }
   const batch = [...eventQueue];
   eventQueue = [];
   // Migration 013 (kulturarrangør sprint): the `/api/events` namespace
@@ -29,6 +45,7 @@ function scheduleFlush() {
 }
 
 export function trackEvent(event, page = null, detail = null) {
+  if (analyticsDeclined()) return;
   eventQueue.push({ event, page, detail });
   scheduleFlush();
 }

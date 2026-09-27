@@ -192,6 +192,14 @@ def _seed_user_with_data(db):
     db.add(DailyBrief(user_id=u.id, brief_date=today, payload_json="{}"))
     # A 1:1 profile.
     db.add(BusinessProfile(user_id=u.id))
+    # The RETAINED rows every real account has: an audit entry and a security
+    # event. 72 of 75 prod accounts have audit rows, and their users.id FK
+    # (ON DELETE NO ACTION) made every erasure fail — this seed had none, so
+    # the test passed while production could not delete a single account.
+    from app.models.audit_log import AuditLog
+    from app.models.security_event import SecurityEvent
+    db.add(AuditLog(user_id=u.id, actor_id=u.id, action="auth.login", entity_type="user", entity_id=u.id))
+    db.add(SecurityEvent(user_id=u.id, event_type="admin_denied_wrong_role"))
     db.commit()
     return u
 
@@ -223,6 +231,28 @@ def test_delete_account_purges_every_seeded_table(db_session, client):
     # No orphaned inventory_logs left behind.
     assert db_session.query(InventoryLog).count() == 0
 
+    # The legal-hold rows SURVIVE the erasure, pointing at an id that no
+    # longer names anyone (pseudonymous) — they neither block it nor vanish.
+    from app.models.audit_log import AuditLog
+    from app.models.security_event import SecurityEvent
+    assert db_session.query(AuditLog).filter(AuditLog.user_id == uid).count() >= 1
+    assert db_session.query(SecurityEvent).filter(SecurityEvent.user_id == uid).count() == 1
+
+
+def test_retained_tables_never_block_a_user_deletion():
+    """A legal-hold table keeps its rows AND must not stop the user row from
+    being deleted — so it may not carry a ForeignKey to users.id at all (an
+    ON DELETE action would have to UPDATE or DELETE rows the audit rules
+    forbid touching)."""
+    sets = _declared_sets_from_source(_delete_account_source())
+    retained = sets["_ERASURE_RETAINED_TABLES"]
+    blocking = sorted(t for t in _user_fk_tables() if t in retained)
+    assert blocking == [], (
+        f"{blocking} keep a ForeignKey to users.id — every erasure of a user "
+        "with rows there fails with a FK violation (this is what broke "
+        "Art. 17 deletion in production)."
+    )
+
 
 def test_delete_account_wrong_password_deletes_nothing(db_session, client):
     user = _seed_user_with_data(db_session)
@@ -235,3 +265,53 @@ def test_delete_account_wrong_password_deletes_nothing(db_session, client):
     )
     assert r.status_code == 400
     assert db_session.query(User).filter(User.id == uid).first() is not None
+
+
+# ── Nothing irreversible outside the database until the erasure holds ──
+
+def test_failed_erasure_touches_nothing_outside_the_database(db_session, client, monkeypatch):
+    """The bank consent revoke and the storage purge are irreversible. They
+    used to run BEFORE the user row was deleted, so an erasure that then
+    failed (every one did, on the audit-log FK) withdrew the bank consent
+    and deleted the files of an account that stayed."""
+    calls = []
+    monkeypatch.setattr("app.routers.bank_connect.best_effort_revoke", lambda c: calls.append("revoke"))
+    monkeypatch.setattr("app.services.storage.purge_user_blobs", lambda uid: calls.append("purge") or 0)
+    user = _seed_user_with_data(db_session)
+    uid = user.id
+    app.dependency_overrides[get_current_user] = lambda: user
+
+    def _boom():
+        raise RuntimeError("constraint says no")
+    monkeypatch.setattr(db_session, "flush", _boom)
+
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    assert r.status_code == 500, r.text
+    assert calls == []
+    monkeypatch.undo()
+    assert db_session.query(User).filter(User.id == uid).first() is not None
+
+
+def test_erasure_cancels_the_stripe_subscription(db_session, client, monkeypatch):
+    """A deleted customer must not go on being charged."""
+    cancelled = []
+
+    class _Sub:
+        @staticmethod
+        def cancel(sub_id):
+            cancelled.append(sub_id)
+
+    class _FakeStripe:
+        Subscription = _Sub
+
+    monkeypatch.setattr("app.services.stripe_billing._stripe", lambda: _FakeStripe)
+    monkeypatch.setattr("app.services.storage.purge_user_blobs", lambda uid: 0)
+    user = _seed_user_with_data(db_session)
+    user.stripe_subscription_id = "sub_test_123"
+    db_session.commit()
+    app.dependency_overrides[get_current_user] = lambda: user
+
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    assert r.status_code == 200, r.text
+    assert cancelled == ["sub_test_123"]
+

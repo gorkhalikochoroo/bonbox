@@ -33,6 +33,9 @@ export default function AcceptInvitePage() {
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // The invited address already has a revisor login: accepting now asks for
+  // THAT password (it no longer overwrites it), so the form says so.
+  const [existingAccount, setExistingAccount] = useState(false);
 
   useEffect(() => {
     if (!token || token.length < 10) {
@@ -77,6 +80,14 @@ export default function AcceptInvitePage() {
         setError(t("aiInviteRevoked", "This invite has been revoked. Ask the business owner if this was a mistake."));
       } else if (code === "already_active") {
         setError(t("aiInviteAlreadyUsed", "This invite has already been used. Sign in with the email and password you set up before."));
+      } else if (code === "existing_account_password") {
+        setExistingAccount(true);
+        setError(
+          t(
+            "aiExistingAccountPassword",
+            "You already have a BonBox revisor login. Enter your current password to accept — or reset it first.",
+          ),
+        );
       } else if (code === "email_in_use") {
         setError(
           msg ||
@@ -122,19 +133,33 @@ export default function AcceptInvitePage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-              {t("password", "Password")}
+              {existingAccount ? t("aiCurrentPassword", "Your current password") : t("password", "Password")}
             </label>
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              // Typing again clears the error — the button stays disabled
+              // while an error shows, so without this a mistyped password
+              // could never be retried without reloading the page.
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (error) setError("");
+              }}
               placeholder={t("aiAtLeast8Chars", "At least 8 characters")}
               minLength={8}
               maxLength={200}
               className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-gray-300"
-              autoComplete="new-password"
+              autoComplete={existingAccount ? "current-password" : "new-password"}
               required
             />
+            {existingAccount && (
+              <a
+                href="/forgot-password"
+                className="inline-block mt-2 text-sm font-medium text-gray-700 dark:text-gray-200 underline"
+              >
+                {t("aiForgotPassword", "Forgot your password?")}
+              </a>
+            )}
           </div>
 
           <button

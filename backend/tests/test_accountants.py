@@ -38,7 +38,7 @@ from app.models.audit_log import AuditLog
 from app.models.expense import Expense, ExpenseCategory
 from app.models.sale import Sale
 from app.models.user import User
-from app.services.auth import get_current_user, hash_password
+from app.services.auth import get_current_user, hash_password, verify_password
 from app.utils.time import utc_now
 
 _db_ready.set()
@@ -699,3 +699,66 @@ def test_accountant_no_grants_returns_403(client, db):
     detail = res.json().get("detail", {})
     assert isinstance(detail, dict)
     assert detail.get("code") == "no_active_grants"
+
+
+# ─── Accepting an invite never takes over an EXISTING revisor login ────
+#
+# The owner who sends an invite gets the accept link back (copy-link
+# fallback). Accepting used to OVERWRITE an existing revisor's password and
+# log the caller in as them — so any owner could invite a revisor's address,
+# open the link themselves, and read every other client of that revisor.
+
+
+def _pending_invite_for(client, db, owner, email):
+    _override_user(owner)
+    invite = client.post("/api/accountants/invite", json={"email": email}).json()
+    grant = db.query(AccountantGrant).filter(AccountantGrant.id == invite["id"]).first()
+    _override_user(None)
+    return grant
+
+
+def test_accept_for_existing_revisor_needs_their_current_password(client, db):
+    from app.utils import login_guard
+
+    victim = _accountant(db, email_suffix="-existing")
+    other_client = _owner(db, plan="starter", email_suffix="-other")
+    _make_active_grant(db, victim, other_client)
+    attacker = _owner(db, plan="starter", email_suffix="-attacker")
+    grant = _pending_invite_for(client, db, attacker, victim.email)
+    login_guard.clear(victim.email)
+
+    res = client.post(
+        "/api/accountants/signup",
+        json={"invite_token": grant.invite_token, "password": "attacker-chosen-pw"},
+    )
+    assert res.status_code == 401, res.text
+    assert res.json()["detail"]["code"] == "existing_account_password"
+
+    db.refresh(victim)
+    db.refresh(grant)
+    # The revisor's own password still works; nothing was linked or issued.
+    assert verify_password("revisorpw123", victim.password_hash)
+    assert not verify_password("attacker-chosen-pw", victim.password_hash)
+    assert grant.status == "pending"
+    assert "access_token" not in res.text
+
+
+def test_existing_revisor_accepts_with_their_own_password(client, db):
+    from app.utils import login_guard
+
+    revisor = _accountant(db, email_suffix="-own")
+    owner = _owner(db, plan="starter", email_suffix="-new-client")
+    grant = _pending_invite_for(client, db, owner, revisor.email)
+    login_guard.clear(revisor.email)
+
+    res = client.post(
+        "/api/accountants/signup",
+        json={"invite_token": grant.invite_token, "password": "revisorpw123"},
+    )
+    assert res.status_code == 200, res.text
+    db.refresh(revisor)
+    db.refresh(grant)
+    assert grant.status == "active"
+    assert grant.accountant_user_id == revisor.id
+    assert verify_password("revisorpw123", revisor.password_hash)  # unchanged
+
