@@ -1870,6 +1870,7 @@ export const da = {
     rsvpSeatNowBtn: "Sæt til bords", rsvpSeatError: "Kunne ikke sætte gæsterne til bords.",
     // "Sæt gæst ind" i toppen (altid tilgængelig) + dens bordvælger.
     rsvpSeatWalkIn: "Sæt en drop-in til bords",
+    rsvpSeatWalkInShort: "Drop-in",
     rsvpSeatWalkInTable: "Bord",
     rsvpSeatWalkInNoTables: "Ingen borde",
     rsvpSeatWalkInBusy: "optaget",

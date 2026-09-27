@@ -146,6 +146,9 @@ const STATUS_PILL = {
   },
 };
 
+// The statuses whose party sizes the server counts as the day's covers.
+const COVER_STATUSES = ["confirmed", "seated", "completed"];
+
 // Local YYYY-MM-DD for the book's day picker (defaults to today).
 function isoDay(d) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -507,7 +510,7 @@ export default function ReservationsPage() {
       className={
         isHostStand
           ? "space-y-4"
-          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-6"
+          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6"
       }
     >
       {/* BookSection's own standalone wrapper already sets full-bleed padding
@@ -545,6 +548,7 @@ export default function ReservationsPage() {
         onChange={changeTab}
         ariaLabel={t("rsvpTabsAria", "Reservation sections")}
         size="lg"
+        phone="underline"
       />
       )}
 
@@ -596,8 +600,8 @@ function PageTitle({ t, isProvider = false }) {
   // only (Phase A is NOT appointment-grade; honesty gate #2).
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-        <CalendarCheck className="w-6 h-6 text-gray-700 dark:text-gray-200" aria-hidden />
+      <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+        <CalendarCheck className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700 dark:text-gray-200" aria-hidden />
         {isProvider ? t("rsvpOwnerTitleProvider", "Appointments") : t("rsvpOwnerTitle", "Reservations")}
       </h1>
       {/* Hidden on a phone. It tells a first-time owner what this page IS,
@@ -626,6 +630,22 @@ const RSVP_VIEW_KEY = "bonbox.rsvp.view";
 // Sentinel seatTarget for a header-launched walk-in (no preset tile). It
 // signals SeatNowSheet to render its table picker instead of a fixed table.
 const SEAT_WALK_IN_PICK = "__pick__";
+
+// A toolbar button's face on a phone: the same bordered surface as the day
+// stepper beside it, so each toolbar row reads as one set of controls. From
+// sm: up these buttons keep their bare icon look.
+// Phone controls are 40px with 13px text: at 44px and 14px every row was a
+// slab, and the toolbar alone filled a third of the screen. 40px is still well
+// clear of WCAG 2.2's 24px target minimum; `min-h-0!` releases index.css's
+// global 44px touch floor for exactly these controls.
+const PHONE_TOOL =
+  "max-sm:min-h-0! max-sm:text-[13px] " +
+  "max-sm:border max-sm:border-[rgb(var(--surface-line))] max-sm:bg-[rgb(var(--surface-card))] " +
+  "max-sm:hover:bg-gray-50 max-sm:dark:hover:bg-gray-700";
+// Square, stretched to the height of the row it sits in (the stepper's 40px).
+const PHONE_TOOL_SQUARE = "max-sm:h-auto max-sm:w-10 max-sm:shrink-0";
+// Drop-in and New booking on a phone: equal halves of one 40px row.
+const PHONE_ACTION = "max-sm:h-10 max-sm:min-h-0! max-sm:px-3 max-sm:text-[13px]";
 
 // Status → localized label. Shared by the Liste status column + (later) the
 // floor/timeline. Mirrors the map ReservationRow used.
@@ -3815,6 +3835,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     [reservations],
   );
   const requestedCount = summary.by_status?.requested || 0;
+  // The bookings those covers come from. `summary.total` counts every row of
+  // the day, cancelled and no-show included, so a day of five cancellations
+  // read "Gæster 0 · 5 reservationer". Same statuses as the server's covers
+  // (BOOKED_COVER_STATUSES in reservation_insights_service.py).
+  const coverBookings = COVER_STATUSES.reduce((n, s) => n + (summary.by_status?.[s] || 0), 0);
 
   // ── Cockpit metrics — the day's vitals, host-stand style ───────────────
   // "Next arrival" is the earliest still-live booking yet to come (relative
@@ -4223,6 +4248,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </div>
           )}
         </div>
+        {/* The status rides the second line as a coloured dot and a word. As
+            a pill beside the action button it left the NAME ~30px — "G…",
+            "Fø…" — on the one line a host reads to find the guest. */}
         <div className="min-w-0 flex-1 leading-tight">
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
             {r.guest_name || "—"}
@@ -4236,15 +4264,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               />
             )}
           </div>
-          <div className="inline-flex items-center gap-1 text-[12px] text-gray-500 dark:text-gray-400 tabular-nums max-w-full">
-            <Users className="w-3 h-3 shrink-0" aria-hidden />
-            {r.party_size}
+          <div className="mt-1 flex items-center gap-2.5 text-[12px] text-gray-500 dark:text-gray-400 tabular-nums min-w-0">
+            <span className="inline-flex items-center gap-1 shrink-0">
+              <Users className="w-3 h-3 shrink-0" aria-hidden />
+              {r.party_size}
+            </span>
             {isProvider && r.service_name && (
-              <span className="truncate">· {r.service_name}</span>
+              <span className="truncate min-w-0">{r.service_name}</span>
             )}
+            <StatusInline status={r.status} label={labels[r.status] || r.status} />
           </div>
         </div>
-        <StatusPill status={r.status} label={labels[r.status] || r.status} />
         {primary && (
           <button
             type="button"
@@ -4253,7 +4283,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               e.stopPropagation();
               setStatus(r, primary.to);
             }}
-            className="h-11 px-3 shrink-0 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-xs font-semibold disabled:opacity-50 active:scale-95 transition"
+            // 36px in a ~60px list row. In dark a raised grey, not the white
+            // primary slab: repeated down a list of bookings, white blocks were
+            // the loudest thing on the screen.
+            className="h-9 min-h-0! px-3 shrink-0 rounded-lg bg-gray-900 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 text-xs font-semibold disabled:opacity-50 active:scale-95 transition"
           >
             {primary.label}
           </button>
@@ -4299,8 +4332,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     <div
       className={
         standalone
-          ? "min-h-screen bg-gray-50 dark:bg-gray-950 px-4 sm:px-6 lg:px-8 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4"
-          : "space-y-4"
+          ? "min-h-screen bg-gray-50 dark:bg-gray-950 px-4 sm:px-6 lg:px-8 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4 max-sm:space-y-3"
+          : "space-y-4 max-sm:space-y-3"
       }
     >
       {/* The "Kommende" list lives in the page's side column (desktop only —
@@ -4386,19 +4419,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {!salonFirstRun && (
         <>
       {/* Toolbar: day controls (left) + view toggle (right). Every control is
-          a ≥44px tap target for the Windows host-stand / tablet. */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
+          a ≥44px tap target for the Windows host-stand / tablet.
+
+          ON A PHONE (max-sm: only — from sm: up nothing here changes) it is
+          three full-width rows on one grid: the day with Refresh beside it,
+          the lens switch with the stand pop-out beside it, then Drop-in and
+          New booking as one pair. Before, the same controls sat at their own
+          widths on five loose rows and read as unfinished. */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 max-sm:gap-2">
+        <div className="flex items-center gap-2 flex-wrap max-sm:items-stretch">
           {/* Date stepper — ◂ step a day ▸, tap the centre to jump via the
               native picker. The relative label ("I dag" / "I morgen") gives
               instant orientation; the numeric date sits quietly beneath. */}
-          <div className="relative" ref={dayPickerRef}>
-          <div className="inline-flex items-stretch rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] overflow-hidden">
+          <div className="relative max-sm:flex-1 max-sm:min-w-0" ref={dayPickerRef}>
+          <div className="inline-flex items-stretch rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] overflow-hidden max-sm:flex max-sm:w-full">
             <button
               type="button"
               onClick={() => setDay(shiftDay(day, -1))}
               aria-label={t("rsvpPrevDay", "Previous day")}
-              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+              className="w-10 max-sm:w-11 max-sm:shrink-0 max-sm:min-h-0! inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
@@ -4409,7 +4448,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 aria-haspopup="dialog"
                 aria-expanded={dayPickerOpen}
                 aria-label={t("rsvpBookDay", "Reservation date")}
-                className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+                className="relative h-11 max-sm:h-[38px] max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
               >
                 <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
                   {relativeDayLabel(day, t, lang)}
@@ -4419,7 +4458,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 </span>
               </button>
             ) : (
-            <label className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-gray-900 dark:focus-within:ring-gray-100">
+            <label className="relative h-11 max-sm:h-[38px] max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-gray-900 dark:focus-within:ring-gray-100">
               <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
                 {relativeDayLabel(day, t, lang)}
               </span>
@@ -4439,7 +4478,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               type="button"
               onClick={() => setDay(shiftDay(day, 1))}
               aria-label={t("rsvpNextDay", "Next day")}
-              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+              className="w-10 max-sm:w-11 max-sm:shrink-0 max-sm:min-h-0! inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -4465,7 +4504,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <button
               type="button"
               onClick={() => setDay(isoDay(new Date()))}
-              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              className={
+                "inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
+                PHONE_TOOL
+              }
             >
               {t("rsvpToday", "Today")}
             </button>
@@ -4474,9 +4516,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             type="button"
             onClick={() => fetchBook(day)}
             aria-label={t("rsvpRefresh", "Refresh")}
-            className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+            className={
+              "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
+              PHONE_TOOL + " " + PHONE_TOOL_SQUARE
+            }
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
           </button>
           {/* The stand used to go stale in complete silence while the now-line
               kept moving. This names the one fact that matters — WHEN what you
@@ -4485,7 +4530,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {bookStale && (
             <span
               role="status"
-              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-amber-700 dark:text-amber-400"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-amber-700 dark:text-amber-400 max-sm:basis-full max-sm:min-h-0"
             >
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden />
               <span className="tabular-nums">
@@ -4496,10 +4541,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap max-sm:items-stretch">
           {/* Pop the book out to its own full-screen door screen (no sidebar).
               Opens /reservations/stand in a new tab — a dedicated host-stand
-              display. Hidden while already inside the pop-out. */}
+              display. Hidden while already inside the pop-out. On a phone it
+              sits after the lens switch, under Refresh. */}
           {!standalone && (
             <button
               type="button"
@@ -4508,9 +4554,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               }
               aria-label={t("rsvpOpenStand", "Open host-stand view")}
               title={t("rsvpOpenStand", "Open host-stand view")}
-              className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              className={
+                "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
+                PHONE_TOOL + " " + PHONE_TOOL_SQUARE + " max-sm:order-1"
+              }
             >
-              <ExternalLink className="w-5 h-5" />
+              <ExternalLink className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
             </button>
           )}
           <TabPills
@@ -4523,18 +4572,34 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             activeId={view}
             onChange={pickView}
             ariaLabel={t("rsvpViewAria", "Reservation views")}
+            phone="segmented"
+            className="max-sm:flex-1 max-sm:min-w-0"
           />
+          {/* The two actions travel as one pair on a phone — a full-width row,
+              equal halves. From sm: up the wrapper is `display: contents`, so
+              both buttons are items of this row exactly as before. */}
+          <div className="flex gap-2 max-sm:grid max-sm:grid-flow-col max-sm:auto-cols-fr max-sm:order-2 max-sm:basis-full sm:contents">
           {/* Seat walk-in — always reachable for TABLE venues, in every day
               lens (List / Timeline / Floor), not only by tapping a free tile
-              on the Floor map. Opens SeatNowSheet in table-picker mode. */}
+              on the Floor map. Opens SeatNowSheet in table-picker mode.
+              A phone shows the short name and a quiet bordered face: the
+              white primary slab (its dark-theme colour) beside the green main
+              action made two competing blocks of different widths. */}
           {tableFloor && !isProvider && (
             <Button
               variant="primary"
               size="lg"
               iconLeft={<Armchair className="w-4 h-4" />}
               onClick={openSeatWalkIn}
+              aria-label={t("rsvpSeatWalkIn", "Seat a drop-in")}
+              className={
+                PHONE_ACTION + " max-sm:border max-sm:border-[rgb(var(--surface-line))] " +
+                "max-sm:bg-[rgb(var(--surface-card))] max-sm:text-gray-900 max-sm:hover:bg-gray-50 " +
+                "max-sm:dark:bg-[rgb(var(--surface-card))] max-sm:dark:text-gray-100 max-sm:dark:hover:bg-gray-700"
+              }
             >
-              {t("rsvpSeatWalkIn", "Seat a drop-in")}
+              <span className="sm:hidden">{t("rsvpSeatWalkInShort", "Drop-in")}</span>
+              <span className="hidden sm:inline">{t("rsvpSeatWalkIn", "Seat a drop-in")}</span>
             </Button>
           )}
           <Button
@@ -4542,11 +4607,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             size="lg"
             iconLeft={<Plus className="w-4 h-4" />}
             onClick={openNewBooking}
+            className={PHONE_ACTION}
           >
             {isProvider
               ? t("rsvpNewBookingProvider", "Book an appointment")
               : t("rsvpNewBooking", "New booking")}
           </Button>
+          </div>
         </div>
       </div>
 
@@ -4577,9 +4644,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             label: t("rsvpCovers", "Covers"),
             value: summary.covers,
             helper:
-              summary.total === 1
-                ? t("rsvpCoversBookingsOne", "{n} booking", { n: summary.total })
-                : t("rsvpCoversBookings", "{n} bookings", { n: summary.total }),
+              coverBookings === 1
+                ? t("rsvpCoversBookingsOne", "{n} booking", { n: coverBookings })
+                : t("rsvpCoversBookings", "{n} bookings", { n: coverBookings }),
           },
           {
             key: "seated",
@@ -4682,7 +4749,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           <button
             type="button"
             onClick={() => setMobileFiltersOpen((v) => !v)}
-            className="sm:hidden inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300"
+            className="sm:hidden inline-flex items-center gap-1.5 h-9 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-600 dark:text-gray-300"
           >
             <SlidersHorizontal className="w-4 h-4" aria-hidden />
             {t("rsvpFilterChip", "Filter")}
@@ -4949,6 +5016,36 @@ function StatusPill({ status, label }) {
       >
         {label}
       </span>
+    </span>
+  );
+}
+
+// The phone list's status: a dot and a word on the row's second line, with
+// the pill's colour budget — amber pulse for a request, emerald for booked,
+// the heaviest ink for seated, red only for a no-show, struck-through grey for
+// a cancellation. No filled chip: repeated down a list, the seated pill's
+// solid (white in dark) fill was the loudest thing on the screen.
+const STATUS_INLINE = {
+  requested: {
+    dot: "bg-amber-500 dark:bg-amber-400 motion-safe:animate-pulse",
+    text: "font-medium text-amber-700 dark:text-amber-300",
+  },
+  confirmed: { dot: "bg-emerald-500 dark:bg-emerald-400", text: "text-emerald-700 dark:text-emerald-400" },
+  seated: { dot: "bg-gray-900 dark:bg-gray-100", text: "font-semibold text-gray-900 dark:text-gray-100" },
+  completed: { dot: "bg-gray-400 dark:bg-gray-500", text: "text-gray-500 dark:text-gray-400" },
+  no_show: { dot: "bg-red-500 dark:bg-red-400", text: "font-medium text-red-600 dark:text-red-400" },
+  cancelled: {
+    dot: "bg-gray-300 dark:bg-gray-600",
+    text: "text-gray-500 dark:text-gray-400 line-through decoration-gray-400 dark:decoration-gray-600",
+  },
+};
+
+function StatusInline({ status, label }) {
+  const s = STATUS_INLINE[status] || STATUS_INLINE.completed;
+  return (
+    <span className={"inline-flex items-center gap-1.5 min-w-0 " + s.text}>
+      <span className={"w-1.5 h-1.5 rounded-full shrink-0 " + s.dot} aria-hidden="true" />
+      <span className="truncate">{label}</span>
     </span>
   );
 }

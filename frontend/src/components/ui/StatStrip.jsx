@@ -13,7 +13,8 @@ import { ACCENT_VALUE_CLASS } from "./statAccents";
  *
  * One card, hairline dividers; each cell stacks a small label, the value, and
  * a one-line helper under it. About 80px tall — the six tiles it replaced were
- * 116-133px — and the same shape on a phone, three across.
+ * 116-133px — and the same shape on a phone, three across, a size smaller
+ * (18px values, 11px labels) so four stats fit two rows of ~62px.
  *
  * items: [{
  *   key, label, value,
@@ -28,9 +29,10 @@ export default function StatStrip({ items, className = "" }) {
   // On a phone the strip is three across and quiet cells hide, so its last row
   // is often short — four cells left one stat beside a blank white box. The
   // phone grid is 6 columns with each cell spanning 2; the cells of a short
-  // last row share the full width instead (1 left → all 6, 2 left → 3 each).
+  // last row share the full width instead (2 left → 3 each). Exactly four is
+  // two by two: three and a lone full-width fourth read as a leftover.
   const phoneKeys = items.filter((i) => !i.hideOnPhone).map((i) => i.key || i.label);
-  const tail = phoneKeys.length % 3;
+  const tail = phoneKeys.length === 4 ? 4 : phoneKeys.length % 3;
   const tailKeys = new Set(tail ? phoneKeys.slice(-tail) : []);
   const tailSpan = tail === 1 ? "col-span-6" : "col-span-3";
   return (
@@ -71,7 +73,7 @@ function StatStripCell({
   const valueClass = ACCENT_VALUE_CLASS[accent] || ACCENT_VALUE_CLASS.neutral;
   const cls =
     (hideOnPhone ? "hidden sm:block " : "block ") +
-    phoneSpan + " sm:col-span-1 min-w-0 px-3 py-2 text-left " +
+    phoneSpan + " sm:col-span-1 min-w-0 px-3 py-2 max-sm:py-1.5 text-left " +
     "shadow-[1px_0_0_0_rgb(var(--surface-line)),0_1px_0_0_rgb(var(--surface-line))] " +
     (selected ? "bg-[rgb(var(--surface-subtle))] " : "") +
     (isClickable
@@ -90,7 +92,7 @@ function StatStripCell({
       <span className="flex items-center justify-between gap-1 min-w-0">
         <span
           className={
-            "text-xs leading-4 font-medium truncate " +
+            "text-xs leading-4 max-sm:text-[11px] font-medium truncate " +
             (selected
               ? "text-gray-900 dark:text-gray-100"
               : "text-gray-500 dark:text-gray-400")
@@ -111,12 +113,12 @@ function StatStripCell({
           sidebar is open, so the helper was cut to "11 reservati…" and
           "højest k…" exactly where the owner reads it. */}
       <span className="mt-0.5 flex flex-col min-w-0">
-        <span className={"text-[21px] leading-tight font-bold tabular-nums shrink-0 " + valueClass}>
+        <span className={"text-[21px] leading-tight max-sm:text-lg max-sm:leading-6 font-bold tabular-nums shrink-0 " + valueClass}>
           {value}
         </span>
         {helper && (
           <span
-            className="text-xs leading-snug text-gray-500 dark:text-gray-400 truncate"
+            className="text-xs leading-snug max-sm:text-[11px] text-gray-500 dark:text-gray-400 truncate"
             title={typeof helper === "string" ? helper : undefined}
           >
             {helper}

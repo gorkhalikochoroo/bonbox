@@ -1909,6 +1909,7 @@ export const en = {
     rsvpSeatNowBtn: "Seat now", rsvpSeatError: "Couldn't seat the guests.",
     // Header "Seat walk-in" (always reachable) + its table picker.
     rsvpSeatWalkIn: "Seat a drop-in",
+    rsvpSeatWalkInShort: "Drop-in",
     rsvpSeatWalkInTable: "Table",
     rsvpSeatWalkInNoTables: "No tables",
     rsvpSeatWalkInBusy: "occupied",

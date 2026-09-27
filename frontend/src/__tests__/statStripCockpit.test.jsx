@@ -84,10 +84,18 @@ describe("StatStrip on a phone — no blank box in a short last row", () => {
     { key: "w", label: "On waitlist", value: 1, hideOnPhone: quiet.includes("w") },
   ];
 
-  it("one stat left over takes the whole last row", () => {
+  it("four stats are two by two, not three and a lone fourth", () => {
     render(<StatStrip items={six(["o", "w"])} />);
+    expect(["Covers", "Seated now", "Next arrival", "Awaiting"].map(spanOf)).toEqual([
+      "col-span-3", "col-span-3", "col-span-3", "col-span-3",
+    ]);
+  });
+
+  it("a single stat left after full rows takes the whole last row", () => {
+    const seven = [...six([]), { key: "x", label: "Extra", value: 1 }];
+    render(<StatStrip items={seven} />);
     expect(spanOf("Covers")).toBe("col-span-2");
-    expect(spanOf("Awaiting")).toBe("col-span-6");
+    expect(spanOf("Extra")).toBe("col-span-6");
   });
 
   it("two left over share it", () => {

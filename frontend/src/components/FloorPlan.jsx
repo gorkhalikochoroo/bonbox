@@ -1392,11 +1392,23 @@ export default function FloorPlan({
     );
   }
 
+  // The "next free" line shows outside Arrange whenever the room has started.
+  const showTurnLine = !editing && (turn.freeNow > 0 || turn.occupied > 0);
+
   return (
     <div className="space-y-3">
-      {/* Toolbar: title + edit controls */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 flex-wrap">
+      {/* Toolbar: title + edit controls. The "next free" line is the last item
+          of this wrapping row: from sm: up it takes a full line of its own
+          under the controls, exactly where it always sat; on a phone it moves
+          to the front and shares ONE row with the Arrange button, and the
+          capacity chip (fixed facts, not service) steps aside for it. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap max-sm:items-stretch">
+        <div
+          className={
+            "flex items-center gap-2.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 flex-wrap" +
+            (showTurnLine ? " max-sm:hidden" : "")
+          }
+        >
           {/* Room capacity — what fits at one seating. */}
           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 tabular-nums">
             <Users className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" aria-hidden />
@@ -1486,26 +1498,31 @@ export default function FloorPlan({
               </Button>
             </>
           ) : canArrange ? (
+            // Icon-only on a phone, beside the "next free" line; the name is
+            // still its accessible name and its tooltip.
             <button
               type="button"
               onClick={enterEdit}
-              className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label={t(profile.arrangeKey, "Arrange room")}
+              title={t(profile.arrangeKey, "Arrange room")}
+              className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors max-sm:min-h-0! max-sm:h-full max-sm:w-10 max-sm:px-0 max-sm:justify-center max-sm:bg-[rgb(var(--surface-card))]"
             >
               <Pencil className="w-4 h-4" aria-hidden />
-              {t(profile.arrangeKey, "Arrange room")}
+              <span className="max-sm:sr-only">{t(profile.arrangeKey, "Arrange room")}</span>
             </button>
           ) : null}
         </div>
-      </div>
 
       {/* "Next free" — the one line a host reads when a walk-in comes in.
           Calm when tables are open; amber when the room's full and the answer
           is "wait for HH:MM". Live (ticks with nowMs). Hidden while arranging
           and on an empty/unstarted room (nothing to say). */}
-      {!editing && (turn.freeNow > 0 || turn.occupied > 0) && (
+      {showTurnLine && (
         <div
           className={
-            "flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm " +
+            "flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm basis-full order-last " +
+            "max-sm:order-first max-sm:basis-0 max-sm:flex-1 max-sm:min-w-0 max-sm:min-h-10 " +
+            "max-sm:px-3 max-sm:py-2 max-sm:text-[13px] max-sm:rounded-lg " +
             (turn.freeNow > 0
               ? "bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
               : "bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200")
@@ -1516,11 +1533,11 @@ export default function FloorPlan({
           {turn.freeNow > 0 ? (
             <>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" aria-hidden />
-              <span className="font-medium">
+              <span className="font-medium shrink-0">
                 {t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
               </span>
               {turn.nextAt && (
-                <span className="text-gray-400 dark:text-gray-500 truncate">
+                <span className="text-gray-400 dark:text-gray-500 truncate min-w-0">
                   · {t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
                 </span>
               )}
@@ -1528,11 +1545,11 @@ export default function FloorPlan({
           ) : (
             <>
               <Clock className="w-4 h-4 shrink-0" aria-hidden />
-              <span className="font-medium">
+              <span className="font-medium shrink-0">
                 {t("rsvpTurnAllBusy", "All tables occupied")}
               </span>
               {turn.nextAt && (
-                <span className="truncate">
+                <span className="truncate min-w-0">
                   · {t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
                   {turn.nextIn != null && turn.nextIn <= 0
                     ? " " + t("rsvpTurnNow", "(now)")
@@ -1545,6 +1562,7 @@ export default function FloorPlan({
           )}
         </div>
       )}
+      </div>
 
       {saveError && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm">

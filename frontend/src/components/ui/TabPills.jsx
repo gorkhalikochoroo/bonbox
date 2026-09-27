@@ -31,6 +31,20 @@
  *   margin trick to bleed into the page edges (-mx-4 px-4), so users
  *   see "there's more to swipe to" instead of a clipped row.
  *
+ * Phone presentation (opt-in, below sm: only):
+ *   phone="underline" — a page's SECTIONS. One row that scrolls if it must, a
+ *     hairline under the row and a bar under the current section. Wrapped
+ *     pills put two rows of equal-weight buttons at the top of a phone screen,
+ *     with the last section alone on the second row.
+ *   phone="segmented" — LENSES on the same data (List / Floor / Timeline). One
+ *     full-width control, equal segments, the current one a filled thumb.
+ *     The whole 40px row is the tap target: the thumb is each segment's
+ *     background clipped inside a transparent border, not a smaller button.
+ *   Both are 40px with 13px text on a phone (index.css's global 44px touch
+ *   floor is released for them) — 44px pills read as slabs at phone width.
+ *   Every phone class is `max-sm:`, so from sm: up the pill row renders
+ *   exactly as before — tablet and desktop are unchanged by construction.
+ *
  * Usage:
  *   <TabPills
  *     tabs={[{id:"day",label:"Day"},{id:"week",label:"Week"},{id:"month",label:"Month"}]}
@@ -38,7 +52,40 @@
  *     onChange={setRange}
  *   />
  */
-import React from "react";
+import React, { useEffect, useRef } from "react";
+
+const PHONE_ROW = {
+  underline:
+    "max-sm:flex-nowrap max-sm:gap-6 max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 " +
+    "max-sm:border-b max-sm:border-[rgb(var(--surface-line))] " +
+    "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+  segmented:
+    "max-sm:flex-nowrap max-sm:gap-0 max-sm:rounded-lg max-sm:border " +
+    "max-sm:border-[rgb(var(--surface-line))] max-sm:bg-[rgb(var(--surface-card))]",
+};
+
+// Colour is set per state, for both themes, so the pill colours underneath
+// (and the dark theme's white selected pill) never show through on a phone.
+const PHONE_TAB = {
+  underline: {
+    base:
+      "max-sm:h-10 max-sm:min-h-0! max-sm:px-0 max-sm:rounded-none max-sm:text-[13px] " +
+      "max-sm:bg-transparent max-sm:dark:bg-transparent",
+    on: "max-sm:text-gray-900 max-sm:dark:text-white max-sm:shadow-[inset_0_-2px_0_0_currentColor]",
+    off: "max-sm:text-gray-500 max-sm:dark:text-gray-400",
+  },
+  segmented: {
+    base:
+      "max-sm:flex-1 max-sm:h-[38px] max-sm:min-h-0! max-sm:px-2 max-sm:text-[13px] max-sm:rounded-lg " +
+      "max-sm:border-[3px] max-sm:border-transparent max-sm:bg-clip-padding",
+    on: "max-sm:text-white max-sm:dark:bg-gray-600 max-sm:dark:text-white",
+    off: "max-sm:bg-transparent max-sm:dark:bg-transparent max-sm:text-gray-600 max-sm:dark:text-gray-300",
+  },
+};
+
+// On an underline row the count chip sits on the page, not on a dark pill.
+const PHONE_COUNT_ON_PAGE =
+  "max-sm:bg-gray-100 max-sm:text-gray-600 max-sm:dark:bg-gray-800 max-sm:dark:text-gray-300";
 
 export default function TabPills({
   tabs = [],
@@ -48,7 +95,25 @@ export default function TabPills({
   className = "",
   ariaLabel = "View",
   size = "md",
+  phone = null,
 }) {
+  const phoneRow = PHONE_ROW[phone] || "";
+  const phoneTab = PHONE_TAB[phone] || null;
+  const rowRef = useRef(null);
+
+  // A section row that scrolls keeps the current section in view — the one
+  // chosen last time may be the one sitting past the edge.
+  useEffect(() => {
+    if (phone !== "underline") return;
+    const row = rowRef.current;
+    const tab = row?.querySelector('[aria-selected="true"]');
+    if (!row || !tab || row.scrollWidth <= row.clientWidth) return;
+    const r = row.getBoundingClientRect();
+    const b = tab.getBoundingClientRect();
+    if (b.left < r.left + 16) row.scrollLeft -= r.left + 16 - b.left;
+    else if (b.right > r.right - 16) row.scrollLeft += b.right - (r.right - 16);
+  }, [phone, activeId]);
+
   // Build a single shared `role="tablist"` to keep keyboard semantics
   // (arrow keys etc.) consistent for screen readers. We don't need a
   // full tab-arrow implementation here — clicks are the dominant input —
@@ -67,10 +132,11 @@ export default function TabPills({
     (wrap
       ? "flex flex-wrap gap-1.5"
       : "flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-none") +
+    (phoneRow ? " " + phoneRow : "") +
     (className ? " " + className : "");
 
   return (
-    <div role="tablist" aria-label={ariaLabel} className={containerClass}>
+    <div ref={rowRef} role="tablist" aria-label={ariaLabel} className={containerClass}>
       {tabs.map((tab) => {
         const selected = tab.id === activeId;
         // Selected = bg-gray-900 (almost-black) + white text. Unselected
@@ -82,9 +148,11 @@ export default function TabPills({
 
         // Count chip — flips light/dark based on parent pill state so it
         // remains legible against either bg.
-        const countClass = selected
-          ? "bg-white/20 text-white dark:bg-gray-900/15 dark:text-gray-900"
-          : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300";
+        const countClass =
+          (selected
+            ? "bg-white/20 text-white dark:bg-gray-900/15 dark:text-gray-900"
+            : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300") +
+          (phone === "underline" ? " " + PHONE_COUNT_ON_PAGE : "");
 
         return (
           <button
@@ -104,7 +172,10 @@ export default function TabPills({
               // halo around a control standing on a lighter card.
               "inline-flex items-center justify-center rounded-full font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--surface-card))] " +
               pillSizeClass + " " +
-              pillClass
+              pillClass +
+              (phoneTab
+                ? " " + phoneTab.base + " " + (selected ? phoneTab.on : phoneTab.off)
+                : "")
             }
           >
             <span>{tab.label}</span>

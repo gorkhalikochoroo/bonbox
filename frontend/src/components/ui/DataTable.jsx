@@ -141,10 +141,11 @@ export default function DataTable({
   onToggleSelect = null,
   onToggleAll = null,
   mobileBreakpoint = "md",
-  // Optional phone-card override: when provided, each mobile card renders
-  // mobileRow(row) instead of the generic label:value list + action strip —
-  // for surfaces where the generic dump is too tall to scan (the caller owns
-  // row tap + actions inside its renderer). Desktop table is unaffected.
+  // Optional phone-row override: when provided, the mobile view is ONE card
+  // listing mobileRow(row) for each row between hairline dividers, instead of
+  // a card per row with the generic label:value list + action strip — for
+  // surfaces where the generic dump is too tall to scan (the caller owns row
+  // tap + actions inside its renderer). Desktop table is unaffected.
   mobileRow,
   className = "",
   // Optional: make each row/card clickable (e.g. open a detail drawer).
@@ -410,22 +411,32 @@ export default function DataTable({
             </div>
           </Card>
         ))}
+      {/* A caller's own compact row is a LIST, not a stack of cards: one card,
+          hairline dividers, each row only as tall as its content. As separate
+          cards (p-5 each, 12px apart) a two-line booking row took ~96px of a
+          phone screen and the book read as a pile of boxes; grouped it takes
+          ~60px and reads as the list it is. */}
+      {!loading && typeof mobileRow === "function" && rows.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] divide-y divide-[rgb(var(--surface-line))]">
+          {rows.map((row, idx) => {
+            const key = resolveKey(row, rowKey, idx);
+            const isSelected = selectedSet ? selectedSet.has(key) : false;
+            return (
+              <div
+                key={key}
+                className={"px-4 py-2" + (isSelected ? " bg-[rgb(var(--surface-subtle))]" : "")}
+              >
+                {mobileRow(row)}
+              </div>
+            );
+          })}
+        </div>
+      )}
       {!loading &&
+        typeof mobileRow !== "function" &&
         rows.map((row, idx) => {
           const key = resolveKey(row, rowKey, idx);
           const isSelected = selectedSet ? selectedSet.has(key) : false;
-          if (typeof mobileRow === "function") {
-            return (
-              <Card
-                key={key}
-                className={
-                  isSelected ? "ring-1 ring-gray-900 dark:ring-gray-100" : ""
-                }
-              >
-                {mobileRow(row)}
-              </Card>
-            );
-          }
           return (
             <Card
               key={key}
