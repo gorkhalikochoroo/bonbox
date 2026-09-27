@@ -7,6 +7,9 @@
  * Variants (paired to intent, not color):
  *   • primary   — the action you want the user to take. Gray-900 on
  *                  light bg, gray-50 on dark. Quiet but confident.
+ *   • main      — THE one main action of a screen (New booking, Quick sale,
+ *                  Snap your Z-report). BonBox green, so the eye has one
+ *                  place to go. One per screen, never in forms or dialogs.
  *   • accent    — the "money moment" — confirm a purchase, send to
  *                  accountant, complete a close. Emerald.
  *   • secondary — neutral acknowledgement. Cancel, dismiss, alt path.
@@ -51,6 +54,14 @@ const VARIANTS = {
     "dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white " +
     "dark:disabled:opacity-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 " +
     "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100",
+  // The screen's ONE main action (Sep 2026, founder's pick: only the main
+  // button green, every other stays gray-900). #15803D, not the logo's
+  // #16A34A: white text reads ~5:1 on it (AA) and ~3.3:1 on the logo green.
+  // Green does not invert in dark mode — it is the brand, not the ink.
+  main:
+    "bg-bb-green-dark text-white hover:bg-bb-green-deep " +
+    "dark:disabled:opacity-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 " +
+    "focus-visible:ring-bb-green-dark",
   accent:
     "bg-emerald-600 text-white hover:bg-emerald-700 " +
     "focus-visible:ring-emerald-600",

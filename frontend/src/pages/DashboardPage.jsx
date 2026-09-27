@@ -805,7 +805,7 @@ export default function DashboardPage() {
   //    + Smart entry move into the overflow so the header stays calm.
   const headerActions = (
     <>
-      <Button variant="primary" onClick={() => setSaleModal(true)}>
+      <Button variant="main" onClick={() => setSaleModal(true)}>
         + {t("quickSale", "Quick sale")}
       </Button>
       <ReceiptCapture onSaleCreated={fetchAll} />

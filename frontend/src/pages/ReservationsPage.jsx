@@ -4532,7 +4532,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </Button>
           )}
           <Button
-            variant="primary"
+            variant="main"
             size="lg"
             iconLeft={<Plus className="w-4 h-4" />}
             onClick={openNewBooking}

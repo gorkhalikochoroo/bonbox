@@ -45,6 +45,7 @@ Everything else: gray.
 - **Was:** `bg-green-600 text-white hover:bg-green-700` (everywhere — Sales submit, Expenses submit, + Quick Sale, + Item Sale, Faktura create)
 - **Is:** `bg-gray-900 text-white hover:bg-gray-700`
 - One primary action per page (Hick's Law). All others use secondary (`border-gray-200 text-gray-700 hover:bg-gray-50`).
+- **The one exception — the screen's main action (Sep 2026):** `<Button variant="main">`, BonBox green `#15803D` (`bg-bb-green-dark`, hover `bg-bb-green-deep`). Today: + New booking (Reservations), + Quick sale (Home), Snap your Z-report (Kasserapport). One per screen, never in forms or dialogs — green everywhere was tried and read as a template, and it blurs green's meaning on the floor plan (free table). Not the logo's `#16A34A`: white text on it is ~3.3:1, below AA.
 
 ### Chips (amount presets, payment methods, category pills)
 - **Unselected:** `bg-white border border-gray-200 text-gray-700 hover:border-gray-300`

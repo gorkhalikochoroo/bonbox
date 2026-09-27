@@ -798,7 +798,7 @@ export default function DailyClosePage() {
           </div>
           <div className="flex flex-col sm:flex-row gap-2 shrink-0 w-full sm:w-auto">
             <Button
-              variant="primary"
+              variant="main"
               onClick={() => setScanOpen(true)}
               className="w-full sm:w-auto"
             >

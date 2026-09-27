@@ -28,6 +28,7 @@
   --color-bb-green: #16A34A;
   --color-bb-green-bright: #22C55E;
   --color-bb-green-dark: #15803D;
+  --color-bb-green-deep: #166534; /* hover for <Button variant="main"> */
   --color-bb-green-tint: #DCFCE7;
   --color-bb-green-wash: #ECFDF5;
   --color-bb-green-edge: #86EFAC;
