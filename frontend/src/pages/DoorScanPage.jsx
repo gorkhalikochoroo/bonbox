@@ -745,7 +745,15 @@ export default function DoorScanPage() {
   }, [selectedEvent, submitScan, pushHistory, t, scanMode]);
 
   // ── Camera lifecycle ───────────────────────────────────────────────
+  // Every start takes a number; every stop (unmount included) invalidates it.
+  // getUserMedia can wait seconds on the permission prompt, and meanwhile the
+  // start buttons and "Skift arrangement" are still live. A start that resolves
+  // after a stop or a newer start must drop its stream — otherwise the camera
+  // stays on after Stop, or a scanner comes up with no event selected and
+  // checks in tickets from any of the owner's events.
+  const startGenRef = useRef(0);
   const startScanner = useCallback(async () => {
+    const gen = ++startGenRef.current;
     setCameraError(null);
     // Audio context must be created on user gesture — this click counts.
     if (!audioRef.current) audioRef.current = makeAudioFeedback();
@@ -760,12 +768,14 @@ export default function DoorScanPage() {
         },
         audio: false,
       });
+      if (gen !== startGenRef.current) { stream.getTracks().forEach((tr) => tr.stop()); return; }
       streamRef.current = stream;
       const video = videoRef.current;
       if (video) {
         video.srcObject = stream;
         video.setAttribute("playsinline", "true");
         await video.play().catch(() => { /* autoplay may need user gesture */ });
+        if (gen !== startGenRef.current) return; // stopped while play() was pending; stopScanner already ended the tracks
       }
       setScanning(true);
       lockPortrait();
@@ -774,6 +784,7 @@ export default function DoorScanPage() {
         if (tickRef.current) tickRef.current();
       });
     } catch (err) {
+      if (gen !== startGenRef.current) return; // a cancelled start has nothing to report
       const name = err?.name || "";
       let key = "scanCameraGenericError";
       let fallback = "Kunne ikke åbne kameraet.";
@@ -792,6 +803,7 @@ export default function DoorScanPage() {
   }, []);
 
   const stopScanner = useCallback(() => {
+    startGenRef.current++; // cancels a start that is still waiting for the camera
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;

@@ -79,7 +79,10 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 # and in Claude mode each tool result is sent to Anthropic, while the privacy
 # policy promises "never raw customer data". A name answers "who owes me?" or
 # "who's on tonight?"; a phone number or an email address adds nothing to the
-# reply. The owner's own browser still receives the full result on the stream.
+# reply. The owner's browser still receives the full result on the stream, but
+# no chat card shows contact fields (the Khata and Staff pages do), so the system
+# prompt tells the model they are withheld: otherwise "what's Hari's number?"
+# gets "I don't have a number for Hari", which reads as "none on file".
 _CONTACT_KEY_PARTS = ("phone", "email", "e_mail", "address", "cpr")
 
 
@@ -875,7 +878,10 @@ async def _claude_chat(req: ChatRequest, db, user):
         "- Call tools when users ask about specific data, periods, or details.\n"
         "- For general \"how's it going?\" → you already have the snapshot above, respond directly.\n"
         "- For specific queries like \"revenue this week\" or \"show expenses\" → use tools.\n"
-        "- NEVER guess or make up numbers.\n\n"
+        "- NEVER guess or make up numbers.\n"
+        "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
+        "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
+        "point them to the Khata or Staff page. Never say it isn't on file.\n\n"
 
         "## Response style\n"
         "- If something looks good, celebrate it briefly.\n"
