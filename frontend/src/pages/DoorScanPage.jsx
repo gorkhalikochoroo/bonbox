@@ -745,7 +745,15 @@ export default function DoorScanPage() {
   }, [selectedEvent, submitScan, pushHistory, t, scanMode]);
 
   // ── Camera lifecycle ───────────────────────────────────────────────
+  // Every start takes a number; every stop (unmount included) invalidates it.
+  // getUserMedia can wait seconds on the permission prompt, and meanwhile the
+  // start buttons and "Skift arrangement" are still live. A start that resolves
+  // after a stop or a newer start must drop its stream — otherwise the camera
+  // stays on after Stop, or a scanner comes up with no event selected and
+  // checks in tickets from any of the owner's events.
+  const startGenRef = useRef(0);
   const startScanner = useCallback(async () => {
+    const gen = ++startGenRef.current;
     setCameraError(null);
     // Audio context must be created on user gesture — this click counts.
     if (!audioRef.current) audioRef.current = makeAudioFeedback();
@@ -760,12 +768,14 @@ export default function DoorScanPage() {
         },
         audio: false,
       });
+      if (gen !== startGenRef.current) { stream.getTracks().forEach((tr) => tr.stop()); return; }
       streamRef.current = stream;
       const video = videoRef.current;
       if (video) {
         video.srcObject = stream;
         video.setAttribute("playsinline", "true");
         await video.play().catch(() => { /* autoplay may need user gesture */ });
+        if (gen !== startGenRef.current) return; // stopped while play() was pending; stopScanner already ended the tracks
       }
       setScanning(true);
       lockPortrait();
@@ -774,6 +784,7 @@ export default function DoorScanPage() {
         if (tickRef.current) tickRef.current();
       });
     } catch (err) {
+      if (gen !== startGenRef.current) return; // a cancelled start has nothing to report
       const name = err?.name || "";
       let key = "scanCameraGenericError";
       let fallback = "Kunne ikke åbne kameraet.";
@@ -792,6 +803,7 @@ export default function DoorScanPage() {
   }, []);
 
   const stopScanner = useCallback(() => {
+    startGenRef.current++; // cancels a start that is still waiting for the camera
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -811,6 +823,24 @@ export default function DoorScanPage() {
     lastScanRef.current = { text: null, until: 0 };
     frameCountRef.current = 0;
   }, []);
+
+  // ── Attach the stream AFTER the <video> exists ─────────────────────
+  // The preview element is rendered behind `{scanning && …}`, so inside
+  // startScanner — which runs while scanning is still false — videoRef.current
+  // is null and the `if (video)` branch there silently does nothing. The
+  // element then mounts with no srcObject, readyState never reaches
+  // HAVE_ENOUGH_DATA, and the jsQR tick returns on every frame: black preview,
+  // no scans, no error. Attaching here (deps: scanning) runs in the commit
+  // where the node actually exists.
+  useEffect(() => {
+    if (!scanning) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream || video.srcObject === stream) return;
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "true");
+    video.play().catch(() => { /* autoplay may need a user gesture */ });
+  }, [scanning]);
 
   // ── Gavekort scan entry ────────────────────────────────────────────
   // Opened from the no-event landing tile. No event needed — flip into

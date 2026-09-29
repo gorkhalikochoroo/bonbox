@@ -74,6 +74,30 @@ TOOL_MAP = {
 
 NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 
+# Contact details never go to the model. query_staff returned every
+# employee's phone and email, query_khata every credit customer's phone —
+# and in Claude mode each tool result is sent to Anthropic, while the privacy
+# policy promises "never raw customer data". A name answers "who owes me?" or
+# "who's on tonight?"; a phone number or an email address adds nothing to the
+# reply. The owner's browser still receives the full result on the stream, but
+# no chat card shows contact fields (the Khata and Staff pages do), so the system
+# prompt tells the model they are withheld: otherwise "what's Hari's number?"
+# gets "I don't have a number for Hari", which reads as "none on file".
+_CONTACT_KEY_PARTS = ("phone", "email", "e_mail", "address", "cpr")
+
+
+def _for_model(value):
+    """The tool result with every contact-detail field removed, at any depth."""
+    if isinstance(value, dict):
+        return {
+            k: _for_model(v)
+            for k, v in value.items()
+            if not any(p in str(k).lower() for p in _CONTACT_KEY_PARTS)
+        }
+    if isinstance(value, (list, tuple)):
+        return [_for_model(v) for v in value]
+    return value
+
 
 # ---------------------------------------------------------------------------
 # LOCAL INTENT PARSER — keyword-based tool routing (no API needed)
@@ -854,7 +878,10 @@ async def _claude_chat(req: ChatRequest, db, user):
         "- Call tools when users ask about specific data, periods, or details.\n"
         "- For general \"how's it going?\" → you already have the snapshot above, respond directly.\n"
         "- For specific queries like \"revenue this week\" or \"show expenses\" → use tools.\n"
-        "- NEVER guess or make up numbers.\n\n"
+        "- NEVER guess or make up numbers.\n"
+        "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
+        "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
+        "point them to the Khata or Staff page. Never say it isn't on file.\n\n"
 
         "## Response style\n"
         "- If something looks good, celebrate it briefly.\n"
@@ -976,7 +1003,7 @@ async def _claude_chat(req: ChatRequest, db, user):
                         try:
                             result = tool_fn(db, user.id) if tool_name in NO_PARAM_TOOLS else tool_fn(db, user.id, **tool_input)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result})}\n\n"
-                            tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(result)})
+                            tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(_for_model(result))})
                         except Exception as e:
                             logger.exception("Tool %s failed", tool_name)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': {'error': str(e)}})}\n\n"
