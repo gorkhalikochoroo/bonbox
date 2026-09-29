@@ -74,6 +74,27 @@ TOOL_MAP = {
 
 NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 
+# Contact details never go to the model. query_staff returned every
+# employee's phone and email, query_khata every credit customer's phone —
+# and in Claude mode each tool result is sent to Anthropic, while the privacy
+# policy promises "never raw customer data". A name answers "who owes me?" or
+# "who's on tonight?"; a phone number or an email address adds nothing to the
+# reply. The owner's own browser still receives the full result on the stream.
+_CONTACT_KEY_PARTS = ("phone", "email", "e_mail", "address", "cpr")
+
+
+def _for_model(value):
+    """The tool result with every contact-detail field removed, at any depth."""
+    if isinstance(value, dict):
+        return {
+            k: _for_model(v)
+            for k, v in value.items()
+            if not any(p in str(k).lower() for p in _CONTACT_KEY_PARTS)
+        }
+    if isinstance(value, (list, tuple)):
+        return [_for_model(v) for v in value]
+    return value
+
 
 # ---------------------------------------------------------------------------
 # LOCAL INTENT PARSER — keyword-based tool routing (no API needed)
@@ -976,7 +997,7 @@ async def _claude_chat(req: ChatRequest, db, user):
                         try:
                             result = tool_fn(db, user.id) if tool_name in NO_PARAM_TOOLS else tool_fn(db, user.id, **tool_input)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result})}\n\n"
-                            tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(result)})
+                            tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(_for_model(result))})
                         except Exception as e:
                             logger.exception("Tool %s failed", tool_name)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': {'error': str(e)}})}\n\n"

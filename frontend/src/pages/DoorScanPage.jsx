@@ -812,6 +812,24 @@ export default function DoorScanPage() {
     frameCountRef.current = 0;
   }, []);
 
+  // ── Attach the stream AFTER the <video> exists ─────────────────────
+  // The preview element is rendered behind `{scanning && …}`, so inside
+  // startScanner — which runs while scanning is still false — videoRef.current
+  // is null and the `if (video)` branch there silently does nothing. The
+  // element then mounts with no srcObject, readyState never reaches
+  // HAVE_ENOUGH_DATA, and the jsQR tick returns on every frame: black preview,
+  // no scans, no error. Attaching here (deps: scanning) runs in the commit
+  // where the node actually exists.
+  useEffect(() => {
+    if (!scanning) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream || video.srcObject === stream) return;
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "true");
+    video.play().catch(() => { /* autoplay may need a user gesture */ });
+  }, [scanning]);
+
   // ── Gavekort scan entry ────────────────────────────────────────────
   // Opened from the no-event landing tile. No event needed — flip into
   // gavekort mode and open the SAME camera loop; submitScan routes a gavekort
