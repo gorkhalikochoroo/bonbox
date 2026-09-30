@@ -15,14 +15,22 @@ from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
 
 
+# The expense this books is read by the owner and the revisor in Danish.
+_REASON_DA = {
+    "expired": "udløbet", "spoiled": "fordærvet", "damaged": "beskadiget",
+    "overproduction": "overproduktion", "dropped": "tabt", "other": "andet",
+}
+
+
 def _get_or_create_waste_category(db: Session, user_id) -> ExpenseCategory:
     """Get or create a 'Waste' expense category for the user."""
     cat = db.query(ExpenseCategory).filter(
         ExpenseCategory.user_id == user_id,
-        func.lower(ExpenseCategory.name) == "waste",
+        # Existing accounts have "Waste"; new ones get the Danish "Svind".
+        func.lower(ExpenseCategory.name).in_(("waste", "svind")),
     ).first()
     if not cat:
-        cat = ExpenseCategory(user_id=user_id, name="Waste")
+        cat = ExpenseCategory(user_id=user_id, name="Svind")
         db.add(cat)
         db.commit()
         db.refresh(cat)
@@ -38,7 +46,7 @@ def _sync_expense_for_waste(db: Session, log: WasteLog):
     if existing:
         existing.amount = float(log.estimated_cost)
         existing.date = log.date
-        existing.description = f"Waste: {log.item_name} ({log.reason})"
+        existing.description = f"Svind: {log.item_name} ({_REASON_DA.get(log.reason, log.reason)})"
         return
     cat = _get_or_create_waste_category(db, log.user_id)
     expense = Expense(
@@ -47,7 +55,7 @@ def _sync_expense_for_waste(db: Session, log: WasteLog):
         category_id=cat.id,
         date=log.date,
         amount=float(log.estimated_cost),
-        description=f"Waste: {log.item_name} ({log.reason})",
+        description=f"Svind: {log.item_name} ({_REASON_DA.get(log.reason, log.reason)})",
         payment_method="card",
         reference_id=ref_id,
     )

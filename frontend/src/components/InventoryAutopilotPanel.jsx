@@ -33,6 +33,7 @@
  * Lucide outline icons only (no emoji). DK trade terms (leverandør, bestilling,
  * genbestil, lager, vareforbrug, letfordærvelig) stay Danish in every language.
  */
+import { unitLabel } from "../utils/unitLabel";
 import { useState, useMemo, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -281,9 +282,9 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {t("inventoryAutopilotStock", "Stock")}:&nbsp;
-                    {Number(it.current_stock || 0).toFixed(2)} {it.unit} ·&nbsp;
+                    {qtyFmt(it.current_stock)} {unitLabel(t, it.unit)} ·&nbsp;
                     {t("inventoryAutopilotDailyDemand", "Daily demand")}:&nbsp;
-                    {Number(it.daily_demand || 0).toFixed(2)} {it.unit}
+                    {qtyFmt(it.daily_demand)} {unitLabel(t, it.unit)}
                     {it.days_until_stockout != null && (
                       <>
                         {" "}·{" "}
@@ -341,7 +342,11 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
 }
 
 
-export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false, onAddSupplier = null }) {
+// Quantities in the owner's notation: "1,8" / "6", not "1.80" / "6.00".
+const qtyFmt = (v) =>
+  new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(Number(v || 0));
+
+export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false, onAddSupplier = null, refreshKey = 0 }) {
   const { t, lang } = useLanguage();
   const { user } = useAuth();
   const { hasFeature, minPlanForFeature, loading: entLoading } = useEntitlements();
@@ -402,6 +407,16 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hero, entLoading, isUnlocked]);
+
+  // Re-ask when the stock list changes under it (an adjust, a count, a new
+  // item). The hero said "Dit lager ser sundt ud" next to a red LAV row until
+  // the owner pressed Opdater — two answers to one question on one screen.
+  useEffect(() => {
+    if (hero && refreshKey && !entLoading && isUnlocked && !loading) {
+      fetchSuggestion();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   // Plain-text reorder list for the clipboard. A DRAFT the owner pastes into
   // their own channel — never phrased as a sent order. Value line only when

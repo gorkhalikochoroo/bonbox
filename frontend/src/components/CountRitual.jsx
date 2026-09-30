@@ -17,6 +17,7 @@
  * outline icons, rounded-xl, big tap targets ("anyone, one tap"). Enter
  * confirms + advances.
  */
+import { unitLabel } from "../utils/unitLabel";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -274,7 +275,9 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {(result?.adjusted || 0) === 0
                 ? t("countDoneNoChange", "Alt stemte — intet justeret")
-                : t("countDoneAdjusted", "{n} varer justeret")
+                : (result?.adjusted || 0) === 1
+                  ? t("countDoneAdjustedOne", "1 item adjusted")
+                  : t("countDoneAdjusted", "{n} varer justeret")
                     .replace("{n}", String(result?.adjusted || 0))}
             </p>
             <div className="mt-5 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between">
@@ -401,7 +404,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
                   className="w-28 text-center text-3xl font-semibold tabular-nums bg-transparent text-gray-900 dark:text-gray-100 border-b-2 border-gray-200 dark:border-gray-700 focus:border-gray-900 dark:focus:border-gray-100 outline-none py-1"
                   aria-label={t("countQty", "Antal")}
                 />
-                <span className="text-base text-gray-500 dark:text-gray-400">{cur.unit}</span>
+                <span className="text-base text-gray-500 dark:text-gray-400">{unitLabel(t, cur.unit)}</span>
               </div>
               <button
                 type="button"

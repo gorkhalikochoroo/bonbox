@@ -11,6 +11,7 @@
 //     Starter+ funktion") + items list still rendered but the
 //     waste-cost column is hidden (backend strips it server-side via
 //     scan_upcoming_expiries' L4 gate).
+import { unitLabel } from "../utils/unitLabel";
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import api from "../services/api";
@@ -480,12 +481,14 @@ export default function ExpiryPage() {
                 key={it.id}
                 className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-[rgb(var(--surface-card))] border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
               >
-                <div className="min-w-0 flex-1">
+                {/* Name on its own line on a phone: beside four buttons it was
+                    squeezed to 0 px and the row showed no item at all. */}
+                <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                     {it.name}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {it.quantity} {it.unit} ·{" "}
+                    {it.quantity} {unitLabel(t, it.unit)} ·{" "}
                     {(it.days_left ?? 99) <= 0
                       ? t("expiryDueToday", "due today")
                       : t("expiryInDays", "{n}d left").replace("{n}", String(it.days_left))}
@@ -655,7 +658,7 @@ export default function ExpiryPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{statusLabel(t, item.status)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>{item.quantity} {item.unit} | {item.category}</span>
+                    <span>{item.quantity} {unitLabel(t, item.unit)} | {item.category}</span>
                     <span className={`font-bold ${
                       item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600"
                     }`}>
@@ -696,7 +699,7 @@ export default function ExpiryPage() {
                     }`}>
                       <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{item.name}</td>
                       <td className="py-3 px-2 text-gray-500 text-xs">{item.category}</td>
-                      <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{item.quantity} {item.unit}</td>
+                      <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{item.quantity} {unitLabel(t, item.unit)}</td>
                       <td className="py-3 px-2 text-gray-500">{item.expiry_date}</td>
                       <td className={`py-3 px-2 text-right font-bold ${
                         item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600 dark:text-gray-400"
@@ -793,7 +796,7 @@ export default function ExpiryPage() {
           <div className="flex flex-wrap gap-2 mb-3">
             {missing_expiry.map((item, i) => (
               <span key={i} className="bg-white dark:bg-[rgb(var(--surface-card))] border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs px-3 py-1.5 rounded-full">
-                {item.name} ({item.quantity} {item.unit})
+                {item.name} ({item.quantity} {unitLabel(t, item.unit)})
               </span>
             ))}
           </div>

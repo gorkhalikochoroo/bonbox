@@ -159,8 +159,8 @@ def test_zip_summary_agrees_with_the_angivelse(db):
 
     assert float(r["Moms af salg"]) == pytest.approx(data["moms_af_salg"], abs=0.01)
     assert float(r["Moms af køb"]) == pytest.approx(data["moms_af_kob"], abs=0.01)
-    assert float(r["Salg ekskl. moms"]) == pytest.approx(data["salg_med_moms"], abs=0.01)
-    assert float(r["Køb ekskl. moms"]) == pytest.approx(data["kob_med_moms"], abs=0.01)
+    assert float(r["Salg inkl. moms"]) == pytest.approx(data["salg_med_moms"], abs=0.01)
+    assert float(r["Køb inkl. moms"]) == pytest.approx(data["kob_med_moms"], abs=0.01)
     assert float(r["Netto moms (positiv = skyldig)"]) == pytest.approx(
         data["moms_til_skat"], abs=0.01
     )
@@ -178,7 +178,7 @@ def test_the_summary_reflects_paragraph_42_weighting(db):
 
     data = compute_filing_data(db, owner, P_START, P_END)
     rows = _summary_rows(owner, db)
-    naive_kob_moms = float(rows[0]["Køb ekskl. moms"]) * 0.25
+    naive_kob_moms = float(rows[0]["Køb inkl. moms"]) * 0.25
 
     # A blanket 25% of net purchases is what the old engine reported. The real
     # figure must be strictly lower, because two categories deduct nothing.

@@ -4,6 +4,7 @@
 // — logging waste is destructive).  The recharts PieChart is one-off and
 // left alone (only the wrapper card chrome polished).  Behavior + i18n +
 // a11y unchanged.
+import { unitLabel } from "../utils/unitLabel";
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -227,7 +228,7 @@ export default function WastePage() {
           <StatCard
             label={t("monthlyWasteCost")}
             value={<Amount value={summary.total_cost} currency={currency} />}
-            accent="critical"
+            accent={Number(summary.total_cost) > 0 ? "critical" : "neutral"}
           />
           <StatCard
             label={t("itemsWasted")}
@@ -295,8 +296,16 @@ export default function WastePage() {
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("estimatedCost")}</p>
         <div className="flex flex-wrap gap-2 mb-4">
           {QUICK_COSTS.map((c) => (
-            <button key={c} onClick={() => submit(c)} disabled={!item || !qty}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-700 hover:text-red-700 dark:hover:text-red-400 transition disabled:opacity-30">
+            // A chip FILLS the cost; the button below logs it. A chip that
+            // logged on tap (no confirm, no undo) booked 50 kr. of waste on a
+            // mis-tap.
+            <button key={c} type="button" onClick={() => setCost(String(c))} disabled={!item || !qty}
+              aria-pressed={String(cost) === String(c)}
+              className={`px-4 py-2.5 rounded-xl border text-sm font-semibold transition disabled:opacity-30 ${
+                String(cost) === String(c)
+                  ? "border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900"
+                  : "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              }`}>
               <Amount value={c} currency={currency} />
             </button>
           ))}
@@ -464,7 +473,7 @@ export default function WastePage() {
                     <>
                       <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{formatDate(log.date)}</td>
                       <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 font-medium">{log.item_name}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{parseFloat(log.quantity)} {log.unit}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{parseFloat(log.quantity)} {unitLabel(t, log.unit)}</td>
                       <td className="px-4 py-3">
                         <span className={`text-xs font-medium px-2 py-1 rounded-full capitalize ${
                           log.reason === "expired" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400" :

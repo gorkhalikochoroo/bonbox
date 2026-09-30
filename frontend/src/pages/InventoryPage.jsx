@@ -10,6 +10,7 @@
 // with neutral clickable StatCards.  Click-to-expand affordance
 // preserved via onClick + ChevronDown indicator.  Selected state
 // uses gray-900 ring (no tech-glow per sidebar rule).
+import { unitLabel } from "../utils/unitLabel";
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
@@ -57,6 +58,14 @@ function StatPanelClose({ onClick, t }) {
       <Icon name="X" size={12} />
     </button>
   );
+}
+
+// Wine, spirits, beer — things sold by the glass or shot.
+const POUR_WORDS = ["wine", "vin", "spirit", "sprit", "liquor", "beer", "øl", "bar", "cocktail", "whisky", "gin", "rum", "vodka"];
+function isPourable(it) {
+  const c = String(it?.category || "").toLowerCase();
+  const u = String(it?.unit || "").toLowerCase();
+  return u === "bottles" || u === "liters" || POUR_WORDS.some((w) => c.includes(w));
 }
 
 export default function InventoryPage() {
@@ -234,7 +243,10 @@ export default function InventoryPage() {
   // adjust, delete, pour, restock, template load, Smart Import, CountRitual)
   // still gets all seven feeds re-asked. The difference is that a request that
   // comes back angry now leaves `failed` behind instead of nothing at all.
+  // Bumped on every reload so the reorder hero re-asks with the new stock.
+  const [heroKey, setHeroKey] = useState(0);
   const fetchData = () => {
+    setHeroKey((k) => k + 1);
     itemsQ.reload();
     alertsQ.reload();
     categoriesQ.reload();
@@ -355,6 +367,7 @@ export default function InventoryPage() {
       sell_price_per_pour: item.sell_price_per_pour != null ? parseFloat(item.sell_price_per_pour) : "",
       supplier_name: item.supplier_name || "",
       supplier_email: item.supplier_email || "",
+      expiry_date: item.expiry_date || "",
     });
   };
 
@@ -383,6 +396,7 @@ export default function InventoryPage() {
       // Optional leverandør — empty email must be null (backend EmailStr
       // rejects ""). A blank email clears it; a real one is what BonBox names
       // when it tells the owner who to reorder from. The owner orders.
+      payload.expiry_date = payload.expiry_date || null;
       payload.supplier_name = payload.supplier_name?.trim() || null;
       payload.supplier_email = payload.supplier_email?.trim() || null;
       await api.patch(`/inventory/${editId}`, payload);
@@ -728,7 +742,7 @@ export default function InventoryPage() {
           the upsell card. BonBox TELLS what to genbestil + how much + by when;
           the owner places the order themselves (Kopiér bestilling). BonBox
           sends nothing — no supplier emails. */}
-      <InventoryAutopilotPanel hero onAddSupplier={() => setShowSmartImport(true)} />
+      <InventoryAutopilotPanel hero refreshKey={heroKey} onAddSupplier={() => setShowSmartImport(true)} />
 
       {/* Weekly count entry (S4) — now that the recipe auto-deduct keeps stock
           live, the optælling is "confirm only what's off". One tap opens the
@@ -802,7 +816,7 @@ export default function InventoryPage() {
         <SectionBanner
           severity="critical"
           icon="AlertTriangle"
-          title={`${t("lowStockAlerts")}: ${alerts.length} ${t("itemsBelowMinStock")}`}
+          title={`${t("lowStockAlerts")}: ${alerts.length} ${alerts.length === 1 ? t("itemBelowMinStockOne", "item below minimum") : t("itemsBelowMinStock")}`}
         />
       )}
 
@@ -1106,7 +1120,7 @@ export default function InventoryPage() {
                       <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-xs">
                         <span className="font-medium text-gray-800 dark:text-white truncate max-w-[40%]">{i.name}</span>
                         <span className="text-gray-500 dark:text-gray-400">{categoryLabel(t, i.category)}</span>
-                        <span className="font-bold text-gray-700 dark:text-gray-300">{i.quantity} {i.unit}</span>
+                        <span className="font-bold text-gray-700 dark:text-gray-300">{i.quantity} {unitLabel(t, i.unit)}</span>
                       </div>
                     ))}
                   </div>
@@ -1144,7 +1158,7 @@ export default function InventoryPage() {
                       <span className="text-red-500/60 ml-2">{categoryLabel(t, a.category)}</span>
                     </div>
                     <div className="text-right">
-                      <span className="font-semibold text-red-600 dark:text-red-400">{a.quantity} {a.unit}</span>
+                      <span className="font-semibold text-red-600 dark:text-red-400">{a.quantity} {unitLabel(t, a.unit)}</span>
                       {/* `min_stock` is not a field InventoryItemResponse has
                           ever served, so every row printed "Min stock:" and
                           then nothing — on the one list that is supposed to
@@ -1182,7 +1196,7 @@ export default function InventoryPage() {
                       <span className="text-gray-400 dark:text-gray-500 ml-2">{categoryLabel(t, i.category)}</span>
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-gray-900 dark:text-gray-100 tabular-nums">{i.quantity} {i.unit}</span>
+                      <span className="font-medium text-gray-900 dark:text-gray-100 tabular-nums">{i.quantity} {unitLabel(t, i.unit)}</span>
                       {i.expiry_date && <span className="text-amber-600 dark:text-amber-400 ml-2">{t("expExpiresLabel", "Expires:")} {formatDateClear(i.expiry_date)}</span>}
                     </div>
                   </div>
@@ -1429,7 +1443,7 @@ export default function InventoryPage() {
       {/* Add item form */}
       <div className="bg-white dark:bg-[rgb(var(--surface-card))] p-6 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))]">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{t("addItem")}</h2>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 [&>*]:min-w-0">
           <input type="text" placeholder={t("itemName")} value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg col-span-2 md:col-span-1" required />
@@ -1539,7 +1553,8 @@ export default function InventoryPage() {
               <tr>
                 <th className="px-3 py-2.5 w-10">
                   <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-gray-900" />
+                    aria-label={t("invSelectAll", "Select all")}
+                    className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900" />
                 </th>
                 <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("item")}</th>
                 <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("category")}</th>
@@ -1565,13 +1580,21 @@ export default function InventoryPage() {
                   <tr className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" : "hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"}>
                     <td className="px-3 py-2.5">
                       <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-gray-900" />
+                        aria-label={t("invSelectItem", "Select {name}", { name: item.name })}
+                        className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900" />
                     </td>
                     {editId === item.id ? (
                       <>
                         <td className="px-3 py-2">
                           <input type="text" value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                            aria-label={t("itemName")}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white w-28" />
+                          {/* Expiry was accepted by the API but settable nowhere. */}
+                          <label className="mt-1 flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+                            {t("invExpiryShort", "Expires")}
+                            <input type="date" value={editData.expiry_date || ""} onChange={(e) => setEditData({ ...editData, expiry_date: e.target.value })}
+                              className="px-1.5 py-1 border border-gray-200 dark:border-gray-600 rounded text-[12px] dark:bg-gray-700 dark:text-white w-[7.5rem]" />
+                          </label>
                         </td>
                         <td className="px-3 py-2">
                           <input type="text" value={editData.category} onChange={(e) => setEditData({ ...editData, category: e.target.value })}
@@ -1579,7 +1602,15 @@ export default function InventoryPage() {
                         </td>
                         <td className="px-3 py-2 text-right">
                           <input type="number" value={editData.quantity} onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                            aria-label={t("quantity")}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
+                          {/* The reorder level decides "LAV" — it has to be visible
+                              and correctable, not fixed at creation. */}
+                          <label className="mt-1 flex items-center justify-end gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+                            {t("invMinShort", "Min.")}
+                            <input type="number" value={Number.isFinite(editData.min_threshold) ? editData.min_threshold : ""} onChange={(e) => setEditData({ ...editData, min_threshold: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
+                              className="px-1.5 py-1 border border-gray-200 dark:border-gray-600 rounded text-[12px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-14" />
+                          </label>
                         </td>
                         <td className="px-3 py-2">
                           <select value={editData.unit} onChange={(e) => setEditData({ ...editData, unit: e.target.value })}
@@ -1602,9 +1633,14 @@ export default function InventoryPage() {
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <MoneyField locale={mLocale} value={editData.sell_price_per_pour} onChange={(e) => setEditData({ ...editData, sell_price_per_pour: e.target.value })}
-                            placeholder={t("perPour")}
-                            className="px-2 py-1.5 border border-amber-300 dark:border-amber-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
+                          {/* Per-pour pricing only means something for a bottle. */}
+                          {(editData.sell_price_per_pour !== "" && editData.sell_price_per_pour != null) || isPourable(editData) ? (
+                            <MoneyField locale={mLocale} value={editData.sell_price_per_pour} onChange={(e) => setEditData({ ...editData, sell_price_per_pour: e.target.value })}
+                              placeholder={t("perPour")}
+                              className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
+                          ) : (
+                            <span className="text-[13px] text-gray-400">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-[13px] text-gray-500 text-right tabular-nums">—</td>
                         <td className="px-3 py-2 text-right">
@@ -1652,7 +1688,7 @@ export default function InventoryPage() {
                             )}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400">{item.unit}</td>
+                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400">{unitLabel(t, item.unit)}</td>
                         <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right"><Amount value={buy} currency={currency} decimals={2} /></td>
                         <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right">
                           {sell != null ? <Amount value={sell} currency={currency} decimals={2} /> : "—"}
@@ -1856,28 +1892,57 @@ export default function InventoryPage() {
                         <option value="dozen">{t("dozen")}</option>
                       </select>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        type="number"
-                        value={editData.quantity}
-                        onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-                        placeholder={t("quantity")}
-                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
-                      />
-                      <MoneyField
-                        locale={mLocale}
-                        value={editData.cost_per_unit}
-                        onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value })}
-                        placeholder={t("cost")}
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
-                      />
-                      <MoneyField
-                        locale={mLocale}
-                        value={editData.sell_price}
-                        onChange={(e) => setEditData({ ...editData, sell_price: e.target.value })}
-                        placeholder={t("sell")}
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
-                      />
+                    {/* Labelled fields: three bare number boxes gave no clue which
+                        was the quantity, the cost or the price. */}
+                    <div className="grid grid-cols-3 gap-2 [&>label]:min-w-0">
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {t("quantity")}
+                        <input
+                          type="number"
+                          value={editData.quantity}
+                          onChange={(e) => setEditData({ ...editData, quantity: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                          className="mt-0.5 w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                        />
+                      </label>
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {t("invCostPrice", "Cost price")}
+                        <MoneyField
+                          locale={mLocale}
+                          value={editData.cost_per_unit}
+                          onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value })}
+                          className="mt-0.5 w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                        />
+                      </label>
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {t("sell")}
+                        <MoneyField
+                          locale={mLocale}
+                          value={editData.sell_price}
+                          onChange={(e) => setEditData({ ...editData, sell_price: e.target.value })}
+                          placeholder="—"
+                          className="mt-0.5 w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 [&>label]:min-w-0">
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {t("invMinStockLabel", "Reorder at (min.)")}
+                        <input
+                          type="number"
+                          value={Number.isFinite(editData.min_threshold) ? editData.min_threshold : ""}
+                          onChange={(e) => setEditData({ ...editData, min_threshold: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
+                          className="mt-0.5 w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                        />
+                      </label>
+                      <label className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {t("invExpiryShort", "Expires")}
+                        <input
+                          type="date"
+                          value={editData.expiry_date || ""}
+                          onChange={(e) => setEditData({ ...editData, expiry_date: e.target.value })}
+                          className="mt-0.5 w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                        />
+                      </label>
                     </div>
                     {/* Optional leverandør — so BonBox can name who to reorder
                         from. BonBox tells, the owner orders. */}
@@ -1940,7 +2005,7 @@ export default function InventoryPage() {
                       </div>
                       <div className="text-right shrink-0">
                         <div className="font-semibold tabular-nums text-gray-900 dark:text-white">
-                          {qty} <span className="text-[12px] text-gray-500 dark:text-gray-400 font-normal">{item.unit}</span>
+                          {qty} <span className="text-[12px] text-gray-500 dark:text-gray-400 font-normal">{unitLabel(t, item.unit)}</span>
                         </div>
                       </div>
                     </div>
