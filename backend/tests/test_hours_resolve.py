@@ -178,7 +178,9 @@ def test_absent_records_a_real_zero(client, db):
     o = _owner(db); m = _staff(db, o)
     body = _resolve(client, m, "absent").json()
     assert body["total_hours"] == 0.0
-    assert body["resolution"] == "confirmed"
+    # Its own answer since Sep-30 — stored as "confirmed" it re-read as
+    # "Gik tidligt" and never showed "Markeret fraværende".
+    assert body["resolution"] == "absent"
     assert body["clock_hours"] == 0
 
 

@@ -162,7 +162,7 @@ def test_payroll_is_refused_while_a_shift_is_still_open(client, db):
     # the English sentence is still carried as `message`.
     detail = detail["message"] if isinstance(detail, dict) else detail
     assert "Agnes" in detail, "the owner must be told WHO to chase"
-    assert "2026-06-12" in detail, "and WHEN"
+    assert "12. jun." in detail, "and WHEN (in Danish since Sep-30)"
     assert "15:22" in detail
 
 

@@ -187,7 +187,24 @@ def test_worked_without_being_scheduled(client, db):
 
 
 def test_still_on_the_clock_is_not_an_exception(client, db):
-    """An open punch mid-shift is normal, not a problem to resolve."""
+    """An open punch mid-shift TODAY is normal, not a problem to resolve."""
+    from app.services.tz_utils import business_today_local
+    o = _owner(db); m = _staff(db, o)
+    today = business_today_local(o)
+    _sched(db, o, m, today)
+    db.add(HoursLogged(user_id=o.id, staff_id=m.id, date=today, start_time="08:00",
+                       end_time=None, break_minutes=0, total_hours=0,
+                       entry_method="clock"))
+    db.commit()
+    row = _row(client, m, frm=today, to=today)
+    assert row["worst_state"] == "running"
+    assert row["needs_answer_count"] == 0
+    assert row["exceptions"] == []
+
+
+def test_an_open_punch_on_a_past_day_is_a_forgotten_clock_out(client, db):
+    """Open on a day that is over is not someone on shift: it needs the
+    owner's answer, and it names the start so the sheet can ask for the end."""
     o = _owner(db); m = _staff(db, o)
     _sched(db, o, m, D1)
     db.add(HoursLogged(user_id=o.id, staff_id=m.id, date=D1, start_time="08:00",
@@ -195,9 +212,17 @@ def test_still_on_the_clock_is_not_an_exception(client, db):
                        entry_method="clock"))
     db.commit()
     row = _row(client, m)
-    assert row["worst_state"] == "running"
+    assert row["worst_state"] == "forgot_clock_out"
+    assert row["needs_answer_count"] == 1
+    assert row["exceptions"][0]["start_time"] == "08:00"
+
+    r = client.post("/api/staff/hours/resolve", json={
+        "staff_id": str(m.id), "date": str(D1), "action": "clock_out", "end_time": "16:00"})
+    assert r.status_code == 200, r.text
+    assert r.json()["total_hours"] == 8.0
+    assert r.json()["entry_method"] == "owner_resolved"
+    row = _row(client, m)
     assert row["needs_answer_count"] == 0
-    assert row["exceptions"] == []
 
 
 # ── precedence ───────────────────────────────────────────────────────────

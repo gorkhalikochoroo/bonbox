@@ -39,6 +39,7 @@ Endpoints:
   POST   /payroll/pdf                — generate payroll PDF
 """
 
+import re
 import uuid
 import secrets
 import calendar
@@ -4332,8 +4333,9 @@ class ResolveHoursRequest(BaseModel):
     point is that the ambiguous case has no row to reference yet."""
     staff_id: str
     date: date_type
-    action: str                       # "confirm" | "adjust" | "absent"
+    action: str                       # "confirm" | "adjust" | "absent" | "clock_out"
     total_hours: float | None = None  # required for "adjust"
+    end_time: str | None = None       # required for "clock_out" ("HH:MM")
     note: str | None = None
 
 
@@ -4367,8 +4369,43 @@ def resolve_hours(
         raise HTTPException(status_code=404, detail="Staff member not found")
 
     action = (data.action or "").strip().lower()
-    if action not in ("confirm", "adjust", "absent"):
+    if action not in ("confirm", "adjust", "absent", "clock_out"):
         raise HTTPException(status_code=400, detail="Unknown action")
+    if action == "clock_out":
+        # A forgotten clock-out: the start was measured, the owner supplies the
+        # end. It had no fix path at all — a pencil edit set hours but left
+        # end_time empty, so the punch stayed "open", the chip stayed, and the
+        # payroll PDF kept refusing the period.
+        if not data.end_time or not re.fullmatch(r"\d{1,2}:\d{2}", data.end_time.strip()):
+            raise HTTPException(status_code=400, detail="end_time (HH:MM) required")
+        open_row = db.query(HoursLogged).filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.staff_id == staff.id,
+            HoursLogged.date == data.date,
+            HoursLogged.start_time.isnot(None),
+            HoursLogged.end_time.is_(None),
+        ).first()
+        if open_row is None:
+            raise HTTPException(status_code=404, detail="No open punch on that day")
+        open_row.end_time = data.end_time.strip()
+        open_row.total_hours = _calc_shift_hours(open_row.start_time, open_row.end_time, open_row.break_minutes or 0)
+        _rate = float(open_row.rate_applied or 0) or _pick_rate(staff, open_row.date, open_row.start_time)
+        if _rate:
+            open_row.rate_applied = _rate
+            open_row.earned = round(float(open_row.total_hours) * _rate, 2)
+        # The end is the owner's, not the clock's — say so in the record.
+        open_row.entry_method = "owner_resolved"
+        open_row.resolution = "adjusted"
+        open_row.resolved_by = user.id
+        open_row.resolved_at = utc_now()
+        open_row.resolution_note = (data.note or "Udstempling sat af ejer").strip()[:500]
+        db.commit()
+        db.refresh(open_row)
+        return {
+            "id": str(open_row.id), "date": open_row.date.isoformat(),
+            "total_hours": float(open_row.total_hours), "end_time": open_row.end_time,
+            "entry_method": open_row.entry_method, "resolution": open_row.resolution,
+        }
     if action == "adjust" and data.total_hours is None:
         raise HTTPException(status_code=400, detail="total_hours required to adjust")
     if data.total_hours is not None and not (0 <= data.total_hours <= 24):
@@ -4406,7 +4443,7 @@ def resolve_hours(
         entry.resolution = "adjusted"
     elif action == "absent":
         entry.total_hours = 0
-        entry.resolution = "confirmed"
+        entry.resolution = "absent"
     else:
         entry.resolution = "confirmed"
 
@@ -4725,6 +4762,11 @@ def hours_summary(
 
     actual_by_day: dict = {}
     open_punch_days: set = set()
+    open_punch_start: dict = {}
+    # An owner's answer settles the day — "De arbejdede ikke" (0 h) was
+    # re-classified as "Gik tidligt" on the next load.
+    resolved_days: set = set()
+    _today_biz = business_today_local(user)
     try:
         for h in (
             db.query(HoursLogged)
@@ -4739,15 +4781,23 @@ def hours_summary(
             actual_by_day[k] = actual_by_day.get(k, 0.0) + float(h.total_hours or 0)
             if h.start_time and not h.end_time:
                 open_punch_days.add(k)
+                open_punch_start[k] = h.start_time
+            if getattr(h, "resolution", None) in ("confirmed", "adjusted", "absent"):
+                resolved_days.add(k)
     except Exception as e:      # noqa: BLE001 — never kill the report
         log.warning("hours_summary: per-day actuals failed: %s", e)
         actual_by_day = {}
         open_punch_days = set()
 
-    def _classify(scheduled: float, actual: float, has_row: bool, open_punch: bool) -> str:
+    def _classify(scheduled: float, actual: float, has_row: bool, open_punch: bool,
+                  past: bool = False, resolved: bool = False) -> str:
         """One shift → one state. Order matters; the first match wins."""
         if open_punch:
-            return "running"                     # still on the clock
+            # Open on a PAST day is not someone on shift — it's a forgotten
+            # clock-out, and it needs the owner's answer like a missing punch.
+            return "forgot_clock_out" if past else "running"
+        if resolved:
+            return "matched"
         if scheduled > 0 and not has_row:
             # The clock measured NOTHING. That is all we know. Whether they
             # no-showed or worked and forgot to punch is not knowable here, and
@@ -4761,7 +4811,7 @@ def hours_summary(
 
     # Worst-first. "needs your answer" outranks everything the clock measured,
     # because it is the only state that cannot be resolved without a human.
-    _RANK = ["no_clock_in", "over", "short", "unplanned", "running", "matched"]
+    _RANK = ["forgot_clock_out", "no_clock_in", "over", "short", "unplanned", "running", "matched"]
 
     states_by_staff: dict = {}
     for (sid, day) in set(list(sched_by_day.keys()) + list(actual_by_day.keys())):
@@ -4771,6 +4821,8 @@ def hours_summary(
             scheduled, actual,
             has_row=(sid, day) in actual_by_day,
             open_punch=(sid, day) in open_punch_days,
+            past=day < _today_biz,
+            resolved=(sid, day) in resolved_days,
         )
         bucket = states_by_staff.setdefault(sid, {"states": [], "exceptions": []})
         bucket["states"].append(st)
@@ -4780,6 +4832,7 @@ def hours_summary(
                 "state": st,
                 "scheduled_hours": round(scheduled, 1),
                 "actual_hours": round(actual, 1),
+                **({"start_time": open_punch_start.get((sid, day))} if st == "forgot_clock_out" else {}),
             })
 
     # Staff names + pay/limit fields — wrapped so a corrupt member row doesn't
@@ -4877,7 +4930,7 @@ def hours_summary(
             "worst_state": _worst(sid),
             "needs_answer_count": sum(
                 1 for e in states_by_staff.get(sid, {}).get("exceptions", [])
-                if e["state"] == "no_clock_in"
+                if e["state"] in ("no_clock_in", "forgot_clock_out")
             ),
             "exceptions": sorted(
                 states_by_staff.get(sid, {}).get("exceptions", []),
@@ -5131,7 +5184,38 @@ def hours_overview(
             "comparable": comparable,
         }
 
+    # COVERAGE. A month where hours exist for one week of four, divided by the
+    # whole month's revenue, read "5 % — God kontrol" while that one week ran
+    # at 18 %. Measure how many revenue days have hours; when it's thin, the
+    # percentage is computed over the covered days and flagged as partial.
+    coverage = None
+    pct_covered = None
+    covered_days = revenue_days = 0
+    try:
+        from app.services.revenue_resolver import effective_revenue_by_date
+        rev_by_day = {d: float(v) for d, v in effective_revenue_by_date(db, user.id, from_date, to_date).items() if float(v or 0) > 0}
+        hour_days = {
+            r[0] for r in db.query(HoursLogged.date).filter(
+                HoursLogged.user_id == user.id,
+                HoursLogged.date >= from_date, HoursLogged.date <= to_date,
+                HoursLogged.total_hours > 0,
+            ).distinct().all()
+        }
+        revenue_days = len(rev_by_day)
+        covered_days = sum(1 for d in rev_by_day if d in hour_days)
+        if revenue_days:
+            coverage = covered_days / revenue_days
+            rev_cov = sum(v for d, v in rev_by_day.items() if d in hour_days)
+            if rev_cov > 0 and has_cost_basis:
+                pct_covered = loaded_est / rev_cov
+    except Exception:  # noqa: BLE001 — coverage is context; never kill the report
+        coverage = None
+
     narrative_input = {
+        "coverage": coverage,
+        "covered_days": covered_days,
+        "revenue_days": revenue_days,
+        "pct_covered": pct_covered,
         "actual_total": round(actual_total, 1),
         "scheduled_total": round(scheduled_total, 1),
         "gross": round(gross, 2),
@@ -5518,6 +5602,9 @@ def export_payroll_csv(
     A genuinely empty period (no hours logged) still returns a header-only
     file — that one is honest, because there really is nothing to pay.
     """
+    # No wage file over an open punch: it would carry 0 hours for that shift.
+    if db is not None:
+        _refuse_open_punches(db, user, period_start, period_end)
     import csv
     import io
     from app.services.payroll_service import estimate_period_payroll
@@ -6066,7 +6153,7 @@ def _refuse_open_punches(db: Session, user: User, period_start: date, period_end
     if open_rows:
         names = {str(s.id): s.name for s in staff_rows}
         listed = ", ".join(
-            f"{names.get(str(sid), 'ukendt')} {d.isoformat()}"
+            f"{names.get(str(sid), 'ukendt')} {d.day}. {('jan.','feb.','mar.','apr.','maj','jun.','jul.','aug.','sep.','okt.','nov.','dec.')[d.month - 1]}"
             + (f" fra {st}" if st else "")
             for sid, d, st in open_rows[:6]
         )
@@ -6157,6 +6244,9 @@ def send_payroll_to_accountant(
     # picked up the counter device mail the venue's payroll to an address of
     # their choosing. Ordered first so the 403 is not shadowed by a 402.
     _require_uncurtained_wages(user)
+    # The same bytes as /payroll/pdf, mailed to the revisor — so the same
+    # open-punch barrier (it was only on the download).
+    _refuse_open_punches(db, user, body.period_start, body.period_end)
 
     # Tier gate (Polish Pass tier reshuffle)
     from app.services.billing import has_feature, effective_plan

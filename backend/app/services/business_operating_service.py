@@ -200,7 +200,22 @@ def role_category(role: Optional[str]) -> Optional[str]:
     apart on what counts as kitchen vs front-of-house."""
     if not role:
         return None
-    return _ROLE_CATEGORY.get(role.strip().lower())
+    r = role.strip().lower()
+    exact = _ROLE_CATEGORY.get(r)
+    if exact:
+        return exact
+    # Free-text and planner roles ("kitchen", "Kok", "Head Chef", "bar",
+    # "Barista", "Tjener") landed in "Ufordelt" — 45 % of a venue's wages
+    # under "unassigned". Substring tiers like the planner's roleSections.js.
+    for needles, cat in (
+        (("kitchen", "køkken", "kok", "chef de", "head chef", "sous", "cook", "opvask", "dishwash", "prep"), "kitchen"),
+        (("bar", "barista", "bartender", "tjener", "server", "waiter", "servering", "floor", "host", "vært", "runner"), "front_of_house"),
+        (("manager", "leder", "restaurantchef", "direktør", "owner", "ejer"), "specialist"),
+        (("rengøring", "cleaning", "cleaner", "driver", "chauffør", "bud"), "support"),
+    ):
+        if any(n in r for n in needles):
+            return cat
+    return None
 
 
 # ─── Validators ───────────────────────────────────────────────────────

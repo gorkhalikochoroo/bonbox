@@ -687,6 +687,7 @@ const NAR_KEY = {
   labor_watch: "hovNarLaborWatch",
   labor_over: "hovNarLaborOver",
   labor_no_revenue: "hovNarLaborNoRevenue",
+  labor_partial: "hovNarLaborPartial",
   labor_no_rates: "hovNarNoRates",
   limit_over: "hovNarLimitOver",
   limit_over_multi: "hovNarLimitOverMulti",
@@ -1284,6 +1285,13 @@ function LaborSplitCard({ split, currency }) {
  */
 function shiftStateMeta(state, t) {
   switch (state) {
+    case "forgot_clock_out":
+      // Clocked in on a day that's over and never out: needs the end time.
+      return {
+        label: t("shpStateForgotOut", "No clock-out"),
+        cls: "text-amber-600 dark:text-amber-400",
+        needsAnswer: true,
+      };
     case "no_clock_in":
       return {
         // The clock measured nothing. That is ALL it knows. "Didn't show up" is
@@ -1360,7 +1368,8 @@ function fmtHours(n, lang) {
     deviations — only one of them needs a human. */
 function firstException(row) {
   const ex = row.exceptions || [];
-  return ex.find((e) => e.state === "no_clock_in") || ex[0] || null;
+  return ex.find((e) => e.state === "forgot_clock_out")
+    || ex.find((e) => e.state === "no_clock_in") || ex[0] || null;
 }
 
 function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
@@ -1371,6 +1380,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  const [endTime, setEndTime] = useState("");
   const send = async (action, total) => {
     setBusy(true); setErr("");
     try {
@@ -1379,6 +1389,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
         date: exception.date,
         action,
         ...(total != null ? { total_hours: total } : {}),
+        ...(action === "clock_out" ? { end_time: endTime } : {}),
       });
       onResolved();
       onClose();
@@ -1391,6 +1402,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   };
 
   const isMissing = exception?.state === "no_clock_in";
+  const forgotOut = exception?.state === "forgot_clock_out";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center">
@@ -1406,7 +1418,27 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
           {t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(exception.scheduled_hours, lang))}
         </p>
 
-        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
+        {forgotOut ? (
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              {t("shpResolveForgotBody", "Clocked in at {start} and never out. When did the shift end?", { start: exception.start_time || "—" })}
+            </p>
+            <div className="flex items-center gap-2">
+              <label className="sr-only" htmlFor="resolve-end">{t("shpResolveEndLabel", "Clock-out time")}</label>
+              <input
+                id="resolve-end" type="time" value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-32 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none"
+              />
+              <Button className="flex-1" disabled={busy || !endTime} onClick={() => send("clock_out")}>
+                {t("shpResolveSaveOut", "Save clock-out")}
+              </Button>
+            </div>
+            {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+          </div>
+        ) : null}
+
+        <p className={`mt-3 text-sm text-gray-700 dark:text-gray-300 ${forgotOut ? "hidden" : ""}`}>
           {isMissing
             ? t("shpResolveMissingBody", "The clock recorded nothing for this shift. Only you know what happened.")
             : t("shpResolveShortBody", "The clock recorded {a} of {s}.")
@@ -1414,9 +1446,9 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
                 .replace("{s}", fmtHours(exception.scheduled_hours, lang))}
         </p>
 
-        {err && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>}
+        {!forgotOut && err && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>}
 
-        <div className="mt-4 space-y-2">
+        <div className={`mt-4 space-y-2 ${forgotOut ? "hidden" : ""}`}>
           <div className="flex items-center gap-2">
             <input
               type="number" step="0.25" min="0" max="24"

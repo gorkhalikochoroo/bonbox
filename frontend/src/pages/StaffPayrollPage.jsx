@@ -387,7 +387,15 @@ export default function StaffPayrollPage() {
       // A non-blob 422 makes data.detail an ARRAY ([{type,loc,msg,input}]);
       // rendering that as a child would crash. Keep the parsed string as-is,
       // else fall back to the generic message.
-      setError(typeof detail === "string" ? detail : t("payrollPdfFailed", "Could not generate PDF. Please try again."));
+      // The open-punch refusal is structured — name the shifts in the
+      // owner's language instead of "Could not generate PDF".
+      if (detail && typeof detail === "object" && detail.code === "open_punches") {
+        setError(detail.count === 1
+          ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
+          : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
+      } else {
+        setError(typeof detail === "string" ? detail : t("payrollPdfFailed", "Could not generate PDF. Please try again."));
+      }
     }
     setPdfLoading(false);
   };
@@ -889,7 +897,9 @@ export default function StaffPayrollPage() {
                         let detail = null;
                         try { detail = JSON.parse(await e?.response?.data?.text?.())?.detail; } catch { /* not JSON */ }
                         if (e?.response?.status === 409 && detail?.code === "open_punches") {
-                          setError(t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
+                          setError(detail.count === 1
+                            ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
+                            : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
                         } else {
                           setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
                         }

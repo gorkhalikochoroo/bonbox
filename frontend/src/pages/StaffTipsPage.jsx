@@ -1,6 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { Clock, Users, SlidersHorizontal } from "lucide-react";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -20,17 +21,17 @@ import { errText } from "../utils/errText";
 // copy, looked up through t() at render.
 const SPLIT_METHODS = [
   {
-    id: "hours", icon: "⏱️",
+    id: "hours", icon: Clock,
     labelKey: "stfTipSplitHours", labelFallback: "By Hours Worked",
     descKey: "stfTipSplitHoursDesc", descFallback: "Proportional to hours logged today",
   },
   {
-    id: "role", icon: "👔",
+    id: "role", icon: Users,
     labelKey: "stfTipSplitRole", labelFallback: "By Role Share",
     descKey: "stfTipSplitRoleDesc", descFallback: "Full-time = 1.0, Part-time/Student = 0.5",
   },
   {
-    id: "custom", icon: "✏️",
+    id: "custom", icon: SlidersHorizontal,
     labelKey: "stfTipSplitCustom", labelFallback: "Custom Ratio",
     descKey: "stfTipSplitCustomDesc", descFallback: "Set your own percentages",
   },
@@ -61,6 +62,11 @@ const ROLE_NAME_KEYS = {
   part_time: ["contractPart", "Part-time"],
   student: ["contractStudent", "Student"],
 };
+// "23,1 %", not "23.1%" — a Dane reads the dot as a thousands separator.
+function pctDa(v) {
+  return `${new Intl.NumberFormat("da-DK", { maximumFractionDigits: 1 }).format(Number(v) || 0)} %`;
+}
+
 function roleName(role, t) {
   const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
   return hit ? t(hit[0], hit[1]) : role;
@@ -212,7 +218,9 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           return {
             staff_id: member.id,
             name: member.name || member.full_name || "",
-            role: member.role || member.employment_type || "full-time",
+            // The split's promise is "part-time = 0,5" — that's the CONTRACT,
+            // not the job title ("kitchen", "bar" all weighed 1.0).
+            role: member.contract_type || member.employment_type || member.role || "full-time",
             hours: hourEntry ? parseFloat(hourEntry.hours || hourEntry.total_hours || 0) : 0,
           };
         }).filter(m => m.hours > 0 || hoursData.length === 0);
@@ -430,7 +438,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="text-lg">{method.icon}</span>
+                <method.icon className="w-4 h-4 text-gray-500 dark:text-gray-400" strokeWidth={1.75} aria-hidden="true" />
                 <span className={`text-sm font-semibold ${
                   splitMethod === method.id
                     ? "text-gray-700 dark:text-gray-300"
@@ -544,7 +552,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                         />
                       ) : (
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          {row.share_pct.toFixed(1)}%
+                          {pctDa(row.share_pct)}
                         </span>
                       )}
                     </td>
@@ -576,8 +584,8 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                         : "dark:text-gray-300"
                     }`}>
                       {splitMethod === "custom"
-                        ? `${totalCustomPercent.toFixed(1)}%`
-                        : `${distribution.reduce((s, d) => s + d.share_pct, 0).toFixed(1)}%`
+                        ? pctDa(totalCustomPercent)
+                        : pctDa(distribution.reduce((s, d) => s + d.share_pct, 0))
                       }
                     </span>
                   </td>
@@ -593,7 +601,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         {/* Validation messages */}
         {splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5 && totalCustomPercent > 0 && (
           <div className="mx-5 mb-4 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 rounded-xl text-sm text-red-600 dark:text-red-400">
-            {"\u26A0\uFE0F"} {t("stPercentTotalPrefix", "Percentages total")} {totalCustomPercent.toFixed(1)}% — {t("stMustEqual100", "must equal 100%")}
+            {t("stPercentTotalPrefix", "Percentages total")} {pctDa(totalCustomPercent)} — {t("stMustEqual100", "must equal 100%")}
           </div>
         )}
 
@@ -652,7 +660,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                     <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
                       <div>
                         <p className="text-sm font-medium dark:text-white">{nameOf(d)}</p>
-                        <p className="text-xs text-gray-400">{d.share_pct.toFixed(1)}% {t("stShareSuffix", "share")}</p>
+                        <p className="text-xs text-gray-400">{pctDa(d.share_pct)} {t("stShareSuffix", "share")}</p>
                       </div>
                       <span className="text-lg font-bold text-emerald-600 dark:text-gray-300">
                         {formatOwnerMoney(d.share_amount, currency, { decimals: 2 })}
@@ -794,7 +802,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                             language, and CSS would Title-Case the Danish
                             ("Efter Rolle"). */}
                         <span className="text-xs text-gray-400">
-                          {SPLIT_METHODS.find(m => m.id === tip.split_method)?.icon}{" "}
+                          
                           {splitMethodLabel(tip.split_method, t)}
                         </span>
                         <span className="text-xs text-gray-300 dark:text-gray-600">{"\u2022"}</span>
@@ -850,7 +858,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                             </p>
                             <p className="text-xs text-gray-400">
                               {d.hours ? formatHoursMinutes(parseFloat(d.hours), { lang }) : ""}{d.hours && d.percentage ? " \u2022 " : ""}
-                              {d.percentage ? `${parseFloat(d.percentage).toFixed(1)}%` : ""}
+                              {d.percentage ? pctDa(d.percentage) : ""}
                             </p>
                           </div>
                           <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">

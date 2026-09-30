@@ -104,6 +104,20 @@ def build_hours_narrative(data: dict) -> tuple[list[dict], str]:
                 "cost": round(float(data.get("loaded_est") or 0)),
             },
         })
+    elif (data.get("coverage") is not None and data.get("coverage") < 0.8
+          and int(data.get("revenue_days") or 0) >= 3):
+        # Hours for only part of the revenue days: the period-wide % would
+        # divide some days' wages by every day's revenue. Never green.
+        pct_cov = data.get("pct_covered")
+        lines.append({
+            "code": "labor_partial",
+            "severity": "watch",
+            "params": {
+                "pct": round(float(pct_cov) * 100) if pct_cov is not None else None,
+                "covered": int(data.get("covered_days") or 0),
+                "days": int(data.get("revenue_days") or 0),
+            },
+        })
     else:
         pct_frac = float(data.get("pct_loaded") or 0)
         pct_disp = round(pct_frac * 100)
