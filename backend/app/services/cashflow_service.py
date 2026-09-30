@@ -79,18 +79,21 @@ def _starting_balance(user_id, db: Session, manual_balance) -> tuple[float | Non
 
 
 def _get_weekday_revenue(user_id, db: Session) -> dict[int, float]:
-    """Average revenue per weekday from last 4 weeks of sales."""
+    """Average revenue per weekday over the last 4 weeks.
+
+    Per day through the revenue resolver: a confirmed kasserapport wins, else
+    that day's sales. Reading Sale rows alone told a café with a month of
+    closes to "log sales for at least 2 weeks" — and forecast no income at
+    all — while Reports forecast the same week from the same closes."""
+    from app.services.revenue_resolver import effective_revenue_by_date
+
     cutoff = date.today() - timedelta(days=28)
-    sales = (
-        db.query(Sale.date, func.sum(Sale.amount))
-        .filter(Sale.user_id == user_id, Sale.date >= cutoff, Sale.is_deleted.isnot(True))
-        .group_by(Sale.date)
-        .all()
-    )
+    by_date = effective_revenue_by_date(db, user_id, cutoff, date.today())
 
     by_weekday = defaultdict(list)
-    for sale_date, total in sales:
-        by_weekday[sale_date.weekday()].append(float(total))
+    for day, total in by_date.items():
+        if float(total or 0) > 0:
+            by_weekday[day.weekday()].append(float(total))
 
     averages = {}
     for wd in range(7):
@@ -179,8 +182,14 @@ def _get_daily_expense_average(user_id, db: Session) -> float:
     if not rows:
         return 0.0
     total = sum(float(r.daily_total or 0) for r in rows)
-    distinct_days = len(rows)
-    return round(total / max(distinct_days, 1), 2)
+    # Calendar days since the first expense in the window — not the number of
+    # days that HAD an expense. A café paying suppliers twice a week spread
+    # 24.140 kr. over 10 expense days and read 2.414 kr./day, three times its
+    # real ~800. Counting from the first expense still keeps a brand-new
+    # account from being diluted by 30 days it wasn't using BonBox.
+    first_day = min(r.date for r in rows)
+    span = (date.today() - max(first_day, cutoff)).days + 1
+    return round(total / max(span, 1), 2)
 
 
 def _add_one_month(d: date) -> date:

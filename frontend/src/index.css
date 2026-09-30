@@ -1222,3 +1222,8 @@ body.modal-open {
 .dark .bb-room-panfade {
   background: linear-gradient(to left, rgb(2 6 23 / 0.92), rgb(2 6 23 / 0));
 }
+
+/* Chart ink that has to flip in dark mode: a gray-900 bar on a gray-900
+   card was invisible (Reports forecast "tapped" bar, weekly report bars). */
+:root { --bar-active: #111827; --bar-ink: #111827; }
+.dark { --bar-active: #F3F4F6; --bar-ink: #D1D5DB; }

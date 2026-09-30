@@ -975,25 +975,7 @@ def get_dashboard_batch(
     }
 
     # ── 12. PAYMENT BREAKDOWN (from /dashboard/payment-breakdown)─
-    pay_rows = (
-        db.query(
-            Sale.payment_method,
-            func.sum(Sale.amount).label("total"),
-            func.count(Sale.id).label("cnt"),
-        )
-        .filter(Sale.user_id == user.id, Sale.date >= month_start, Sale.date <= month_end,
-                Sale.is_deleted.isnot(True))
-        .group_by(Sale.payment_method)
-        .all()
-    )
-    payment_breakdown = [
-        {
-            "method": (r.payment_method or "other").lower(),
-            "amount": round(float(r.total), 2),
-            "count": r.cnt,
-        }
-        for r in pay_rows
-    ]
+    payment_breakdown = _effective_payment_mix(db, user, month_start, month_end)
 
     # ── 13. WEATHER FORECAST (optional, 1h cached) ───────────────
     # Open-Meteo call now goes through _fetch_weather_cached() — 1h
@@ -1936,6 +1918,50 @@ def get_week_comparison(
     }
 
 
+def _effective_payment_mix(db: Session, user: User, start, end) -> list[dict]:
+    """Payment-method totals with the revenue resolver's precedence: a day
+    with a confirmed kasserapport contributes its payment split, every other
+    day its Sale rows. Sale rows alone showed a close-based venue an empty
+    payment breakdown although every close carries cash/card/MobilePay."""
+    from app.models.daily_close import DailyClose, decode_breakdown
+
+    closes = (
+        db.query(DailyClose)
+        .filter(DailyClose.user_id == user.id, DailyClose.date >= start, DailyClose.date <= end,
+                DailyClose.is_deleted.isnot(True), DailyClose.status == "confirmed")
+        .all()
+    )
+    close_dates = {c.date for c in closes}
+    totals: dict[str, list] = {}
+    for c in closes:
+        for m, v in (decode_breakdown(c.payment_categories) or {}).items():
+            try:
+                amt = float(v or 0)
+            except (TypeError, ValueError):
+                continue
+            if amt:
+                key = str(m).lower()
+                t = totals.setdefault(key, [0.0, 0])
+                t[0] += amt
+                t[1] += 1
+    for r in (
+        db.query(Sale.date, Sale.payment_method, Sale.amount)
+        .filter(Sale.user_id == user.id, Sale.date >= start, Sale.date <= end,
+                Sale.is_deleted.isnot(True))
+        .all()
+    ):
+        if r.date in close_dates:
+            continue
+        key = (r.payment_method or "other").lower()
+        t = totals.setdefault(key, [0.0, 0])
+        t[0] += float(r.amount or 0)
+        t[1] += 1
+    return [
+        {"method": k, "amount": round(v[0], 2), "count": v[1]}
+        for k, v in sorted(totals.items(), key=lambda kv: -kv[1][0])
+    ]
+
+
 @router.get("/payment-breakdown")
 def get_payment_breakdown(
     db: Session = Depends(get_db),
@@ -1952,28 +1978,4 @@ def get_payment_breakdown(
     today = business_today_local(user)
     month_start = today.replace(day=1)
 
-    rows = (
-        db.query(
-            Sale.payment_method,
-            func.sum(Sale.amount).label("total"),
-            func.count(Sale.id).label("cnt"),
-        )
-        .filter(
-            Sale.user_id == user.id,
-            Sale.date >= month_start,
-            Sale.is_deleted.isnot(True),
-        )
-        .group_by(Sale.payment_method)
-        .all()
-    )
-
-    results = []
-    for r in rows:
-        method = r.payment_method or "other"
-        results.append({
-            "method": method.lower(),
-            "amount": round(float(r.total), 2),
-            "count": r.cnt,
-        })
-
-    return results
+    return _effective_payment_mix(db, user, month_start, today)

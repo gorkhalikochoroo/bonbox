@@ -12,7 +12,8 @@ export default function VatReportPage() {
   const { t, lang } = useLanguage();
   const { user } = useAuth();
   const vat = getVatTerms(user?.currency);
-  const [mode, setMode] = useState("monthly"); // "monthly" or "quarterly"
+  const [mode, setMode] = useState("monthly"); // "monthly" | "quarterly" | "half"
+  const [half, setHalf] = useState(currentDate.getMonth() < 6 ? 1 : 2);
   const [month, setMonth] = useState(currentDate.getMonth() + 1);
   const [quarter, setQuarter] = useState(Math.ceil((currentDate.getMonth() + 1) / 3));
   const [year, setYear] = useState(currentDate.getFullYear());
@@ -25,7 +26,9 @@ export default function VatReportPage() {
     setLoading(true);
     setError(null);
     const params = { year };
-    if (mode === "quarterly") {
+    if (mode === "half") {
+      params.half = half;
+    } else if (mode === "quarterly") {
       params.quarter = quarter;
     } else {
       params.month = month;
@@ -39,13 +42,15 @@ export default function VatReportPage() {
 
   useEffect(() => {
     fetchReport();
-  }, [month, quarter, year, mode]);
+  }, [month, quarter, half, year, mode]);
 
   const downloadPdf = async () => {
     setDownloading(true);
     try {
       const params = { year };
-      if (mode === "quarterly") {
+      if (mode === "half") {
+        params.half = half;
+      } else if (mode === "quarterly") {
         params.quarter = quarter;
       } else {
         params.month = month;
@@ -54,9 +59,11 @@ export default function VatReportPage() {
         params,
         responseType: "blob",
       });
-      const out = await saveFile(res.data, mode === "quarterly"
-        ? `${vat.vatName}_Q${quarter}_${year}.pdf`
-        : `${vat.vatName}_${months[month - 1]}_${year}.pdf`, { type: "application/pdf" });
+      const out = await saveFile(res.data, mode === "half"
+        ? `${vat.vatName}_H${half}_${year}.pdf`
+        : mode === "quarterly"
+          ? `${vat.vatName}_Q${quarter}_${year}.pdf`
+          : `${vat.vatName}_${months[month - 1]}_${year}.pdf`, { type: "application/pdf" });
       if (!out.ok) {
         setError(t("vatDownloadFailed"));
         setTimeout(() => setError(null), 3000);
@@ -81,6 +88,8 @@ export default function VatReportPage() {
 
   const fmt = (val) =>
     val != null ? val.toLocaleString(vat.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+  // "kr." for kroner, the ISO code otherwise — a Danish owner reads "1.234,50 kr."
+  const cur = (c) => (String(c || "").toUpperCase() === "DKK" ? "kr." : c);
 
   const months = [
     t("vatMonthJan"), t("vatMonthFeb"), t("vatMonthMar"), t("vatMonthApr"), t("vatMonthMay"), t("vatMonthJun"),
@@ -124,6 +133,16 @@ export default function VatReportPage() {
           >
             {t("vatQuarterly")}
           </button>
+          <button
+            onClick={() => setMode("half")}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+              mode === "half"
+                ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm"
+                : "text-gray-500 dark:text-gray-400"
+            }`}
+          >
+            {t("vatHalfYearly", "Half-yearly")}
+          </button>
         </div>
 
         {mode === "monthly" ? (
@@ -135,6 +154,15 @@ export default function VatReportPage() {
             {months.map((name, i) => (
               <option key={i + 1} value={i + 1}>{name}</option>
             ))}
+          </select>
+        ) : mode === "half" ? (
+          <select
+            value={half}
+            onChange={(e) => setHalf(Number(e.target.value))}
+            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          >
+            <option value={1}>{t("vatHalf1", "1st half (Jan–Jun)")}</option>
+            <option value={2}>{t("vatHalf2", "2nd half (Jul–Dec)")}</option>
           </select>
         ) : (
           <select
@@ -161,7 +189,7 @@ export default function VatReportPage() {
         <button
           onClick={downloadPdf}
           disabled={downloading || !report}
-          className="ml-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition disabled:opacity-50 inline-flex items-center gap-2"
+          className="ml-auto px-4 py-2 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg text-sm font-medium hover:bg-gray-800 dark:hover:bg-white transition disabled:opacity-50 inline-flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -190,7 +218,13 @@ export default function VatReportPage() {
                 {report.business_address}{report.business_zipcode ? `, ${report.business_zipcode}` : ""}{report.business_city ? ` ${report.business_city}` : ""}
               </p>
             )}
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{report.period}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {mode === "half"
+                ? t("taxPeriodHalf", "{n}. half-year {y}", { n: half, y: year })
+                : mode === "quarterly"
+                  ? t("taxPeriodQuarter", "Q{n} {y}", { n: quarter, y: year })
+                  : `${months[month - 1]} ${year}`}
+            </p>
             {report.vat_rate_pct !== undefined && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{vat.vatName} {t("vatRateLabel")}: {report.vat_rate_pct}%</p>
             )}
@@ -200,11 +234,11 @@ export default function VatReportPage() {
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{vat.salesSection}</h2>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.salesInclVat}</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.sales_incl_vat)} {report.currency}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.sales_incl_vat)} {cur(report.currency)}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.salesExclVat}</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.sales_excl_vat)} {report.currency}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.sales_excl_vat)} {cur(report.currency)}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.outputVat}</span>
@@ -212,7 +246,7 @@ export default function VatReportPage() {
                   Dashboard P&L money-moment color (#148 HIGH-6). Falls
                   back to neutral gray on the zero/empty case so the
                   empty-state doesn't shout "you owe nothing!" in green. */}
-              <span className={`text-sm font-semibold ${report.output_vat > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-700 dark:text-gray-300"}`}>{fmt(report.output_vat)} {report.currency}</span>
+              <span className={`text-sm font-semibold text-gray-800 dark:text-gray-200`}>{fmt(report.output_vat)} {cur(report.currency)}</span>
             </div>
           </div>
 
@@ -220,11 +254,11 @@ export default function VatReportPage() {
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{vat.expensesSection}</h2>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.expensesInclVat}</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.expenses_incl_vat)} {report.currency}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.expenses_incl_vat)} {cur(report.currency)}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.expensesExclVat}</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.expenses_excl_vat)} {report.currency}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{fmt(report.expenses_excl_vat)} {cur(report.currency)}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm text-gray-600 dark:text-gray-300">{vat.inputVat}</span>
@@ -233,7 +267,7 @@ export default function VatReportPage() {
                   shouldn't compete visually with the emerald revenue
                   row above or the red/emerald payable row below
                   (#148 HIGH-6 + Dashboard P&L convention). */}
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{fmt(report.input_vat)} {report.currency}</span>
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{fmt(report.input_vat)} {cur(report.currency)}</span>
             </div>
           </div>
 
@@ -248,7 +282,7 @@ export default function VatReportPage() {
                     <div key={name} className="flex justify-between py-1.5 text-sm">
                       <span className="text-gray-600 dark:text-gray-300">{name}</span>
                       <span className="text-gray-500 dark:text-gray-400">
-                        {fmt(total)} ({vat.inputVat}: {fmt(catVat)}) {report.currency}
+                        {fmt(total)} ({vat.inputVat}: {fmt(catVat)}) {cur(report.currency)}
                       </span>
                     </div>
                   );
@@ -265,8 +299,8 @@ export default function VatReportPage() {
                   Dashboard P&L money-moment semantics; the previous
                   text-green-* was off-palette vs the rest of the app
                   (#148 HIGH-6). */}
-              <span className={`text-2xl font-extrabold ${report.vat_payable >= 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                {fmt(report.vat_payable)} {report.currency}
+              <span className={`text-2xl font-extrabold ${report.vat_payable >= 0 ? "text-gray-900 dark:text-white" : "text-emerald-600 dark:text-emerald-400"}`}>
+                {fmt(report.vat_payable)} {cur(report.currency)}
               </span>
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">

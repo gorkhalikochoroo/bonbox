@@ -497,8 +497,10 @@ def test_export_moms_summary_columns(db_session, audit_user, audit_profile):
     header = csv_text.splitlines()[0]
     for col in (
         "Periode start", "Periode slut", "Momssats",
-        "Salg ekskl. moms", "Moms af salg",
-        "Køb ekskl. moms", "Moms af køb",
+        # The figures are compute_filing_data's salg/kob MED moms — MOMS-
+        # inclusive — so the headers say "inkl." (they claimed "ekskl.").
+        "Salg inkl. moms", "Moms af salg",
+        "Køb inkl. moms", "Moms af køb",
     ):
         assert col in header, f"MOMS summary missing column: {col}"
 

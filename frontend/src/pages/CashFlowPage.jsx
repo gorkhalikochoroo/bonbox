@@ -401,6 +401,21 @@ export default function CashFlowPage() {
                     {CONFIDENCE_KEY[fs.moms?.confidence] ? ` · ${t(CONFIDENCE_KEY[fs.moms.confidence])}` : ""}
                   </p>
                 )}
+                {/* The due date and the weekly set-aside the payload already
+                    carries — the verdict alone gave no "by when" and no "what now". */}
+                {fs.deadline?.date && (
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">
+                    {t("cfpDueBy", "Due {date}", { date: formatDateClear(fs.deadline.date) })}
+                    {fs.action?.weekly_rate > 0 && fs.action?.weeks > 0 && (
+                      <> · {t("cfpSetAside", "set aside {amt} a week for {n} weeks", {
+                        amt: formatKr(fs.action.weekly_rate, { decimals: 0 }), n: fs.action.weeks,
+                      })}</>
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {t("cfpNoFutureIncome", "Assumes no new income before the deadline — takings on the way make it easier.")}
+                </p>
                 {fs.balance_stale && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{t("cfpStale")}</p>
                 )}

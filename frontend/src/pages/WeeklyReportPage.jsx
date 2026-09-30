@@ -21,13 +21,18 @@ export default function WeeklyReportPage() {
   const { t } = useLanguage();
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
+  // 0 = this week; stepping back shows a finished week (this week is partial
+  // on every day but Sunday).
+  const [weeksAgo, setWeeksAgo] = useState(0);
 
   useEffect(() => {
-    api.get("/sales/weekly-report")
-      .then((res) => setReport(res.data))
-      .catch(() => setReport(null))
-      .finally(() => setLoading(false));
-  }, []);
+    let alive = true;
+    api.get("/sales/weekly-report", { params: { weeks_ago: weeksAgo } })
+      .then((res) => { if (alive) setReport(res.data); })
+      .catch(() => { if (alive) setReport(null); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [weeksAgo]);
 
   if (loading) return <div className="p-8 text-center text-gray-500">{t("loadingReport")}</div>;
   if (!report) return <div className="p-8 text-center text-gray-400">{t("noSalesData")}</div>;
@@ -41,7 +46,7 @@ export default function WeeklyReportPage() {
   const hasComparison = report.has_comparison ?? (Number(report.prev_week_total) || 0) > 0;
   // A week is "in progress" until all 7 days could plausibly be recorded — we
   // surface that rather than presenting a 2-day partial as a full statement.
-  const weekInProgress = openDays > 0 && openDays < 7;
+  const weekInProgress = weeksAgo === 0 && openDays < 7;
 
   const weekNo = isoWeek(report.week_start);
   const ArrowIcon = changePct >= 0 ? ArrowUp : ArrowDown;
@@ -56,6 +61,24 @@ export default function WeeklyReportPage() {
           <h1 className="text-xl font-bold text-gray-800 dark:text-white mt-1">
             {report.business_name || t("myBusiness")}
           </h1>
+          <div className="mt-2 flex items-center justify-center gap-2" data-html2canvas-ignore="true">
+            <button
+              type="button"
+              onClick={() => setWeeksAgo((w) => Math.min(104, w + 1))}
+              className="h-9 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              ← {t("weekPrev", "Previous week")}
+            </button>
+            {weeksAgo > 0 && (
+              <button
+                type="button"
+                onClick={() => setWeeksAgo((w) => Math.max(0, w - 1))}
+                className="h-9 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                {t("weekNext", "Next week")} →
+              </button>
+            )}
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {weekNo != null && (
               <span className="font-semibold text-gray-700 dark:text-gray-300">{t("weekLabel")} {weekNo}</span>
@@ -119,7 +142,7 @@ export default function WeeklyReportPage() {
                 <Tooltip formatter={(v) => [formatKr(v, { decimals: 0 }), t("revenue")]} />
                 <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
                   {breakdown.map((entry, i) => (
-                    <Cell key={i} fill={report.best_day && entry.date === report.best_day.date ? "#10b981" : "#111827"} />
+                    <Cell key={i} fill={report.best_day && entry.date === report.best_day.date ? "#10b981" : "var(--bar-ink, #111827)"} />
                   ))}
                 </Bar>
               </BarChart>

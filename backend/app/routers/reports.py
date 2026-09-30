@@ -292,11 +292,27 @@ def daily_kasserapport(
         .all()
     )
 
-    # Payment breakdown
+    # Payment breakdown — from the confirmed kasserapport when the day has one
+    # (the same precedence as the revenue below), else from the sales.
     payment_totals = {}
-    for s in sales:
-        m = (s.payment_method or "mixed").lower()
-        payment_totals[m] = payment_totals.get(m, 0) + float(s.amount)
+    from app.models.daily_close import DailyClose, decode_breakdown
+    _close = (
+        db.query(DailyClose)
+        .filter(DailyClose.user_id == user.id, DailyClose.date == d,
+                DailyClose.is_deleted.isnot(True), DailyClose.status == "confirmed")
+        .first()
+    )
+    if _close is not None:
+        for m, v in (decode_breakdown(_close.payment_categories) or {}).items():
+            try:
+                if float(v or 0):
+                    payment_totals[str(m).lower()] = round(float(v), 2)
+            except (TypeError, ValueError):
+                continue
+    else:
+        for s in sales:
+            m = (s.payment_method or "mixed").lower()
+            payment_totals[m] = payment_totals.get(m, 0) + float(s.amount)
 
     # Revenue on the effective basis (a confirmed DailyClose wins for the day),
     # and MOMS via the filing engine — excludes exempt sales, never a naive
@@ -340,6 +356,8 @@ def daily_kasserapport(
         "business_country": bp.get("country", ""),
         "currency": display_cur,
         "transaction_count": len(sales),
+        # A kasserapport day has revenue but no individual sale rows.
+        "from_close": _close is not None,
         "subtotal": subtotal,
         "vat_rate": round(vat_rate * 100, 1),
         "vat_name": vat_terms["name"],
@@ -1226,11 +1244,17 @@ def vat_export(
     month: int = Query(None),
     year: int = Query(...),
     quarter: int = Query(None, ge=1, le=4),
+    # Half-year: most small DK businesses file MOMS halvårligt.
+    half: int = Query(None, ge=1, le=2),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Monthly or quarterly VAT/moms summary formatted for SKAT reporting."""
-    if quarter:
+    """Monthly, quarterly or half-yearly VAT/moms summary for SKAT reporting."""
+    if half:
+        start = date(year, 1 if half == 1 else 7, 1)
+        end = date(year, 7, 1) if half == 1 else date(year + 1, 1, 1)
+        period_label = f"H{half} {year}"
+    elif quarter:
         q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
         m_start, m_end = q_months[quarter]
         start = date(year, m_start, 1)
@@ -1289,6 +1313,8 @@ def vat_export_pdf(
     month: int = Query(None),
     year: int = Query(...),
     quarter: int = Query(None, ge=1, le=4),
+    # Half-year: most small DK businesses file MOMS halvårligt.
+    half: int = Query(None, ge=1, le=2),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1359,7 +1385,10 @@ def vat_export_pdf(
     # inclusive_end). build_moms_filing_pdf accepts inclusive end. The
     # old code used exclusive end internally so we subtract one day
     # before delegating.
-    if quarter:
+    if half:
+        p_start = date(year, 1 if half == 1 else 7, 1)
+        p_end = date(year, 6, 30) if half == 1 else date(year, 12, 31)
+    elif quarter:
         q_months = {1: (1, 3), 2: (4, 6), 3: (7, 9), 4: (10, 12)}
         m_start, m_end = q_months[quarter]
         p_start = date(year, m_start, 1)
@@ -1563,6 +1592,10 @@ def report_overview(
     # MOMS matches the official angivelse. `end` is the inclusive month-end.
     vat_payable = compute_filing_data(db, user, start, end)["moms_til_skat"]
     vat_terms_data = get_vat_terms(user.currency or "DKK")
+    # Revenue and expenses above are MOMS-inclusive, so their difference held
+    # SKAT's share as "profit" (585k at a "96% margin" with 117k owed).
+    # Taking the net MOMS out leaves the result ex MOMS.
+    net_profit = total_revenue - total_expenses - float(vat_payable or 0)
 
     # Inventory value & low stock
     inventory_rows = (
@@ -1611,11 +1644,11 @@ def report_overview(
 
     # Average sales
     avg_per_sale = round(total_revenue / total_sales_count, 2) if total_sales_count > 0 else 0
-    # Days with sales for daily average
-    days_with_sales = (
-        db.query(func.count(func.distinct(Sale.date)))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .scalar()
+    # Days with revenue for the daily average — a kasserapport day counts,
+    # not only a day with Sale rows (a close-based venue read "0 dage").
+    from app.services.revenue_resolver import effective_revenue_by_date
+    days_with_sales = sum(
+        1 for v in effective_revenue_by_date(db, user.id, start, end).values() if float(v or 0) > 0
     )
     avg_daily_sales = round(total_revenue / days_with_sales, 2) if days_with_sales > 0 else 0
 

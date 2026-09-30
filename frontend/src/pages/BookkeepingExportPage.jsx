@@ -36,7 +36,8 @@ export default function BookkeepingExportPage() {
   const exportsUnlocked = hasFeature("custom_export_templates");
 
   const [formats, setFormats] = useState([]);
-  const [selected, setSelected] = useState("dinero");
+  // The revisor bundle is the recommended default (it carries every file).
+  const [selected, setSelected] = useState("bundle");
   const [start, setStart] = useState(() => {
     // Default: first day of last calendar month
     const today = new Date();
@@ -264,11 +265,12 @@ export default function BookkeepingExportPage() {
                 <button
                   key={f.id}
                   onClick={() => setSelected(f.id)}
+                  aria-pressed={active}
                   className={`relative px-3 py-3 rounded-xl text-sm font-medium border transition text-left
                     ${active
-                      ? (isBundle
-                          ? "bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-900 text-gray-800 dark:text-gray-200 ring-2 ring-gray-200/60"
-                          : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-300 ring-1 ring-gray-200/60")
+                      // The chosen format must be unmistakable — it was gray-50
+                      // on white with the same border, i.e. invisible.
+                      ? "bg-white dark:bg-gray-800 border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100 ring-2 ring-gray-900 dark:ring-gray-100"
                       : (isBundle
                           ? "bg-gray-50/40 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800/50 text-gray-800 dark:text-gray-200 hover:bg-gray-50/70"
                           : "bg-white dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700")}`}

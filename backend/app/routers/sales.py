@@ -1091,11 +1091,20 @@ def create_sale_from_receipt(
 
 @router.get("/weekly-report")
 def weekly_report(
+    weeks_ago: int = Query(0, ge=0, le=104),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Instant weekly summary — ready to screenshot or share."""
-    today = date.today()
+    """Instant weekly summary — ready to screenshot or share.
+
+    Revenue per day comes from the revenue resolver (a confirmed kasserapport
+    wins, else the day's sales) — reading Sale rows alone showed a close-based
+    venue "0,00 kr." for a week with seven closes. `weeks_ago` steps back."""
+    from types import SimpleNamespace
+    from app.services.revenue_resolver import effective_revenue_by_date
+    from app.services.tz_utils import today_local
+
+    today = today_local(user) - timedelta(days=7 * weeks_ago)
     week_start = today - timedelta(days=today.weekday())  # Monday
     week_end = week_start + timedelta(days=6)  # Sunday
 
@@ -1103,24 +1112,16 @@ def weekly_report(
     prev_start = week_start - timedelta(days=7)
     prev_end = week_start - timedelta(days=1)
 
-    # This week's daily breakdown
-    daily = (
-        db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(week_start, week_end))
-        .filter(Sale.is_deleted.isnot(True))
-        .group_by(Sale.date)
-        .order_by(Sale.date)
-        .all()
-    )
+    by_date = effective_revenue_by_date(db, user.id, week_start, week_end)
+    daily = [
+        SimpleNamespace(date=d, total=float(v))
+        for d, v in sorted(by_date.items())
+        if float(v or 0) > 0
+    ]
 
-    week_total = sum(float(t) for _, t in daily)
+    week_total = sum(r.total for r in daily)
 
-    prev_total = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(prev_start, prev_end))
-        .filter(Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    prev_total = float(sum(effective_revenue_by_date(db, user.id, prev_start, prev_end).values()))
 
     change_pct = 0.0
     if prev_total > 0:
@@ -1166,9 +1167,10 @@ def weekly_report(
         "best_day": {"date": str(best.date), "day": day_names[best.date.weekday()], "amount": float(best.total)} if best else None,
         "worst_day": worst_day_payload,
         "daily_breakdown": [
-            {"date": str(d), "day": day_names[d.weekday()], "amount": float(t)}
-            for d, t in daily
+            {"date": str(r.date), "day": day_names[r.date.weekday()], "amount": float(r.total)}
+            for r in daily
         ],
+        "weeks_ago": weeks_ago,
         "business_name": user.business_name,
         "currency": user.currency,
     }

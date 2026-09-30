@@ -215,7 +215,11 @@ const OUTER_TAB_IDS = ["pulse", "forecast", "payment", "category", "wow", "budge
 function getInitialTab() {
   if (typeof window === "undefined") return "pulse";
   const requested = new URLSearchParams(window.location.search).get("tab");
-  return OUTER_TAB_IDS.includes(requested) ? requested : "pulse";
+  // Links elsewhere in the app ask for "expenses" and "pl" — neither was ever
+  // a tab, so they landed on the empty receipt. Send them to the category view.
+  const ALIAS = { expenses: "category", pl: "category" };
+  const tab = ALIAS[requested] || requested;
+  return OUTER_TAB_IDS.includes(tab) ? tab : "pulse";
 }
 
 export default function ReportsPage() {
@@ -918,7 +922,7 @@ function DailyKasserapport() {
             <p className="text-xs text-gray-400 mt-1">{formatDate(data.date)}</p>
           </div>
 
-          {data.transaction_count === 0 ? (
+          {data.transaction_count === 0 && !data.from_close && !Number(data.total) ? (
             <div className="py-12 text-center text-gray-400 dark:text-gray-500">{t("noSalesOnDate")}</div>
           ) : (
             <div className="font-mono text-sm">
@@ -1084,7 +1088,7 @@ function RevenueForecastCard({ forecast, weather, staffing, currency }) {
                   className="w-full rounded-t-md transition-all duration-200"
                   style={{
                     height: barH,
-                    background: isActive ? "#111827" : isWeekend ? "#4B5563" : "#D1D5DB",
+                    background: isActive ? "var(--bar-active, #111827)" : isWeekend ? "#4B5563" : "#D1D5DB",
                     transform: isActive ? "scaleY(1.05)" : "scaleY(1)",
                     transformOrigin: "bottom",
                   }}

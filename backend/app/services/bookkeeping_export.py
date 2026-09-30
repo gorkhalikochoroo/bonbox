@@ -25,6 +25,7 @@ import io
 import logging
 import zipfile
 from datetime import date
+from types import SimpleNamespace
 from typing import Iterable
 
 from sqlalchemy.orm import Session
@@ -34,6 +35,7 @@ from app.utils.csv_safe import csv_safe  # neutralize CSV formula-injection in f
 from app.models.business_profile import BusinessProfile
 from app.models.expense import Expense, ExpenseCategory
 from app.models.sale import Sale
+from app.models.daily_close import DailyClose
 from app.models.user import User
 from app.models.invoice import Invoice
 from app.models.customer import Customer
@@ -90,7 +92,61 @@ def _money_dot(amount) -> str:
         return "0.00"
 
 
-def _query_sales(user: User, db: Session, start: date, end: date) -> list[Sale]:
+def _query_sales(user: User, db: Session, start: date, end: date) -> list:
+    """Revenue lines for the period, per-date precedence exactly like the
+    dashboard's revenue resolver: a day with a confirmed kasserapport exports
+    the CLOSE (one line per MOMS treatment), every other day exports its Sale
+    rows. Before this the exports read Sale rows only, so a venue that closes
+    its day through the kasserapport — the normal way — handed its revisor a
+    file with every expense and not one krone of revenue."""
+    sales = _query_sale_rows(user, db, start, end)
+    try:
+        closes = (
+            db.query(DailyClose)
+            .filter(
+                DailyClose.user_id == user.id,
+                DailyClose.date >= start,
+                DailyClose.date <= end,
+                DailyClose.is_deleted.isnot(True),
+                DailyClose.status == "confirmed",
+            )
+            .order_by(DailyClose.date.asc())
+            .all()
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("bookkeeping_export: close query failed (%s); exporting sales only", e)
+        closes = []
+    if not closes:
+        return sales
+    close_dates = {c.date for c in closes}
+    lines = [s for s in sales if s.date not in close_dates]
+    for c in closes:
+        gross = float(c.revenue_total or 0)
+        if gross <= 0:
+            continue
+        moms = float(c.moms_total) if c.moms_total is not None else None
+        # A DK close is 25 % or momsfri: the 25 % share is moms ÷ 0,20, the
+        # rest is exempt. No moms figure on the close = treat it all as 25 %.
+        taxed = gross if moms is None else min(gross, round(moms / 0.2, 2))
+        exempt = round(gross - taxed, 2)
+        day = c.date.isoformat()
+        if taxed > 0.004:
+            lines.append(SimpleNamespace(
+                date=c.date, amount=taxed, is_tax_exempt=False, voucher_number=None,
+                bilag=f"K-{day}", item_name=f"Kasserapport {day}", notes=None,
+                reference_id=None, customer_id=None, payment_method=None,
+            ))
+        if exempt > 0.004:
+            lines.append(SimpleNamespace(
+                date=c.date, amount=exempt, is_tax_exempt=True, voucher_number=None,
+                bilag=f"K-{day}-0", item_name=f"Kasserapport {day} (momsfri)", notes=None,
+                reference_id=None, customer_id=None, payment_method=None,
+            ))
+    lines.sort(key=lambda x: x.date)
+    return lines
+
+
+def _query_sale_rows(user: User, db: Session, start: date, end: date) -> list[Sale]:
     """Inner-layer query — wraps in try so the exporter can decide what to do."""
     try:
         return (
@@ -223,6 +279,21 @@ def _customer_lookup(user: User, db: Session) -> dict:
 # ───────── DINERO ─────────
 
 
+def _no_input_vat(e, cats: dict) -> bool:
+    """True when this expense carries no deductible købsmoms: marked exempt,
+    or a category the MOMS engine gives 0 % fradrag (løn, forsikring,
+    pension …). The exports coded every expense I25, so a revisor importing
+    the file would have booked købsmoms on wages that the angivelse — rightly
+    — never claimed."""
+    if getattr(e, "is_tax_exempt", False):
+        return True
+    try:
+        from app.services.dk_fradrag import fradrag_factor
+        return fradrag_factor(cats.get(str(e.category_id), "")) == 0
+    except Exception:  # noqa: BLE001 — never break an export over a lookup
+        return False
+
+
 def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
     """
     Dinero CSV — based on their "Bilag (CSV)" import.
@@ -251,7 +322,7 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
         # Use persisted bilagsnummer when available (Bogføringsloven 2024
         # compliant); fall back to export-time counter for legacy rows.
         vn = getattr(s, "voucher_number", None)
-        bilag = f"S-{s.date.year}-{vn:04d}" if vn else f"S{fallback:04d}"
+        bilag = getattr(s, "bilag", None) or (f"S-{s.date.year}-{vn:04d}" if vn else f"S{fallback:04d}")
         sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
         desc = sale_text + (
             f" (ref: {s.reference_id})" if getattr(s, "reference_id", None) else ""
@@ -268,7 +339,7 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
 
     fallback = 1
     for e in expenses:
-        moms = "0%" if getattr(e, "is_tax_exempt", False) else "25%"
+        moms = "0%" if _no_input_vat(e, cats) else "25%"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
         vn = getattr(e, "voucher_number", None)
@@ -316,7 +387,7 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
         vat = "0" if getattr(s, "is_tax_exempt", False) else "25"
         desc = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
         vn = getattr(s, "voucher_number", None)
-        bilag = f"S-{s.date.year}-{vn:04d}" if vn else ""
+        bilag = getattr(s, "bilag", None) or (f"S-{s.date.year}-{vn:04d}" if vn else "")
         w.writerow([
             bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
@@ -334,7 +405,7 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
     w.writerow(["# === EXPENSES ==="])
     w.writerow(["Bilagsnummer", "Date", "Category", "Description", "Amount", "Currency", "VAT %"])
     for e in expenses:
-        vat = "0" if getattr(e, "is_tax_exempt", False) else "25"
+        vat = "0" if _no_input_vat(e, cats) else "25"
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
@@ -392,7 +463,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
         vat = "U0" if getattr(s, "is_tax_exempt", False) else "U25"
         desc = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
         vn = getattr(s, "voucher_number", None)
-        bilag = f"S-{s.date.year}-{vn:04d}" if vn else f"S{fallback:05d}"
+        bilag = getattr(s, "bilag", None) or (f"S-{s.date.year}-{vn:04d}" if vn else f"S{fallback:05d}")
         w.writerow([
             bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
@@ -406,7 +477,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
 
     fallback = 1
     for e in expenses:
-        vat = "I0" if getattr(e, "is_tax_exempt", False) else "I25"
+        vat = "I0" if _no_input_vat(e, cats) else "I25"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
         vn = getattr(e, "voucher_number", None)
@@ -487,7 +558,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
         vat = "0" if getattr(s, "is_tax_exempt", False) else default_vat_str
         sale_text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Sale"
         vn = getattr(s, "voucher_number", None)
-        bilag = f"S-{s.date.year}-{vn:04d}" if vn else ""
+        bilag = getattr(s, "bilag", None) or (f"S-{s.date.year}-{vn:04d}" if vn else "")
         amount_str = _money_dot(s.amount)
         date_iso = s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date)
         # Sales are credit entries on revenue account 1010
@@ -509,7 +580,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             "", "", "", "",
         ])
     for e in expenses:
-        vat = "0" if getattr(e, "is_tax_exempt", False) else default_vat_str
+        vat = "0" if _no_input_vat(e, cats) else default_vat_str
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
@@ -598,8 +669,8 @@ def export_moms_summary(user: User, db: Session, start: date, end: date) -> byte
     w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
     w.writerow([
         "Periode start", "Periode slut", "Momssats",
-        "Salg ekskl. moms", "Moms af salg",
-        "Køb ekskl. moms", "Moms af køb",
+        "Salg inkl. moms", "Moms af salg",
+        "Køb inkl. moms", "Moms af køb",
         "Netto moms (positiv = skyldig)", "Currency",
     ])
     w.writerow([

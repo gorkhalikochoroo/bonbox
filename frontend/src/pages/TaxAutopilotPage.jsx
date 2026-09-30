@@ -13,6 +13,38 @@ import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
+import { formatDateClearFull } from "../utils/dateFormat";
+
+// The backend speaks in codes and English labels ("half_yearly", "H2 2026",
+// "Jul–Dec 2026", "2027-03-01"); an owner reads Danish.
+const FREQ_KEYS = {
+  monthly: ["taxFreqShortMonthly", "Monthly"],
+  quarterly: ["taxFreqShortQuarterly", "Quarterly"],
+  half_yearly: ["taxFreqShortHalfYearly", "Half-yearly"],
+  yearly: ["taxFreqShortYearly", "Yearly"],
+  annual: ["taxFreqShortYearly", "Yearly"],
+  bimonthly: ["taxFreqShortBimonthly", "Every two months"],
+};
+function freqLabel(t, f) {
+  const k = FREQ_KEYS[String(f || "").toLowerCase()];
+  return k ? t(k[0], k[1]) : f;
+}
+function periodText(t, deadline) {
+  const start = deadline?.period_start;
+  const end = deadline?.period_end;
+  if (!start || !end) return deadline?.period_label || "—";
+  const s = new Date(`${start}T12:00:00`);
+  const e = new Date(`${end}T12:00:00`);
+  const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+  const y = e.getFullYear();
+  if (months === 6) return t("taxPeriodHalf", "{n}. half-year {y}", { n: s.getMonth() < 6 ? 1 : 2, y });
+  if (months === 3) return t("taxPeriodQuarter", "{n}. quarter {y}", { n: Math.floor(s.getMonth() / 3) + 1, y });
+  return deadline?.period_label || "—";
+}
+function isoToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 
 // Server alert `type` → the i18n keys that render it. An explicit map, not a
@@ -143,7 +175,7 @@ export default function TaxAutopilotPage() {
         actions={
           <div className="text-right">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{tax_name} ({rate_pct}%)</p>
-            <p className="text-xs text-gray-500">{authority} • {frequency}</p>
+            <p className="text-xs text-gray-500">{authority} • {freqLabel(t, frequency)}</p>
           </div>
         }
       />
@@ -161,15 +193,6 @@ export default function TaxAutopilotPage() {
           {t("taxHowItWorksLine2Prefix")}<strong>{t("taxHowItWorksLine2FilingFrequency")}</strong>{t("taxHowItWorksLine2Suffix")}
         </p>
       </DismissibleTip>
-
-      {/* ─── TAX PREFERENCES (drives deadlines + Moms math) ─── */}
-      <TaxPrefsCard
-        tax={tax}
-        setTax={setTax}
-        saving={taxSaving}
-        msg={taxMsg}
-        onSave={saveTaxPrefs}
-      />
 
       {/* ─── COUNTDOWN HERO — semantic color (red=overdue, amber=soon, emerald=on track).
           Solid color (not gradient), no rainbow shadow — calmer than the previous
@@ -193,7 +216,7 @@ export default function TaxAutopilotPage() {
                   : t("taxDaysLabel", { n: nextDeadline.days_until })}
               </p>
               <p className="text-sm opacity-80 mt-1">
-                {t("taxDeadlineLine", { deadline: nextDeadline.deadline, period: nextDeadline.period_label })}
+                {t("taxDeadlineLine", { deadline: formatDateClearFull(nextDeadline.deadline), period: periodText(t, nextDeadline) })}
               </p>
             </div>
             <div className="text-right">
@@ -202,7 +225,7 @@ export default function TaxAutopilotPage() {
                 <Amount value={nextDeadline.estimated_amount} currency={currency} />
               </p>
               <p className="text-xs opacity-70 mt-1">
-                {t("taxOutputLabel")}: <Amount value={nextDeadline.output_vat} currency={currency} /> • {t("taxInputLabel")}: <Amount value={nextDeadline.input_vat} currency={currency} />
+                {t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}: <Amount value={nextDeadline.output_vat} currency={currency} /> • {t("taxInputVatLabel", "Input {tax}", { tax: tax_name })}: <Amount value={nextDeadline.input_vat} currency={currency} />
               </p>
             </div>
           </div>
@@ -270,6 +293,16 @@ export default function TaxAutopilotPage() {
         </div>
       )}
 
+      {/* ─── TAX PREFERENCES — below the answer: the owner comes for "what do I
+          owe, by when", and a settings form used to push that off the phone. ─── */}
+      <TaxPrefsCard
+        tax={tax}
+        setTax={setTax}
+        saving={taxSaving}
+        msg={taxMsg}
+        onSave={saveTaxPrefs}
+      />
+
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
@@ -281,12 +314,12 @@ export default function TaxAutopilotPage() {
         <StatCard
           label={t("taxMonthSales")}
           value={<Amount value={current_month.sales_total} currency={currency} />}
-          helper={`${t("taxOutputLabel")}: ${formatOwnerMoney(current_month.output_vat, user?.currency)}`}
+          helper={`${t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}: ${formatOwnerMoney(current_month.output_vat, user?.currency)}`}
         />
         <StatCard
           label={t("taxMonthExpenses")}
           value={<Amount value={current_month.expenses_total} currency={currency} />}
-          helper={`${t("taxInputLabel")}: ${formatOwnerMoney(current_month.input_vat, user?.currency)}`}
+          helper={`${t("taxInputVatLabel", "Input {tax}", { tax: tax_name })}: ${formatOwnerMoney(current_month.input_vat, user?.currency)}`}
         />
         <StatCard
           label={t("taxYtdLabel", { taxName: tax_name })}
@@ -319,8 +352,8 @@ export default function TaxAutopilotPage() {
                   <th className="text-left py-2 px-2">{t("period")}</th>
                   <th className="text-left py-2 px-2">{t("deadline")}</th>
                   <th className="text-right py-2 px-2">{t("sales")}</th>
-                  <th className="text-right py-2 px-2">{t("taxOutputLabel")} {tax_name}</th>
-                  <th className="text-right py-2 px-2">{t("taxInputLabel")} {tax_name}</th>
+                  <th className="text-right py-2 px-2">{t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}</th>
+                  <th className="text-right py-2 px-2">{t("taxInputVatLabel", "Input {tax}", { tax: tax_name })}</th>
                   <th className="text-right py-2 px-2">{t("payable")}</th>
                   <th className="text-center py-2 px-2">{t("status")}</th>
                 </tr>
@@ -331,12 +364,12 @@ export default function TaxAutopilotPage() {
                     dl.status === "overdue" ? "bg-red-50/50 dark:bg-red-900/10" :
                     dl.status === "urgent" ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""
                   }`}>
-                    <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{dl.period_label}</td>
-                    <td className="py-3 px-2 text-gray-500">{dl.deadline}</td>
+                    <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{periodText(t, dl)}</td>
+                    <td className="py-3 px-2 text-gray-500">{formatDateClearFull(dl.deadline)}</td>
                     <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400"><Amount value={dl.sales_total} currency={currency} /></td>
                     <td className="py-3 px-2 text-right text-orange-500"><Amount value={dl.output_vat} currency={currency} /></td>
-                    <td className="py-3 px-2 text-right text-emerald-600"><Amount value={dl.input_vat} currency={currency} /></td>
-                    <td className={`py-3 px-2 text-right font-bold ${dl.estimated_amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
+                    <td className="py-3 px-2 text-right text-gray-700 dark:text-gray-300"><Amount value={dl.input_vat} currency={currency} /></td>
+                    <td className={`py-3 px-2 text-right font-bold ${dl.estimated_amount >= 0 ? "text-gray-900 dark:text-gray-100" : "text-emerald-700 dark:text-emerald-400"}`}>
                       <Amount value={dl.estimated_amount} currency={currency} />
                     </td>
                     <td className="py-3 px-2 text-center">
@@ -376,7 +409,7 @@ export default function TaxAutopilotPage() {
                 <span className="text-sm font-medium text-gray-800 dark:text-white"><Amount value={ytd.sales_total} currency={currency} /></span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxOutputLabel")} {tax_name}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}</span>
                 <span className="text-sm font-bold text-orange-600"><Amount value={ytd.output_vat} currency={currency} /></span>
               </div>
             </div>
@@ -389,15 +422,15 @@ export default function TaxAutopilotPage() {
                 <span className="text-sm font-medium text-gray-800 dark:text-white"><Amount value={ytd.expenses_total} currency={currency} /></span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxInputLabel")} {tax_name}</span>
-                <span className="text-sm font-bold text-emerald-600"><Amount value={ytd.input_vat} currency={currency} /></span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxInputVatLabel", "Input {tax}", { tax: tax_name })}</span>
+                <span className="text-sm font-bold text-gray-700 dark:text-gray-300"><Amount value={ytd.input_vat} currency={currency} /></span>
               </div>
             </div>
           </div>
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("taxYtdNetPayable", { taxName: tax_name })}</span>
-          <span className={`text-xl font-bold ${ytd.vat_payable >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
+          <span className={`text-xl font-bold ${ytd.vat_payable >= 0 ? "text-gray-900 dark:text-gray-100" : "text-emerald-700 dark:text-emerald-400"}`}>
             {ytd.vat_payable >= 0 ? "" : t("taxYtdRefundPrefix")}<Amount value={Math.abs(ytd.vat_payable)} currency={currency} />
           </span>
         </div>
@@ -458,7 +491,10 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
 
   const periodStart = deadline?.period_start;
   const periodEnd = deadline?.period_end;
-  const periodLabel = deadline?.period_label || "—";
+  const periodLabel = periodText(t, deadline);
+  // Before the period ends the figures are still moving: "ready to file"
+  // on 30 Sep for a period that runs to 31 Dec was a false promise.
+  const periodOpen = Boolean(periodEnd && periodEnd >= isoToday());
   const accountantEmail = (businessProfile?.accountant_email || "").trim();
 
   const downloadPdf = async () => {
@@ -543,14 +579,16 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-700 dark:text-emerald-400">
+            <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-700 dark:text-gray-300">
               {unlocked
                 ? filingPdfPlanName
                 : (t("taxPdfPlanLocked", "{plan} · Locked")).replace("{plan}", filingPdfPlanName)}
               {" · "}{t("taxPdfFilingReadyShort")}
             </p>
             <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">
-              {t("taxReadyToFile")} · {periodLabel}
+              {periodOpen
+                ? t("taxProvisional", "Provisional — the period ends {date}", { date: formatDateClearFull(periodEnd) })
+                : t("taxReadyToFile")}{" · "}{periodLabel}
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               {t("filingPdfSubtitle")}
@@ -565,7 +603,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {t("taxOutputLabel")} {taxName}
+              {t("taxOutputVatLabel", "Output {tax}", { tax: taxName })}
             </p>
             <p className="text-sm sm:text-base font-bold text-orange-600 mt-0.5">
               <Amount value={output} currency={currency} />
@@ -573,7 +611,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
           </div>
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {t("taxInputLabel")} {taxName}
+              {t("taxInputVatLabel", "Input {tax}", { tax: taxName })}
             </p>
             <p className="text-sm sm:text-base font-bold text-blue-600 mt-0.5">
               <Amount value={input} currency={currency} />
@@ -583,7 +621,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {t("taxPdfNetToSkat")}
             </p>
-            <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-gray-700 dark:text-emerald-400" : "text-gray-600 dark:text-gray-300"}`}>
+            <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-gray-900 dark:text-gray-100" : "text-emerald-700 dark:text-emerald-400"}`}>
               <Amount value={net} currency={currency} />
             </p>
           </div>
@@ -725,7 +763,7 @@ function TaxPrefsCard({ tax, setTax, saving, msg, onSave }) {
           </div>
         </label>
 
-        {msg && <p className="text-xs text-gray-700 dark:text-emerald-400">{msg}</p>}
+        {msg && <p className="text-xs text-gray-700 dark:text-gray-300">{msg}</p>}
 
         <Button
           variant="primary"

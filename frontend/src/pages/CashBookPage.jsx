@@ -366,8 +366,8 @@ export default function CashBookPage() {
         />
         <StatCard
           label={t("totalCashOut")}
-          value={<Amount value={balOut == null ? null : -balOut} currency={currency} decimals={2} />}
-          accent={balOut == null ? "neutral" : "critical"}
+          value={<Amount value={balOut == null ? null : (balOut ? -balOut : 0)} currency={currency} decimals={2} />}
+          accent={balOut == null || !balOut ? "neutral" : "critical"}
         />
       </div>
 
