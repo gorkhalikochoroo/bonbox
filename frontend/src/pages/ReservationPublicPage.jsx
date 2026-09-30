@@ -1169,7 +1169,10 @@ export default function ReservationPublicPage() {
     partyShown.current = party;
     const rail = partyRailRef.current;
     revealInRail(rail, rail?.querySelector('[aria-checked="true"]'), first ? "auto" : "smooth");
-  }, [party]);
+    // Also when the rail is drawn again (back from step 2, "Ændr", a new
+    // request): it re-mounted scrolled to the start with a party of 10 off
+    // screen.
+  }, [party, step, result]);
   useEffect(() => {
     if (!page || !day) return;
     if (fetchedDay.current !== day) {
@@ -1954,7 +1957,17 @@ export default function ReservationPublicPage() {
                 <p className="min-w-0 flex-1 text-[17px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate">
                   {page.business_name}
                 </p>
-                {refCode && (
+                {/* A cancelled / withdrawn / declined receipt must not look like a
+                    live booking at a glance — it's stamped, and the rows dim. */}
+                {isCancelled ? (
+                  <p className="shrink-0 rounded-md border border-gray-400 dark:border-gray-500 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-600 dark:text-gray-300">
+                    {withdrawn
+                      ? t("rsvpStampWithdrawn", "Withdrawn")
+                      : declined
+                        ? t("rsvpStampDeclined", "Declined")
+                        : t("rsvpStampCancelled", "Cancelled")}
+                  </p>
+                ) : refCode && (
                   <p className="shrink-0 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-500 dark:text-gray-400 tabular-nums">
                     {refCode}
                   </p>
