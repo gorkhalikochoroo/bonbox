@@ -344,12 +344,17 @@ const CLOSE_CONFIG = {
 
 // Every category / payment key the forms can write, → its label. History
 // chips printed the raw keys ("food:", "gift_card:", "mobilepay:").
-const CAT_LABEL = Object.fromEntries(Object.values(REVENUE_CATS_BY_TYPE).flat().map((c) => [c.key, c]));
-const PAY_LABEL = Object.fromEntries(Object.values(PAYMENT_METHODS_BY_TYPE).flat().map((c) => [c.key, c]));
+// Restaurant labels win on shared keys (last write wins): built in type
+// order, "card" read "Kort (online)" from the web-shop list.
+const _typesRestaurantLast = (obj) =>
+  Object.keys(obj).filter((k) => k !== "restaurant").concat(obj.restaurant ? ["restaurant"] : []);
+const CAT_LABEL = Object.fromEntries(_typesRestaurantLast(REVENUE_CATS_BY_TYPE).flatMap((k) => REVENUE_CATS_BY_TYPE[k]).map((c) => [c.key, c]));
+const PAY_LABEL = Object.fromEntries(_typesRestaurantLast(PAYMENT_METHODS_BY_TYPE).flatMap((k) => PAYMENT_METHODS_BY_TYPE[k]).map((c) => [c.key, c]));
 function chipLabel(map, k, t) {
   // Case-insensitive: sample data stores "Food"/"Drinks".
   const c = map[k] || map[String(k).toLowerCase()];
-  if (!c) return k;
+  // A custom category keeps the owner's own word, capitalised — not "catering".
+  if (!c) return String(k).charAt(0).toUpperCase() + String(k).slice(1).replace(/_/g, " ");
   return c.labelKey ? t(c.labelKey, c.label) : c.label;
 }
 
@@ -1285,7 +1290,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // A saved total above its category sum was a scanned or corrected total;
     // carry it back as the owner's figure, or the next save reverts it.
     const catSum = Object.values(dc.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    if (Number(dc.revenue_total) > catSum + 0.005) {
+    if (Math.abs(Number(dc.revenue_total) - catSum) > 0.005 && Number(dc.revenue_total) > 0) {
       setScanResult((prev) => ({ ...(prev || {}), revenue_total: Number(dc.revenue_total), revenue_total_text: asInput(dc.revenue_total) }));
     }
     if (dc.cash_counted != null) setCashCounted(asInput(dc.cash_counted));
@@ -1713,7 +1718,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // revenue instead, which is right for a standard-rate day and, when it
     // isn't, is a number the owner can see and override.
     const mergeIncomplete = scanResult.merge_info?.incompleteFields || [];
-    if (scanResult.moms_total && !mergeIncomplete.includes("moms_total")) {
+    // Not when the owner corrected the total: that scanned MOMS belongs to
+    // the old figure, and manual mode pinned it (16.450 saved with 16.540's
+    // MOMS). Auto recomputes from the corrected total.
+    if (scanResult.moms_total && !mergeIncomplete.includes("moms_total") && !scanResult.revenue_total_text) {
       setMomsMode("manual");
       setMomsManual(String(scanResult.moms_total));
     }
@@ -1918,13 +1926,21 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // and rendering that as "Difference: 17.030 kr" is a confident figure
   // derived from a number nobody entered — the same class of lie as a
   // not-known total printed as a zero. It says it cannot be checked instead.
+  // The revenue this close will SAVE: an owner-typed total when there is one
+  // (the backend saves exactly that), else the category sum. MOMS followed
+  // the category sum — a close corrected from 16.540 to 16.450 kept the
+  // 16.540 MOMS.
+  const savedRevenue = useMemo(() => {
+    const owner = Number(scanResult?.revenue_total);
+    return scanResult?.revenue_total_text && owner > 0 ? owner : revenueTotal;
+  }, [scanResult, revenueTotal]);
   const tieOut = useMemo(() => {
     if (!hasRevenueEntry || !hasPaymentEntry) return { state: "unknown", diff: null };
-    const diff = revenueTotal - paymentTotal;
+    const diff = savedRevenue - paymentTotal;
     // Under 1 kr is rounding, not a discrepancy — same threshold the
     // payments step has always used, now defined once.
     return { state: Math.abs(diff) < 1 ? "balanced" : "off", diff };
-  }, [hasRevenueEntry, hasPaymentEntry, revenueTotal, paymentTotal]);
+  }, [hasRevenueEntry, hasPaymentEntry, savedRevenue, paymentTotal]);
   // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
   // register cash (what the till says was taken) over the owner's typed cash
   // line — typed-vs-counted is self-referential and can't surface a real
@@ -2064,14 +2080,6 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Clamp at 0: if the user only entered a placeholder and the exempt
   // total exceeds it, we'd otherwise show a negative MOMS amount which
   // confuses the owner more than a zero.
-  // The revenue this close will SAVE: an owner-typed total when there is one
-  // (the backend saves exactly that), else the category sum. MOMS followed
-  // the category sum — a close corrected from 16.540 to 16.450 kept the
-  // 16.540 MOMS.
-  const savedRevenue = useMemo(() => {
-    const owner = Number(scanResult?.revenue_total);
-    return scanResult?.revenue_total_text && owner > 0 ? owner : revenueTotal;
-  }, [scanResult, revenueTotal]);
   const taxableBase = useMemo(() => {
     return Math.max(0, Math.round((savedRevenue - exemptSalesTotal) * 100) / 100);
   }, [savedRevenue, exemptSalesTotal]);
@@ -2259,7 +2267,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       }
     }, 2000);
     return () => clearTimeout(autoSaveRef.current);
-  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, lockedRowRejected, businessDate, branchId]);
+  // closedBy / notes / staff / MOMS typed on the review step were never
+  // autosaved — "Kladde gemt" and then lost on the next open.
+  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, businessDate, branchId]);
 
   // Final submit — locks the close (with offline queue fallback).
   // opts.acknowledgeAnomaly=true is passed by the "Yes, lock it" button

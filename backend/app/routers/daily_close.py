@@ -1325,6 +1325,9 @@ def daily_close_insights(
             DailyClose.user_id == user.id,
             DailyClose.is_deleted.isnot(True),
             DailyClose.date >= d90,
+            # Insights are about the owner's books: drafts (an unfinished or
+            # test close) showed up in the cash-short streak.
+            DailyClose.status == "confirmed",
         )
         .order_by(DailyClose.date.desc())
         .all()
@@ -1497,8 +1500,8 @@ def daily_close_insights(
                 title = (f"Kassen manglede {s_len} aftener i træk" if _da
                          else f"Cash short {s_len} nights in a row")
                 detail = (
-                    f"Samlet mangel: {_n(s_total)} kr. over {s_len} dage i træk ({s_start}\u2013{s_end}). "
-                    "Mønstret tyder på et fast problem \u2014 gennemgå kasseafstemning og kontanthåndtering."
+                    f"Samlet mangel: {_n(s_total)} kr. over {s_len} dage i træk ({s_start}\u2013{s_end}) \u2014 "
+                    "mønstret tyder på et fast problem \u2014 gennemgå kasseafstemning og kontanthåndtering."
                 ) if _da else (
                     f"Total shortage: {_n(s_total)} over {s_len} consecutive days "
                     f"({s_start}\u2013{s_end}). This pattern suggests systematic issues \u2014 "
@@ -1509,8 +1512,8 @@ def daily_close_insights(
                 title = (f"Kassen manglede {s_len} aftener i træk" if _da
                          else f"Cash short {s_len} nights in a row")
                 detail = (
-                    f"Samlet mangel: {_n(s_total)} kr. fra {s_start} til {s_end}. "
-                    "Tre eller flere mangler i træk er et mønster, der er værd at undersøge."
+                    f"Samlet mangel: {_n(s_total)} kr. fra {s_start} til {s_end} \u2014 "
+                    "tre eller flere mangler i træk er et mønster, der er værd at undersøge."
                 ) if _da else (
                     f"Total shortage: {_n(s_total)} from {s_start} to {s_end}. "
                     "Three or more consecutive shortages is a pattern worth investigating."
@@ -1519,8 +1522,8 @@ def daily_close_insights(
                 severity, icon = "info", "\U0001f4a1"
                 title = ("Kassen manglede 2 aftener i træk" if _da else "Cash short 2 nights in a row")
                 detail = (
-                    f"Samlet mangel: {_n(s_total)} kr. den {s_start} og {s_end}. "
-                    "Kan være tilfældigt, men hold øje med det."
+                    f"Samlet mangel: {_n(s_total)} kr. den {s_start} og {s_end} \u2014 "
+                    "kan være tilfældigt, men hold øje med det."
                 ) if _da else (
                     f"Total shortage: {_n(s_total)} on {s_start} and {s_end}. "
                     "Might be coincidence, but keep an eye on it."
@@ -1551,15 +1554,25 @@ def daily_close_insights(
         curr_rev = revenue_by_month.get(curr, 0)
         prev_rev = revenue_by_month.get(prev, 0)
         if prev_takeaway > 0 and curr_rev > 0:
-            growth = round(((curr_takeaway - prev_takeaway) / prev_takeaway) * 100)
+            # Compare the SHARE of sales, not month totals: a month with 5
+            # closes against one with 26 read "grew 479 %" while the share
+            # fell from 8,3 % to 7,4 %.
             share_curr = round((curr_takeaway / curr_rev) * 100, 1) if curr_rev else 0
             share_prev = round((prev_takeaway / prev_rev) * 100, 1) if prev_rev else 0
-            if growth != 0:
+            growth = round(share_curr - share_prev, 1)
+            if abs(growth) >= 1:
+                _s = lambda v: str(v).replace(".", ",") if _da else str(v)
                 insights.append({
                     "type": "takeaway_growth",
                     "icon": "📦",
-                    "title": f"Takeaway {'grew' if growth > 0 else 'dropped'} {abs(growth)}% this month",
-                    "detail": f"Now {share_curr}% of total sales vs {share_prev}% last month.",
+                    "title": (
+                        (f"Takeaway er {'steget' if growth > 0 else 'faldet'} til {_s(share_curr)} % af salget" if _da
+                         else f"Takeaway {'rose' if growth > 0 else 'fell'} to {share_curr}% of sales")
+                    ),
+                    "detail": (
+                        f"Mod {_s(share_prev)} % sidste måned." if _da
+                        else f"Against {share_prev}% last month."
+                    ),
                     "growth_pct": growth,
                     "current_share": share_curr,
                 })
