@@ -446,7 +446,7 @@ export default function AccountantHoursWidget() {
                 "Du har sparet revisoren {hours} timer denne måned · ca. {money}",
               )
                 .replace("{hours}", fmtHours(hours))
-                .replace(/·\s*~?\s*{money}\s*$/, "")
+                .replace(/·\s*(?:ca\.|~)?\s*{money}\s*$/, "")
                 .replace("{money}", "")
                 .trim()}
               {" · "}
@@ -465,7 +465,7 @@ export default function AccountantHoursWidget() {
           <Icon
             name="ChevronDown"
             size={18}
-            className="-rotate-90 text-gray-400 shrink-0 mt-1"
+            className="-rotate-90 text-gray-400 shrink-0 self-center"
             aria-hidden="true"
           />
         </div>

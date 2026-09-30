@@ -328,3 +328,34 @@ def test_confirming_leaves_the_pay_alone(client, db):
     db.expire_all()
     row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
     assert float(row.earned) == 900.0
+
+
+def test_a_resolved_missing_punch_is_priced_at_the_members_rate(client, db):
+    """Resolving a never-punched shift used to create a row with no rate and
+    no pay: the summary averaged a false 148 kr./t, the payroll PDF paid it 0
+    and the lønseddel re-costed it — three different totals for one shift."""
+    o = _owner(db); m = _staff(db, o)
+    m.base_rate = 180
+    db.add(Schedule(id=uuid.uuid4(), user_id=o.id, staff_id=m.id, date=D1,
+                    start_time="08:00", end_time="16:00", status="published"))
+    db.commit()
+
+    body = _resolve(client, m, "adjust", hours=8.5).json()
+    row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
+    db.refresh(row)
+    assert body["total_hours"] == 8.5
+    assert float(row.rate_applied) == 180
+    assert float(row.earned) == 1530.0
+
+
+def test_an_owner_route_cannot_claim_the_punch_clock(client, db):
+    """Times typed by the owner are a manual entry; only the staff punch clock
+    may write "clock" (it prints as "Stempelur" in the Arbejdstilsynet CSV)."""
+    o = _owner(db); m = _staff(db, o)
+    res = client.post("/api/staff/hours", json={
+        "staff_id": str(m.id), "date": str(D1), "total_hours": 4,
+        "start_time": "17:00", "end_time": "21:00", "entry_method": "clock",
+    })
+    assert res.status_code in (200, 201), res.text
+    row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
+    assert row.entry_method == "quick"

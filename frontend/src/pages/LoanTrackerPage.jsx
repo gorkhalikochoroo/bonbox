@@ -316,7 +316,7 @@ export default function LoanTrackerPage() {
               </div>
 
               {/* Add Transaction */}
-              <form onSubmit={handleAddTxn} className="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+              <form onSubmit={handleAddTxn} className="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
                   <input type="date" value={txnForm.date} onChange={(e) => setTxnForm({ ...txnForm, date: e.target.value })}
                     className="px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
@@ -360,7 +360,7 @@ export default function LoanTrackerPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-750 text-gray-500 dark:text-gray-400 text-xs uppercase">
+                    <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs uppercase">
                       <th className="px-4 py-3 text-left">{t("date")}</th>
                       <th className="px-4 py-3 text-left">{t("type")}</th>
                       <th className="px-4 py-3 text-right">{t("amount")}</th>

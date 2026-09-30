@@ -6427,7 +6427,7 @@ export const tr = {
   revenueTrendVsPrev: "önceki döneme göre",
   profitEyebrow: "Nasıl gidiyor",
   profitEmpty: "Kârını görmek için bir satış ve bir gider kaydet.",
-  profitLabel: "Bu ayın kârı",
+  profitLabel: "Bu ayın kârı (MOMS sonrası)",
   profitLossLabel: "Bu ayın zararı",
   profitVs: "vs.",
   profitOfRevenue: "Cironun",

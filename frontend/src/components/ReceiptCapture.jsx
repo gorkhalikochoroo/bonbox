@@ -130,6 +130,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // used everywhere below, so the value gated on is the value posted.
   const fxRateNum = parseFloat(fxRate);
   const amountNum = parseMoneyInput(amount, moneyLocale(accountCcy));
+  // A scanned figure goes into the field in the owner's own notation — "12,50"
+  // for kroner, not the API's "12.5" — so it reads like what they would type.
+  const toAmountInput = (n) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "";
+    const s = Number.isInteger(v) ? String(v) : v.toFixed(2);
+    return moneyLocale(accountCcy) === "da-DK" ? s.replace(".", ",") : s;
+  };
   const originalAmountNum = amountNum;
   // Rounded to the øre HERE, so the figure on screen is byte-for-byte
   // the figure we post. Showing 99,897 while booking 99,90 is a small
@@ -175,7 +183,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       const res = await api.post(uploadEndpoint, formData, { timeout: 60000 });
       setResult(res.data);
       if (res.data.suggested_amount) {
-        setAmount(String(res.data.suggested_amount));
+        setAmount(toAmountInput(res.data.suggested_amount));
         trackEvent("receipt_scanned", mode, `detected ${res.data.suggested_amount}`);
       } else {
         trackEvent("receipt_scan_failed", mode, res.data.ocr_available ? "no amount found" : "ocr unavailable");
@@ -570,7 +578,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 {result.suggested_amount ? (
                   <div className="bg-gray-50 border border-gray-100 p-3 rounded-lg mb-3">
                     <p className="text-gray-700 text-sm font-medium">
-                      {t("detectedAmount")}: {result.suggested_amount.toLocaleString()} DKK
+                      {t("detectedAmount")}: {formatOwnerMoney(result.suggested_amount, accountCcy, { decimals: 2 })}
                     </p>
                     {/* Honest VAT disclosure — only when the OCR endpoint
                         actually returned a computed MOMS figure. Uses the
@@ -578,7 +586,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         would be wrong for B2B / zero-rated owners). */}
                     {typeof result.vat_amount === "number" && (
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {t("herafMoms")} ({Math.round((result.vat_rate || 0.25) * 100)}%): {result.vat_amount.toLocaleString()} DKK
+                        {t("herafMoms")} ({Math.round((result.vat_rate || 0.25) * 100)}%): {formatOwnerMoney(result.vat_amount, accountCcy, { decimals: 2 })}
                       </p>
                     )}
                     {result.all_amounts_found.length > 1 && (
@@ -586,14 +594,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         {result.all_amounts_found.map((a, i) => (
                           <button
                             key={i}
-                            onClick={() => setAmount(String(a))}
+                            onClick={() => setAmount(toAmountInput(a))}
                             className={`px-2 py-1 rounded text-xs border transition ${
-                              amount === String(a)
+                              amount === toAmountInput(a)
                                 ? "bg-gray-100 border-gray-200 text-gray-700"
                                 : "border-gray-200 text-gray-600 hover:bg-gray-50"
                             }`}
                           >
-                            {a.toLocaleString()}
+                            {formatOwnerMoney(a, accountCcy, { decimals: 2 })}
                           </button>
                         ))}
                       </div>
@@ -604,7 +612,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         Honesty-first: if the model flagged uncertainty,
                         the owner sees it BEFORE saving. */}
                     {result.claude_notes && (
-                      <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2 italic inline-flex items-start gap-1">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 inline-flex items-start gap-1">
                         <Info size={12} className="mt-0.5 shrink-0" aria-hidden="true" /> {result.claude_notes}
                       </p>
                     )}
@@ -985,7 +993,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
         imageUrl={preview}
-        amount={amount ? parseFloat(amount) : result?.suggested_amount}
+        amount={Number.isFinite(amountNum) ? amountNum : result?.suggested_amount}
         currency="DKK"
         date={localIso()}
         paymentMethod={method}

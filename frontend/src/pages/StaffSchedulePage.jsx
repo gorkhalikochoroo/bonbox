@@ -69,7 +69,7 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } fro
 // the top and Tilføj vagt sat below the fold with nothing to scroll.
 // Sheet gives the bottom sheet, the cap, the scroll and the pinned footer.
 import Sheet from "../components/ui/Sheet";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link as RouterLink } from "react-router-dom";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
@@ -718,7 +718,23 @@ function ClockedInStrip() {
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        {rows.map((r) => (
+        {rows.map((r) => r.stale ? (
+          // Open for 16+ hours: a forgotten clock-out, not someone on shift.
+          // It goes where it can be fixed instead of ticking up forever.
+          <RouterLink
+            key={r.staff_id}
+            to="/staff/hours"
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-sm hover:bg-amber-100 dark:hover:bg-amber-900/40"
+          >
+            <span className="font-medium truncate max-w-[10rem]">{r.name}</span>
+            <span className="text-[12px] tabular-nums">
+              {t("schedForgotClockOut", "No clock-out since {date} {time}", {
+                date: r.since_date ? new Date(`${r.since_date}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short" }) : "",
+                time: r.since || "",
+              })}
+            </span>
+          </RouterLink>
+        ) : (
           <span
             key={r.staff_id}
             className="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-2.5 py-1 text-sm"

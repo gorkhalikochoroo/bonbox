@@ -31,6 +31,7 @@ def user():
         id = uuid.uuid4()
         timezone = "Europe/Copenhagen"
         email = "owner@bonbox.dk"
+        ui_language = "en"
     return _U()
 
 
@@ -74,6 +75,7 @@ def test_greeting_boundaries(user, hour, expected):
     # own coverage below.
     class _UtcUser:
         timezone = "UTC"
+        ui_language = "en"
 
     with patch.object(db_mod, "utc_now",
                       return_value=_dt.datetime(2026, 9, 22, hour, 0, 0)):
@@ -90,6 +92,7 @@ def test_the_greeting_uses_the_owners_timezone_not_utc(user):
 
     class _UtcUser:
         timezone = "UTC"
+        ui_language = "en"
 
     with patch.object(db_mod, "utc_now",
                       return_value=_dt.datetime(2026, 9, 22, 23, 30, 0)):
@@ -102,6 +105,7 @@ def test_a_broken_timezone_does_not_crash_the_brief(user):
 
     class _BadTz:
         timezone = "Not/AZone"
+        ui_language = "en"
 
     with patch.object(db_mod, "utc_now",
                       return_value=_dt.datetime(2026, 9, 22, 7, 0, 0)):
@@ -117,3 +121,26 @@ def test_the_cache_path_actually_reassigns_the_greeting():
     assert 'payload["greeting"] = _greeting_for(user)' in hit, (
         "the cache-hit path no longer refreshes the greeting"
     )
+
+
+def test_a_danish_owner_is_greeted_in_danish():
+    """The brief sat on a Danish dashboard saying "Good evening / Sunday · 27 Sep"."""
+    import datetime as _dt
+    from types import SimpleNamespace
+
+    class _DaUser:
+        timezone = "Europe/Copenhagen"
+        ui_language = "da"
+
+    with patch.object(db_mod, "utc_now",
+                      return_value=_dt.datetime(2026, 9, 27, 18, 0, 0)):
+        assert db_mod._greeting_for(_DaUser()) == "God aften"
+    label = db_mod._date_label_for(SimpleNamespace(today="2026-09-27", weekday="Sunday"), _DaUser())
+    assert label == "Søndag · 27. sep."
+    en = db_mod._date_label_for(SimpleNamespace(today="2026-09-27", weekday="Sunday"), _UtcEn())
+    assert en == "Sunday · 27 Sep"
+
+
+class _UtcEn:
+    timezone = "UTC"
+    ui_language = "en"

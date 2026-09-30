@@ -468,7 +468,8 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
 def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
                              start: datetime, party_size: int,
                              now: datetime | None = None,
-                             duration_min: int | None = None) -> list[str] | None:
+                             duration_min: int | None = None,
+                             owner_booking: bool = False) -> list[str] | None:
     """Server-side race re-check at booking time, combo-aware. Returns the full
     table set to assign — one id for a single table, or two+ when the party can
     only be seated by combining tables — or None if no longer bookable.
@@ -484,6 +485,13 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
     tables = [r for r in resources if r.kind != "provider"]
     if tables:
         windows = restaurant_windows(profile, start.date(), settings)
+        if not windows and owner_booking and not hours_declared(profile, settings):
+            # The OWNER booking a caller in by hand is the authority on when the
+            # venue is open. Undeclared hours keep the public page shut (no
+            # invented hours for guests), but they must not stop the owner
+            # writing a booking into their own book: the whole day is theirs.
+            day0 = datetime.combine(start.date(), time(0, 0))
+            windows = [TimeWindow(start=day0, end=day0 + timedelta(days=1))]
         table_views = _views(tables)
         if config.combine_enabled:
             _log_combo_overflow(table_views)

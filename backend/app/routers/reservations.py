@@ -1574,8 +1574,14 @@ def _room_full_detail(db: Session, user: User, party_size: int,
             .scalar()
             or 0
         )
+    try:
+        _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+        _no_hours = not rsvc.hours_declared(_profile, rsvc.load_settings(_profile))
+    except Exception:  # noqa: BLE001 — context only; never break the 409
+        _no_hours = False
     return {
         "error": "room_full", "requested": party_size,
+        "hours_declared": not _no_hours,
         "total_seats": _venue_seats_total(db, user),
         # 0 with a full-looking error = not full, just not bookable then.
         "tables_busy_at_that_time": overlapping,
@@ -1732,6 +1738,7 @@ def create_manual(payload: ManualReservation, request: Request,
             resource_ids = rsvc.recheck_and_assign_combo(
                 db, profile=profile, user_id=user.id, start=payload.starts_at,
                 party_size=payload.party_size, now=None, duration_min=duration,
+                owner_booking=True,
             )
             if resource_ids:
                 try:

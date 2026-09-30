@@ -17,6 +17,52 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../hooks/useLanguage";
 
+/* The server's title/detail are English; the numbers behind them arrive in
+   `params`, so the words are built here in the owner's language. The English
+   stays only as the fallback for a type this panel doesn't know. */
+function alertText(t, a) {
+  const p = a.params || {};
+  switch (a.type) {
+    case "restock":
+      return {
+        title: t("alertRestockTitle", "Restock: {name}", { name: p.name }),
+        detail: p.qty != null
+          ? t("alertRestockDetail", "{qty} left — your minimum is {min}", { qty: p.qty, min: p.min })
+          : null,
+      };
+    case "expiring": {
+      const d = Number(p.days);
+      return {
+        title: t("alertExpiringTitle", "Expiring: {name}", { name: p.name }),
+        detail: d === 0 ? t("alertExpiringToday", "Today")
+          : d === 1 ? t("alertExpiringTomorrow", "Tomorrow")
+            : t("alertExpiringInDays", "In {days} days", { days: d }),
+      };
+    }
+    case "return":
+      return {
+        title: Number(p.n) === 1
+          ? t("alertReturnOne", "1 return pending")
+          : t("alertReturnMany", "{n} returns pending", { n: p.n }),
+        detail: t("alertReturnDetail", "Refund, replace or put back in stock."),
+      };
+    case "reminder":
+      return {
+        title: t("alertNoSalesTitle", "No sales logged today"),
+        detail: t("alertNoSalesDetail", "Log today's first sale so the numbers stay right."),
+      };
+    case "cost":
+      return {
+        title: t("alertCostTitle", "Expenses are {pct}% of revenue", { pct: p.pct }),
+        detail: a.priority === "high"
+          ? t("alertCostHigh", "Look at your biggest expense categories first.")
+          : t("alertCostMedium", "Fine, but there may be room for a better margin."),
+      };
+    default:
+      return { title: a.title, detail: a.detail };
+  }
+}
+
 export default function AlertsPanel({ ctx = {} }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -40,18 +86,21 @@ export default function AlertsPanel({ ctx = {} }) {
         {items.length} {t("active", "active")}
       </p>
       <ul className="space-y-2">
-        {top.map((a, i) => (
-          <li key={(a.id || a.title || "alert") + i} className="text-sm">
-            <p className="font-medium text-gray-900 dark:text-gray-100">
-              {a.title}
-            </p>
-            {a.detail && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {a.detail}
+        {top.map((a, i) => {
+          const { title, detail } = alertText(t, a);
+          return (
+            <li key={(a.id || a.title || "alert") + i} className="text-sm">
+              <p className="font-medium text-gray-900 dark:text-gray-100">
+                {title}
               </p>
-            )}
-          </li>
-        ))}
+              {detail && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {detail}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

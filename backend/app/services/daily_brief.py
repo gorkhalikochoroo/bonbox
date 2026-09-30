@@ -47,6 +47,7 @@ Pipeline (each step is a barrier — if any fails, the next one absorbs):
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 import json
 import logging
 import re
@@ -1283,7 +1284,7 @@ def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None
     if not candidates:
         return {
             "greeting": _greeting_for(user),
-            "date_label": _date_label_for(p),
+            "date_label": _date_label_for(p, user),
             # ISO date + a welcome flag so the page can say both in the
             # owner's language; the English strings stay for older clients.
             "date": p.today,
@@ -1297,7 +1298,7 @@ def fallback_brief(p: Precompute, candidates: list[Candidate], user: User | None
     rest = candidates[1:4]
     return {
         "greeting": _greeting_for(user),
-        "date_label": _date_label_for(p),
+        "date_label": _date_label_for(p, user),
         "date": p.today,
         "headline": head.text,
         # Brief 2.0 — pass cta through to the client so each insight can
@@ -1335,6 +1336,13 @@ def _greeting_for(user: User | None = None) -> str:
         except Exception:  # noqa: BLE001
             # Bad / unknown TZ string — silently fall back to UTC
             pass
+    from app.services.owner_language import owner_lang
+    if owner_lang(user) == "da":
+        if h < 11:
+            return "God morgen"
+        if h < 17:
+            return "God eftermiddag"
+        return "God aften"
     if h < 11:
         return "Good morning"
     if h < 17:
@@ -1342,9 +1350,16 @@ def _greeting_for(user: User | None = None) -> str:
     return "Good evening"
 
 
-def _date_label_for(p: Precompute) -> str:
-    # "Wednesday · 6 May"
+_DA_WEEKDAYS = ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag")
+_DA_MONTHS = ("jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec.")
+
+
+def _date_label_for(p: Precompute, user: User | None = None) -> str:
+    # "Wednesday · 6 May" — or "Onsdag · 6. maj" for a Danish owner.
     d = date.fromisoformat(p.today)
+    from app.services.owner_language import owner_lang
+    if owner_lang(user) == "da":
+        return f"{_DA_WEEKDAYS[d.weekday()].capitalize()} · {d.day}. {_DA_MONTHS[d.month - 1]}"
     return f"{p.weekday} · {d.day} {d.strftime('%b')}"
 
 
@@ -1505,7 +1520,7 @@ def _try_llm_polish(
         return None, in_toks, out_toks, model
 
     validated["greeting"] = _greeting_for(user)
-    validated["date_label"] = _date_label_for(p)
+    validated["date_label"] = _date_label_for(p, user)
     validated["date"] = p.today
     validated["ai_polished"] = True
     return validated, in_toks, out_toks, model
@@ -1702,6 +1717,16 @@ def get_or_create_brief(
             # is a fact about today and is right to cache; this is a clock
             # reading and has to be taken now.
             payload["greeting"] = _greeting_for(user)
+            # Same for the date label: rows cached before it followed the
+            # owner's language still carry "Sunday · 27 Sep".
+            if payload.get("date"):
+                try:
+                    _d = date.fromisoformat(payload["date"])
+                    payload["date_label"] = _date_label_for(
+                        SimpleNamespace(today=payload["date"], weekday=_d.strftime("%A")), user
+                    )
+                except (TypeError, ValueError):
+                    pass
             return payload
         except Exception:  # noqa: BLE001
             # Corrupt cached row — regenerate. Log but don't fail.

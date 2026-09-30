@@ -93,10 +93,14 @@ const MOBILE_HIDE_CLASS = {
 
 // Mobile breakpoint → tailwind responsive prefix. Tables render as
 // stacked Cards below this breakpoint, real <table> above it.
+// `block`, not `table`: this class sits on the WRAPPER div, and a div with
+// display:table ignores overflow — a wide table pushed its last columns
+// (row actions included) past a page that clips horizontal overflow, where no
+// scroll could reach them. As a block the wrapper scrolls sideways instead.
 const BREAKPOINT_TABLE_HIDE = {
-  sm: "hidden sm:table",
-  md: "hidden md:table",
-  lg: "hidden lg:table",
+  sm: "hidden sm:block",
+  md: "hidden md:block",
+  lg: "hidden lg:block",
 };
 const BREAKPOINT_CARDS_HIDE = {
   sm: "sm:hidden",
@@ -474,7 +478,7 @@ export default function DataTable({
                       onChange={() =>
                         onToggleSelect && onToggleSelect(key, row)
                       }
-                      aria-label={`Select row ${idx + 1}`}
+                      aria-label={t("dtSelectRow", "Select row {n}", { n: idx + 1 })}
                       className="border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
                     />
                   </div>

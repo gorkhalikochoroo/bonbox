@@ -66,11 +66,22 @@ export default function ProfitAnswerCard({ ctx = {} }) {
 
   const isLoss = profit < 0;
 
-  // vs. last month — only when there's a real positive prior month to divide by.
+  // vs. last month — a direction WORD, never a raw %, and only against a
+  // month that is a fair baseline. A nearly empty prior month (a venue that
+  // started logging mid-month) made "+468%" out of nothing; within 4x either
+  // way the two months are comparable, outside it the chip stays quiet.
   let pct = null;
-  if (typeof prevProfit === "number" && prevProfit > 0) {
-    pct = Math.round(((profit - prevProfit) / prevProfit) * 100);
+  if (typeof prevProfit === "number" && prevProfit > 0 && profit > 0) {
+    const ratio = profit / prevProfit;
+    if (ratio >= 0.25 && ratio <= 4) {
+      pct = Math.round((ratio - 1) * 100);
+    }
   }
+  const dirWord =
+    pct == null ? null
+      : pct >= 3 ? t("trendUp", "Up")
+        : pct <= -3 ? t("trendDown", "Down")
+          : t("trendFlat", "Stable");
   const prevMonthName = (() => {
     try {
       const d = new Date();
@@ -81,12 +92,12 @@ export default function ProfitAnswerCard({ ctx = {} }) {
       return "";
     }
   })();
-  const TrendIcon = pct == null ? null : pct > 0 ? TrendingUp : pct < 0 ? TrendingDown : Minus;
+  const TrendIcon = pct == null ? null : pct >= 3 ? TrendingUp : pct <= -3 ? TrendingDown : Minus;
   // Calm hero: the arrow + colored text ARE the signal — no pill fill.
   const chipCls =
-    pct > 0
+    pct >= 3
       ? "text-emerald-700 dark:text-emerald-300"
-      : pct < 0
+      : pct <= -3
         ? "text-red-600 dark:text-red-400"
         : "text-gray-500 dark:text-gray-400";
 
@@ -112,15 +123,18 @@ export default function ProfitAnswerCard({ ctx = {} }) {
           <div className="text-sm text-gray-500 dark:text-gray-400">
             {isLoss ? t("profitLossLabel", "Loss this month") : t("profitLabel", "Profit this month")}
           </div>
+          {/* The headline is what the owner keeps: revenue is MOMS-inclusive,
+              so profit before MOMS overstated it by SKAT's share — and the bar
+              below already calls the after-MOMS figure "yours". */}
           <Amount
-            value={profit}
+            value={isLoss ? profit : yours}
             size="hero"
             className={isLoss ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}
           />
         </div>
         {pct != null && TrendIcon && (
           <span className={`inline-flex items-center gap-1 text-sm font-semibold mb-1 tabular-nums ${chipCls}`}>
-            <TrendIcon className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden="true" /> {pct > 0 ? "+" : ""}{pct}% {t("profitVs", "vs.")} {prevMonthName}
+            <TrendIcon className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden="true" /> {dirWord} {t("profitVs", "vs.")} {prevMonthName}
           </span>
         )}
       </div>

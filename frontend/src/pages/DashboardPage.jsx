@@ -634,14 +634,13 @@ export default function DashboardPage() {
             // Only trust the delta when there was a real prior week to compare
             // against. Without this, a zero-history account is told "vs last
             // week" about a comparison that never happened.
-            weekDeltaPct:
-              Number(weekComparison.last_week_revenue) > 0
-                ? (weekComparison.change_pct ?? null)
-                : null,
+            // Week-to-date against the SAME weekdays last week — against the
+            // whole of last week the tile read "Ned" every day until Sunday.
+            weekDeltaPct: weekComparison.same_days_change_pct ?? null,
             direction:
-              (weekComparison.change_pct || 0) > 0
+              (weekComparison.same_days_change_pct || 0) >= 3
                 ? "up"
-                : (weekComparison.change_pct || 0) < 0
+                : (weekComparison.same_days_change_pct || 0) <= -3
                   ? "down"
                   : "flat",
           }

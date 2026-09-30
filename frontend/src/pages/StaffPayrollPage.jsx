@@ -884,7 +884,15 @@ export default function StaffPayrollPage() {
                         const out = await saveFile(res.data, `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`, { type: "application/pdf" });
                         if (!out.ok) setError(t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
                       } catch (e) {
-                        setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
+                        // A blob request returns its JSON error as a Blob — read it,
+                        // so an open punch is named instead of "could not generate".
+                        let detail = null;
+                        try { detail = JSON.parse(await e?.response?.data?.text?.())?.detail; } catch { /* not JSON */ }
+                        if (e?.response?.status === 409 && detail?.code === "open_punches") {
+                          setError(t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
+                        } else {
+                          setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
+                        }
                       }
                     }}
                     className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition"

@@ -158,6 +158,9 @@ def test_payroll_is_refused_while_a_shift_is_still_open(client, db):
     r = _get(client)
     assert r.status_code == 409, r.text
     detail = r.json()["detail"]
+    # Structured since Sep-30 so the page can name the shifts in Danish;
+    # the English sentence is still carried as `message`.
+    detail = detail["message"] if isinstance(detail, dict) else detail
     assert "Agnes" in detail, "the owner must be told WHO to chase"
     assert "2026-06-12" in detail, "and WHEN"
     assert "15:22" in detail
@@ -169,6 +172,9 @@ def test_the_refusal_says_why_it_cannot_simply_be_paid_later(client, db):
     _open_punch(db, o, m)
 
     detail = _get(client).json()["detail"]
+    # Structured since Sep-30 so the page can name the shifts in Danish;
+    # the English sentence is still carried as `message`.
+    detail = detail["message"] if isinstance(detail, dict) else detail
     assert "0" in detail
     assert "later" in detail.lower() or "permanent" in detail.lower()
 
@@ -207,6 +213,9 @@ def test_every_open_shift_is_named_not_just_the_first(client, db):
     _open_punch(db, o, b, d=date(2026, 6, 12))
 
     detail = _get(client).json()["detail"]
+    # Structured since Sep-30 so the page can name the shifts in Danish;
+    # the English sentence is still carried as `message`.
+    detail = detail["message"] if isinstance(detail, dict) else detail
     assert "Agnes" in detail and "Bo" in detail
     assert detail.startswith("2 shift")
 

@@ -3946,7 +3946,11 @@ def log_hours(
         raise HTTPException(status_code=404, detail="Staff member not found")
 
     total_hours = data.total_hours
-    entry_method = data.entry_method
+    # This is the OWNER's route: nothing arriving here was measured by the
+    # punch clock (that writes through staff_portal.py). A client claiming
+    # "clock" made an owner-typed shift print as "Stempelur" in the
+    # Arbejdstilsynet register and count toward "% stemplet".
+    entry_method = "quick" if (data.entry_method or "").lower() == "clock" else data.entry_method
 
     # If clock-in/out times provided, calculate hours from them.
     if data.start_time and data.end_time:
@@ -4019,9 +4023,17 @@ def get_clocked_in_staff(
         if r.start_time:
             try:
                 hh, mm = (int(x) for x in r.start_time.split(":"))
-                start_dt = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                if start_dt > now_dt:
-                    start_dt -= timedelta(days=1)
+                # From the punch's own DATE — a 17-day-old open punch read as
+                # "since 17:00, 404 min" because only the clock time was used.
+                if r.date:
+                    start_dt = now_dt.replace(
+                        year=r.date.year, month=r.date.month, day=r.date.day,
+                        hour=hh, minute=mm, second=0, microsecond=0,
+                    )
+                else:
+                    start_dt = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                    if start_dt > now_dt:
+                        start_dt -= timedelta(days=1)
                 elapsed = max(0, int((now_dt - start_dt).total_seconds() // 60))
             except Exception:
                 elapsed = None
@@ -4029,7 +4041,10 @@ def get_clocked_in_staff(
             "staff_id": str(r.staff_id),
             "name": (m.name if m else None) or "—",
             "since": r.start_time,
+            "since_date": r.date.isoformat() if r.date else None,
             "elapsed_min": elapsed,
+            # Open for over 16 hours = a forgotten clock-out, not a live shift.
+            "stale": bool(elapsed is not None and elapsed > 16 * 60),
             # Surface the geofence "couldn't confirm location" flag so the owner
             # can actually SEE it on the live strip — otherwise the location
             # lock is invisible theatre. (Written by portal clock-in when GPS is
@@ -4369,10 +4384,14 @@ def resolve_hours(
         # The ambiguous case: scheduled, never punched. There is no row to
         # amend, so resolving creates one — and clock_hours records that the
         # clock measured zero, which is a fact and must survive the override.
+        # Priced at the member's rate from the start — a row with no rate left
+        # `earned` empty, so the summary averaged a false 148 kr./t and the
+        # payroll PDF paid it as 0 while the lønseddel re-costed it.
+        _rate = _pick_rate(staff, data.date, None)
         entry = HoursLogged(
             user_id=user.id, staff_id=staff.id, date=data.date,
             break_minutes=0, total_hours=0, entry_method="owner_resolved",
-            clock_hours=0,
+            clock_hours=0, rate_applied=_rate or None, earned=0,
         )
         db.add(entry)
     elif entry.clock_hours is None and entry.entry_method == "clock":
@@ -4403,8 +4422,14 @@ def resolve_hours(
         elif entry.earned and hours_before > 0:
             entry.earned = round(float(entry.earned) * hours_after / hours_before, 2)
         else:
-            # No rate on the row: payroll re-costs it from the member's rate.
-            entry.earned = None
+            # No rate on the row: price it at the member's rate now, so every
+            # screen and export reads the same kroner.
+            _rate = _pick_rate(staff, entry.date, getattr(entry, "start_time", None))
+            if _rate:
+                entry.rate_applied = _rate
+                entry.earned = round(hours_after * _rate, 2)
+            else:
+                entry.earned = None
 
     entry.resolved_by = user.id
     entry.resolved_at = utc_now()
@@ -5656,32 +5681,7 @@ def loenseddel_pdf(
     # is a pure date-range query with no paid_at, so once this period is issued
     # no later payslip will ever look at that date again.
     # Service-side twin: loenseddel_pdf.OpenPunchInPeriod.
-    open_rows = (
-        db.query(HoursLogged.staff_id, HoursLogged.date, HoursLogged.start_time)
-        .filter(
-            HoursLogged.user_id == user.id,
-            HoursLogged.date >= period_start,
-            HoursLogged.date <= period_end,
-            HoursLogged.entry_method == "clock",
-            HoursLogged.end_time.is_(None),
-        )
-        .order_by(HoursLogged.date.asc())
-        .all()
-    )
-    if open_rows:
-        names = {str(s.id): s.name for s in staff_rows}
-        listed = ", ".join(
-            f"{names.get(str(sid), 'ukendt')} {d.isoformat()}"
-            + (f" fra {st}" if st else "")
-            for sid, d, st in open_rows[:6]
-        )
-        more = f" (+{len(open_rows) - 6} more)" if len(open_rows) > 6 else ""
-        raise HTTPException(
-            409,
-            f"{len(open_rows)} shift(s) in this period have not been clocked "
-            f"out: {listed}{more}. Close them first — an open shift records 0 "
-            f"hours, would be paid as 0 kr., and cannot be paid later.",
-        )
+    _refuse_open_punches(db, user, period_start, period_end)
 
     profile = (
         db.query(BusinessProfile)
@@ -6046,6 +6046,46 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
     return buf.getvalue()
 
 
+def _refuse_open_punches(db: Session, user: User, period_start: date, period_end: date) -> None:
+    """409 naming every shift in the period that was clocked in and never out.
+    An open punch stores 0 hours, so any payroll document issued over it pays
+    the shift as 0 kr. Shared by the lønseddel and the payroll PDF."""
+    staff_rows = db.query(StaffMember).filter(StaffMember.user_id == user.id).all()
+    open_rows = (
+        db.query(HoursLogged.staff_id, HoursLogged.date, HoursLogged.start_time)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.date >= period_start,
+            HoursLogged.date <= period_end,
+            HoursLogged.entry_method == "clock",
+            HoursLogged.end_time.is_(None),
+        )
+        .order_by(HoursLogged.date.asc())
+        .all()
+    )
+    if open_rows:
+        names = {str(s.id): s.name for s in staff_rows}
+        listed = ", ".join(
+            f"{names.get(str(sid), 'ukendt')} {d.isoformat()}"
+            + (f" fra {st}" if st else "")
+            for sid, d, st in open_rows[:6]
+        )
+        more = f" (+{len(open_rows) - 6} more)" if len(open_rows) > 6 else ""
+        raise HTTPException(
+            409,
+            {
+                "code": "open_punches",
+                "count": len(open_rows),
+                "list": f"{listed}{more}",
+                "message": (
+                    f"{len(open_rows)} shift(s) in this period have not been clocked "
+                    f"out: {listed}{more}. Close them first — an open shift records 0 "
+                    f"hours, would be paid as 0 kr., and cannot be paid later."
+                ),
+            },
+        )
+
+
 @router.post("/payroll/pdf")
 def generate_payroll_pdf(
     body: PayrollPDFRequest,
@@ -6064,6 +6104,9 @@ def generate_payroll_pdf(
     # middleware's prefix list later. The whole venue's payroll is the single
     # richest wage document the product produces.
     _require_uncurtained_wages(user)
+    # Same barrier as the lønseddel: it printed "17:00 – — 0.0 0.00 DKK" for
+    # a forgotten clock-out and paid the shift as 0.
+    _refuse_open_punches(db, user, body.period_start, body.period_end)
     pdf_bytes = _render_payroll_pdf_bytes(body, db, user)
     filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
     return StreamingResponse(

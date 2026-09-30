@@ -733,7 +733,7 @@ export default function ExpensesPage() {
           ? `${fxOriginalAmountNum} ${fxCurrency} → ${value} ${currency}`
           : `${value} ${currency}`,
       );
-      setSuccess(`${formatOwnerMoney(value, currency)}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
+      setSuccess(`${formatOwnerMoney(value, currency, { decimals: 2 })}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -1165,14 +1165,14 @@ export default function ExpensesPage() {
       render: (r) => {
         const thumbUrl = r.receipt_photo ? safeImageUrl(r.receipt_photo) : null;
         return (
-          <span className="inline-flex items-center gap-2">
+          <span className="flex items-center gap-2 min-w-0 max-w-full">
             {r.receipt_photo ? (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setReceiptViewing(r); }}
                 title={t("receiptViewerOpen") || "View receipt"}
                 aria-label={t("receiptViewerOpen") || "View receipt"}
-                className="inline-flex items-center justify-center w-9 h-9 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 text-gray-500 transition"
+                className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 text-gray-500 transition"
               >
                 {thumbUrl ? (
                   <img
@@ -1198,16 +1198,16 @@ export default function ExpensesPage() {
                 disabled={attaching}
                 title={t("expAttachBilag", "Snap a receipt")}
                 aria-label={t("expAttachBilag", "Snap a receipt")}
-                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-dashed border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition disabled:opacity-40"
+                className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-dashed border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition disabled:opacity-40"
               >
                 <Camera size={14} strokeWidth={1.75} aria-hidden="true" />
               </button>
             ) : null}
-            <span className="truncate">
+            <span className="truncate min-w-0">
               {r.description || getCatName(r.category_id)}
             </span>
             {r.is_personal && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                 {t("personalMode")}
               </span>
             )}
@@ -1224,7 +1224,7 @@ export default function ExpensesPage() {
       id: "amount",
       label: t("amount", "Amount"),
       align: "right",
-      render: (r) => <Amount value={parseFloat(r.amount)} currency={currency} />,
+      render: (r) => <Amount value={parseFloat(r.amount)} currency={currency} decimals={2} />,
     },
     {
       id: "payment",
@@ -1260,7 +1260,7 @@ export default function ExpensesPage() {
         const amt = parseFloat(row.amount);
         const what = row.description || getCatName(row.category_id);
         const money = Number.isFinite(amt)
-          ? formatOwnerMoney(amt, currency)
+          ? formatOwnerMoney(amt, currency, { decimals: 2 })
           // An amount we cannot read is not 0 kr. — say so rather than put a
           // fabricated number in a dialog the owner is about to act on.
           : "—";
@@ -1497,17 +1497,17 @@ export default function ExpensesPage() {
                 see monthSummary. */}
             {monthSummary.narrowed
               ? t("expFilteredSummary", "Filtered: {total} across {count} expenses · ", {
-                  total: formatOwnerMoney(monthSummary.total, currency),
+                  total: formatOwnerMoney(monthSummary.total, currency, { decimals: 2 }),
                   count: monthSummary.count,
                 })
               : monthSummary.scoped
                 ? t("expPeriodSummary", "{range}: {total} across {count} expenses · ", {
                     range: filterRangeLabel,
-                    total: formatOwnerMoney(monthSummary.total, currency),
+                    total: formatOwnerMoney(monthSummary.total, currency, { decimals: 2 }),
                     count: monthSummary.count,
                   })
                 : t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
-                    total: formatOwnerMoney(monthSummary.total, currency),
+                    total: formatOwnerMoney(monthSummary.total, currency, { decimals: 2 }),
                     count: monthSummary.count,
                   })}
             <Link

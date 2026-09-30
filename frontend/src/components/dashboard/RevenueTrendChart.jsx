@@ -248,6 +248,7 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           </p>
         </div>
       </div>
+      <div className="text-gray-700 dark:text-gray-300 [--tt-bg:#ffffff] dark:[--tt-bg:#111827] [--tt-border:#E5E7EB] dark:[--tt-border:#374151] [--tt-ink:#111827] dark:[--tt-ink:#F3F4F6]">
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.15)" />
@@ -274,20 +275,21 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           <Tooltip
             cursor={{ stroke: "#9CA3AF", strokeWidth: 1, strokeDasharray: "3 3" }}
             contentStyle={{
-              background: "#ffffff",
-              border: "1px solid #E5E7EB",
+              background: "var(--tt-bg)",
+              border: "1px solid var(--tt-border)",
               borderRadius: 8,
               boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
               padding: "8px 12px",
             }}
             labelStyle={{ color: "#6B7280", fontSize: 11, fontWeight: 500, marginBottom: 2, textTransform: "none" }}
-            itemStyle={{ color: "#111827", fontSize: 13, fontWeight: 600, padding: 0 }}
+            itemStyle={{ color: "var(--tt-ink)", fontSize: 13, fontWeight: 600, padding: 0 }}
             formatter={(v) => [formatKr(v, { decimals: 0 }), t("revenue", "Revenue")]}
             labelFormatter={(label) => fmtTrendDate(label, lang)}
           />
-          <Area type="monotone" dataKey="amount" stroke="#374151" strokeWidth={2} fill="rgba(55,65,81,0.08)" dot={false} />
+          <Area type="monotone" dataKey="amount" stroke="currentColor" strokeWidth={2} fill="currentColor" fillOpacity={0.08} dot={false} />
         </AreaChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

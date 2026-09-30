@@ -141,8 +141,13 @@ describe("MobileSchedule — split shifts", () => {
     // accessor produced. The space is the shared formatter's (utils/hours.js):
     // Vagtplan used to print "9t" here while Timer & løn printed "9,0 t" for
     // the same day.
-    expect(screen.getByText("9 t")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument(); // staffOn is a head count
+    const hours = screen.getByText("9 t");
+    expect(hours).toBeInTheDocument();
+    // staffOn is a head count. Looked up next to the hours rather than
+    // page-wide: on the last day of a month the week strip also shows a "1"
+    // (the 1st), and a page-wide getByText("1") failed every such day.
+    const stat = hours.closest("div")?.parentElement;
+    expect(stat && within(stat).queryAllByText("1").length).toBeGreaterThan(0);
   });
 
   it("keeps the empty day as one row-wide OFF button", () => {

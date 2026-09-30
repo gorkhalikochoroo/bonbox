@@ -166,6 +166,30 @@ export default function SalesPage() {
   const VISIBLE_LIMIT = 50;
   const visible = useMemo(() => filtered.slice(0, VISIBLE_LIMIT), [filtered]);
 
+  // Most venues log revenue through the kasserapport, not here — for them an
+  // empty sales list with "tap a quick amount to log your first" invites
+  // entering the same money twice. When there are no sales but this month
+  // has closes, the empty state says where the revenue lives instead.
+  const [closeMonth, setCloseMonth] = useState(null);
+  useEffect(() => {
+    if (salesLoading || sales.length) return;
+    const now = new Date();
+    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    let alive = true;
+    api.get("/daily-close", { params: { from } })
+      .then((r) => {
+        const rows = Array.isArray(r.data) ? r.data : [];
+        if (alive && rows.length) {
+          setCloseMonth({
+            count: rows.length,
+            total: rows.reduce((sum, c) => sum + (Number(c.revenue_total) || Number(c.payment_total) || 0), 0),
+          });
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [salesLoading, sales.length]);
+
   // A selection only ever means "these rows, the ones on screen" — so it
   // cannot survive a change to what is on screen. It used to: select-all on a
   // 312-sale list picked 50 rows, the owner then did exactly what the caption
@@ -366,7 +390,7 @@ export default function SalesPage() {
     const value = amt || parseMoneyInput(amount, moneyLocale(user?.currency));
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
-    if (duplicate && !(await confirm({ message: `${t("aSaleOf")} ${formatOwnerMoney(value, user?.currency)} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`, destructive: false }))) {
+    if (duplicate && !(await confirm({ message: `${t("aSaleOf")} ${formatOwnerMoney(value, user?.currency, { decimals: 2 })} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`, destructive: false }))) {
       return;
     }
     setError("");
@@ -414,7 +438,7 @@ export default function SalesPage() {
       }
       const isBackdated = submittedSnapshot.saleDate !== businessToday;
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
-      setSuccess(`${formatOwnerMoney(value, user?.currency)}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
+      setSuccess(`${formatOwnerMoney(value, user?.currency, { decimals: 2 })}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
       // Refresh inventory / aggregates / cross-page subscribers — but
       // don't block the UI on it.
       window.dispatchEvent(new Event("bonbox-data-changed"));
@@ -686,7 +710,7 @@ export default function SalesPage() {
         return (
           <div className="inline-flex items-center justify-end gap-2 flex-wrap">
             <span className={st === "returned" ? "line-through text-gray-500" : "font-semibold tabular-nums"}>
-              <Amount value={parseFloat(r.amount)} currency={user?.currency} />
+              <Amount value={parseFloat(r.amount)} currency={user?.currency} decimals={2} />
             </span>
             {statusBadge(r)}
             {r.receipt_photo && (
@@ -758,7 +782,7 @@ export default function SalesPage() {
       icon: <Trash size={14} />,
       onClick: async () => {
         const ok = await confirm({
-          message: `${t("moveToTrash")} — ${formatOwnerMoney(Number(row.amount || 0), user?.currency)}`,
+          message: `${t("moveToTrash")} — ${formatOwnerMoney(Number(row.amount || 0), user?.currency, { decimals: 2 })}`,
           destructive: true,
           confirmLabel: t("moveToTrash"),
         });
@@ -777,7 +801,7 @@ export default function SalesPage() {
       <Card variant="emphasis">
         <Card.Header
           title={t("editSale", "Edit sale")}
-          subtitle={`${formatOwnerMoney(parseFloat(sale.amount), user?.currency)} · ${formatDateClear(sale.date)}`}
+          subtitle={`${formatOwnerMoney(parseFloat(sale.amount), user?.currency, { decimals: 2 })} · ${formatDateClear(sale.date)}`}
           action={
             <Button variant="ghost" size="sm" onClick={() => { setEditId(null); setEditData({}); }}>
               {t("cancel")}
@@ -848,7 +872,7 @@ export default function SalesPage() {
     if (!sale) return null;
     const reasons = ["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"];
     const actions = [
-      { id: "refund",   label: t("refund", "Refund"),     sub: formatOwnerMoney(parseFloat(sale.amount), user?.currency) },
+      { id: "refund",   label: t("refund", "Refund"),     sub: formatOwnerMoney(parseFloat(sale.amount), user?.currency, { decimals: 2 }) },
       { id: "replace",  label: t("replace", "Replace"),   sub: t("sendNewItem", "Send new item") },
       { id: "exchange", label: t("exchange", "Exchange"), sub: t("swapForAnother", "Swap for another") },
       { id: "restock",  label: t("restock", "Restock"),   sub: t("backToInventory", "Back to inventory") },
@@ -857,7 +881,7 @@ export default function SalesPage() {
       <Card variant="emphasis">
         <Card.Header
           title={t("processReturn", "Process return")}
-          subtitle={`${formatOwnerMoney(parseFloat(sale.amount), user?.currency)} · ${formatDateClear(sale.date)}`}
+          subtitle={`${formatOwnerMoney(parseFloat(sale.amount), user?.currency, { decimals: 2 })} · ${formatDateClear(sale.date)}`}
           action={
             <Button variant="ghost" size="sm" onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}>
               {t("cancel")}
@@ -959,7 +983,7 @@ export default function SalesPage() {
             {/* The count is the rows the total is summed from, so the two
                 figures on this line always tie out. */}
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1">
-              {selSales.length} {t("selected")} · <Amount value={total} currency={user?.currency} />
+              {selSales.length} {t("selected")} · <Amount value={total} currency={user?.currency} decimals={2} />
             </p>
             <span className="text-xs text-gray-500 dark:text-gray-400">
               {t("avg")}: <Amount value={avg} currency={user?.currency} />
@@ -970,7 +994,7 @@ export default function SalesPage() {
               variant="secondary"
               size="sm"
               onClick={() => {
-                const text = `${selSales.length} sales | Total: ${formatOwnerMoney(total, user?.currency)} | Avg: ${formatOwnerMoney(avg, user?.currency)}`;
+                const text = `${selSales.length} sales | Total: ${formatOwnerMoney(total, user?.currency, { decimals: 2 })} | Avg: ${formatOwnerMoney(avg, user?.currency)}`;
                 navigator.clipboard?.writeText(text);
                 setSuccess(t("copiedToClipboard"));
                 setTimeout(() => setSuccess(""), 2000);
@@ -1222,7 +1246,7 @@ export default function SalesPage() {
         {filtered.length > 0 && (
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-4 py-2.5 text-sm">
             <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-              {t("total")}: <Amount value={periodTotal} currency={user?.currency} />
+              {t("total")}: <Amount value={periodTotal} currency={user?.currency} decimals={2} />
             </span>
             <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
             <span className="text-gray-600 dark:text-gray-300 tabular-nums">
@@ -1248,11 +1272,26 @@ export default function SalesPage() {
           rows={visible}
           rowKey="id"
           empty={
-            <Empty
-              icon={Receipt}
-              title={t("noSalesYet", "No sales yet")}
-              body={t("noSalesBody", "Tap a quick amount above to log your first.")}
-            />
+            closeMonth ? (
+              <Empty
+                icon={Receipt}
+                title={t("salesFromClosesTitle", "Your revenue comes from the kasserapport")}
+                body={t("salesFromClosesBody", "{total} this month from {n} closes. Log single sales here only if they aren't on a Z-report.")
+                  .replace("{total}", formatOwnerMoney(closeMonth.total, user?.currency))
+                  .replace("{n}", String(closeMonth.count))}
+                cta={
+                  <Link to="/daily-close" className="inline-flex items-center h-10 px-4 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white">
+                    {t("salesFromClosesCta", "Open kasserapport")}
+                  </Link>
+                }
+              />
+            ) : (
+              <Empty
+                icon={Receipt}
+                title={t("noSalesYet", "No sales yet")}
+                body={t("noSalesBody", "Tap a quick amount above to log your first.")}
+              />
+            )
           }
           loading={salesLoading}
           rowActions={rowActions}

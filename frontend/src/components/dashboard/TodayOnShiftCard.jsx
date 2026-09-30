@@ -28,10 +28,14 @@ import { Link } from "react-router-dom";
 import { Calendar, ChevronRight } from "lucide-react";
 import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
+import { useAuth } from "../../hooks/useAuth";
 import { Card } from "../ui";
+import { sectionFor } from "../../config/roleSections";
+import { SECTION_LABEL_KEY, SECTION_LABEL_FALLBACK } from "../../config/scheduleSectionColors";
 
 export default function TodayOnShiftCard() {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [shifts, setShifts] = useState([]);
   const [error, setError] = useState(false);
@@ -130,7 +134,14 @@ export default function TodayOnShiftCard() {
             >
               {s.role && (
                 <span className="text-gray-500 dark:text-gray-400 shrink-0">
-                  {s.role}
+                  {(() => {
+                    // Raw role ids ("kitchen", "server") read as English on a
+                    // Danish dashboard — show the section's label instead.
+                    const sec = sectionFor(s.role, user?.business_type);
+                    return SECTION_LABEL_KEY[sec]
+                      ? t(SECTION_LABEL_KEY[sec], SECTION_LABEL_FALLBACK[sec])
+                      : s.role;
+                  })()}
                 </span>
               )}
               {s.role && (

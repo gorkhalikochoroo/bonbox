@@ -947,6 +947,17 @@ def get_dashboard_batch(
                 Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
+    # The direction compares like with like: Monday..today against the SAME
+    # weekdays last week. Against the whole of last week, week-to-date reads
+    # "down" every day from Monday to Saturday, whatever the business did.
+    last_week_same_days_rev = effective_revenue_total(
+        db, user.id, last_monday, today - timedelta(days=7)
+    )
+    same_days_change_pct = None
+    if last_week_same_days_rev > 0:
+        same_days_change_pct = round(
+            ((this_week_rev - last_week_same_days_rev) / last_week_same_days_rev) * 100, 1
+        )
     wk_change_pct = 0.0
     if last_week_rev > 0:
         wk_change_pct = round(((this_week_rev - last_week_rev) / last_week_rev) * 100, 1)
@@ -955,6 +966,8 @@ def get_dashboard_batch(
         "this_week_revenue": round(this_week_rev, 2),
         "last_week_revenue": round(last_week_rev, 2),
         "change_pct": wk_change_pct,
+        "last_week_same_days_revenue": round(last_week_same_days_rev, 2),
+        "same_days_change_pct": same_days_change_pct,
         "this_week_expenses": round(this_week_exp, 2),
         "last_week_expenses": round(last_week_exp, 2),
         "this_week_profit": round(this_week_rev - this_week_exp, 2),

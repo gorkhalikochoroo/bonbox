@@ -168,10 +168,10 @@ export default function DailyBriefCard() {
         document.execCommand("copy");
         document.body.removeChild(ta);
       }
-      setShareToast("Copied!");
+      setShareToast(t("briefCopied", "Copied!"));
       setTimeout(() => setShareToast(""), 2000);
     } catch {
-      setShareToast("Couldn't copy — long-press to select.");
+      setShareToast(t("briefCopyFailed", "Couldn't copy — press and hold to select."));
       setTimeout(() => setShareToast(""), 3000);
     }
   };
@@ -297,7 +297,7 @@ export default function DailyBriefCard() {
               aria-label={t("refreshBrief") || "Refresh brief"}
               className="text-[12px] text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
             >
-              {refreshing ? "Refreshing…" : "Refresh"}
+              {refreshing ? t("briefRefreshing", "Refreshing…") : t("briefRefresh", "Refresh")}
             </button>
           )}
           <button

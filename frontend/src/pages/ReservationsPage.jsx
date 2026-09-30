@@ -904,6 +904,12 @@ function ReservationDrawer({
     secondary.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled" });
   } else if (r.status === "seated") {
     primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed", icon: CheckCircle2 };
+  } else if (r.status === "no_show") {
+    // A no-show tapped by mistake, or a party that turns up late, has to be
+    // recoverable — the drawer used to offer only "Close".
+    secondary.push({ id: "reopen", label: t("rsvpReopenAction", "Reopen"), to: "confirmed" });
+  } else if (r.status === "completed") {
+    secondary.push({ id: "reopen", label: t("rsvpReopenAction", "Reopen"), to: "seated" });
   }
   const PrimaryIcon = primary?.icon || null;
 
@@ -1128,8 +1134,8 @@ function ReservationDrawer({
                 disabled={busy}
                 onClick={() => onStatus(r, primary.to)}
                 className="w-full justify-center gap-2"
+                iconLeft={PrimaryIcon ? <PrimaryIcon className="w-4 h-4" aria-hidden /> : null}
               >
-                {PrimaryIcon && <PrimaryIcon className="w-4 h-4" aria-hidden />}
                 {primary.label}
               </Button>
             )}
@@ -1151,7 +1157,7 @@ function ReservationDrawer({
                     type="button"
                     disabled={busy}
                     onClick={() => onStatus(r, a.to)}
-                    className="text-sm font-medium px-2 py-1.5 rounded-md text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+                    className={`text-sm font-medium px-2 py-1.5 rounded-md text-gray-500 dark:text-gray-400 ${a.id === "reopen" ? "hover:text-gray-900 dark:hover:text-gray-100" : "hover:text-red-600 dark:hover:text-red-400"} transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1`}
                   >
                     {a.label}
                   </button>
@@ -1873,7 +1879,9 @@ function NewBookingSheet({
                   occupying the room at that time, saying "full" contradicts a
                   book showing zero covers and makes a host turn away a caller
                   they could have seated. */}
-              {warning.busyAtThatTime === 0
+              {warning.noHours
+                ? t("rsvpNoTableNoHours", "No table fits this party at that time. Opening hours aren't saved yet — add them under Settings → Opening hours.")
+                : warning.busyAtThatTime === 0
                 ? t("rsvpNoTableAtTime", "No table can be booked at that time.")
                 : warning.seats != null
                   ? t("rsvpRoomFullWarn", "That time is full — {n} seats.", { n: warning.seats })
@@ -2531,6 +2539,15 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
     if (day && day.slice(0, 7) !== month) setMonth(day.slice(0, 7));
   }, [day]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Refetch when a booking is created or changes status elsewhere on the page —
+  // the rail said "I morgen 0 gæster" right after a 4-top was booked for tomorrow.
+  const [railNonce, setRailNonce] = useState(0);
+  useEffect(() => {
+    const bump = () => setRailNonce((n) => n + 1);
+    window.addEventListener("bonbox-reservations-changed", bump);
+    return () => window.removeEventListener("bonbox-reservations-changed", bump);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -2546,7 +2563,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
       .catch(() => { if (alive) { setLoad({}); setTotals(null); } })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [month]);
+  }, [month, railNonce]);
 
   const [y, m] = month.split("-").map(Number);
   const first = new Date(y, m - 1, 1);
@@ -3417,6 +3434,19 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   }, [deepLinkPulse]);
 
   const setStatus = async (r, status) => {
+    if (status === "no_show") {
+      const who = r.guest_name || t("rsvpGuest", "Guest");
+      if (
+        !(await confirm({
+          title: t("rsvpNoShowConfirmTitle", "Mark as no-show?"),
+          message: t("rsvpNoShowConfirmBody", "Records that {name} didn't arrive.", { name: who }),
+          confirmLabel: t("rsvpNoShowAction", "No-show"),
+          destructive: true,
+        }))
+      ) {
+        return;
+      }
+    }
     if (status === "cancelled") {
       const who = r.guest_name || t("rsvpGuest", "Guest");
       // A `requested` booking is DECLINED (it was never confirmed), not a
@@ -3487,6 +3517,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // only SHOWS them; the owner still taps Notify / Book.
       const m = resp?.data?.waitlist_matches;
       if (Array.isArray(m) && m.length) setSpotMatches(m);
+      window.dispatchEvent(new Event("bonbox-reservations-changed"));
       await fetchBook(day);
     } catch (e) {
       setError(
@@ -3580,6 +3611,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           };
       await api.post("/reservations/book", payload);
       trackEvent("reservation_created", "reservations");  // product analytics
+      // The day rail's per-day counts come from a separate month query.
+      window.dispatchEvent(new Event("bonbox-reservations-changed"));
       setNewOpen(false);
       setRoomFull(null);
       // Jump the book to the booked date so the new booking is visible.
@@ -3611,7 +3644,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
         // undefined (older backend) stays undefined, so the message falls back
         // to the previous wording rather than claiming an empty room.
-        setRoomFull({ seats, busyAtThatTime: d.tables_busy_at_that_time });
+        setRoomFull({ seats, busyAtThatTime: d.tables_busy_at_that_time, noHours: d.hours_declared === false });
       } else {
         setCreateError(
           d.error || t("rsvpCreateError", "Couldn't create the booking."),
@@ -4020,7 +4053,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             {lateMin >= 5 ? (
               <div className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
                 <Clock className="w-3 h-3 shrink-0" aria-hidden />
-                {t("rsvpLateBy", "{n} min late", { n: lateMin })}
+                {lateMin >= 60
+                  ? t("rsvpLateByHours", "{h} h {m} min late", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
+                  : t("rsvpLateBy", "{n} min late", { n: lateMin })}
               </div>
             ) : (
               <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
@@ -4035,8 +4070,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       id: "guest",
       label: t("rsvpColGuest", "Guest"),
       render: (r) => (
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+        <div className="min-w-0 max-w-[16rem]">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" title={r.guest_name || undefined}>
             {r.guest_name || "—"}
           </div>
           {r.guest_phone && (
@@ -4168,7 +4203,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     // opts needed — they'd be dead) and never double-prompt. Other destructive
     // flips (no-show) still confirm here with their own copy.
     const guardedSet = (opts, status) => async () => {
-      if (status === "cancelled") {
+      // setStatus owns the cancel and no-show confirms (drawer + row alike).
+      if (status === "cancelled" || status === "no_show") {
         setStatus(r, status);
         return;
       }
@@ -4244,7 +4280,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {lateMin >= 5 && (
             <div className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
               <Clock className="w-3 h-3 shrink-0" aria-hidden />
-              +{lateMin}m
+              {lateMin >= 60
+                ? t("rsvpLateShortHours", "+{h} h {m} m", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
+                : `+${lateMin} m`}
             </div>
           )}
         </div>
@@ -4927,7 +4965,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           assignBusy={assigning}
           assignError={assignError}
           highlight={deepLinkPulse}
-          onEdit={(r) => { setEditError(""); setEditRes(r); }}
+          // Close the drawer first: Edit is its own sheet at the same z-level,
+          // so leaving the drawer open put the form UNDER its backdrop and the
+          // first tap in Edit only closed the drawer.
+          onEdit={(r) => { setEditError(""); setSelected(null); setEditRes(r); }}
           onAllergyAction={(action) => actionAllergy(selected, action)}
           allergyActionBusy={allergyBusy}
           allergyActionError={allergyError}
@@ -6817,7 +6858,11 @@ function SettingsSection({ t }) {
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {enabled
-              ? t("rsvpAcceptOn", "Your public page is live and taking bookings.")
+              ? (data?.hours_declared === false
+                  // Live, but with no saved hours the page offers no times at
+                  // all — "taking bookings" would be a promise it can't keep.
+                  ? t("rsvpAcceptOnNoHours", "Your page is live, but guests can't book until you save opening hours below.")
+                  : t("rsvpAcceptOn", "Your public page is live and taking bookings."))
               : t("rsvpAcceptOff", "Turn on to publish your booking page.")}
           </p>
         </div>

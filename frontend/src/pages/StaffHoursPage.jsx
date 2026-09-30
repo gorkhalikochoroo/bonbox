@@ -780,7 +780,7 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="min-w-0 flex-1 mx-1 rounded-lg px-2 py-1 text-center hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          className="min-w-0 flex-1 mx-1 rounded-lg px-2 py-1 text-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           title={t("hovFrameChange", "Change period")}
         >
           {loading ? (
@@ -818,7 +818,7 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
           <button
             type="button"
             onClick={onCurrent}
-            className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
             {t("hovThisPeriod", "This period")}
           </button>
@@ -1675,7 +1675,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 dark:bg-gray-750 text-gray-500 dark:text-gray-400 text-left text-xs uppercase tracking-wider">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-left text-xs uppercase tracking-wider">
               <th className="px-3 sm:px-5 py-3 font-medium">{t("navStaff")}</th>
               <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
               <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
@@ -1699,7 +1699,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               return (
                 <tr
                   key={row.staff_id || idx}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+                  className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 >
                   <td className="px-3 sm:px-5 py-3">
                     <div className="flex items-center gap-2">
@@ -1846,7 +1846,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
           </tbody>
           {/* Totals row */}
           <tfoot>
-            <tr className="bg-gray-50 dark:bg-gray-750 font-semibold text-gray-800 dark:text-white">
+            <tr className="bg-gray-50 dark:bg-gray-800 font-semibold text-gray-800 dark:text-white">
               <td className="px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {fmtHours(summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0), lang)}
@@ -2196,7 +2196,8 @@ function ClockInOutForm({ staffList, rosterEmpty = false, staffFailed = false, c
         start_time: startTime,
         end_time: endTime,
         break_minutes: parseInt(breakMin) || 0,
-        entry_method: "clock",
+        // Owner-typed times, not a punch-clock reading.
+        entry_method: "quick",
       });
       setSuccess(t("shpClockEntryLogged", "Clock entry logged!"));
       setStartTime("");
