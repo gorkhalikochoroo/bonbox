@@ -1221,6 +1221,24 @@ function PartySizeChips({ value, onChange, t }) {
           {n}
         </button>
       )}
+      {/* 11+ could not be entered at all, although the backend takes 1–100.
+          A small number box for the big table. */}
+      <label className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+        <span className="sr-only">{t("rsvpPartyOther", "Other number of guests")}</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={100}
+          placeholder="11+"
+          value={offLadder ? String(n) : ""}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (Number.isFinite(v) && v >= 1 && v <= 100) onChange(String(v));
+          }}
+          className="h-11 w-20 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm tabular-nums text-gray-900 dark:text-gray-100"
+        />
+      </label>
     </div>
   );
 }
@@ -4310,6 +4328,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             {isProvider && r.service_name && (
               <span className="truncate min-w-0">{r.service_name}</span>
             )}
+            {/* Where the party sits, on the row itself — a host had to open
+                every booking to find its table. No table = say so. */}
+            {!isProvider && ["confirmed", "seated", "requested"].includes(r.status) && (() => {
+              const tl = resolveTableLabel(r, labelById);
+              return tl
+                ? <span className="shrink-0">{tl}</span>
+                : <span className="shrink-0 text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
+            })()}
             <StatusInline status={r.status} label={labels[r.status] || r.status} />
           </div>
         </div>
@@ -4624,17 +4650,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               white primary slab (its dark-theme colour) beside the green main
               action made two competing blocks of different widths. */}
           {tableFloor && !isProvider && (
+            {/* Secondary at every width: in dark mode the primary face turned
+                into a white slab beside the green main action (sm and up). */}
             <Button
-              variant="primary"
+              variant="secondary"
               size="lg"
               iconLeft={<Armchair className="w-4 h-4" />}
               onClick={openSeatWalkIn}
               aria-label={t("rsvpSeatWalkIn", "Seat a drop-in")}
-              className={
-                PHONE_ACTION + " max-sm:border max-sm:border-[rgb(var(--surface-line))] " +
-                "max-sm:bg-[rgb(var(--surface-card))] max-sm:text-gray-900 max-sm:hover:bg-gray-50 " +
-                "max-sm:dark:bg-[rgb(var(--surface-card))] max-sm:dark:text-gray-100 max-sm:dark:hover:bg-gray-700"
-              }
+              className={PHONE_ACTION}
             >
               <span className="sm:hidden">{t("rsvpSeatWalkInShort", "Drop-in")}</span>
               <span className="hidden sm:inline">{t("rsvpSeatWalkIn", "Seat a drop-in")}</span>

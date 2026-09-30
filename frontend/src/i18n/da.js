@@ -3948,6 +3948,8 @@ export const da = {
     schedCopyNothing: "Sidste uge har ingen vagter at kopiere.",
     rsvpCallVenueLabel: "Ring til os",
     expPersonalSwitch: "Privat udgift (ikke virksomhedens)",
+    rsvpNoTableShort: "Mangler bord",
+    rsvpPartyOther: "Andet antal gæster",
     returns: "Returneringer", noSalesYet: "Ingen salg endnu",
     voidsToday: "annulleringer i dag — værd at kigge på", inSalesToday: "i salg i dag",
     ordersToday: "ordrer", ordersTodayPlural: "ordrer", order: "ordre",

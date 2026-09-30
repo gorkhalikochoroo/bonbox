@@ -4089,6 +4089,8 @@ export const en = {
     schedCopyNothing: "Last week has no shifts to copy.",
     rsvpCallVenueLabel: "Call us",
     expPersonalSwitch: "Private expense (not the business)",
+    rsvpNoTableShort: "No table",
+    rsvpPartyOther: "Other number of guests",
     returns: "Returns", noSalesYet: "No sales yet",
     voidsToday: "voids today — worth a look", inSalesToday: "in sales today",
     ordersToday: "orders", ordersTodayPlural: "orders", order: "order",
