@@ -21,7 +21,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -496,9 +496,16 @@ def list_changes(
             # Manoj's rules forbid. (A dietary note ADDED to an existing booking later
             # is the rare case this trades away; a dedicated alertable signal is the
             # follow-up if owners ask for it.)
+            # …and only the GUEST's: a booking made through the public page, or
+            # a cancellation the guest made. The owner's own phone booking,
+            # drop-in and cancel chimed back at them 20 s later, with a toast
+            # over the drawer they were working in.
             or_(
-                Reservation.created_at > cutoff,
-                Reservation.cancelled_at > cutoff,
+                and_(Reservation.created_at > cutoff, Reservation.source == "public"),
+                and_(
+                    Reservation.cancelled_at > cutoff,
+                    Reservation.cancel_reason.in_(("guest_withdrew", "guest_cancelled")),
+                ),
             ),
         )
         .order_by(Reservation.created_at.desc())
@@ -1579,9 +1586,23 @@ def _room_full_detail(db: Session, user: User, party_size: int,
         _no_hours = not rsvc.hours_declared(_profile, rsvc.load_settings(_profile))
     except Exception:  # noqa: BLE001 — context only; never break the 409
         _no_hours = False
+    try:
+        _largest = int(
+            db.query(func.max(BookableResource.capacity_seats)).filter(
+                BookableResource.user_id == user.id,
+                BookableResource.is_deleted.is_(False),
+                BookableResource.is_active.is_(True),
+                BookableResource.kind != "provider",
+            ).scalar() or 0
+        )
+    except Exception:  # noqa: BLE001
+        _largest = 0
     return {
         "error": "room_full", "requested": party_size,
         "hours_declared": not _no_hours,
+        # A party bigger than any table isn't a time problem — "pick another
+        # time" never helps a 12-top in a room of 8-tops.
+        "largest_table": _largest,
         "total_seats": _venue_seats_total(db, user),
         # 0 with a full-looking error = not full, just not bookable then.
         "tables_busy_at_that_time": overlapping,

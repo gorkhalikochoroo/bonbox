@@ -685,6 +685,11 @@ function TablesCell({ r, labelById, t }) {
       </span>
     );
   }
+  // A live booking with no table is something the host has to fix — say so,
+  // like the phone row does, instead of a bare dash.
+  if (["confirmed", "seated"].includes(r.status)) {
+    return <span className="text-sm text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
+  }
   return <span className="text-sm text-gray-400 dark:text-gray-500">—</span>;
 }
 
@@ -904,6 +909,8 @@ function ReservationDrawer({
     secondary.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled" });
   } else if (r.status === "seated") {
     primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed", icon: CheckCircle2 };
+    // A mis-tap on "Sæt til bords" had no way back.
+    secondary.push({ id: "reopen", label: t("rsvpUndoSeat", "Undo seating"), to: "confirmed" });
   } else if (r.status === "no_show") {
     // A no-show tapped by mistake, or a party that turns up late, has to be
     // recoverable — the drawer used to offer only "Close".
@@ -1285,7 +1292,11 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
    *  best available rather than an empty select. */
   const bestFreeFor = useCallback(
     (n) => {
-      const free = tables.filter((tb) => !tb.busy);
+      // Prefer tables with no booking coming up; a reserved one only when
+      // nothing else is free.
+      const allFree = tables.filter((tb) => !tb.busy);
+      const clear = allFree.filter((tb) => !tb.reservedAt);
+      const free = clear.length ? clear : allFree;
       if (free.length === 0) return "";
       const fits = free
         .filter((tb) => (Number(tb.capacity_seats) || 0) >= n)
@@ -1377,7 +1388,11 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
                 <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
                   {tb.label}
                   {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
-                  {tb.busy ? ` — ${t("rsvpSeatWalkInBusy", "occupied")}` : ""}
+                  {tb.busy
+                    ? ` — ${t("rsvpSeatWalkInBusy", "occupied")}`
+                    : tb.reservedAt
+                      ? ` — ${t("rsvpSeatWalkInReserved", "reserved {time}", { time: new Date(tb.reservedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }) })}`
+                      : ""}
                 </option>
               ))}
             </select>
@@ -1904,7 +1919,9 @@ function NewBookingSheet({
                   occupying the room at that time, saying "full" contradicts a
                   book showing zero covers and makes a host turn away a caller
                   they could have seated. */}
-              {warning.noHours
+              {warning.tooBig
+                ? t("rsvpNoTableTooBig", "No table seats {n} (largest: {max}). Book without a table and put tables together when they arrive.", { n: warning.requested, max: warning.largest })
+                : warning.noHours
                 ? t("rsvpNoTableNoHours", "No table fits this party at that time. Opening hours aren't saved yet — add them under Settings → Opening hours.")
                 : warning.busyAtThatTime === 0
                 ? t("rsvpNoTableAtTime", "No table can be booked at that time.")
@@ -3669,7 +3686,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
         // undefined (older backend) stays undefined, so the message falls back
         // to the previous wording rather than claiming an empty room.
-        setRoomFull({ seats, busyAtThatTime: d.tables_busy_at_that_time, noHours: d.hours_declared === false });
+        setRoomFull({
+          seats, busyAtThatTime: d.tables_busy_at_that_time, noHours: d.hours_declared === false,
+          tooBig: Number(d.largest_table) > 0 && Number(d.requested) > Number(d.largest_table),
+          largest: Number(d.largest_table) || null, requested: Number(d.requested) || null,
+        });
       } else {
         setCreateError(
           d.error || t("rsvpCreateError", "Couldn't create the booking."),
@@ -3856,6 +3877,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         capacity_seats: c.res.capacity_seats,
         zone: c.res.zone || null,
         busy: occupiedNow(c),
+        // A booking that starts within the next two hours: seating a walk-in
+        // there collides with it. The picker chose such tables silently.
+        reservedAt: (() => {
+          const tid = String(c.res.id);
+          const soon = (reservations || [])
+            .filter((r) => ["confirmed", "requested"].includes(r.status)
+              && (String(r.resource_id) === tid || (r.combined_resource_ids || []).map(String).includes(tid)))
+            .map((r) => new Date(r.starts_at).getTime())
+            .filter((ms) => ms > nowTs && ms - nowTs < 120 * 60000)
+            .sort((a, b) => a - b)[0];
+          return soon ? new Date(soon).toISOString() : null;
+        })(),
       }));
   }, [reservations, resources, nowTs]);
   // Provider (salon) booking — the stylist stations the New-booking sheet
@@ -4877,7 +4910,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             loading={loading}
             rowActions={rowActions}
             onRowClick={openDrawer}
-            mobileBreakpoint="md"
+            // Compact rows up to lg: at 768 (the host stand's tablet) the table
+            // was 884px in 718px, with Udeblevet/Aflys off screen.
+            mobileBreakpoint="lg"
             mobileRow={compactRow}
             empty={
               /* Three honest empty states, not one: filtered-to-nothing, a
