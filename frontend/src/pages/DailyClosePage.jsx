@@ -1166,9 +1166,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // and has to decline scanning a second time. Guarded on "idle" so a scan in
   // flight ("scanning") or results awaiting review ("result") are never thrown
   // away by a stray tap.
+  // Honoured ONCE per tap: with scanMode in the deps, every later return to
+  // the scan card ("← Scan Z-bon") re-fired it and bounced the owner back to
+  // step 1 — the scan button did nothing.
+  const manualHandledRef = useRef(0);
   useEffect(() => {
-    if (!manualRequest) return;
+    if (!manualRequest || manualHandledRef.current === manualRequest) return;
     if (scanMode === "idle") {
+      manualHandledRef.current = manualRequest;
       setScanMode("skipped");
       setStep(1);
     }
@@ -1249,17 +1254,47 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       const txt = Number.isInteger(n) ? String(n) : n.toFixed(2);
       return mLocale === "da-DK" ? txt.replace(".", ",") : txt;
     };
+    // Every saved key comes back as a field. A custom category ("Catering")
+    // that isn't in the venue's default list was loaded into state but had no
+    // field — and the draft autosave then re-saved the close WITHOUT it.
+    const rev = {};
+    const pay = {};
     if (dc.revenue_breakdown) {
-      const rev = {};
       Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[k] = asInput(v); });
       setRevAmounts(rev);
+      setRevCats((prev) => {
+        const have = new Set(prev.map((c) => c.key));
+        const extra = Object.keys(dc.revenue_breakdown)
+          .filter((k) => !have.has(k))
+          .map((k) => ({ key: k, label: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "), icon: "Tag" }));
+        return extra.length ? [...prev, ...extra] : prev;
+      });
     }
     if (dc.payment_breakdown) {
-      const pay = {};
       Object.entries(dc.payment_breakdown).forEach(([k, v]) => { pay[k] = asInput(v); });
       setPayAmounts(pay);
+      setPayMethods((prev) => {
+        const have = new Set(prev.map((c) => c.key));
+        const extra = Object.keys(dc.payment_breakdown)
+          .filter((k) => !have.has(k))
+          .map((k) => ({ key: k, label: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "), icon: "Wallet" }));
+        return extra.length ? [...prev, ...extra] : prev;
+      });
+    }
+    // A saved total above its category sum was a scanned or corrected total;
+    // carry it back as the owner's figure, or the next save reverts it.
+    const catSum = Object.values(dc.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+    if (Number(dc.revenue_total) > catSum + 0.005) {
+      setScanResult((prev) => ({ ...(prev || {}), revenue_total: Number(dc.revenue_total), revenue_total_text: asInput(dc.revenue_total) }));
     }
     if (dc.cash_counted != null) setCashCounted(asInput(dc.cash_counted));
+    // Autosave waits for a real change: opening "Rediger" re-saved the close
+    // within two seconds, before the owner had touched anything.
+    editBaselineRef.current = JSON.stringify({
+      rev, pay,
+      cash: dc.cash_counted != null ? asInput(dc.cash_counted) : "",
+      tips: dc.tips_total != null ? String(dc.tips_total) : "",
+    });
     // NOTE: registerCash (the "Expected (from register)" baseline) is NOT set
     // from the saved close here — a close row can't tell us whether its stored
     // cash_expected was register- or typed-derived. Instead the prefill effect
@@ -2028,9 +2063,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Clamp at 0: if the user only entered a placeholder and the exempt
   // total exceeds it, we'd otherwise show a negative MOMS amount which
   // confuses the owner more than a zero.
+  // The revenue this close will SAVE: an owner-typed total when there is one
+  // (the backend saves exactly that), else the category sum. MOMS followed
+  // the category sum — a close corrected from 16.540 to 16.450 kept the
+  // 16.540 MOMS.
+  const savedRevenue = useMemo(() => {
+    const owner = Number(scanResult?.revenue_total);
+    return scanResult?.revenue_total_text && owner > 0 ? owner : revenueTotal;
+  }, [scanResult, revenueTotal]);
   const taxableBase = useMemo(() => {
-    return Math.max(0, Math.round((revenueTotal - exemptSalesTotal) * 100) / 100);
-  }, [revenueTotal, exemptSalesTotal]);
+    return Math.max(0, Math.round((savedRevenue - exemptSalesTotal) * 100) / 100);
+  }, [savedRevenue, exemptSalesTotal]);
 
   const momsTotal = useMemo(() => {
     if (momsMode === "manual") return readMoney0(momsManual);
@@ -2039,7 +2082,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // the toggle back to Auto did NOT recover — this branch returned the
     // one-till figure while the UI printed "Auto-calculated: Revenue × 25% /
     // 125%", a computation that had not happened.
-    const scannedMoms = (scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+    const scannedMoms = ((scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+      // A corrected total makes the scanned MOMS stale — recompute from it.
+      || scanResult?.revenue_total_text)
       ? null
       : scanResult?.moms_total;
     if (scannedMoms) return scannedMoms;
@@ -2167,6 +2212,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Draft auto-save — fires on step change (silent, no loading state)
   const [draftSaved, setDraftSaved] = useState(false);
   const autoSaveRef = useRef(null);
+  const editBaselineRef = useRef(null);
   // "The server told us this exact row is locked." NOT a guess from page state.
   //
   // The obvious guard here is a `dayLocked` prop fed from the page's
@@ -2193,6 +2239,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (lockedRowRejected) return;
     // Only auto-save if user has entered some data and is past scan UI
     if (scanMode !== "skipped" || revenueTotal === 0) return;
+    // An edit that hasn't changed anything yet is not a save.
+    if (editBaselineRef.current && editBaselineRef.current === JSON.stringify({
+      rev: revAmounts, pay: payAmounts, cash: cashCounted, tips: tipsTotal,
+    })) return;
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(async () => {
@@ -5163,7 +5213,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 value={accountantFmt}
                 onChange={(e) => persistAccountantFmt(e.target.value)}
                 disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-                className="px-2 py-1.5 rounded-l-lg border border-amber-300 dark:border-amber-700 dark:bg-gray-800 text-amber-700 dark:text-amber-300 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
+                className="px-2 py-1.5 rounded-l-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
                 title={t("accountantFmtTooltip", "Pick the format your accountant prefers")}
               >
                 <option value="xlsx">Excel</option>
@@ -5173,7 +5223,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               <button
                 onClick={sendToAccountant}
                 disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-                className="px-3 py-1.5 rounded-r-lg bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition border-l border-amber-700"
+                className="px-3 py-1.5 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
                   businessProfile?.accountant_email
                     ? `${t("sendToTooltip", "Send to")} ${businessProfile.accountant_email}`
@@ -5332,7 +5382,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   </span>
                 )}
                 {dc.tips_total > 0 && (
-                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={GLANCE_DECIMALS} /> ({t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})
+                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={GLANCE_DECIMALS} />{dc.tips_staff_count ? ` (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})` : ""}
                     {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
                       <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                         {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
@@ -5457,7 +5507,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {t("cancel", "Cancel")}
               </button>
               <button onClick={handleUnlock} disabled={unlocking || !unlockReason.trim()}
-                className="flex-1 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 transition disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                className="flex-1 px-4 py-2.5 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-xl font-semibold text-sm hover:bg-gray-800 dark:hover:bg-white transition disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
                 {unlocking ? t("dcUnlocking", "Unlocking…") : <><Icon name="LockOpen" size={15} /> {t("dcUnlock", "Unlock")}</>}
               </button>
             </div>
@@ -5817,7 +5867,7 @@ function CalendarHeatMap({ data, currency }) {
               return (
                 <button key={di} type="button"
                   aria-label={`${dateLabel} — ${valueLabel}`}
-                  className={`w-3 h-3 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:scale-125`}
+                  className={`w-3 h-3 min-h-0! min-w-0! p-0 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:scale-125`}
                   onMouseEnter={() => setHovered({ ds, dc })}
                   onMouseLeave={() => setHovered(null)}
                   onFocus={() => setHovered({ ds, dc })}
