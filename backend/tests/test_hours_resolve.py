@@ -361,3 +361,21 @@ def test_an_owner_route_cannot_claim_the_punch_clock(client, db):
     assert res.status_code in (200, 201), res.text
     row = db.query(HoursLogged).filter(HoursLogged.staff_id == m.id).one()
     assert row.entry_method == "quick"
+
+
+def test_the_payroll_csv_is_danish_excel_safe(client, db):
+    """;-separated for Danish Excel, where "." is the THOUSANDS separator:
+    "7687.50" opened as 768.750 kr. Amounts use a decimal comma, headers and
+    role/contract labels are Danish."""
+    o = _owner(db); m = _staff(db, o)
+    m.role = "kitchen"; m.contract_type = "hourly"; m.base_rate = 180
+    db.commit()
+    _priced(db, o, m, 8.5, 180)
+    r = client.get(f"/api/staff/payroll/csv?period_start={D1}&period_end={D1}")
+    assert r.status_code == 200, r.text
+    text = r.content.decode("utf-8-sig")
+    header, row = text.splitlines()[0], text.splitlines()[1]
+    assert header.startswith("Navn;Rolle;Ansættelse;Timer;Bruttoløn (kr.)")
+    cells = row.split(";")
+    assert cells[1] == "Køkken" and cells[2] == "Timeløn"
+    assert cells[3] == "8,50" and cells[4] == "1530,00"

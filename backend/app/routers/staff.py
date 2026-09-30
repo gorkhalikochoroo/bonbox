@@ -5641,20 +5641,39 @@ def export_payroll_csv(
 
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";")  # DK lønsystems prefer ; (Excel locale)
+    # Danish headers, labels and DECIMAL COMMAS. The file is ;-separated for
+    # Danish Excel, where "." is the THOUSANDS separator — "7687.50" opened
+    # as 768.750 kr. Roles and contracts were raw codes ("kitchen", "hourly").
+    def _dk(v) -> str:
+        return f"{float(v or 0):.2f}".replace(".", ",")
+    _ROLE_DA = {
+        "manager": "Leder", "kitchen": "Køkken", "chef": "Kok", "cook": "Kok",
+        "server": "Tjener", "waiter": "Tjener", "bar": "Bar", "bartender": "Bartender",
+        "barista": "Barista", "host": "Vært", "runner": "Runner", "dishwasher": "Opvasker",
+        "cleaner": "Rengøring", "floor": "Sal",
+    }
+    _CONTRACT_DA = {
+        "full": "Fuldtid", "full_time": "Fuldtid", "full-time": "Fuldtid",
+        "part": "Deltid", "part_time": "Deltid", "part-time": "Deltid",
+        "hourly": "Timeløn", "student": "Studerende", "trainee": "Elev", "intern": "Praktikant",
+    }
     writer.writerow([
-        "Name", "Role", "Contract", "Hours", "Gross (DKK)",
-        "AM-bidrag (8%)", "A-skat (est.)", "Net pay", "Period start", "Period end",
+        "Navn", "Rolle", "Ansættelse", "Timer", "Bruttoløn (kr.)",
+        "AM-bidrag (8 %)", "A-skat (anslået)", "Udbetaling (anslået)",
+        "Periode fra", "Periode til",
     ])
     for s in est.get("per_staff", []):
+        role = str(s.get("role", "") or "")
+        contract = str(s.get("contract_type", "") or "")
         writer.writerow([
             csv_safe(s.get("name", "")),
-            csv_safe(s.get("role", "")),
-            csv_safe(s.get("contract_type", "")),
-            f"{float(s.get('hours', 0)):.2f}",
-            f"{float(s.get('gross', 0)):.2f}",
-            f"{float(s.get('am_bidrag', 0)):.2f}",
-            f"{float(s.get('a_skat', 0)):.2f}",
-            f"{float(s.get('net_pay', 0)):.2f}",
+            csv_safe(_ROLE_DA.get(role.strip().lower(), role)),
+            csv_safe(_CONTRACT_DA.get(contract.strip().lower(), contract)),
+            _dk(s.get("hours", 0)),
+            _dk(s.get("gross", 0)),
+            _dk(s.get("am_bidrag", 0)),
+            _dk(s.get("a_skat", 0)),
+            _dk(s.get("net_pay", 0)),
             str(period_start),
             str(period_end),
         ])
