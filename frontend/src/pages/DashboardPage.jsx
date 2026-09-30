@@ -246,6 +246,10 @@ export default function DashboardPage() {
   // to close a day they already closed, because a request 403'd or timed
   // out, is the same defect wearing the opposite sign.
   const [closeCutoffHour, setCloseCutoffHour] = useState(() => cutoffHourFor(user?.business_type));
+  // fetchAll runs from a mount-time listener; a ref keeps it on the latest
+  // cutoff without re-registering the listener.
+  const cutoffRef = useRef(closeCutoffHour);
+  cutoffRef.current = closeCutoffHour;
   const [closeRows, setCloseRows] = useState([]);
   const [closeListState, setCloseListState] = useState("loading"); // loading | ok | failed
   const [saleModal, setSaleModal] = useState(false);
@@ -294,7 +298,10 @@ export default function DashboardPage() {
   const fetchAll = async () => {
     try {
       setLoading(true);
-      const now = new Date();
+      // The BUSINESS day's month: at 00:15 on the 1st the day still being
+      // traded is the 30th, and a calendar month read "Denne måned 0 kr."
+      // next to "I dag 124 kr.".
+      const now = new Date(`${businessTodayIso(cutoffRef.current)}T12:00:00`);
       const { data } = await api.get("/dashboard/batch", {
         params: { month: now.getMonth() + 1, year: now.getFullYear() },
       });
@@ -617,6 +624,11 @@ export default function DashboardPage() {
         // their `0` for now: they have different consumers and a zero count is
         // usually the measured truth. Money first.
         todayRevenue: summary?.today_revenue ?? null,
+        // A venue that closes the day in the kasserapport has no "today"
+        // until tonight — its latest locked close is the day's answer.
+        lastClose: (closeRows || [])
+          .filter((dc) => dc.status === "confirmed" && dc.date)
+          .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] || null,
         weekRevenue: summary?.week_revenue ?? null,
         monthRevenue: summary?.month_revenue ?? null,
         monthExpenses: summary?.month_expenses ?? null,
@@ -636,7 +648,10 @@ export default function DashboardPage() {
             // week" about a comparison that never happened.
             // Week-to-date against the SAME weekdays last week — against the
             // whole of last week the tile read "Ned" every day until Sunday.
-            weekDeltaPct: weekComparison.same_days_change_pct ?? null,
+            // Nothing closed yet this week is no answer, not "Ned".
+            weekDeltaPct: Number(weekComparison.this_week_revenue) > 0
+              ? (weekComparison.same_days_change_pct ?? null)
+              : null,
             direction:
               (weekComparison.same_days_change_pct || 0) >= 3
                 ? "up"
@@ -734,6 +749,7 @@ export default function DashboardPage() {
     profile,
     dailyRevData,
     dailyClose,
+    closeRows,
   ]);
 
   // ── Greeting (preserved from the previous surgical pass) ──

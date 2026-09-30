@@ -218,7 +218,9 @@ def _detect_close_missing(db: Session, user, now, skip=frozenset()):
     return _finding(
         "close_missing",
         "info",
-        "/daily-close",
+        # The day in the link, as the stale-draft row does: "/daily-close"
+        # alone opened on today, and the missed day's Z-bon went in as today.
+        f"/daily-close?date={yesterday.isoformat()}",
         {"date": yesterday.isoformat()},
     )
 

@@ -334,6 +334,9 @@ export default function AccountantHoursWidget() {
     (acc, row) => acc + (Number(row?.items) || 0),
     0,
   );
+  // Under a tenth of an hour there is nothing to claim yet — the tile read
+  // "sparet revisoren 0,0 timer · ca. 0 kr.", a boast about nothing.
+  if (hours < 0.1) return null;
 
   // Dismiss handler — used by the X button on the live-numbers tile.
   // stopPropagation is critical because the whole tile is itself a

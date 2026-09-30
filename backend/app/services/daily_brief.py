@@ -1180,7 +1180,9 @@ def generate_candidates(
             weight=0.80,
             facts=[],
             cta_label="Close the day",
-            cta_url="/daily-close",
+            # The missed day rides in the link, not the text — the tap opens
+            # the close for THAT day instead of today.
+            cta_url=f"/daily-close?date={p.close_missing_date}",
         ))
 
     # ── Brief 2.0: customer loyalty — regulars at risk ──────────────
@@ -1337,17 +1339,18 @@ def _greeting_for(user: User | None = None) -> str:
             # Bad / unknown TZ string — silently fall back to UTC
             pass
     from app.services.owner_language import owner_lang
+    # Before 05:00 it is still the evening that began before midnight — the
+    # owner reading after service. The dashboard header uses the same cut-offs
+    # (DashboardPage greetingTitle); they said "God aften" and "God morgen" on
+    # one screen at 00:15.
+    evening = h < 5 or h >= 17
     if owner_lang(user) == "da":
-        if h < 11:
-            return "God morgen"
-        if h < 17:
-            return "God eftermiddag"
-        return "God aften"
-    if h < 11:
-        return "Good morning"
-    if h < 17:
-        return "Good afternoon"
-    return "Good evening"
+        if evening:
+            return "God aften"
+        return "God morgen" if h < 11 else "God eftermiddag"
+    if evening:
+        return "Good evening"
+    return "Good morning" if h < 11 else "Good afternoon"
 
 
 _DA_WEEKDAYS = ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag")
@@ -1455,6 +1458,18 @@ def _try_llm_polish(
     except Exception:  # noqa: BLE001
         addendum = ""
 
+    # The rewrite had no language rule: a Danish owner got "Five items expire
+    # today with 1,614 DKK" from Danish facts ("1.614 kr. på spil").
+    from app.services.owner_language import owner_lang
+    lang_rule = (
+        "LANGUAGE: Write the headline and every insight in Danish (da-DK), even "
+        "when a candidate is written in English. Copy every amount exactly as the "
+        "candidate writes it (for example '1.614 kr.') — never re-format a number."
+        if owner_lang(user) == "da" else
+        "LANGUAGE: Write in English. Copy every amount exactly as the candidate "
+        "writes it — never re-format a number."
+    )
+
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     # User content: candidates + precompute, all as JSON. Keeping this
@@ -1479,6 +1494,7 @@ def _try_llm_polish(
     if addendum:
         # Per-user addendum — NOT cached (changes per user). Sent fresh.
         system_blocks.append({"type": "text", "text": addendum})
+    system_blocks.append({"type": "text", "text": lang_rule})
 
     # Premium tier: the daily brief uses PREMIUM_MODEL (Sonnet 4.6) by
     # default. The AI_MODEL_DAILY_BRIEF env override still wins if set, and

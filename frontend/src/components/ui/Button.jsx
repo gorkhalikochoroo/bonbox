@@ -57,7 +57,9 @@ const VARIANTS = {
     FADE_WHEN_DISABLED +
     "bg-gray-900 text-white hover:bg-gray-800 " +
     "dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white " +
-    "dark:disabled:opacity-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 " +
+    // gray-700, not gray-800: gray-800 is the dark CARD, so a disabled
+    // "Tilføj" on a card read as floating text.
+    "dark:disabled:opacity-100 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 " +
     "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100",
   // The screen's ONE main action (Sep 2026, founder's pick: only the main
   // button green, every other stays gray-900). #15803D, not the logo's

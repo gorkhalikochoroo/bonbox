@@ -723,15 +723,16 @@ describe("sales edit modal — correcting a row that is already booked", () => {
 
   it("the edit amount is a text money box, seeded with the booked figure", async () => {
     const container = await openEdit();
-    // The logging EntryCard is box 0; the modal's is the one seeded non-empty.
-    const box = moneyBoxes(container).find((b) => b.value === "347.5");
+    // The logging EntryCard is box 0; the modal's is the one seeded non-empty,
+    // in the owner's notation ("347,50", not the API's "347.5").
+    const box = moneyBoxes(container).find((b) => b.value === "347,50");
     expect(box).toBeTruthy();
     expect(box.getAttribute("type")).toBe("text");
   });
 
   it("refuses the production string and will not let Save through", async () => {
     const container = await openEdit();
-    const box = moneyBoxes(container).find((b) => b.value === "347.5");
+    const box = moneyBoxes(container).find((b) => b.value === "347,50");
     setValue(box, PRODUCTION_STRING);
     expect(refusals().length).toBe(1);
     const save = screen.getAllByText("save").map((n) => n.closest("button")).find(Boolean);
@@ -741,7 +742,7 @@ describe("sales edit modal — correcting a row that is already booked", () => {
   it("refuses a BLANK amount rather than rewriting the sale to 0", async () => {
     // The old save path did `if (payload.amount === "") payload.amount = 0`.
     const container = await openEdit();
-    const box = moneyBoxes(container).find((b) => b.value === "347.5");
+    const box = moneyBoxes(container).find((b) => b.value === "347,50");
     setValue(box, "");
     const save = screen.getAllByText("save").map((n) => n.closest("button")).find(Boolean);
     expect(save.disabled).toBe(true);
@@ -749,7 +750,7 @@ describe("sales edit modal — correcting a row that is already booked", () => {
 
   it("accepts a real Danish correction and PUTs it as 1500.5", async () => {
     const container = await openEdit();
-    const box = moneyBoxes(container).find((b) => b.value === "347.5");
+    const box = moneyBoxes(container).find((b) => b.value === "347,50");
     setValue(box, DANISH_AMOUNT);
     expect(refusals().length).toBe(0);
     const save = screen.getAllByText("save").map((n) => n.closest("button")).find(Boolean);

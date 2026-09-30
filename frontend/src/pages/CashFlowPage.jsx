@@ -342,7 +342,11 @@ export default function CashFlowPage() {
   const lineStatus =
     lowBal < 0 ? "#dc2626" : lowBal < safety_threshold ? "#d97706" : "#059669";
 
-  const visibleAlerts = (alerts || []).filter((a) => !(a.type === "no_data" && !has_data));
+  // One verdict per screen: a green "cash flow looks healthy" under a red
+  // "you'll be short for MOMS" said two opposite things at once.
+  const visibleAlerts = (alerts || []).filter((a) =>
+    !(a.type === "no_data" && !has_data)
+    && !(a.type === "healthy" && fs && fs.verdict && fs.verdict !== "ON_TRACK"));
 
   // Alert severity → Lucide icon + status tone (no rainbow, no raw emoji).
   const alertVisual = (severity) => {
@@ -391,8 +395,13 @@ export default function CashFlowPage() {
                   {headline}
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                  {t("cfpMomsExpected")
-                    .replace("{amt}", expected)} {" "}
+                  {/* The whole period's expected bill, and how much of it is
+                      already booked — the booked part is the figure /tax shows,
+                      so the two pages reconcile instead of disagreeing. */}
+                  {t("cfpMomsExpectedPeriod", "Expected MOMS for the whole period ~{amt}", { amt: expected })}
+                  {fs.moms?.realized != null && (
+                    <> · {t("cfpMomsBookedSoFar", "{amt} booked so far", { amt: formatKr(fs.moms.realized, { decimals: 0 }) })}</>
+                  )}{" "}
                   <span className="text-gray-400">({t("cfpEstimateTag")})</span>
                 </p>
                 {low && high && (

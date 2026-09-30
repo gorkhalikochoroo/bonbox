@@ -32,6 +32,7 @@
 import React from "react";
 import { TrendingUp, TrendingDown, Minus, Calendar } from "lucide-react";
 import { StatCard, Amount } from "../ui";
+import { formatDateClear } from "../../utils/dateFormat";
 import { useLanguage } from "../../hooks/useLanguage";
 
 /**
@@ -105,7 +106,14 @@ export default function KpiStrip({
   // Render each requested tile in order. Unknown tile ids are skipped
   // silently — easier to ship a tier-trimmed variant later.
   const tileSpecs = {
-    today: {
+    today: ctx?.summary?.uses_daily_close && ctx?.summary?.lastClose ? {
+      // Close-based venue: "today" is 0 until the night's close, every day.
+      // The last locked kasserapport is the figure the owner is asking for.
+      label: t("kpiLastClose", "Last close"),
+      value: <Amount value={ctx.summary.lastClose.revenue_total} currency={ctx?.currency} />,
+      helper: formatDateClear(String(ctx.summary.lastClose.date).slice(0, 10)),
+      accent: "neutral",
+    } : {
       label: t("liveRevenueToday", "Revenue today"),
       value: <Amount value={ctx?.summary?.todayRevenue} currency={ctx?.currency} />,
       helper: showDelta ? (

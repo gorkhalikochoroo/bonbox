@@ -269,7 +269,7 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
             tick={{ fontSize: 11, fill: "#9CA3AF" }}
             axisLine={false}
             tickLine={false}
-            width={48}
+            width={60}
             tickCount={4}
             tickFormatter={(v) =>
               v >= 1000

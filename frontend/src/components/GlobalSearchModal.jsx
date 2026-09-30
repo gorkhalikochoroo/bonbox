@@ -10,6 +10,10 @@ import { usePillars } from "../hooks/usePillars";
 import { useAuth } from "../hooks/useAuth";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { Icon } from "./ui";
+import { formatDateClear } from "../utils/dateFormat";
+
+// /api/search still labels its groups with emoji; show the Lucide glyph.
+const ENTITY_ICONS = { "💰": "Coins", "💸": "Receipt", "📦": "Package", "📋": "ClipboardList", "👤": "User", "📅": "Calendar", "🧾": "FileText" };
 import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
 import { canUsePersonalMode } from "../lib/appMode";
@@ -266,7 +270,13 @@ export default function GlobalSearchModal({ open, onClose }) {
       for (const item of g.items) {
         out.push({
           kind: "entity", group: groupLabel, icon: item.icon,
-          label: item.label, sublabel: item.sublabel,
+          // The server sends emoji and ISO dates ("2026-09-26"); the
+          // palette speaks Lucide and Danish dates like the rest of the app.
+          label: item.label,
+          sublabel: typeof item.sublabel === "string"
+            ? item.sublabel.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (d) => formatDateClear(d))
+            : item.sublabel,
+          entityIcon: ENTITY_ICONS[item.icon] || "Search",
           amount: item.amount, to: item.link,
         });
       }
@@ -466,19 +476,19 @@ export default function GlobalSearchModal({ open, onClose }) {
               </p>
               <div className="grid grid-cols-2 gap-1.5 mb-4">
                 {[
-                  { icon: "💰", label: t("newSaleAction", "New sale"),         to: "/sales?new=1" },
-                  { icon: "💸", label: t("newExpenseAction", "New expense"),   to: "/expenses?new=1" },
-                  { icon: "🧾", label: t("newInvoiceAction", "New faktura"),   to: "/faktura?new=1" },
-                  { icon: "📋", label: t("dailyCloseAction", "Close the day"), to: "/daily-close" },
-                  { icon: "📦", label: t("scanReceiptAction", "Scan receipt"), to: "/expenses?scan=1" },
-                  { icon: "📤", label: t("sendToAccountantAction", "Send to revisor"), to: "/daily-close" },
+                  { icon: "Plus", label: t("newSaleAction", "New sale"),         to: "/sales?new=1" },
+                  { icon: "Receipt", label: t("newExpenseAction", "New expense"),   to: "/expenses?new=1" },
+                  { icon: "FileText", label: t("newInvoiceAction", "New faktura"),   to: "/faktura?new=1" },
+                  { icon: "Lock", label: t("dailyCloseAction", "Close the day"), to: "/daily-close" },
+                  { icon: "Image", label: t("scanReceiptAction", "Scan receipt"), to: "/expenses?scan=1" },
+                  { icon: "Send", label: t("sendToAccountantAction", "Send to revisor"), to: "/bookkeeping-export" },
                 ].map((qa) => (
                   <button
                     key={qa.to + qa.label}
                     onClick={() => { onClose(); navigate(qa.to); }}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/40 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300 text-xs sm:text-sm text-gray-700 dark:text-gray-200 transition text-left"
                   >
-                    <span className="text-base shrink-0">{qa.icon}</span>
+                    <Icon name={qa.icon} size={15} className="shrink-0 text-gray-500 dark:text-gray-400" />
                     <span className="truncate">{qa.label}</span>
                   </button>
                 ))}
@@ -491,7 +501,7 @@ export default function GlobalSearchModal({ open, onClose }) {
                   : (t("searchTryThese") || "Try searching for")}
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {(recents.length ? recents : ["Tuborg", "Hørkram", "Lurpak", "Daily close", "Profile"]).map((r, i) => (
+                {(recents.length ? recents : ["Tuborg", "Hørkram", "Lurpak", t("dailyClose", "Daily close"), t("profile", "Profile")]).map((r, i) => (
                   <button
                     key={i}
                     onClick={() => setQuery(r)}
@@ -547,7 +557,9 @@ export default function GlobalSearchModal({ open, onClose }) {
                       />
                     </span>
                   ) : (
-                    <span className="text-base shrink-0">{item.icon}</span>
+                    <span className="shrink-0 text-gray-500 dark:text-gray-400">
+                      <Icon name={item.entityIcon} size={18} strokeWidth={1.75} />
+                    </span>
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">

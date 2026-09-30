@@ -47,7 +47,9 @@ function FilterBar({ children, className = "" }) {
   return (
     <div
       className={
-        "flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3 " + className
+        // Wraps instead of squeezing: at 768 the search box shrank to 0 px
+        // beside four selects.
+        "flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-2 sm:gap-3 " + className
       }
     >
       {children}
@@ -181,7 +183,7 @@ function FilterBarSearch({
 }) {
   const inputId = id || "fb-search";
   return (
-    <Field label={label} htmlFor={inputId} className={"flex-1 " + className}>
+    <Field label={label} htmlFor={inputId} className={"flex-1 sm:min-w-[12rem] " + className}>
       <Input
         id={inputId}
         type="search"

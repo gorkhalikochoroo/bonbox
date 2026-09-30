@@ -46,8 +46,9 @@ import { useUndoToast } from "../hooks/useUndoToast";
 import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
-import { formatDate, localIso, formatDateClear } from "../utils/dateFormat";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale, toMoneyInput } from "../utils/currency";
+import { formatDate, formatDateClear, businessTodayIso } from "../utils/dateFormat";
+import { cutoffHourFor } from "../config/archetypes";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
@@ -179,7 +180,11 @@ export default function ExpensesPage() {
   const [catId, setCatId] = useState("");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
-  const [expDate, setExpDate] = useState(localIso());
+  // The business day, as on /sales: at 00:15 the night being traded is
+  // still yesterday's, and the two pages dated the same moment differently.
+  const bizTodayIso = businessTodayIso(cutoffHourFor(user?.business_type));
+  const bizToday = () => businessTodayIso(cutoffHourFor(user?.business_type));
+  const [expDate, setExpDate] = useState(bizToday);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -392,11 +397,11 @@ export default function ExpensesPage() {
     if (filtered.length === 0) {
       return { total: 0, count: 0, scoped, narrowed };
     }
-    const monthPrefix = localIso(new Date()).slice(0, 7);
+    const monthPrefix = bizTodayIso.slice(0, 7);
     const rows = scoped ? filtered : filtered.filter(e => e.date?.startsWith(monthPrefix));
     const total = rows.reduce((s, x) => s + parseFloat(x.amount), 0);
     return { total, count: rows.length, scoped, narrowed };
-  }, [filtered, search, showFilter, categoryFilter, filterFrom, filterTo]);
+  }, [filtered, search, showFilter, categoryFilter, filterFrom, bizTodayIso, filterTo]);
 
   // The range the owner actually set, in words. Both bounds are inclusive
   // server-side (date >= from, date <= to), so "til og med" is literally true.
@@ -697,7 +702,7 @@ export default function ExpensesPage() {
       setCatId("");
       setIsPersonal(false);
       setIsTaxExempt(false);
-      setExpDate(localIso());
+      setExpDate(bizToday());
       setFxOpen(false);
       setFxOriginalAmount("");
       setFxRate("");
@@ -725,7 +730,7 @@ export default function ExpensesPage() {
         setExpDate(submittedSnapshot.expDate);
         throw postErr;
       }
-      const isBackdated = submittedSnapshot.expDate !== localIso();
+      const isBackdated = submittedSnapshot.expDate !== bizToday();
       trackEvent(
         isForeign ? "expense_logged_fx" : "expense_logged",
         "expenses",
@@ -747,7 +752,7 @@ export default function ExpensesPage() {
     setEditId(exp.id);
     setEditData({
       date: exp.date,
-      amount: parseFloat(exp.amount),
+      amount: toMoneyInput(exp.amount, currency),
       description: exp.description,
       category_id: exp.category_id,
       // NOT `|| "card"`. A row can legitimately have NO method — the
@@ -1065,7 +1070,7 @@ export default function ExpensesPage() {
         </p>
       )}
 
-      {expDate !== localIso() && (
+      {expDate !== bizToday() && (
         <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
       )}
 
@@ -1501,17 +1506,17 @@ export default function ExpensesPage() {
                 is the filtered range, not the calendar month, so it says so —
                 see monthSummary. */}
             {monthSummary.narrowed
-              ? t("expFilteredSummary", "Filtered: {total} across {count} expenses · ", {
+              ? t(monthSummary.count === 1 ? "expFilteredSummaryOne" : "expFilteredSummary", monthSummary.count === 1 ? "Filtered: {total} across 1 expense · " : "Filtered: {total} across {count} expenses · ", {
                   total: formatOwnerMoney(monthSummary.total, currency, { decimals: 2 }),
                   count: monthSummary.count,
                 })
               : monthSummary.scoped
-                ? t("expPeriodSummary", "{range}: {total} across {count} expenses · ", {
+                ? t(monthSummary.count === 1 ? "expPeriodSummaryOne" : "expPeriodSummary", monthSummary.count === 1 ? "{range}: {total} across 1 expense · " : "{range}: {total} across {count} expenses · ", {
                     range: filterRangeLabel,
                     total: formatOwnerMoney(monthSummary.total, currency, { decimals: 2 }),
                     count: monthSummary.count,
                   })
-                : t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
+                : t(monthSummary.count === 1 ? "thisMonthSummaryOne" : "thisMonthSummary", monthSummary.count === 1 ? "This month: {total} across 1 expense · " : "This month: {total} across {count} expenses · ", {
                     total: formatOwnerMoney(monthSummary.total, currency, { decimals: 2 }),
                     count: monthSummary.count,
                   })}
@@ -1562,7 +1567,9 @@ export default function ExpensesPage() {
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {t("expMissingBilagTitle", "{n} expenses missing a receipt").replace("{n}", String(missing.length))}
+                    {missing.length === 1
+                      ? t("expMissingBilagTitleOne", "1 expense is missing a receipt")
+                      : t("expMissingBilagTitle", "{n} expenses missing a receipt").replace("{n}", String(missing.length))}
                   </span>
                   <span className="block text-xs text-gray-600 dark:text-gray-400 mt-0.5 tabular-nums">
                     {t("expMissingBilagSub", "{amt} in expenses with no bilag — snap it to keep the fradrag").replace("{amt}", formatOwnerMoney(missTotal, currency))}
@@ -1644,6 +1651,9 @@ export default function ExpensesPage() {
               columns={tableColumns}
               rows={filtered.slice(0, 50)}
               rowKey="id"
+              // Eight columns don't fit a 768 tablet's content box: the
+              // amount was cut and the actions sat off-screen. Cards until lg.
+              mobileBreakpoint="lg"
               // THE SITE THE AUDIT NAMED. An empty state is a CLAIM about the
               // data — and with the rows left at [] by a failed GET, this one
               // told an owner with 300 udgifter that they had none, complete

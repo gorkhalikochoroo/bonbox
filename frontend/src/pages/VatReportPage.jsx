@@ -14,9 +14,15 @@ export default function VatReportPage() {
   const vat = getVatTerms(user?.currency);
   // Open on the owner's own filing period — a half-yearly filer landed on
   // "Månedlig" and had to find the half-year view themselves.
+  // An unset frequency is SKAT's default for a small DK business — half-
+  // yearly, the same default /tax shows. It opened on "Månedlig" instead, so
+  // /tax said 117.071 kr. for the half-year while this page said 0 for October.
   const [mode, setMode] = useState(() => {
     const f = String(user?.tax_filing_frequency || "").toLowerCase();
-    return f === "half_yearly" ? "half" : f === "quarterly" ? "quarterly" : "monthly";
+    if (f === "quarterly") return "quarterly";
+    if (f === "monthly" || f === "bimonthly") return "monthly";
+    if (f === "half_yearly" || !user?.currency || user.currency === "DKK") return "half";
+    return "monthly";
   });
   const [half, setHalf] = useState(currentDate.getMonth() < 6 ? 1 : 2);
   const [month, setMonth] = useState(currentDate.getMonth() + 1);

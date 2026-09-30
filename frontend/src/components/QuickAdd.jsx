@@ -7,7 +7,8 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { resolveMode } from "../lib/appMode";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { localIso, formatDateShort } from "../utils/dateFormat";
+import { localIso, formatDateShort, businessTodayIso } from "../utils/dateFormat";
+import { cutoffHourFor } from "../config/archetypes";
 import { trackEvent } from "../hooks/useEventLog";
 import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
@@ -92,12 +93,15 @@ export default function QuickAdd() {
   // card). commitSaleMethod persists card/MobilePay/etc; cash never sticks
   // (see useStickyMethod — it's the only method that posts to the cashbook).
   const { method: saleMethod, commitMethod: commitSaleMethod, reread: rereadSaleMethod } = useStickyMethod("sale");
-  const [saleDate, setSaleDate] = useState(localIso());
+  // The business day, like /sales: at 00:15 a sale belongs to the night that
+  // is still being traded, not to tomorrow.
+  const bizToday = () => businessTodayIso(cutoffHourFor(user?.business_type));
+  const [saleDate, setSaleDate] = useState(bizToday);
 
   const [expAmount, setExpAmount] = useState("");
   const [expCatId, setExpCatId] = useState("");
   const [expDesc, setExpDesc] = useState("");
-  const [expDate, setExpDate] = useState(localIso());
+  const [expDate, setExpDate] = useState(bizToday);
   // Payment method on the expense tab. Deliberately NOT sticky and NOT
   // pre-selected, unlike the sale tab above.
   //
@@ -245,7 +249,7 @@ export default function QuickAdd() {
         payment_method: saleMethod,
       });
       setSaleAmount("");
-      setSaleDate(localIso());
+      setSaleDate(bizToday());
       showSuccess(t("saleLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
@@ -284,7 +288,7 @@ export default function QuickAdd() {
       setExpDesc("");
       setExpCatId("");
       setExpMethod(null);
-      setExpDate(localIso());
+      setExpDate(bizToday());
       showSuccess(t("expenseAdded"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
@@ -577,7 +581,7 @@ export default function QuickAdd() {
                   to make it. */}
               {posting
                 ? t("savingEllipsis")
-                : saleDate === localIso()
+                : saleDate === bizToday()
                 ? t("logSale")
                 : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
             </button>

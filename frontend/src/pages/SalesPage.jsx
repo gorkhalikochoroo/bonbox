@@ -31,7 +31,7 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
-import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale, isMoneyRejected } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale, isMoneyRejected, toMoneyInput } from "../utils/currency";
 import { formatDate, formatDateClear, localIso, businessTodayIso } from "../utils/dateFormat";
 import { cutoffHourFor } from "../config/archetypes";
 import TaxBreakdown from "../components/TaxBreakdown";
@@ -173,8 +173,9 @@ export default function SalesPage() {
   const [closeMonth, setCloseMonth] = useState(null);
   useEffect(() => {
     if (salesLoading || sales.length) return;
-    const now = new Date();
-    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    // The business day's month (after midnight on the 1st it is still the
+    // old month's last day being traded).
+    const from = `${businessToday.slice(0, 7)}-01`;
     let alive = true;
     api.get("/daily-close", { params: { from } })
       .then((r) => {
@@ -191,7 +192,7 @@ export default function SalesPage() {
       })
       .catch(() => {});
     return () => { alive = false; };
-  }, [salesLoading, sales.length]);
+  }, [salesLoading, sales.length, businessToday]);
 
   // A selection only ever means "these rows, the ones on screen" — so it
   // cannot survive a change to what is on screen. It used to: select-all on a
@@ -462,7 +463,7 @@ export default function SalesPage() {
     setEditId(sale.id);
     setEditData({
       date: sale.date,
-      amount: parseFloat(sale.amount),
+      amount: toMoneyInput(sale.amount, user?.currency),
       payment_method: sale.payment_method,
       notes: sale.notes || "",
       is_tax_exempt: sale.is_tax_exempt || false,
@@ -1269,10 +1270,8 @@ export default function SalesPage() {
         )}
 
         <DataTable
-          // Cap the desktop ledger width so the 4 short columns sit close
-          // together instead of stretching edge-to-edge with a big void in the
-          // middle. No-op on phones (viewport < 3xl → mobile cards stay full).
-          className="max-w-3xl"
+          // Full width, lined up with the bars above it — the 3xl cap left the
+          // ledger visibly narrower than everything else on the page.
           columns={columns}
           rows={visible}
           rowKey="id"

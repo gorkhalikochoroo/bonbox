@@ -68,7 +68,8 @@ describe("the expense summary and the expense table agree", () => {
     expect(SOURCE).toMatch(/const \[showFilter, setShowFilter\] = useState\("business"\)/);
     const memo = summaryMemo();
     expect(memo).toMatch(/showFilter !== "business"/);
-    expect(SOURCE).toMatch(/monthSummary\.narrowed\s*\?\s*t\("expFilteredSummary"/);
+    // (one expense reads "1 udgift", so the key is picked by count)
+    expect(SOURCE).toMatch(/monthSummary\.narrowed\s*\?\s*t\(monthSummary\.count === 1 \? "expFilteredSummaryOne" : "expFilteredSummary"/);
   });
 
   it("the empty case is judged on the filtered rows too", () => {

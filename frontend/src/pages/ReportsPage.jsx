@@ -229,7 +229,6 @@ export default function ReportsPage() {
   const { t, lang } = useLanguage();
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [pulseSubTab, setPulseSubTab] = useState("daily");
-  const months = [t("january"),t("february"),t("march"),t("april"),t("may"),t("june"),t("july"),t("august"),t("september"),t("october"),t("november"),t("december")];
 
   // ── Danish period preset state (Pulse tax bundle) ──────────────────────────
   // periodType: one of PERIOD_TYPES. Defaulted from the user's saved filing
@@ -273,6 +272,7 @@ export default function ReportsPage() {
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [pdfError, setPdfError] = useState(null);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(new Set(SECTION_DEFS.map(s => s.key)));
 
@@ -368,6 +368,7 @@ export default function ReportsPage() {
   const downloadPdf = async () => {
     setDownloading(true);
     setError(null);
+    setPdfError(null);
     try {
       // Send the period on screen; the backend used to render only its
       // first month ("Juli 2026" for a half-year view).
@@ -376,16 +377,14 @@ export default function ReportsPage() {
           ...(resolved?.start && resolved?.end ? { start: resolved.start, end: resolved.end } : {}) },
         { responseType: "blob" }
       );
-      const out = await saveFile(res.data, `BonBox_Ledelsesrapport_${months[pdfMonth-1]}_${pdfYear}.pdf`, {
+      const out = await saveFile(res.data, `BonBox_Ledelsesrapport_${String(periodHuman).replace(/\s+/g, "_")}.pdf`, {
         type: "application/pdf",
       });
-      if (!out.ok) {
-        setError(t("failedToGeneratePdf"));
-        setTimeout(() => setError(null), 4000);
-      }
+      if (!out.ok) setPdfError(t("failedToGeneratePdf"));
     } catch {
-      setError(t("failedToGeneratePdf"));
-      setTimeout(() => setError(null), 4000);
+      // Next to the button, and it stays: the old banner sat ~1.000px up the
+      // page and vanished after 4 s, so a failed download looked like nothing.
+      setPdfError(t("failedToGeneratePdf"));
     } finally {
       setDownloading(false);
     }
@@ -512,11 +511,12 @@ export default function ReportsPage() {
           <TabPills
             tabs={[
               { id: "daily", label: t("todaysBooks", "Today's Books") },
-              { id: "monthly", label: t("taxBundle", "Tax Bundle") },
+              { id: "monthly", label: t("taxBundle", "Management report") },
             ]}
             activeId={pulseSubTab}
             onChange={setPulseSubTab}
             ariaLabel={t("reportBuilder", "Report Builder")}
+            size="sm"
           />
 
           {pulseSubTab === "daily" && <DailyKasserapport />}
@@ -636,10 +636,19 @@ export default function ReportsPage() {
                   <StatCard dense label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && (overview.revenue_ex_moms ?? overview.revenue) > 0 ? `${Math.round((overview.net_profit/(overview.revenue_ex_moms ?? overview.revenue))*100)} % ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
                   <StatCard dense label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("toAuthority")} ${vat.taxAuthority}`} />
                   <StatCard dense label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
-                  <StatCard dense label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
-                  <StatCard dense label={t("cashIn")} value={money(overview.cash_in)} />
-                  <StatCard dense label={t("cashOut")} value={money(overview.cash_out)} />
-                  <StatCard dense label={t("avgPerSale", "Avg/Sale")} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  {/* Tiles that don't apply to this venue stay off the screen:
+                      four zero tiles (kundekredit, kasse ind/ud, "0 salg" on a
+                      kasserapport venue) read as four problems. */}
+                  {Number(overview.khata_outstanding) > 0 && (
+                    <StatCard dense label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
+                  )}
+                  {(Number(overview.cash_in) > 0 || Number(overview.cash_out) > 0) && (<>
+                    <StatCard dense label={t("cashIn")} value={money(overview.cash_in)} />
+                    <StatCard dense label={t("cashOut")} value={money(overview.cash_out)} />
+                  </>)}
+                  {Number(overview.total_sales_count) > 0 && (
+                    <StatCard dense label={t("avgPerSale", "Avg/Sale")} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  )}
                   <StatCard dense label={t("avgDailySales", "Avg/Day")} value={money(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days", "days")}`} />
                 </div>
               )}
@@ -703,7 +712,7 @@ export default function ReportsPage() {
                     <span className="text-gray-400 dark:text-gray-500 ml-1">({t("includingOverview")})</span>
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {months[pdfMonth-1]} {pdfYear} &middot; {cur}
+                    {periodHuman} &middot; {cur}
                   </p>
                 </div>
                 <Button
@@ -717,6 +726,11 @@ export default function ReportsPage() {
                   {downloading ? t("generatingPdf") : t("downloadManagementReport")}
                 </Button>
               </div>
+              {pdfError && (
+                <p role="alert" className="-mt-2 text-sm text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                  <Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" /> {pdfError}
+                </p>
+              )}
 
               {/* Not-a-tax-document notice + pointer to the real filing.
                   This report is an internal management overview — anything that
@@ -868,11 +882,30 @@ function DailyKasserapport() {
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
   const vat = getVatTerms(user?.currency);
-  const [reportDate, setReportDate] = useState(localIso());
+  const [reportDate, setReportDate] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // Open on the latest locked kasserapport: for a venue that closes the day
+  // in the evening, today is empty until then — the tab opened on "Ingen
+  // salg på denne dato" every time.
   useEffect(() => {
+    let alive = true;
+    api.get("/daily-close")
+      .then((res) => {
+        const latest = (res.data || [])
+          .filter((dc) => dc.status === "confirmed" && dc.date)
+          .map((dc) => String(dc.date).slice(0, 10))
+          .sort()
+          .pop();
+        if (alive) setReportDate(latest || localIso());
+      })
+      .catch(() => { if (alive) setReportDate(localIso()); });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!reportDate) return;
     setLoading(true);
     api.get("/reports/daily-kasserapport", { params: { report_date: reportDate } })
       .then(res => setData(res.data))
@@ -893,7 +926,7 @@ function DailyKasserapport() {
       <PageHeader
         title={t("dailyKasserapport")}
         actions={
-          <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
+          <input type="date" value={reportDate || ""} onChange={e => { if (e.target.value) setReportDate(e.target.value); }}
             className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm" />
         }
       />
@@ -952,15 +985,21 @@ function DailyKasserapport() {
               </div>
 
               {/* Transactions */}
-              <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
-                <Row label={t("transactionCount")} value={data.transaction_count} />
-              </div>
+              {/* A kasserapport day has no individual sale rows — "0 salg"
+                  under a day's revenue read as nothing sold. */}
+              {!data.from_close && (
+                <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
+                  <Row label={t("transactionCount")} value={data.transaction_count} />
+                </div>
+              )}
 
               {/* Expenses & Net */}
               <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
                 <Row label={t("expensesTotal")} value={kr(data.expenses_total)} />
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
-                  <Row label={t("netCash")} value={kr(data.net_cash)} bold
+                  {/* Revenue minus every expense, card-paid ones included — it
+                      is not the cash in the drawer, so it isn't called that. */}
+                  <Row label={t("dcSalesMinusExpenses", "Sales minus expenses")} value={kr(data.net_cash)} bold
                     color={data.net_cash >= 0 ? "text-gray-900 dark:text-gray-100" : "text-red-600 dark:text-red-400"} />
                 </div>
               </div>
@@ -1357,70 +1396,52 @@ function WeekComparisonCard({ weekComparison, currency }) {
     );
   }
 
+  // This week so far against the WHOLE of last week read "↓100%" every
+  // Monday. The direction compares the same weekdays (the payload carries
+  // it) and is a word, not a raw percentage — the dashboard's convention.
+  const pct = weekComparison.same_days_change_pct;
+  const dir = pct == null ? null : pct >= 5 ? "up" : pct <= -5 ? "down" : "flat";
   const rows = [
-    { label: t("revenue"),  thisWeek: weekComparison.this_week_revenue,  lastWeek: weekComparison.last_week_revenue,  goodUp: true },
-    { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses, goodUp: false },
-    { label: t("profit", "Profit"), thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit, goodUp: true },
+    { label: t("revenue"),  thisWeek: weekComparison.this_week_revenue,  lastWeek: weekComparison.last_week_revenue },
+    { label: t("expenses"), thisWeek: weekComparison.this_week_expenses, lastWeek: weekComparison.last_week_expenses },
+    { label: t("profit", "Profit"), thisWeek: weekComparison.this_week_profit, lastWeek: weekComparison.last_week_profit },
   ];
-
-  // Up/down arrow color is data signal — inline style avoids Tailwind
-  // text-emerald-N regex which the doctrine lint blocks outside ui/.
-  const SUCCESS = "#059669"; // emerald-600
-  const DANGER = "#DC2626";  // red-600
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between gap-3 mb-4">
         <p className="text-xs text-gray-500 dark:text-gray-400">{t("performanceComparison", "This week vs last week")}</p>
-        {weekComparison.change_pct !== 0 && (
-          <span
-            className="inline-flex items-center gap-1 text-sm font-bold px-2.5 py-1 rounded-lg tabular-nums bg-gray-50 dark:bg-gray-800"
-            style={{ color: weekComparison.change_pct > 0 ? SUCCESS : DANGER }}
-          >
-            <Icon name={weekComparison.change_pct > 0 ? "TrendingUp" : "TrendingDown"} size={14} />
-            {Math.abs(weekComparison.change_pct)}%
+        {dir && (
+          <span className={`inline-flex items-center gap-1 text-sm font-semibold ${
+            dir === "up" ? "text-emerald-700 dark:text-emerald-400" : dir === "down" ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-300"
+          }`}>
+            <Icon name={dir === "up" ? "TrendingUp" : dir === "down" ? "TrendingDown" : "Minus"} size={14} />
+            {dir === "up" ? t("trendUp", "Up") : dir === "down" ? t("trendDown", "Down") : t("trendFlat", "Stable")}
+            <span className="font-normal text-gray-500 dark:text-gray-400">{t("vsSameDaysLastWeek", "vs the same days last week")}</span>
           </span>
         )}
       </div>
 
       <div className="space-y-2">
-        {rows.map((row) => {
-          const diff = row.lastWeek > 0 ? Math.round(((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100) : 0;
-          const clampedDiff = Math.max(-500, Math.min(500, diff));
-          // When the real change exceeds the ±500% display cap, show ">500%"
-          // rather than a clamped "500%" that would read as an exact figure.
-          const overCap = Math.abs(diff) > 500;
-          const isUp = clampedDiff > 0;
-          const isGood = row.goodUp ? isUp : !isUp;
-          return (
-            <div key={row.label} className="flex items-center justify-between py-2.5 px-3 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-20">{row.label}</span>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("thisWeek")}</p>
-                  <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">
-                    <Amount value={row.thisWeek} currency={currency} />
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("lastWeek")}</p>
-                  <p className="text-sm tabular-nums text-gray-500 dark:text-gray-400">
-                    <Amount value={row.lastWeek} currency={currency} />
-                  </p>
-                </div>
-                {clampedDiff !== 0 && (
-                  <span
-                    className="inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded-md tabular-nums bg-gray-100 dark:bg-gray-800"
-                    style={{ color: isGood ? SUCCESS : DANGER }}
-                  >
-                    <Icon name={isUp ? "TrendingUp" : "TrendingDown"} size={12} />
-                    {overCap ? ">" : ""}{Math.abs(clampedDiff)}%
-                  </span>
-                )}
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-3 py-2.5 px-3 bg-gray-50 dark:bg-gray-800/40 rounded-xl">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{row.label}</span>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("thisWeekSoFar", "This week so far")}</p>
+                <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">
+                  <Amount value={row.thisWeek} currency={currency} />
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("allOfLastWeek", "All of last week")}</p>
+                <p className="text-sm tabular-nums text-gray-500 dark:text-gray-400">
+                  <Amount value={row.lastWeek} currency={currency} />
+                </p>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );

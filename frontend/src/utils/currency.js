@@ -693,6 +693,18 @@ export function parseLocaleAmount(raw, locale = "da-DK") {
 const _DOT_DECIMAL_CURRENCY =
   /^(USD|GBP|CAD|AUD|NZD|NPR|INR|JPY|CNY|HKD|SGD|MXN|PHP|THB|MYR|KRW|ILS)$/;
 
+/**
+ * A stored amount as the owner types it into a money box: "123,50" for a
+ * Danish account, not the API's "123.5". Edit forms pre-filled the raw
+ * number, so every correction started from a figure in the wrong notation.
+ */
+export function toMoneyInput(n, currencyCode) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "";
+  const s = Number.isInteger(v) ? String(v) : v.toFixed(2);
+  return moneyLocale(currencyCode) === "da-DK" ? s.replace(".", ",") : s;
+}
+
 export function moneyLocale(currencyCode) {
   return _DOT_DECIMAL_CURRENCY.test(String(currencyCode || "DKK").toUpperCase())
     ? "en-US"

@@ -1,19 +1,20 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
-import { formatDateClearFull } from "../utils/dateFormat";
+import { formatDateClear, formatDateClearFull } from "../utils/dateFormat";
 
 // The backend speaks in codes and English labels ("half_yearly", "H2 2026",
 // "Jul–Dec 2026", "2027-03-01"); an owner reads Danish.
@@ -64,7 +65,7 @@ const TAX_ALERT_KEYS = {
 
 export default function TaxAutopilotPage() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { hasFeature } = useEntitlements();
   const currency = displayCurrency(user?.currency);
 
@@ -164,6 +165,19 @@ export default function TaxAutopilotPage() {
 
   const { tax_name, authority, rate_pct, frequency, upcoming_deadlines, current_month, ytd, alerts, daily_close_reconciliation: recon } = data;
   const nextDeadline = upcoming_deadlines?.[0];
+  // Future periods with nothing in them yet are noise — three all-zero rows
+  // ran out to 2028. Keep every period that has started, plus the next one.
+  const todayIso = isoToday();
+  const deadlineRows = (upcoming_deadlines || []).filter((dl, i) =>
+    i === 0 || String(dl.period_start || "") <= todayIso
+    || dl.sales_total || dl.output_vat || dl.input_vat);
+  // Named in the owner's language; the server's "%B" was English.
+  const monthName = current_month?.month_start
+    ? new Date(`${current_month.month_start}T00:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { month: "long", year: "numeric" })
+    : current_month?.month;
+  // Drafts in the whole open filing period (the hero's figure), by day.
+  const periodDrafts = recon?.period_drafts?.length ? recon.period_drafts : null;
+  const draftCount = periodDrafts ? periodDrafts.length : (recon?.current_month?.drafts_count || 0);
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
@@ -196,13 +210,18 @@ export default function TaxAutopilotPage() {
 
       {/* Draft kasserapporter are left out of MOMS — say so where the owner
           reads the MOMS figure, or it is short by their moms without a word. */}
-      {recon?.current_month?.drafts_count > 0 && (
+      {draftCount > 0 && (
         <div role="status" className="rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>
-            {t("taxDraftClosesNote", "{n} kasserapporter are drafts and not counted in the MOMS.", { n: recon.current_month.drafts_count })}
+            {draftCount === 1
+              ? t("taxDraftCloseOne", "One kasserapport is still a draft and isn't counted in the MOMS")
+              : t("taxDraftClosesNote", "{n} kasserapporter are drafts and not counted in the MOMS.", { n: draftCount })}
+            {periodDrafts && (
+              <>: {periodDrafts.slice(0, 4).map((d) => `${formatDateClear(d.date)} (${formatOwnerMoney(d.revenue_total, user?.currency, { decimals: 0 })})`).join(", ")}{periodDrafts.length > 4 ? " …" : "."}</>
+            )}
           </span>
-          <Link to="/daily-close" className="font-medium underline underline-offset-2">
-            {t("taxDraftClosesCta", "Lock them")}
+          <Link to="/daily-close" state={periodDrafts ? { openCloseDate: periodDrafts[0].date } : undefined} className="font-medium underline underline-offset-2">
+            {draftCount === 1 ? t("taxDraftCloseCtaOne", "Open it and lock it") : t("taxDraftClosesCta", "Lock them")}
           </Link>
         </div>
       )}
@@ -218,7 +237,7 @@ export default function TaxAutopilotPage() {
             ? "bg-amber-600 border-amber-700"
             : "bg-gray-900 border-gray-700"
         }`}>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm opacity-80">{t("taxNextFiling", { taxName: tax_name })}</p>
               <p className="text-3xl sm:text-4xl font-bold mt-1">
@@ -232,7 +251,7 @@ export default function TaxAutopilotPage() {
                 {t("taxDeadlineLine", { deadline: formatDateClearFull(nextDeadline.deadline), period: periodText(t, nextDeadline) })}
               </p>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <p className="text-sm opacity-80">{t("estimatedAmount")}</p>
               <p className="text-3xl font-bold mt-1">
                 <Amount value={nextDeadline.estimated_amount} currency={currency} />
@@ -306,23 +325,13 @@ export default function TaxAutopilotPage() {
         </div>
       )}
 
-      {/* ─── TAX PREFERENCES — below the answer: the owner comes for "what do I
-          owe, by when", and a settings form used to push that off the phone. ─── */}
-      <TaxPrefsCard
-        tax={tax}
-        setTax={setTax}
-        saving={taxSaving}
-        msg={taxMsg}
-        onSave={saveTaxPrefs}
-      />
 
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           label={t("taxThisMonthLabel", { taxName: tax_name })}
           value={<Amount value={current_month.vat_payable} currency={currency} />}
-          helper={current_month.month}
-          accent={current_month.vat_payable > 0 ? "warn" : "success"}
+          helper={monthName}
         />
         <StatCard
           label={t("taxMonthSales")}
@@ -338,7 +347,6 @@ export default function TaxAutopilotPage() {
           label={t("taxYtdLabel", { taxName: tax_name })}
           value={<Amount value={ytd.vat_payable} currency={currency} />}
           helper={`${ytd.year}`}
-          accent={ytd.vat_payable > 0 ? "warn" : "success"}
         />
       </div>
 
@@ -353,12 +361,24 @@ export default function TaxAutopilotPage() {
       )}
 
       {/* ─── UPCOMING DEADLINES TABLE ─── */}
-      {upcoming_deadlines?.length > 0 && (
+      {deadlineRows.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
             <Icon name="Calendar" size={18} className="text-gray-500" /> {t("taxUpcomingDeadlines")}
           </h2>
-          <div className="overflow-x-auto">
+          {/* Phone: one row per period, the payable on the right. */}
+          <ul className="sm:hidden divide-y divide-gray-100 dark:divide-gray-700/60">
+            {deadlineRows.map((dl, i) => (
+              <li key={i} className="py-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{periodText(t, dl)}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t("deadline")}: {formatDateClearFull(dl.deadline)}</p>
+                </div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums shrink-0"><Amount value={dl.estimated_amount} currency={currency} /></p>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b dark:border-gray-700">
@@ -372,15 +392,15 @@ export default function TaxAutopilotPage() {
                 </tr>
               </thead>
               <tbody>
-                {upcoming_deadlines.map((dl, i) => (
+                {deadlineRows.map((dl, i) => (
                   <tr key={i} className={`border-b dark:border-gray-700/50 ${
                     dl.status === "overdue" ? "bg-red-50/50 dark:bg-red-900/10" :
-                    dl.status === "urgent" ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""
+                    dl.status === "urgent" ? "bg-amber-50/50 dark:bg-amber-900/10" : ""
                   }`}>
                     <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{periodText(t, dl)}</td>
                     <td className="py-3 px-2 text-gray-500">{formatDateClearFull(dl.deadline)}</td>
                     <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400"><Amount value={dl.sales_total} currency={currency} /></td>
-                    <td className="py-3 px-2 text-right text-orange-500"><Amount value={dl.output_vat} currency={currency} /></td>
+                    <td className="py-3 px-2 text-right text-gray-700 dark:text-gray-300"><Amount value={dl.output_vat} currency={currency} /></td>
                     <td className="py-3 px-2 text-right text-gray-700 dark:text-gray-300"><Amount value={dl.input_vat} currency={currency} /></td>
                     <td className={`py-3 px-2 text-right font-bold ${dl.estimated_amount >= 0 ? "text-gray-900 dark:text-gray-100" : "text-emerald-700 dark:text-emerald-400"}`}>
                       <Amount value={dl.estimated_amount} currency={currency} />
@@ -389,8 +409,7 @@ export default function TaxAutopilotPage() {
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                         dl.status === "overdue" ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" :
                         dl.status === "urgent" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300" :
-                        dl.status === "soon" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" :
-                        dl.status === "approaching" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                        dl.status === "soon" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" :
                         "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
                       }`}>
                         {dl.status === "overdue" ? t("taxStatusOverdue") :
@@ -423,7 +442,7 @@ export default function TaxAutopilotPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}</span>
-                <span className="text-sm font-bold text-orange-600"><Amount value={ytd.output_vat} currency={currency} /></span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100"><Amount value={ytd.output_vat} currency={currency} /></span>
               </div>
             </div>
           </div>
@@ -451,10 +470,21 @@ export default function TaxAutopilotPage() {
 
       {/* Link to detailed MOMS-rapport */}
       <div className="flex justify-center">
-        <Link to="/vat-report" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline">
+        <Link to="/vat-report" className="text-sm font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2 hover:no-underline">
           {t("taxViewVatReport")} →
         </Link>
       </div>
+
+      {/* ─── TAX PREFERENCES — at the bottom: the owner comes for "what do I owe, by
+          when"; settings are set once and were read past on every visit. ─── */}
+      <TaxPrefsCard
+        tax={tax}
+        setTax={setTax}
+        saving={taxSaving}
+        msg={taxMsg}
+        onSave={saveTaxPrefs}
+      />
+
     </div>
   );
 }
@@ -501,6 +531,8 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [show402, setShow402] = useState(false);
+  const confirm = useConfirm();
+  const navigate = useNavigate();
 
   const periodStart = deadline?.period_start;
   const periodEnd = deadline?.period_end;
@@ -546,11 +578,21 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
   };
 
   const sendToAccountant = async () => {
+    // No address yet: take the owner to where it is set, not a 6-second error.
     if (!accountantEmail) {
-      setError(t("filingPdfNeedsAccountantEmail"));
-      setTimeout(() => setError(""), 6000);
+      navigate("/profile");
       return;
     }
+    // One tap sent the momsangivelse with no recipient on screen — even for a
+    // period that hasn't ended. Say who gets what, and ask.
+    const ok = await confirm({
+      title: t("filingPdfSendConfirmTitle", "Send to {email}?", { email: accountantEmail }),
+      message: periodOpen
+        ? t("filingPdfSendConfirmOpen", "The {period} figures are provisional — the period ends {date}. Your revisor gets the PDF as it stands today.", { period: periodLabel, date: formatDateClearFull(periodEnd) })
+        : t("filingPdfSendConfirmClosed", "Your revisor gets the momsangivelse for {period} as a PDF. You get a copy.", { period: periodLabel }),
+      confirmLabel: t("filingPdfSendConfirmCta", "Send"),
+    });
+    if (!ok) return;
     setSending(true);
     setStatus("");
     setError("");
@@ -618,7 +660,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {t("taxOutputVatLabel", "Output {tax}", { tax: taxName })}
             </p>
-            <p className="text-sm sm:text-base font-bold text-orange-600 mt-0.5">
+            <p className="text-sm sm:text-base font-bold text-gray-900 dark:text-gray-100 mt-0.5">
               <Amount value={output} currency={currency} />
             </p>
           </div>
@@ -626,7 +668,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
             <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {t("taxInputVatLabel", "Input {tax}", { tax: taxName })}
             </p>
-            <p className="text-sm sm:text-base font-bold text-blue-600 mt-0.5">
+            <p className="text-sm sm:text-base font-bold text-gray-900 dark:text-gray-100 mt-0.5">
               <Amount value={input} currency={currency} />
             </p>
           </div>

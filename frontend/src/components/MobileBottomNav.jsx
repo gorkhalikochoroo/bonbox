@@ -140,8 +140,12 @@ export default function MobileBottomNav() {
     >
       <div className="flex justify-around items-center h-14">
         {tabs.map((tab, i) => {
-          const isActive = location.pathname === tab.to ||
-            (tab.to !== "/" && location.pathname.startsWith(tab.to));
+          const matches = (tb) => location.pathname === tb.to ||
+            (tb.to !== "/" && location.pathname.startsWith(tb.to));
+          // A page with no tab of its own (/expenses, /inventory …) is reached
+          // through "Mere" — light that, so the bar never shows no position.
+          const isActive = matches(tab) ||
+            (tab.to === "/more" && !tabs.some((tb) => !tb.isCenter && matches(tb)));
           const label = t(tab.labelKey) || tab.labelKey;
 
           if (tab.isCenter) {
@@ -166,8 +170,8 @@ export default function MobileBottomNav() {
                   navigate(isPersonal ? CENTER_FALLBACK.personal : CENTER_FALLBACK.business);
                 }}
                 className="relative -top-3 flex items-center justify-center
-                  w-12 h-12 bg-gray-900 dark:bg-emerald-500 rounded-full
-                  text-white shadow-sm active:scale-95 transition-transform
+                  w-12 h-12 bg-gray-900 dark:bg-gray-100 rounded-full
+                  text-white dark:text-gray-900 shadow-sm active:scale-95 transition-transform
                   focus-visible:outline-none focus-visible:ring-2
                   focus-visible:ring-gray-400 focus-visible:ring-offset-2
                   focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"

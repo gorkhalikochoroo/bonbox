@@ -20,6 +20,8 @@ import { useNavigate } from "react-router-dom";
 import { TrendingUp, TrendingDown, Minus, Info, ArrowDownRight } from "lucide-react";
 import { useLanguage } from "../../hooks/useLanguage";
 import Amount from "../ui/Amount";
+import { businessTodayIso } from "../../utils/dateFormat";
+import { cutoffHourFor } from "../../config/archetypes";
 
 export default function ProfitAnswerCard({ ctx = {} }) {
   const { t, lang } = useLanguage();
@@ -38,9 +40,22 @@ export default function ProfitAnswerCard({ ctx = {} }) {
   const cardCls =
     "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition";
 
+  // The business day's month — the one the dashboard fetched. At 00:15 on
+  // the 1st the day being traded still belongs to the old month.
+  const bizDay = new Date(`${businessTodayIso(cutoffHourFor(ctx?.user?.business_type))}T12:00:00`);
   const monthName = (() => {
     try {
-      return new Date().toLocaleDateString(locale, { month: "long" });
+      return bizDay.toLocaleDateString(locale, { month: "long" });
+    } catch {
+      return "";
+    }
+  })();
+  const prevMonthLong = (() => {
+    try {
+      const d = new Date(bizDay);
+      d.setDate(1);
+      d.setMonth(d.getMonth() - 1);
+      return d.toLocaleDateString(locale, { month: "long" });
     } catch {
       return "";
     }
@@ -52,13 +67,26 @@ export default function ProfitAnswerCard({ ctx = {} }) {
     </div>
   );
 
-  // Nothing logged yet — invite, don't show a zero.
+  // Nothing logged yet — invite, don't show a zero. A venue that closes
+  // the day in the kasserapport starts each month empty until its first
+  // close: point it there (not /sales), and keep last month's answer on
+  // screen instead of a blank card.
   if (revenue === 0 && expenses === 0) {
+    const closes = !!s.uses_daily_close;
     return (
-      <div onClick={() => navigate("/sales")} className={cardCls} data-component="ProfitAnswerCard">
+      <div onClick={() => navigate(closes ? "/daily-close" : "/sales")} className={cardCls} data-component="ProfitAnswerCard">
         {eyebrow}
+        {typeof prevProfit === "number" && prevProfit !== 0 && (
+          <p className="text-sm text-gray-700 dark:text-gray-300 mb-1.5">
+            {prevMonthLong.charAt(0).toUpperCase() + prevMonthLong.slice(1)}:{" "}
+            <Amount value={prevProfit} className="font-semibold text-gray-900 dark:text-gray-100" />
+            {" "}{t("profitBeforeMoms", "before MOMS")}
+          </p>
+        )}
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {t("profitEmpty", "Log a sale and an expense to see your profit.")}
+          {closes
+            ? t("profitEmptyCloses", "This month's figure starts with your first close.")
+            : t("profitEmpty", "Log a sale and an expense to see your profit.")}
         </p>
       </div>
     );

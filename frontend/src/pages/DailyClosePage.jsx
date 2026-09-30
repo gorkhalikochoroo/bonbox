@@ -437,6 +437,24 @@ export default function DailyClosePage() {
   // useMemo below, and a fresh array identity every render would re-run it
   // every render.
   const history = useMemo(() => historyQ.data || [], [historyQ.data]);
+  // A link can name the day: /tax's "Open it and lock it" (router state)
+  // and the "you didn't close 29 Sep" / stale-draft rows (?date=). The page
+  // ignored both and opened on today — an owner could type 29 Sep's Z-bon
+  // in as 30 Sep.
+  const wantDate = useMemo(() => {
+    const d = location.state?.openCloseDate || new URLSearchParams(location.search).get("date");
+    return /^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d : null;
+  }, [location.state, location.search]);
+  const openDateHandledRef = useRef(null);
+  useEffect(() => {
+    const d = wantDate;
+    if (!d || openDateHandledRef.current === d || !history.length) return;
+    const row = history.find((dc) => String(dc.date || "").slice(0, 10) === d && dc.status !== "confirmed");
+    if (!row) return;
+    openDateHandledRef.current = d;
+    setEditDraft(row);
+    setTab("close");
+  }, [wantDate, history]);
   const insights = insightsQ.data;
   const fetchHistory = historyQ.reload;
   const fetchInsights = insightsQ.reload;
@@ -876,6 +894,7 @@ export default function DailyClosePage() {
         {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
           manualRequest={manualRequest}
           heroScanFiles={heroScanFiles}
+          presetDate={wantDate}
           editDraft={editDraft}
           onEditConsumed={() => setEditDraft(null)}
           smartScanPrefill={smartScanPrefill}
@@ -996,7 +1015,7 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
 
-function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory }) {
+function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -1157,6 +1176,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // A ref, not state, for the same reason as editLoadedRef above: it has to be
   // true synchronously, before the in-flight fetch resolves.
   const dateChosenRef = useRef(false);
+  // A day named by the link that opened the page (see DailyClosePage).
+  const presetHandledRef = useRef(null);
+  useEffect(() => {
+    if (!presetDate || presetHandledRef.current === presetDate || editingDate) return;
+    presetHandledRef.current = presetDate;
+    dateChosenRef.current = true;
+    setBusinessDate(presetDate);
+  }, [presetDate, editingDate]);
 
   // Step 4: Tips
   const [tipsTotal, setTipsTotal] = useState("");

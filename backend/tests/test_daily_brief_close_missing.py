@@ -36,7 +36,7 @@ def test_fires_when_flag_set():
     c = c[0]
     assert c.type == "watch"                     # amber "attention", never red/risk
     assert abs(c.weight - 0.80) < 1e-9
-    assert c.cta_url == "/daily-close"
+    assert c.cta_url == "/daily-close?date=2026-07-05"
     # NO date number in the text — "yesterday" is unambiguous in a morning digest,
     # and a raw ISO date could be LLM-reformatted past the approved-numbers guard
     # and reject the whole brief. facts stays empty for the same reason.

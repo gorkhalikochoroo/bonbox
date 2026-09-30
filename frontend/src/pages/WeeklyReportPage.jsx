@@ -31,9 +31,9 @@ export default function WeeklyReportPage() {
   const { t, lang } = useLanguage();
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
-  // 0 = this week; stepping back shows a finished week (this week is partial
-  // on every day but Sunday).
-  const [weeksAgo, setWeeksAgo] = useState(0);
+  // 0 = this week. It opens on LAST week, the latest finished one: this week
+  // is partial every day, and a Monday opened on a statement of one morning.
+  const [weeksAgo, setWeeksAgo] = useState(1);
 
   useEffect(() => {
     let alive = true;
@@ -110,7 +110,7 @@ export default function WeeklyReportPage() {
           {hasComparison ? (
             <p className={`text-sm font-semibold mt-1 inline-flex items-center gap-1 ${changeColor}`}>
               <ArrowIcon size={14} strokeWidth={2.5} aria-hidden="true" />
-              {Math.abs(changePct)}% {t("vsLastWeek")}
+              {Math.abs(changePct).toLocaleString(lang === "da" ? "da-DK" : "en-GB", { maximumFractionDigits: 1 })} % {t("vsLastWeek")}
               <span className="text-gray-400 font-normal ml-1 tabular-nums">
                 ({formatKr(report.prev_week_total ?? 0, { decimals: 0 })})
               </span>
@@ -141,8 +141,8 @@ export default function WeeklyReportPage() {
         {breakdown.length > 0 && (
           <div className="mb-4">
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={breakdown}>
-                <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+              <BarChart data={breakdown.map((d) => ({ ...d, dayShort: d.date ? new Date(`${d.date}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { weekday: "short" }) : d.day }))}>
+                <XAxis dataKey="dayShort" tick={{ fontSize: 12 }} />
                 <YAxis
                   tick={{ fontSize: 11 }}
                   width={60}

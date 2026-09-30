@@ -59,7 +59,9 @@ def test_the_greeting_follows_the_clock_not_the_cache(user):
 
 
 @pytest.mark.parametrize("hour,expected", [
-    (0, "Good morning"),     # the function's own boundary: <11 is morning
+    (0, "Good evening"),     # after service: still the evening before
+    (4, "Good evening"),
+    (5, "Good morning"),     # <11 is morning
     (7, "Good morning"),
     (10, "Good morning"),
     (11, "Good afternoon"),
@@ -83,20 +85,21 @@ def test_greeting_boundaries(user, hour, expected):
 
 
 def test_the_greeting_uses_the_owners_timezone_not_utc(user):
-    """23:30 UTC is 01:30 in Copenhagen — a Danish owner is not in 'evening'."""
+    """15:30 UTC is 17:30 in Copenhagen — the owner is in the evening, not
+    the UTC afternoon."""
     import datetime as _dt
 
     with patch.object(db_mod, "utc_now",
-                      return_value=_dt.datetime(2026, 9, 22, 23, 30, 0)):
-        assert db_mod._greeting_for(user) == "Good morning"
+                      return_value=_dt.datetime(2026, 9, 22, 15, 30, 0)):
+        assert db_mod._greeting_for(user) == "Good evening"
 
     class _UtcUser:
         timezone = "UTC"
         ui_language = "en"
 
     with patch.object(db_mod, "utc_now",
-                      return_value=_dt.datetime(2026, 9, 22, 23, 30, 0)):
-        assert db_mod._greeting_for(_UtcUser()) == "Good evening"
+                      return_value=_dt.datetime(2026, 9, 22, 15, 30, 0)):
+        assert db_mod._greeting_for(_UtcUser()) == "Good afternoon"
 
 
 def test_a_broken_timezone_does_not_crash_the_brief(user):

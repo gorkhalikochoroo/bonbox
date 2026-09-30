@@ -198,7 +198,7 @@ def test_a_moms_filing_prints_the_business_block_literally(db_session, tmp_path,
     assert b"/Subtype /Image" not in pdf, "a file from the server's disk was embedded"
     assert fetches == [], f"the server fetched {fetches}"
     _assert_literal(_text(pdf), ("Mad & Bar <Nord> <img src=", "Gade 1 & <b>2",
-                                 "CVR 12345678 & <i>", "VAT DK<87654321>"))
+                                 "CVR 12345678 & <i>", "SE-nr. DK<87654321>"))
 
 
 def test_a_ledelsesrapport_prints_the_business_header_literally(db_session, tmp_path, fetches):

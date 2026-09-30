@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+from app.utils.http_download import attachment_header
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -476,6 +478,37 @@ _DA_WEEKDAYS_ABBR = ["man", "tir", "ons", "tor", "fre", "lør", "søn"]
 def _da_month(month: int) -> str:
     """Danish full month name for a 1..12 month number."""
     return _DA_MONTHS[month] if 1 <= month <= 12 else ""
+
+
+def _da_period(start: date, end: date) -> tuple[str, str]:
+    """(label, coverage) for a report period, in Danish.
+
+    The label names the period the way the owner picked it ("2. halvår 2026",
+    "3. kvartal 2026", "september 2026"); coverage spells out the days
+    ("1. juli – 31. december 2026"). A half-year used to print as "Juli 2026"
+    and "Data dækker 1.–31. juli–december 2026".
+    """
+    whole_months = start.day == 1 and end.day == calendar.monthrange(end.year, end.month)[1]
+    span = (end.year - start.year) * 12 + end.month - start.month + 1
+    if start.year == end.year and whole_months:
+        if span == 1:
+            label = f"{_da_month(start.month)} {start.year}"
+        elif span == 3 and start.month in (1, 4, 7, 10):
+            label = f"{(start.month - 1) // 3 + 1}. kvartal {start.year}"
+        elif span == 6 and start.month in (1, 7):
+            label = f"{1 if start.month == 1 else 2}. halvår {start.year}"
+        elif span == 12:
+            label = f"hele {start.year}"
+        else:
+            label = f"{_da_month(start.month)}–{_da_month(end.month)} {start.year}"
+    else:
+        label = None
+    if start.year == end.year:
+        coverage = f"{start.day}. {_da_month(start.month)} – {end.day}. {_da_month(end.month)} {end.year}"
+    else:
+        coverage = (f"{start.day}. {_da_month(start.month)} {start.year} – "
+                    f"{end.day}. {_da_month(end.month)} {end.year}")
+    return (label or coverage), coverage
 
 
 def _da_weekday(d) -> str:
@@ -1714,15 +1747,11 @@ def custom_report_pdf(
     _, last_day = calendar.monthrange(year, month)
     start = date(year, month, 1)
     end = date(year, month, last_day)
-    month_name = _da_month(month)  # Danish month name for the DK Ledelsesrapport
     if req.start and req.end and req.start <= req.end and (req.end - req.start).days <= 366:
         start, end = req.start, req.end
         year = end.year
         last_day = end.day
-        if start.month == end.month and start.year == end.year:
-            month_name = _da_month(start.month)
-        else:
-            month_name = f"{_da_month(start.month)}–{_da_month(end.month)}"
+    period_label, period_coverage = _da_period(start, end)
     # Currency is always rendered da-DK as "kr." via _da_money — no currency
     # code is printed in this DK-only Ledelsesrapport.
 
@@ -1800,7 +1829,7 @@ def custom_report_pdf(
         elements, bp, user, title_style, subtitle_style, small_style,
         # Reframe: this is an internal MANAGEMENT report, NOT a momsangivelse.
         # DK terms (momsangivelse/SKAT/revisor) stay Danish per translation-scope.
-        "Ledelsesrapport — internt overblik", f"{month_name} {year}",
+        "Ledelsesrapport — internt overblik", period_label[:1].upper() + period_label[1:],
         extra_line=(
             f"Genereret {date.today().day:02d}. "
             f"{_da_month(date.today().month)} {date.today().year}"
@@ -2282,7 +2311,7 @@ def custom_report_pdf(
         net_cash_flow = cash_in_total - cash_out_total
 
         elements.append(Paragraph("Pengestrøm", section_style))
-        elements.append(Paragraph(f"{month_name} {year}", subsection_style))
+        elements.append(Paragraph(period_label[:1].upper() + period_label[1:], subsection_style))
 
         cf_data = [
             ["", "Beløb"],
@@ -2368,7 +2397,7 @@ def custom_report_pdf(
     elements.append(Paragraph(
         f"Ledelsesrapport genereret af BonBox &mdash; internt overblik, "
         f"<b>ikke en momsangivelse</b>. "
-        f"Data dækker 1.&ndash;{last_day}. {month_name} {year}. Alle beløb i kr. "
+        f"Data dækker {period_coverage}. Alle beløb i kr. "
         f"Til indberetning til SKAT: brug Skat Autopilot eller send til din revisor.",
         small_style,
     ))
@@ -2412,9 +2441,9 @@ def custom_report_pdf(
 
     doc.build(elements, canvasmaker=_NumberedCanvas)
     buf.seek(0)
-    filename = f"BonBox_Ledelsesrapport_{month_name}_{year}.pdf"
+    filename = f"BonBox_Ledelsesrapport_{period_label.replace(' ', '_')}.pdf"
     return StreamingResponse(
         buf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers=attachment_header(filename),
     )

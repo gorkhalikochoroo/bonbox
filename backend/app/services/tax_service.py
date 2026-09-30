@@ -1019,6 +1019,32 @@ def get_tax_overview(user: User, db: Session) -> dict:
         },
     }
 
+    # Drafts across the OPEN filing period — the one the hero's figure covers
+    # — not only this calendar month. A 26 Sep draft vanished from the
+    # warning on 1 Oct while it was still missing from the half-year MOMS.
+    open_period = next(
+        (p for p in upcoming if str(p.get("period_start") or "9999") <= today.isoformat()), None
+    )
+    period_drafts: list[dict] = []
+    if open_period:
+        rows = (
+            db.query(DailyClose.date, DailyClose.revenue_total)
+            .filter(
+                DailyClose.user_id == user.id,
+                DailyClose.date >= date.fromisoformat(str(open_period["period_start"])),
+                DailyClose.date <= date.fromisoformat(str(open_period["period_end"])),
+                DailyClose.is_deleted.isnot(True),
+                func.coalesce(DailyClose.status, "confirmed") != "confirmed",
+            )
+            .order_by(DailyClose.date)
+            .all()
+        )
+        period_drafts = [
+            {"date": d.isoformat(), "revenue_total": round(float(r or 0), 2)} for d, r in rows
+        ]
+    daily_close_recon["period_drafts"] = period_drafts
+    daily_close_recon["period_label"] = open_period.get("period_label") if open_period else None
+
     # Generate alerts (with reconciliation context)
     alerts = _generate_tax_alerts(upcoming, config, currency, ytd, daily_close_recon)
 
@@ -1066,6 +1092,9 @@ def get_tax_overview(user: User, db: Session) -> dict:
         "current_month": {
             **current_period,
             "month": today.strftime("%B %Y"),
+            # The page names the month in the owner's language from this;
+            # "%B" is the server's English ("October 2026" on a Danish screen).
+            "month_start": month_start.isoformat(),
         },
         "ytd": {
             **ytd,
