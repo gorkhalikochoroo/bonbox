@@ -1455,7 +1455,16 @@ export default function StaffSchedulePage() {
         // suggestion for these times so a quick-placed 6h+ shift reads the
         // same hours as the punched/rostered one instead of a silent 0.
         break_minutes: seed?.break_minutes ?? suggestedBreak(startT, endT),
-        role_on_shift: roleToShiftOption(seed?.role_on_shift || seed?.role || memberRole, roles),
+        // The TIMES may come from the session's last template, the ROLE may
+        // not: tapping Freja (bar) after editing Ali's kitchen shift made her a
+        // "Kok" with the red kitchen bar. An armed preset or this person's own
+        // last shift may carry a role; otherwise it is their own role.
+        role_on_shift: roleToShiftOption(
+          (armedTemplate || mostRecentShiftFor(shifts, staffId))
+            ? (seed?.role_on_shift || seed?.role || memberRole)
+            : memberRole,
+          roles,
+        ),
         branch_id: branchId || undefined,
         // status intentionally OMITTED → backend defaults 'draft' → no notify.
       };
@@ -1609,14 +1618,25 @@ export default function StaffSchedulePage() {
     try {
       const prevWeek = new Date(weekStart);
       prevWeek.setDate(prevWeek.getDate() - 7);
-      await api.post("/staff/schedules/copy-week", {
+      const res = await api.post("/staff/schedules/copy-week", {
         source_week: toISO(prevWeek),
         target_week: toISO(weekStart),
         branch_id: branchId || undefined,
       });
       await fetchShifts();
+      // Say what happened — a silent success left the owner counting cards.
+      const n = Number(res?.data?.copied) || 0;
+      setAutopilotToast(t("schedCopiedN", "{n} shifts copied from last week", { n }));
+      setTimeout(() => setAutopilotToast(""), 6000);
     } catch (err) {
-      setError(errText(err, t("stfCopyWeekFailed", "Failed to copy last week's schedule.")));
+      // An empty last week is a fact, not a failure — it used to arrive as a
+      // red English "No shifts found in source week".
+      if (err?.response?.status === 404) {
+        setAutopilotToast(t("schedCopyNothing", "Last week has no shifts to copy."));
+        setTimeout(() => setAutopilotToast(""), 6000);
+      } else {
+        setError(errText(err, t("stfCopyWeekFailed", "Failed to copy last week's schedule.")));
+      }
     }
     setCopying(false);
   };
@@ -1723,7 +1743,9 @@ export default function StaffSchedulePage() {
     setPublishing(true);
     setError("");
     try {
-      const params = { week_start: toISO(weekStart) };
+      // lang: staff notifications were built in English ("Week of 16 Nov
+      // 2026") on a Danish venue because nothing told the server otherwise.
+      const params = { week_start: toISO(weekStart), lang: lang === "da" ? "da" : "en" };
       if (branchId) params.branch_id = branchId;
       const res = await api.post("/staff/schedules/publish", null, { params });
       trackEvent("schedule_published", "schedule");  // product analytics
@@ -1843,6 +1865,20 @@ export default function StaffSchedulePage() {
 
   const handleApplyAutopilot = async () => {
     if (!autopilotSuggestion) return;
+    // Applying REPLACES the week's drafts (published shifts are kept). Say so
+    // before it happens — it silently deleted drafts the owner had made.
+    const sameWeek = String(autopilotSuggestion.week_start || "").slice(0, 10) === toISO(weekStart);
+    const drafts = sameWeek ? shifts.filter((s) => s.status === "draft").length : null;
+    if (drafts !== 0) {
+      const ok = await confirm({
+        title: t("autopilotReplaceTitle", "Replace the week's drafts?"),
+        message: drafts
+          ? t("autopilotReplaceBodyN", "Your {n} draft shifts this week are replaced by the proposal. Published shifts stay.", { n: drafts })
+          : t("autopilotReplaceBody", "Any draft shifts in that week are replaced by the proposal. Published shifts stay."),
+        confirmLabel: t("autopilotApply", "Apply schedule"),
+      });
+      if (!ok) return;
+    }
     setAutopilotApplying(true);
     setError("");
     try {
@@ -1988,7 +2024,7 @@ export default function StaffSchedulePage() {
     try {
       const r = await api.post("/staff/schedules/share-with-staff", {
         week_start: toISO(weekStart),
-      });
+      }, { params: { lang: lang === "da" ? "da" : "en" } });
       const emailed = r.data?.emailed_count || 0;
       const issued = r.data?.links_issued || 0;
       const skipped = r.data?.skipped_no_email || 0;
@@ -2585,7 +2621,7 @@ export default function StaffSchedulePage() {
                 variant={draftCount > 0 ? "accent" : "secondary"}
                 size="sm"
                 onClick={requestPublish}
-                disabled={publishing || loading || draftCount == null}
+                disabled={publishing || loading || draftCount == null || shifts.length === 0}
                 busy={publishing}
                 title={loading
                   ? t("schedPublishWeekTitle", "Publish week")
@@ -2605,6 +2641,10 @@ export default function StaffSchedulePage() {
                     <span className="sm:hidden">{t("publishShort", "Publish")}</span>
                     <span className="ml-1 tabular-nums opacity-80">· {draftCount}</span>
                   </>
+                ) : shifts.length === 0 ? (
+                  // An EMPTY week has nothing published — "✓ Udgivet" over a
+                  // blank grid was a claim about shifts that don't exist.
+                  <span className="text-gray-500 dark:text-gray-400">{t("schedNoShiftsYet", "No shifts")}</span>
                 ) : (
                   <span className="inline-flex items-center gap-1">
                     <Icon name="CheckCircle2" size={14} />
@@ -3320,7 +3360,13 @@ export default function StaffSchedulePage() {
           always called; what is new is that the owner can read, before tapping,
           who receives what and whether anyone is notified. */}
       {handoffSheet && (
-        <Sheet onClose={() => setHandoffSheet(false)} ariaLabel={t("schedHandoffTitle", "Choose how this week reaches your staff")}>
+        <Sheet
+          onClose={() => setHandoffSheet(false)}
+          ariaLabel={t("schedHandoffTitle", "Choose how this week reaches your staff")}
+          // Without a panel class the sheet had no surface — its title floated
+          // over the dimmed page.
+          panelClassName="bg-white dark:bg-gray-800 shadow-sm border-t sm:border border-gray-200 dark:border-gray-700"
+        >
           <div className="p-5 pb-3">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {t("schedHandoffTitle", "Choose how this week reaches your staff")}
@@ -3724,7 +3770,9 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
           <button
             type="button"
             onClick={onApply}
-            disabled={applying}
+            // Nothing proposed = nothing to apply. Applying 0 shifts still
+            // wiped the week's drafts and cheered "Vagtplan anvendt".
+            disabled={applying || !suggestion.days.some((d) => (d.shifts || []).length > 0)}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
           >
             {applying ? (
@@ -6626,7 +6674,10 @@ export function ScheduleGrid({
                       stand in front of; a wage is not. */}
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                     {formatShiftHours(hrs, lang)}
-                    {shift.role_on_shift && shift.role_on_shift !== member.role && (
+                    {/* Compared by SECTION, not raw string: "Server" vs "server" (or a
+                        waiter on the floor) showed a pointless "Gulv" chip on
+                        every card made in the UI. */}
+                    {shift.role_on_shift && catFor(shift.role_on_shift) !== catFor(member.role) && (
                       <span className="ml-1.5 inline-block rounded px-1 py-px bg-gray-100 dark:bg-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 align-middle leading-none">
                         {roleLabel(catFor(shift.role_on_shift), t)}
                       </span>

@@ -1399,10 +1399,19 @@ function mateTone(name) {
   return MATE_TONES[h % MATE_TONES.length];
 }
 
+// Hours in the reader's notation: "15,5", never "15.5".
+function fmtPortalHours(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v ?? "";
+  return new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(n);
+}
+
 function staffInitials(name) {
   return (name || "")
     .trim()
     .split(/\s+/)
+    // Letters only: "Testcafé (lokal)" rendered as "T(".
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0])
@@ -2930,7 +2939,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
 
         <div className="relative flex items-end gap-2">
           <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
-            {data.total_hours}
+            {fmtPortalHours(data.total_hours)}
           </span>
           {/* hoursLabel already says "Rostered hours" or "Hours worked" from
               hours_source — the number must never claim to be the other one. */}
@@ -3134,7 +3143,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     <span className="text-sm text-gray-500 flex-1">
                       {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
                     </span>
-                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{h.total_hours} {t("portalHrsShort")}</span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtPortalHours(h.total_hours)} {t("portalHrsShort")}</span>
                   </div>
                   {adjusted && (
                     <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
@@ -3199,7 +3208,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   <span className="text-sm text-gray-500">
                     {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
                   </span>
-                  <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
+                  <span className="text-sm font-semibold text-gray-900">{fmtPortalHours(h.total_hours)} {t("portalHrsShort")}</span>
                 </div>
               ))}
             </div>
