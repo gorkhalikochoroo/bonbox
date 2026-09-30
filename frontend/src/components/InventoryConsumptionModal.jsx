@@ -25,6 +25,7 @@
  *   • Live depletion estimate: "at current sales velocity, ~12 days
  *     of stock left"
  */
+import { unitLabel } from "../utils/unitLabel";
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
@@ -231,7 +232,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                     <div className="flex items-start gap-2">
                       <span className="text-gray-400 shrink-0 w-20">{t("inventoryConsumptionShape", "Shape")}:</span>
                       <span className="font-medium">
-                        {Number(suggestion.serving_size)} {suggestion.consumption_unit}
+                        {new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(Number(suggestion.serving_size))} {unitLabel(t, suggestion.consumption_unit)}
                         {" "}{(t("inventoryConsumptionPerEach", "per {kind}")).replace("{kind}", suggestion.consumption_pattern.replace("per_", ""))}
                       </span>
                     </div>

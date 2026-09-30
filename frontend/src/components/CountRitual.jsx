@@ -17,6 +17,7 @@
  * outline icons, rounded-xl, big tap targets ("anyone, one tap"). Enter
  * confirms + advances.
  */
+import { categoryLabel } from "../config/inventoryTemplates";
 import { unitLabel } from "../utils/unitLabel";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -366,7 +367,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
             )}
             {cur.category ? (
               <div className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
-                {cur.category}
+                {categoryLabel(t, cur.category)}
               </div>
             ) : null}
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 leading-tight">

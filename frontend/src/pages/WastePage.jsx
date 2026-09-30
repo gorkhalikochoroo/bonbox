@@ -268,7 +268,7 @@ export default function WastePage() {
             className="px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900" />
           <div className="flex gap-2">
             <input type="number" value={qty} onChange={(e) => setQty(e.target.value)}
-              placeholder={t("qty")} className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              placeholder={t("qty")} className="flex-1 min-w-0 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900" />
             <select value={unit} onChange={(e) => setUnit(e.target.value)}
               className="px-3 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl">
               <option value="kg">{t("kg")}</option>
@@ -321,7 +321,7 @@ export default function WastePage() {
               outcome (this number goes against margin). It's not just
               decoration. */}
           <Button
-            variant="danger"
+            variant="primary"
             size="lg"
             onClick={() => submit()}
             // The cost gate belongs on the BUTTON, not only in submit(). The

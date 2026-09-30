@@ -11,6 +11,8 @@
 //     Starter+ funktion") + items list still rendered but the
 //     waste-cost column is hidden (backend strips it server-side via
 //     scan_upcoming_expiries' L4 gate).
+import { formatDateClear } from "../utils/dateFormat";
+import { categoryLabel } from "../config/inventoryTemplates";
 import { unitLabel } from "../utils/unitLabel";
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -48,6 +50,7 @@ function statusLabel(t, status) {
 }
 
 export default function ExpiryPage() {
+  const [actionError, setActionError] = useState("");
   const { user } = useAuth();
   const { t } = useLanguage();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -99,7 +102,7 @@ export default function ExpiryPage() {
     // Echo the row: "{quantity} {unit}", and the amount through the
     // owner-money helper — never a bare toLocaleString, which would turn
     // 1.070 kr. into 1,070 kr. on a non-Danish browser.
-    const qty = `${item.quantity ?? 0}${item.unit ? ` ${item.unit}` : ""}`;
+    const qty = `${new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(Number(item.quantity ?? 0))}${item.unit ? ` ${unitLabel(t, item.unit)}` : ""}`;
     const atRisk =
       item.cost_at_risk_dkk != null && item.cost_at_risk_dkk > 0
         ? formatOwnerMoney(item.cost_at_risk_dkk, currency)
@@ -138,10 +141,19 @@ export default function ExpiryPage() {
       sold_discount: clearsStock,
     };
 
+    // Each action names itself on the button — every confirm said "Slet"
+    // (Delete), including "give it 3 more days". Only waste is destructive.
+    const confirmLabel = {
+      used: t("expConfirmUsed", "Mark as used"),
+      wasted: t("expConfirmWasted", "Log as waste"),
+      extended: t("expConfirmExtended", "Add 3 days"),
+      sold_discount: t("expConfirmSold", "Mark as sold"),
+    }[action];
     const ok = await confirm({
       title: titleMap[action] || null,
       message: bodyMap[action] || t("expConfirmGeneric", "Confirm?"),
-      destructive: true,
+      confirmLabel,
+      destructive: action === "wasted",
     });
     if (!ok) return;
     setActingId(`${item.id}:${action}`);
@@ -150,6 +162,7 @@ export default function ExpiryPage() {
       await fetchData();
     } catch (e) {
       console.warn("expiry action failed", e);
+      setActionError(t("expActionFailed", "That didn't save — try again."));
     } finally {
       setActingId(null);
     }
@@ -429,6 +442,9 @@ export default function ExpiryPage() {
           title={t("expiryForecasting", "Expiry Forecast")}
           subtitle={t("expSubtitle", "Track items approaching their expiry date and avoid waste.")}
         />
+        {actionError && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">{actionError}</p>
+        )}
       </FadeIn>
 
       {/* ─── Phase 1 — alerts banner OR Free-tier UpgradeNudge ───
@@ -460,11 +476,16 @@ export default function ExpiryPage() {
           }
           icon="AlarmClock"
           title={
-            upcoming.items.some((i) => (i.days_left ?? 99) <= 0)
+            // Past its date is not "expires today" — say which it is.
+            upcoming.items.some((i) => (i.days_left ?? 99) < 0)
+              ? t("expiryBannerLapsedTitle", "{n} items are past their date", {
+                  n: upcoming.items.filter((i) => (i.days_left ?? 99) < 0).length,
+                })
+              : upcoming.items.some((i) => (i.days_left ?? 99) === 0)
               ? t("expiryBannerTodayTitle", "Items expire today")
                   .replace(
                     "{n}",
-                    String(upcoming.items.filter((i) => (i.days_left ?? 99) <= 0).length),
+                    String(upcoming.items.filter((i) => (i.days_left ?? 99) === 0).length),
                   )
               : t("expiryBannerSoonTitle", "Items expire soon")
                   .replace("{n}", String(upcoming.items.length))
@@ -489,7 +510,9 @@ export default function ExpiryPage() {
                   </p>
                   <p className="text-xs text-gray-500">
                     {it.quantity} {unitLabel(t, it.unit)} ·{" "}
-                    {(it.days_left ?? 99) <= 0
+                    {(it.days_left ?? 99) < 0
+                      ? t("expiryDaysOver", "{n} d. over", { n: Math.abs(it.days_left) })
+                      : (it.days_left ?? 99) === 0
                       ? t("expiryDueToday", "due today")
                       : t("expiryInDays", "{n}d left").replace("{n}", String(it.days_left))}
                     {it.cost_at_risk_dkk != null && it.cost_at_risk_dkk > 0 && (
@@ -501,7 +524,9 @@ export default function ExpiryPage() {
                   {[
                     { a: "used", label: t("expiryActionUsed", "Used") },
                     { a: "wasted", label: t("expiryActionWasted", "Wasted") },
-                    { a: "extended", label: t("expiryActionExtended", "+3d") },
+                    // Never offer to push a perishable's date: a "sidste
+                    // anvendelsesdag" is not something to extend.
+                    ...(it.is_perishable ? [] : [{ a: "extended", label: t("expiryActionExtended", "+3d") }]),
                     { a: "sold_discount", label: t("expiryActionDiscount", "Sold") },
                   ].map(({ a, label }) => (
                     <button
@@ -658,7 +683,7 @@ export default function ExpiryPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{statusLabel(t, item.status)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>{item.quantity} {unitLabel(t, item.unit)} | {item.category}</span>
+                    <span>{item.quantity} {unitLabel(t, item.unit)} · {categoryLabel(t, item.category)}</span>
                     <span className={`font-bold ${
                       item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600"
                     }`}>
@@ -668,7 +693,7 @@ export default function ExpiryPage() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs mt-1">
-                    <span className="text-gray-400">{t("expExpiresLabel", "Expires:")} {item.expiry_date}</span>
+                    <span className="text-gray-400">{t("expExpiresLabel", "Expires:")} {formatDateClear(item.expiry_date)}</span>
                     <span className="text-gray-600 dark:text-gray-400 font-medium"><Amount value={item.cost_at_risk} currency={currency} /></span>
                   </div>
                 </div>
@@ -698,9 +723,9 @@ export default function ExpiryPage() {
                       item.status === "critical" ? "bg-orange-50/50 dark:bg-orange-900/10" : ""
                     }`}>
                       <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{item.name}</td>
-                      <td className="py-3 px-2 text-gray-500 text-xs">{item.category}</td>
+                      <td className="py-3 px-2 text-gray-500 text-xs">{categoryLabel(t, item.category)}</td>
                       <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{item.quantity} {unitLabel(t, item.unit)}</td>
-                      <td className="py-3 px-2 text-gray-500">{item.expiry_date}</td>
+                      <td className="py-3 px-2 text-gray-500">{formatDateClear(item.expiry_date)}</td>
                       <td className={`py-3 px-2 text-right font-bold ${
                         item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600 dark:text-gray-400"
                       }`}>

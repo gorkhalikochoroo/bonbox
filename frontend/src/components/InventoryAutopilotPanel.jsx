@@ -309,7 +309,7 @@ function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
                     aria-label={t("inventoryAutopilotQtyLabel", "Suggested qty")}
                   />
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0 min-w-[2rem]">
-                    {it.unit}
+                    {unitLabel(t, it.unit)}
                   </span>
                 </div>
               </div>
@@ -438,7 +438,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
     const lines = [`${header}${sup}${dateStr ? " — " + dateStr : ""}`];
     for (const it of items) {
       const qty = parseFloat(edits[it.item_id] ?? it.suggested_qty) || 0;
-      lines.push(`• ${it.name} — ${qty} ${it.unit || ""}`.trim());
+      lines.push(`• ${it.name} — ${qty} ${unitLabel(t, it.unit)}`.trim());
     }
     const allHaveCost = items.length > 0 && items.every((it) => (it.cost_per_unit || 0) > 0);
     if (allHaveCost) {

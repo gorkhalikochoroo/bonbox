@@ -610,7 +610,10 @@ export default function InventoryPage() {
       }
     });
     const pricedProfit = pricedRevenue - pricedCost;
-    const weightedMargin = pricedCost > 0 ? Math.round((pricedProfit / pricedCost) * 100) : null;
+    // Margin = profit ÷ sale value (dækningsgrad) — the same definition as
+    // "Bedste marginvarer". The tile and the table used profit ÷ cost (markup):
+    // one item read +87 % in one card and +678 % in the next.
+    const weightedMargin = pricedRevenue > 0 ? Math.round((pricedProfit / pricedRevenue) * 100) : null;
     return { stockValueAll, pricedCost, pricedRevenue, pricedProfit, weightedMargin, itemsWithMargin, unreadable };
   }, [items]);
 
@@ -855,7 +858,7 @@ export default function InventoryPage() {
               <ul className="space-y-0.5 text-[12px]">
                 {expired.slice(0, 3).map((it) => (
                   <li key={it.id} className="truncate">
-                    • {it.name} <span className="opacity-70">({formatDateClear(it.expiry_date)}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                    • {it.name} <span className="opacity-70">({formatDateClear(it.expiry_date)}, {new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(Number(it.quantity))} {unitLabel(t, it.unit)})</span>
                   </li>
                 ))}
                 {expired.length > 3 && (
@@ -881,7 +884,7 @@ export default function InventoryPage() {
               <ul className="space-y-0.5 text-[12px]">
                 {expiring.slice(0, 3).map((it) => (
                   <li key={it.id} className="truncate">
-                    • {it.name} <span className="opacity-70">({formatDateClear(it.expiry_date)}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                    • {it.name} <span className="opacity-70">({formatDateClear(it.expiry_date)}, {new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(Number(it.quantity))} {unitLabel(t, it.unit)})</span>
                   </li>
                 ))}
                 {expiring.length > 3 && (
@@ -1258,7 +1261,7 @@ export default function InventoryPage() {
                 <p className="text-[11px] uppercase tracking-wide text-[rgb(var(--brand-green-accent))] font-semibold px-1 mb-1">{t("priced")}</p>
               )}
               {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).slice(0, 10).map((i) => {
-                const margin = parseFloat(i.cost_per_unit) > 0 ? Math.round(((parseFloat(i.sell_price) - parseFloat(i.cost_per_unit)) / parseFloat(i.cost_per_unit)) * 100) : 0;
+                const margin = parseFloat(i.sell_price) > 0 ? Math.round(((parseFloat(i.sell_price) - parseFloat(i.cost_per_unit)) / parseFloat(i.sell_price)) * 100) : 0;
                 return (
                   <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs">
                     <span className="font-medium text-gray-800 dark:text-white truncate max-w-[35%]">{i.name}</span>
@@ -1572,7 +1575,7 @@ export default function InventoryPage() {
                 const qty = parseFloat(item.quantity);
                 const buy = parseFloat(item.cost_per_unit);
                 const sell = item.sell_price != null ? parseFloat(item.sell_price) : null;
-                const margin = sell && buy > 0 ? Math.round(((sell - buy) / buy) * 100) : null;
+                const margin = sell && buy > 0 ? Math.round(((sell - buy) / sell) * 100) : null;
                 const profit = sell != null ? (sell - buy) * qty : null;
 
                 return (
@@ -1846,7 +1849,7 @@ export default function InventoryPage() {
             const qty = parseFloat(item.quantity);
             const buy = parseFloat(item.cost_per_unit);
             const sell = item.sell_price != null ? parseFloat(item.sell_price) : null;
-            const margin = sell && buy > 0 ? Math.round(((sell - buy) / buy) * 100) : null;
+            const margin = sell && buy > 0 ? Math.round(((sell - buy) / sell) * 100) : null;
             const profit = sell != null ? (sell - buy) * qty : null;
             const isLow = alertIds.has(item.id);
             const isEditing = editId === item.id;
