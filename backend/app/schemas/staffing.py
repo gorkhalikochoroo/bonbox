@@ -25,7 +25,10 @@ class DayRecommendation(BaseModel):
     predicted_revenue: float
     confidence: str
     business_level: str
-    recommended_staff: int
+    # None when there's no staffing rule for the level — the service already
+    # returns None there, and the int-only schema 500'd the whole forecast
+    # ("Analyserer salgsmønstre…" for 26 s, then "not enough data").
+    recommended_staff: int | None = None
 
 
 class SalesPatterns(BaseModel):

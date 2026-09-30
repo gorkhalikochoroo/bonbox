@@ -343,8 +343,10 @@ body.portal-shell {
     font-size: 16px;
   }
 
-  /* Minimum 44px touch targets — Apple HIG / Material 48dp */
-  button, a, [role="button"],
+  /* Minimum 44px touch targets — Apple HIG / Material 48dp.
+     Not switches: a 44px min-height squashed every toggle into a 44×44
+     circle. A switch's hit area comes from its own padding. */
+  button:not([role="switch"]), a, [role="button"],
   input[type="checkbox"], input[type="radio"] {
     min-height: 44px;
   }

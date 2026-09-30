@@ -740,8 +740,9 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
 
     today = date.today()
     week_start = _get_week_start(today)
-    # Show 3 weeks: current + next 2
-    range_end = week_start + timedelta(days=20)
+    # Eight weeks, like the calendar feed: a "Uge 48 offentliggjort" alert
+    # opened "Ingen kommende vagt" because the portal only looked 3 weeks out.
+    range_end = week_start + timedelta(days=55)
 
     shifts = db.query(Schedule).filter(
         Schedule.staff_id == member.id,
@@ -858,7 +859,7 @@ def confirm_schedule(
 
     today = date.today()
     week_start = _get_week_start(today)
-    range_end = week_start + timedelta(days=20)
+    range_end = week_start + timedelta(days=55)
 
     # Only confirm published shifts that aren't already confirmed — avoids
     # spurious write noise on no-ops.

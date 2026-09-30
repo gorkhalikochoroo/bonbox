@@ -2336,9 +2336,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           style={{ marginTop: 13, paddingTop: 11, borderTop: "1px solid #eef2f7" }}
         >
           <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
-            {fmtHM(weekTotals.hours)} · {weekTotals.count === 1
-              ? t("portalWeekShiftCountOne", "{n} shift", { n: weekTotals.count })
-              : t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}
+            {weekTotals.count === 0
+              // "0 min · 0 vagter" read like a broken counter.
+              ? t("portalWeekNoShifts", "No shifts this week")
+              : <>{fmtHM(weekTotals.hours)} · {weekTotals.count === 1
+                  ? t("portalWeekShiftCountOne", "{n} shift", { n: weekTotals.count })
+                  : t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}</>}
           </span>
         </div>
 

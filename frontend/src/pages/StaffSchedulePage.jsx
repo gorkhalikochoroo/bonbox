@@ -1626,7 +1626,9 @@ export default function StaffSchedulePage() {
       await fetchShifts();
       // Say what happened — a silent success left the owner counting cards.
       const n = Number(res?.data?.copied) || 0;
-      setAutopilotToast(t("schedCopiedN", "{n} shifts copied from last week", { n }));
+      setAutopilotToast(n === 1
+        ? t("schedCopiedOne", "1 shift copied from last week")
+        : t("schedCopiedN", "{n} shifts copied from last week", { n }));
       setTimeout(() => setAutopilotToast(""), 6000);
     } catch (err) {
       // An empty last week is a fact, not a failure — it used to arrive as a
@@ -1872,7 +1874,9 @@ export default function StaffSchedulePage() {
     if (drafts !== 0) {
       const ok = await confirm({
         title: t("autopilotReplaceTitle", "Replace the week's drafts?"),
-        message: drafts
+        message: drafts === 1
+          ? t("autopilotReplaceBodyOne", "Your 1 draft shift this week is replaced by the proposal. Published shifts stay.")
+          : drafts
           ? t("autopilotReplaceBodyN", "Your {n} draft shifts this week are replaced by the proposal. Published shifts stay.", { n: drafts })
           : t("autopilotReplaceBody", "Any draft shifts in that week are replaced by the proposal. Published shifts stay."),
         confirmLabel: t("autopilotApply", "Apply schedule"),
@@ -2459,7 +2463,9 @@ export default function StaffSchedulePage() {
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          {/* Stacked until lg: side by side at 768–1024 the five actions ran
+              past the screen edge (x 754–896 on a 768 tablet). */}
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
             {/* Week nav — on a phone the arrows lose their word labels and the
                 date label flexes into whatever is left. With the words shown,
                 Previous (~100pt) + the 220pt label + Next (~80pt) + gaps came
@@ -2544,7 +2550,7 @@ export default function StaffSchedulePage() {
                 position. And the row WRAPS on a phone instead of scrolling, so
                 the five that remain are all on screen and all tappable. From
                 sm: up nothing changes — it was already flex-wrap there. */}
-            <div className="flex items-center gap-2 flex-wrap [&>*]:shrink-0 justify-start sm:justify-end w-full sm:w-auto">
+            <div className="flex items-center gap-2 flex-wrap [&>*]:shrink-0 justify-start lg:justify-end w-full lg:w-auto">
               {/* Secondary, not primary. The week has exactly ONE headline
                   action — Udgiv — and a toolbar with three gray-900 buttons
                   tells the owner nothing about which of them finishes the job. */}
@@ -2818,10 +2824,12 @@ export default function StaffSchedulePage() {
       )}
       {/* Autopilot-success toast (auto-dismisses after 7s) */}
       {autopilotToast && (
+        // Neutral: this banner also says "nothing to copy", which is a fact,
+        // not a success.
         <SectionBanner
-          severity="success"
+          severity="info"
           title={autopilotToast}
-          icon="Sparkles"
+          icon="Info"
           onDismiss={() => setAutopilotToast("")}
         />
       )}
@@ -6644,6 +6652,9 @@ export function ScheduleGrid({
           const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
           const isDraft = shift.status === "draft";
 
+          // A shift on a day the person said they CAN'T work: the "kan ikke"
+          // tint only painted empty cells, so the conflict was invisible.
+          const conflict = unavailFor(member.id, date) || absenceFor?.(member.id, date) || null;
           return (
             // FILLED cell = NOT a drop target (occupied) — forbids
             // overwrite. Its block is the DRAG SOURCE. The cell's
@@ -6661,8 +6672,14 @@ export function ScheduleGrid({
             >
               <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
                 <div
-                  className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)}`}
+                  title={conflict ? t("schedConflictCant", "Marked as can't work this day") : undefined}
+                  className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
                 >
+                  {conflict && (
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+                      {t("schedConflictCantShort", "Can't work")}
+                    </div>
+                  )}
                   <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
                     {formatShiftTime(shift.start_time, shift.end_time)}
                   </div>
@@ -6872,7 +6889,7 @@ export function ScheduleGrid({
                           )}
                           <span className={tone === "none" ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}>
                             {tally.total}
-                            <span className="hidden xl:inline"> {t("schedShiftsWord", "shifts")}</span>
+                            <span className="hidden xl:inline"> {tally.total === 1 ? t("schedShiftWordOne", "shift") : t("schedShiftsWord", "shifts")}</span>
                           </span>
                           <span className="sr-only">{sentence}</span>
                         </div>

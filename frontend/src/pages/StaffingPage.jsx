@@ -131,7 +131,9 @@ export default function StaffingPage({ embedded = false }) {
       api.get("/staffing/insights"),
       api.get("/staffing/logs"),
     ]).then(([fcRes, rulesRes, insRes, logsRes]) => {
-      if (fcRes.status === "fulfilled") setForecast(fcRes.value.data);
+      if (fcRes.status === "fulfilled") { setForecast(fcRes.value.data); setError(null); }
+      // A failed forecast is a failure, not "not enough sales data".
+      else setError("forecast");
       if (rulesRes.status === "fulfilled") setRules(rulesRes.value.data);
       if (insRes.status === "fulfilled") setInsights(insRes.value.data);
       if (logsRes.status === "fulfilled") setStaffLogs(logsRes.value.data);
@@ -340,10 +342,17 @@ export default function StaffingPage({ embedded = false }) {
 
           {loading ? (
             <p className="text-gray-500 dark:text-gray-400 text-center py-12">{t("analyzingPatterns")}</p>
+          ) : error === "forecast" ? (
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-6 rounded-xl text-center">
+              <p className="text-gray-900 dark:text-gray-100 font-medium">{t("forecastLoadFailed", "The forecast couldn't load.")}</p>
+              <button type="button" onClick={fetchData} className="mt-3 h-10 px-4 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800">
+                {t("tryAgain", "Try again")}
+              </button>
+            </div>
           ) : recs.length === 0 ? (
-            <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 p-6 rounded-xl text-center">
-              <p className="text-yellow-700 dark:text-yellow-300 font-medium">{t("notEnoughData")}</p>
-              <p className="text-yellow-600 dark:text-yellow-400 text-sm mt-1">{t("logMoreSales")}</p>
+            <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 p-6 rounded-xl text-center">
+              <p className="text-gray-800 dark:text-gray-200 font-medium">{t("notEnoughData")}</p>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">{t("logMoreSales")}</p>
             </div>
           ) : (
             <>
@@ -503,7 +512,7 @@ export default function StaffingPage({ embedded = false }) {
                 onChange={(e) => setRuleForm({ ...ruleForm, recommended_staff: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
               <button type="submit" disabled={ruleMoneyRejected}
-                className="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50 disabled:cursor-not-allowed">
+                className="bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 py-2 rounded-lg hover:bg-gray-800 dark:hover:bg-white transition text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 {t("addRule")}
               </button>
             </form>
