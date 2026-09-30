@@ -240,6 +240,23 @@ def _at_month_cap(db: Session, owner: User) -> bool:
         return False
 
 
+
+def _receipt_token(r) -> str:
+    """The booking-poll token the receipt page keeps. Same lifetime as the
+    email link — until the booking plus 48 h (min 24 h): a phone-only guest
+    is told to keep the page as their receipt, and a 24-hour token turned it
+    into "Vi kunne ikke åbne reservationen" — cancel link included — a day
+    later."""
+    ttl = 24
+    try:
+        if r.starts_at:
+            from datetime import datetime as _dt
+            delta_h = (r.starts_at - _dt.now()).total_seconds() / 3600.0
+            ttl = max(24, int(delta_h) + 48)
+    except Exception:  # noqa: BLE001
+        ttl = 24
+    return sign_booking_token(str(r.id), ttl_hours=ttl)
+
 @router.get("/{slug}")
 @_limiter.limit("60/minute")
 def public_page(request: Request, slug: str = Path(...), db: Session = Depends(get_db)):
@@ -818,7 +835,7 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
     else:  # direct callers without a request — still best-effort, never raises
         _send_booking_notifications(str(r.id), str(owner.id))
-    return {"id": str(r.id), "status": r.status, "booking_token": sign_booking_token(str(r.id))}
+    return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
 
 
 @router.post("/{slug}")
@@ -847,7 +864,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         )
         if prior:
             return {"id": str(prior.id), "status": prior.status,
-                    "booking_token": sign_booking_token(str(prior.id))}
+                    "booking_token": _receipt_token(prior)}
 
     # Parse requested datetime (naive local).
     try:
@@ -888,6 +905,14 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     is_request = rsvc.is_group_request(settings, payload.party_size)
 
     resource_ids = None
+    if is_request:
+        # A REQUEST still has to be for a time the venue is open and that
+        # hasn't passed. It skipped every hours check, so a party of 10 could
+        # ask for a closed Monday — or for 18:00 on a day already over, which
+        # the page then promised to answer "inden dagen".
+        windows = rsvc.restaurant_windows(profile, start.date(), settings)
+        if start <= _now_local() or not any(w.start <= start < w.end for w in windows):
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     if not is_request:
         # ALWAYS gate the slot through the engine FIRST. recheck_and_assign_combo
         # is the only path that consults the operating-window, pacing, and
@@ -972,7 +997,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # holds the DB connection or delays the guest's response — the booking already
     # committed above. All best-effort inside the task.
     background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
-    return {"id": str(r.id), "status": r.status, "booking_token": sign_booking_token(str(r.id))}
+    return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
 
 
 def _verify(token: str | None, reservation_id: UUID, db: Session) -> Reservation:

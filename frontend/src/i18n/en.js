@@ -2150,7 +2150,7 @@ export const en = {
     rsvpPickTimeCta: "Pick a time",
     // Group-request explainer panel (replaces the slot grid on step 1).
     rsvpGroupPanelTitle: "Bigger group",
-    rsvpGroupPanelBody: "Parties of {n} are sent as a request — we'll confirm a time and get back to you.",
+    rsvpGroupPanelBody: "Parties of {n} are sent as a request — pick your preferred time and we'll confirm and get back to you.",
     // Step 2 field discipline.
     rsvpEmailWhy: "So we can send your confirmation.",
     rsvpAddNote: "Add a message or special request (optional)",
@@ -4087,6 +4087,7 @@ export const en = {
     schedNoShiftsYet: "No shifts",
     schedCopiedN: "{n} shifts copied from last week",
     schedCopyNothing: "Last week has no shifts to copy.",
+    rsvpCallVenueLabel: "Call us",
     returns: "Returns", noSalesYet: "No sales yet",
     voidsToday: "voids today — worth a look", inSalesToday: "in sales today",
     ordersToday: "orders", ordersTodayPlural: "orders", order: "order",

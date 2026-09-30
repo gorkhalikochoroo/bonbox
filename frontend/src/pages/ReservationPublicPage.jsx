@@ -1244,7 +1244,9 @@ export default function ReservationPublicPage() {
   // A time is required — for a group request too, where it is the guest's
   // PREFERRED time and the venue confirms it. Only when the server offers no
   // times at all (an older backend) does a group request go without one.
-  const needsTime = !slot && !(groupRequest && slots.length === 0);
+  // Always. A request with no offered time went through for a closed day —
+  // the server stored an invented 18:00 and the receipt later showed it.
+  const needsTime = !slot;
   const canSubmit =
     nameValid &&
     contactValid &&
@@ -1332,7 +1334,7 @@ export default function ReservationPublicPage() {
       // outside opening hours entirely. The venue's own first opening of
       // that day is at least a real time. The 18:00 tail stays only for
       // the case where availability returned nothing at all.
-      time: slot || slots[0] || "18:00",
+      time: slot,
       party_size: party,
       guest_name: guestName.trim(),
       ...contact.payload,
@@ -1991,7 +1993,7 @@ export default function ReservationPublicPage() {
                 {telHref(page.phone) && (
                   <div className="flex items-baseline justify-between gap-4 py-2">
                     <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">
-                      {t("rsvpCallLabel", "Phone")}
+                      {t("rsvpCallVenueLabel", "Call us")}
                     </dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 tabular-nums">
                       <a href={telHref(page.phone)} className="min-h-0! hover:underline">
@@ -2585,22 +2587,6 @@ export default function ReservationPublicPage() {
                         </span>
                       </a>
                     )}
-                  </div>
-                ) : slotGroups.length === 0 && groupRequest ? (
-                  // An older server offers no preferred times for a group:
-                  // keep the calm explainer — the venue picks the time.
-                  <div
-                    className="rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 p-4 flex items-start gap-3"
-                    role="status"
-                  >
-                    <Users size={18} strokeWidth={1.75} className="text-gray-500 shrink-0 mt-0.5" aria-hidden="true" />
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      {t(
-                        "rsvpGroupPanelBody",
-                        "Parties of {n} are sent as a request — we'll confirm a time and get back to you.",
-                        { n: party },
-                      )}
-                    </p>
                   </div>
                 ) : slotGroups.length === 0 ? (
                   !isProvider && dayMap === null ? (
