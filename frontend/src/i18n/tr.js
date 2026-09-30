@@ -3408,7 +3408,7 @@ export const tr = {
   revenueUdenMoms: "Ciro (moms hariç)",
   dailyCloseReconcileNotePre: "Kasserapport, kasa mutabakatındır. moms beyanın ",
   dailyCloseReconcileNoteLink: "Skat Autopilot",
-  dailyCloseReconcileNotePost: " içinde POS satış kaydından okunur — kasserapport, farkı işaretleyen bir çapraz kontrol ekler.",
+  dailyCloseReconcileNotePost: " günün cirosu ve MOMS olarak kilitli kasserapport'u kullanır — kilitleyin, sayılsın.",
   next: "İleri",
   savingEllipsis: "Kaydediliyor…",
   queueAndLockOffline: "Kuyruğa al & kilitle (çevrimdışı)",

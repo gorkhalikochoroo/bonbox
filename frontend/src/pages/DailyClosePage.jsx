@@ -347,7 +347,8 @@ const CLOSE_CONFIG = {
 const CAT_LABEL = Object.fromEntries(Object.values(REVENUE_CATS_BY_TYPE).flat().map((c) => [c.key, c]));
 const PAY_LABEL = Object.fromEntries(Object.values(PAYMENT_METHODS_BY_TYPE).flat().map((c) => [c.key, c]));
 function chipLabel(map, k, t) {
-  const c = map[k];
+  // Case-insensitive: sample data stores "Food"/"Drinks".
+  const c = map[k] || map[String(k).toLowerCase()];
   if (!c) return k;
   return c.labelKey ? t(c.labelKey, c.label) : c.label;
 }

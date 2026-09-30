@@ -3061,7 +3061,7 @@ export const da = {
     revenueUdenMoms: "Omsætning (uden moms)",
     dailyCloseReconcileNotePre: "Kasserapporten er din afstemning af kassen. Din momsindberetning i ",
     dailyCloseReconcileNoteLink: "Skat Autopilot",
-    dailyCloseReconcileNotePost: " læser fra POS-salgsregistret — kasserapporten tilføjer et krydstjek, der markerer afvigelser.",
+    dailyCloseReconcileNotePost: " bruger den låste kasserapport som dagens omsætning og moms — lås den, så tæller den med.",
     // Navigation + lås
     next: "Næste",
     savingEllipsis: "Gemmer…",

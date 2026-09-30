@@ -243,7 +243,10 @@ export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-D
   if (!incoming) return existing;
   if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale);
 
-  const merged = fillMerge(existing, incoming);
+  // "Same till — use the new photo" means the new photo IS the figures.
+  // Filling gaps from the old one kept its MobilePay 1.000 on top of the new
+  // photo's payments (4.950 paid against a 3.950 total).
+  const merged = mode === MERGE_REPLACE ? { ...incoming } : fillMerge(existing, incoming);
   if (mode === MERGE_REPLACE) {
     // The owner told us this scan supersedes the last one, so the numbers on
     // screen now describe a single till again. Leaving a stale "2 terminals

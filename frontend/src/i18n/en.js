@@ -3169,7 +3169,7 @@ export const en = {
     revenueUdenMoms: "Revenue (excl. MOMS)",
     dailyCloseReconcileNotePre: "Your kasserapport is your cash-drawer reconciliation. Your moms filing in ",
     dailyCloseReconcileNoteLink: "Skat Autopilot",
-    dailyCloseReconcileNotePost: " reads from the POS sales register — the kasserapport adds a cross-check that flags variance.",
+    dailyCloseReconcileNotePost: " uses the locked kasserapport as the day's revenue and MOMS — lock it and it counts.",
     // Navigation + lock
     next: "Next",
     savingEllipsis: "Saving…",
