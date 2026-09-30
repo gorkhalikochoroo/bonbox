@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Camera, PackageCheck } from "lucide-react";
+import { Camera, PackageCheck, Image as ImageIcon } from "lucide-react";
 import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
@@ -267,7 +267,7 @@ export default function SmartImportModal({
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-              ✨ {t("siTitle", "Smart Inventory Import")}
+              {t("siTitle", "Smart Inventory Import")}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
               {t("siSubtitle", "Paste, upload, or photograph your stock list — AI fills in the rest.")}
@@ -292,7 +292,7 @@ export default function SmartImportModal({
           {smartScanPrefill && !draftId && !draft && (
             <div className="mb-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 p-3 text-sm text-gray-900 dark:text-gray-100">
               <div className="font-medium flex items-center gap-2 mb-0.5">
-                <span aria-hidden="true">✨</span>
+                
                 {t("smartScan.invoiceHandoff", "Faktura registreret af Smart skan")}
               </div>
               <div className="text-xs opacity-90">
@@ -308,7 +308,7 @@ export default function SmartImportModal({
               file-pick step is skipped entirely. */}
           {draftId && loading && !draft ? (
             <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-              <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+              <div className="inline-block w-6 h-6 border-2 border-gray-900 dark:border-gray-100 border-t-transparent rounded-full animate-spin mb-2"></div>
               <p>{t("smartScan.invoiceLoadingDraft", "Åbner faktura…")}</p>
               {error && (
                 <p className="mt-2 text-red-600 dark:text-red-400 text-xs">
@@ -361,18 +361,18 @@ function ExtractStep({
       {/* Mode tabs */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { id: "text",    label: `📝 ${t("siTabPasteText", "Paste text")}` },
-          { id: "csv",     label: "📄 CSV" },
-          { id: "excel",   label: "📊 Excel" },
+          { id: "text",    label: t("siTabPasteText", "Paste text") },
+          { id: "csv",     label: "CSV" },
+          { id: "excel",   label: "Excel" },
           { id: "image",   label: t("siTabPhoto", "Photo"), iconKey: "camera" },
-          { id: "history", label: `📜 ${t("siTabRecent", "Recent")}` },
+          { id: "history", label: t("siTabRecent", "Recent") },
         ].map((m) => (
           <button
             key={m.id}
             onClick={() => setMode(m.id)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
               mode === m.id
-                ? "bg-blue-600 text-white"
+                ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
                 : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             }`}
           >
@@ -408,10 +408,10 @@ function ExtractStep({
         <div>
           <button
             onClick={() => fileRef.current?.click()}
-            className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center hover:border-blue-400 transition"
+            className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center hover:border-gray-400 transition"
           >
             <div className="text-4xl mb-2">
-              {mode === "csv" ? "📄" : "📊"}
+              
             </div>
             <p className="text-gray-700 dark:text-gray-300 font-medium">
               {fileInput ? fileInput.name : t("siChooseFile", "Click to choose a {kind}", { kind: mode.toUpperCase() })}
@@ -447,7 +447,7 @@ function ExtractStep({
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {(fileInput.size / 1024).toFixed(0)} KB
                   {fileInput.size > 1.5 * 1024 * 1024 && (
-                    <span className="ml-1 text-blue-600 dark:text-blue-400">
+                    <span className="ml-1 text-gray-900 dark:text-gray-100 font-medium">
                       · {t("siWillResize", "will be auto-resized")}
                     </span>
                   )}
@@ -473,9 +473,9 @@ function ExtractStep({
                       fileRef.current.click();
                     }
                   }}
-                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition group"
+                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition group"
                 >
-                  <div className="text-4xl mb-2 group-hover:scale-110 transition">📸</div>
+                  <div className="mb-2 flex justify-center text-gray-500 dark:text-gray-400"><Camera className="w-8 h-8" strokeWidth={1.5} aria-hidden="true" /></div>
                   <p className="text-gray-700 dark:text-gray-300 font-semibold">
                     {t("siTakePhoto", "Take Photo")}
                   </p>
@@ -490,9 +490,9 @@ function ExtractStep({
                       fileRef.current.click();
                     }
                   }}
-                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition group"
+                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition group"
                 >
-                  <div className="text-4xl mb-2 group-hover:scale-110 transition">🖼️</div>
+                  <div className="mb-2 flex justify-center text-gray-500 dark:text-gray-400"><ImageIcon className="w-8 h-8" strokeWidth={1.5} aria-hidden="true" /></div>
                   <p className="text-gray-700 dark:text-gray-300 font-semibold">
                     {t("siChoosePhoto", "Choose Photo")}
                   </p>
@@ -527,7 +527,7 @@ function ExtractStep({
           <button
             onClick={onRun}
             disabled={loading}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
+            className="px-4 py-2 bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
           >
             {loading ? t("siExtracting", "Extracting…") : t("siExtractItems", "Extract items →")}
           </button>

@@ -815,13 +815,8 @@ export default function InventoryPage() {
         </p>
       </DismissibleTip>
 
-      {alerts.length > 0 && (
-        <SectionBanner
-          severity="critical"
-          icon="AlertTriangle"
-          title={`${t("lowStockAlerts")}: ${alerts.length} ${alerts.length === 1 ? t("itemBelowMinStockOne", "item below minimum") : t("itemsBelowMinStock")}`}
-        />
-      )}
+      {/* The low-stock banner is gone: a title with no names and no action,
+          repeating the reorder list right above it. The list names them. */}
 
       {/* The warning feeds, when they could not be asked.
           Dead stock, expiring and expired each render ONLY when they have rows,

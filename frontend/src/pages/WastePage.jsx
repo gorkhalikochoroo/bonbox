@@ -41,6 +41,19 @@ export default function WastePage() {
   const [logs, setLogs] = useState([]);
   const [summary, setSummary] = useState(null);
   const [item, setItem] = useState("");
+  // Waste picked from the stock list lowers that line's quantity and prefills
+  // the cost from its unit price. Free text still works for anything else.
+  const [stock, setStock] = useState([]);
+  const [stockId, setStockId] = useState(null);
+  useEffect(() => {
+    api.get("/inventory").then((r) => setStock(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+  }, []);
+  const pickItem = (name) => {
+    setItem(name);
+    const hit = stock.find((it) => (it.name || "").toLowerCase() === String(name).trim().toLowerCase());
+    setStockId(hit ? hit.id : null);
+    if (hit?.unit) setUnit(hit.unit);
+  };
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("kg");
   const [cost, setCost] = useState("");
@@ -93,6 +106,20 @@ export default function WastePage() {
 
   useEffect(() => { fetchData(); }, []);
 
+  // Quantity × the line's unit cost, in the owner's notation, when the cost
+  // box is still empty — the loss is known; typing it again is busywork.
+  useEffect(() => {
+    if (!stockId || cost) return;
+    const hit = stock.find((it) => it.id === stockId);
+    const q = parseFloat(qty);
+    const unitCost = Number(hit?.cost_per_unit);
+    if (q > 0 && unitCost > 0) {
+      const v = (q * unitCost).toFixed(2);
+      setCost(mLocale === "da-DK" ? v.replace(".", ",") : v);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockId, qty]);
+
   const submit = async (quickCost) => {
     const c = quickCost || parseMoneyInput(cost, mLocale);
     // A waste log with an unreadable cost is refused rather than filed at 0 —
@@ -104,13 +131,14 @@ export default function WastePage() {
     try {
       await api.post("/waste", {
         item_name: item,
+        ...(stockId ? { inventory_item_id: stockId } : {}),
         quantity: parseFloat(qty),
         unit,
         estimated_cost: c || 0,
         reason,
         date: wasteDate,
       });
-      setItem(""); setQty(""); setCost("");
+      setItem(""); setQty(""); setCost(""); setStockId(null);
       setWasteDate(localIso());
       trackEvent("waste_logged", "waste", `${item} - ${formatOwnerMoney(c || 0, user?.currency)}`);
       setSuccess(t("wasteLogged"));
@@ -263,9 +291,13 @@ export default function WastePage() {
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("trackWaste")}</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <input type="text" value={item} onChange={(e) => setItem(e.target.value)}
+          <input type="text" value={item} onChange={(e) => pickItem(e.target.value)}
+            list="waste-stock-items"
             placeholder={t("whatWasWasted")}
             className="px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900" />
+          <datalist id="waste-stock-items">
+            {stock.map((it) => <option key={it.id} value={it.name} />)}
+          </datalist>
           <div className="flex gap-2">
             <input type="number" value={qty} onChange={(e) => setQty(e.target.value)}
               placeholder={t("qty")} className="flex-1 min-w-0 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900" />

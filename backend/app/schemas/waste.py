@@ -10,6 +10,9 @@ class WasteLogCreate(BaseModel):
     estimated_cost: float = 0
     reason: str = "expired"
     date: datetime.date | None = None
+    # The stock line this waste came off. When given, the shelf goes down by
+    # the wasted quantity — logging waste used to leave stock untouched.
+    inventory_item_id: str | None = None
 
 
 class WasteLogUpdate(BaseModel):

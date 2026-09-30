@@ -56,7 +56,8 @@ def _sync_expense_for_waste(db: Session, log: WasteLog):
         date=log.date,
         amount=float(log.estimated_cost),
         description=f"Svind: {log.item_name} ({_REASON_DA.get(log.reason, log.reason)})",
-        payment_method="card",
+        # Not a card payment — a loss of goods already bought.
+        payment_method="other",
         reference_id=ref_id,
     )
     db.add(expense)
@@ -151,6 +152,17 @@ def create_waste(
         reason=data.reason,
     )
     db.add(log)
+    if data.inventory_item_id:
+        try:
+            from app.models.inventory import InventoryItem
+            inv = db.query(InventoryItem).filter(
+                InventoryItem.id == data.inventory_item_id,
+                InventoryItem.user_id == user.id,
+            ).first()
+        except Exception:  # noqa: BLE001 — a bad id never blocks the waste log
+            inv = None
+        if inv is not None:
+            inv.quantity = max(0.0, float(inv.quantity or 0) - float(data.quantity or 0))
     db.commit()
     db.refresh(log)
     # Sync to expenses
