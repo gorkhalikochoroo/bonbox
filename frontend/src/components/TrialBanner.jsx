@@ -47,7 +47,7 @@ export default function TrialBanner() {
     const closing = days <= 2; // "closing" not "urgent" — wording matters
     return (
       <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 px-4 py-3">
-        <span className="text-lg shrink-0">{closing ? "🌤️" : "🎁"}</span>
+        
         <div className="flex-1 text-sm">
           <span className="font-semibold text-gray-800 dark:text-gray-200">
             {(days === 1 ? (t("trialDaysLeftSingular") || "{n} day left in your free Pro trial.") : (t("trialDaysLeftPlural") || "{n} days left in your free Pro trial.")).replace("{n}", days)}

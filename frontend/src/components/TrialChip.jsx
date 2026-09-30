@@ -80,7 +80,7 @@ export default function TrialChip() {
             : "text-gray-600 dark:text-gray-400"
         }`}
       >
-        <span aria-hidden="true">{urgent ? "🌤️" : "🎁"}</span>
+        
         <span>{label}</span>
       </Link>
       <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>

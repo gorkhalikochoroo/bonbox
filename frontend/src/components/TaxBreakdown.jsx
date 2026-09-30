@@ -87,7 +87,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
             <span className="text-gray-500 dark:text-gray-400">
               {taxName} ({pct}%)
             </span>
-            <span className="font-semibold text-blue-600 dark:text-blue-400">
+            <span className="font-semibold text-gray-900 dark:text-gray-100">
               {formatOwnerMoney(taxAmount, currencyCode, { decimals: 2 })}
             </span>
           </div>

@@ -24,6 +24,7 @@
  * sale in the window) is trimmed so a sparse seller starts at real
  * activity; gaps between sales and any recent quiet run are kept.
  */
+import { formatDateClear } from "../../utils/dateFormat";
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -227,7 +228,11 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
             {t("revenueTrend", "Revenue trend")}
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {t("revenueTrendWindow", "Last {n} days").replace("{n}", String(days))}
+            {/* The chart trims leading empty days, so say what it actually
+                spans — "Sidste 90 dage" above 33 days of data read as a bug. */}
+            {firstSold > 0 && data[0]?.date
+              ? t("revenueTrendSince", "Since {date}", { date: formatDateClear(data[0].date) })
+              : t("revenueTrendWindow", "Last {n} days").replace("{n}", String(days))}
           </p>
         </div>
         <div className="text-right shrink-0">

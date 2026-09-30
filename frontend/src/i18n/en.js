@@ -4147,6 +4147,7 @@ export const en = {
     hovTileLaborPartial: "on {covered} of {days} days with hours",
     shpResolveLongShift: "That makes {h} hours — check the time. Tap again to confirm.",
     contractHourly: "Hourly",
+    revenueTrendSince: "Since {date}",
     returns: "Returns", noSalesYet: "No sales yet",
     voidsToday: "voids today — worth a look", inSalesToday: "in sales today",
     ordersToday: "orders", ordersTodayPlural: "orders", order: "order",

@@ -67,7 +67,7 @@ function fmtMoney(n, currency = "DKK") {
   const formatted = floored.toLocaleString("da-DK", { maximumFractionDigits: 0 });
   // DKK shows "kr" (the user's vocabulary); other currencies show the
   // ISO code so an EUR user doesn't see "kr" beside a euro amount.
-  if (currency === "DKK") return `${formatted} kr`;
+  if (currency === "DKK") return `${formatted} kr.`;
   return `${formatted} ${currency}`;
 }
 

@@ -48,7 +48,9 @@ export default function PageHeader({
   return (
     <header
       className={
-        "mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-end " +
+        // Side by side from lg: at 768 a title next to two or three buttons
+        // wrapped to four lines ("God morgen, Testcafé (lokal)").
+        "mb-6 sm:mb-8 flex flex-col lg:flex-row lg:items-end " +
         "sm:justify-between gap-3 sm:gap-4 " + className
       }
     >

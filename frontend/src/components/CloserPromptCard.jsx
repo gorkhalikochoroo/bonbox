@@ -129,7 +129,7 @@ export default function CloserPromptCard({ user }) {
   if (stage === "done") return null;
 
   return (
-    <div className="mb-5 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-gray-50 dark:bg-gray-800/50 p-5 sm:p-6">
+    <div className="mb-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-5 sm:p-6">
       <div className="flex items-start gap-3 mb-3">
         <div className="shrink-0 w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300" aria-hidden="true">
           <Users size={18} strokeWidth={1.75} />
