@@ -69,7 +69,10 @@ try {
 
 const hits = report.flatMap((f) =>
   (f.messages || [])
-    .filter((m) => m.ruleId === "no-undef")
+    // A PARSE error too (fatal, no ruleId): a JSX comment placed inside an
+    // expression committed cleanly and took /reservations down for six
+    // commits — ESLint had reported it, and this guard ignored it.
+    .filter((m) => m.ruleId === "no-undef" || m.fatal)
     .map((m) => ({ file: f.filePath, line: m.line, message: m.message }))
 );
 

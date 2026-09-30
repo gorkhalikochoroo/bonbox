@@ -1185,6 +1185,11 @@ const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 function PartySizeChips({ value, onChange, t }) {
   const n = parseInt(value, 10);
+  const [other, setOther] = useState("");
+  const commitOther = () => {
+    const v = parseInt(other, 10);
+    if (Number.isFinite(v) && v >= 1 && v <= 100) onChange(String(v));
+  };
   // A real party that is not on the ladder (12, 14 …) gets its own chip at
   // the end — selected, because it IS the booking.
   const offLadder = Number.isFinite(n) && n > 0 && !PARTY_SIZES.includes(n);
@@ -1210,7 +1215,7 @@ function PartySizeChips({ value, onChange, t }) {
           </button>
         );
       })}
-      {offLadder && (
+      {offLadder && String(n) !== String(other) && (
         <button
           type="button"
           onClick={() => onChange(String(n))}
@@ -1228,14 +1233,16 @@ function PartySizeChips({ value, onChange, t }) {
         <input
           type="number"
           inputMode="numeric"
-          min={1}
+          min={11}
           max={100}
           placeholder="11+"
-          value={offLadder ? String(n) : ""}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            if (Number.isFinite(v) && v >= 1 && v <= 100) onChange(String(v));
-          }}
+          // A draft of its own: committing on every keystroke set the party
+          // to 1 on the "1" of "12" and emptied the box, so no two-digit
+          // number could be typed. Commit on blur / Enter.
+          value={other}
+          onChange={(e) => setOther(e.target.value)}
+          onBlur={commitOther}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitOther(); } }}
           className="h-11 w-20 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm tabular-nums text-gray-900 dark:text-gray-100"
         />
       </label>
@@ -4330,7 +4337,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             )}
             {/* Where the party sits, on the row itself — a host had to open
                 every booking to find its table. No table = say so. */}
-            {!isProvider && ["confirmed", "seated", "requested"].includes(r.status) && (() => {
+            {!isProvider && ["confirmed", "seated"].includes(r.status) && (() => {
               const tl = resolveTableLabel(r, labelById);
               return tl
                 ? <span className="shrink-0">{tl}</span>
@@ -4649,9 +4656,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               A phone shows the short name and a quiet bordered face: the
               white primary slab (its dark-theme colour) beside the green main
               action made two competing blocks of different widths. */}
+          {/* Secondary at every width: in dark mode the primary face turned
+              into a white slab beside the green main action (sm and up). */}
           {tableFloor && !isProvider && (
-            {/* Secondary at every width: in dark mode the primary face turned
-                into a white slab beside the green main action (sm and up). */}
             <Button
               variant="secondary"
               size="lg"

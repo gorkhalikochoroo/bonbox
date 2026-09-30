@@ -2099,7 +2099,10 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # (keeps the book's "Bord 1 + Bord 2" chip honest).
         r.combined_resource_ids = None
     if payload.status == "seated":
-        r.seated_at = utc_now()
+        # Reopening a finished table keeps its real seat time — overwriting it
+        # restarted the turn timer and skewed turn-time stats.
+        if not (prev_status == "completed" and r.seated_at):
+            r.seated_at = utc_now()
     elif payload.status == "cancelled":
         r.cancelled_at = utc_now()
         # Cancelling a REQUEST is declining it — recorded as such, so the
