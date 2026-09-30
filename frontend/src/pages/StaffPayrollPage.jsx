@@ -1,7 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
-import { Fragment, useState, useEffect, useMemo } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { stepPayPeriod } from "../utils/payPeriod";
@@ -143,6 +143,14 @@ export default function StaffPayrollPage() {
 
   // ─── Error ───
   const [error, setError] = useState("");
+  // The refusal renders below the export buttons — on a phone that was under
+  // the bottom bar, so a tap looked like it did nothing. Bring it into view.
+  const errorRef = useRef(null);
+  useEffect(() => {
+    if (error && errorRef.current?.scrollIntoView) {
+      errorRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [error]);
 
   // ─── Danish payroll estimate (only relevant for DKK users) ───
   const [dkEstimate, setDkEstimate] = useState(null);
@@ -874,8 +882,18 @@ export default function StaffPayrollPage() {
                         });
                         const out = await saveFile(res.data, `bonbox_payroll_${period.period_start}_${period.period_end}.csv`, { type: "text/csv;charset=utf-8;" });
                         if (!out.ok) setError(t("payrollCsvFailed", "Could not generate CSV."));
-                      } catch {
-                        setError(t("payrollCsvFailed", "Could not generate CSV."));
+                      } catch (e) {
+                        // Name the open shift, like the lønseddel does — the
+                        // CSV said only "Kunne ikke generere CSV."
+                        let detail = null;
+                        try { detail = JSON.parse(await e?.response?.data?.text?.())?.detail; } catch { /* not JSON */ }
+                        if (e?.response?.status === 409 && detail?.code === "open_punches") {
+                          setError(detail.count === 1
+                            ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
+                            : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
+                        } else {
+                          setError(t("payrollCsvFailed", "Could not generate CSV."));
+                        }
                       }
                     }}
                     className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
@@ -993,7 +1011,7 @@ export default function StaffPayrollPage() {
             </div>
           )}
           {error && (
-            <div className="mt-3">
+            <div className="mt-3" ref={errorRef}>
               <SectionBanner severity="critical" title={error} />
             </div>
           )}

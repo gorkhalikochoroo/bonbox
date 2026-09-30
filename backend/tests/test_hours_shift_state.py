@@ -219,10 +219,19 @@ def test_an_open_punch_on_a_past_day_is_a_forgotten_clock_out(client, db):
     r = client.post("/api/staff/hours/resolve", json={
         "staff_id": str(m.id), "date": str(D1), "action": "clock_out", "end_time": "16:00"})
     assert r.status_code == 200, r.text
-    assert r.json()["total_hours"] == 8.0
+    # 8 h gross less the same DK break a real clock-out deducts (45 min).
+    assert r.json()["total_hours"] == 7.25
     assert r.json()["entry_method"] == "owner_resolved"
     row = _row(client, m)
     assert row["needs_answer_count"] == 0
+    # A typo that wraps past midnight (16:30 for a 17:00 start) is refused
+    # unless the owner confirms it.
+    db.add(HoursLogged(user_id=o.id, staff_id=m.id, date=D1 + timedelta(days=1), start_time="17:00",
+                       end_time=None, break_minutes=0, total_hours=0, entry_method="clock"))
+    db.commit()
+    r = client.post("/api/staff/hours/resolve", json={
+        "staff_id": str(m.id), "date": str(D1 + timedelta(days=1)), "action": "clock_out", "end_time": "16:30"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "long_shift"
 
 
 # ── precedence ───────────────────────────────────────────────────────────

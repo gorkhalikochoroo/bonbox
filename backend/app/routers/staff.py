@@ -4336,6 +4336,7 @@ class ResolveHoursRequest(BaseModel):
     action: str                       # "confirm" | "adjust" | "absent" | "clock_out"
     total_hours: float | None = None  # required for "adjust"
     end_time: str | None = None       # required for "clock_out" ("HH:MM")
+    confirm_long: bool = False        # the owner confirmed a > 16 h shift
     note: str | None = None
 
 
@@ -4387,7 +4388,21 @@ def resolve_hours(
         ).first()
         if open_row is None:
             raise HTTPException(status_code=404, detail="No open punch on that day")
-        open_row.end_time = data.end_time.strip()
+        end_str = data.end_time.strip()
+        gross_h = _calc_shift_hours(open_row.start_time, end_str, 0)
+        # A typo (16:30 for a 17:00 start) wraps to 23,5 t and pays it. Past
+        # 16 hours the owner has to say so explicitly.
+        if gross_h > 16 and not data.confirm_long:
+            raise HTTPException(status_code=409, detail={
+                "code": "long_shift", "hours": round(gross_h, 2),
+                "message": f"{round(gross_h, 1)} hours — confirm or correct the end time.",
+            })
+        # Same DK break as a real clock-out, so an owner-set end pays the same
+        # hours the punch clock would have.
+        if not open_row.break_minutes:
+            from app.services.schedule_autopilot import suggested_break_minutes
+            open_row.break_minutes = suggested_break_minutes(gross_h)
+        open_row.end_time = end_str
         open_row.total_hours = _calc_shift_hours(open_row.start_time, open_row.end_time, open_row.break_minutes or 0)
         _rate = float(open_row.rate_applied or 0) or _pick_rate(staff, open_row.date, open_row.start_time)
         if _rate:
@@ -5303,6 +5318,12 @@ def hours_overview(
             "source": "effective_revenue (DailyClose-wins)",
         },
         "labor": {
+            # Partial hours → the tile shows the covered-days figure, never a
+            # green whole-month % under a banner saying something else.
+            "partial": bool(coverage is not None and coverage < 0.8 and revenue_days >= 3),
+            "pct_covered": (round(pct_covered, 4) if pct_covered is not None else None),
+            "covered_days": covered_days,
+            "revenue_days": revenue_days,
             "pct_loaded": (round(pct_loaded, 4) if pct_loaded is not None else None),
             "pct_gross": (round(pct_gross, 4) if pct_gross is not None else None),
             "target_pct": round(target_pct, 4),

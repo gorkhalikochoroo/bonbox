@@ -56,6 +56,9 @@ const ROLE_NAME_KEYS = {
   manager: ["teamRoleManager", "Manager"],
   kitchen: ["roleKitchen", "Kitchen"],
   floor: ["roleFloor", "Floor"],
+  full: ["contractFull", "Full-time"],
+  part: ["contractPart", "Part-time"],
+  hourly: ["contractHourly", "Hourly"],
   "full-time": ["contractFull", "Full-time"],
   full_time: ["contractFull", "Full-time"],
   "part-time": ["contractPart", "Part-time"],
@@ -72,7 +75,12 @@ function roleName(role, t) {
   return hit ? t(hit[0], hit[1]) : role;
 }
 
+// The codes the staff table actually stores ("full", "part", "hourly") were
+// missing, so a part-timer weighed 1.0 like everyone else.
 const ROLE_SHARES = {
+  "full": 1.0,
+  "part": 0.5,
+  "hourly": 1.0,
   "full-time": 1.0,
   "full_time": 1.0,
   "manager": 1.0,
@@ -214,7 +222,12 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         const hoursData = r.data || [];
         // Merge with staff members to get names and roles
         const merged = staffMembers.map(member => {
-          const hourEntry = hoursData.find(h => h.staff_id === member.id);
+          // Every entry of the day, not the first — a split shift was counted
+          // as its first half.
+          const entries = hoursData.filter(h => h.staff_id === member.id);
+          const hourEntry = entries.length
+            ? { hours: entries.reduce((n, h) => n + parseFloat(h.hours || h.total_hours || 0), 0) }
+            : null;
           return {
             staff_id: member.id,
             name: member.name || member.full_name || "",

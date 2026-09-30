@@ -698,7 +698,7 @@ function ClockedInStrip() {
         {/* The pulse IS the claim "this is live". It stops the moment we stop
             being able to ask, and the words beside it say so — the rows stay,
             because they were true, they are just no longer current. */}
-        {clockedInQ.failed ? (
+        {clockedInQ.failed || !rows.some((r) => !r.stale) ? (
           <span className="flex h-2.5 w-2.5" aria-hidden>
             <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
           </span>
@@ -709,7 +709,10 @@ function ClockedInStrip() {
           </span>
         )}
         <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-          {t("schedClockedInNow", "Clocked in now")} · {rows.length}
+          {/* Forgotten clock-outs are not "now" — count only live punches. */}
+          {rows.some((r) => !r.stale)
+            ? <>{t("schedClockedInNow", "Clocked in now")} · {rows.filter((r) => !r.stale).length}</>
+            : t("shpStateForgotOut", "No clock-out")}
         </span>
         {clockedInQ.failed && (
           <span className="text-[11px] font-medium normal-case tracking-normal text-amber-700 dark:text-amber-400">

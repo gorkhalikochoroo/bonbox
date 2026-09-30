@@ -1128,7 +1128,13 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   let pctHelper = hasCostBasis
     ? t("hovTileLaborPctNone", "Waiting for sales")
     : t("hovTileLaborPctNoRates", "set wage rates");
-  if (pct != null) {
+  if (labor.partial && labor.pct_covered != null) {
+    // Hours for only part of the revenue days: the covered-days figure, never
+    // green — a whole-month % sat green under a banner saying 18 %.
+    pctValue = `${Math.round(labor.pct_covered * 100)} %`;
+    pctHelper = t("hovTileLaborPartial", "on {covered} of {days} days with hours", { covered: labor.covered_days, days: labor.revenue_days });
+    pctAccent = "warn";
+  } else if (pct != null) {
     pctValue = `${Math.round(pct * 100)}%`;
     pctHelper = `${t("hovTileLaborPctSub", "of revenue · target {target}%").split("{target}").join(Math.round(target * 100))}${soFar}`;
     if (pct <= target) pctAccent = "success";
@@ -1403,6 +1409,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   const [err, setErr] = useState("");
 
   const [endTime, setEndTime] = useState("");
+  const [longConfirm, setLongConfirm] = useState(false);
   const send = async (action, total) => {
     setBusy(true); setErr("");
     try {
@@ -1411,11 +1418,22 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
         date: exception.date,
         action,
         ...(total != null ? { total_hours: total } : {}),
-        ...(action === "clock_out" ? { end_time: endTime } : {}),
+        ...(action === "clock_out" ? { end_time: endTime, confirm_long: longConfirm } : {}),
       });
       onResolved();
       onClose();
     } catch (e) {
+      {
+        const d = e?.response?.data?.detail;
+        if (e?.response?.status === 409 && d?.code === "long_shift") {
+          // Over 16 h is usually a typo (16:30 for a 17:00 start wraps to
+          // 23,5 t and pays it). Ask once; the next tap confirms.
+          setLongConfirm(true);
+          setErr(t("shpResolveLongShift", "That makes {h} hours — check the time. Tap again to confirm.", { h: String(d.hours).replace(".", ",") }));
+          setBusy(false);
+          return;
+        }
+      }
       // Surfaced, never swallowed. The old edit path had `catch { /* silent */ }`
       // so a failed save looked exactly like a successful one — on a pay record.
       setErr(houseErrText(e, t("shpResolveFailed", "Could not save. Try again.")));
