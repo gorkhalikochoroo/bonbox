@@ -29,6 +29,8 @@ export function formatDateShort(dateStr) {
 }
 
 /* Locale-aware month abbreviations. Falls back to English. */
+const DA_SHORT = ["jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec."];
+
 const MONTHS_BY_LOCALE = {
   en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
   da: ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"],
@@ -95,7 +97,10 @@ export function formatDateClear(dateStr) {
   const [y, m, d] = parts;
   const monthIdx = parseInt(m, 10) - 1;
   if (monthIdx < 0 || monthIdx > 11) return dateStr;
-  const months = MONTHS_BY_LOCALE[detectLocale()] || MONTHS_BY_LOCALE.en;
+  const loc = detectLocale();
+  // Danish reads "30. sep. 26" — day with a dot, lowercase month.
+  if (loc === "da") return `${parseInt(d, 10)}. ${DA_SHORT[monthIdx]} ${y.slice(2)}`;
+  const months = MONTHS_BY_LOCALE[loc] || MONTHS_BY_LOCALE.en;
   return `${parseInt(d, 10)} ${months[monthIdx]} ${y.slice(2)}`;
 }
 
@@ -110,7 +115,9 @@ export function formatDateClearFull(dateStr) {
   const [y, m, d] = parts;
   const monthIdx = parseInt(m, 10) - 1;
   if (monthIdx < 0 || monthIdx > 11) return dateStr;
-  const months = MONTHS_BY_LOCALE[detectLocale()] || MONTHS_BY_LOCALE.en;
+  const loc = detectLocale();
+  if (loc === "da") return `${parseInt(d, 10)}. ${DA_SHORT[monthIdx]} ${y}`;
+  const months = MONTHS_BY_LOCALE[loc] || MONTHS_BY_LOCALE.en;
   return `${parseInt(d, 10)} ${months[monthIdx]} ${y}`;
 }
 

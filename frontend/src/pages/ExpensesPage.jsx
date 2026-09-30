@@ -47,7 +47,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
-import { formatDate, localIso } from "../utils/dateFormat";
+import { formatDate, localIso, formatDateClear } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
@@ -733,7 +733,7 @@ export default function ExpensesPage() {
           ? `${fxOriginalAmountNum} ${fxCurrency} → ${value} ${currency}`
           : `${value} ${currency}`,
       );
-      setSuccess(`${formatOwnerMoney(value, currency, { decimals: 2 })}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
+      setSuccess(`${t("expenseLoggedToast", "Expense logged")} · ${formatOwnerMoney(value, currency, { decimals: 2 })}${isBackdated ? ` (${formatDateClear(submittedSnapshot.expDate)})` : ""}`);
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -1084,8 +1084,10 @@ export default function ExpensesPage() {
         >
           <span className={`inline-block h-4 w-4 rounded-full bg-white dark:bg-gray-900 transition transform ${isPersonal ? "translate-x-6" : "translate-x-1"}`} />
         </button>
+        {/* A fixed label for what ON means — it read "Forretningsudgift"
+            while off and flipped to "Privat" when switched on. */}
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {isPersonal ? t("personalExpense") : t("businessExpense")}
+          {t("expPrivateLabel", "Private expense")}
         </span>
         {isPersonal && (
           <span className="text-xs text-gray-500 dark:text-gray-400">{t("excludedFromReports")}</span>
@@ -1240,7 +1242,7 @@ export default function ExpensesPage() {
       id: "date",
       label: t("date", "Date"),
       width: "w-28",
-      render: (r) => formatDate(r.date),
+      render: (r) => formatDateClear(r.date),
     },
   ];
 
@@ -1672,9 +1674,18 @@ export default function ExpensesPage() {
               mobileRow={(r) => (
                 <CompactLedgerRow
                   title={r.description || getCatName(r.category_id)}
-                  meta={`${formatDate(r.date)} · ${getCatName(r.category_id)}${r.is_personal ? ` · ${t("personalMode")}` : ""}`}
+                  meta={`${formatDateClear(r.date)} · ${getCatName(r.category_id)}${r.is_personal ? ` · ${t("personalMode")}` : ""}`}
                   amount={<Amount value={parseFloat(r.amount)} currency={currency} decimals={2} />}
-                  actions={rowActions(r)}
+                  // The receipt action rides the phone row too — the "snap the
+                  // missing bilag" banner scrolled to rows with only Rediger/Slet.
+                  actions={[
+                    ...(r.receipt_photo
+                      ? [{ id: "receipt", label: t("receiptViewerOpen") || "View receipt", icon: <Receipt size={14} strokeWidth={1.75} />, onClick: () => setReceiptViewing(r) }]
+                      : (!r.is_personal && !r.is_tax_exempt)
+                        ? [{ id: "attach", label: t("expAttachBilag", "Snap a receipt"), icon: <Camera size={14} strokeWidth={1.75} />, onClick: () => triggerAttachReceipt(r.id), disabled: attaching }]
+                        : []),
+                    ...rowActions(r),
+                  ]}
                 />
               )}
             />

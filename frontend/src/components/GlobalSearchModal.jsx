@@ -1,3 +1,5 @@
+import { Search } from "lucide-react";
+import { formatOwnerMoney } from "../utils/currency";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
@@ -241,7 +243,8 @@ export default function GlobalSearchModal({ open, onClose }) {
           // supported way to carry a fallback; this key is real in both
           // tables and EN is always inlined, so it needs none.
           kind: "page", group: t("searchGroupPages"), icon: p.icon,
-          label: p.label, sublabel: p.to,
+          // No raw route path ("/expenses") under a page name.
+          label: p.label, sublabel: null,
           // Tier-locked page → tapping routes to the upgrade surface
           // (the UpgradeNudge funnel), same as the sidebar / More page.
           to: p.locked ? "/subscription" : p.to,
@@ -256,10 +259,13 @@ export default function GlobalSearchModal({ open, onClose }) {
         });
       }
     }
+    // Group names from the server are English ("Expenses") — name them here.
+    const GROUP_KEYS = { sales: "sales", expenses: "expenses", inventory: "inventory", closes: "dailyClose", khata: "khata", customers: "customers", reservations: "reservations", staff: "staff" };
     for (const g of serverGroups) {
+      const groupLabel = GROUP_KEYS[g.key] ? t(GROUP_KEYS[g.key], g.label) : g.label;
       for (const item of g.items) {
         out.push({
-          kind: "entity", group: g.label, icon: item.icon,
+          kind: "entity", group: groupLabel, icon: item.icon,
           label: item.label, sublabel: item.sublabel,
           amount: item.amount, to: item.link,
         });
@@ -393,7 +399,7 @@ export default function GlobalSearchModal({ open, onClose }) {
       >
         {/* Search bar */}
         <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
-          <span className="text-gray-400 text-base shrink-0">🔍</span>
+          <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
             type="text"
@@ -563,7 +569,7 @@ export default function GlobalSearchModal({ open, onClose }) {
                   </div>
                   {item.amount != null && (
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 shrink-0">
-                      {item.amount.toLocaleString("da-DK")}
+                      {formatOwnerMoney(item.amount, user?.currency, { decimals: 2 })}
                     </span>
                   )}
                   {/* OFF-pillar suffix chip — "Slået fra". Muted, quiet, so it

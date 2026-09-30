@@ -611,7 +611,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         amount could be 30 or 36 — partial occlusion").
                         Honesty-first: if the model flagged uncertainty,
                         the owner sees it BEFORE saving. */}
-                    {result.claude_notes && (
+                    {/* Only when the model flagged doubt — "Clean receipt." on
+                        every scan was noise, and in English on a Danish page. */}
+                    {result.claude_notes && /uncertain|unclear|could be|might|maybe|partial|occlu|illegible|blur|\?/i.test(result.claude_notes) && (
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 inline-flex items-start gap-1">
                         <Info size={12} className="mt-0.5 shrink-0" aria-hidden="true" /> {result.claude_notes}
                       </p>

@@ -31,7 +31,13 @@ export default function PaymentBreakdownCard({ ctx = {}, compact = true }) {
   const sorted = [...breakdown].sort(
     (a, b) => (b.amount || 0) - (a.amount || 0),
   );
-  const top = compact ? sorted.slice(0, 3) : sorted;
+  // Three named methods, and the rest summed — slicing to three dropped
+  // gavekort, so the card added up to 98 % of the month.
+  let top = sorted;
+  if (compact && sorted.length > 3) {
+    const rest = sorted.slice(3).reduce((a, p) => a + (p.amount || 0), 0);
+    top = [...sorted.slice(0, 3), { method: "__other", amount: rest }];
+  }
 
   return (
     <div
@@ -49,8 +55,11 @@ export default function PaymentBreakdownCard({ ctx = {}, compact = true }) {
       <div className="space-y-2">
         {top.map((p) => {
           const pct = total > 0 ? Math.round((p.amount / total) * 100) : 0;
-          const label =
-            (p.method || "").charAt(0).toUpperCase() + (p.method || "").slice(1);
+          const PAY_KEYS = { cash: "cash", card: "card", mobilepay: "mobilepay", dankort: "dankort", online: "online", mixed: "mixed", gift_card: "dcPayGiftCard", gavekort: "dcPayGiftCard", invoice: "dcPayInvoice", other: "other" };
+          const raw = (p.method || "").charAt(0).toUpperCase() + (p.method || "").slice(1).replace(/_/g, " ");
+          const label = p.method === "__other"
+            ? t("payOtherMethods", "Other methods")
+            : PAY_KEYS[p.method] ? t(PAY_KEYS[p.method], raw) : raw;
           return (
             <div
               key={p.method}

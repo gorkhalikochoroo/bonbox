@@ -302,11 +302,6 @@ export const DASHBOARD_CARD_SET = {
             showDelta: true,
           }),
         },
-        {
-          id: "hours",
-          component: "AccountantHoursWidget",
-          renderIf: (ctx) => ctx?.has?.("dashboard_accountant_hours"),
-        },
       ],
     },
 
@@ -318,6 +313,14 @@ export const DASHBOARD_CARD_SET = {
     {
       id: "profitAnswer",
       component: "ProfitAnswerCard",
+    },
+
+    // Revisor-hours saved — below the profit answer, not beside the KPIs: on
+    // a phone it pushed the profit card further down the first screen.
+    {
+      id: "hours",
+      component: "AccountantHoursWidget",
+      renderIf: (ctx) => ctx?.has?.("dashboard_accountant_hours"),
     },
 
     // Foresight hero (S1-8 / #355) — "will you cover the MOMS bill?".  The

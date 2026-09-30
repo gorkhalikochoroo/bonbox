@@ -804,10 +804,25 @@ export default function DashboardPage() {
   //    + Smart entry move into the overflow so the header stays calm.
   const headerActions = (
     <>
-      <Button variant="main" onClick={() => setSaleModal(true)}>
-        + {t("quickSale", "Quick sale")}
-      </Button>
-      <ReceiptCapture onSaleCreated={fetchAll} />
+      {/* A venue that closes its day through the kasserapport gets "Luk
+          dagen" as the main action and a receipt scan that books an EXPENSE —
+          "Hurtigt salg" invited entering the day's revenue twice, and the
+          scan turned a supplier receipt into revenue. */}
+      {summary?.uses_daily_close ? (
+        <>
+          <Button variant="main" onClick={() => navigate("/daily-close")}>
+            {t("closeTheDayCta", "Close the day")}
+          </Button>
+          <ReceiptCapture mode="expense" onSaved={fetchAll} />
+        </>
+      ) : (
+        <>
+          <Button variant="main" onClick={() => setSaleModal(true)}>
+            + {t("quickSale", "Quick sale")}
+          </Button>
+          <ReceiptCapture onSaleCreated={fetchAll} />
+        </>
+      )}
       <div className="relative" ref={overflowRef}>
         <Button
           variant="ghost"

@@ -423,6 +423,9 @@ def get_dashboard_batch(
         "inventory_alerts": alert_count,
         "total_sales": total_sales,
         "has_activity": has_activity,
+        # The venue closes its day through the kasserapport — the dashboard's
+        # main action is "Luk dagen", not a quick sale that double-books it.
+        "uses_daily_close": bool(has_daily_close),
         "has_expense_categories": has_expense_categories,
         "has_inventory_items": has_inventory_items,
         "has_business_profile_verified": has_business_profile_verified,

@@ -178,7 +178,10 @@ export default function SalesPage() {
     let alive = true;
     api.get("/daily-close", { params: { from } })
       .then((r) => {
-        const rows = Array.isArray(r.data) ? r.data : [];
+        // Confirmed closes only — the same revenue the dashboard counts. An
+        // unlocked draft made this line say 552.037 next to the dashboard's
+        // 521.984.
+        const rows = (Array.isArray(r.data) ? r.data : []).filter((c) => c.status === "confirmed");
         if (alive && rows.length) {
           setCloseMonth({
             count: rows.length,
@@ -438,7 +441,7 @@ export default function SalesPage() {
       }
       const isBackdated = submittedSnapshot.saleDate !== businessToday;
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
-      setSuccess(`${formatOwnerMoney(value, user?.currency, { decimals: 2 })}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
+      setSuccess(`${t("saleLoggedToast", "Sale logged")} · ${formatOwnerMoney(value, user?.currency, { decimals: 2 })}${isBackdated ? ` (${formatDateClear(submittedSnapshot.saleDate)})` : ""}`);
       // Refresh inventory / aggregates / cross-page subscribers — but
       // don't block the UI on it.
       window.dispatchEvent(new Event("bonbox-data-changed"));
