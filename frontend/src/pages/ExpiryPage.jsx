@@ -33,9 +33,10 @@ import {
 
 const STATUS_CONFIG = {
   expired:  { color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
-  critical: { color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
-  warning:  { color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
-  upcoming: { color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+  // Status colours only: red = over, amber = soon, gray = later.
+  critical: { color: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" },
+  warning:  { color: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+  upcoming: { color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
 };
 
 // The bucket word, from the catalogue. Unknown statuses read as "upcoming",

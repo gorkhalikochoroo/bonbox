@@ -542,6 +542,8 @@ def scan_upcoming_expiries(
             # but the DKK column is None (frontend hides the column).
             "cost_at_risk_dkk": cost if feature_available else None,
             "inferred": inferred,
+            # The page hides "+3 dage" on perishables — it needs to know.
+            "is_perishable": bool(getattr(item, "is_perishable", False)),
         })
 
     return {
@@ -606,6 +608,11 @@ def record_expiry_action(
     }
 
     if action == "extended":
+        # A perishable's "sidste anvendelsesdag" is not something to push —
+        # refuse it here, not only by hiding the button.
+        if getattr(item, "is_perishable", False):
+            from fastapi import HTTPException as _HE
+            raise _HE(status_code=409, detail={"code": "perishable_no_extend"})
         # Owner overrides by pushing the expiry +3 days. Bounded so a
         # holding-the-button misclick can't extend by a year.
         from datetime import timedelta as _td
@@ -615,7 +622,7 @@ def record_expiry_action(
         # Decrement quantity to 0 + log waste row with `expired` reason.
         item.quantity = 0
         try:
-            db.add(WasteLog(
+            _wl = WasteLog(
                 user_id=user.id,
                 item_name=item.name,
                 quantity=qty,
@@ -626,7 +633,14 @@ def record_expiry_action(
                 # "Wasted" chip must file the waste on the same business day
                 # the service's revenue lands on. See routers/waste.py.
                 date=business_today_local(user),
-            ))
+            )
+            db.add(_wl)
+            db.flush()
+            # Book the loss like /waste does — "Spildt" here zeroed the stock
+            # but never reached the expenses, so the month's waste disagreed
+            # between the two pages.
+            from app.routers.waste import _sync_expense_for_waste
+            _sync_expense_for_waste(db, _wl)
         except Exception:  # noqa: BLE001
             # WasteLog signature may evolve; do not block the user's
             # action on a write here — the audit log captures it.

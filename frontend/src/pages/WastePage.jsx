@@ -108,8 +108,11 @@ export default function WastePage() {
 
   // Quantity × the line's unit cost, in the owner's notation, when the cost
   // box is still empty — the loss is known; typing it again is busywork.
+  // Follows the quantity until the owner types a cost themselves — it locked
+  // at the first keystroke ("1" of "12" → 20,00 for a 240,00 loss).
+  const [costTouched, setCostTouched] = useState(false);
   useEffect(() => {
-    if (!stockId || cost) return;
+    if (!stockId || costTouched) return;
     const hit = stock.find((it) => it.id === stockId);
     const q = parseFloat(qty);
     const unitCost = Number(hit?.cost_per_unit);
@@ -138,7 +141,7 @@ export default function WastePage() {
         reason,
         date: wasteDate,
       });
-      setItem(""); setQty(""); setCost(""); setStockId(null);
+      setItem(""); setQty(""); setCost(""); setStockId(null); setCostTouched(false);
       setWasteDate(localIso());
       trackEvent("waste_logged", "waste", `${item} - ${formatOwnerMoney(c || 0, user?.currency)}`);
       setSuccess(t("wasteLogged"));
@@ -307,6 +310,11 @@ export default function WastePage() {
               <option value="liters">{t("liters")}</option>
               <option value="pieces">{t("pieces")}</option>
               <option value="portions">{t("portions")}</option>
+              {/* The picked stock item's own unit ("flasker"), so the box shows
+                  what will be saved instead of "Kg". */}
+              {unit && !["kg", "liters", "pieces", "portions"].includes(unit) && (
+                <option value={unit}>{unitLabel(t, unit)}</option>
+              )}
             </select>
           </div>
         </div>
@@ -331,7 +339,7 @@ export default function WastePage() {
             // A chip FILLS the cost; the button below logs it. A chip that
             // logged on tap (no confirm, no undo) booked 50 kr. of waste on a
             // mis-tap.
-            <button key={c} type="button" onClick={() => setCost(String(c))} disabled={!item || !qty}
+            <button key={c} type="button" onClick={() => { setCostTouched(true); setCost(String(c)); }} disabled={!item || !qty}
               aria-pressed={String(cost) === String(c)}
               className={`px-4 py-2.5 rounded-xl border text-sm font-semibold transition disabled:opacity-30 ${
                 String(cost) === String(c)
@@ -344,7 +352,7 @@ export default function WastePage() {
         </div>
 
         <div className="flex gap-3">
-          <MoneyField locale={mLocale} value={cost} onChange={(e) => setCost(e.target.value)}
+          <MoneyField locale={mLocale} value={cost} onChange={(e) => { setCostTouched(true); setCost(e.target.value); }}
             placeholder={t("customCost")} wrapperClassName="flex-1 max-w-sm"
             className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
             onKeyDown={(e) => e.key === "Enter" && submit()} />

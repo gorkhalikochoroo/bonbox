@@ -659,7 +659,10 @@ def suggest_reorder_plan(
         wants_floor = net_needed <= 0 and current_stock < min_threshold
         no_demand_signal = wants_floor and not floor_is_honest
         if wants_floor and floor_is_honest:
-            net_needed = min_threshold - current_stock
+            # Order back ABOVE the minimum (to 2× min, as this module's doc
+            # says): ordering up to exactly the minimum left the item "LAV"
+            # the moment the delivery was booked (12 ≤ 12).
+            net_needed = (min_threshold * 2) - current_stock
         if pack_size > 0 and net_needed > 0:
             packs = math.ceil(net_needed / pack_size)
             suggested_qty = packs * pack_size
