@@ -280,7 +280,7 @@ export default function BookkeepingExportPage() {
                       ★ {t("bkeRecommended", "Recommended")}
                     </span>
                   )}
-                  {f.label}
+                  {t(`bkeFmtLabel_${f.id}`, f.label)}
                 </button>
               );
             })}
@@ -315,7 +315,10 @@ export default function BookkeepingExportPage() {
             { label: t("thisMonthLabel", "This month"), days: 0, fromFirstOfMonth: true },
             { label: t("bkeRangeLastMonth", "Last month"), days: -30, fromFirstOfMonth: true, lastMonth: true },
             { label: t("rangePreset7d", "Last 7 days"), days: 7 },
-            { label: t("thisQuarter", "This quarter"), days: 90 },
+            // Calendar periods — "This quarter" meant "last 90 days" and
+            // started on 2 July. Half-year is the common DK MOMS period.
+            { label: t("thisQuarter", "This quarter"), quarter: true },
+            { label: t("bkeRangeThisHalf", "This half-year"), half: true },
             { label: t("yearToDate", "Year to date"), days: 0, fromYearStart: true },
           ].map((r) => (
             <button
@@ -323,7 +326,13 @@ export default function BookkeepingExportPage() {
               onClick={() => {
                 const today = new Date();
                 let s, e;
-                if (r.fromYearStart) {
+                if (r.quarter) {
+                  s = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
+                  e = today;
+                } else if (r.half) {
+                  s = new Date(today.getFullYear(), today.getMonth() < 6 ? 0 : 6, 1);
+                  e = today;
+                } else if (r.fromYearStart) {
                   s = new Date(today.getFullYear(), 0, 1);
                   e = today;
                 } else if (r.lastMonth) {
@@ -352,10 +361,12 @@ export default function BookkeepingExportPage() {
         </div>
 
         {/* Instructions for the selected format */}
-        {currentFormat?.instructions && (
+        {currentFormat?.instructions && (() => {
+          const how = t(`bkeFmtHow_${currentFormat.id}`, currentFormat.instructions);
+          return (
           <SectionBanner severity="info" title={t("bkeHowToImport", "How to import")}>
             <p className="leading-relaxed">
-              {currentFormat.instructions.split("→").map((part, i, arr) => (
+              {how.split("→").map((part, i, arr) => (
                 <span key={i}>
                   {part}
                   {i < arr.length - 1 && (
@@ -365,7 +376,8 @@ export default function BookkeepingExportPage() {
               ))}
             </p>
           </SectionBanner>
-        )}
+          );
+        })()}
 
         {/* Action */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">

@@ -40,7 +40,7 @@ from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
 )
 from pydantic import BaseModel
-from typing import List
+from typing import Optional, List
 
 log = logging.getLogger(__name__)
 
@@ -1590,7 +1590,9 @@ def report_overview(
     vat_rate = get_vat_rate(user.currency or "DKK")
     # MOMS via the filing engine (excludes exempt; 3-stream) so the overview's
     # MOMS matches the official angivelse. `end` is the inclusive month-end.
-    vat_payable = compute_filing_data(db, user, start, end)["moms_til_skat"]
+    _fd_ov = compute_filing_data(db, user, start, end)
+    vat_payable = _fd_ov["moms_til_skat"]
+    revenue_ex_moms = round(total_revenue - float(_fd_ov["moms_af_salg"] or 0), 2)
     vat_terms_data = get_vat_terms(user.currency or "DKK")
     # Revenue and expenses above are MOMS-inclusive, so their difference held
     # SKAT's share as "profit" (585k at a "96% margin" with 117k owed).
@@ -1660,6 +1662,8 @@ def report_overview(
         "revenue": round(total_revenue, 2),
         "expenses": round(total_expenses, 2),
         "net_profit": round(net_profit, 2),
+        # The margin's base: revenue EX moms (net_profit is ex moms too).
+        "revenue_ex_moms": revenue_ex_moms,
         # Honesty guard for the on-screen margin: with zero logged costs,
         # net_profit == gross revenue and "margin" would read ~100% (a lie on
         # moms-incl revenue). The frontend shows "—" until real costs exist.
@@ -1673,6 +1677,7 @@ def report_overview(
         "cash_out": round(cash_out, 2),
         "currency": cur,
         "total_sales_count": total_sales_count,
+        "days_with_revenue": days_with_sales,
         "total_expense_count": total_expense_count,
         "avg_per_sale": avg_per_sale,
         "avg_daily_sales": avg_daily_sales,
@@ -1688,6 +1693,11 @@ class CustomReportRequest(BaseModel):
     year: int
     month: int
     sections: List[str]
+    # The period the owner is LOOKING at (half-year, quarter, custom). When
+    # given, the PDF covers exactly it; month/year stay for older clients.
+    # Before, a half-year screen downloaded "Ledelsesrapport — juli 2026".
+    start: Optional[date] = None
+    end: Optional[date] = None
 
 
 @router.post("/custom-pdf")
@@ -1705,6 +1715,14 @@ def custom_report_pdf(
     start = date(year, month, 1)
     end = date(year, month, last_day)
     month_name = _da_month(month)  # Danish month name for the DK Ledelsesrapport
+    if req.start and req.end and req.start <= req.end and (req.end - req.start).days <= 366:
+        start, end = req.start, req.end
+        year = end.year
+        last_day = end.day
+        if start.month == end.month and start.year == end.year:
+            month_name = _da_month(start.month)
+        else:
+            month_name = f"{_da_month(start.month)}–{_da_month(end.month)}"
     # Currency is always rendered da-DK as "kr." via _da_money — no currency
     # code is printed in this DK-only Ledelsesrapport.
 
@@ -1733,7 +1751,10 @@ def custom_report_pdf(
     # figure the filing uses (moms_af_salg via compute_filing_data) — NOT a
     # naive ÷1.25, so this never disagrees with the MOMS-angivelse engine.
     revenue_excl_vat = total_revenue - output_vat
-    net_profit = revenue_excl_vat - total_expenses
+    # Expenses ex the købsmoms that is deducted — revenue is ex moms above, so
+    # subtracting expenses INCL. moms understated the result (393k on the PDF
+    # vs 398k on screen for the same month).
+    net_profit = revenue_excl_vat - (total_expenses - float(input_vat or 0))
     has_expenses = total_expenses > 0
     margin = round((net_profit / revenue_excl_vat) * 100, 1) if (has_expenses and revenue_excl_vat > 0) else None
 

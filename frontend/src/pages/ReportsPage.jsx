@@ -369,8 +369,11 @@ export default function ReportsPage() {
     setDownloading(true);
     setError(null);
     try {
+      // Send the period on screen; the backend used to render only its
+      // first month ("Juli 2026" for a half-year view).
       const res = await api.post("/reports/custom-pdf",
-        { year: pdfYear, month: pdfMonth, sections: [...selected] },
+        { year: pdfYear, month: pdfMonth, sections: [...selected],
+          ...(resolved?.start && resolved?.end ? { start: resolved.start, end: resolved.end } : {}) },
         { responseType: "blob" }
       );
       const out = await saveFile(res.data, `BonBox_Ledelsesrapport_${months[pdfMonth-1]}_${pdfYear}.pdf`, {
@@ -628,9 +631,9 @@ export default function ReportsPage() {
                 </div>
               ) : overview && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <StatCard dense label={t("revenue")} value={money(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  <StatCard dense label={t("revenue")} value={money(overview.revenue)} helper={overview.total_sales_count > 0 || !overview.days_with_revenue ? `${fmt(overview.total_sales_count)} ${t("sales")}` : t("reportDaysWithRevenue", "{n} days with revenue", { n: overview.days_with_revenue })} />
                   <StatCard dense label={t("expenses")} value={money(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
-                  <StatCard dense label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
+                  <StatCard dense label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && (overview.revenue_ex_moms ?? overview.revenue) > 0 ? `${Math.round((overview.net_profit/(overview.revenue_ex_moms ?? overview.revenue))*100)} % ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
                   <StatCard dense label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("toAuthority")} ${vat.taxAuthority}`} />
                   <StatCard dense label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
                   <StatCard dense label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
@@ -1257,7 +1260,10 @@ function PaymentBreakdownCard({ paymentBreakdown, currency }) {
         {sorted.map((p) => {
           const pct = total > 0 ? Math.round((p.amount / total) * 100) : 0;
           const color = methodColors[p.method] || "#9CA3AF";
-          const label = p.method.charAt(0).toUpperCase() + p.method.slice(1);
+          // Translated method names — the chart showed raw "Card", "Gift_card".
+          const PAY_KEYS = { cash: "cash", card: "card", mobilepay: "mobilepay", dankort: "dankort", online: "online", mixed: "mixed", gift_card: "dcPayGiftCard", gavekort: "dcPayGiftCard", invoice: "dcPayInvoice", other: "other" };
+          const raw = p.method.charAt(0).toUpperCase() + p.method.slice(1).replace(/_/g, " ");
+          const label = PAY_KEYS[p.method] ? t(PAY_KEYS[p.method], raw) : raw;
           return (
             <div key={p.method} className="flex items-center justify-between">
               <div className="flex items-center gap-2">

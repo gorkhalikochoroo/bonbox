@@ -12,7 +12,12 @@ export default function VatReportPage() {
   const { t, lang } = useLanguage();
   const { user } = useAuth();
   const vat = getVatTerms(user?.currency);
-  const [mode, setMode] = useState("monthly"); // "monthly" | "quarterly" | "half"
+  // Open on the owner's own filing period — a half-yearly filer landed on
+  // "Månedlig" and had to find the half-year view themselves.
+  const [mode, setMode] = useState(() => {
+    const f = String(user?.tax_filing_frequency || "").toLowerCase();
+    return f === "half_yearly" ? "half" : f === "quarterly" ? "quarterly" : "monthly";
+  });
   const [half, setHalf] = useState(currentDate.getMonth() < 6 ? 1 : 2);
   const [month, setMonth] = useState(currentDate.getMonth() + 1);
   const [quarter, setQuarter] = useState(Math.ceil((currentDate.getMonth() + 1) / 3));

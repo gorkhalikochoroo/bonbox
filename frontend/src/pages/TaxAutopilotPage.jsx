@@ -194,6 +194,19 @@ export default function TaxAutopilotPage() {
         </p>
       </DismissibleTip>
 
+      {/* Draft kasserapporter are left out of MOMS — say so where the owner
+          reads the MOMS figure, or it is short by their moms without a word. */}
+      {recon?.current_month?.drafts_count > 0 && (
+        <div role="status" className="rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            {t("taxDraftClosesNote", "{n} kasserapporter are drafts and not counted in the MOMS.", { n: recon.current_month.drafts_count })}
+          </span>
+          <Link to="/daily-close" className="font-medium underline underline-offset-2">
+            {t("taxDraftClosesCta", "Lock them")}
+          </Link>
+        </div>
+      )}
+
       {/* ─── COUNTDOWN HERO — semantic color (red=overdue, amber=soon, emerald=on track).
           Solid color (not gradient), no rainbow shadow — calmer than the previous
           tech-glow gradient but the urgency cue stays. ─── */}
