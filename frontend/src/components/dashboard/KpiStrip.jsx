@@ -188,15 +188,18 @@ export default function KpiStrip({
         // 640px upward, so the tiles stretched instead of the strip gaining
         // density on a wide screen. auto-fit sizes to whatever fits, and
         // min(100%,220px) keeps a single tile from overflowing a phone.
-        "grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 " +
+        // Phone: two dense tiles per row (three stacked slabs pushed the
+        // profit answer off the first screen); the odd last tile spans both.
+        "grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 max-sm:grid-cols-2 max-sm:gap-2 " +
         (className || "")
       }
       data-zone="1"
       data-component="KpiStrip"
     >
-      {tiles.map((id) => {
+      {tiles.map((id, i) => {
         const spec = tileSpecs[id];
         if (!spec) return null;
+        const lastOdd = tiles.length % 2 === 1 && i === tiles.length - 1;
         return (
           <StatCard
             key={id}
@@ -204,6 +207,8 @@ export default function KpiStrip({
             value={spec.value}
             helper={spec.helper}
             accent={spec.accent}
+            dense
+            className={lastOdd ? "max-sm:col-span-2" : ""}
           />
         );
       })}

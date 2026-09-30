@@ -37,7 +37,7 @@ import { cutoffHourFor } from "../config/archetypes";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { PageHeader, Button, SectionBanner, StatCard, TabPills, Empty, Card, Amount } from "../components/ui";
+import { PageHeader, Button, SectionBanner, StatCard, TabPills, Empty, Card, Amount, CompactLedgerRow } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
 import MoneyField from "../components/ui/MoneyField";
 import PageShell from "../components/ui/PageShell";
@@ -1018,7 +1018,9 @@ export default function SalesPage() {
           title={t("salesTracker")}
           actions={
             <>
-              <Button variant="accent" onClick={() => setShowItemSale(true)}>
+              {/* Secondary: the page's one main action is logging the sale
+                  below. Green here put the emphasis on the rare path. */}
+              <Button variant="secondary" onClick={() => setShowItemSale(true)}>
                 + {t("itemSale")}
               </Button>
               <ReceiptCapture onSaleCreated={fetchSales} />
@@ -1295,6 +1297,14 @@ export default function SalesPage() {
           }
           loading={salesLoading}
           rowActions={rowActions}
+          mobileRow={(r) => (
+            <CompactLedgerRow
+              title={r.item_name ? `${r.item_name}${r.quantity_sold ? ` × ${r.quantity_sold}` : ""}` : (r.notes || t("sale", "Sale"))}
+              meta={`${formatDateClear(r.date)} · ${paymentLabel(r.payment_method)}${r.status && r.status !== "completed" ? ` · ${t(r.status, r.status)}` : ""}`}
+              amount={<Amount value={parseFloat(r.amount)} currency={user?.currency} decimals={2} />}
+              actions={rowActions(r)}
+            />
+          )}
           selectable={true}
           selectedIds={selected}
           onToggleSelect={toggleSelect}

@@ -1,3 +1,4 @@
+import { Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -130,7 +131,9 @@ export default function CloserPromptCard({ user }) {
   return (
     <div className="mb-5 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-gray-50 dark:bg-gray-800/50 p-5 sm:p-6">
       <div className="flex items-start gap-3 mb-3">
-        <div className="text-2xl shrink-0">👋</div>
+        <div className="shrink-0 w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300" aria-hidden="true">
+          <Users size={18} strokeWidth={1.75} />
+        </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">
             {t("closerPromptTitle") || "Who closes for you?"}
@@ -153,7 +156,7 @@ export default function CloserPromptCard({ user }) {
         <div className="flex flex-wrap gap-2 mt-4">
           <button
             onClick={() => setStage("form")}
-            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition"
+            className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
           >
             {t("closerPromptAddCloser") || "Add my closer"}
           </button>
@@ -217,7 +220,7 @@ export default function CloserPromptCard({ user }) {
             <button
               type="submit"
               disabled={saving || !closerEmail.trim()}
-              className="flex-1 sm:flex-none px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
+              className="flex-1 sm:flex-none px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
             >
               {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
             </button>

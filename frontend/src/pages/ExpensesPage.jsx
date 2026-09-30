@@ -59,7 +59,7 @@ import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
-import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner, LoadFailed } from "../components/ui";
+import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner, LoadFailed, CompactLedgerRow } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
 import MoneyField from "../components/ui/MoneyField";
 import PageShell from "../components/ui/PageShell";
@@ -1074,6 +1074,9 @@ export default function ExpensesPage() {
       <div className="flex items-center gap-3 pt-1">
         <button
           type="button"
+          role="switch"
+          aria-checked={isPersonal}
+          aria-label={t("expPersonalSwitch", "Private expense (not the business)")}
           onClick={() => setIsPersonal(!isPersonal)}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
             isPersonal ? "bg-gray-700 dark:bg-gray-200" : "bg-gray-200 dark:bg-gray-700"
@@ -1666,6 +1669,14 @@ export default function ExpensesPage() {
               // the data, and we had not been told anything yet.
               loading={expensesLoading}
               rowActions={rowActions}
+              mobileRow={(r) => (
+                <CompactLedgerRow
+                  title={r.description || getCatName(r.category_id)}
+                  meta={`${formatDate(r.date)} · ${getCatName(r.category_id)}${r.is_personal ? ` · ${t("personalMode")}` : ""}`}
+                  amount={<Amount value={parseFloat(r.amount)} currency={currency} decimals={2} />}
+                  actions={rowActions(r)}
+                />
+              )}
             />
           </section>
 

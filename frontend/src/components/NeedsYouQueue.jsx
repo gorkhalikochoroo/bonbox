@@ -219,7 +219,9 @@ export default function NeedsYouQueue() {
               >
                 <span className={`h-2 w-2 rounded-full shrink-0 ${SEVERITY_DOT[f.severity] || SEVERITY_DOT.info}`} aria-hidden />
                 <RowIcon className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" strokeWidth={1.75} aria-hidden />
-                <span className="min-w-0 flex-1 text-sm text-gray-800 dark:text-gray-100 truncate">
+                {/* Two lines on a phone: one line cut "Du lukkede ikke 26…"
+                    right where the date that makes it actionable starts. */}
+                <span className="min-w-0 flex-1 text-sm text-gray-800 dark:text-gray-100 line-clamp-2 sm:line-clamp-1">
                   {r.title(t, f.meta || {})}
                 </span>
                 <span className="shrink-0 text-[12.5px] font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-0.5">

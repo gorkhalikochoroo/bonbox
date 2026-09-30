@@ -310,6 +310,16 @@ export const DASHBOARD_CARD_SET = {
       ],
     },
 
+    // Profit answer — the dashboard hero, directly under the KPI row: on a
+    // phone it sat ~2.4 screens down, below the brief and the roster. The one question an owner opens
+    // the app for: "am I making money this month, and how much is really
+    // mine after MOMS?" Sits ABOVE the trend on purpose — answer first, the
+    // "is it growing?" chart second. Supersedes the old compact ProfitLossCard.
+    {
+      id: "profitAnswer",
+      component: "ProfitAnswerCard",
+    },
+
     // Foresight hero (S1-8 / #355) — "will you cover the MOMS bill?".  The
     // component self-fetches /cashflow/forecast → foresight and renders the
     // verdict + the one action, or the honest "connect your bank" state until a
@@ -346,14 +356,6 @@ export const DASHBOARD_CARD_SET = {
 
   // ── Zone 2 — Growth Levers. Actionable this week. ──
   zone2: [
-    // Profit answer — the dashboard hero. The one question an owner opens
-    // the app for: "am I making money this month, and how much is really
-    // mine after MOMS?" Sits ABOVE the trend on purpose — answer first, the
-    // "is it growing?" chart second. Supersedes the old compact ProfitLossCard.
-    {
-      id: "profitAnswer",
-      component: "ProfitAnswerCard",
-    },
 
     // Revenue trend — 7 / 30 / 90 days driven by tier features.
     {

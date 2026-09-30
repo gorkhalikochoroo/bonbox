@@ -243,6 +243,9 @@ export default function InboxBanner({
   if (error) return null;                       // hard transport error — see effect comment
 
   const infraEnabled = !!state?.infra_enabled;
+  // A feature that isn't running doesn't get the page's second slot: a
+  // "Kommer snart / estimeret <2 uger" teaser is a promise, not a tool.
+  if (!infraEnabled) return null;
   const alias = state?.alias || "";
   const count = Number(state?.messages_this_month || 0);
   const cap = Number(state?.cap);

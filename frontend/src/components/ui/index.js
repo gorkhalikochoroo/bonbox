@@ -31,6 +31,7 @@
  * documents the contract + when to pick which variant.
  */
 export { default as Amount } from "./Amount";
+export { default as CompactLedgerRow } from "./CompactLedgerRow";
 export { default as Button } from "./Button";
 export { default as Card } from "./Card";
 export { default as Empty } from "./Empty";
