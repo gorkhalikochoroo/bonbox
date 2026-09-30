@@ -16,6 +16,10 @@ class DailyCloseCreate(BaseModel):
     # The router uses this when revenue_breakdown is empty so the close
     # still saves the real revenue (instead of the previous 0 DKK bug).
     revenue_total_override: float | None = Field(None, ge=0, le=1_000_000_000)
+    # True when the OWNER typed the total (corrected the scanned figure). Then
+    # it is the day's revenue exactly — max(breakdown, override) is for the
+    # OCR case only, and it ignored a correction downward.
+    revenue_total_owner_set: bool = False
     moms_total: float | None = None         # VAT amount — auto-calculated or from receipt
     moms_mode: str | None = None            # "auto" | "manual"
     # Per-close override for the user's prices_include_moms preference.

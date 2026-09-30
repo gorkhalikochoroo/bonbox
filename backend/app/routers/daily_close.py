@@ -206,6 +206,20 @@ def _serialize_close_for_email(dc: DailyClose) -> dict:
     }
 
 
+def _local_hhmm(dt) -> str:
+    """closed_at is stored as naive UTC; the email says a Copenhagen clock
+    time ("låst kl. 23:40"), not the UTC one two hours earlier."""
+    if not dt:
+        return "—"
+    try:
+        from datetime import timezone as _tz
+        from zoneinfo import ZoneInfo
+        aware = dt if dt.tzinfo else dt.replace(tzinfo=_tz.utc)
+        return aware.astimezone(ZoneInfo("Europe/Copenhagen")).strftime("%H:%M")
+    except Exception:  # noqa: BLE001
+        return dt.strftime("%H:%M")
+
+
 def _build_close_email_html(
     *,
     business_name: str,
@@ -277,7 +291,7 @@ def _build_close_email_html(
         intro = (
             f"<p>Hej,</p>"
             f"<p>Dagens kasserapport for <strong>{business_name}</strong> er låst "
-            f"af {closer} kl. {dc.closed_at.strftime('%H:%M') if dc.closed_at else '—'}.</p>"
+            f"af {closer} kl. {_local_hhmm(dc.closed_at)}.</p>"
         )
         footer = (
             "<p style='color:#6b7280;font-size:13px;'>"
@@ -303,7 +317,7 @@ def _build_close_email_html(
         intro = (
             f"<p>Hello,</p>"
             f"<p>Tonight's close for <strong>{business_name}</strong> is locked "
-            f"by {closer} at {dc.closed_at.strftime('%H:%M') if dc.closed_at else '—'}.</p>"
+            f"by {closer} at {_local_hhmm(dc.closed_at)}.</p>"
         )
         footer = (
             "<p style='color:#6b7280;font-size:13px;'>"
@@ -884,7 +898,9 @@ def create_daily_close(
         float(v) for v in _breakdown.values() if isinstance(v, (int, float))
     )
     override = data.revenue_total_override
-    if override is not None and override > 0:
+    if override is not None and override > 0 and getattr(data, "revenue_total_owner_set", False):
+        revenue_total = round(float(override), 2)
+    elif override is not None and override > 0:
         revenue_total = float(max(breakdown_sum, override))
     elif _breakdown:
         # A breakdown was supplied → the total IS its sum, including 0 and
@@ -1361,17 +1377,39 @@ def daily_close_insights(
     insights = []
     count = len(closes)
 
+    # The owner reads these on a Danish screen: words AND numbers in their
+    # language ("1.062", not "1,062" — a Dane reads the comma as a decimal).
+    from app.services.owner_language import owner_lang
+    _da = owner_lang(user) == "da"
+    _DA_DAYS = {"Monday": "mandag", "Tuesday": "tirsdag", "Wednesday": "onsdag", "Thursday": "torsdag",
+                "Friday": "fredag", "Saturday": "lørdag", "Sunday": "søndag"}
+
+    def _n(v, signed=False):
+        txt = f"{v:+,.0f}" if signed else f"{v:,.0f}"
+        return txt.replace(",", ".") if _da else txt
+
+    def _day(d):
+        return _DA_DAYS.get(d, d) if _da else d
+
     # 1. Drink-to-food ratio
     if total_food > 0:
         ratio = round((total_drinks / (total_food + total_drinks)) * 100, 1)
         insights.append({
             "type": "drink_ratio",
             "icon": "🍸",
-            "title": f"Drink-to-food ratio: {ratio}%",
-            "detail": "Danish restaurant average is 35-45%. "
-                      + ("You might be under-selling beverages — consider upselling wine with dinner." if ratio < 35
-                         else "Great balance!" if ratio <= 45
-                         else "Strong drink sales! Make sure food margins are healthy too."),
+            "title": (f"Drikkevarer af omsætningen: {str(ratio).replace('.', ',')} %" if _da
+                      else f"Drink-to-food ratio: {ratio}%"),
+            "detail": (
+                "Danske restauranter ligger typisk på 35–45 %. "
+                + ("Måske sælger I for lidt drikkevarer — foreslå vin til maden." if ratio < 35
+                   else "Fin balance!" if ratio <= 45
+                   else "Stærkt drikkevaresalg — hold også øje med maden.")
+            ) if _da else (
+                "Danish restaurant average is 35-45%. "
+                + ("You might be under-selling beverages — consider upselling wine with dinner." if ratio < 35
+                   else "Great balance!" if ratio <= 45
+                   else "Strong drink sales! Make sure food margins are healthy too.")
+            ),
             "value": ratio,
             "benchmark": "35-45%",
         })
@@ -1386,8 +1424,10 @@ def daily_close_insights(
             insights.append({
                 "type": "tip_trends",
                 "icon": "💰",
-                "title": f"{best_day} tips avg {tip_avgs[best_day]:,} vs {worst_day} avg {tip_avgs[worst_day]:,}",
-                "detail": f"Your {best_day} staff earns {multiplier}x more in tips than {worst_day} staff.",
+                "title": (f"Drikkepenge: {_day(best_day)} i snit {_n(tip_avgs[best_day])} kr. mod {_day(worst_day)} {_n(tip_avgs[worst_day])} kr." if _da
+                          else f"{best_day} tips avg {_n(tip_avgs[best_day])} vs {worst_day} avg {_n(tip_avgs[worst_day])}"),
+                "detail": (f"Holdet får {str(multiplier).replace('.', ',')} gange så mange drikkepenge om {_day(best_day)}en som om {_day(worst_day)}en." if _da
+                           else f"Your {best_day} staff earns {multiplier}x more in tips than {worst_day} staff."),
                 "weekday_averages": tip_avgs,
             })
 
@@ -1396,11 +1436,14 @@ def daily_close_insights(
         insights.append({
             "type": "cash_drift",
             "icon": "🔍" if total_cash_diff < -200 else "✅",
-            "title": f"Cash difference: {total_cash_diff:+,.0f} over {cash_diff_count} days",
+            "title": (f"Kassedifference: {_n(total_cash_diff, signed=True)} kr. over {cash_diff_count} dage" if _da
+                      else f"Cash difference: {_n(total_cash_diff, signed=True)} over {cash_diff_count} days"),
             "detail": (
-                f"Negative {cash_diff_negative_days} out of {cash_diff_count} days. Investigate — could be counting errors or shrinkage."
+                (f"Minus {cash_diff_negative_days} af {cash_diff_count} dage. Undersøg det — tællefejl eller svind."
+                 if _da else
+                 f"Negative {cash_diff_negative_days} out of {cash_diff_count} days. Investigate — could be counting errors or shrinkage.")
                 if cash_diff_negative_days > cash_diff_count * 0.5
-                else "Cash drawer tracking looks healthy."
+                else ("Kassen stemmer overvejende." if _da else "Cash drawer tracking looks healthy.")
             ),
             "total_drift": round(total_cash_diff, 2),
             "negative_days": cash_diff_negative_days,
@@ -1442,31 +1485,44 @@ def daily_close_insights(
             latest = streaks[-1]
             s_len = len(latest)
             s_total = round(sum(diff for _, diff in latest), 2)
-            s_start = latest[0][0].strftime("%-d %b")
-            s_end = latest[-1][0].strftime("%-d %b")
+            _DA_MON = ("jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec.")
+            _dfmt = (lambda d: f"{d.day}. {_DA_MON[d.month - 1]}") if _da else (lambda d: d.strftime("%-d %b"))
+            s_start = _dfmt(latest[0][0])
+            s_end = _dfmt(latest[-1][0])
             most_recent = closes_by_date[-1][0]
             is_active = (most_recent - latest[-1][0]).days <= 2
 
             if s_len >= 5:
                 severity, icon = "critical", "\U0001f6a8"
-                title = f"Cash short {s_len} nights in a row"
+                title = (f"Kassen manglede {s_len} aftener i træk" if _da
+                         else f"Cash short {s_len} nights in a row")
                 detail = (
-                    f"Total shortage: {s_total:,.0f} over {s_len} consecutive days "
+                    f"Samlet mangel: {_n(s_total)} kr. over {s_len} dage i træk ({s_start}\u2013{s_end}). "
+                    "Mønstret tyder på et fast problem \u2014 gennemgå kasseafstemning og kontanthåndtering."
+                ) if _da else (
+                    f"Total shortage: {_n(s_total)} over {s_len} consecutive days "
                     f"({s_start}\u2013{s_end}). This pattern suggests systematic issues \u2014 "
                     "review camera footage, POS reconciliation, and cash handling procedures."
                 )
             elif s_len >= 3:
                 severity, icon = "warning", "\u26a0\ufe0f"
-                title = f"Cash short {s_len} nights in a row"
+                title = (f"Kassen manglede {s_len} aftener i træk" if _da
+                         else f"Cash short {s_len} nights in a row")
                 detail = (
-                    f"Total shortage: {s_total:,.0f} from {s_start} to {s_end}. "
+                    f"Samlet mangel: {_n(s_total)} kr. fra {s_start} til {s_end}. "
+                    "Tre eller flere mangler i træk er et mønster, der er værd at undersøge."
+                ) if _da else (
+                    f"Total shortage: {_n(s_total)} from {s_start} to {s_end}. "
                     "Three or more consecutive shortages is a pattern worth investigating."
                 )
             else:
                 severity, icon = "info", "\U0001f4a1"
-                title = "Cash short 2 nights in a row"
+                title = ("Kassen manglede 2 aftener i træk" if _da else "Cash short 2 nights in a row")
                 detail = (
-                    f"Total shortage: {s_total:,.0f} on {s_start} and {s_end}. "
+                    f"Samlet mangel: {_n(s_total)} kr. den {s_start} og {s_end}. "
+                    "Kan være tilfældigt, men hold øje med det."
+                ) if _da else (
+                    f"Total shortage: {_n(s_total)} on {s_start} and {s_end}. "
                     "Might be coincidence, but keep an eye on it."
                 )
 

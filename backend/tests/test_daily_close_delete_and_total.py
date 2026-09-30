@@ -160,6 +160,23 @@ def test_ocr_override_still_wins_over_a_partial_breakdown(db_session, client):
     assert float(dc.revenue_total) == 17030.0
 
 
+def test_an_owner_corrected_total_is_saved_exactly(db_session, client):
+    """Two Z-bons scanned (16.000 + 5.030) and the owner corrects the combined
+    total down to 20.500: the close is 20.500. max(breakdown, override) saved
+    21.030 — a correction downward did nothing."""
+    u = _user(db_session)
+    r = client.post("/api/daily-close", headers=_headers(u), json={
+        "date": "2026-09-16",
+        "status": "draft",
+        "revenue_breakdown": {"food": 16000, "drinks": 5030},
+        "revenue_total_override": 20500,
+        "revenue_total_owner_set": True,
+    })
+    assert r.status_code == 200, r.text
+    dc = db_session.query(DailyClose).filter(DailyClose.user_id == u.id).first()
+    assert float(dc.revenue_total) == 20500.0
+
+
 # ─────────────────── F1 — delete a kladde, never a record ────────────────────
 
 

@@ -691,6 +691,7 @@ export default function BonBoxAgent() {
           onClick={handleOpen}
           aria-label={t("openBonBoxAi")}
           className="
+            bonbox-ai-fab
             hidden md:flex
             fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full

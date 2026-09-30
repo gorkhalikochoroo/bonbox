@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/* Tailwind 4 made a bare `border` / `border-t` currentColor — near-black ink
+   — where v3 drew gray-200. Dividers written for v3 (kasserapport review,
+   totals rows) rendered as solid black rules. Restore the v3 default; any
+   element that wants ink or a colour still says so explicitly. */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+  .dark *, .dark ::after, .dark ::before {
+    border-color: var(--color-gray-700, currentColor);
+  }
+}
+
 /* ── Landing design system tokens ──────────────────────────────────
    From design_handoff_bonbox_landing. Almost the whole palette in that
    handoff is stock Tailwind under a different name — #0F172A is
@@ -1227,3 +1240,8 @@ body.modal-open {
    card was invisible (Reports forecast "tapped" bar, weekly report bars). */
 :root { --bar-active: #111827; --bar-ink: #111827; }
 .dark { --bar-active: #F3F4F6; --bar-ink: #D1D5DB; }
+
+/* The AI launcher floats above everything — including an open sheet or
+   dialog, where it covered the pinned primary button ("Sæt til bords",
+   "Næste"). While a modal surface is open it steps aside. */
+body:has([aria-modal="true"]) .bonbox-ai-fab { display: none !important; }

@@ -342,6 +342,16 @@ const CLOSE_CONFIG = {
   general:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue",             stepOneLabelKey: "revenue" },
 };
 
+// Every category / payment key the forms can write, → its label. History
+// chips printed the raw keys ("food:", "gift_card:", "mobilepay:").
+const CAT_LABEL = Object.fromEntries(Object.values(REVENUE_CATS_BY_TYPE).flat().map((c) => [c.key, c]));
+const PAY_LABEL = Object.fromEntries(Object.values(PAYMENT_METHODS_BY_TYPE).flat().map((c) => [c.key, c]));
+function chipLabel(map, k, t) {
+  const c = map[k];
+  if (!c) return k;
+  return c.labelKey ? t(c.labelKey, c.label) : c.label;
+}
+
 function getRevenueCats(branchType) {
   return REVENUE_CATS_BY_TYPE[branchType] || REVENUE_CATS_BY_TYPE.restaurant;
 }
@@ -356,7 +366,12 @@ function getPaymentMethods(branchType) {
 export default function DailyClosePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { branchId, branchType, branches } = useBranch();
+  const { branchId, branchType: branchTypeRaw, branches } = useBranch();
+  // A single-location account has no selected branch, so its branch type was
+  // empty and every venue got the restaurant defaults — a restaurant lost its
+  // tips step, a salon was offered Mad/Drikkevarer. The account's own
+  // business type is the fallback.
+  const branchType = branchTypeRaw || user?.business_type || null;
   const hasMultiBranch = branches?.length > 1;
   const currency = displayCurrency(user?.currency);
 
@@ -561,7 +576,13 @@ export default function DailyClosePage() {
   // (page reload after a previous lock), we synthesize a minimal close
   // object from history so the locked banner still renders — without
   // the email-status row (because that ritual already played out).
-  const lockedBannerClose = lastLockedClose || (todaysConfirmedClose
+  // Only a close FOR TODAY locks today. Locking a past day (27 Sep, done on
+  // 30 Sep) set lastLockedClose and hid tonight's "Luk dagen" as if tonight
+  // were done.
+  const freshLockIsToday = Boolean(
+    lastLockedClose && String(lastLockedClose.date || "").slice(0, 10) === todayIso,
+  );
+  const lockedBannerClose = (freshLockIsToday ? lastLockedClose : null) || (todaysConfirmedClose
     ? { ...todaysConfirmedClose, close_ritual: todaysConfirmedClose.close_ritual || {} }
     : null);
   const isLockedToday = Boolean(lockedBannerClose);
@@ -1093,6 +1114,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // for the informational banner + expenses summary, it just won't overwrite
   // the owner's saved/entered breakdown.
   const editLoadedRef = useRef(false);
+  // The date of the close being CORRECTED. While set, the date can't move:
+  // re-dating a correction filed it under a new day and left the original
+  // behind.
+  const [editingDate, setEditingDate] = useState(null);
 
   // Has the owner (or the Edit-an-existing-close path) deliberately chosen a
   // business date? Once they have, the date is THEIRS and the prefill must not
@@ -1212,19 +1237,29 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // date as chosen before the prefill for that date can resolve.
     if (dc.date) {
       dateChosenRef.current = true;
-      setBusinessDate(typeof dc.date === "string" ? dc.date.slice(0, 10) : dc.date);
+      const d = typeof dc.date === "string" ? dc.date.slice(0, 10) : dc.date;
+      setBusinessDate(d);
+      setEditingDate(d);
     }
+    // Saved amounts come back as numbers; the boxes take the owner's own
+    // notation ("1234,50"), not the API's "1234.5".
+    const asInput = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return String(v ?? "");
+      const txt = Number.isInteger(n) ? String(n) : n.toFixed(2);
+      return mLocale === "da-DK" ? txt.replace(".", ",") : txt;
+    };
     if (dc.revenue_breakdown) {
       const rev = {};
-      Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[k] = String(v); });
+      Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[k] = asInput(v); });
       setRevAmounts(rev);
     }
     if (dc.payment_breakdown) {
       const pay = {};
-      Object.entries(dc.payment_breakdown).forEach(([k, v]) => { pay[k] = String(v); });
+      Object.entries(dc.payment_breakdown).forEach(([k, v]) => { pay[k] = asInput(v); });
       setPayAmounts(pay);
     }
-    if (dc.cash_counted != null) setCashCounted(String(dc.cash_counted));
+    if (dc.cash_counted != null) setCashCounted(asInput(dc.cash_counted));
     // NOTE: registerCash (the "Expected (from register)" baseline) is NOT set
     // from the saved close here — a close row can't tell us whether its stored
     // cash_expected was register- or typed-derived. Instead the prefill effect
@@ -1949,8 +1984,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Declared HERE rather than beside the totals above because momsManual is
   // declared on the line above it — reading it earlier would be a TDZ
   // ReferenceError at render, not a lint warning.
+  // A drawer can't hold minus 50 kr. — a negative count is a typo, not a fact.
+  const cashCountedNegative = useMemo(() => {
+    const n = parseMoneyInput(cashCounted, mLocale);
+    return Number.isFinite(n) && n < 0;
+  }, [cashCounted, mLocale]);
   const moneyRejected = useMemo(
-    () =>
+    () => cashCountedNegative ||
       [
         ...Object.values(revAmounts),
         ...Object.values(payAmounts),
@@ -1960,7 +2000,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         momsMode === "manual" ? momsManual : "",
         scanResult?.revenue_total_text ?? "",
       ].some((v) => isMoneyRejected(v, mLocale)),
-    [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult],
+    [cashCountedNegative, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult],
   );
 
   // WHICH group holds it. The lock button sits on the review step, three
@@ -1978,10 +2018,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       ["moms", [momsMode === "manual" ? momsManual : ""]],
     ];
     for (const [name, values] of groups) {
+      if (name === "cash" && cashCountedNegative) return name;
       if (values.some((v) => isMoneyRejected(v, mLocale))) return name;
     }
     return null;
-  }, [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult]);
+  }, [cashCountedNegative, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult]);
 
   // Taxable base = entered revenue MINUS today's exempt sales total.
   // Clamp at 0: if the user only entered a placeholder and the exempt
@@ -2111,6 +2152,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // Total-only fallback (banner-driven) and per-close MOMS-mode
       // override. Both are accepted by the backend in DailyCloseCreate.
       revenue_total_override,
+      // The owner corrected the scanned total by hand → it is the figure.
+      revenue_total_owner_set: Boolean(scanResult?.revenue_total_text) && revenue_total_override != null,
       prices_include_moms_override,
       // Tax-exempt total for the day. Pydantic schemas/daily_close.py
       // does NOT accept this field yet — sending it is forward-compat
@@ -2540,14 +2583,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     </p>
                   )}
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Button variant="primary" size="sm" className="flex-1"
+                    <Button variant="primary" size="sm" className="flex-1 h-auto! min-h-11 py-2 whitespace-normal! text-left leading-snug"
                       onClick={() => resolveTerminalChoice(MERGE_SUM)}
                       iconLeft={<Icon name="Plus" size={15} />}>
                       {t("scanSecondTotalSum", "Another terminal — add them up ({sum})", {
                         sum: formatOwnerMoney((existingTotal || 0) + (incomingTotal || 0), currency, { decimals: GLANCE_DECIMALS }),
                       })}
                     </Button>
-                    <Button variant="secondary" size="sm" className="flex-1"
+                    <Button variant="secondary" size="sm" className="flex-1 h-auto! min-h-11 py-2 whitespace-normal! text-left leading-snug"
                       onClick={() => resolveTerminalChoice(MERGE_REPLACE)}
                       iconLeft={<Icon name="RefreshCw" size={15} />}>
                       {t("scanSecondTotalReplace", "Same terminal — use the new photo ({incoming})", {
@@ -2889,8 +2932,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 const val = scanResult.revenue?.[c.key];
                 const isEmpty = !val;
                 return (
-                  <div key={c.key} className="flex items-center gap-3">
-                    <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
+                  <div key={c.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
+                    <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}
                       {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
@@ -2937,7 +2980,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   itself. Kept as typed (like the category boxes) and read by
                   the strict parser; an unreadable entry blocks the save. */}
               {(scanResult.revenue_total || scanResult.revenue_total_text != null) && (
-                <div className="flex items-center justify-between gap-3 pt-2 border-t dark:border-gray-600">
+                <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-600">
                   <label htmlFor="scan-total" className="text-[14px] font-semibold text-gray-900 dark:text-white">
                     {t("totalRevenue")}
                   </label>
@@ -3015,8 +3058,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 const val = scanResult.payments?.[m.key];
                 const isEmpty = !val;
                 return (
-                  <div key={m.key} className="flex items-center gap-3">
-                    <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
+                  <div key={m.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
+                    <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}
                       {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
@@ -3069,8 +3112,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Tips — only for types that have tips */}
             {config.hasTips && (
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
+              <div className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
                   {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                   <Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("tipsLabel", "Tips")}
                   {scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
@@ -3174,11 +3217,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── NORMAL STEP FLOW ─── */}
         {!showScanUI && (<>
         {/* Date selector — defaults to today, allows past dates */}
-        <div className="mb-4 flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <label htmlFor="close-date" className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
             <Icon name="Calendar" size={14} /> {t("dateLabel", "Date")}
           </label>
-          <input type="date" value={businessDate}
+          <input id="close-date" type="date" value={businessDate}
+            disabled={Boolean(editingDate)}
             max={businessTodayIso(cutoffHour)}
             onChange={e => { if (e.target.value) { dateChosenRef.current = true; setBusinessDate(e.target.value); } }}
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
@@ -3187,7 +3231,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               {t("pastDate")}
             </span>
           )}
-          {businessDate !== businessTodayIso(cutoffHour) && (
+          {businessDate !== businessTodayIso(cutoffHour) && !editingDate && (
             <button onClick={() => { dateChosenRef.current = true; setBusinessDate(businessTodayIso(cutoffHour)); }}
               className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
               {t("resetToToday", "Reset to today")}
@@ -3331,7 +3375,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Indigo was this banner's only reason to exist as its own colour, and
             "you are filing for yesterday" is a NEUTRAL fact, not a warning and
             not a success. Neutral surface; the Moon icon carries the meaning. */}
-        {cutoffHour > 0 && businessDate !== localIso() && (
+        {/* Only in the after-midnight window, closing the business day that
+            is still "tonight": at 10:50 on a past date the old condition
+            told the owner they were on a night shift. */}
+        {cutoffHour > 0
+          && businessDate === businessTodayIso(cutoffHour)
+          && businessDate !== localIso() && (
           <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-gray-200 dark:border-gray-700">
             <Icon name="Moon" size={14} className="text-gray-500 dark:text-gray-400" />
             <p className="text-[12px] text-gray-600 dark:text-gray-300">
@@ -3544,9 +3593,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               )}
             </div>
             <div>
-              <label className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("countedAmount", "Counted Amount")}</label>
-              <MoneyField locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
+              <label htmlFor="cash-counted" className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("countedAmount", "Counted Amount")}</label>
+              <MoneyField id="cash-counted" locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
                 value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
+              {cashCountedNegative && (
+                <p className="mt-1 text-[12px] text-red-600 dark:text-red-400">
+                  {t("dcCountedNegative", "Counted cash can't be below 0 — check the sign.")}
+                </p>
+              )}
             </div>
             {cashDiff !== null && (
               <div className={`px-4 py-3 rounded-xl text-center font-semibold text-[16px] ${
@@ -3950,7 +4004,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         )}
 
         {/* Navigation buttons */}
-        <div className="flex justify-between mt-6 pt-4 border-t dark:border-gray-700">
+        <div className="flex justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
           {step > 1 ? (
             <Button variant="ghost" size="lg" onClick={() => setStep(step - 1)}>
               ← {t("back", "Back")}
@@ -3973,8 +4027,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               // 17,030). Without this, the user types skip-fill values
               // and has to trust the banner — preview makes it explicit.
               const ocrTotal = Number(scanResult?.revenue_total || 0);
-              const willSave = ocrTotal > revenueTotal ? ocrTotal : revenueTotal;
-              const usingOverride = ocrTotal > 0 && ocrTotal > revenueTotal;
+              // A total the owner typed is saved exactly; only an OCR figure
+              // competes with the breakdown via max().
+              const ownerSet = Boolean(scanResult?.revenue_total_text) && ocrTotal > 0;
+              const willSave = ownerSet ? ocrTotal : (ocrTotal > revenueTotal ? ocrTotal : revenueTotal);
+              const usingOverride = ocrTotal > 0 && (ownerSet ? ocrTotal !== revenueTotal : ocrTotal > revenueTotal);
               return (
                 <div className="flex flex-col items-end gap-1">
                   {/* moneyRejected: one of the amount boxes holds text that is
@@ -4071,8 +4128,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 */
 function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
   const ritual = close.close_ritual || {};
+  // The server stores closed_at in UTC without a zone suffix; read bare, the
+  // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
   const closedAt = close.closed_at
-    ? new Date(close.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    ? new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(String(close.closed_at)) ? close.closed_at : `${close.closed_at}Z`)
+        .toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })
     : "—";
   const closedBy = close.closed_by || (t("staffShort", "Staff"));
   const recipients = (ritual.sent_to || []).join(", ");
@@ -5250,7 +5310,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <div className="flex flex-wrap gap-2 mt-3">
               {Object.entries(rev).map(([k, v]) => (
                 <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-[11px] font-medium tabular-nums">
-                  {k}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
+                  {chipLabel(CAT_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
                 </span>
               ))}
             </div>
@@ -5258,7 +5318,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <div className="flex flex-wrap gap-2 mt-2">
               {Object.entries(pay).map(([k, v]) => (
                 <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-medium tabular-nums border border-gray-200 dark:border-gray-700">
-                  {k}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
+                  {chipLabel(PAY_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
                 </span>
               ))}
             </div>
@@ -5268,7 +5328,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               <div className="flex gap-4 flex-wrap text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
                 {dc.cash_difference !== null && (
                   <span className={dc.cash_difference < -100 ? "text-red-600 dark:text-red-400 font-semibold" : ""}>
-                    {t("dcCashLabel", "Cash")}: <Amount value={dc.cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />
+                    {t("dcCashDiffLabel", "Cash difference")}: <Amount value={dc.cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />
                   </span>
                 )}
                 {dc.tips_total > 0 && (
@@ -5735,7 +5795,7 @@ function CalendarHeatMap({ data, currency }) {
       <div className="flex gap-[3px] overflow-x-auto pb-1">
         {/* Day-of-week labels */}
         <div className="flex flex-col gap-[3px] mr-0.5 shrink-0" aria-hidden="true">
-          {["M", "", "W", "", "F", "", "S"].map((d, i) => (
+          {t("dcHeatWeekdays", "M,,W,,F,,S").split(",").map((d, i) => (
             <div key={i} className="w-3 h-3 flex items-center justify-center text-[11px] leading-none text-gray-400 dark:text-gray-500 select-none">{d}</div>
           ))}
         </div>

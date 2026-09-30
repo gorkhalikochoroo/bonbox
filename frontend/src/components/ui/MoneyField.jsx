@@ -84,7 +84,9 @@ export default function MoneyField({
         autoComplete="off"
         value={value ?? ""}
         onChange={onChange}
-        className={className}
+        // The red text below said "ret det røde felt" while the field itself
+        // stayed gray — the border now says it too.
+        className={`${className} aria-[invalid=true]:border-red-500! aria-[invalid=true]:ring-red-500/30`}
         aria-invalid={rejected || undefined}
         aria-describedby={rejected && showError ? `${id}-err` : undefined}
         {...rest}

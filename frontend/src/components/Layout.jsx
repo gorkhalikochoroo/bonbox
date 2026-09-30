@@ -1261,7 +1261,7 @@ export default function Layout() {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`pt-14 md:pt-0 pb-24 md:pb-4 transition-[margin] duration-200 focus:outline-none ${
+        className={`pt-14 md:pt-0 pb-24 md:pb-24 transition-[margin] duration-200 focus:outline-none ${
           desktopSidebarHidden ? "md:ml-0" : "md:ml-56"
         }`}
       >
