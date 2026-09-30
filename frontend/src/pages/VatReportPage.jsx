@@ -215,7 +215,7 @@ export default function VatReportPage() {
             </h1>
             {report.org_number && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {report.org_number}{report.vat_number && report.vat_number !== report.org_number ? ` / VAT: ${report.vat_number}` : ""}
+                {report.org_number}{report.vat_number && report.vat_number !== report.org_number ? ` / ${t("vatNumberShort", "VAT no.")}: ${report.vat_number}` : ""}
               </p>
             )}
             {report.business_address && (
@@ -314,7 +314,7 @@ export default function VatReportPage() {
           </div>
 
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-4 text-center">
-            {t("vatDisclaimer")} {vat.taxAuthority}.
+            {t("vatDisclaimerAuth", "The figures for your VAT return. Check them with your revisor before you file with {authority}.", { authority: vat.taxAuthority })}
           </p>
         </div>
       )}

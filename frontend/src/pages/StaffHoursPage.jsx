@@ -596,6 +596,7 @@ export default function StaffHoursPage() {
             onGoLog={() => setSubTab("log")}
             onGoDetails={() => setSubTab("details")}
             rosterEmpty={rosterEmpty}
+            needsAnswer={summary.reduce((n, r) => n + (Number(r.needs_answer_count) || 0), 0)}
           />
         </FadeIn>
       )}
@@ -956,7 +957,7 @@ function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) 
   );
 }
 
-function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails, rosterEmpty = false }) {
+function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails, rosterEmpty = false, needsAnswer = 0 }) {
   const { t, lang } = useLanguage();
 
   // THE THIRD STATE, on the tab this hub opens on. `if (!overview) return null`
@@ -1142,6 +1143,11 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   let limVal = "0";
   let limAccent = "neutral";
   let limHelper = t("hovLimitsNone", "all under limit");
+  if (flags.limits_configured === 0) {
+    // No limit on anyone: there is nothing to be "under".
+    limVal = "—";
+    limHelper = t("hovLimitsNotSet", "no limits set");
+  }
   if (over.length > 0) {
     limAccent = "critical";
     limVal = String(over.length);
@@ -1162,6 +1168,22 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
           actually came back, and this says so rather than letting them read as
           current. */}
       {failBanner}
+      {/* The open work leads: the unanswered shifts lived only on the
+          per-staff tab while this landing tab said "God kontrol". */}
+      {needsAnswer > 0 && (
+        <button
+          type="button"
+          onClick={onGoDetails}
+          className="w-full flex items-center justify-between gap-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-left text-sm text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+        >
+          <span className="font-medium">
+            {needsAnswer === 1
+              ? t("hovNeedsAnswerOne", "1 shift needs your answer")
+              : t("hovNeedsAnswerN", "{n} shifts need your answer", { n: needsAnswer })}
+          </span>
+          <span aria-hidden="true">→</span>
+        </button>
+      )}
       <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

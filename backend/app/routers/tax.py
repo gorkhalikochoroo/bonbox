@@ -164,7 +164,7 @@ def voucher_audit(
         "sales": sales,
         "expenses": expenses,
         "is_compliant": sales["is_compliant"] and expenses["is_compliant"],
-        "regulation": "Bogføringsloven 2024 § 7 — sequential bilagsnummer",
+        "regulation": "Bogføringsloven 2024 § 7 — fortløbende bilagsnummer",
     }
 
 

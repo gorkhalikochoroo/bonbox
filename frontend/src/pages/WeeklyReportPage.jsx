@@ -17,8 +17,18 @@ import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
 import { formatDateClear, formatDateClearFull, isoWeek } from "../utils/dateFormat";
 
+// The server names days in English ("Mon"); name them from the date instead.
+function dayName(iso, lang) {
+  if (!iso) return "";
+  try {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { weekday: "long" });
+  } catch {
+    return iso;
+  }
+}
+
 export default function WeeklyReportPage() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   // 0 = this week; stepping back shows a finished week (this week is partial
@@ -123,7 +133,7 @@ export default function WeeklyReportPage() {
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">{t("bestDay")}</p>
-            <p className="text-lg font-bold text-emerald-600">{report.best_day ? report.best_day.day : "—"}</p>
+            <p className="text-lg font-bold text-emerald-600">{report.best_day ? dayName(report.best_day.date, lang) : "—"}</p>
           </div>
         </div>
 
@@ -163,7 +173,7 @@ export default function WeeklyReportPage() {
             <tbody>
               {breakdown.map((d) => (
                 <tr key={d.date} className="border-t border-gray-50 dark:border-gray-700">
-                  <td className="py-2 text-gray-700 dark:text-gray-300 font-medium">{d.day}</td>
+                  <td className="py-2 text-gray-700 dark:text-gray-300 font-medium">{dayName(d.date, lang)}</td>
                   <td className="py-2 text-gray-500 dark:text-gray-400">{formatDateClear(d.date)}</td>
                   <td className="py-2 text-right font-semibold text-gray-800 dark:text-white tabular-nums">
                     {formatKr(d.amount ?? 0)}
@@ -181,7 +191,7 @@ export default function WeeklyReportPage() {
               <div className="flex-1 bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
                 <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{t("bestDay")}</p>
                 <p className="text-sm font-bold text-gray-700 dark:text-gray-300 tabular-nums">
-                  {report.best_day.day} — {formatKr(report.best_day.amount ?? 0, { decimals: 0 })}
+                  {dayName(report.best_day.date, lang)} — {formatKr(report.best_day.amount ?? 0, { decimals: 0 })}
                 </p>
               </div>
             )}
@@ -189,7 +199,7 @@ export default function WeeklyReportPage() {
               <div className="flex-1 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-center">
                 <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t("slowestDay")}</p>
                 <p className="text-sm font-bold text-amber-700 dark:text-amber-300 tabular-nums">
-                  {report.worst_day.day} — {formatKr(report.worst_day.amount ?? 0, { decimals: 0 })}
+                  {dayName(report.worst_day.date, lang)} — {formatKr(report.worst_day.amount ?? 0, { decimals: 0 })}
                 </p>
               </div>
             )}

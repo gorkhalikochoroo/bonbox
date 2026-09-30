@@ -5102,6 +5102,19 @@ def hours_overview(
     # Names + monthly limits for the flags. Wrapped — a corrupt row never 500s.
     over_limit: list[dict] = []
     near_limit: list[dict] = []
+    # How many staff HAVE a limit — "alle under grænsen" with none set was a
+    # reassurance about a check that never ran.
+    try:
+        limits_configured = int(
+            db.query(func.count(StaffMember.id)).filter(
+                StaffMember.user_id == user.id,
+                StaffMember.is_deleted.isnot(True),
+                StaffMember.max_hours_month.isnot(None),
+                StaffMember.max_hours_month > 0,
+            ).scalar() or 0
+        )
+    except Exception:  # noqa: BLE001
+        limits_configured = None
     staff_ids = list(per_staff_actual.keys())
     if staff_ids:
         try:
@@ -5297,6 +5310,7 @@ def hours_overview(
         },
         "flags": {
             "overtime_hours": round(overtime_hours, 1),
+            "limits_configured": limits_configured,
             "over_limit": over_limit,
             "near_limit": near_limit,
             "follow_up_count": len(over_limit) + len(near_limit),
