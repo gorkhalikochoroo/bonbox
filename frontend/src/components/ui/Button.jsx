@@ -81,7 +81,9 @@ const VARIANTS = {
   secondary:
     FADE_WHEN_DISABLED +
     "bg-gray-100 text-gray-800 hover:bg-gray-200 " +
-    "dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 " +
+    // A hairline edge in dark: on a gray-800 card the button was the card's
+    // own colour and read as loose text ("Upload billede" on the scan card).
+    "dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 dark:shadow-[inset_0_0_0_1px_var(--color-gray-700)] " +
     "focus-visible:ring-gray-400",
   ghost:
     FADE_WHEN_DISABLED +
