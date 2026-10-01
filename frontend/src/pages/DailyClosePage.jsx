@@ -394,6 +394,11 @@ export default function DailyClosePage() {
   // fields so the owner doesn't have to re-type yesterday's numbers.
   // Cleared via onEditConsumed when the form has loaded the values.
   const [editDraft, setEditDraft] = useState(null);
+  // The day the wizard is correcting (Rediger / Fortsæt / a ?date= draft).
+  // While one is open the top card's "Snap your Z-report" did nothing — the
+  // photo was dropped so it could not type over the draft — so the card
+  // steps aside instead of offering a dead button.
+  const [formEditingDate, setFormEditingDate] = useState(null);
 
   // ─── Smart Scan prefill consumer ─────────────────────────────────
   // SmartScanModal navigates here with the kasserapport extraction in
@@ -654,7 +659,9 @@ export default function DailyClosePage() {
   const todaySubtitleKey = TODAY_SUBTITLE_KEY[archetypeForUser(user).id] || "navTodaySubtitle";
 
   return (
-    <PageShell width="default">
+    // Native date pickers and selects drew light chrome in dark mode — this
+    // page only, so no other screen's controls change underneath it.
+    <PageShell width="default" className="dark:[color-scheme:dark]">
       <PageHeader
         // No eyebrow. It said "RAPPORTER" — the group this page has not been
         // in since the C5 nav diet moved it onto the core spine (navManifest
@@ -814,7 +821,7 @@ export default function DailyClosePage() {
           its two choices (snap / type) a second time — the wizard's own scan
           card carries them there. It stays when it has news (lock status
           unknown) and on the other tabs, where it is the way back. */}
-      {!isLockedToday && (
+      {!isLockedToday && !(tab === "close" && formEditingDate) && (
         <div className={"bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
           + (tab === "close" && !lockStatusUnknown ? " max-sm:hidden" : "")}>
           <div className="min-w-0">
@@ -898,7 +905,7 @@ export default function DailyClosePage() {
       {/* The wizard reads as a form, not a spreadsheet: number boxes ran
           958px wide on desktop. History keeps the full width. */}
       <div ref={closeWizardRef} className={tab === "close" ? "max-w-2xl" : ""}>
-        {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
+        {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} branches={branches} isOnline={isOnline}
           manualRequest={manualRequest}
           heroScanFiles={heroScanFiles}
           onHeroConsumed={() => setHeroScanFiles(null)}
@@ -923,7 +930,8 @@ export default function DailyClosePage() {
           existingCloses={history}
           onDraftSaved={fetchHistory}
           onContinueDraft={(dc) => setEditDraft(dc)}
-          onShowHistory={() => setTab("history")} />}
+          onShowHistory={() => setTab("history")}
+          onEditingChange={setFormEditingDate} />}
         {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
           // The three outcomes, handed down whole. A child that only receives
           // `data` cannot tell an empty list from an unanswered request, which
@@ -1023,7 +1031,26 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
 
-function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory }) {
+// The part of the saved total that no category line carries — a Z-bon read
+// as a total (or one line), or a total corrected below its lines. Without it
+// the review's rows did not add up to the total it was about to lock.
+function UnsplitLine({ amount, show, currency, t }) {
+  if (!show || Math.abs(amount) < 0.005) return null;
+  return (
+    <div className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-500 dark:text-gray-400 tabular-nums">
+      <span>{amount > 0 ? t("dcUnsplitRevenue", "Not split by category") : t("dcCorrectedDown", "Corrected down by hand")}</span>
+      <span><Amount value={amount} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+    </div>
+  );
+}
+
+// What an edited close looks like, field by field — compared before an
+// autosave so opening "Rediger" is not a save, and any real change is.
+const editSignature = (o) => JSON.stringify([
+  o.rev, o.pay, o.cash, o.tips, o.staff, o.by, o.notes, o.momsMode, o.momsManual,
+]);
+
+function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -1164,6 +1191,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // re-dating a correction filed it under a new day and left the original
   // behind.
   const [editingDate, setEditingDate] = useState(null);
+  // The branch the close is FILED under. Normally the one picked at the top
+  // of the page; a close opened from History (Rediger / Fortsæt) or replaced
+  // from the "already a draft" banner keeps its own. With "All branches"
+  // picked, a Mirabelle draft was re-saved with no branch — a second close
+  // for the same day beside the first. undefined = follow the picker.
+  const [fileBranchOverride, setFileBranchOverride] = useState(undefined);
+  const fileBranchId = fileBranchOverride !== undefined ? fileBranchOverride : (branchId || null);
+  useEffect(() => {
+    onEditingChange?.(editingDate);
+    return () => onEditingChange?.(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingDate]);
 
   // Has the owner (or the Edit-an-existing-close path) deliberately chosen a
   // business date? Once they have, the date is THEIRS and the prefill must not
@@ -1300,6 +1339,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setBusinessDate(d);
       setEditingDate(d);
     }
+    setFileBranchOverride(dc.branch_id || null);
     // Saved amounts come back as numbers; the boxes take the owner's own
     // notation ("1234,50"), not the API's "1234.5".
     const asInput = (v) => {
@@ -1346,23 +1386,37 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (Math.abs(Number(dc.revenue_total) - catSum) > 0.005 && Number(dc.revenue_total) > 0) {
       setScanResult((prev) => ({ ...(prev || {}), revenue_total: Number(dc.revenue_total), revenue_total_text: asInput(dc.revenue_total) }));
     }
-    if (dc.cash_counted != null) setCashCounted(asInput(dc.cash_counted));
-    // Autosave waits for a real change: opening "Rediger" re-saved the close
-    // within two seconds, before the owner had touched anything.
-    editBaselineRef.current = JSON.stringify({
-      rev, pay,
+    // Every field takes the SAVED value, empty included: a field the close
+    // never had kept whatever this form held before, and the next save
+    // filed it under the edited day.
+    const loaded = {
       cash: dc.cash_counted != null ? asInput(dc.cash_counted) : "",
       tips: dc.tips_total != null ? asInput(dc.tips_total) : "",
-    });
+      staff: dc.tips_staff_count != null ? String(dc.tips_staff_count) : "",
+      by: dc.closed_by || "",
+      notes: dc.notes || "",
+      // A typed (or scanned) MOMS comes back as typed. Opening it in Auto
+      // re-saved a different MOMS the moment anything else changed.
+      momsMode: dc.moms_mode === "manual" && dc.moms_total != null ? "manual" : "auto",
+      momsManual: dc.moms_mode === "manual" && dc.moms_total != null ? asInput(dc.moms_total) : "",
+    };
+    setCashCounted(loaded.cash);
+    setMomsMode(loaded.momsMode);
+    setMomsManual(loaded.momsManual);
+    // Autosave waits for a real change: opening "Rediger" re-saved the close
+    // within two seconds, before the owner had touched anything. Every field
+    // counts as a change — a note, a staff count or the MOMS alone was never
+    // saved, because only the money fields were compared.
+    editBaselineRef.current = editSignature({ rev, pay, ...loaded });
     // NOTE: registerCash (the "Expected (from register)" baseline) is NOT set
     // from the saved close here — a close row can't tell us whether its stored
     // cash_expected was register- or typed-derived. Instead the prefill effect
     // re-derives it from live Sale rows for this date (authoritative, and what
     // the backend will use on re-save), so the label stays honest on edit.
-    if (dc.tips_total != null) setTipsTotal(asInput(dc.tips_total));
-    if (dc.tips_staff_count != null) setStaffCount(String(dc.tips_staff_count));
-    if (dc.closed_by) setClosedBy(dc.closed_by);
-    if (dc.notes) setNotes(dc.notes);
+    setTipsTotal(loaded.tips);
+    setStaffCount(loaded.staff);
+    setClosedBy(loaded.by);
+    setNotes(loaded.notes);
     if (dc.receipt_photo) setReceiptPhotoUrl(dc.receipt_photo);
     // Skip scan UI (the user already has values) and jump to step 1.
     setScanMode("skipped");
@@ -1839,7 +1893,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       try {
         const today = businessDate;
         const params = { date: today };
-        if (branchId) params.branch_id = branchId;
+        // The branch the close is filed under (a close opened from History
+        // keeps its own), so its sales are the ones compared.
+        if (fileBranchId) params.branch_id = fileBranchId;
         // branch_type lets the backend resolve THIS vertical's revenue category
         // keys for the computed split (restaurant food/drinks/takeaway, etc.).
         if (branchType) params.branch_type = branchType;
@@ -1963,7 +2019,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setPrefillLoading(false);
     };
     fetchPrefill();
-  }, [branchId, branchType, businessDate]);
+  }, [fileBranchId, branchType, businessDate]);
 
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + readMoney0(v), 0), [revAmounts, mLocale]);
   const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + readMoney0(v), 0), [payAmounts, mLocale]);
@@ -2011,13 +2067,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const scanned = scanResult ? (headlineTotal(scanResult, mLocale) || 0) : 0;
     return scanned > revenueTotal ? scanned : revenueTotal;
   }, [scanResult, revenueTotal, mLocale]);
+  // A total read off the Z-bon IS revenue, split by category or not: a
+  // total-only read said "can't be checked" while it locked 17.030.
+  const revenueKnown = hasRevenueEntry || savedRevenue > 0;
+  // Saved total minus the category lines: the part nobody split (a partly
+  // read Z-bon), or a hand-corrected total below the lines (negative).
+  const unsplitRevenue = Math.round((savedRevenue - revenueTotal) * 100) / 100;
   const tieOut = useMemo(() => {
-    if (!hasRevenueEntry || !hasPaymentEntry) return { state: "unknown", diff: null };
+    if (!revenueKnown || !hasPaymentEntry) return { state: "unknown", diff: null };
     const diff = savedRevenue - paymentTotal;
     // Under 1 kr is rounding, not a discrepancy — same threshold the
     // payments step has always used, now defined once.
     return { state: Math.abs(diff) < 1 ? "balanced" : "off", diff };
-  }, [hasRevenueEntry, hasPaymentEntry, savedRevenue, paymentTotal]);
+  }, [revenueKnown, hasPaymentEntry, savedRevenue, paymentTotal]);
   // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
   // register cash (what the till says was taken) over the owner's typed cash
   // line — typed-vs-counted is self-referential and can't surface a real
@@ -2085,7 +2147,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const fetchExempt = async () => {
       try {
         const params = { date: businessDate, day_cutoff_hour: cutoffHour };
-        if (branchId) params.branch_id = branchId;
+        if (fileBranchId) params.branch_id = fileBranchId;
         const res = await api.get("/property-report", { params });
         if (cancelled) return;
         const totals = res?.data?.totals || {};
@@ -2109,7 +2171,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     setExemptStatus("loading");
     fetchExempt();
     return () => { cancelled = true; };
-  }, [businessDate, branchId, cutoffHour]);
+  }, [businessDate, fileBranchId, cutoffHour]);
 
   // MOMS / VAT — toggle between auto-calc and manual entry from receipt
   const [momsMode, setMomsMode] = useState("auto"); // "auto" | "manual"
@@ -2273,7 +2335,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
     return {
       date: businessDate,
-      branch_id: branchId || null,
+      branch_id: fileBranchId,
       status,
       revenue_breakdown,
       payment_breakdown,
@@ -2330,23 +2392,35 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const [lockedRowRejected, setLockedRowRejected] = useState(false);
   useEffect(() => {
     setLockedRowRejected(false);
-  }, [businessDate, branchId]);
+  }, [businessDate, fileBranchId]);
 
   // A close already filed for the chosen day. A fresh close typed over a
   // draft replaced it two seconds later without a word (a Catering line, a
   // cash count and a staff count gone), and a locked day only said so at the
   // final tap, as "check your connection". Ask first — and never count the
   // draft this form itself just saved.
-  const rowKey = `${businessDate}|${branchId || ""}`;
+  const rowKey = `${businessDate}|${fileBranchId || ""}`;
+  // A new day or another branch picked: the form follows the picker again.
+  useEffect(() => {
+    if (!editingDate) setFileBranchOverride(undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessDate, branchId]);
   const [ownDraftKey, setOwnDraftKey] = useState(null);
   const [overwriteKey, setOverwriteKey] = useState(null);
   const existingForDate = useMemo(() => {
     if (editingDate || ownDraftKey === rowKey) return null;
     return (existingCloses || []).find((dc) =>
       String(dc.date || "").slice(0, 10) === businessDate
-      && (dc.branch_id || null) === (branchId || null)
+      // "All branches" picked: any branch's close for the day is the one
+      // the owner means. The strict compare missed it, and typing then saved
+      // a second close for that day with no branch.
+      && (!branchId || (dc.branch_id || null) === fileBranchId)
       && !dc.is_deleted) || null;
-  }, [existingCloses, businessDate, branchId, editingDate, ownDraftKey, rowKey]);
+  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKey, rowKey]);
+  // Named when the venue has several, so "a draft for this day" says whose.
+  const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
+    ? (branches.find((b) => String(b.id) === String(existingForDate.branch_id))?.name || "")
+    : "";
   const existingLocked = existingForDate?.status === "confirmed";
   const existingBlocks = Boolean(existingForDate) && (existingLocked || overwriteKey !== rowKey);
 
@@ -2356,10 +2430,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // the server has already said no for this row.
     if (lockedRowRejected || existingBlocks) return;
     // Only auto-save if user has entered some data and is past scan UI
-    if (scanMode !== "skipped" || revenueTotal === 0) return;
+    // On the total that will be SAVED: a Z-bon read as a total only was
+    // never autosaved, because its categories summed to zero.
+    if (scanMode !== "skipped" || savedRevenue === 0) return;
     // An edit that hasn't changed anything yet is not a save.
-    if (editBaselineRef.current && editBaselineRef.current === JSON.stringify({
+    if (editBaselineRef.current && editBaselineRef.current === editSignature({
       rev: revAmounts, pay: payAmounts, cash: cashCounted, tips: tipsTotal,
+      staff: staffCount, by: closedBy, notes, momsMode, momsManual,
     })) return;
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
@@ -2381,7 +2458,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     return () => clearTimeout(autoSaveRef.current);
   // closedBy / notes / staff / MOMS typed on the review step were never
   // autosaved — "Kladde gemt" and then lost on the next open.
-  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, branchId]);
+  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue]);
 
   // Final submit — locks the close (with offline queue fallback).
   // opts.acknowledgeAnomaly=true is passed by the "Yes, lock it" button
@@ -2460,9 +2537,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // axios's "Request failed with status code 500" when the payload said
       // nothing, which is noise dressed as an explanation.
       if (err.response.status === 409) {
-        setError(t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", {
-          amount: formatOwnerMoney(existingForDate?.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }),
-        }));
+        // The amount only when this form knows it: editing a draft whose day
+        // was locked elsewhere said "Locked at 0 kr.", a figure nobody locked.
+        setError(existingForDate
+          ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", {
+            amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }),
+          })
+          : t("dcDayLockedNoAmount", "This day is already locked — unlock it from History first if it needs correcting."));
         setErrorDetail("");
         return;
       }
@@ -2533,7 +2614,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
    * screen. After a sum whose second Z-bon had no readable MOMS line, the
    * figure covers one till out of two — see the guard in applyScanValues.
    */
-  const scanMomsTrusted = (scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+  const scanMomsTrusted = ((scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+    // Nor after the owner corrected the total: the card kept "3.406 kr. read"
+    // while the review and the save used 3.290 — two MOMS for one day.
+    || scanResult?.revenue_total_text)
     ? null
     : scanResult?.moms_total;
 
@@ -2590,6 +2674,50 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     );
   };
 
+  // "There's already a close for this day" — on the scan screen too. It
+  // only appeared after a photo had been read, so a locked day offered a
+  // camera whose numbers could never be saved, and a draft was found only
+  // once the new figures were on screen.
+  const existingBannerEl = existingBlocks ? (
+
+          <SectionBanner
+            severity={existingLocked ? "info" : "warn"}
+            icon={existingLocked ? "Lock" : "FileText"}
+            className="mb-4"
+            title={existingLocked
+              ? t("dcDayAlreadyLocked", "This day is already closed and locked")
+              : t("dcDayHasDraft", "There's already a draft for this day")}
+          >
+            {existingBranchName && <span className="font-semibold">{existingBranchName}: </span>}
+            {existingLocked
+              ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) })
+              : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which replaces it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) })}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {existingLocked ? (
+<>
+                <Button size="md" variant="secondary" onClick={() => onShowHistory?.()}>{t("dcOpenHistory", "Open History")}</Button>
+                {showScanUI && (
+                  <Button size="md" variant="secondary" onClick={() => {
+                    setScanMode("skipped"); setStep(1);
+                    setTimeout(() => document.getElementById("close-date")?.focus(), 60);
+                  }}>{t("dcPickAnotherDay", "Pick another day")}</Button>
+                )}
+                </>
+              ) : (<>
+                <Button size="md" variant="primary" onClick={() => onContinueDraft?.(existingForDate)}>{t("dcContinueDraft", "Continue the draft")}</Button>
+                <Button size="md" variant="secondary" onClick={() => {
+                  // "Start over, which replaces it" — so the new close is filed
+                  // under that draft's branch, not beside it.
+                  const b = existingForDate.branch_id || null;
+                  setFileBranchOverride(b);
+                  setOverwriteKey(`${businessDate}|${b || ""}`);
+                }}>{t("dcStartOverDraft", "Start over")}</Button>
+              </>)}
+            </div>
+          </SectionBanner>
+  ) : null;
+  const businessDateLabel = new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long" });
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* ─── Close anomaly double-check (close_sanity soft guard) ───
@@ -2627,6 +2755,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN BANNER (Step 0) ─── */}
         {scanMode === "idle" && (
           <div className="space-y-4">
+            <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+              <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
+              {t("dcCloseForDate", "Kasserapport for {date}", { date: businessDateLabel })}
+            </p>
+            {existingBannerEl}
+            {!existingBlocks && (<>
             {/* The scan step's opening instruction.
                 It used to be a three-stop emerald gradient banner with a white
                 title and gray-100 body — a marketing hero at the top of an
@@ -2714,6 +2848,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 {t("skipEnterManually", "Skip — enter manually")}
               </button>
             </div>
+            </>)}
           </div>
         )}
 
@@ -3127,11 +3262,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 const isEmpty = !val && !scanRevComplete;
                 return (
                   <div key={c.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
-                      {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}
-                      {val && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
-                      {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
+                    {/* Icons and badges keep their size; the label gives way. In the
+                        fixed-width column a "missing" row squeezed its icons to 0px. */}
+                    <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
+                      {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
+                      <Icon name={c.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, c)}</span>
+                      {val && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                      {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Controlled now, and the RAW string is what we keep. The
                         old handler was `parseFloat(e.target.value) || 0` on a
@@ -3253,11 +3390,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 const isEmpty = !val && !scanPayComplete;
                 return (
                   <div key={m.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
-                      {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}
-                      {val && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
-                      {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
+                    {/* Icons and badges keep their size; the label gives way. In the
+                        fixed-width column a "missing" row squeezed its icons to 0px. */}
+                    <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
+                      {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
+                      <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, m)}</span>
+                      {val && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                      {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
                     <MoneyField
@@ -3433,38 +3572,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           )}
         </div>
 
-        {existingBlocks && (
-          <SectionBanner
-            severity={existingLocked ? "info" : "warn"}
-            icon={existingLocked ? "Lock" : "FileText"}
-            className="mb-4"
-            title={existingLocked
-              ? t("dcDayAlreadyLocked", "This day is already closed and locked")
-              : t("dcDayHasDraft", "There's already a draft for this day")}
-          >
-            {existingLocked
-              ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) })
-              : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which replaces it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) })}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {existingLocked ? (
-                <Button size="md" variant="secondary" onClick={() => onShowHistory?.()}>{t("dcOpenHistory", "Open History")}</Button>
-              ) : (<>
-                <Button size="md" variant="primary" onClick={() => onContinueDraft?.(existingForDate)}>{t("dcContinueDraft", "Continue the draft")}</Button>
-                <Button size="md" variant="secondary" onClick={() => setOverwriteKey(rowKey)}>{t("dcStartOverDraft", "Start over")}</Button>
-              </>)}
-            </div>
-          </SectionBanner>
-        )}
+        {existingBannerEl}
 
         {/* A locked day is read-only here: the form under the "already locked"
             banner could still be filled in, only to be refused at the end. */}
         <fieldset disabled={existingLocked} className={"min-w-0 m-0 p-0 border-0 " + (existingLocked ? "opacity-50 pointer-events-none select-none" : "")} aria-hidden={existingLocked || undefined}>
-        {/* Draft auto-save indicator */}
-        {draftSaved && (
-          <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center text-xs text-gray-400 flex items-center justify-center gap-1.5">
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> {t("draftSavedResumeLater", "Draft saved — you can leave and resume later")}
-          </div>
-        )}
 
         {/* Sync indicator.
             Was the page's only blue surface — a decorative family carrying no
@@ -3619,7 +3731,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {currentStepId === "tips" && t("stepNTips", "Step {n} — Tips", { n: step })}
             {currentStepId === "review" && t("stepNReview", "Step {n} — Review & Submit", { n: step })}
           </h2>
-          <span className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0">{step}/{totalSteps}</span>
+          {/* Draft auto-save says so HERE, in a fixed-width slot. It was a
+              banner above the step that pushed every field down ~44px and
+              pulled them back 3s later — a tap meant for Catering typed
+              1.500 into "Add category". */}
+          <span aria-live="polite" title={draftSaved ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
+            className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0 min-w-[3.75rem] text-right">
+            {draftSaved
+              ? <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400"><Icon name="Check" size={13} />{t("dcDraftSavedShort", "Saved")}</span>
+              : `${step}/${totalSteps}`}
+          </span>
         </div>
 
         {/* ─── STEP: Revenue ─── */}
@@ -3675,8 +3796,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
             {/* Variance warning — fire if user-entered total diverges from POS by >10% */}
-            {prefill && prefill.sales.total > 0 && revenueTotal > 0 && (() => {
-              const variance = revenueTotal - prefill.sales.total;
+            {prefill && prefill.sales.total > 0 && savedRevenue > 0 && (() => {
+              const variance = savedRevenue - prefill.sales.total;
               const pctOff = Math.abs(variance) / prefill.sales.total;
               if (pctOff <= 0.10) return null;  // <=10% is normal (rounding, etc.)
               return (
@@ -3689,7 +3810,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       thousands separator read as a decimal point on both. */}
                   <strong><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1 text-amber-600 dark:text-amber-400" />{t("varianceFromRegister", "Variance from sales register: {amount}", { amount: formatOwnerMoney(variance, currency, { decimals: GLANCE_DECIMALS, sign: true }) })}</strong>
                   <p className="text-[12px] mt-1 text-amber-700/90 dark:text-amber-300/90 tabular-nums">
-                    {t("closeDiffersBy", "Your close ({close}) differs by {pct}% from your POS total ({pos}). Double-check before locking — this number will be on your revisor's report.", { close: formatOwnerMoney(revenueTotal, currency, { decimals: GLANCE_DECIMALS }), pct: Math.round(pctOff * 100), pos: formatOwnerMoney(prefill.sales.total, currency, { decimals: GLANCE_DECIMALS }) })}
+                    {t("closeDiffersBy", "Your close ({close}) differs by {pct}% from your POS total ({pos}). Double-check before locking — this number will be on your revisor's report.", { close: formatOwnerMoney(savedRevenue, currency, { decimals: GLANCE_DECIMALS }), pct: Math.round(pctOff * 100), pos: formatOwnerMoney(prefill.sales.total, currency, { decimals: GLANCE_DECIMALS }) })}
                   </p>
                 </div>
               );
@@ -3719,7 +3840,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             ))}
             <div className="flex gap-2">
-              <input type="text" placeholder={t("addCategory", "Add category...")} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-[13px]"
+              <input type="text" placeholder={t("addCategory", "Add category...")} className="flex-1 min-w-0 h-11 px-4 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-[13px]"
                 value={customRevName} onChange={e => setCustomRevName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomRevCat()} />
               <Button variant="secondary" size="lg" onClick={addCustomRevCat}>+ {t("addBtn", "Add")}</Button>
@@ -3732,14 +3853,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 until the owner has actually typed something. */}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex items-baseline justify-between gap-3">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("total", "Total")}</span>
+              {/* The total that will be SAVED: a partly read Z-bon showed the
+                  10.000 typed into Mad here while 17.030 was locked. */}
               <Amount
-                value={hasRevenueEntry ? revenueTotal : null}
+                value={revenueKnown ? savedRevenue : null}
                 currency={currency}
-                decimals={oreIfAny(revenueTotal)}
+                decimals={oreIfAny(savedRevenue)}
                 size="kpi"
                 className="text-gray-900 dark:text-white"
               />
             </div>
+            <UnsplitLine amount={unsplitRevenue} show={revenueKnown} currency={currency} t={t} />
           </div>
         )}
 
@@ -3898,8 +4022,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <span><Amount value={readMoney(revAmounts[c.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
+              {/* So the rows add up to the total the kasserapport will carry. */}
+              <UnsplitLine amount={unsplitRevenue} show={revenueKnown} currency={currency} t={t} />
               <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
-                <span>{t("total")}</span><span><Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                <span>{t("total")}</span><span><Amount value={revenueKnown ? savedRevenue : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
               </div>
             </div>
 
@@ -3910,7 +4036,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 the block the revisor's MOMS number comes out of, so it now
                 reads like a ledger — neutral ground, ø-aligned tabular figures,
                 and the one bold line reserved for the total. */}
-            {revenueTotal > 0 && (
+            {savedRevenue > 0 && (
               <div className="rounded-xl p-4 space-y-3 bg-gray-50 dark:bg-gray-700/50">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400">{vatName} ({vatRatePct}%)</h3>
@@ -4078,13 +4204,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Closed by + notes */}
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("closedBy")}</label>
-                <input type="text" placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
+                <label htmlFor="dc-closed-by" className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("closedBy")}</label>
+                <input id="dc-closed-by" type="text" placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
                   value={closedBy} onChange={e => setClosedBy(e.target.value)} />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("notes")}</label>
-                <textarea placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
+                <label htmlFor="dc-notes" className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("notes")}</label>
+                <textarea id="dc-notes" placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
                   value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
             </div>
@@ -4469,14 +4595,16 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
         <button
           onClick={onDismiss}
           aria-label={t("dismiss", "Dismiss")}
-          className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 leading-none"
+          // A 44px target in the corner; it sat on top of the title's last
+          // words on a phone.
+          className="absolute top-1.5 right-1.5 w-11 h-11 inline-flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
         >
           <Icon name="X" size={18} />
         </button>
         <div className="flex items-start gap-3">
           <Icon name="CheckCircle2" size={26} className="text-emerald-600 dark:text-emerald-500 shrink-0" />
-          <div className="flex-1 space-y-3">
-            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <div className="flex-1 min-w-0 space-y-3">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 pr-9">
               <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {t(closeTitleKeyFor(businessType), "Tonight's close — locked at {time} by {who}", { time: closedAt, who: closedBy })}
             </p>
             {emailLine}
@@ -4503,16 +4631,16 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
                       .replace("{float}", formatOwnerMoney(bankDrop.leave_in_drawer_dkk ?? 1000, currency, { decimals: GLANCE_DECIMALS }))
                       .replace(/\s*\{currency\}/g, "")}
                   </p>
-                  <button onClick={handleBankDropDone}
-                    className="mt-2 text-xs px-3 py-1 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600">
+                  {/* A secondary button: white on amber-500 read at ~2:1. */}
+                  <Button size="md" variant="secondary" onClick={handleBankDropDone} className="mt-2">
                     {t("bankDropMarkDone", "Marked as done")}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
             {bankDropDone && (
               <p className="text-xs text-gray-700 dark:text-gray-300">
-                <Icon name="Check" size={13} className="inline align-text-bottom mr-1 text-emerald-600" />{t("bankDropDone", "✓ In safe")}
+                {t("bankDropDone", "✓ In safe")}
               </p>
             )}
           </div>
@@ -5228,11 +5356,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                           .replace("{tier}", planTier === "free" ? "Free" : planTier)
                           .replace("{days}", String(exportCapDays)))
                   : ""}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                aria-pressed={isActive}
+                // The app's selected state in both themes: in dark the chosen
+                // range was the DARKEST button and read as the unselected one.
+                className={`px-3 min-h-10 sm:min-h-8 rounded-lg text-[13px] sm:text-xs font-semibold border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 ${
                   locked
                     ? "bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed"
                     : isActive
-                      ? "bg-gray-900 text-white border-gray-900"
+                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
                       : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-gray-300"
                 }`}
               >

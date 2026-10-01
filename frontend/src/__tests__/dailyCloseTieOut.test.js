@@ -119,8 +119,12 @@ describe("three outcomes, not two", () => {
     // Printing that as "Difference: 17.030 kr" is a confident discrepancy
     // derived from a column nobody filled in — the same class of lie as a
     // not-known total rendered as a confident zero.
+    // The revenue side counts a total read off the Z-bon too: a total-only
+    // read is KNOWN revenue, and calling it "can't be checked" while locking
+    // 17.030 was the opposite lie.
+    expect(CODE).toMatch(/const revenueKnown = hasRevenueEntry \|\| savedRevenue > 0;/);
     expect(CODE).toMatch(
-      /if \(!hasRevenueEntry \|\| !hasPaymentEntry\) return \{ state: "unknown", diff: null \}/,
+      /if \(!revenueKnown \|\| !hasPaymentEntry\) return \{ state: "unknown", diff: null \}/,
     );
   });
 
