@@ -21,6 +21,7 @@ import { ACCENT_VALUE_CLASS } from "./statAccents";
  *   helper?,            short note on one line, truncated if it does not fit —
  *                       put the part that matters most FIRST
  *   accent?,            "neutral" | "success" | "warn" | "critical" (value colour)
+ *   shortLabel?,        the label on a phone, where ~110px cut "Næste ankomst"
  *   icon?, tone?,       a Lucide icon before the label, tinted by meaning —
  *                       "neutral" | "info" | "success" | "warn" | "critical"
  *   onClick?, selected?,  a clickable cell is a real <button> with a chevron
@@ -67,11 +68,13 @@ const ICON_TONE = {
   info: "text-sky-500 dark:text-sky-400",
   success: "text-emerald-600 dark:text-emerald-400",
   warn: "text-amber-500 dark:text-amber-400",
+  late: "text-orange-500 dark:text-orange-400",
   critical: "text-red-500 dark:text-red-400",
 };
 
 function StatStripCell({
   label,
+  shortLabel = null,
   value,
   helper = null,
   accent = "neutral",
@@ -119,7 +122,14 @@ function StatStripCell({
               aria-hidden="true"
             />
           )}
-          <span className="truncate">{label}</span>
+          {shortLabel ? (
+            <>
+              <span className="truncate sm:hidden">{shortLabel}</span>
+              <span className="truncate max-sm:hidden">{label}</span>
+            </>
+          ) : (
+            <span className="truncate">{label}</span>
+          )}
         </span>
         {isClickable && (
           <ChevronRight

@@ -135,7 +135,8 @@ def test_only_booked_statuses_count_as_covers(client, db):
 
     days = _days(client.get("/api/reservations/month-load?month=2026-07").json())
     assert days["2026-07-10"]["covers"] == 4
-    assert days["2026-07-10"]["bookings"] == 3  # all three still counted as rows
+    # The cockpit says "1 reservation" for this day; the rail says the same.
+    assert days["2026-07-10"]["bookings"] == 1
 
 
 # ─── The business-day cutoff (the bit that's easy to get wrong) ──────

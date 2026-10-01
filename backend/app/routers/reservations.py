@@ -1472,8 +1472,11 @@ def reservation_month_load(
         if bday < first or bday > last:
             continue
         slot = days.setdefault(bday.isoformat(), {"covers": 0, "bookings": 0, "staff_on": 0})
-        slot["bookings"] += 1
+        # Booked parties only, as the day's own strip counts them: the
+        # calendar said "38 reservationer" for a day the strip called 6,
+        # because cancelled rows and removed drop-ins were counted too.
         if r.status in BOOKED_COVER_STATUSES:
+            slot["bookings"] += 1
             slot["covers"] += (r.party_size or 0)
 
     # Rostered headcount per day — distinct staff, so a split shift counts the
@@ -1500,7 +1503,7 @@ def reservation_month_load(
         "days": [{"date": k, **v} for k, v in sorted(days.items())],
         # The month as a record ("58 bookings · 190 guests") — same rows, same
         # definitions as the Indsigt month-by-month table, so they always agree.
-        # Additive: `days[].bookings` above still counts cancelled bookings too.
+        # `days[].bookings` above counts booked parties only, the same rule.
         "month_totals": reservation_monthly.month_totals(rows, cutoff, first, last),
     }
 
@@ -2326,7 +2329,10 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
                     held_ids = [UUID(str(x)) for x in ids]
                     new_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
                     if [str(x) for x in held_ids] != [str(h) for h in (r.combined_resource_ids or [r.resource_id])]:
-                        moved = {"from": old_label or None, "to": new_label or None}
+                        # Why — so the host reads "Bord 2 er booket fra 20.30"
+                        # or "Bord 2 har 2 pladser", not "passede ikke".
+                        moved = {"from": old_label or None, "to": new_label or None, **clash_info,
+                                 **({"from_seats": seats} if seats < new_party else {})}
                     r.resource_id = held_ids[0]
                     r.combined_resource_ids = [str(x) for x in held_ids] if len(held_ids) > 1 else None
 

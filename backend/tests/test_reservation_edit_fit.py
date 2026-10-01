@@ -166,7 +166,7 @@ def test_a_party_that_outgrows_its_table_moves_and_says_so(client, db):
     assert res.status_code == 200, res.text
     out = res.json()
     assert out["resource_id"] == str(eight.id)
-    assert out["moved"] == {"from": "Bord 1", "to": "Bord 2"}
+    assert out["moved"] == {"from": "Bord 1", "to": "Bord 2", "from_seats": 2}
     assert _held(db, b["id"]) == [str(eight.id)]
 
 
@@ -241,7 +241,7 @@ def test_a_time_move_onto_a_taken_table_moves_table(client, db):
     res = _edit(client, b["id"], starts_at=f"{_DAY}T20:30:00")
     assert res.status_code == 200, res.text
     assert res.json()["resource_id"] == str(eight.id)
-    assert res.json()["moved"] == {"from": "Bord 1", "to": "Bord 2"}
+    assert res.json()["moved"] == {"from": "Bord 1", "to": "Bord 2", "clash_table": "Bord 1", "clash_at": "20:00"}
 
 
 # ── table times are edited per party size, never wiped ───────────────

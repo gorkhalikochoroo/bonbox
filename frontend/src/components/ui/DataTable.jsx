@@ -102,12 +102,15 @@ const BREAKPOINT_TABLE_HIDE = {
   md: "hidden md:block",
   lg: "hidden lg:block",
   xl: "hidden xl:block",
+  // 1360: wide enough for a five-column book with three row actions.
+  wide: "hidden min-[1360px]:block",
 };
 const BREAKPOINT_CARDS_HIDE = {
   sm: "sm:hidden",
   md: "md:hidden",
   lg: "lg:hidden",
   xl: "xl:hidden",
+  wide: "min-[1360px]:hidden",
 };
 
 function resolveKey(row, rowKey, idx) {

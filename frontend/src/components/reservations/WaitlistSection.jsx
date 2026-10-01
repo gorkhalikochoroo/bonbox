@@ -263,8 +263,10 @@ export default function WaitlistSection({
 
   const removeEntry = async (entry) => {
     const who = entry.guest_name || t("rsvpGuest", "Guest");
+    // The question is the title — it was "Er du sikker?" over the real one.
     const ok = await confirm({
-      message: t("rsvpWlRemoveConfirm", "Remove {name} from the waitlist?", { name: who }),
+      title: t("rsvpWlRemoveConfirm", "Remove {name} from the waitlist?", { name: who }),
+      message: t("rsvpWlRemoveBody", "They are not told."),
       destructive: true,
       confirmLabel: t("rsvpWlRemove", "Remove"),
     });
@@ -410,7 +412,14 @@ export default function WaitlistSection({
         <form
           onSubmit={addEntry}
           // Esc closes it, as it closes every sheet on the page.
-          onKeyDown={(ev) => { if (ev.key === "Escape") { ev.stopPropagation(); setAdding(false); setAddErr(""); } }}
+          // Esc closes it and drops the draft — "Test Esc" came back next time.
+          onKeyDown={(ev) => {
+            if (ev.key !== "Escape") return;
+            ev.stopPropagation();
+            setAdding(false);
+            setAddErr("");
+            setForm({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
+          }}
           className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 space-y-2"
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

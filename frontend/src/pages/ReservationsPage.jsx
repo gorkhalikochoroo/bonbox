@@ -87,6 +87,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import PartySizeChips from "../components/reservations/PartySizeChips";
+import { zoneTones } from "../utils/zoneColors";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import Sheet from "../components/ui/Sheet";
@@ -177,22 +178,19 @@ const STATUS_BAR = {
   cancelled: "bg-gray-200 dark:bg-gray-700",
 };
 
-// Zones are data, so they get a colour too — a small dot, from hues kept
-// clear of the status colours (no blue/green/amber/orange/red). Assigned by
-// the zone's place in the sorted list, so ≤5 zones never collide; shown only
-// when the venue has two or more zones (one zone tells the host nothing).
-const ZONE_PALETTE = ["bg-teal-500", "bg-violet-500", "bg-pink-500", "bg-indigo-400", "bg-slate-400"];
-function zoneDots(resources) {
-  const zones = [...new Set((resources || []).map((r) => r.zone).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  if (zones.length < 2) return {};
-  const byZone = Object.fromEntries(zones.map((z, i) => [z, ZONE_PALETTE[i % ZONE_PALETTE.length]]));
-  const out = {};
-  for (const r of resources) if (r.zone) out[String(r.id)] = { cls: byZone[r.zone], zone: r.zone };
-  return out;
-}
+// Zone colours: utils/zoneColors (hollow rings, clear of the status hues).
 function ZoneDot({ dot }) {
   if (!dot) return null;
-  return <span className={"inline-block w-1.5 h-1.5 rounded-full shrink-0 " + dot.cls} role="img" aria-label={dot.zone} title={dot.zone} />;
+  return <span className={"inline-block w-2 h-2 rounded-full border-2 shrink-0 " + dot.cls} role="img" aria-label={dot.zone} title={dot.zone} />;
+}
+
+// One "late" everywhere — list, drawer, timeline, floor and strip: a
+// confirmed party 5+ minutes past its start, on today's book. Whole minutes
+// rounded DOWN, so every view says the same number (they said 28, 29, 29).
+function lateMinutes(r, nowMs, onToday = true) {
+  if (!onToday || !r || r.status !== "confirmed" || !r.starts_at || !nowMs) return 0;
+  const m = Math.floor((nowMs - new Date(r.starts_at).getTime()) / 60000);
+  return m >= 5 ? m : 0;
 }
 
 // The statuses whose party sizes the server counts as the day's covers.
@@ -768,7 +766,7 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
   const over = seats > 0 && Number(r.party_size) > seats && ["requested", "confirmed", "seated"].includes(r.status);
   const overTag = over ? (
     <span
-      className="ml-1 text-[12px] font-medium tabular-nums text-amber-700 dark:text-amber-400"
+      className="ml-1 inline-flex items-center gap-0.5 text-[12px] font-medium tabular-nums text-gray-700 dark:text-gray-200"
       title={t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats })}
     >
       {r.party_size}/{seats}
@@ -804,7 +802,12 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
   // A live booking with no table is something the host has to fix — say so,
   // like the phone row does, instead of a bare dash.
   if (["confirmed", "seated"].includes(r.status)) {
-    return <span className="text-sm text-amber-700 dark:text-amber-400 whitespace-nowrap">{t("rsvpNoTableShort", "No table")}</span>;
+    return (
+      <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
+        <AlertTriangle className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" aria-hidden />
+        {t("rsvpNoTableShort", "No table")}
+      </span>
+    );
   }
   return <span className="text-sm text-gray-400 dark:text-gray-500">—</span>;
 }
@@ -997,15 +1000,17 @@ function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
         type="button"
         disabled={busy}
         onClick={() => { setPicked(current); setOpen(true); }}
-        className="mt-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 hover:underline underline-offset-2 disabled:opacity-50"
+        // A real button — as plain text it read as a caption.
+        className="mt-2 inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
       >
+        <Link2 className="w-4 h-4" aria-hidden />
         {current.length > 1 ? t("rsvpCombineChange", "Change tables") : t("rsvpCombineTables", "Push tables together")}
       </button>
     );
   }
   return (
     <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2.5">
-      <div className={"text-[12px] tabular-nums " + (total >= r.party_size ? "text-gray-500 dark:text-gray-400" : "text-amber-700 dark:text-amber-400")}>
+      <div className={"text-[12px] tabular-nums " + (total >= r.party_size ? "text-gray-500 dark:text-gray-400" : "font-medium text-gray-800 dark:text-gray-100")}>
         {t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
       </div>
       {/* Every table, no inner scroll: Bord 11–13 and Vindue 1 hid below a
@@ -1186,7 +1191,7 @@ function ReservationDrawer({
               type="button"
               onClick={onClose}
               aria-label={t("close", "Close")}
-              className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+              className="-mt-1 h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1194,10 +1199,10 @@ function ReservationDrawer({
 
           {/* A party past its time reads "Forsinket · +30 min", in the list's
               orange — the drawer still said "Bekræftet". */}
-          {isToday && r.status === "confirmed" && r.starts_at && nowTs - new Date(r.starts_at).getTime() > 5 * 60000 ? (
+          {lateMinutes(r, nowTs, isToday) ? (
             <StatusPill
               status="late"
-              label={t("rsvpLatePill", "Late · +{n} min", { n: Math.round((nowTs - new Date(r.starts_at).getTime()) / 60000) })}
+              label={t("rsvpLatePill", "Late · +{n} min", { n: lateMinutes(r, nowTs, isToday) })}
             />
           ) : (
             <StatusPill status={r.status} label={labels[r.status] || r.status} />
@@ -1357,7 +1362,7 @@ function ReservationDrawer({
                   })}
                 </select>
                 {heldSeats > 0 && Number(r.party_size) > heldSeats && (
-                  <p className="mt-1.5 text-[12px] text-amber-700 dark:text-amber-400">
+                  <p className="mt-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-200">
                     {t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
                   </p>
                 )}
@@ -1374,7 +1379,7 @@ function ReservationDrawer({
             ["requested", "confirmed", "seated"].includes(r.status) && (
               <div>
                 {heldSeats > 0 && Number(r.party_size) > heldSeats && (
-                  <p className="text-[12px] text-amber-700 dark:text-amber-400">
+                  <p className="text-[12px] font-medium text-gray-700 dark:text-gray-200">
                     {t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
                   </p>
                 )}
@@ -1603,7 +1608,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
             {tableTooSmall && (
               /* Informs, never blocks — a host may deliberately push chairs
                  together, and the stand must not argue with the room. */
-              <p className="mt-1.5 text-[12px] leading-snug text-amber-700 dark:text-amber-400">
+              <p className="mt-1.5 text-[12px] leading-snug font-medium text-gray-700 dark:text-gray-200">
                 {t("rsvpSeatTableSmall", "That table seats {seats} — you're seating {party}.")
                   .replace("{seats}", chosenTable?.capacity_seats ?? "?")
                   .replace("{party}", party)}
@@ -1881,7 +1886,7 @@ function EditBookingSheet({
           </div>
         </div>
         {editTimes.closed && (
-          <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400">
+          <p className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">
             {t("rsvpClosedThatDayShort", "You're closed that day.")}
           </p>
         )}
@@ -1965,7 +1970,7 @@ function EditBookingSheet({
           {/* The same answer New booking gives — six on a two-top, a sitting
               past closing, a taken table — with the owner's way through. */}
           {warning && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5 text-sm text-gray-800 dark:text-gray-100 space-y-2.5">
               <div className="font-semibold flex items-start gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
                 <span>{roomFullText(warning, t, sitting, { edit: true })}</span>
@@ -1975,7 +1980,12 @@ function EditBookingSheet({
                   {t("rsvpEditSaveAnyway", "Save anyway")}
                 </Button>
                 {!warning.tooBig && (
-                  <Button variant="ghost" size="md" disabled={busy} onClick={onClearWarning}>
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    disabled={busy}
+                    onClick={() => { onClearWarning(); document.getElementById("eb-time")?.focus(); }}
+                  >
                     {t("rsvpPickAnotherTime", "Pick another time")}
                   </Button>
                 )}
@@ -2281,7 +2291,7 @@ function NewBookingSheet({
           </div>
         </div>
         {dayTimes.closed && (
-          <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400">
+          <p className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">
             {t("rsvpClosedThatDayShort", "You're closed that day.")}
           </p>
         )}
@@ -2289,7 +2299,7 @@ function NewBookingSheet({
           <p role="status" className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">{timeNote}</p>
         )}
         {date < serviceDayIso() && (
-          <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400">
+          <p className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">
             {t("rsvpPastDateNote", "That day has already passed.")}
           </p>
         )}
@@ -2451,7 +2461,7 @@ function NewBookingSheet({
             time. The host decides: take it anyway (waitlist-style, no table)
             or pick another time. */}
         {warning && (
-          <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5 text-sm text-gray-800 dark:text-gray-100 space-y-2.5">
             <div className="font-semibold flex items-center gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden />
               {/* "room_full" is raised whenever auto-assign finds no table,
@@ -2475,7 +2485,13 @@ function NewBookingSheet({
               </Button>
               {/* Another time can't help when no table is big enough. */}
               {!warning.tooBig && (
-                <Button variant="ghost" size="md" disabled={busy} onClick={onClearWarning}>
+                <Button
+                  variant="ghost"
+                  size="md"
+                  disabled={busy}
+                  // Straight to the time field — focus landed on <body>.
+                  onClick={() => { onClearWarning(); document.getElementById("nb-time")?.focus(); }}
+                >
                   {t("rsvpPickAnotherTime", "Pick another time")}
                 </Button>
               )}
@@ -2484,7 +2500,7 @@ function NewBookingSheet({
         )}
 
         {pastWarn && !warning && (
-          <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5 text-sm text-gray-800 dark:text-gray-100 space-y-2.5">
             <div className="font-semibold flex items-start gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
               <span>{t("rsvpPastTimeWarn", "That time has already passed. Book it anyway?")}</span>
@@ -2493,7 +2509,12 @@ function NewBookingSheet({
               <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(false, true)}>
                 {t("rsvpPastBookAnyway", "Book anyway")}
               </Button>
-              <Button variant="ghost" size="md" disabled={busy} onClick={() => setPastWarn(false)}>
+              <Button
+                variant="ghost"
+                size="md"
+                disabled={busy}
+                onClick={() => { setPastWarn(false); document.getElementById("nb-time")?.focus(); }}
+              >
                 {t("rsvpPickAnotherTime", "Pick another time")}
               </Button>
             </div>
@@ -2539,8 +2560,9 @@ function allergyLevel(r) {
 
 // Hover tooltip for a timeline block — includes the allergy detail so the
 // host can read tags/notes without opening the drawer.
-function blockTitle(r, labels, t) {
-  const base = `${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${labels[r.status] || r.status}`;
+function blockTitle(r, labels, t, late = 0) {
+  const word = late ? t("rsvpLatePill", "Late · +{n} min", { n: late }) : labels[r.status] || r.status;
+  const base = `${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${word}`;
   if (!allergyLevel(r)) return base;
   const detail = [
     (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
@@ -2613,7 +2635,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     () => reservations.filter((r) => ["requested", "confirmed", "seated"].includes(r.status)),
     [reservations],
   );
-  const zoneByTable = useMemo(() => zoneDots(resources), [resources]);
+  const zoneByTable = useMemo(() => zoneTones(resources).byId, [resources]);
 
   // Bookings with NO table yet (requested/confirmed) — without this lane
   // they'd be invisible on the timeline, which is how overbookings hide.
@@ -2784,11 +2806,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     confirmed: "bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300 dark:hover:bg-sky-900",
     late: "bg-orange-50 text-orange-700 hover:bg-orange-100 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900",
   };
-  const blockKind = (r) =>
-    day === todayIso && r.status === "confirmed" && r.starts_at &&
-    nowTick - new Date(r.starts_at).getTime() > 5 * 60000
-      ? "late"
-      : r.status;
+  const blockKind = (r) => (lateMinutes(r, nowTick, day === todayIso) ? "late" : r.status);
 
   return (
     <div ref={measureRef} className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-x-auto">
@@ -2832,16 +2850,16 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
           >
             <div
               style={{ width: RAIL_W }}
-              className="shrink-0 sticky left-0 z-10 bg-amber-50 dark:bg-[rgb(var(--surface-card))] border-r border-gray-200 dark:border-[rgb(var(--surface-line))] px-2 flex flex-col justify-center"
+              className="shrink-0 sticky left-0 z-10 bg-gray-50 dark:bg-[rgb(var(--surface-card))] border-r border-gray-200 dark:border-[rgb(var(--surface-line))] px-2 flex flex-col justify-center"
             >
-              <span className="text-sm font-semibold text-amber-700 dark:text-amber-400 truncate leading-tight">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight inline-flex items-center gap-1">
                 {t("rsvpUnassignedLane", "Unassigned")}
               </span>
-              <span className="text-[11px] text-amber-700 dark:text-amber-500 tabular-nums">
+              <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
                 {unassigned.blocks.length}
               </span>
             </div>
-            <div style={{ width: bodyW }} className="relative bg-amber-50/40 dark:bg-amber-900/10">
+            <div style={{ width: bodyW }} className="relative bg-gray-50/70 dark:bg-gray-800/30">
               {hours.map((m) => (
                 <span
                   key={m}
@@ -2860,7 +2878,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                     key={r.id}
                     type="button"
                     onClick={() => onSelect(r)}
-                    title={blockTitle(r, labels, t)}
+                    title={blockTitle(r, labels, t, lateMinutes(r, nowTick, day === todayIso))}
                     style={{ left, width, top: lane * 44 + 5, height: 34 }}
                     // The booking's own colour — the lane already says "no
                     // table"; amber-dashed for every bar read as "request".
@@ -2965,7 +2983,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                     <button
                       type="button"
                       onClick={() => onSelect(r)}
-                      title={blockTitle(r, labels, t)}
+                      title={blockTitle(r, labels, t, lateMinutes(r, nowTick, day === todayIso))}
                       style={{ left, width, top: 5, height: ROW_H - 12 }}
                       className={
                         "absolute rounded-md border px-1.5 overflow-clip text-left flex flex-col justify-center transition-colors duration-500 " +
@@ -3192,9 +3210,10 @@ function SalonFirstRunCard({
    leading so a whole month plus a per-day count fits in 300px. Days with
    nothing booked render blank, not "0" — 31 zeros is noise.
 
-   Colour stays meaningful: gray-900 for the selected day, amber ONLY where
+   Colour stays meaningful: gray-900 for the selected day, a heavier grey ONLY where
    covers outrun the roster. No heatmap — a rainbow month would look like a
-   dashboard and say less than one amber Saturday does. */
+   dashboard and say less than one marked Saturday does. (Amber is the
+   request colour now — Manoj, 1 Oct 2026.) */
 function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
   const { lang } = useLanguage();
   const [month, setMonth] = useState(() => (day || serviceDayIso()).slice(0, 7));
@@ -3311,7 +3330,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
                 (selected
                   ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
                   : heavy
-                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                    ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold hover:bg-gray-200 dark:hover:bg-gray-700"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800")
               }
             >
@@ -3322,7 +3341,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
                   (selected
                     ? "text-white/70 dark:text-gray-900/70"
                     : heavy
-                      ? "text-amber-600 dark:text-amber-400"
+                      ? "text-gray-700 dark:text-gray-200"
                       : "text-gray-400 dark:text-gray-500")
                 }
               >
@@ -3394,9 +3413,9 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
           })}
         </p>
         {isHeavy(sel) && (
-          <div className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 flex items-start gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-px" aria-hidden />
-            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+          <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5 flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300 shrink-0 mt-px" aria-hidden />
+            <p className="text-[11px] text-gray-700 dark:text-gray-200 leading-snug">
               {t("rsvpRailHeavy", "Busy day for this roster — check staffing.")}
             </p>
           </div>
@@ -3466,7 +3485,7 @@ function StandSoundChip({ t }) {
         "inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
         (ok
           ? "text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800"
-          : "text-amber-700 bg-amber-50 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30 dark:hover:bg-amber-900/50")
+          : "text-gray-800 bg-gray-100 hover:bg-gray-200 dark:text-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700")
       }
     >
       {ok ? (
@@ -4179,6 +4198,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           })
           .sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1))[0];
         const nextTable = next ? resolveTableLabel(next, labelById) || t("rsvpTableFallback", "Table") : null;
+        const heldSeats = mine.reduce((sum, id) => sum + (seatsById[id] || 0), 0);
+        const overLine = heldSeats > 0 && Number(r.party_size) > heldSeats
+          ? " " + t("rsvpSeatOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })
+          : "";
         const clashLine = !next
           ? ""
           : new Date(next.starts_at).getTime() - nowMs >= 30 * 60000
@@ -4187,7 +4210,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         if (
           !(await confirm({
             title: t("rsvpSeatEarlyTitle", "Seat {name} now?", { name: who }),
-            message: t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) }) + clashLine,
+            message: t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) }) + clashLine + overLine,
             confirmLabel: t("rsvpSeatAction", "Seat"),
             cancelLabel: t("rsvpSeatEarlyNotNow", "Not now"),
           }))
@@ -4303,6 +4326,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           severity: "warn",
           message: t("rsvpSeatEarlyKept", "{table} is needed at {time}, so the booking keeps {booked}. Give them another table in the booking.", {
             table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), booked: fmtTime(r.starts_at),
+          }),
+        });
+      }
+      if (status === "no_show") {
+        toast({
+          severity: "info",
+          message: t("rsvpNoShowDone", "{name} is marked as no-show. Reopen the booking if they turn up.", {
+            name: r.guest_name || t("rsvpGuest", "Guest"),
           }),
         });
       }
@@ -4606,7 +4637,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "success",
           message: mv.from
-            ? t("rsvpEditMovedTable", "{name} moved to {to} — {from} didn't fit.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from })
+            ? mv.clash_table
+              ? t("rsvpEditMovedClash", "{name} moved to {to} — {from} is booked from {time}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, time: hm(mv.clash_at) })
+              : mv.from_seats
+                ? t("rsvpEditMovedSeats", "{name} moved to {to} — {from} seats {seats}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, seats: mv.from_seats })
+                : t("rsvpEditMovedTable", "{name} moved to {to} — {from} didn't fit.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from })
             : t("rsvpEditMovedTableShort", "{name} is now at {to}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to }),
         });
       }
@@ -4638,7 +4673,20 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     setSelected(r);
   };
 
-  const summary = data?.summary || { total: 0, covers: 0, by_status: {} };
+  // The strip counts from the rows on screen (the same rule the server
+  // uses): the server's own totals arrive with the NEXT fetch, so after an
+  // optimistic change — a drop-in removed — the strip showed the old numbers
+  // for a second or two.
+  const summary = useMemo(() => {
+    const rows = Array.isArray(data?.reservations) ? data.reservations : [];
+    const by_status = {};
+    let covers = 0;
+    for (const r of rows) {
+      by_status[r.status] = (by_status[r.status] || 0) + 1;
+      if (COVER_STATUSES.includes(r.status)) covers += Number(r.party_size) || 0;
+    }
+    return { total: rows.length, covers, by_status };
+  }, [data]);
   // Stable identity so the memos below ([reservations]) only recompute when
   // the data actually changes — not on every render while data is null.
   const reservations = useMemo(
@@ -4655,7 +4703,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => Object.fromEntries(resources.map((x) => [String(x.id), Number(x.capacity_seats) || 0])),
     [resources],
   );
-  const zoneById = useMemo(() => zoneDots(resources), [resources]);
+  const zoneById = useMemo(() => zoneTones(resources).byId, [resources]);
   const labelById = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -4876,10 +4924,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       ? `${name} · ${nextArrival.party_size}`
       : t("rsvpPartyOf", "Party of {n}", { n: nextArrival.party_size });
     const table = resolveTableLabel(nextArrival, labelById);
-    const lateBy = isViewingToday && nextArrival.status === "confirmed"
-      ? Math.round((nowTs - new Date(nextArrival.starts_at).getTime()) / 60000)
-      : 0;
-    if (lateBy > 5) {
+    const lateBy = lateMinutes(nextArrival, nowTs, isViewingToday);
+    if (lateBy) {
       return t("rsvpNextLate", "+{n} min late · {who}", { n: lateBy, who: table ? `${table} · ${who}` : who });
     }
     // Table FIRST: the cockpit strip truncates the end of this line in a slim
@@ -4988,11 +5034,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // hasn't been seated/no-showed. 5-min grace, today only (a past day
         // is history; a future day is never late). Orange = needs a decision:
         // hold the table, call them, or give it away.
-        const startMs = r.starts_at ? new Date(r.starts_at).getTime() : 0;
-        const lateMin =
-          isViewingToday && r.status === "confirmed" && startMs
-            ? Math.floor((nowTs - startMs) / 60000)
-            : 0;
+        const lateMin = lateMinutes(r, nowTs, isViewingToday);
         return (
           <div className="flex items-stretch gap-2.5">
           {/* The row's status as a bar, as on the phone list. */}
@@ -5146,7 +5188,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       id: "status",
       label: t("rsvpColStatus", "Status"),
       width: "w-32",
-      render: (r) => <StatusPill status={r.status} label={labels[r.status] || r.status} />,
+      // A late party is "Forsinket · +29 min" here too — the column said
+      // "Bekræftet" while the drawer and the floor said late.
+      render: (r) => {
+        const late = lateMinutes(r, nowTs, isViewingToday);
+        return late
+          ? <StatusPill status="late" label={t("rsvpLatePill", "Late · +{n} min", { n: late })} />
+          : <StatusPill status={r.status} label={labels[r.status] || r.status} />;
+      },
     },
     {
       id: "flags",
@@ -5215,11 +5264,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Whole row opens the drawer; destructive flips stay in the drawer behind
   // useConfirm. Replaces the generic ~200px label:value card dump per booking.
   const compactRow = (r) => {
-    const startMs = r.starts_at ? new Date(r.starts_at).getTime() : 0;
-    const lateMin =
-      isViewingToday && r.status === "confirmed" && startMs
-        ? Math.floor((nowTs - startMs) / 60000)
-        : 0;
+    const lateMin = lateMinutes(r, nowTs, isViewingToday);
     const hasAllergy =
       (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
       r.allergy_note ||
@@ -5259,8 +5304,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <div className="inline-flex items-center gap-0.5 text-[11px] font-medium text-orange-700 dark:text-orange-400 tabular-nums">
               <Clock className="w-3 h-3 shrink-0" aria-hidden />
               {lateMin >= 60
-                ? t("rsvpLateShortHours", "+{h} h {m} m", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
-                : `+${lateMin} m`}
+                ? t("rsvpLateShortHours", "+{h} h {m} min", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
+                : t("rsvpLateShortMin", "+{n} min", { n: lateMin })}
             </div>
           )}
         </div>
@@ -5292,14 +5337,31 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 every booking to find its table. No table = say so. */}
             {!isProvider && ["confirmed", "seated"].includes(r.status) && (() => {
               const tl = resolveTableLabel(r, labelById);
+              const held = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+                ? r.combined_resource_ids : r.resource_id ? [r.resource_id] : [];
+              const seats = held.reduce((sum, id) => sum + (seatsById[String(id)] || 0), 0);
+              // The desktop cell's "10/4", on the phone too.
+              const over = seats > 0 && Number(r.party_size) > seats;
               return tl
-                ? <span className="min-w-0 truncate">{tl}</span>
-                : <span className="shrink-0 whitespace-nowrap text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
+                ? (
+                  <span className="min-w-0 truncate">
+                    {tl}
+                    {over && <span className="ml-1 font-medium text-gray-800 dark:text-gray-100">⚠ {r.party_size}/{seats}</span>}
+                  </span>
+                )
+                : (
+                  <span className="shrink-0 inline-flex items-center gap-0.5 whitespace-nowrap text-gray-700 dark:text-gray-200">
+                    <AlertTriangle className="w-3 h-3 text-gray-500 dark:text-gray-400" aria-hidden />
+                    {t("rsvpNoTableShort", "No table")}
+                  </span>
+                );
             })()}
             {/* "Bekræftet" is the normal state — a dot says it, and the
                 table keeps its name ("B…", "M." before). Every other status
                 keeps its word. */}
-            {r.status === "confirmed"
+            {lateMin
+              ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-orange-500 dark:bg-orange-400" role="img" aria-label={t("rsvpLegLate", "Late")} />
+              : r.status === "confirmed"
               ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-sky-500 dark:bg-sky-400" role="img" aria-label={labels.confirmed || "confirmed"} />
               : <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>}
           </div>
@@ -5330,7 +5392,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             // 36px in a ~60px list row. In dark a raised grey, not the white
             // primary slab: repeated down a list of bookings, white blocks were
             // the loudest thing on the screen.
-            className="h-9 min-h-0! px-3 shrink-0 rounded-lg bg-gray-900 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 text-xs font-semibold disabled:opacity-50 active:scale-95 transition"
+            // Filled only when it is the next thing to do (due within 30 min,
+            // late, seated, or a request): six identical black "Sæt til bords"
+            // down a phone list said nothing about which one comes first.
+            className={
+              "h-9 min-h-0! px-3 shrink-0 rounded-lg text-xs font-semibold disabled:opacity-50 active:scale-95 transition " +
+              (primary.to !== "seated" || (r.starts_at && new Date(r.starts_at).getTime() - nowTs <= 30 * 60000)
+                ? "bg-gray-900 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500"
+                : "border border-gray-300 text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800")
+            }
           >
             {primary.label}
           </button>
@@ -5476,7 +5546,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           a row of their own, equal halves — they used to wrap one by one under
           the lens switch into a ragged stack. From xl the three groups share
           one row with the lens switch beside the actions, as before. */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between xl:justify-start gap-3 max-sm:gap-2">
+      <div className={"flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between xl:justify-start gap-3 max-sm:gap-2" + (standalone ? " lg:justify-start" : "")}>
         <div className="flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch">
           {/* Date stepper — ◂ step a day ▸, tap the centre to jump via the
               native picker. The relative label ("I dag" / "I morgen") gives
@@ -5580,7 +5650,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {bookStale && (
             <span
               role="status"
-              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-amber-700 dark:text-amber-400 max-sm:basis-full max-sm:min-h-0"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-gray-700 dark:text-gray-200 max-sm:basis-full max-sm:min-h-0"
             >
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden />
               <span className="tabular-nums">
@@ -5591,7 +5661,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch xl:ml-auto">
+        <div className={"flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch xl:ml-auto" + (standalone ? " lg:ml-auto" : "")}>
           {/* Pop the book out to its own full-screen door screen (no sidebar).
               Opens /reservations/stand in a new tab — a dedicated host-stand
               display. Hidden while already inside the pop-out. On a phone it
@@ -5629,7 +5699,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {/* The two actions travel as one pair — a full-width row of equal
               halves on a phone and a tablet; from xl two buttons at the end of
               the one toolbar row. */}
-          <div className="grid grid-flow-col auto-cols-fr gap-2 sm:basis-full xl:basis-auto xl:flex">
+          <div
+            className={
+              "grid grid-flow-col auto-cols-fr gap-2 sm:basis-full xl:basis-auto xl:flex" +
+              // The door screen has no sidebar: from lg the actions join the
+              // toolbar's row, and the floor gets that row back.
+              (standalone ? " lg:basis-auto lg:flex" : "")
+            }
+          >
           {/* Seat walk-in — always reachable for TABLE venues, in every day
               lens (List / Timeline / Floor), not only by tapping a free tile
               on the Floor map. Opens SeatNowSheet in table-picker mode.
@@ -5727,13 +5804,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             key: "next",
             // Another day's first party is its first arrival, not "next".
             label: isViewingToday ? t("rsvpNextArrival", "Next arrival") : t("rsvpFirstArrival", "First arrival"),
+            shortLabel: isViewingToday ? t("rsvpNextShort", "Next") : t("rsvpFirstShort", "First"),
             value: nextArrival ? fmtTime(nextArrival.starts_at) : "—",
             icon: Clock,
-            tone: !nextArrival
-              ? "neutral"
-              : isViewingToday && nextArrival.status === "confirmed" && nowTs - new Date(nextArrival.starts_at).getTime() > 5 * 60000
-                ? "warn"
-                : "info",
+            tone: !nextArrival ? "neutral" : lateMinutes(nextArrival, nowTs, isViewingToday) ? "late" : "info",
             helper: nextArrivalHelper,
             onClick: nextArrival ? () => openDrawer(nextArrival) : null,
           },
@@ -5758,17 +5832,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             // It was rendering 192% in plain gray. 85%+ is "nearly full" (amber:
             // worth knowing), past 100% is red. Unknown capacity stays neutral —
             // with no seat count there's no honest claim to make.
-            accent:
-              peakPct == null ? "neutral"
-                : peakPct > 100 ? "critical"
-                  : peakPct >= 85 ? "warn"
-                    : "neutral",
+            // Red past 100% (more covers than seats); amber is the request
+            // colour now, so "nearly full" reads in the number, not a tint.
+            accent: peakPct != null && peakPct > 100 ? "critical" : "neutral",
             icon: Gauge,
-            tone:
-              peakPct == null ? "neutral"
-                : peakPct > 100 ? "critical"
-                  : peakPct >= 85 ? "warn"
-                    : peakPct > 0 ? "success" : "neutral",
+            tone: peakPct == null ? "neutral" : peakPct > 100 ? "critical" : peakPct > 0 ? "success" : "neutral",
             helper:
               totalCapacity <= 0
                 ? t("rsvpUtilNoSeats", "set table seats")
@@ -5780,10 +5848,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {
             key: "waitlist",
             label: t("rsvpWlCockpitToday", "On waitlist"),
+            shortLabel: t("rsvpWlShort", "Waitlist"),
             value: waitlistCount,
-            accent: waitlistCount > 0 ? "warn" : "neutral",
+            // Amber is for requests; a waiting party is counted, not tinted.
+            accent: "neutral",
             icon: ListOrdered,
-            tone: waitlistCount > 0 ? "warn" : "neutral",
+            tone: "neutral",
             helper: t("rsvpWlWaiting", "Waiting"),
             onClick: focusWaitlist,
             hideOnPhone: waitlistCount === 0,
@@ -5801,7 +5871,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           been cancelled or purged. We land on its day, say so plainly, and let
           the owner dismiss it. Never a blank drawer or a 404. */}
       {deepLinkGone && (
-        <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-4 py-3 rounded-xl text-sm">
+        <div className="flex items-start gap-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-gray-800 dark:text-gray-100 px-4 py-3 rounded-xl text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
           <span className="flex-1">
             {t("rsvpDeepLinkGone", "This reservation no longer exists.")}
@@ -5810,7 +5880,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             type="button"
             onClick={() => setDeepLinkGone(false)}
             aria-label={t("close", "Close")}
-            className="shrink-0 -my-0.5 -mr-1 h-7 w-7 inline-flex items-center justify-center rounded-lg hover:bg-amber-100/70 dark:hover:bg-amber-900/40"
+            className="shrink-0 -my-0.5 -mr-1 h-7 w-7 inline-flex items-center justify-center rounded-lg hover:bg-gray-200/70 dark:hover:bg-gray-700/40"
           >
             <X className="w-4 h-4" />
           </button>
@@ -5841,7 +5911,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               <SlidersHorizontal className="w-4 h-4" aria-hidden />
               {t("rsvpFilterChip", "Filter")}
               {selectsOn && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden />
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-gray-100" aria-hidden />
               )}
             </button>
           </div>
@@ -5948,10 +6018,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
             // Compact rows up to lg: at 768 (the host stand's tablet) the table
             // was 884px in 718px, with Udeblevet/Aflys off screen.
-            // Compact rows below xl: from 1024 to 1279 (the stand in landscape,
-            // a laptop with the sidebar) the table was 25–48px wider than its
-            // card and "Afslut" was cut in half.
-            mobileBreakpoint="xl"
+            // Compact rows below 1360: at 1024–1279 the table was 25–48px
+            // wider than its card ("Afslut" cut in half), and at 1280 a late
+            // party's extra no-show button pushed every ✕ past the edge.
+            mobileBreakpoint="wide"
             mobileRow={compactRow}
             empty={
               // Nothing today, but found on other days (listed above): a
@@ -6057,7 +6127,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         );
         if (!loose.length) return null;
         return (
-          <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-4 py-2.5 text-sm text-gray-800 dark:text-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <span className="font-medium">{t("rsvpSeatedNoTableBanner", "Seated without a table:")}</span>
             {loose.map((r) => (
               <button key={r.id} type="button" onClick={() => openDrawer(r)} className="font-medium underline underline-offset-2 hover:no-underline">
@@ -6739,9 +6809,9 @@ function FloorSection({ t, businessType }) {
           owner can switch fully to the stylist view. Dismissible; never touches
           provider stations. */}
       {isProvider && leftoverTables.length > 0 && !tablesNoticeDismissed && (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 flex items-start justify-between gap-3">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm text-amber-800 dark:text-amber-200">
+            <p className="text-sm text-gray-800 dark:text-gray-100">
               {t(
                 "rsvpClearTablesNotice",
                 "You have {n} tables from an earlier setup. Clear them to switch fully to the stylist view.",
@@ -6765,7 +6835,7 @@ function FloorSection({ t, businessType }) {
             type="button"
             onClick={() => setTablesNoticeDismissed(true)}
             aria-label={t("dismiss", "Dismiss")}
-            className="shrink-0 w-9 h-9 inline-flex items-center justify-center rounded-lg text-amber-700/70 hover:text-amber-900 hover:bg-amber-100 dark:text-amber-300/70 dark:hover:text-amber-100 dark:hover:bg-amber-900/40"
+            className="shrink-0 w-9 h-9 inline-flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-700"
           >
             <X className="w-4 h-4" />
           </button>
@@ -7097,7 +7167,7 @@ function FloorSection({ t, businessType }) {
                         {t("rsvpProviderFollowsHours", "Follows opening hours")}
                       </span>
                     ) : (
-                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                         {t("rsvpProviderNoStaff", "No stylist")}
                       </span>
                     )}
@@ -8217,7 +8287,7 @@ function SettingsSection({ t }) {
         {data?.hours_declared === false && (
           <div
             role="status"
-            className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+            className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-[13px] text-gray-800 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100"
           >
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
             <span>

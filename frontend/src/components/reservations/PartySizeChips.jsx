@@ -28,6 +28,8 @@ export default function PartySizeChips({ value, onChange, t }) {
   const otherOn = offLadder && String(n) === String(other);
   const chipClass = (on) =>
     "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
+    // The app's focus ring — it showed the browser's own amber outline.
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
     (on
       ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
       : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600");
@@ -86,7 +88,7 @@ export default function PartySizeChips({ value, onChange, t }) {
             if (v == null) { e.preventDefault(); return; }
             onChange(String(v));
           }}
-          className={"h-11 w-20 px-3 rounded-lg border text-sm tabular-nums " + (otherOn
+          className={"h-11 w-20 px-3 rounded-lg border text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 " + (otherOn
             ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100 placeholder:text-gray-300"
             : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100")}
         />

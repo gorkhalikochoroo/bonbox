@@ -91,6 +91,7 @@ import {
   ShapeGlyph,
 } from "../config/tableArchetypes";
 import { fitRoom, roomMinWidth } from "../utils/floorFit";
+import { zoneTones } from "../utils/zoneColors";
 
 // ── Status → visual tokens ────────────────────────────────────────────
 // Mirrors deriveFloorState's status vocabulary, in the book's colours (one
@@ -197,8 +198,9 @@ function visualStatus(cell, nowMs) {
   const res = cell.booking?.reservation;
   if (res?.status === "requested") return "requested";
   if (res?.status === "confirmed" && res.starts_at) {
+    // Same rule as the list: whole minutes, rounded down, 5 or more.
     const start = new Date(res.starts_at).getTime();
-    if (Number.isFinite(start) && nowMs - start > 5 * 60000) return "late";
+    if (Number.isFinite(start) && Math.floor((nowMs - start) / 60000) >= 5) return "late";
   }
   return "upcoming";
 }
@@ -303,6 +305,8 @@ function TableNode({
   nowMs,
   // Seats of all the tables a combined party sits at (null when single).
   comboSeats = null,
+  // The table's zone ring (same hue as the list and the timeline), or null.
+  zoneDot = null,
   t,
   profile,
   editing,
@@ -405,7 +409,7 @@ function TableNode({
         ? overText(overMin ?? 0)
         : status === "late" && booking?.reservation?.starts_at
           ? t("rsvpLateOnFloor", "+{n} m late", {
-              n: Math.max(0, Math.round((nowMs - new Date(booking.reservation.starts_at).getTime()) / 60000)),
+              n: Math.max(0, Math.floor((nowMs - new Date(booking.reservation.starts_at).getTime()) / 60000)),
             })
         : (status === "upcoming" || status === "requested") && booking?.eta != null
           ? t("rsvpEtaIn", "in {n}m", { n: booking.eta })
@@ -594,6 +598,14 @@ function TableNode({
               >
                 <AlertTriangle className="w-2.5 h-2.5 text-white" aria-hidden />
               </span>
+            )}
+            {zoneDot && (
+              <span
+                className={"inline-block w-2 h-2 rounded-full border-2 shrink-0 " + zoneDot.cls}
+                role="img"
+                aria-label={zoneDot.zone}
+                title={zoneDot.zone}
+              />
             )}
             <span
               className={"font-semibold leading-none truncate min-w-0 " + style.text}
@@ -810,18 +822,25 @@ export default function FloorPlan({
   // as the scroller's: the canvas renders after the empty-state early return.
   // canvasRef stays the handle the drag code reads.
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+  // Host stand: where the room starts on the page, so it can be sized to
+  // the screen's height (a guessed 300px of chrome left half the room below
+  // the fold at 1024×768).
+  const [fitTop, setFitTop] = useState(null);
   const canvasRoRef = useRef(null);
   const setCanvasEl = useCallback((el) => {
     canvasRef.current = el;
     canvasRoRef.current?.disconnect();
     canvasRoRef.current = null;
     if (!el) return;
-    const read = () =>
+    const read = () => {
       setCanvasSize((prev) => {
         const w = el.clientWidth;
         const h = el.clientHeight;
         return Math.abs(prev.w - w) < 1 && Math.abs(prev.h - h) < 1 ? prev : { w, h };
       });
+      const top = Math.round(el.getBoundingClientRect().top + window.scrollY);
+      setFitTop((prev) => (prev != null && Math.abs(prev - top) < 2 ? prev : top));
+    };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
@@ -861,19 +880,6 @@ export default function FloorPlan({
     ? draft?.[selectedId]?.size_scale ?? selectedCell.res.size_scale ?? 1
     : 1;
 
-  // Zone bands — soft labels behind the room so tables read as clusters.
-  const zoneBands = useMemo(() => {
-    const zones = [];
-    const seen = new Set();
-    cells.forEach((c) => {
-      const z = c.res.zone;
-      if (z && !seen.has(z)) {
-        seen.add(z);
-        zones.push(z);
-      }
-    });
-    return zones;
-  }, [cells]);
 
   // Room capacity — how many guests fit at one seating (sum of active table
   // seats) + the table count. The "total size that fits at one time".
@@ -987,32 +993,10 @@ export default function FloorPlan({
     [editing, cells, layout, canvasSize, shownFixtures],
   );
 
-  // Each zone drawn around where its tables actually stand. The room used to
-  // be cut into equal horizontal bands, so "VINDUE" sat over Indendørs
-  // tables in any room not laid out by auto-arrange.
-  const zoneBoxes = useMemo(() => {
-    if (zoneBands.length < 2) return [];
-    return zoneBands
-      .map((z) => {
-        const pts = cells
-          .filter((c) => c.res.zone === z)
-          .map((c) => {
-            const id = String(c.res.id);
-            const p = { ...(layout[id] || {}), ...(fitted.pos[id] || {}) };
-            return [Number(p.pos_x), Number(p.pos_y)];
-          })
-          .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-        if (!pts.length) return null;
-        const xs = pts.map((p) => p[0]);
-        const ys = pts.map((p) => p[1]);
-        const left = Math.max(1, Math.min(...xs) - 7);
-        const right = Math.min(99, Math.max(...xs) + 7);
-        const top = Math.max(1, Math.min(...ys) - 11);
-        const bottom = Math.min(99, Math.max(...ys) + 11);
-        return { z, left, top, width: right - left, height: bottom - top };
-      })
-      .filter(Boolean);
-  }, [zoneBands, cells, layout, fitted]);
+  // Zones: a hollow ring on each zoned table + the legend — a drawn area
+  // mislabelled the room (equal bands put "VINDUE" over Indendørs tables; a
+  // box around a zone's tables swallowed the unzoned ones between them).
+  const zoneInfo = useMemo(() => zoneTones(cells, (c) => c.res.id, (c) => c.res.zone), [cells]);
 
   const enterEdit = useCallback(() => {
     if (!canArrange) return;
@@ -1467,11 +1451,17 @@ export default function FloorPlan({
           under the controls, exactly where it always sat; on a phone it moves
           to the front and shares ONE row with the Arrange button, and the
           capacity chip (fixed facts, not service) steps aside for it. */}
-      <div className="flex items-center justify-between gap-3 flex-wrap max-sm:items-stretch">
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap max-sm:items-stretch"
+      >
+        {/* On the door screen the room is the point: the seat count, the tap
+            hint and "Indret lokale" give their space to the floor (Arrange
+            still shows them while editing). The "N free now" line stays. */}
         <div
           className={
             "flex items-center gap-2.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 flex-wrap" +
-            (showTurnLine ? " max-sm:hidden" : "")
+            (showTurnLine ? " max-sm:hidden" : "") +
+            (fitToScreen && !editing ? " hidden" : "")
           }
         >
           {/* Room capacity — what fits at one seating. */}
@@ -1496,7 +1486,7 @@ export default function FloorPlan({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className={"flex items-center gap-2" + (fitToScreen && !editing ? " hidden" : "")}>
           {editing ? (
             <>
               <button
@@ -1579,7 +1569,7 @@ export default function FloorPlan({
         </div>
 
       {/* "Next free" — the one line a host reads when a walk-in comes in.
-          Calm when tables are open; amber when the room's full and the answer
+          Calm when tables are open; a firmer grey with ⚠ when the room's full and the answer
           is "wait for HH:MM". Live (ticks with nowMs). Hidden while arranging
           and on an empty/unstarted room (nothing to say). */}
       {showTurnLine && (
@@ -1590,7 +1580,8 @@ export default function FloorPlan({
             "max-sm:px-3 max-sm:py-2 max-sm:text-[13px] max-sm:rounded-lg " +
             (turn.freeNow > 0
               ? "bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
-              : "bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200")
+              // Amber is the request colour now; a full room is a fact, said in ink.
+              : "bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 font-medium")
           }
           role="status"
           aria-live="polite"
@@ -1697,10 +1688,11 @@ export default function FloorPlan({
             fitToScreen
               ? {
                   aspectRatio: "16 / 10",
-                  minWidth: roomMinW,
-                  // As wide as the screen's height allows (≈300px of chrome
-                  // above it), centred; never narrower than the tables need.
-                  width: "min(100%, calc((100dvh - 300px) * 1.6))",
+                  // The whole room on the screen: as wide as the height left
+                  // under the room's measured top allows, centred. No minimum
+                  // width here — the room draws its tables smaller (fitRoom)
+                  // rather than send the host scrolling for Bord 13.
+                  width: `min(100%, calc((100dvh - ${(fitTop ?? 300) + 16}px) * 1.6))`,
                   marginInline: "auto",
                 }
               : { aspectRatio: "16 / 10", minWidth: roomMinW }
@@ -1729,19 +1721,7 @@ export default function FloorPlan({
             }}
           />
 
-          {/* Soft zone outlines + labels behind the tables, where the
-              zone's tables are. */}
-          {zoneBoxes.map((b) => (
-            <div
-              key={b.z}
-              className="absolute pointer-events-none rounded-xl border border-dashed border-gray-300/80 dark:border-gray-600/60"
-              style={{ left: `${b.left}%`, top: `${b.top}%`, width: `${b.width}%`, height: `${b.height}%` }}
-            >
-              <span className="absolute left-2 top-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                {b.z}
-              </span>
-            </div>
-          ))}
+
 
           {/* Tables */}
           {cells.map((c) => {
@@ -1768,6 +1748,7 @@ export default function FloorPlan({
                   cell={c}
                   pos={pos}
                   nowMs={nowMs}
+                  zoneDot={editing ? null : zoneInfo.byId[id] || null}
                   comboSeats={
                     c.combined && Array.isArray(c.booking?.reservation?.combined_resource_ids)
                       ? c.booking.reservation.combined_resource_ids.reduce((sum, rid) => sum + (seatsByRes[String(rid)] || 0), 0) || null
@@ -1831,10 +1812,14 @@ export default function FloorPlan({
         <LegendItem dotCls="bg-sky-500" label={t("rsvpLegUpcoming", "Upcoming")} />
         <LegendItem dotCls="bg-amber-500" label={t("rsvpLegRequest", "Request")} />
         <LegendItem dotCls="bg-orange-500" label={t("rsvpLegLate", "Late")} />
+        {/* Zones: the same hollow rings as on the tables and in the list. */}
+        {zoneInfo.zones.map((z) => (
+          <LegendItem key={z.zone} dotCls={"bg-transparent border-2 " + z.cls} label={z.zone} />
+        ))}
         <LegendItem dotCls="bg-emerald-600" label={t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (
-          <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpPlanNext", "Your next reservation")} />
+          <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpNextArrival", "Next arrival")} />
         )}
       </div>
 
