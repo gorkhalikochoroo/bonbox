@@ -3515,7 +3515,7 @@ export const tr = {
   autoEmailToggleStarterGateBody: "Free'de kilitledikten sonra revisor'a gönder'e elle dokunabilirsin. Ek dokunuş gerektirmeyen sürüm için Starter'a yükselt.",
   autoEmailNeedsOwnerEmail: "kasserapport'u nereye göndereceğimizi bilmemiz için önce Profil'de sahip e-postanı ayarla.",
   autoEmailNeedsOwnerEmailCta: "Sahip e-postası ekle",
-  closeLockedTitle: "Bu akşamın kapanışı — {who} {time}'da kilitledi",
+  closeLockedTitle: "Bu akşamın kasserapport'u — {who} {time}'da kilitledi",
   closeLockedTitleBakery: "Bugünün fırını kilitli · {time} · {who}",
   closeLockedTitleBar: "Gece kilitli · {time} · {who}",
   closeLockedTitleSalon: "Gün kilitli · {time} · {who}",

@@ -211,6 +211,9 @@ const postClose = (payload) => api.post("/daily-close", payload);
    half-migrate a card into mixed precision — a row and its own card total are
    never allowed to disagree. */
 const LEDGER_DECIMALS = 2;
+// Whole kroner at a glance, but a figure WITH øre shows them: History said
+// 2.715 kr. and the bank drop "Læg 715 kr." for a close of 2.714,50.
+const oreDecimals = (v) => (Number.isFinite(Number(v)) && Math.abs(Number(v) - Math.round(Number(v))) > 0.004 ? LEDGER_DECIMALS : GLANCE_DECIMALS);
 const GLANCE_DECIMALS = 0;
 
 /* ═══════════════════════════════════════════════════════════
@@ -381,6 +384,7 @@ export default function DailyClosePage() {
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("close"); // close | history | insights
+  const isPhone = useIsPhone();
   // Scan-first close (#close-funnel) — the one-tap front door. It opens the
   // camera and hands the photo to the wizard's own Z-bon scan. It used to
   // open the general Smart scan (receipt / kasserapport / invoice guesser) —
@@ -453,13 +457,19 @@ export default function DailyClosePage() {
   const openDateHandledRef = useRef(null);
   useEffect(() => {
     const d = wantDate;
-    if (!d || openDateHandledRef.current === d || !history.length) return;
+    if (!d || openDateHandledRef.current === d) return;
+    // Decide ONCE, on the first answer about the day, and remember the day
+    // as handled even when it had no draft. It used to wait for a row: the
+    // draft this very form autosaved for the day turned up in the next
+    // history reload and was "opened" over the owner's typing — back to
+    // Trin 1, focus gone, the numbers being typed wiped.
+    if (historyQ.loading) return;
+    openDateHandledRef.current = d;
     const row = history.find((dc) => String(dc.date || "").slice(0, 10) === d && dc.status !== "confirmed");
     if (!row) return;
-    openDateHandledRef.current = d;
     setEditDraft(row);
     setTab("close");
-  }, [wantDate, history]);
+  }, [wantDate, history, historyQ.loading]);
   const insights = insightsQ.data;
   const fetchHistory = historyQ.reload;
   const fetchInsights = insightsQ.reload;
@@ -598,7 +608,11 @@ export default function DailyClosePage() {
   // UTC) and calendar-based (the close is filed against the 06:00 business
   // day). A bar locking at 03:00 and reloading watched its own close vanish
   // from the top of the page and was invited to close the day again.
-  const todayIso = businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
+  // The venue's OWN cutoff (a bar can close its day at 04:00) — the top of
+  // the page used the 06:00 default while the wizard used the venue's, so
+  // between 04 and 06 the two disagreed about which day was "today".
+  const bizQ = useAsyncData(() => api.get("/business"), []);
+  const todayIso = businessTodayIso(resolveCutoffHour(bizQ.data?.day_cutoff_hour));
   const todaysConfirmedClose = useMemo(
     () => findConfirmedCloseFor(history, todayIso),
     [history, todayIso],
@@ -810,7 +824,9 @@ export default function DailyClosePage() {
           page. Self-contained — its own data fetch, its own fail-closed
           empty + error states. If it errors, the rest of the page below
           (close wizard, history, insights) still renders cleanly. */}
-      <LiveKpisToday />
+      {/* On a phone's close tab the live cards come AFTER the wizard: above
+          it they put "Tag billede" ~950px down, below the fold. */}
+      {!(isPhone && tab === "close") && <LiveKpisToday />}
 
       {/* "Close the day" CTA — the explicit handoff from "I'm running
           the shift" to "the shift is done, let's lock the books".
@@ -929,6 +945,10 @@ export default function DailyClosePage() {
               setLastLockedClose(lockResult);
             }
             setTab("history");
+            // The "locked" card is at the top of the page; the phone stayed
+            // where the lock button was (~1.500px down) and showed the 26 Sep
+            // row instead of the answer.
+            requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
           }}
           onQueued={() => { setQueue(getOfflineQueue()); setTab("history"); }}
           existingCloses={history}
@@ -953,6 +973,7 @@ export default function DailyClosePage() {
           onRetry={fetchInsights} />}
         {tab === "branches" && <BranchSummaryView currency={currency} />}
       </div>
+      {isPhone && tab === "close" && <LiveKpisToday />}
     </PageShell>
   );
 }
@@ -993,7 +1014,9 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
   const avg = Math.round(a.baseline_avg || 0).toLocaleString("da-DK");
   const msgKey = a.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+    // Above the phone's bottom bar (also z-50): the bar sat over this dialog
+    // and stayed tappable. The app's confirm uses the same layer.
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
       {/* shadow-sm, not one of the heavy tiers: the unlock modal three hundred lines down
           already uses shadow-sm, the doctrine bans the heavy tiers, and the
           black/40 overlay is what actually lifts a dialog off the page. */}
@@ -1055,6 +1078,21 @@ function UnsplitLine({ amount, show, currency, t }) {
 }
 
 const CASH_FLOAT_KEY = "bonbox.dc.cashFloat.v1";
+
+// Phone width (Tailwind's sm breakpoint), live — to move a block, not just
+// hide one: a CSS-hidden twin would still fetch and poll.
+function useIsPhone() {
+  const q = "(max-width: 639px)";
+  const [is, setIs] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(q).matches);
+  useEffect(() => {
+    const m = typeof window !== "undefined" ? window.matchMedia?.(q) : null;
+    if (!m) return undefined;
+    const on = () => setIs(m.matches);
+    m.addEventListener?.("change", on);
+    return () => m.removeEventListener?.("change", on);
+  }, []);
+  return is;
+}
 
 // What an edited close looks like, field by field — compared before an
 // autosave so opening "Rediger" is not a save, and any real change is.
@@ -1431,7 +1469,16 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     // carry it back as the owner's figure, or the next save reverts it.
     const catSum = Object.values(dc.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
     if (Math.abs(Number(dc.revenue_total) - catSum) > 0.005 && Number(dc.revenue_total) > 0) {
-      setScanResult((prev) => ({ ...(prev || {}), revenue_total: Number(dc.revenue_total), revenue_total_text: asInput(dc.revenue_total) }));
+      // Only a total BELOW its lines must have been typed by the owner (a
+      // read total is never under the lines it carries). One above them is
+      // what the Z-bon said — it came back labelled "din rettede total" and
+      // was saved as the owner's own figure next time.
+      const ownerSet = Number(dc.revenue_total) < catSum;
+      setScanResult((prev) => ({
+        ...(prev || {}),
+        revenue_total: Number(dc.revenue_total),
+        ...(ownerSet ? { revenue_total_text: asInput(dc.revenue_total) } : {}),
+      }));
     }
     // Every field takes the SAVED value, empty included: a field the close
     // never had kept whatever this form held before, and the next save
@@ -2742,8 +2789,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
           >
             {existingBranchName && <span className="font-semibold">{existingBranchName}: </span>}
             {existingLocked
-              ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) })
-              : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which replaces it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) })}
+              ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) })
+              : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which replaces it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) })}
             <div className="mt-3 flex flex-wrap gap-2">
               {existingLocked ? (
 <>
@@ -3250,9 +3297,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   this"), and yellow-700 on yellow-100 is the weakest pair of
                   the three. One warn colour, one critical colour. */}
               <span className={`text-[12px] font-medium px-3 py-1 rounded-full ${
+                // Few fields read is "check this" (amber), not money lost (red).
                 scanFieldsDetected >= 5 ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                  : scanFieldsDetected >= 3 ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
-                    : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                  : "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
               }`}>
                 {/* confidenceLevel*, not confidence*. The template already ends
                     in the noun ("… sikkerhed — 5/7 felter"), and the standalone
@@ -3623,7 +3670,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             disabled={Boolean(editingDate)}
             max={businessTodayIso(cutoffHour)}
             onChange={e => { if (e.target.value) { dateChosenRef.current = true; setBusinessDate(e.target.value); } }}
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
+            className="px-3 py-1.5 max-sm:h-11 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== businessTodayIso(cutoffHour) && (
             <span className="text-[11px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
               {t("pastDate")}
@@ -3794,7 +3841,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             {currentStepId === "payments" && t("stepNPayments", "Step {n} — Payment Methods", { n: step })}
             {currentStepId === "cash" && t("stepNCash", "Step {n} — Cash Drawer Count", { n: step })}
             {currentStepId === "tips" && t("stepNTips", "Step {n} — Tips", { n: step })}
-            {currentStepId === "review" && t("stepNReview", "Step {n} — Review & Submit", { n: step })}
+            {currentStepId === "review" && t("stepNReview", "Step {n} — Review & lock", { n: step })}
           </h2>
           {/* Draft auto-save says so HERE, in a fixed-width slot. It was a
               banner above the step that pushed every field down ~44px and
@@ -3970,11 +4017,13 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               {tieOut.state !== "unknown" && (
                 <div className={`mt-2 px-3 py-2 rounded-lg text-[13px] font-medium ${
                   tieOut.state === "balanced" ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                    : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                    // Amber, as on the review — the same verdict was red here
+                    // and amber there. It needs a look; it isn't money lost.
+                    : "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300"
                 }`}>
                   {tieOut.state === "balanced"
                     ? <><Icon name="CheckCircle2" size={14} className="inline align-text-bottom mr-1" />{t("balanced", "Balanced!")}</>
-                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${formatOwnerMoney(tieOut.diff, currency, { decimals: GLANCE_DECIMALS, sign: true })}`}</>}
+                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${formatOwnerMoney(tieOut.diff, currency, { decimals: oreIfAny(tieOut.diff), sign: true })}`}</>}
                 </div>
               )}
             </div>
@@ -4030,7 +4079,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
               }`}>
                 {t("difference")}: <Amount value={cashDiff} currency={currency} decimals={oreIfAny(cashDiff)} sign />
-                {Math.abs(cashDiff) > 100 && <p className="text-[13px] font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThan100", "Off by more than 100 — double-check your count")}</p>}
+                {Math.abs(cashDiff) > 100 && <p className="text-[13px] font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThanAmount", "Off by more than {amount} — double-check your count", { amount: formatOwnerMoney(100, currency, { decimals: GLANCE_DECIMALS }) })}</p>}
               </div>
             )}
             {/* `!cashExpected` was true for a REGISTER-DERIVED 0 as well as for
@@ -4280,12 +4329,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             <div className="space-y-3">
               <div>
                 <label htmlFor="dc-closed-by" className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("closedBy")}</label>
-                <input id="dc-closed-by" type="text" placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
+                <input id="dc-closed-by" type="text" placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400"
                   value={closedBy} onChange={e => setClosedBy(e.target.value)} />
               </div>
               <div>
                 <label htmlFor="dc-notes" className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("notes")}</label>
-                <textarea id="dc-notes" placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none"
+                <textarea id="dc-notes" placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400"
                   value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
             </div>
@@ -4331,8 +4380,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         {/* The photo only when there is one — a typed close has none. */}
                         {receiptPhotoUrl
-                          ? t("autoEmailToggleHint", "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your revisor.")
-                          : t("autoEmailToggleHintNoPhoto", "When you tap Confirm & Lock, we send one email with the kasserapport PDF to your owner email and your revisor.")}
+                          ? t("autoEmailToggleHint", "When you tap Confirm & lock, we send one email with the kasserapport PDF + the scanned Z-bon photo to your owner email and your revisor.")
+                          : t("autoEmailToggleHintNoPhoto", "When you tap Confirm & lock, we send one email with the kasserapport PDF to your owner email and your revisor.")}
                       </p>
                     </div>
                   </label>
@@ -4683,7 +4732,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
           <Icon name="CheckCircle2" size={26} className="text-emerald-600 dark:text-emerald-500 shrink-0" />
           <div className="flex-1 min-w-0 space-y-3">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 pr-9">
-              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {t(closeTitleKeyFor(businessType), "Tonight's close — locked at {time} by {who}", { time: closedAt, who: closedBy })}
+              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {t(closeTitleKeyFor(businessType), "Tonight's kasserapport is locked · {time} by {who}", { time: closedAt, who: closedBy })}
             </p>
             {emailLine}
             {ritual.push_status === "sent" && (
@@ -4707,7 +4756,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
                     {/* The close stores the day's takings (the float already
                         taken off), so all of it goes in the bag. */}
                     {t("bankDropReminderTakings", "Put {amount} in the safe or drop bag — the float stays in the drawer.", {
-                      amount: formatOwnerMoney(bankDrop.to_drop_dkk ?? 0, currency, { decimals: GLANCE_DECIMALS }),
+                      amount: formatOwnerMoney(bankDrop.to_drop_dkk ?? 0, currency, { decimals: oreDecimals(bankDrop.to_drop_dkk) }),
                     })}
                   </p>
                   {/* A secondary button: white on amber-500 read at ~2:1. */}
@@ -4742,6 +4791,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   const [sharing, setSharing] = useState(null);
   const [shareToast, setShareToast] = useState("");
   const [unlockId, setUnlockId] = useState(null);
+  // A close opened to READ — a locked one had nothing to tap but Lås op,
+  // Send and PDF; its MOMS, cash count and notes were nowhere in the app.
+  const [openId, setOpenId] = useState(null);
+  // Ten at a time: 30+ cards made History a 14.000px scroll on a phone.
+  const [shownCount, setShownCount] = useState(10);
   const [unlockReason, setUnlockReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   // A refused unlock used to be swallowed by `catch { /* ignore */ }`, so the
@@ -5387,12 +5441,21 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         </div>
       )}
 
+      {/* On a phone the closes come first and the export panel follows them
+          all (~14.000px down). One line here jumps straight to it. */}
+      <button type="button"
+        onClick={() => document.getElementById("dc-export-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        className="sm:hidden w-full min-h-11 px-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-[13px] font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2"><Icon name="Package" size={16} className="text-gray-500 dark:text-gray-400" /> {t("dcJumpToExport", "Send a period to your revisor")}</span>
+        <Icon name="ChevronDown" size={16} className="text-gray-500 dark:text-gray-400" />
+      </button>
+
       {/* Date-range export panel — accountant handoff.
           Lets the owner pick a window (7d / 14d / 1m / 3m / custom)
           and pull a multi-day PDF or CSV in one click. Distinct from
           the per-close PDF on each row below — this is the
           "send the whole month to my bookkeeper" format. */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm max-sm:order-1">
+      <div id="dc-export-panel" className="scroll-mt-20 bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm max-sm:order-1">
         <div className="flex items-center gap-2 mb-3">
           <Icon name="Package" size={18} className="text-gray-500 dark:text-gray-400" />
           <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">
@@ -5495,7 +5558,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   min={isoDaysAgo(exportCapDays - 1)}
                   max={customTo}
                   onChange={(e) => setCustomFrom(e.target.value)}
-                  className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+                  className="block mt-1 px-3 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
                 />
               </label>
               <label className="text-xs text-gray-500 dark:text-gray-400">
@@ -5506,7 +5569,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   min={customFrom}
                   max={todayIso()}
                   onChange={(e) => setCustomTo(e.target.value)}
-                  className="block mt-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+                  className="block mt-1 px-3 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
                 />
               </label>
             </div>
@@ -5593,7 +5656,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 value={accountantFmt}
                 onChange={(e) => persistAccountantFmt(e.target.value)}
                 disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-                className="px-2 py-1.5 rounded-l-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
+                className="px-2 py-1.5 max-sm:h-10 rounded-l-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
                 title={t("accountantFmtTooltip", "Pick the format your accountant prefers")}
               >
                 <option value="xlsx">Excel</option>
@@ -5603,7 +5666,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               <button
                 onClick={sendToAccountant}
                 disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-                className="px-3 py-1.5 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+                className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
                   businessProfile?.accountant_email
                     ? `${t("sendToTooltip", "Send to")} ${businessProfile.accountant_email}`
@@ -5688,7 +5751,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           panel and this map put the first close about two screens down. */}
       <div className="max-sm:order-1"><CalendarHeatMap data={data} currency={currency} /></div>
 
-      {data.map((dc, idx) => {
+      {data.slice(0, shownCount).map((dc, idx) => {
         const rev = dc.revenue_breakdown || {};
         const pay = dc.payment_breakdown || {};
         const prev = data[idx + 1]; // previous close (list sorted desc)
@@ -5726,18 +5789,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     reserved for the money MOMENT (a lock, a send); a revenue
                     figure is a fact, and colouring facts is what made this page
                     read as nine palettes. */}
-                <Amount value={dc.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} size="kpi" className="text-gray-900 dark:text-white" />
+                <Amount value={dc.revenue_total} currency={currency} decimals={oreDecimals(dc.revenue_total)} size="kpi" className="text-gray-900 dark:text-white" />
                 {/* A direction word, not a raw percentage — "↑ 2219 %" against a
                     test close of 734 kr. meant nothing. Within ±5 % it's
                     stable; beyond 4× either way the days aren't comparable. */}
-                {revChange !== null && Math.abs(revChange) >= 5 && revChange <= 300 && revChange >= -75 && (
-                  <p className={`text-[11px] font-semibold mt-0.5 inline-flex items-center gap-1 ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-                    <Icon name={revChange > 0 ? "TrendingUp" : "TrendingDown"} size={11} />
-                    {revChange > 0 ? t("trendUp", "Up") : t("trendDown", "Down")} {t("dcVsPrevClose", "vs the close before")}
-                  </p>
-                )}
               </div>
             </div>
+            {/* Its own line: beside the amount it squeezed the date onto two
+                lines on a phone. */}
+            {revChange !== null && Math.abs(revChange) >= 5 && revChange <= 300 && revChange >= -75 && (
+              <p className={`text-[11px] font-semibold mt-1 flex items-center gap-1 sm:justify-end ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                <Icon name={revChange > 0 ? "TrendingUp" : "TrendingDown"} size={11} />
+                {revChange > 0 ? t("dcTrendHigherThanPrev", "Higher than the close before") : t("dcTrendLowerThanPrev", "Lower than the close before")}
+              </p>
+            )}
 
             {/* Revenue + payment chips. The payment row used to be blue for no
                 reason other than "it is a different kind of chip" — a whole
@@ -5745,7 +5810,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <div className="flex flex-wrap gap-2 mt-3">
               {Object.entries(rev).map(([k, v]) => (
                 <span key={k} className="px-2 py-1 bg-gray-100 dark:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-lg text-[11px] font-medium tabular-nums">
-                  {chipLabel(CAT_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
+                  {chipLabel(CAT_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={oreDecimals(v)} />
                 </span>
               ))}
             </div>
@@ -5753,21 +5818,49 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <div className="flex flex-wrap gap-2 mt-2">
               {Object.entries(pay).map(([k, v]) => (
                 <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-medium tabular-nums border border-gray-200 dark:border-gray-700">
-                  {chipLabel(PAY_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
+                  {chipLabel(PAY_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={oreDecimals(v)} />
                 </span>
               ))}
             </div>
+
+            {/* The close as it was saved, read-only — the kasserapport's own
+                lines, at ledger precision. */}
+            {openId === dc.id && (
+              <dl className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-1 text-[13px] tabular-nums text-gray-700 dark:text-gray-300">
+                {[
+                  [t("revenueMedMoms", "Revenue (incl. MOMS)"), dc.revenue_total],
+                  [t("totalMoms", "Total MOMS"), dc.moms_total],
+                  [t("revenueUdenMoms", "Revenue (excl. MOMS)"), dc.revenue_ex_moms],
+                  [t("paymentTotal", "Payment total"), dc.payment_total],
+                  [t("dcCashExpectedLabel", "Cash expected"), dc.cash_expected],
+                  [t("dcCashTakingsCounted", "Counted (float taken off)"), dc.cash_counted],
+                  [t("dcCashDiffLabel", "Cash difference"), dc.cash_difference, true],
+                  [t("tipsLabel", "Tips"), dc.tips_total > 0 ? dc.tips_total : null],
+                ].filter(([, v]) => v != null).map(([label, v, sign]) => (
+                  <div key={label} className="flex justify-between gap-3">
+                    <dt>{label}</dt>
+                    <dd className="font-medium text-gray-900 dark:text-gray-100"><Amount value={v} currency={currency} decimals={LEDGER_DECIMALS} sign={!!sign} /></dd>
+                  </div>
+                ))}
+                {dc.notes && (
+                  <div className="pt-1">
+                    <dt className="text-[12px] text-gray-500 dark:text-gray-400">{t("notes", "Notes")}</dt>
+                    <dd className="whitespace-pre-line">{dc.notes}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
 
             {/* Bottom row */}
             <div className="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex gap-4 flex-wrap text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
                 {dc.cash_difference !== null && (
                   <span className={dc.cash_difference < -100 ? "text-red-600 dark:text-red-400 font-semibold" : ""}>
-                    {t("dcCashDiffLabel", "Cash difference")}: <Amount value={dc.cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />
+                    {t("dcCashDiffLabel", "Cash difference")}: <Amount value={dc.cash_difference} currency={currency} decimals={oreDecimals(dc.cash_difference)} sign />
                   </span>
                 )}
                 {dc.tips_total > 0 && (
-                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={GLANCE_DECIMALS} />{dc.tips_staff_count ? ` (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})` : ""}
+                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={oreDecimals(dc.tips_total)} />{dc.tips_staff_count ? ` (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})` : ""}
                     {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
                       <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                         {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
@@ -5809,25 +5902,31 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     the row (it re-opens a locked kasserapport), so the colour
                     is carrying data. Edit was blue for no reason and is now a
                     neutral secondary alongside Send and PDF. */}
+                <Button size="sm" variant="secondary" onClick={() => setOpenId(openId === dc.id ? null : dc.id)}
+                  aria-expanded={openId === dc.id}
+                  iconLeft={<Icon name={openId === dc.id ? "ChevronUp" : "ChevronDown"} size={13} />}
+                  className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
+                  {openId === dc.id ? t("dcHideDetails", "Hide") : t("dcShowDetails", "Details")}
+                </Button>
                 {(dc.status || "confirmed") === "confirmed" && (
                   <button onClick={() => { setUnlockId(dc.id); setUnlockReason(""); }}
-                    className="text-[11px] px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5 border border-amber-200 dark:border-amber-800">
+                    className="max-sm:min-h-10 text-[11px] px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5 border border-amber-200 dark:border-amber-800">
                     <Icon name="LockOpen" size={13} /> {t("dcUnlock", "Unlock")}
                   </button>
                 )}
                 {(dc.status || "confirmed") === "draft" && onEdit && (
-                  <Button size="sm" variant="secondary" onClick={() => onEdit(dc)} iconLeft={<Icon name="Pencil" size={13} />} className="border border-gray-200 dark:border-gray-700">
+                  <Button size="sm" variant="secondary" onClick={() => onEdit(dc)} iconLeft={<Icon name="Pencil" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
                     {t("edit", "Edit")}
                   </Button>
                 )}
                 <Button size="sm" variant="secondary" onClick={() => shareDc(dc)} busy={sharing === dc.id}
-                  iconLeft={sharing === dc.id ? null : <Icon name="Send" size={13} />} className="border border-gray-200 dark:border-gray-700">
+                  iconLeft={sharing === dc.id ? null : <Icon name="Send" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
                   {t("send", "Send")}
                 </Button>
                 <Button size="sm" variant="secondary"
                   onClick={() => downloadPdf(dc.id, dc.date, (dc.status || "confirmed") !== "confirmed")}
                   busy={downloading === dc.id}
-                  iconLeft={downloading === dc.id ? null : <Icon name="FileText" size={13} />} className="border border-gray-200 dark:border-gray-700">
+                  iconLeft={downloading === dc.id ? null : <Icon name="FileText" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
                   PDF
                 </Button>
                 {/* Delete — DRAFTS ONLY. A locked close is the day's legal
@@ -5837,7 +5936,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {(dc.status || "confirmed") === "draft" && (
                   <button onClick={() => deleteDraft(dc)} disabled={deleting === dc.id}
                     title={t("dcDeleteDraftTitle", "Delete this kladde?")}
-                    className="text-[11px] px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 font-medium inline-flex items-center gap-1.5 border border-red-200 dark:border-red-800 disabled:opacity-50">
+                    className="max-sm:min-h-10 text-[11px] px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 font-medium inline-flex items-center gap-1.5 border border-red-200 dark:border-red-800 disabled:opacity-50">
                     <Icon name="Trash2" size={13} />
                     {deleting === dc.id ? t("dcDeleting", "Deleting…") : t("delete", "Delete")}
                   </button>
@@ -5867,10 +5966,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           </div>
         );
       })}
+      {data.length > shownCount && (
+        <Button variant="secondary" size="md" className="w-full max-sm:h-11" onClick={() => setShownCount((n) => n + 20)}>
+          {t("dcShowMoreCloses", "Show more ({n} left)", { n: data.length - shownCount })}
+        </Button>
+      )}
 
       {/* Unlock modal */}
       {unlockId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
             <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock the kasserapport")}</h3>
             {/* Which day — the dialog didn't say. */}
@@ -6240,14 +6344,14 @@ function CalendarHeatMap({ data, currency }) {
         {/* Day-of-week labels */}
         <div className="flex flex-col gap-[3px] mr-0.5 shrink-0" aria-hidden="true">
           {t("dcHeatWeekdays", "M,,W,,F,,S").split(",").map((d, i) => (
-            <div key={i} className="w-3 h-3 flex items-center justify-center text-[11px] leading-none text-gray-400 dark:text-gray-500 select-none">{d}</div>
+            <div key={i} className="w-[18px] h-[18px] sm:w-3 sm:h-3 flex items-center justify-center text-[11px] leading-none text-gray-400 dark:text-gray-500 select-none">{d}</div>
           ))}
         </div>
         {/* Week columns */}
         {weeks.map((week, wi) => (
           <div key={wi} className="flex flex-col gap-[3px]">
             {week.map((day, di) => {
-              if (!day) return <div key={di} className="w-3 h-3" />;
+              if (!day) return <div key={di} className="w-[18px] h-[18px] sm:w-3 sm:h-3" />;
               const ds = fmtDate(day);
               const dc = closeMap[ds];
               const dateLabel = new Date(ds + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
@@ -6261,7 +6365,8 @@ function CalendarHeatMap({ data, currency }) {
               return (
                 <button key={di} type="button"
                   aria-label={`${dateLabel} — ${valueLabel}`}
-                  className={`w-3 h-3 min-h-0! min-w-0! p-0 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:scale-125`}
+                  // 18px on a phone: a 12px square was not a tap target.
+                  className={`w-[18px] h-[18px] sm:w-3 sm:h-3 min-h-0! min-w-0! p-0 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:scale-125`}
                   onMouseEnter={() => setHovered({ ds, dc })}
                   onMouseLeave={() => setHovered(null)}
                   onFocus={() => setHovered({ ds, dc })}
@@ -6290,7 +6395,12 @@ function CalendarHeatMap({ data, currency }) {
             ) : <> &mdash; {t("dcHeatmapNoClose", "No kasserapport")}</>}
           </p>
         ) : (
-          <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hoverDayForDetails")}</p>
+          // "Hold over" means nothing to a finger.
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            {typeof window !== "undefined" && window.matchMedia?.("(hover: none)").matches
+              ? t("tapDayForDetails", "Tap a day for details")
+              : t("hoverDayForDetails")}
+          </p>
         )}
       </div>
 

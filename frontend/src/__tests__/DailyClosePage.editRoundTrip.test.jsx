@@ -190,3 +190,41 @@ describe("daily close — the cash count", () => {
     await waitFor(() => expect(closePosts().some(([, b]) => b.cash_counted === 4500)).toBe(true), { timeout: 3500 });
   });
 });
+
+describe("daily close — opened from a ?date= link", () => {
+  it("the draft its own autosave just made never yanks the form back to Trin 1", async () => {
+    // The morning brief's "Luk dagen" and the missed-day rows link here. The
+    // first autosave's draft came back in the history reload and was
+    // "opened" over the owner's typing: Trin 1 again, the new figures gone.
+    const d = new Date(`${today}T12:00:00`);
+    d.setDate(d.getDate() - 3);
+    const pad = (n) => String(n).padStart(2, "0");
+    const past = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    closes = [];
+    post.mockImplementation((url, body) => {
+      if (url === "/daily-close") {
+        const row = { id: "auto-1", status: "draft", ...body, revenue_total: 800, revenue_breakdown: body.revenue_breakdown, payment_breakdown: body.payment_breakdown };
+        closes = [row];
+        return Promise.resolve({ data: row });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const { container } = render(
+      <MemoryRouter initialEntries={[`/daily-close?date=${past}`]}>
+        <DailyClosePage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByText("skipEnterManually"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "800" } });
+    await waitFor(() => expect(closePosts().length).toBeGreaterThanOrEqual(1), { timeout: 3500 });
+    expect(closePosts()[0][1].date).toBe(past);
+    tapNext();
+    await waitFor(() => expect(container.querySelector("#dc-pay-cash")).not.toBeNull());
+    fireEvent.change(container.querySelector("#dc-pay-cash"), { target: { value: "800" } });
+    // Let the history reload (with the new draft in it) land.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(screen.getByText(/^stepNPayments:/)).toBeInTheDocument();
+    expect(container.querySelector("#dc-pay-cash").value).toBe("800");
+  });
+});
