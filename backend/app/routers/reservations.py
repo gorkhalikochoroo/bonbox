@@ -254,6 +254,10 @@ class TableAssign(BaseModel):
     # PATCH /reservations/{id}/table body. A UUID assigns/moves the booking to
     # that table; explicit null clears the assignment and releases the hold.
     resource_id: UUID | None = None
+    # Tables pushed together for one party ("Bord 3 + Bord 4") — the host's
+    # way through "no table seats 12", which the refusal tells them to do and
+    # which had no control. Same ownership and clash rules as one table.
+    resource_ids: list[UUID] | None = Field(default=None, max_length=6)
 
 
 class StatusUpdate(BaseModel):
@@ -1966,6 +1970,12 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
     if r is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
 
+    combo = list(dict.fromkeys(x for x in (payload.resource_ids or []) if x))
+    if len(combo) == 1 and payload.resource_id is None:
+        payload.resource_id = combo[0]
+    if len(combo) >= 2:
+        return _assign_tables(db, user, r, combo)
+
     if payload.resource_id is None:
         # Clear the assignment + free the slot (mirrors the terminal-status
         # release in update_status, but the booking itself stays live).
@@ -2030,6 +2040,42 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
         db.commit()
     except IntegrityError:
         # Lost the race for the target table (Postgres exclusion constraint).
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+    return _reservation_dict(r)
+
+
+def _assign_tables(db: Session, user: User, r: Reservation, ids: list) -> dict:
+    """Seat one party across several tables (2–6). Every table must be the
+    owner's and free for the booking's window; the holds are written together
+    so either all of them land or none does."""
+    for rid in ids:
+        _assert_owned_resource(db, user, rid)
+    ends_at = r.ends_at or (r.starts_at + timedelta(minutes=int(r.duration_min or 90)))
+    if r.status in occ_service.HOLDING_STATUSES:
+        clash = (
+            db.query(ReservationOccupancy.id)
+            .filter(
+                ReservationOccupancy.user_id == user.id,
+                ReservationOccupancy.resource_id.in_(ids),
+                ReservationOccupancy.reservation_id != r.id,
+                ReservationOccupancy.active.is_(True),
+                ReservationOccupancy.starts_at < ends_at,
+                ReservationOccupancy.ends_at > r.starts_at,
+            )
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+    r.resource_id = ids[0]
+    r.combined_resource_ids = [str(x) for x in ids]
+    try:
+        occ_service.release_occupancy(db, r.id)
+        if r.status in occ_service.HOLDING_STATUSES:
+            occ_service.add_occupancy_rows(db, r, ids, active=True)
+        audit_service.record(db, user, "reservation.table_assigned", "reservation", r.id)
+        db.commit()
+    except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     return _reservation_dict(r)
@@ -2323,12 +2369,78 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # drop any stale combined-set left over from a prior combo assignment
         # (keeps the book's "Bord 1 + Bord 2" chip honest).
         r.combined_resource_ids = None
+    early_from = None  # the booked start, when the party was seated early
     if payload.status == "seated":
         # Reopening a finished table keeps its real seat time — overwriting it
         # restarted the turn timer and skewed turn-time stats.
         if not (prev_status == "completed" and r.seated_at):
             r.seated_at = utc_now()
-    elif payload.status == "cancelled":
+        # Seated well before the booked time: the table is theirs from NOW for
+        # their sitting. The floor said "fri 19.30" and the timeline drew the
+        # block at 18:00 while they ate at 12:50. The booked time stays in the
+        # audit row; a move that would run into another party's hold on the
+        # table is skipped — the seating itself still stands.
+        # Today's book only: seating a booking from another day is a mis-tap,
+        # and must not drag it into today and free its own evening.
+        _lo, _hi = business_day_window_local(user, business_today_local(user))
+        if prev_status in ("requested", "confirmed") and r.starts_at and _lo <= r.starts_at < _hi:
+            now_l = now_local(user).replace(tzinfo=None, second=0, microsecond=0)
+            if r.starts_at - now_l > timedelta(minutes=15):
+                new_end = now_l + timedelta(minutes=int(r.duration_min or 90))
+                held = [UUID(str(x)) for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
+                clash = held and (
+                    db.query(ReservationOccupancy.id)
+                    .filter(
+                        ReservationOccupancy.user_id == user.id,
+                        ReservationOccupancy.resource_id.in_(held),
+                        ReservationOccupancy.reservation_id != r.id,
+                        ReservationOccupancy.active.is_(True),
+                        ReservationOccupancy.starts_at < new_end,
+                        ReservationOccupancy.ends_at > now_l,
+                    )
+                    .first()
+                )
+                if not clash:
+                    early_from = r.starts_at
+                    r.starts_at, r.ends_at = now_l, new_end
+    restored_from = None  # the early-seat time, when an undo gave the booked time back
+    if payload.status in ("requested", "confirmed") and prev_status == "seated" and r.starts_at:
+        # Undo of an early seating: the booking gets its booked time back. A
+        # mis-tapped "Sæt til bords" at 12:50, undone, must not leave an 18:00
+        # party booked for 12:50 — it would turn up to a table sold twice.
+        try:
+            from app.models.audit_log import AuditLog
+            seat_row = (
+                db.query(AuditLog)
+                .filter(AuditLog.user_id == user.id, AuditLog.entity_id == r.id,
+                        AuditLog.action == "reservation.seated")
+                .order_by(AuditLog.created_at.desc())
+                .first()
+            )
+            was = json.loads(seat_row.before_state) if seat_row and seat_row.before_state else {}
+            now_was = json.loads(seat_row.after_state) if seat_row and seat_row.after_state else {}
+            if was.get("starts_at") and now_was.get("starts_at") == r.starts_at.isoformat():
+                booked = datetime.fromisoformat(was["starts_at"])
+                booked_end = booked + timedelta(minutes=int(r.duration_min or 90))
+                held = [UUID(str(x)) for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
+                clash = held and (
+                    db.query(ReservationOccupancy.id)
+                    .filter(
+                        ReservationOccupancy.user_id == user.id,
+                        ReservationOccupancy.resource_id.in_(held),
+                        ReservationOccupancy.reservation_id != r.id,
+                        ReservationOccupancy.active.is_(True),
+                        ReservationOccupancy.starts_at < booked_end,
+                        ReservationOccupancy.ends_at > booked,
+                    )
+                    .first()
+                )
+                if not clash:
+                    restored_from = r.starts_at
+                    r.starts_at, r.ends_at = booked, booked_end
+        except Exception:  # noqa: BLE001 — the undo itself must still go through
+            restored_from = None
+    if payload.status == "cancelled":
         r.cancelled_at = utc_now()
         # Cancelling a REQUEST is declining it — recorded as such, so the
         # guest's receipt can say "we couldn't confirm" instead of "you
@@ -2353,11 +2465,23 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                 # claim the new one.
                 occ_service.release_occupancy(db, r.id)
                 occ_service.add_occupancy_row(db, r, active=True)
+            elif early_from is not None or restored_from is not None:
+                # Seated early, or that undone — the hold(s) follow the window.
+                occ_service.release_occupancy(db, r.id)
+                if r.combined_resource_ids and len(r.combined_resource_ids) > 1:
+                    occ_service.add_occupancy_rows(db, r, [UUID(str(x)) for x in r.combined_resource_ids], active=True)
+                else:
+                    occ_service.add_occupancy_row(db, r, active=True)
             else:
                 # Approval (requested → confirmed) or seating an already-held
                 # row: ensure exactly one active occupancy row exists.
                 occ_service.sync_occupancy_for_status(db, r)
-        audit_service.record(db, user, f"reservation.{payload.status}", "reservation", r.id)
+        moved_from = early_from or restored_from
+        audit_service.record(
+            db, user, f"reservation.{payload.status}", "reservation", r.id,
+            **({"before": {"starts_at": moved_from.isoformat()},
+                "after": {"starts_at": r.starts_at.isoformat()}} if moved_from else {}),
+        )
         db.commit()
     except IntegrityError:
         # The target table is already occupied for this slot (exclusion

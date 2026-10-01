@@ -29,7 +29,7 @@
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose, windowsFor, windowAt } from "../utils/bookingTimes";
+import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose, windowsFor, windowAt, hm } from "../utils/bookingTimes";
 import { createPortal } from "react-dom";
 import {
   CalendarCheck,
@@ -705,13 +705,28 @@ function statusLabels(t) {
 
 // Table(s) cell — a combined seating shows the "Bord 1 + Bord 2" chip, a
 // single table its label, an unassigned booking a muted dash.
-function TablesCell({ r, labelById, t }) {
+function TablesCell({ r, labelById, t, seatsById = null }) {
+  // More guests than the table(s) seat — after "Gem alligevel" this showed
+  // only on the floor plan ("10/8"). Live bookings only.
+  const heldIds = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+    ? r.combined_resource_ids : r.resource_id ? [r.resource_id] : [];
+  const seats = seatsById ? heldIds.reduce((sum, id) => sum + (seatsById[String(id)] || 0), 0) : 0;
+  const over = seats > 0 && Number(r.party_size) > seats && ["requested", "confirmed", "seated"].includes(r.status);
+  const overTag = over ? (
+    <span
+      className="ml-1 text-[12px] font-medium tabular-nums text-amber-700 dark:text-amber-400"
+      title={t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats })}
+    >
+      {r.party_size}/{seats}
+    </span>
+  ) : null;
   const combined =
     Array.isArray(r.combined_resource_labels) && r.combined_resource_labels.length > 1
       ? r.combined_resource_labels
       : null;
   if (combined) {
     return (
+      <span className="inline-flex items-center">
       <span
         title={combined.join(" + ")}
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 max-w-[9.5rem] truncate"
@@ -719,12 +734,15 @@ function TablesCell({ r, labelById, t }) {
         <Link2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
         {combined.join(" + ")}
       </span>
+      {overTag}
+      </span>
     );
   }
   if (r.resource_id) {
     return (
       <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
         {labelById[String(r.resource_id)] || t("rsvpTableFallback", "Table")}
+        {overTag}
       </span>
     );
   }
@@ -779,7 +797,8 @@ function FlagsCell({ r, t }) {
     <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
       {hasAllergy && (
         <AlertTriangle
-          className={"w-4 h-4 " + (severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
+          // A cancelled booking's allergy is history — grey, not an alarm.
+          className={"w-4 h-4 " + (r.status === "cancelled" ? "text-gray-400 dark:text-gray-500" : severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
           aria-label={severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
           title={allergyTitle || (severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
         />
@@ -904,6 +923,78 @@ function resolveTableLabel(r, labelById) {
   return labels.length ? labels.join(" + ") : null;
 }
 
+// Several tables for one party ("Bord 3 + Bord 4") — the way through "no
+// table seats 12", which the refusal tells the host to do and which had no
+// control. Tables taken at the booking's time can't be ticked.
+function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
+  const current = (Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+    ? r.combined_resource_ids
+    : r.resource_id ? [r.resource_id] : []
+  ).map(String);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(current);
+  const seatsOf = Object.fromEntries(tables.map((tb) => [String(tb.id), Number(tb.capacity_seats) || 0]));
+  const total = picked.reduce((sum, id) => sum + (seatsOf[id] || 0), 0);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => { setPicked(current); setOpen(true); }}
+        className="mt-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 hover:underline underline-offset-2 disabled:opacity-50"
+      >
+        {current.length > 1 ? t("rsvpCombineChange", "Change tables") : t("rsvpCombineTables", "Push tables together")}
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2.5">
+      <div className={"text-[12px] tabular-nums " + (total >= r.party_size ? "text-gray-500 dark:text-gray-400" : "text-amber-700 dark:text-amber-400")}>
+        {t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
+      </div>
+      <div className="grid grid-cols-2 gap-1 max-h-52 overflow-y-auto">
+        {[...tables].sort(byTableLabel).map((tb) => {
+          const id = String(tb.id);
+          const on = picked.includes(id);
+          const taken = busyIds.has(id) && !current.includes(id);
+          return (
+            <label
+              key={id}
+              className={"flex items-center gap-2 h-10 px-2 rounded-md text-sm " + (taken ? "opacity-50" : "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800")}
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={busy || taken || (!on && picked.length >= 6)}
+                onChange={() => setPicked((p) => (on ? p.filter((x) => x !== id) : [...p, id]))}
+                className="w-4 h-4 accent-gray-900 dark:accent-gray-100"
+              />
+              <span className="truncate text-gray-900 dark:text-gray-100">{tb.label}</span>
+              <span className="ml-auto text-[12px] tabular-nums text-gray-500 dark:text-gray-400">
+                {taken ? t("rsvpTableTakenShort", "taken") : tb.capacity_seats}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="md"
+          variant="primary"
+          disabled={busy || picked.length < 2}
+          // In table order, so it reads "Bord 3 + Bord 6", not tap order.
+          onClick={() => onSave([...tables].sort(byTableLabel).map((tb) => String(tb.id)).filter((id) => picked.includes(id)))}
+        >
+          {t("rsvpCombineSave", "Seat at these tables")}
+        </Button>
+        <Button size="md" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+          {t("cancel", "Cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ReservationDrawer({
   reservation,
   t,
@@ -923,12 +1014,27 @@ function ReservationDrawer({
   allergyActionBusy = false,
   allergyActionError = "",
   nowTs = 0,
+  // Tables another live booking holds at this booking's time.
+  busyIds = new Set(),
+  onAssignMany = null,
+  // Not today's book: say which day, and no "Seat" (it was offered for a
+  // booking next Monday, with a confirm that named only the time).
+  isToday = true,
+  dayLabel = null,
 }) {
   if (!reservation) return null;
   const r = reservation;
   // "Didn't arrive" can't be true before they were due — a no-show tapped
   // at 17:00 for a 19:30 booking emptied the table and logged a false miss.
   const due = !r.starts_at || !nowTs || new Date(r.starts_at).getTime() <= nowTs;
+  // Seats at the table(s) this booking holds — "12 at 8 seats" after a
+  // "Gem alligevel" was only visible on the floor plan.
+  const heldIds = (Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+    ? r.combined_resource_ids
+    : r.resource_id ? [r.resource_id] : []).map(String);
+  const heldSeats = tables
+    .filter((tb) => heldIds.includes(String(tb.id)))
+    .reduce((sum, tb) => sum + (Number(tb.capacity_seats) || 0), 0);
   // Live, single-table bookings get the table as a select (move it there).
   const canAssign =
     !isProvider &&
@@ -958,7 +1064,7 @@ function ReservationDrawer({
     primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed", icon: Check };
     secondary.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), to: "cancelled" });
   } else if (r.status === "confirmed") {
-    primary = { label: t("rsvpSeatAction", "Seat"), to: "seated", icon: Armchair };
+    if (isToday) primary = { label: t("rsvpSeatAction", "Seat"), to: "seated", icon: Armchair };
     if (due) secondary.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show" });
     secondary.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled" });
   } else if (r.status === "seated") {
@@ -998,6 +1104,7 @@ function ReservationDrawer({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                {dayLabel && <span className="text-gray-500 dark:text-gray-400 font-medium">{dayLabel} · </span>}
                 {fmtTime(r.starts_at)}–{fmtTime(r.ends_at)}
               </div>
               <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
@@ -1161,22 +1268,51 @@ function ReservationDrawer({
                   disabled={busy || assignBusy}
                   onChange={(e) => onAssign(r, e.target.value || null)}
                   aria-label={t("rsvpAssignTable", "Assign table")}
-                  className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm disabled:opacity-50"
+                  className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm disabled:opacity-50 text-gray-900 dark:text-gray-100"
                 >
                   <option value="">
                     {r.resource_id
                       ? t("rsvpNoTable", "No table")
                       : t("rsvpChooseTable", "Choose a table…")}
                   </option>
-                  {[...tables].sort(byTableLabel).map((tb) => (
-                    <option key={tb.id} value={String(tb.id)}>
-                      {tb.label} · {tb.capacity_seats} {t("rsvpSeats", "seats")}
-                    </option>
-                  ))}
+                  {/* Taken at this time → can't be picked (it silently
+                      refused); too small → still allowed, but said. */}
+                  {[...tables].sort(byTableLabel).map((tb) => {
+                    const id = String(tb.id);
+                    const taken = busyIds.has(id) && id !== String(r.resource_id || "");
+                    const small = Number(tb.capacity_seats) < Number(r.party_size);
+                    return (
+                      <option key={tb.id} value={id} disabled={taken}>
+                        {tb.label} · {tb.capacity_seats} {t("rsvpSeats", "seats")}
+                        {taken ? ` · ${t("rsvpTableTakenShort", "taken")}` : small ? ` · ${t("rsvpTableTooSmallShort", "too small")}` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
+                {heldSeats > 0 && Number(r.party_size) > heldSeats && (
+                  <p className="mt-1.5 text-[12px] text-amber-700 dark:text-amber-400">
+                    {t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
+                  </p>
+                )}
                 {assignError && (
                   <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{assignError}</p>
                 )}
+                {onAssignMany && tables.length > 1 && (
+                  <TableCombiner r={r} tables={tables} busyIds={busyIds} t={t} busy={busy || assignBusy} onSave={(ids) => onAssignMany(r, ids)} />
+                )}
+              </div>
+            )}
+          {/* A party already across several tables can change them here. */}
+          {!canAssign && !isProvider && onAssignMany && tables.length > 1 &&
+            ["requested", "confirmed", "seated"].includes(r.status) && (
+              <div>
+                {heldSeats > 0 && Number(r.party_size) > heldSeats && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400">
+                    {t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
+                  </p>
+                )}
+                {assignError && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{assignError}</p>}
+                <TableCombiner r={r} tables={tables} busyIds={busyIds} t={t} busy={busy || assignBusy} onSave={(ids) => onAssignMany(r, ids)} />
               </div>
             )}
 
@@ -1404,10 +1540,20 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
     (Number(chosenTable.capacity_seats) || 0) < (Number(party) || 0);
   if (!table) return null;
   const canSeat = pickMode ? !!chosenTable && !chosenTable.busy : true;
+  const seat = () => {
+    if (busy || !canSeat || !chosenTable) return;
+    onSeat({
+      resource_id: chosenTable.id,
+      party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
+      guest_name: name.trim() || t("rsvpWalkIn", "Drop-in"),
+    });
+  };
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
-      <div
+      {/* A form, like the other sheets — Enter in the name field seats them. */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); seat(); }}
         className="relative w-full sm:max-w-sm bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl p-5 space-y-4 animate-fadeIn"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
       >
@@ -1452,7 +1598,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
                 setPickedId(e.target.value);
               }}
               aria-label={t("rsvpSeatWalkInTable", "Table")}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
             >
               {tables.length === 0 && (
                 <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
@@ -1460,7 +1606,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
               {[...tables].sort(byTableLabel).map((tb) => (
                 <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
                   {tb.label}
-                  {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
+                  {tb.capacity_seats ? ` · ${tb.capacity_seats} ${t("rsvpSeats", "seats")}` : ""}
                   {tb.busy
                     ? ` — ${t("rsvpSeatWalkInBusy", "occupied")}`
                     : tb.reservedAt
@@ -1482,7 +1628,8 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
         )}
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("rsvpColParty", "Party")}
+            {/* The New booking and Edit sheets' own words — this one said "PERS.". */}
+            {t("rsvpPartySize", "Party size")}
           </label>
           {/* Was its own [1,2,3,4,5,6,8] ladder — a walk-in of 7 or 9 could
               not be typed at all. Now the one shared ladder. */}
@@ -1498,27 +1645,20 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
             onChange={(e) => setName(e.target.value)}
             maxLength={160}
             placeholder={t("rsvpWalkIn", "Drop-in")}
-            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
           />
         </div>
         <Button
+          type="submit"
           variant="primary"
           size="lg"
           busy={busy}
           disabled={!canSeat}
           className="w-full justify-center"
-          onClick={() => {
-            if (!canSeat || !chosenTable) return;
-            onSeat({
-              resource_id: chosenTable.id,
-              party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
-              guest_name: name.trim() || t("rsvpWalkIn", "Drop-in"),
-            });
-          }}
         >
           {t("rsvpSeatNowBtn", "Seat now")}
         </Button>
-      </div>
+      </form>
     </div>
   );
 }
@@ -1581,7 +1721,7 @@ function warningFrom(d, time, totalCapacity = null) {
 // same refusal is never explained two ways. "room_full" is raised whenever no
 // table fits, which is several different facts; each gets its own sentence.
 function roomFullText(w, t, sitting, { edit = false } = {}) {
-  const hours = (w.openWindows || []).map(([a, b]) => `${a}–${b}`).join(", ");
+  const hours = (w.openWindows || []).map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", ");
   if (w.tooBig) {
     return edit
       ? t("rsvpEditTooBig", "No table seats {n} (largest: {max}). Save anyway and put tables together when they arrive.", { n: w.requested, max: w.largest })
@@ -1592,7 +1732,7 @@ function roomFullText(w, t, sitting, { edit = false } = {}) {
     return t("rsvpClosedThatDay", "You're closed that day — change the opening hours under Settings to take it.");
   }
   if (w.busyAtThatTime === 0 && w.openWindows && w.time && !windowAt(w.openWindows, w.time)) {
-    return t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: w.time, hours });
+    return t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: hm(w.time), hours });
   }
   if (overrunsClose(w.openWindows, w.time, w.sitting || sitting)) {
     return t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time.");
@@ -1615,11 +1755,11 @@ function snapStart({ dateIso, time, openHours, sitting, n, service, t }) {
   let note;
   if (win && overrunsClose(wins, time, sitting)) {
     note = service
-      ? t("rsvpTimeMovedCloseService", "Moved to {to} — the appointment has to end by {close}.", { to, close: win[1] })
-      : t("rsvpTimeMovedClose", "Moved to {to} — {n} guests have to be done by {close}.", { to, n, close: win[1] });
+      ? t("rsvpTimeMovedCloseService", "Moved to {to} — the appointment has to end by {close}.", { to: hm(to), close: hm(win[1]) })
+      : t("rsvpTimeMovedClose", "Moved to {to} — {n} guests have to be done by {close}.", { to: hm(to), n, close: hm(win[1]) });
   } else {
     note = t("rsvpTimeMovedOpen", "Moved to {to} — open {hours} that day.", {
-      to, hours: wins.map(([a, b]) => `${a}–${b}`).join(", "),
+      to: hm(to), hours: wins.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", "),
     });
   }
   return { to, note };
@@ -1736,7 +1876,7 @@ function EditBookingSheet({
               className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums">
               {/* The booking's own time stays listed even when it is outside
                   today's hours, so opening Edit never silently moves it. */}
-              {(editTimes.times.includes(time) ? editTimes.times : [time, ...editTimes.times]).map((q) => <option key={q} value={q}>{q}</option>)}
+              {(editTimes.times.includes(time) ? editTimes.times : [time, ...editTimes.times]).map((q) => <option key={q} value={q}>{hm(q)}</option>)}
             </select>
           </div>
         </div>
@@ -1775,45 +1915,47 @@ function EditBookingSheet({
           <input id="eb-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
         </div>
+        {/* Same order and words as New booking: note, then the allergy with
+            its severity under it — the two sheets disagreed on all three. */}
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("rsvpEditAllergy", "Allergi")}
+          <label htmlFor="eb-note" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNewNote", "Note (optional)")}</label>
+          <input id="eb-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
+            placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+        </div>
+        <div>
+          <label htmlFor="eb-allergy" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpNewAllergy", "Allergy (optional)")}
           </label>
-          <div className="flex flex-wrap gap-2 mt-1.5">
-            {severities.map((s) => {
-              const on = s.v === severity;
-              const danger = s.v === "severe";
-              return (
-                <button key={s.v || "none"} type="button" onClick={() => setSeverity(s.v)}
-                  aria-pressed={on}
-                  className={"h-11 px-3 rounded-lg border text-sm font-medium " +
-                    (on
-                      ? danger
+          <input id="eb-allergy" value={allergyNote} onChange={(e) => setAllergyNote(e.target.value)}
+            placeholder={t("rsvpNewAllergyPh", "e.g. nuts, gluten")}
+            maxLength={2000}
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+          {(allergyNote.trim() || severity) && (
+            <div className="flex flex-wrap gap-2 mt-2" role="group" aria-label={t("rsvpEditAllergy", "Allergi")}>
+              {severities.filter((sv) => sv.v).map((sv) => {
+                const on = sv.v === severity;
+                return (
+                  <button key={sv.v} type="button" aria-pressed={on}
+                    // Tapping the chosen one again clears it, as in New booking.
+                    onClick={() => setSeverity(on ? "" : sv.v)}
+                    className={"h-10 px-3 rounded-lg border text-sm font-medium " + (on
+                      ? sv.v === "severe"
                         ? "bg-red-600 text-white border-red-600"
                         : "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
                       : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")}>
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-          <input value={allergyNote} onChange={(e) => setAllergyNote(e.target.value)}
-            aria-label={t("rsvpEditAllergy", "Allergi")}
-            placeholder={t("rsvpEditAllergyPh", "F.eks. skaldyr — ingen bisque, separat pande")}
-            maxLength={2000}
-            className="mt-2 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+                    {sv.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {severity === "severe" && (
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-red-700 dark:text-red-400">
               <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden />
               {t("rsvpEditAllergySevereHint", "Alvorlig giver en tydelig lyd på vært-skærmen.")}
             </p>
           )}
-        </div>
-        <div>
-          <label htmlFor="eb-note" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNewNote", "Note (optional)")}</label>
-          <input id="eb-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
-            placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
-            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
         </div>
         </div>
         <div
@@ -2020,7 +2162,7 @@ function NewBookingSheet({
                   snapTime(lengthFor(party, e.target.value));
                 }}
                 aria-label={t("rsvpPublicPickBehandling", "Vælg behandling")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
               >
                 <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
                 {behandlinger.map((b) => {
@@ -2053,7 +2195,7 @@ function NewBookingSheet({
                 value={stylistId}
                 onChange={(e) => setStylistId(e.target.value)}
                 aria-label={t("rsvpPublicPickBehandler", "Vælg behandler")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
               >
                 {/* Default = Valgfri behandler (no pinned behandler). */}
                 <option value="">{t("rsvpBookValgfriOwner", "Any stylist")}</option>
@@ -2085,7 +2227,7 @@ function NewBookingSheet({
                 }
                 if (warning) onClearWarning();
               }}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums dark:[color-scheme:dark]"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums dark:[color-scheme:dark] text-gray-900 dark:text-gray-100"
             />
           </div>
           <div>
@@ -2100,13 +2242,13 @@ function NewBookingSheet({
                 setTimeNote("");
                 if (warning) onClearWarning();
               }}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
             >
               {/* Only the times the venue takes bookings (a time typed
                   elsewhere stays selectable rather than vanishing). */}
               {(dayTimes.times.includes(time) ? dayTimes.times : [time, ...dayTimes.times]).map((tm) => (
                 <option key={tm} value={tm}>
-                  {tm}
+                  {hm(tm)}
                 </option>
               ))}
             </select>
@@ -2164,7 +2306,7 @@ function NewBookingSheet({
                 if (warning) onClearWarning();
               }}
               aria-label={t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
             >
               <option value="">{t("rsvpBookingTableAuto", "Auto")}</option>
               {[...tables].sort(byTableLabel).map((tb) => (
@@ -2192,7 +2334,7 @@ function NewBookingSheet({
             }}
             maxLength={160}
             placeholder={t("rsvpNamePh", "Anna Hansen")}
-            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
           />
           {nameMissing && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">
@@ -2215,7 +2357,7 @@ function NewBookingSheet({
             onChange={(e) => setPhone(e.target.value)}
             maxLength={40}
             placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
-            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
           />
         </div>
 
@@ -2232,7 +2374,7 @@ function NewBookingSheet({
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={500}
                 placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
@@ -2246,7 +2388,7 @@ function NewBookingSheet({
                 onChange={(e) => setAllergy(e.target.value)}
                 maxLength={500}
                 placeholder={t("rsvpNewAllergyPh", "e.g. nuts, gluten")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
               />
               {allergy.trim() && (
                 <div className="flex flex-wrap gap-2 mt-2" role="group" aria-label={t("rsvpEditAllergy", "Allergi")}>
@@ -2439,7 +2581,9 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
         (r) =>
           !r.resource_id &&
           !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length) &&
-          ["requested", "confirmed"].includes(r.status) &&
+          // Seated without a table too — a party of 12 "booked without a
+          // table" vanished from the timeline the moment it was seated.
+          ["requested", "confirmed", "seated"].includes(r.status) &&
           r.starts_at,
       )
       .map((r) => {
@@ -2612,7 +2756,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                 className={"absolute top-1.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400 " +
                   (m === startMin ? "pl-1" : m === endMin ? "-translate-x-full pr-1" : "-translate-x-1/2")}
               >
-                {String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:00
+                {String(Math.floor((m % 1440) / 60)).padStart(2, "0")}.00
               </span>
             ))}
             {/* The "now" indicator is now ONE continuous .bb-playhead overlay,
@@ -2753,6 +2897,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                   const topLineW = timelineTopLineWidth(r, combined);
                   const showSeat =
                     !!onStatus &&
+                    day === todayIso &&
                     r.status === "confirmed" &&
                     width >= 6 + topLineW + 4 + SEAT_W;
                   return (
@@ -4067,6 +4212,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       if (Array.isArray(m) && m.length) setSpotMatches(m);
       window.dispatchEvent(new Event("bonbox-reservations-changed"));
       await fetchBook(day);
+      // Seated with no table (a 12 "booked without a table"): the booking
+      // opens on its tables, so giving them some is the next tap — not a hunt.
+      const row = resp?.data;
+      if (status === "seated" && row && !row.resource_id && !(Array.isArray(row.combined_resource_ids) && row.combined_resource_ids.length)) {
+        setAssignError("");
+        setSelected(row);
+      }
     } catch (e) {
       setError(
         e?.response?.data?.detail?.error ||
@@ -4224,16 +4376,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Assign / move / clear the booking's table from the detail drawer.
   // PATCH then refetch (no in-place object patching — the memo-on-identity
   // trap) and re-point the drawer at the fresh row so it shows the new table.
-  const assignTable = async (r, resourceId) => {
+  const assignTable = async (r, resourceId, many = null) => {
     const current = r.resource_id ? String(r.resource_id) : null;
     const next = resourceId ? String(resourceId) : null;
-    if (current === next) return;
+    if (!many && current === next) return;
     setAssigning(true);
     setAssignError("");
     try {
       const patchResp = await api.patch(
         `/reservations/reservations/${r.id}/table`,
-        { resource_id: next },
+        many ? { resource_ids: many } : { resource_id: next },
       );
       // Clearing a table releases its hold → the backend surfaces the waiting
       // parties that now fit. Same SHOW-only contract as cancel/no-show: we
@@ -4249,7 +4401,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     } catch (e) {
       const d = e?.response?.data?.detail || {};
       if (e?.response?.status === 409 && d.error === "slot_unavailable") {
-        const label = (next && labelById[next]) || t("rsvpTableFallback", "Table");
+        const label = many
+          ? many.map((id) => labelById[String(id)]).filter(Boolean).join(" + ")
+          : (next && labelById[next]) || t("rsvpTableFallback", "Table");
         setAssignError(t("rsvpTableTaken", "{label} is taken at that time.", { label }));
       } else {
         setAssignError(d.error || t("rsvpAssignError", "Couldn't assign the table."));
@@ -4359,6 +4513,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => [...new Set(resources.map((r) => r.zone).filter(Boolean))],
     [resources],
   );
+  const seatsById = useMemo(
+    () => Object.fromEntries(resources.map((x) => [String(x.id), Number(x.capacity_seats) || 0])),
+    [resources],
+  );
   const labelById = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -4372,6 +4530,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => resources.filter((r) => r.kind !== "provider" && r.is_active !== false),
     [resources],
   );
+  // Tables another live booking holds during the open booking's time — the
+  // drawer marks them instead of letting a pick bounce off a 409.
+  const busyForSelected = useMemo(() => {
+    const out = new Set();
+    if (!selected?.starts_at) return out;
+    const a0 = new Date(selected.starts_at).getTime();
+    const a1 = selected.ends_at ? new Date(selected.ends_at).getTime() : a0 + 90 * 60000;
+    for (const x of reservations) {
+      if (x.id === selected.id || !["requested", "confirmed", "seated"].includes(x.status) || !x.starts_at) continue;
+      const b0 = new Date(x.starts_at).getTime();
+      const b1 = x.ends_at ? new Date(x.ends_at).getTime() : b0 + 90 * 60000;
+      if (b0 < a1 && a0 < b1) {
+        const ids = Array.isArray(x.combined_resource_ids) && x.combined_resource_ids.length
+          ? x.combined_resource_ids : x.resource_id ? [x.resource_id] : [];
+        ids.forEach((id) => out.add(String(id)));
+      }
+    }
+    return out;
+  }, [selected, reservations]);
   // Walk-in table picker (header-launched Seat-walk-in, no preset tile). Uses
   // the SAME live floor state the Floor map paints, but "busy" here means
   // OCCUPIED RIGHT NOW — a guest seated NOW can take a table whose next booking
@@ -4445,6 +4622,20 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   }, [resources]);
 
   const seatedCount = summary.by_status?.seated || 0;
+  // "ved N borde" counted parties: 16 guests "at 2 tables" with one table in
+  // use and one party seated with none. Count the tables, and say who has none.
+  const seatedTables = useMemo(() => {
+    const ids = new Set();
+    let none = 0;
+    for (const r of reservations) {
+      if (r.status !== "seated") continue;
+      const held = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+        ? r.combined_resource_ids : r.resource_id ? [r.resource_id] : [];
+      if (!held.length) none += 1;
+      held.forEach((id) => ids.add(String(id)));
+    }
+    return { tables: ids.size, none };
+  }, [reservations]);
   // Guests at the tables right now — what "Sidder nu" means to a host. The
   // strip used to show the number of seated PARTIES, which reads as people:
   // "Sidder nu 4 · i lokalet" for 16 guests at 4 tables.
@@ -4507,7 +4698,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const pad = (n) => String(n).padStart(2, "0");
     return {
       peakPct: Math.min(999, Math.round((peak / totalCapacity) * 100)),
-      peakTime: at == null ? null : `${pad(Math.floor((at % 1440) / 60))}:${pad(at % 60)}`,
+      peakTime: at == null ? null : `${pad(Math.floor((at % 1440) / 60))}.${pad(at % 60)}`,
     };
   }, [reservations, totalCapacity]);
   const nextArrival = useMemo(() => {
@@ -4616,6 +4807,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
   const filtersOn =
     q.trim() !== "" || statusFilter !== "all" || zoneFilter !== "all" || noteTypeFilter !== "all";
+  // The dropdowns alone — what the phone's Filter chip opens.
+  const selectsOn = statusFilter !== "all" || zoneFilter !== "all" || noteTypeFilter !== "all";
   // Phone: the FilterBar's stacked full-width controls cost ~a screen of
   // chrome above the first booking — collapse behind a chip (open when a
   // filter is already active so state is never hidden). Desktop unchanged.
@@ -4718,9 +4911,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   // kitchen decision depends on was the faintest on the row.
                   // The severe branch already passes at 4.83:1; left alone.
                   "text-[12px] font-medium truncate " +
-                  (severe
-                    ? "text-red-600 dark:text-red-400"
-                    : "text-amber-700 dark:text-amber-400")
+                  (r.status === "cancelled"
+                    ? "text-gray-500 dark:text-gray-400"
+                    : severe
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-amber-700 dark:text-amber-400")
                 }
                 title={detail || undefined}
               >
@@ -4786,7 +4981,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             id: "tables",
             label: t("rsvpColTable", "Table"),
             width: "w-36",
-            render: (r) => <TablesCell r={r} labelById={labelById} t={t} />,
+            render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} t={t} />,
           },
         ]),
     {
@@ -4832,7 +5027,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         onClick: guardedSet(null, "cancelled"),
       });
     } else if (r.status === "confirmed") {
-      out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
+      if (isViewingToday) out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
       // The table only renders from lg up (tablet and phone use the compact
       // row), i.e. with a mouse and hover tooltips: the two destructive
       // flips go icon-only so "Sæt til bords" stays whole — at 1280 the three
@@ -4874,7 +5069,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     let primary = null;
     if (r.status === "requested")
       primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed" };
-    else if (r.status === "confirmed")
+    else if (r.status === "confirmed" && isViewingToday)
       primary = { label: t("rsvpSeatAction", "Seat"), to: "seated" };
     else if (r.status === "seated")
       primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed" };
@@ -5350,9 +5545,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             helper:
               seatedCount === 0
                 ? t("rsvpSeatedHelper", "in the room")
-                : seatedCount === 1
-                  ? t("rsvpSeatedAtTableOne", "at 1 table")
-                  : t("rsvpSeatedAtTables", "at {n} tables", { n: seatedCount }),
+                : [
+                    seatedTables.tables === 1
+                      ? t("rsvpSeatedAtTableOne", "at 1 table")
+                      : seatedTables.tables > 1
+                        ? t("rsvpSeatedAtTables", "at {n} tables", { n: seatedTables.tables })
+                        : null,
+                    seatedTables.none > 0 ? t("rsvpSeatedNoTable", "{n} without a table", { n: seatedTables.none }) : null,
+                  ].filter(Boolean).join(" · "),
             onClick: () => focusStatus("seated"),
             selected: view === "liste" && statusFilter === "seated",
           },
@@ -5436,23 +5636,38 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {/* ── Liste (the polished data-table) ── */}
       {view === "liste" && (
         <>
-          <button
-            type="button"
-            onClick={() => setMobileFiltersOpen((v) => !v)}
-            className="sm:hidden inline-flex items-center gap-1.5 h-9 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-600 dark:text-gray-300"
-          >
-            <SlidersHorizontal className="w-4 h-4" aria-hidden />
-            {t("rsvpFilterChip", "Filter")}
-            {filtersOn && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden />
-            )}
-          </button>
-          <div className={mobileFiltersOpen || filtersOn ? "" : "hidden sm:block"}>
+          {/* Phone: the search sits in the open, with Filter beside it — it
+              was behind the Filter chip, and the other-day results landed
+              under three dropdowns, below the fold. */}
+          <div className="sm:hidden flex items-center gap-2">
+            <FilterBar.Search
+              id="rsvp-search-phone"
+              value={q}
+              onChange={setQ}
+              placeholder={t("rsvpSearchPh", "Search guest or phone")}
+              aria-label={t("rsvpSearchPh", "Search guest or phone")}
+              className="min-w-0"
+            />
+            <button
+              type="button"
+              onClick={() => setMobileFiltersOpen((v) => !v)}
+              aria-expanded={mobileFiltersOpen || selectsOn}
+              className="shrink-0 inline-flex items-center gap-1.5 h-10 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-600 dark:text-gray-300"
+            >
+              <SlidersHorizontal className="w-4 h-4" aria-hidden />
+              {t("rsvpFilterChip", "Filter")}
+              {selectsOn && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden />
+              )}
+            </button>
+          </div>
+          <div className={mobileFiltersOpen || selectsOn ? "" : "hidden sm:block"}>
           <FilterBar>
             <FilterBar.Search
               value={q}
               onChange={setQ}
               placeholder={t("rsvpSearchPh", "Search guest or phone")}
+              className="max-sm:hidden"
             />
             <FilterBar.Select
               label={t("rsvpFilterStatus", "Status")}
@@ -5509,7 +5724,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                         (h.status === "cancelled" || h.status === "no_show" ? "opacity-60" : "")}
                     >
                       <span className="min-w-[8.5rem] shrink-0 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
-                        {shortDayLabel(h.day, t, lang)} · {String(h.starts_at).slice(11, 16)}
+                        {shortDayLabel(h.day, t, lang)} · {hm(String(h.starts_at).slice(11, 16))}
                       </span>
                       <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                         {h.guest_name || t("rsvpGuest", "Guest")}
@@ -5633,6 +5848,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       </div>
 
       {/* ── Plan (visual floor) ── */}
+      {/* A party seated with no table can't be drawn on the floor — it read
+          "13 ledige nu" with twelve people in the room. Name them, and open
+          the booking to give them tables. */}
+      {view === "plan" && !loading && (() => {
+        const loose = reservations.filter(
+          (r) => r.status === "seated" && !r.resource_id && !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length),
+        );
+        if (!loose.length) return null;
+        return (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="font-medium">{t("rsvpSeatedNoTableBanner", "Seated without a table:")}</span>
+            {loose.map((r) => (
+              <button key={r.id} type="button" onClick={() => openDrawer(r)} className="font-medium underline underline-offset-2 hover:no-underline">
+                {(r.guest_name || t("rsvpGuest", "Guest")) + " · " + r.party_size}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
       {view === "plan" &&
         (loading ? (
           <FloorSkeleton />
@@ -5674,6 +5908,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         <ReservationDrawer
           reservation={selected}
           nowTs={nowTs}
+          busyIds={busyForSelected}
+          onAssignMany={(r, ids) => assignTable(r, null, ids)}
+          isToday={isViewingToday}
+          dayLabel={isViewingToday ? null : shortDayLabel(day, t, lang)}
           tableLabel={resolveTableLabel(selected, labelById)}
           isProvider={isProvider}
           behandlerName={
@@ -6347,7 +6585,7 @@ function FloorSection({ t, businessType }) {
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
               aria-label={t("rsvpProviderPickStaff", "Choose a stylist")}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
             >
               <option value="">{t("rsvpProviderPickStaff", "Choose a stylist")}</option>
               {staffMembers.map((s) => (
@@ -6362,7 +6600,7 @@ function FloorSection({ t, businessType }) {
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t("rsvpStationLabelPh", "Station name (optional)")}
               maxLength={120}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
             />
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -6411,7 +6649,7 @@ function FloorSection({ t, businessType }) {
                   onChange={(e) => setBulkRow(i, { seats: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
                   placeholder={t("rsvpBulkSeatsPh", "Seats")}
                   aria-label={t("rsvpBulkSeatsAria", "Seats per table")}
-                  className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+                  className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
                 />
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
                   {t("rsvpSeatsShort", "pax")}
@@ -6434,7 +6672,7 @@ function FloorSection({ t, businessType }) {
                   onChange={(e) => setBulkRow(i, { count: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
                   placeholder="0"
                   aria-label={t("rsvpBulkCountAria", "How many")}
-                  className="h-11 w-14 text-center border-x border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+                  className="h-11 w-14 text-center border-x border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
                 />
                 <button
                   type="button"
@@ -6474,7 +6712,7 @@ function FloorSection({ t, businessType }) {
             onChange={(e) => setBulkZone(e.target.value)}
             maxLength={60}
             placeholder={t("rsvpTableZonePh", "Zone (optional)")}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
           />
           <label className="flex items-center gap-2.5 cursor-pointer select-none px-1">
             <input
@@ -6537,7 +6775,7 @@ function FloorSection({ t, businessType }) {
             onChange={(e) => setLabel(e.target.value)}
             placeholder={t("rsvpTableLabelPh", "Name (e.g. Table 4)")}
             maxLength={120}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
           />
           <div className="relative">
             <input
@@ -6546,7 +6784,7 @@ function FloorSection({ t, businessType }) {
               value={seats}
               onChange={(e) => setSeats(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
               placeholder={t("rsvpTableSeatsPh", "Seats")}
-              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
               {t("rsvpSeats", "seats")}
@@ -6558,7 +6796,7 @@ function FloorSection({ t, businessType }) {
             onChange={(e) => setZone(e.target.value)}
             placeholder={t("rsvpTableZonePh", "Zone (optional)")}
             maxLength={60}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
           />
         </div>
         <ZonePresetChips profile={profile} t={t} value={zone} onPick={setZone} />
@@ -6768,7 +7006,7 @@ function FloorSection({ t, businessType }) {
                       if (v && parseInt(v, 10) !== r.capacity_seats) saveSeats(r, v);
                     }}
                     aria-label={t("rsvpTableSeatsAria", "Seats at {label}", { label: r.label })}
-                    className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+                    className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
                     {t("rsvpSeatsShort", "pax")}
@@ -6955,7 +7193,7 @@ function BehandlingerSection({ t }) {
             placeholder={t("rsvpBehandlingNamePh", "Name (e.g. Klip dame)")}
             maxLength={120}
             aria-label={t("rsvpBehandlingNameLabel", "Service name")}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
           />
           <div className="relative">
             <input
@@ -6965,7 +7203,7 @@ function BehandlingerSection({ t }) {
               onChange={(e) => setDuration(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
               placeholder={t("rsvpBehandlingDurationLabel", "Duration")}
               aria-label={t("rsvpBehandlingDurationLabel", "Duration")}
-              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
               {t("rsvpBehandlingMinSuffix", "min")}
@@ -6979,7 +7217,7 @@ function BehandlingerSection({ t }) {
               onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
               placeholder={t("rsvpBehandlingPriceLabel", "Price (optional)")}
               aria-label={t("rsvpBehandlingPriceLabel", "Price (optional)")}
-              className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+              className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
               kr.
@@ -7328,14 +7566,21 @@ function SettingsSection({ t }) {
       .sort((a, b) => a.up_to - b.up_to);
     setTiers(loadedTiers);
     setTierDraft(loadedTiers.map((tr) => ({ up_to: tr.up_to, minutes: String(tr.minutes) })));
-    loadedDurationRef.current = s.default_duration_min ?? "";
+    // Bigger parties are held at least as long as the last band — the field
+    // said 90 for a size actually held 120. Show what applies.
+    const lastTier = loadedTiers.length ? Number(loadedTiers[loadedTiers.length - 1].minutes) : 0;
+    const effDefault =
+      s.default_duration_min != null && lastTier
+        ? Math.max(Number(s.default_duration_min) || 0, lastTier)
+        : s.default_duration_min;
+    loadedDurationRef.current = effDefault ?? "";
     setForm({
       max_party_size: s.max_party_size ?? "",
       group_request_threshold: s.group_request_threshold ?? "",
       lead_time_min: s.lead_time_min ?? "",
       max_advance_days: s.max_advance_days ?? "",
       pacing_max_per_slot: s.pacing_max_per_slot ?? "",
-      default_duration_min: s.default_duration_min ?? "",
+      default_duration_min: effDefault ?? "",
       // combine_enabled defaults on (matches the backend); only flips off if
       // the owner explicitly disabled combining.
       combine_enabled: s.combine_enabled !== false,
@@ -7706,7 +7951,7 @@ function SettingsSection({ t }) {
               {t("rsvpCustomLink", "Customise your link")}
             </label>
             <div className="flex items-center gap-2">
-              <div className="flex items-center flex-1 min-w-0 h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+              <div className="flex items-center flex-1 min-w-0 h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden text-gray-900 dark:text-gray-100">
                 <span className="px-3 text-sm text-gray-400 dark:text-gray-500 border-r border-gray-200 dark:border-gray-700 shrink-0 self-stretch flex items-center">
                   /r/
                 </span>
@@ -8280,7 +8525,7 @@ function StandDevices({ t }) {
           {active.map((d) => (
             <li
               key={d.id}
-              className="flex items-center gap-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2"
+              className="flex items-center gap-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 text-gray-900 dark:text-gray-100"
             >
               <span className="min-w-0 flex-1 text-[13px] text-gray-700 dark:text-gray-200 truncate">
                 {d.label || t("rsvpStandDeviceUnnamed", "Enhed")}
@@ -8439,7 +8684,7 @@ function NumberField({ label, hint, value, onChange }) {
         inputMode="numeric"
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-        className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+        className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
       />
       {hint && <span className="text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>}
     </label>

@@ -17,6 +17,10 @@ export const QUARTER_TIMES = (() => {
 // open_hours from /reservations/settings is keyed mon…sun.
 export const WEEKDAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
+// "19:00" → "19.00": how every time reads on screen (the Danish way, and
+// what the book's own fmtTime prints). Values sent to the API keep the colon.
+export const hm = (hhmm) => String(hhmm ?? "").replace(":", ".");
+
 export const toMin = (hhmm) => {
   const [h, m] = String(hhmm).split(":").map(Number);
   return h * 60 + m;

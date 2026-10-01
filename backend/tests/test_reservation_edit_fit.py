@@ -269,3 +269,125 @@ def test_changing_the_big_party_length_keeps_the_tiers(client, db):
     s = res.json()["settings"]
     assert s["default_duration_min"] == 150
     assert [t["up_to"] for t in s["turn_time_tiers"]] == [2, 4, 8]
+
+
+# ── tables pushed together, and seating early ─────────────────────────
+
+def test_a_big_party_can_be_seated_across_tables(client, db):
+    _, (a, b) = _venue(db, seats=(4, 8))
+    res = client.post("/api/reservations/book", json={
+        "guest_name": "Test Tolv", "party_size": 12, "starts_at": f"{_DAY}T19:00:00",
+        "source": "manual", "auto_assign": True, "allow_overflow": True,
+    })
+    rid = res.json()["id"]
+    assert res.json()["resource_id"] is None
+    out = client.patch(f"/api/reservations/reservations/{rid}/table",
+                       json={"resource_ids": [str(a.id), str(b.id)]})
+    assert out.status_code == 200, out.text
+    assert out.json()["combined_resource_ids"] == [str(a.id), str(b.id)]
+    assert sorted(_held(db, rid)) == sorted([str(a.id), str(b.id)])
+
+
+def test_pushing_together_onto_a_taken_table_is_refused(client, db):
+    _, (a, b) = _venue(db, seats=(4, 8))
+    _book(client, b, time="19:00", party=2)  # Bord 2 held 19:00–20:30
+    res = client.post("/api/reservations/book", json={
+        "guest_name": "Test Tolv", "party_size": 12, "starts_at": f"{_DAY}T19:30:00",
+        "source": "manual", "auto_assign": True, "allow_overflow": True,
+    })
+    rid = res.json()["id"]
+    out = client.patch(f"/api/reservations/reservations/{rid}/table",
+                       json={"resource_ids": [str(a.id), str(b.id)]})
+    assert out.status_code == 409
+    assert _held(db, rid) == []
+
+
+def _later_today(user, minutes=90):
+    """A start later in TODAY's business day, or skip (too close to 06:00)."""
+    from datetime import timedelta
+    from app.services.tz_utils import business_day_window_local, business_today_local, now_local
+    now = now_local(user).replace(tzinfo=None, second=0, microsecond=0)
+    _, hi = business_day_window_local(user, business_today_local(user))
+    at = now + timedelta(minutes=minutes)
+    if at >= hi:
+        pytest.skip("too close to the business-day cutoff to book later today")
+    return now, at
+
+
+def test_seating_early_holds_the_table_from_now(client, db):
+    u, (two, eight) = _venue(db)
+    now, at = _later_today(u)
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Tidlig", "party_size": 2, "source": "manual",
+        "starts_at": at.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    out = client.patch(f"/api/reservations/reservations/{b['id']}/status", json={"status": "seated"})
+    assert out.status_code == 200, out.text
+    row = _row(db, b["id"])
+    # From now (to the minute), for the party's own sitting.
+    assert abs((row.starts_at - now).total_seconds()) <= 60
+    assert int((row.ends_at - row.starts_at).total_seconds() // 60) == 90
+    occ = db.query(ReservationOccupancy).filter(
+        ReservationOccupancy.reservation_id == uuid.UUID(b["id"]),
+        ReservationOccupancy.active.is_(True)).all()
+    assert len(occ) == 1 and occ[0].starts_at == row.starts_at and occ[0].ends_at == row.ends_at
+
+
+def test_undoing_an_early_seating_gives_the_booked_time_back(client, db):
+    u, (two, eight) = _venue(db)
+    _, at = _later_today(u)
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Fortryd", "party_size": 2, "source": "manual",
+        "starts_at": at.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    client.patch(f"/api/reservations/reservations/{b['id']}/status", json={"status": "seated"})
+    assert _row(db, b["id"]).starts_at != at
+    out = client.patch(f"/api/reservations/reservations/{b['id']}/status", json={"status": "confirmed"})
+    assert out.status_code == 200, out.text
+    row = _row(db, b["id"])
+    assert row.starts_at == at
+    occ = db.query(ReservationOccupancy).filter(
+        ReservationOccupancy.reservation_id == uuid.UUID(b["id"]),
+        ReservationOccupancy.active.is_(True)).all()
+    assert len(occ) == 1 and occ[0].starts_at == at
+
+
+def test_seating_another_days_booking_keeps_its_day(client, db):
+    _, (two, eight) = _venue(db)
+    b = _book(client, eight, time="19:00", party=2)   # _DAY, not today
+    client.patch(f"/api/reservations/reservations/{b['id']}/status", json={"status": "seated"})
+    assert _row(db, b["id"]).starts_at.isoformat().startswith(f"{_DAY}T19:00")
+
+
+def test_seating_on_time_keeps_the_booked_window(client, db):
+    from datetime import timedelta
+    from app.services.tz_utils import now_local
+    u, (two, eight) = _venue(db)
+    soon = now_local(u).replace(tzinfo=None, second=0, microsecond=0) + timedelta(minutes=10)
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Snart", "party_size": 2, "source": "manual",
+        "starts_at": soon.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    client.patch(f"/api/reservations/reservations/{b['id']}/status", json={"status": "seated"})
+    assert _row(db, b["id"]).starts_at == soon
+
+
+def test_seating_early_never_runs_into_another_hold(client, db):
+    from datetime import datetime, timedelta
+    from app.services.tz_utils import now_local
+    u, (two, eight) = _venue(db)
+    now = now_local(u).replace(tzinfo=None, second=0, microsecond=0)
+    # Another party holds Bord 2 for the next hour; ours is booked for later.
+    other = client.post("/api/reservations/book", json={
+        "guest_name": "Test Nu", "party_size": 2, "source": "manual",
+        "starts_at": (now + timedelta(minutes=5)).isoformat(), "resource_id": str(eight.id),
+    }).json()
+    later = (now + timedelta(hours=3)).replace(minute=0)
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Senere", "party_size": 2, "source": "manual",
+        "starts_at": later.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    out = client.patch(f"/api/reservations/reservations/{b['id']}/status", json={"status": "seated"})
+    assert out.status_code == 200, out.text
+    assert _row(db, b["id"]).starts_at == later       # not moved onto Test Nu
+    assert other["id"]

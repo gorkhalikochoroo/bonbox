@@ -32,7 +32,7 @@ import { useToast } from "../../hooks/useToast";
 import useAsyncData from "../../hooks/useAsyncData";
 import Button from "../ui/Button";
 import LoadFailed from "../ui/LoadFailed";
-import { openTimesFor, sittingMinutes } from "../../utils/bookingTimes";
+import { openTimesFor, sittingMinutes, hm } from "../../utils/bookingTimes";
 import { fmtTime } from "../../utils/floorState";
 
 const inputCls =
@@ -330,7 +330,7 @@ export default function WaitlistSection({
         if (wins && wins.length === 0) {
           flashToast(t("rsvpClosedThatDay", "You're closed that day — change the opening hours under Settings to take it."));
         } else if (wins && !inside) {
-          flashToast(t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: bookTime, hours: wins.map(([a, b]) => `${a}–${b}`).join(", ") }));
+          flashToast(t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: hm(bookTime), hours: wins.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", ") }));
         } else if (d.tables_busy_at_that_time === 0) {
           flashToast(t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time."));
         } else {
@@ -540,7 +540,7 @@ export default function WaitlistSection({
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <select value={bookTime} onChange={(ev) => setBookTime(ev.target.value)}
                         className={inputCls + " max-w-[8rem] tabular-nums"} aria-label={t("rsvpColTime", "Time")}>
-                        {list.map((q) => <option key={q} value={q}>{q}</option>)}
+                        {list.map((q) => <option key={q} value={q}>{hm(q)}</option>)}
                       </select>
                       <Button variant="primary" size="md" className="h-10" disabled={busy}
                         iconLeft={busy ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
