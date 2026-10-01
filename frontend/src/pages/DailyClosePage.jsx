@@ -1945,6 +1945,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     if (scanResult.moms_total && !mergeIncomplete.includes("moms_total") && !scanResult.revenue_total_text) {
       setMomsMode("manual");
       setMomsManual(String(scanResult.moms_total));
+    } else {
+      // This scan carries no MOMS of its own (none read, one till of two, or
+      // a corrected total): an EARLIER scan's MOMS must not stay behind. It
+      // was saved "fra bon" 3.406 against a re-scanned, corrected 16.500.
+      setMomsMode("auto");
+      setMomsManual("");
     }
     // ── Z-report specialized prefill (Part D) ───────────────────────
     // When the backend ran the kasserapport-specialized extractor it
@@ -3651,7 +3657,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   + {t("addAnotherPhoto", "Add another page or terminal")}
                 </button>
               )}
-              <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setScanMode("idle"); }}
+              <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setScanMode("idle"); }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
               </button>
@@ -4486,7 +4492,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               ← {t("back", "Back")}
             </Button>
           ) : (
-            <Button variant="ghost" size="lg" onClick={() => { setScanMode("idle"); setScanResult(null); setScanPhotos([]); }}>
+            // Back to the scan card WITH the scan, to correct it — it threw the
+            // read Z-bon and its photo away without asking.
+            <Button variant="ghost" size="lg" onClick={() => {
+              if (scanResult) { setScanMode("result"); return; }
+              setScanMode("idle"); setScanPhotos([]);
+            }}>
               ← {t("scanZReportBack", "Scan Z-report")}
             </Button>
           )}
