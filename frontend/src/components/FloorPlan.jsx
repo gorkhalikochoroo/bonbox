@@ -17,8 +17,9 @@
 // Status classification reuses the page's deriveFloorState() (passed in as
 // `cells`), so the room is always consistent with the List + Timeline views.
 //
-// Design doctrine: gray-* palette; emerald only for the live/"free" + money
-// moments; rounded shapes, soft shadows, subtle status glow, calm grid.
+// Design doctrine: the book's status colours (white free, blue arriving,
+// green seated, red running long); rounded shapes, soft shadows, subtle
+// status glow, calm grid.
 // Mobile / host-stand friendly: the canvas pans horizontally on a narrow
 // screen so a big room stays usable.
 //
@@ -92,41 +93,42 @@ import {
 import { fitRoom, roomMinWidth } from "../utils/floorFit";
 
 // ── Status → visual tokens ────────────────────────────────────────────
-// Mirrors deriveFloorState's status vocabulary, mapped onto the brand
-// palette. "overdue" is derived here (a seated booking past its end time),
-// so the room can flag a table that's running long in red.
-//   free      → emerald   (open, invite to seat)
-//   upcoming  → amber      (booked / holding, guest due)
-//   seated    → gray-900   (occupied now — solid, committed)
-//   overdue   → solid red  (seated past end — needs turning)
-//   inactive  → muted gray (out of service)
+// Mirrors deriveFloorState's status vocabulary, in the book's colours (one
+// vocabulary with the list and the timeline — Manoj, 1 Oct 2026). "overdue"
+// is derived here (a seated booking past its end time), so the room can flag
+// a table that's running long in red.
+//   free      → plain white (nothing on it — green now means "in the room")
+//   upcoming  → sky blue    (booked / holding, guest due)
+//   seated    → solid green (in use now — the heaviest mark in the room)
+//   overdue   → solid red   (seated past end — needs turning)
+//   inactive  → muted gray  (out of service)
 const STATUS_STYLE = {
   free: {
-    fill: "bg-emerald-50 dark:bg-emerald-950/40",
-    ring: "ring-emerald-300/70 dark:ring-emerald-700/60",
-    dot: "bg-emerald-500",
-    text: "text-emerald-900 dark:text-emerald-100",
-    chair: "bg-emerald-300/80 dark:bg-emerald-700/70",
-    glow: "shadow-[0_0_0_4px_rgba(16,185,129,0.10)]",
+    fill: "bg-white dark:bg-[rgb(var(--surface-card))]",
+    ring: "ring-gray-300 dark:ring-gray-600",
+    dot: "bg-gray-300 dark:bg-gray-600",
+    text: "text-gray-800 dark:text-gray-100",
+    chair: "bg-gray-300 dark:bg-gray-600",
+    glow: "",
   },
   upcoming: {
-    fill: "bg-amber-50 dark:bg-amber-950/40",
-    ring: "ring-amber-300/80 dark:ring-amber-600/60",
-    dot: "bg-amber-500",
-    text: "text-amber-900 dark:text-amber-100",
-    chair: "bg-amber-300/80 dark:bg-amber-700/70",
-    glow: "shadow-[0_0_0_4px_rgba(245,158,11,0.12)]",
+    fill: "bg-sky-50 dark:bg-sky-950",
+    ring: "ring-sky-300 dark:ring-sky-700",
+    dot: "bg-sky-500",
+    text: "text-sky-950 dark:text-sky-100",
+    chair: "bg-sky-300 dark:bg-sky-700",
+    glow: "shadow-[0_0_0_4px_rgba(14,165,233,0.12)]",
   },
   seated: {
-    // Occupied = solid gray-900 (committed — "this table is in use"), so the
-    // room reads by contrast: dark = seated, emerald = open, amber = arriving,
-    // red = running long. (Blue was off the locked palette.)
-    fill: "bg-gray-900 dark:bg-gray-100",
-    ring: "ring-gray-900 dark:ring-gray-100",
-    dot: "bg-emerald-400",
-    text: "text-white dark:text-gray-900",
-    chair: "bg-gray-700 dark:bg-gray-300",
-    glow: "shadow-[0_0_0_4px_rgba(17,24,39,0.12)]",
+    // In use = solid green, white ink at AA (emerald-700 is 5.5:1) — the room
+    // reads at a glance: green = people at it, blue = arriving, red = running
+    // long, white = free.
+    fill: "bg-emerald-700 dark:bg-emerald-700",
+    ring: "ring-emerald-700 dark:ring-emerald-500",
+    dot: "bg-white/90",
+    text: "text-white",
+    chair: "bg-emerald-500 dark:bg-emerald-600",
+    glow: "shadow-[0_0_0_4px_rgba(4,120,87,0.15)]",
   },
   overdue: {
     // Running long → SOLID red (alarm), mirroring seated=solid-dark. The one
@@ -151,9 +153,9 @@ const STATUS_STYLE = {
 // Bar stools + high-top seats read as a RING (outline) rather than a solid
 // dot — status-tinted border, keyed on the same vocabulary as STATUS_STYLE.
 const STOOL_BORDER = {
-  free: "border-emerald-400 dark:border-emerald-600",
-  upcoming: "border-amber-400 dark:border-amber-600",
-  seated: "border-gray-500 dark:border-gray-400",
+  free: "border-gray-300 dark:border-gray-600",
+  upcoming: "border-sky-400 dark:border-sky-600",
+  seated: "border-emerald-600 dark:border-emerald-500",
   overdue: "border-red-300 dark:border-red-700",
   inactive: "border-gray-300 dark:border-gray-600",
 };
@@ -1532,7 +1534,8 @@ export default function FloorPlan({
         >
           {turn.freeNow > 0 ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" aria-hidden />
+              {/* The free-table mark, as on the floor: white, ringed. */}
+              <span className="w-2 h-2 rounded-full bg-white ring-1 ring-gray-400 dark:bg-gray-900 dark:ring-gray-500 shrink-0" aria-hidden />
               <span className="font-medium shrink-0">
                 {t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
               </span>
@@ -1751,9 +1754,9 @@ export default function FloorPlan({
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
-        <LegendItem dotCls="bg-emerald-500" label={t("rsvpTileFree", "Free")} />
-        <LegendItem dotCls="bg-amber-500" label={t("rsvpLegUpcoming", "Upcoming")} />
-        <LegendItem dotCls="bg-gray-900 dark:bg-gray-100" label={t("rsvpTileSeated", "Seated")} />
+        <LegendItem dotCls="bg-white ring-1 ring-gray-300 dark:bg-[rgb(var(--surface-card))] dark:ring-gray-600" label={t("rsvpTileFree", "Free")} />
+        <LegendItem dotCls="bg-sky-500" label={t("rsvpLegUpcoming", "Upcoming")} />
+        <LegendItem dotCls="bg-emerald-600" label={t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (
           <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpPlanNext", "Your next reservation")} />

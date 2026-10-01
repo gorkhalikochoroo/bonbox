@@ -21,6 +21,8 @@ import { ACCENT_VALUE_CLASS } from "./statAccents";
  *   helper?,            short note on one line, truncated if it does not fit —
  *                       put the part that matters most FIRST
  *   accent?,            "neutral" | "success" | "warn" | "critical" (value colour)
+ *   icon?, tone?,       a Lucide icon before the label, tinted by meaning —
+ *                       "neutral" | "info" | "success" | "warn" | "critical"
  *   onClick?, selected?,  a clickable cell is a real <button> with a chevron
  *   hideOnPhone?,       hide below sm: (only pass true when the cell is quiet)
  * }]
@@ -59,11 +61,22 @@ export default function StatStrip({ items, className = "" }) {
   );
 }
 
+// Icon tints carry meaning, never decoration: grey when nothing is going on.
+const ICON_TONE = {
+  neutral: "text-gray-400 dark:text-gray-500",
+  info: "text-sky-500 dark:text-sky-400",
+  success: "text-emerald-600 dark:text-emerald-400",
+  warn: "text-amber-500 dark:text-amber-400",
+  critical: "text-red-500 dark:text-red-400",
+};
+
 function StatStripCell({
   label,
   value,
   helper = null,
   accent = "neutral",
+  icon: Icon = null,
+  tone = "neutral",
   onClick = null,
   selected = false,
   hideOnPhone = false,
@@ -92,13 +105,21 @@ function StatStripCell({
       <span className="flex items-center justify-between gap-1 min-w-0">
         <span
           className={
-            "text-xs leading-4 max-sm:text-[11px] font-medium truncate " +
+            "inline-flex items-center gap-1.5 min-w-0 text-xs leading-4 max-sm:text-[11px] font-medium " +
             (selected
               ? "text-gray-900 dark:text-gray-100"
               : "text-gray-500 dark:text-gray-400")
           }
         >
-          {label}
+          {Icon && (
+            <Icon
+              size={13}
+              strokeWidth={2}
+              className={"shrink-0 " + (ICON_TONE[tone] || ICON_TONE.neutral)}
+              aria-hidden="true"
+            />
+          )}
+          <span className="truncate">{label}</span>
         </span>
         {isClickable && (
           <ChevronRight

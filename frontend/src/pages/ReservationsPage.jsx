@@ -71,6 +71,9 @@ import {
   VolumeX,
   LogOut,
   MoreHorizontal,
+  Hourglass,
+  Gauge,
+  ListOrdered,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -125,15 +128,18 @@ const STATUS_PILL = {
     pill: "font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800/60",
     dot: "bg-amber-500 dark:bg-amber-400 motion-safe:animate-pulse",
   },
+  // One vocabulary across list, timeline and floor (Manoj, 1 Oct 2026 —
+  // "colour with meaning"): blue = booked and coming, green = in the room,
+  // amber = needs an answer, red = gone wrong, grey = history.
   confirmed: {
-    pill: "font-medium bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/60",
-    dot: "bg-emerald-500 dark:bg-emerald-400",
+    pill: "font-medium bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-600/20 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-800/60",
+    dot: "bg-sky-500 dark:bg-sky-400",
   },
   seated: {
-    // The only solid fill — inverts in dark mode so it stays the highest-
-    // contrast (heaviest) mark in the column. No ring; font-semibold.
-    pill: "font-semibold bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900",
-    dot: "bg-white/80 dark:bg-gray-900/70",
+    // The only solid fill — the live state is the heaviest mark in the
+    // column. emerald-700 keeps white text at AA (5.5:1).
+    pill: "font-semibold bg-emerald-700 text-white dark:bg-emerald-400 dark:text-emerald-950",
+    dot: "bg-white/80 dark:bg-emerald-950/60",
   },
   completed: {
     pill: "font-medium bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-500/15 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-700",
@@ -149,6 +155,38 @@ const STATUS_PILL = {
     strike: true,
   },
 };
+
+// A booking's status as a 3px bar at the row's left edge (the Vagtplan role
+// bar's shape) — readable down a list without reading a word. Late = a
+// confirmed party past its time.
+// The 600 stops: a 3px mark still clears 3:1 on white (amber-400 was 1.7:1).
+const STATUS_BAR = {
+  requested: "bg-amber-600 dark:bg-amber-400",
+  confirmed: "bg-sky-600 dark:bg-sky-400",
+  late: "bg-orange-600 dark:bg-orange-400",
+  seated: "bg-emerald-600 dark:bg-emerald-400",
+  completed: "bg-gray-300 dark:bg-gray-600",
+  no_show: "bg-red-500 dark:bg-red-400",
+  cancelled: "bg-gray-200 dark:bg-gray-700",
+};
+
+// Zones are data, so they get a colour too — a small dot, from hues kept
+// clear of the status colours (no blue/green/amber/orange/red). Assigned by
+// the zone's place in the sorted list, so ≤5 zones never collide; shown only
+// when the venue has two or more zones (one zone tells the host nothing).
+const ZONE_PALETTE = ["bg-teal-500", "bg-violet-500", "bg-pink-500", "bg-indigo-400", "bg-slate-400"];
+function zoneDots(resources) {
+  const zones = [...new Set((resources || []).map((r) => r.zone).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  if (zones.length < 2) return {};
+  const byZone = Object.fromEntries(zones.map((z, i) => [z, ZONE_PALETTE[i % ZONE_PALETTE.length]]));
+  const out = {};
+  for (const r of resources) if (r.zone) out[String(r.id)] = { cls: byZone[r.zone], zone: r.zone };
+  return out;
+}
+function ZoneDot({ dot }) {
+  if (!dot) return null;
+  return <span className={"inline-block w-1.5 h-1.5 rounded-full shrink-0 " + dot.cls} role="img" aria-label={dot.zone} title={dot.zone} />;
+}
 
 // The statuses whose party sizes the server counts as the day's covers.
 const COVER_STATUSES = ["confirmed", "seated", "completed"];
@@ -551,9 +589,19 @@ export default function ReservationsPage() {
       className={
         isHostStand
           ? "space-y-4"
-          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6"
+          : "relative isolate p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6"
       }
     >
+      {/* The page's one piece of atmosphere (Manoj, 1 Oct 2026: "background
+          … nice"): a soft light of the brand green behind the header, fading
+          out before the content. Rides the brand token, so dark mode gets its
+          own lighter green; the cards stay white. Not on the host stand. */}
+      {!isHostStand && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(65%_100%_at_50%_0%,rgb(var(--brand-green-accent)/0.14),transparent_70%)] dark:bg-[radial-gradient(65%_100%_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]"
+        />
+      )}
       {/* BookSection's own standalone wrapper already sets full-bleed padding
           and safe-area insets, and its header already prints the venue name and
           "Vært-skærm" — the owner wrapper and title would double both. */}
@@ -705,7 +753,7 @@ function statusLabels(t) {
 
 // Table(s) cell — a combined seating shows the "Bord 1 + Bord 2" chip, a
 // single table its label, an unassigned booking a muted dash.
-function TablesCell({ r, labelById, t, seatsById = null }) {
+function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
   // More guests than the table(s) seat — after "Gem alligevel" this showed
   // only on the floor plan ("10/8"). Live bookings only.
   const heldIds = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
@@ -740,7 +788,8 @@ function TablesCell({ r, labelById, t, seatsById = null }) {
   }
   if (r.resource_id) {
     return (
-      <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+        <ZoneDot dot={zoneById ? zoneById[String(r.resource_id)] : null} />
         {labelById[String(r.resource_id)] || t("rsvpTableFallback", "Table")}
         {overTag}
       </span>
@@ -2570,6 +2619,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     () => reservations.filter((r) => ["requested", "confirmed", "seated"].includes(r.status)),
     [reservations],
   );
+  const zoneByTable = useMemo(() => zoneDots(resources), [resources]);
 
   // Bookings with NO table yet (requested/confirmed) — without this lane
   // they'd be invisible on the timeline, which is how overbookings hide.
@@ -2726,12 +2776,25 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
 
   // Status carried by fill weight (not hue): seated = inverted gray-900,
   // requested = dashed/provisional, confirmed = solid bordered.
-  const blockClass = (status) =>
-    status === "seated"
-      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-      : status === "requested"
-      ? "bg-white dark:bg-[rgb(var(--surface-card))] border-dashed border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200"
-      : "bg-white dark:bg-[rgb(var(--surface-card))] border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100";
+  // The book's colours, on the bars (one vocabulary with the list and the
+  // floor): green in the room, blue booked and coming, amber a request to
+  // answer (dashed — not yet a promise), orange a confirmed party running
+  // late. Opaque fills in both themes, so the seat control can share them.
+  const BLOCK = {
+    seated: "bg-emerald-100 text-emerald-950 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-700",
+    requested: "bg-amber-50 text-amber-950 border-dashed border-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-600",
+    late: "bg-orange-50 text-orange-950 border-orange-400 dark:bg-orange-950 dark:text-orange-100 dark:border-orange-600",
+    confirmed: "bg-sky-50 text-sky-950 border-sky-300 dark:bg-sky-950 dark:text-sky-100 dark:border-sky-700",
+  };
+  const SEAT_FACE = {
+    confirmed: "bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300 dark:hover:bg-sky-900",
+    late: "bg-orange-50 text-orange-700 hover:bg-orange-100 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900",
+  };
+  const blockKind = (r) =>
+    day === todayIso && r.status === "confirmed" && r.starts_at &&
+    nowTick - new Date(r.starts_at).getTime() > 5 * 60000
+      ? "late"
+      : r.status;
 
   return (
     <div ref={measureRef} className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-x-auto">
@@ -2856,8 +2919,9 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
                   {tbl.label}
                 </span>
-                <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                  {[tbl.zone, tbl.capacity_seats + "p"].filter(Boolean).join(" · ")}
+                <span className="inline-flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 min-w-0">
+                  <ZoneDot dot={zoneByTable[id]} />
+                  <span className="truncate">{[tbl.zone, tbl.capacity_seats + "p"].filter(Boolean).join(" · ")}</span>
                 </span>
               </div>
               <div style={{ width: bodyW }} className="relative">
@@ -2909,7 +2973,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                       style={{ left, width, top: 5, height: ROW_H - 12 }}
                       className={
                         "absolute rounded-md border px-1.5 overflow-clip text-left flex flex-col justify-center transition-colors duration-500 " +
-                        blockClass(r.status) +
+                        (BLOCK[blockKind(r)] || BLOCK.confirmed) +
                         (justSeatedId === r.id ? " bb-seat-settle" : "") +
                         (allergy === "severe"
                           ? " ring-2 ring-inset ring-red-500 dark:ring-red-400"
@@ -2952,7 +3016,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                         // free space. Its own surface, so a name scrolled
                         // under it (the sticky label) is cut, not overprinted.
                         style={{ left: left + width - SEAT_W - 1, width: SEAT_W, top: 6, height: (ROW_H - 14) / 2 }}
-                        className="absolute z-10 flex items-center justify-center rounded-tr-md bg-white dark:bg-[rgb(var(--surface-card))] text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-white/10 transition-colors"
+                        className={"absolute z-10 flex items-center justify-center rounded-tr-md transition-colors " + (SEAT_FACE[blockKind(r)] || SEAT_FACE.confirmed)}
                       >
                         <Armchair className="w-4 h-4 shrink-0" aria-hidden />
                       </button>
@@ -4517,6 +4581,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => Object.fromEntries(resources.map((x) => [String(x.id), Number(x.capacity_seats) || 0])),
     [resources],
   );
+  const zoneById = useMemo(() => zoneDots(resources), [resources]);
   const labelById = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -4835,7 +4900,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       render: (r) => {
         // "Late" = a confirmed guest whose start time has passed and who
         // hasn't been seated/no-showed. 5-min grace, today only (a past day
-        // is history; a future day is never late). Amber = needs a decision:
+        // is history; a future day is never late). Orange = needs a decision:
         // hold the table, call them, or give it away.
         const startMs = r.starts_at ? new Date(r.starts_at).getTime() : 0;
         const lateMin =
@@ -4843,12 +4908,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             ? Math.floor((nowTs - startMs) / 60000)
             : 0;
         return (
+          <div className="flex items-stretch gap-2.5">
+          {/* The row's status as a bar, as on the phone list. */}
+          <span
+            className={"w-[3px] rounded-full shrink-0 " + (STATUS_BAR[lateMin >= 5 ? "late" : r.status] || STATUS_BAR.completed)}
+            aria-hidden="true"
+          />
           <div className="leading-tight">
             <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
               {fmtTime(r.starts_at)}
             </div>
             {lateMin >= 5 ? (
-              <div className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
+              <div className="inline-flex items-center gap-1 text-[11px] font-medium text-orange-700 dark:text-orange-400 tabular-nums">
                 <Clock className="w-3 h-3 shrink-0" aria-hidden />
                 {lateMin >= 60
                   ? t("rsvpLateByHours", "{h} h {m} min late", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
@@ -4859,6 +4930,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 {fmtTime(r.ends_at)}
               </div>
             )}
+          </div>
           </div>
         );
       },
@@ -4981,7 +5053,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             id: "tables",
             label: t("rsvpColTable", "Table"),
             width: "w-36",
-            render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} t={t} />,
+            render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} zoneById={zoneById} t={t} />,
           },
         ]),
     {
@@ -5079,6 +5151,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // Unfolded cancelled rows read as history, not as live bookings.
         className={"flex items-center gap-3 cursor-pointer" + (r.status === "cancelled" ? " opacity-60" : "")}
         onClick={() => openDrawer(r)}
+        data-status={lateMin >= 5 ? "late" : r.status}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -5088,12 +5161,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         role="button"
         tabIndex={0}
       >
+        <span
+          className={"w-[3px] self-stretch rounded-full shrink-0 -ml-1 " + (STATUS_BAR[lateMin >= 5 ? "late" : r.status] || STATUS_BAR.completed)}
+          aria-hidden="true"
+        />
         <div className="w-14 shrink-0 leading-tight">
           <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
             {fmtTime(r.starts_at)}
           </div>
           {lateMin >= 5 && (
-            <div className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
+            <div className="inline-flex items-center gap-0.5 text-[11px] font-medium text-orange-700 dark:text-orange-400 tabular-nums">
               <Clock className="w-3 h-3 shrink-0" aria-hidden />
               {lateMin >= 60
                 ? t("rsvpLateShortHours", "+{h} h {m} m", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
@@ -5137,7 +5214,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 table keeps its name ("B…", "M." before). Every other status
                 keeps its word. */}
             {r.status === "confirmed"
-              ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" role="img" aria-label={labels.confirmed || "confirmed"} />
+              ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-sky-500 dark:bg-sky-400" role="img" aria-label={labels.confirmed || "confirmed"} />
               : <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>}
           </div>
           {/* What the host must know before the party arrives: the allergy in
@@ -5528,6 +5605,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             key: "covers",
             label: t("rsvpCovers", "Covers"),
             value: summary.covers,
+            icon: Users,
+            tone: summary.covers > 0 ? "info" : "neutral",
             helper:
               coverBookings === 1
                 ? t("rsvpCoversBookingsOne", "{n} booking", { n: coverBookings })
@@ -5542,6 +5621,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             // empty it falls back to neutral so the colour always means
             // "something is happening", never decoration.
             accent: seatedCount > 0 ? "success" : "neutral",
+            icon: Armchair,
+            tone: seatedCount > 0 ? "success" : "neutral",
             helper:
               seatedCount === 0
                 ? t("rsvpSeatedHelper", "in the room")
@@ -5560,6 +5641,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             key: "next",
             label: t("rsvpNextArrival", "Next arrival"),
             value: nextArrival ? fmtTime(nextArrival.starts_at) : "—",
+            icon: Clock,
+            tone: nextArrival ? "info" : "neutral",
             helper: nextArrivalHelper,
             onClick: nextArrival ? () => openDrawer(nextArrival) : null,
           },
@@ -5568,6 +5651,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             label: t("rsvpAwaiting", "Awaiting"),
             value: requestedCount,
             accent: requestedCount > 0 ? "warn" : "neutral",
+            icon: Hourglass,
+            tone: requestedCount > 0 ? "warn" : "neutral",
             helper: t("rsvpAwaitingHelper", "to confirm"),
             onClick: () => focusStatus("requested"),
             selected: view === "liste" && statusFilter === "requested",
@@ -5587,6 +5672,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 : peakPct > 100 ? "critical"
                   : peakPct >= 85 ? "warn"
                     : "neutral",
+            icon: Gauge,
+            tone:
+              peakPct == null ? "neutral"
+                : peakPct > 100 ? "critical"
+                  : peakPct >= 85 ? "warn"
+                    : peakPct > 0 ? "success" : "neutral",
             helper:
               totalCapacity <= 0
                 ? t("rsvpUtilNoSeats", "set table seats")
@@ -5600,6 +5691,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             label: t("rsvpWlCockpitToday", "On waitlist"),
             value: waitlistCount,
             accent: waitlistCount > 0 ? "warn" : "neutral",
+            icon: ListOrdered,
+            tone: waitlistCount > 0 ? "warn" : "neutral",
             helper: t("rsvpWlWaiting", "Waiting"),
             onClick: focusWaitlist,
             hideOnPhone: waitlistCount === 0,
@@ -6036,8 +6129,8 @@ const STATUS_INLINE = {
     dot: "bg-amber-500 dark:bg-amber-400 motion-safe:animate-pulse",
     text: "font-medium text-amber-700 dark:text-amber-300",
   },
-  confirmed: { dot: "bg-emerald-500 dark:bg-emerald-400", text: "text-emerald-700 dark:text-emerald-400" },
-  seated: { dot: "bg-gray-900 dark:bg-gray-100", text: "font-semibold text-gray-900 dark:text-gray-100" },
+  confirmed: { dot: "bg-sky-500 dark:bg-sky-400", text: "text-sky-700 dark:text-sky-400" },
+  seated: { dot: "bg-emerald-600 dark:bg-emerald-400", text: "font-semibold text-emerald-700 dark:text-emerald-400" },
   completed: { dot: "bg-gray-400 dark:bg-gray-500", text: "text-gray-500 dark:text-gray-400" },
   no_show: { dot: "bg-red-500 dark:bg-red-400", text: "font-medium text-red-600 dark:text-red-400" },
   cancelled: {
