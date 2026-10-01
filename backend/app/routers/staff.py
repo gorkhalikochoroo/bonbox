@@ -82,6 +82,7 @@ from app.schemas.staff import (
     PayPeriodConfigCreate,
     PayPeriodConfigResponse,
     ScheduleCreate,
+    ScheduleUpdate,
     ScheduleResponse,
     HoursLogCreate,
     HoursLogUpdate,
@@ -198,6 +199,12 @@ def _wage_visible(user: User) -> bool:
 # the forecast's `avg_rate` IS the roster's average base rate.
 _SCHEDULE_WAGE_FIELDS = frozenset({
     "cost", "total_cost", "week_total_cost", "avg_rate", "last_week_cost",
+    # The week-on-week difference in kroner, as a number and as the legacy
+    # sentence that prints it ("Saves 650 DKK vs last week").
+    "delta_kr", "savings_label",
+    # Who has no wage on file. Not a rate, but it only explains a kroner
+    # figure this audience is never shown.
+    "missing_wage_names",
 })
 
 
@@ -340,9 +347,10 @@ def _find_overlapping_shift(
     is keyed on. A shift that crosses midnight is matched on its start date
     only; cross-date bleed (a Mon 22:00–02:00 vs a separate Tue 01:00 row) is
     intentionally out of scope — the grid models one cell per staff per date and
-    the owner sees both rows before publishing. Bulk paths (copy-week,
-    autopilot/apply) build Schedule rows directly and are not routed through
-    this guard; they produce drafts the owner reviews before publish.
+    the owner sees both rows before publishing. Copy-week builds its rows
+    directly but applies the same _shifts_overlap test per target cell;
+    autopilot/apply replaces the week's drafts wholesale and is not routed
+    through this guard — it produces drafts the owner reviews before publish.
     """
     q = db.query(Schedule).filter(
         Schedule.user_id == user_id,
@@ -355,6 +363,83 @@ def _find_overlapping_shift(
         if _shifts_overlap(start_time, end_time, other.start_time, other.end_time):
             return other
     return None
+
+
+def _daily_rest_shortfalls(spans, min_rest_hours: float) -> list[dict]:
+    """Where one person's shifts leave no `min_rest_hours` CONSECUTIVE hours of
+    rest inside a 24-hour period. Pure; the week-load route and its tests share
+    it.
+
+    `spans` is [(start_dt, end_dt, date)] for ONE staff member: naive local
+    datetimes, an overnight end already rolled past midnight.
+
+    The rule (arbejdstidsloven): at least 11 sammenhængende hours of rest within
+    each døgn. A døgn here is the 24 hours from the start of a shift. That
+    reading does two things the old pairwise gap could not:
+
+      • a split day is legal. 11–15 and 17–22 has a 2-hour gap, but from 11:00
+        to 11:00 the next day the person rests 22:00 → 11:00 — 13 hours;
+      • a close followed by an open is not. 14–22 then 06–14 leaves 8 hours
+        from 22:00 to 06:00 and nothing longer inside the 24 hours from 14:00,
+        and neither does one 15-hour day: 24 − 15 is 9.
+
+    Rest is every minute outside a shift; a break taken inside a shift is not
+    rest in this sense, so the whole start–end span counts as work. One result
+    per start DATE — the two periods a split day opens describe the same
+    problem — keeping the shorter rest.
+    """
+    rows = sorted(
+        (r for r in spans if r[0] is not None and r[1] is not None and r[1] > r[0]),
+        key=lambda r: r[0],
+    )
+    worst: dict = {}
+    for ws, _end, wdate in rows:
+        we = ws + timedelta(hours=24)
+        inside = sorted(
+            (max(s, ws), min(e, we), d) for (s, e, d) in rows if s < we and e > ws
+        )
+        cursor = ws
+        longest = 0.0
+        for s, e, _d in inside:
+            if s > cursor:
+                longest = max(longest, (s - cursor).total_seconds() / 3600.0)
+            cursor = max(cursor, e)
+        if we > cursor:
+            longest = max(longest, (we - cursor).total_seconds() / 3600.0)
+        if longest + 1e-9 >= min_rest_hours:
+            continue
+        prev = worst.get(wdate)
+        if prev is None or longest < prev["rest_hours"]:
+            worst[wdate] = {
+                "start_date": wdate,
+                "window_start": ws,
+                "window_end": we,
+                "rest_hours": longest,
+                "dates": sorted({d for (_s, _e, d) in inside}),
+            }
+    return [worst[d] for d in sorted(worst)]
+
+
+def _overlap_detail(staff_name: str | None, conflict) -> dict:
+    """The 409 body for a double-booking, with the facts the owner needs.
+
+    The sheet used to show one generic sentence ("That overlaps a shift they
+    already have that day") because `message` was English prose it could not
+    translate. The name and the existing shift's times travel as fields now,
+    so the client says WHO and WHICH shift in the owner's own language.
+    `message` stays for older clients and for anyone reading the API raw.
+    """
+    return {
+        "code": "shift_overlap",
+        "message": (
+            f"{staff_name} already has a shift "
+            f"{conflict.start_time}–{conflict.end_time} that day."
+        ),
+        "staff_name": staff_name,
+        "existing_start": conflict.start_time,
+        "existing_end": conflict.end_time,
+        "existing_date": conflict.date.isoformat() if conflict.date else None,
+    }
 
 
 def _pick_rate(staff: StaffMember, shift_date: date, start_time: Optional[str]) -> float:
@@ -1719,6 +1804,9 @@ def share_with_staff(
     emailed_count = 0
     email_failed_count = 0
     skipped_no_email = 0
+    # By name, not just a count: "2 skipped" leaves the owner to work out who
+    # never got their link; the names are what they act on.
+    skipped_names: list[str] = []
     week_label = (
         f"Uge {body.week_start.isocalendar().week}"
         if lang == "da"
@@ -1749,6 +1837,7 @@ def share_with_staff(
             # Step 2 — email the link.
             if not member.email:
                 skipped_no_email += 1
+                skipped_names.append(member.name or "—")
                 continue
 
             portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name, member.name)}"
@@ -1841,6 +1930,7 @@ def share_with_staff(
         "emailed_count": emailed_count,
         "email_failed_count": email_failed_count,
         "skipped_no_email": skipped_no_email,
+        "skipped_names": sorted(skipped_names, key=str.lower),
         "week_start": body.week_start.isoformat(),
     }
 
@@ -2047,15 +2137,21 @@ def schedule_week_cost(
     costs cross the wire.
 
     Multi-barrier: L1 auth (get_current_user) - L5 tenant scope (user.id on
-    every query) - L4 fail-soft (missing rate -> autopilot default; missing
-    revenue -> labor% null, never 500) - honest (loaded cost is flagged a
-    feriepenge estimate; ATP is excluded since it is monthly-tiered, not
-    per-shift, and would mislead).
+    every query) - L4 fail-soft (missing revenue -> labor% null, never 500) -
+    honest (loaded cost is flagged a feriepenge estimate; ATP is excluded
+    since it is monthly-tiered, not per-shift, and would mislead).
+
+    A staffer with NO wage on file is not priced. Their shifts used to be
+    costed at the autopilot's 150 kr/t ranking default and summed into the
+    week as if measured, so the week total read "≈ 8.083 kr." with nothing on
+    screen saying part of it was made up. Any day (and so the week) holding
+    one of their shifts now reports cost None, and `missing_wage` names who
+    needs a rate — the page shows "—" and says why.
     """
     from app.services.schedule_autopilot import (
         _staff_hourly_rate,
         _shift_hours,
-        DEFAULT_HOURLY_RATE,
+        has_wage,
     )
     from app.services.revenue_resolver import effective_revenue_by_date
     from app.services.reservation_insights_service import booked_covers_by_business_day
@@ -2074,41 +2170,50 @@ def schedule_week_cost(
         .all()
     )
 
+    # Every member of THIS tenant, deleted ones included: a shift still on the
+    # books for someone since offboarded is priced at their own rate, not
+    # treated as an unknown person.
     staff_rows = (
         db.query(StaffMember)
-        .filter(
-            StaffMember.user_id == user.id,
-            StaffMember.is_deleted.isnot(True),
-        )
+        .filter(StaffMember.user_id == user.id)
         .all()
     )
     staff_by_id = {s.id: s for s in staff_rows}
     name_by_staff = {s.id: s.name for s in staff_rows}
 
+    def _plus(a, b):
+        # Unknown is contagious: a total with one unpriced part is unknown.
+        return None if a is None or b is None else a + b
+
+    def _r2(v):
+        return None if v is None else round(v, 2)
+
     per_shift: dict[str, dict] = {}
     staff_acc: dict[str, dict] = {}
     day_acc: dict[str, dict] = {}
+    missing_wage: dict[str, str] = {}
 
     for sh in shifts:
         st = staff_by_id.get(sh.staff_id)
         # Per-shift rate: _pick_rate applies the member's evening/weekend
-        # premium WHEN configured, else returns base. Guard the no-rate case
-        # (base unset) with the autopilot's DEFAULT-backed floor, so a venue
-        # that never sets a premium sees identical numbers to before.
-        if st is not None:
+        # premium WHEN configured, else returns base; someone with only a
+        # premium on file falls back to their own lowest rate. Someone with no
+        # rate at all is not priced — see the docstring.
+        if has_wage(st):
             rate = _pick_rate(st, sh.date, sh.start_time)
             if rate <= 0:
                 rate = _staff_hourly_rate(st)
         else:
-            rate = DEFAULT_HOURLY_RATE
+            rate = None
+            missing_wage[str(sh.staff_id)] = name_by_staff.get(sh.staff_id) or "—"
         hours = _shift_hours(sh.start_time, sh.end_time, sh.break_minutes or 0)
-        gross = hours * rate
-        loaded = gross * (1.0 + FERIE_UPLIFT)
+        gross = hours * rate if rate is not None else None
+        loaded = gross * (1.0 + FERIE_UPLIFT) if gross is not None else None
 
         per_shift[str(sh.id)] = {
             "hours": round(hours, 2),
-            "cost_gross": round(gross, 2),
-            "cost_loaded": round(loaded, 2),
+            "cost_gross": _r2(gross),
+            "cost_loaded": _r2(loaded),
         }
 
         sa = staff_acc.setdefault(
@@ -2122,16 +2227,16 @@ def schedule_week_cost(
             },
         )
         sa["hours"] += hours
-        sa["cost_gross"] += gross
-        sa["cost_loaded"] += loaded
+        sa["cost_gross"] = _plus(sa["cost_gross"], gross)
+        sa["cost_loaded"] = _plus(sa["cost_loaded"], loaded)
 
         di = sh.date.isoformat()
         da = day_acc.setdefault(
             di, {"hours": 0.0, "cost_gross": 0.0, "cost_loaded": 0.0}
         )
         da["hours"] += hours
-        da["cost_gross"] += gross
-        da["cost_loaded"] += loaded
+        da["cost_gross"] = _plus(da["cost_gross"], gross)
+        da["cost_loaded"] = _plus(da["cost_loaded"], loaded)
 
     try:
         rev_by_date = effective_revenue_by_date(db, user.id, week_start, week_end)
@@ -2155,8 +2260,10 @@ def schedule_week_cost(
     today_local = business_today_local(user)
 
     daily = []
-    week_hours = week_gross = week_loaded = week_rev = 0.0
-    settled_gross = settled_loaded = settled_rev = 0.0
+    week_hours = week_rev = 0.0
+    week_gross = week_loaded = 0.0
+    settled_gross = settled_loaded = 0.0
+    settled_rev = 0.0
     settled_days = 0
     for i in range(7):
         d = week_start + timedelta(days=i)
@@ -2164,8 +2271,8 @@ def schedule_week_cost(
         da = day_acc.get(di, {"hours": 0.0, "cost_gross": 0.0, "cost_loaded": 0.0})
         rev = float(rev_by_date.get(d, 0.0) or 0.0)
         week_hours += da["hours"]
-        week_gross += da["cost_gross"]
-        week_loaded += da["cost_loaded"]
+        week_gross = _plus(week_gross, da["cost_gross"])
+        week_loaded = _plus(week_loaded, da["cost_loaded"])
         week_rev += rev
         # `settled` = the business day is over AND it registered revenue. Both
         # halves matter. A day still in progress has partial revenue against a
@@ -2176,16 +2283,17 @@ def schedule_week_cost(
         if is_settled:
             settled_days += 1
             settled_rev += rev
-            settled_gross += da["cost_gross"]
-            settled_loaded += da["cost_loaded"]
+            settled_gross = _plus(settled_gross, da["cost_gross"])
+            settled_loaded = _plus(settled_loaded, da["cost_loaded"])
+        day_gross, day_loaded = da["cost_gross"], da["cost_loaded"]
         daily.append({
             "date": di,
             "hours": round(da["hours"], 2),
-            "cost_gross": round(da["cost_gross"], 2),
-            "cost_loaded": round(da["cost_loaded"], 2),
+            "cost_gross": _r2(day_gross),
+            "cost_loaded": _r2(day_loaded),
             "revenue": round(rev, 2) if rev > 0 else None,
-            "labor_pct_gross": round(da["cost_gross"] / rev, 4) if rev > 0 else None,
-            "labor_pct_loaded": round(da["cost_loaded"] / rev, 4) if rev > 0 else None,
+            "labor_pct_gross": round(day_gross / rev, 4) if rev > 0 and day_gross is not None else None,
+            "labor_pct_loaded": round(day_loaded / rev, 4) if rev > 0 and day_loaded is not None else None,
             # Lets the client pair each day's cost with the right denominator
             # (its own revenue, or the forecast) without re-deriving "today"
             # from a browser clock that may not be in the venue's timezone.
@@ -2203,13 +2311,13 @@ def schedule_week_cost(
                 "staff_id": v["staff_id"],
                 "name": v["name"],
                 "hours": round(v["hours"], 2),
-                "cost_gross": round(v["cost_gross"], 2),
-                "cost_loaded": round(v["cost_loaded"], 2),
+                "cost_gross": _r2(v["cost_gross"]),
+                "cost_loaded": _r2(v["cost_loaded"]),
             }
             for v in staff_acc.values()
         ),
-        key=lambda r: r["cost_gross"],
-        reverse=True,
+        # Highest cost first; the unpriced (None) at the end.
+        key=lambda r: (r["cost_gross"] is None, -(r["cost_gross"] or 0.0)),
     )
 
     profile = (
@@ -2226,10 +2334,16 @@ def schedule_week_cost(
         "per_shift": per_shift,
         "per_staff": per_staff,
         "daily": daily,
+        # Who has shifts this week and no wage on file — why a cost below is
+        # null. Sorted by name so the sentence on screen is stable.
+        "missing_wage": [
+            {"staff_id": sid, "name": nm}
+            for sid, nm in sorted(missing_wage.items(), key=lambda kv: (kv[1] or "").lower())
+        ],
         "week": {
             "hours": round(week_hours, 2),
-            "cost_gross": round(week_gross, 2),
-            "cost_loaded": round(week_loaded, 2),
+            "cost_gross": _r2(week_gross),
+            "cost_loaded": _r2(week_loaded),
             "revenue": round(week_rev, 2) if week_rev > 0 else None,
             # ── labor_pct_* covers SETTLED DAYS ONLY, both sides ──────────
             #
@@ -2250,10 +2364,12 @@ def schedule_week_cost(
             # forecast payload; recomputing it here would let the headline % and
             # the per-day "demand ~40h" line disagree on the same screen.
             "labor_pct_gross": (
-                round(settled_gross / settled_rev, 4) if settled_rev > 0 else None
+                round(settled_gross / settled_rev, 4)
+                if settled_rev > 0 and settled_gross is not None else None
             ),
             "labor_pct_loaded": (
-                round(settled_loaded / settled_rev, 4) if settled_rev > 0 else None
+                round(settled_loaded / settled_rev, 4)
+                if settled_rev > 0 and settled_loaded is not None else None
             ),
             # What that pct actually covers. `days` is how the client tells
             # "the whole week is in" from "two days are in", which decides
@@ -2261,8 +2377,8 @@ def schedule_week_cost(
             "settled": {
                 "days": settled_days,
                 "revenue": round(settled_rev, 2) if settled_rev > 0 else None,
-                "cost_gross": round(settled_gross, 2),
-                "cost_loaded": round(settled_loaded, 2),
+                "cost_gross": _r2(settled_gross),
+                "cost_loaded": _r2(settled_loaded),
             },
         },
     }
@@ -2288,12 +2404,14 @@ def schedule_week_load(
       cap            — their contract max_hours_week (null when unset)
       over_cap       — hours exceed the contract cap
       over_dk48      — hours exceed the DK 48h weekly ceiling
-      rest_warnings  — 11-timers reglen: consecutive shifts with under
-                       DK_MIN_DAILY_REST_HOURS between end and next start
-                       (arbejdsmiljøloven). Shifts are scanned with a ±1 day
-                       margin so a Sunday→Monday violation across the week
-                       boundary is still caught; only pairs touching the
-                       requested week are reported.
+      rest_warnings  — 11-timers reglen: a 24-hour period (from the start
+                       of a shift) holding no DK_MIN_DAILY_REST_HOURS of
+                       CONSECUTIVE rest (arbejdstidsloven) — see
+                       _daily_rest_shortfalls; a legal split day is not one.
+                       Shifts are scanned with a ±1 day margin so a
+                       Sunday→Monday violation across the week boundary is
+                       still caught; only periods touching the requested
+                       week are reported.
 
     Signals only — publishing is NEVER blocked (proposes-never-decides
     doctrine; §-checks are the owner's call, we just make them visible).
@@ -2388,20 +2506,35 @@ def schedule_week_load(
         )
         hours = round(hours, 2)
 
+        # 11-timersreglen, read the way the law reads: at least 11 CONSECUTIVE
+        # hours of rest inside each 24-hour period — not "11 hours between any
+        # two shifts". The old pairwise gap check called a legal split day
+        # (11–15 and 17–22) "only 2 t rest", which taught the owner to ignore
+        # the one warning that is safety law. See _daily_rest_shortfalls.
         rest_warnings = []
-        ordered = sorted(rows, key=lambda s: _bounds(s)[0])
-        for prev, nxt in zip(ordered, ordered[1:]):
-            # Only report pairs that touch the requested week — the margin
-            # days exist to catch boundary gaps, not to police other weeks.
-            if not (week_start <= prev.date <= week_end or week_start <= nxt.date <= week_end):
+        spans = [(_bounds(s)[0], _bounds(s)[1], s.date) for s in rows]
+        for v in _daily_rest_shortfalls(spans, DK_MIN_DAILY_REST_HOURS):
+            # Only periods that touch the requested week — the margin days
+            # exist to catch boundary cases, not to police other weeks. A
+            # period that starts the Sunday before still counts when it runs
+            # into this week's Monday.
+            touches_week = week_start <= v["start_date"] <= week_end or (
+                v["start_date"] < week_start
+                and any(week_start <= d <= week_end for d in v["dates"])
+            )
+            if not touches_week:
                 continue
-            gap_h = (_bounds(nxt)[0] - _bounds(prev)[1]).total_seconds() / 3600.0
-            if gap_h < DK_MIN_DAILY_REST_HOURS:
-                rest_warnings.append({
-                    "prev_date": prev.date.isoformat(),
-                    "next_date": nxt.date.isoformat(),
-                    "gap_hours": round(gap_h, 1),
-                })
+            rest_warnings.append({
+                # The 24-hour period the rest had to fit in, from the start of
+                # the shift that opens it. prev/next date + gap_hours keep the
+                # shape older clients (the committed iOS scheduler bundle)
+                # render; window_start + rest_hours are the precise version.
+                "prev_date": v["start_date"].isoformat(),
+                "next_date": v["window_end"].date().isoformat(),
+                "gap_hours": round(v["rest_hours"], 1),
+                "rest_hours": round(v["rest_hours"], 2),
+                "window_start": v["window_start"].strftime("%Y-%m-%dT%H:%M"),
+            })
 
         cap = float(member.max_hours_week) if member.max_hours_week else None
 
@@ -2501,16 +2634,7 @@ def create_schedule(
         end_time=data.end_time,
     )
     if conflict:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "shift_overlap",
-                "message": (
-                    f"{staff.name} already has a shift "
-                    f"{conflict.start_time}–{conflict.end_time} that day."
-                ),
-            },
-        )
+        raise HTTPException(status_code=409, detail=_overlap_detail(staff.name, conflict))
 
     shift = Schedule(
         id=uuid.uuid4(),
@@ -2534,7 +2658,7 @@ def create_schedule(
 @router.put("/schedules/{schedule_id}", response_model=ScheduleResponse)
 def update_schedule(
     schedule_id: str,
-    data: ScheduleCreate,
+    data: ScheduleUpdate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -2584,16 +2708,7 @@ def update_schedule(
         exclude_id=shift.id,
     )
     if conflict:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "shift_overlap",
-                "message": (
-                    f"{new_staff.name} already has a shift "
-                    f"{conflict.start_time}–{conflict.end_time} that day."
-                ),
-            },
-        )
+        raise HTTPException(status_code=409, detail=_overlap_detail(new_staff.name, conflict))
 
     # HONESTY — a MATERIAL change invalidates the staffer's acknowledgement,
     # and the SERVER decides that by comparison, not by erasing the stamp.
@@ -2620,7 +2735,11 @@ def update_schedule(
     shift.end_time = data.end_time
     shift.break_minutes = data.break_minutes
     shift.role_on_shift = data.role_on_shift
-    shift.status = data.status
+    # Status changes only when the caller names one. An edit that leaves it out
+    # (the shift sheet's time / note / break edit) keeps whatever the row is —
+    # a published shift stays published and stays on the staffer's portal.
+    if data.status is not None:
+        shift.status = data.status
     shift.notes = data.notes
     shift.branch_id = _validated_branch_id(db, user, data.branch_id)
     db.commit()
@@ -2916,15 +3035,31 @@ def copy_week(
         .all()
     )
     seen = {(str(e.staff_id), e.date, e.start_time, e.end_time) for e in existing}
+    # BOUNDS: the same overlap rule a single shift is held to. Exact duplicates
+    # were already skipped, but a DIFFERENT shift on top of one the person has
+    # this week (an edited Friday, an extra Saturday added before copying) went
+    # straight in — this path builds rows directly and never met
+    # _find_overlapping_shift — so copy-week could double-book one person and
+    # bill both. Each target cell keeps the spans it holds, including the ones
+    # this copy adds, so two overlapping source rows cannot both land either.
+    spans_by_cell: dict = {}
+    for e in existing:
+        spans_by_cell.setdefault((str(e.staff_id), e.date), []).append((e.start_time, e.end_time))
     created = []
     skipped = 0
+    overlapped = []
     for s in source_shifts:
         target_date = s.date + timedelta(days=day_offset)
         key = (str(s.staff_id), target_date, s.start_time, s.end_time)
         if key in seen:
             skipped += 1
             continue
+        cell = spans_by_cell.setdefault((str(s.staff_id), target_date), [])
+        if any(_shifts_overlap(s.start_time, s.end_time, a, b) for a, b in cell):
+            overlapped.append(s)
+            continue
         seen.add(key)  # also dedupes identical rows within the source week
+        cell.append((s.start_time, s.end_time))
         new_shift = Schedule(
             id=uuid.uuid4(),
             user_id=user.id,
@@ -2941,9 +3076,29 @@ def copy_week(
         created.append(new_shift)
 
     db.commit()
+
+    # Who was left out, by name — the owner has to know whose Friday did not
+    # come across to decide whether that is what they wanted.
+    overlap_names: list[str] = []
+    if overlapped:
+        ids = {o.staff_id for o in overlapped}
+        names = {
+            m.id: m.name
+            for m in db.query(StaffMember).filter(
+                StaffMember.user_id == user.id, StaffMember.id.in_(ids)
+            ).all()
+        }
+        for o in overlapped:
+            n = names.get(o.staff_id)
+            if n and n not in overlap_names:
+                overlap_names.append(n)
     return {
         "copied": len(created),
+        # Exact duplicates already in the week (a second click).
         "skipped": skipped,
+        # Different shifts that would have double-booked someone.
+        "skipped_overlap": len(overlapped),
+        "skipped_overlap_names": overlap_names,
         "target_week": body.target_week.isoformat(),
     }
 
@@ -3041,6 +3196,10 @@ def publish_week(
     # dispatch to — never inflated beyond staff with an email. (Per-staff
     # delivery can still fail downstream; that's logged to notification_log.)
     notify_count = 0
+    # The other half of that count, by name: staff whose shifts changed and
+    # who have no email on file, so nobody mailed them. The owner's next step
+    # is "add Anna's email / send Anna her link", which a bare count hides.
+    skipped_names: list[str] = []
     if changes:
         changed_ids = []
         for sid in changes.keys():
@@ -3059,6 +3218,18 @@ def publish_week(
                     StaffMember.email != "",
                 )
                 .count()
+            )
+            skipped_names = sorted(
+                (
+                    m.name or "—"
+                    for m in db.query(StaffMember).filter(
+                        StaffMember.id.in_(changed_ids),
+                        StaffMember.user_id == user.id,
+                        StaffMember.is_deleted.isnot(True),
+                        or_(StaffMember.email.is_(None), StaffMember.email == ""),
+                    ).all()
+                ),
+                key=str.lower,
             )
 
         user_id = user.id
@@ -3099,6 +3270,7 @@ def publish_week(
         "week_start": week_start.isoformat(),
         "changed_staff": len(changes),
         "notify_count": notify_count,
+        "skipped_no_email_names": skipped_names,
     }
 
 
@@ -3219,7 +3391,8 @@ def schedule_autopilot_suggest(
             "basis": payload["basis"],
             "week_total_cost": payload["week_total_cost"],
             "week_total_hours": payload["week_total_hours"],
-            "compliance_warnings": payload["compliance_warnings"],
+            # The structured form (codes + numbers) — what the owner was shown.
+            "warnings": payload["warnings"],
         },
         ip_address=getattr(request.client, "host", None) if request and request.client else None,
     )
@@ -3325,6 +3498,7 @@ def schedule_autopilot_apply(
             "branch_id": str(body.branch_id) if body.branch_id else None,
             "applied": result["applied"],
             "deleted_existing": result["deleted_existing"],
+            "skipped_overlap": result.get("skipped_overlap", 0),
         },
         ip_address=getattr(request.client, "host", None) if request and request.client else None,
     )
@@ -3332,6 +3506,9 @@ def schedule_autopilot_apply(
     return {
         "applied": result["applied"],
         "deleted_existing": result["deleted_existing"],
+        # Proposed shifts left out because the person already has a published
+        # shift there — the page says how many instead of stacking them.
+        "skipped_overlap": result.get("skipped_overlap", 0),
         "week_start": body.week_start.isoformat(),
     }
 
@@ -3484,10 +3661,17 @@ def email_schedule_to_staff(
             detail="Could not render schedule PDF. Try again in a moment.",
         ) from exc
 
-    # Staff filter — selected ids OR every active staff member
+    # Staff filter — selected ids OR every active staff member.
+    #
+    # The column is `active`. This read `StaffMember.is_active`, an attribute
+    # the model does not have, so building the query raised AttributeError and
+    # every "Send ugens vagtplan" ended in a 500 before a single email left —
+    # the button in the hand-off sheet could never have worked. A deleted
+    # (offboarded) member is not a recipient either.
     staff_q = db.query(StaffMember).filter(
         StaffMember.user_id == user.id,
-        StaffMember.is_active.isnot(False),
+        StaffMember.active.isnot(False),
+        StaffMember.is_deleted.isnot(True),
     )
     if body.staff_ids:
         staff_q = staff_q.filter(StaffMember.id.in_(body.staff_ids))
@@ -3495,7 +3679,7 @@ def email_schedule_to_staff(
 
     if not targets:
         return {
-            "ok": True, "sent": 0, "skipped_no_email": 0,
+            "ok": True, "sent": 0, "skipped_no_email": 0, "skipped_names": [],
             "failed": [], "attempted": 0,
             "message": "No active staff matched.",
         }
@@ -3533,6 +3717,7 @@ def email_schedule_to_staff(
 
     sent = 0
     skipped = 0
+    skipped_names: list[str] = []
     failed: list[dict] = []
     cc = [user.email] if (body.cc_self and user.email) else None
 
@@ -3540,6 +3725,7 @@ def email_schedule_to_staff(
         addr = (s.email or "").strip().lower()
         if not addr or "@" not in addr:
             skipped += 1
+            skipped_names.append(s.name or "—")
             continue
 
         first_name = (s.name or "").split(" ")[0] or s.name or ""
@@ -3612,6 +3798,9 @@ def email_schedule_to_staff(
         "ok": True,
         "sent": sent,
         "skipped_no_email": skipped,
+        # Who got nothing because there is no address on file — named, so the
+        # owner knows whose email to add rather than how many.
+        "skipped_names": sorted(skipped_names, key=str.lower),
         "failed": failed,
         "attempted": len(targets),
     }
@@ -7009,6 +7198,131 @@ def list_absences(
         q = q.filter(_StaffAbsence.status.in_(("pending", "acknowledged")))
     rows = q.order_by(_StaffAbsence.date.desc(), _StaffAbsence.called_at.desc()).all()
     return [_serialize_absence(a, db) for a in rows]
+
+
+class _OwnerAbsenceBody(_BM):
+    """Owner registers fravær for one of their staff — ferie / syg / barns
+    sygedag / andet, over a date range (date_to omitted = one day)."""
+    staff_id: uuid.UUID
+    kind: str
+    date_from: date
+    date_to: date | None = None
+    reason: str | None = _F(None, max_length=500)
+
+
+@router.post("/absences")
+def owner_register_absence(
+    body: _OwnerAbsenceBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner-side fravær. Until this existed an owner could only SEE absences
+    (and approve the ones a staffer sent from the portal); a phone call saying
+    "Anna is sick tomorrow" had nowhere to go, so the grid kept showing Anna
+    as on shift and nobody looked for cover.
+
+    The same register_absence the portal uses — one row per day, idempotent
+    per (staff, day, kind), the same kind list, span and date window — with
+    status "acknowledged": the owner entered it, so there is nothing to
+    approve, and the staffer's portal reads it as godkendt.
+
+    Multi-barrier: L1 auth + owner actor only (an absence can be a health
+    record; a delegated seat or a curtained shared device may not write one)
+    · L2 tenant — the staff member must be this owner's, checked here and
+    again in the service · L3 bounded input (kind, from ≤ to, ≤ 60 days, a
+    sane window, reason ≤ 500) with a code per refusal · L7 audit row.
+    """
+    _require_owner_actor(user)
+    staff = db.query(StaffMember).filter(
+        StaffMember.id == body.staff_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    from app.services.sick_call_service import register_absence
+
+    date_to = body.date_to or body.date_from
+    try:
+        created, skipped = register_absence(
+            db,
+            owner_id=user.id,
+            staff_id=staff.id,
+            kind=(body.kind or "").strip().lower(),
+            date_from=body.date_from,
+            date_to=date_to,
+            reason=body.reason,
+            status="acknowledged",
+        )
+    except _SickCallError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": getattr(e, "code", None) or "invalid", "message": str(e)},
+        )
+
+    # The reason stays out of the trail: it can say why someone is ill.
+    audit_service.record(
+        db, user, "staff.absence_registered", "staff_absence",
+        after={
+            "staff_id": str(staff.id),
+            "kind": body.kind,
+            "date_from": body.date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "created": created,
+            "skipped": skipped,
+        },
+        ip_address=client_ip(request) if request else None,
+    )
+    db.commit()
+    return {
+        "staff_id": str(staff.id),
+        "created": created,
+        "skipped": skipped,
+        "kind": body.kind,
+        "date_from": body.date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+    }
+
+
+@router.delete("/absences/{absence_id}", status_code=204)
+def owner_delete_absence(
+    absence_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Remove one absence day — entered by mistake, or the person came in
+    after all. Tenant-scoped: another owner's id is a 404, never a delete.
+    Same owner-actor gate as registering one; audit row keeps what was removed
+    (not the reason)."""
+    _require_owner_actor(user)
+    import uuid as _uuid
+    try:
+        absence_uuid = _uuid.UUID(absence_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid absence_id")
+    absence = db.query(_StaffAbsence).filter(
+        _StaffAbsence.id == absence_uuid,
+        _StaffAbsence.user_id == user.id,
+    ).first()
+    if not absence:
+        raise HTTPException(status_code=404, detail="Absence not found")
+
+    before = {
+        "staff_id": str(absence.staff_id),
+        "kind": absence.kind,
+        "date": absence.date.isoformat() if absence.date else None,
+        "status": absence.status,
+    }
+    db.delete(absence)
+    audit_service.record(
+        db, user, "staff.absence_deleted", "staff_absence", absence_uuid,
+        before=before,
+        ip_address=client_ip(request) if request else None,
+    )
+    db.commit()
 
 
 @router.post("/absences/{absence_id}/acknowledge", response_model=_AbsenceResponse)

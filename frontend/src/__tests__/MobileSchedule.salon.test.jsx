@@ -115,8 +115,9 @@ describe("MobileSchedule — salon vertical", () => {
 describe("MobileSchedule — split shifts", () => {
   it("renders EVERY shift of the day with its own tap target", () => {
     mount();
-    const lunch = screen.getByRole("button", { name: /11:00–15:00/ });
-    const evening = screen.getByRole("button", { name: /18:00–23:00/ });
+    // Danish catalogue, Danish clock — "11.00–15.00" (fmtClock).
+    const lunch = screen.getByRole("button", { name: /11\.00–15\.00/ });
+    const evening = screen.getByRole("button", { name: /18\.00–23\.00/ });
     expect(lunch).toBeInTheDocument();
     expect(evening).toBeInTheDocument();
 

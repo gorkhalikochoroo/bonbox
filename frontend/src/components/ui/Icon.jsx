@@ -108,6 +108,10 @@ import {
   // Per-vertical adaptation (Phase A, 2026-06) — Onboarding branch tiles +
   // venueProfiles glance icons. Scissors=salon, Croissant=bakery.
   Scissors, Croissant,
+  // Vagtplan fravær (2026-10) — the "register absence" action on a person
+  // row and in the shift sheet. Not CalendarOff: that one already marks a
+  // staffer's own "kan ikke" on the same grid.
+  CalendarX2,
   // Misc / fallback
   Circle, ChevronDown,
   HelpCircle,
@@ -189,6 +193,8 @@ const ICONS = {
   WashingMachine, Recycle,
   // Per-vertical adaptation (Phase A) — salon + bakery onboarding tiles
   Scissors, Croissant,
+  // Vagtplan fravær action (2026-10)
+  CalendarX2,
   // Utility
   ChevronDown,
 };

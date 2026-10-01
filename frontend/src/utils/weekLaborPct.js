@@ -44,6 +44,10 @@
  *     caller MUST label it (forventet). A projected number wearing an actuals
  *     label is the thing this file exists to prevent.
  *  6. No denominator at all → null. Never 0, never a guess.
+ *  7. A day whose COST is unknown (week-cost sends null when someone on it
+ *     has no wage) makes the percentage unknown too. Counting it as 0 kr.
+ *     would understate labour exactly where a wage is missing; `costUnknown`
+ *     tells the caller why the figure is "—".
  */
 
 /** Same gate as the per-day demand overlay in StaffSchedulePage. */
@@ -76,6 +80,7 @@ export function expectedWeekLabor({ daily, forecast, costBasis = "gross" }) {
     daysForecast: 0,
     daysUnknown: 0,
     confidence: null,
+    costUnknown: false,
   };
   if (!Array.isArray(daily) || daily.length === 0) return empty;
 
@@ -90,9 +95,13 @@ export function expectedWeekLabor({ daily, forecast, costBasis = "gross" }) {
   let daysActual = 0;
   let daysForecast = 0;
   let daysUnknown = 0;
+  let costUnknown = false;
 
   for (const row of daily) {
-    const dayCost = num(costBasis === "loaded" ? row.cost_loaded : row.cost_gross) ?? 0;
+    const rawCost = costBasis === "loaded" ? row.cost_loaded : row.cost_gross;
+    // Rule 7 — null is "not priced", which is not the same as 0 kr.
+    if (rawCost === null) costUnknown = true;
+    const dayCost = num(rawCost) ?? 0;
     const actual = num(row.revenue);
 
     // `settled` is the SERVER's judgement — it owns the venue timezone and the
@@ -122,8 +131,8 @@ export function expectedWeekLabor({ daily, forecast, costBasis = "gross" }) {
 
   const revenue = revenueActual + revenueForecast;
   return {
-    // Rule 6.
-    pct: revenue > 0 ? cost / revenue : null,
+    // Rule 6 (and 7).
+    pct: revenue > 0 && !costUnknown ? cost / revenue : null,
     // Rule 5.
     isForecast: daysForecast > 0,
     cost,
@@ -134,5 +143,6 @@ export function expectedWeekLabor({ daily, forecast, costBasis = "gross" }) {
     daysForecast,
     daysUnknown,
     confidence: daysForecast > 0 ? forecast?.confidence ?? null : null,
+    costUnknown,
   };
 }

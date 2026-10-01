@@ -25,8 +25,14 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
 
+// "17:00–23:00" from the API → "17.00–23.00" for a Danish owner: the card
+// sits on the Vagtplan, where every other time is written the Danish way.
+function clockText(s, lang) {
+  return lang === "da" && s ? String(s).replace(/(\d{1,2}):(\d{2})/g, "$1.$2") : s;
+}
+
 export default function SwapRequestNotificationCard() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [swaps, setSwaps] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -61,7 +67,7 @@ export default function SwapRequestNotificationCard() {
       </div>
       <div className="space-y-2">
         {swaps.map((s) => (
-          <SwapRow key={s.id} swap={s} onChanged={refetch} t={t} />
+          <SwapRow key={s.id} swap={s} onChanged={refetch} t={t} lang={lang} />
         ))}
       </div>
     </div>
@@ -69,7 +75,7 @@ export default function SwapRequestNotificationCard() {
 }
 
 
-function SwapRow({ swap, onChanged, t }) {
+function SwapRow({ swap, onChanged, t, lang }) {
   const [note, setNote] = useState("");
   const [denying, setDenying] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -103,12 +109,12 @@ function SwapRow({ swap, onChanged, t }) {
         <ShiftBlock
           label={`${swap.from_staff_name || ""} ${t("swapShiftGives") || "gives"}`}
           date={swap.from_shift_date}
-          time={swap.from_shift_time}
+          time={clockText(swap.from_shift_time, lang)}
         />
         <ShiftBlock
           label={`${swap.to_staff_name || ""} ${t("swapShiftGives") || "gives"}`}
           date={swap.to_shift_date}
-          time={swap.to_shift_time}
+          time={clockText(swap.to_shift_time, lang)}
         />
       </div>
 

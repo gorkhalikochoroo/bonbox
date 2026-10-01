@@ -185,6 +185,34 @@ class ScheduleCreate(BaseModel):
         return self
 
 
+# Every status a shift row carries today. "confirmed" is the legacy
+# acknowledged state some readers still accept beside "published".
+_SCHEDULE_STATUSES = {"draft", "published", "confirmed"}
+
+
+class ScheduleUpdate(ScheduleCreate):
+    """PUT /staff/schedules/{id}. The same body as a create, except `status`.
+
+    The PUT used to bind ScheduleCreate, whose status defaults to "draft", and
+    the edit sheet never sent one. So changing a note or a time on a PUBLISHED
+    shift quietly turned it back into a draft: it vanished from the staff
+    portal (which shows published shifts only) while the time change still
+    emailed the staffer about a shift they could no longer see. Absent now
+    means "leave it as it is"; only a caller that names a status changes it.
+    """
+    status: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in _SCHEDULE_STATUSES:
+            raise ValueError("status must be draft or published")
+        return v
+
+
 class ScheduleResponse(BaseModel):
     id: uuid.UUID
     staff_id: uuid.UUID

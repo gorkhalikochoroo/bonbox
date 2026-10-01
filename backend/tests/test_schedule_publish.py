@@ -281,6 +281,7 @@ def test_empty_week_publishes_nothing_and_mails_nobody(db, client, sent):
         "week_start": MONDAY.isoformat(),
         "changed_staff": 0,
         "notify_count": 0,
+        "skipped_no_email_names": [],
     }
     assert sent == []
 

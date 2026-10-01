@@ -159,6 +159,21 @@ describe("expectedWeekLabor", () => {
     expect(mixed.confidence).toBe("low");
   });
 
+  it("will not call a day with no wage on file 0 kr. — the percentage is unknown", () => {
+    // week-cost sends cost null for a day someone with no wage works. Treating
+    // that as 0 kr. would understate labour on exactly the days it is missing.
+    const r = expectedWeekLabor({
+      daily: [
+        day(1, { revenue: 4000, settled: true }),
+        { ...day(2, { revenue: 5000, settled: true }), cost_gross: null, cost_loaded: null },
+      ],
+      forecast: null,
+      costBasis: "gross",
+    });
+    expect(r.pct).toBeNull();
+    expect(r.costUnknown).toBe(true);
+  });
+
   it("survives a missing or malformed payload without throwing", () => {
     expect(expectedWeekLabor({ daily: null, forecast: null }).pct).toBeNull();
     expect(expectedWeekLabor({ daily: [], forecast: null }).pct).toBeNull();

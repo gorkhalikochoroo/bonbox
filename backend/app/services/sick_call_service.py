@@ -82,7 +82,14 @@ MAX_REASON_LEN = 500
 
 class SickCallError(ValueError):
     """Service-layer rejection. Routers map these to 4xx responses;
-    they're never raised on a happy path."""
+    they're never raised on a happy path.
+
+    `code` (optional) names the rule that refused, so a router can hand the
+    client something to translate instead of this module's sentence."""
+
+    def __init__(self, message: str = "", code: Optional[str] = None):
+        super().__init__(message)
+        self.code = code
 
 
 def _normalize_reason(reason: Optional[str]) -> Optional[str]:
@@ -375,6 +382,9 @@ VALID_ABSENCE_KINDS = ("sick", "ferie", "barns_syg", "andet")
 MAX_ABSENCE_RANGE_DAYS = 60
 
 
+ABSENCE_STATUSES_ON_CREATE = ("pending", "acknowledged")
+
+
 def register_absence(
     db: Session,
     *,
@@ -384,27 +394,37 @@ def register_absence(
     date_from: date,
     date_to: date,
     reason: Optional[str] = None,
+    status: str = "pending",
 ) -> tuple[int, int]:
     """Register a Fravær over a date RANGE — materializes one StaffAbsence per
-    day (status='pending'), so ferie next week or a sick period is one action.
+    day, so ferie next week or a sick period is one action.
+
+    `status` is "pending" when the STAFFER registers it (the portal — the
+    owner still godkender it) and "acknowledged" when the OWNER does: nobody
+    asks the owner to approve a day off they entered themselves, and the
+    staffer's portal reads it as godkendt.
 
     Idempotent per (staff, date, kind): a day that already has an active row
     for this kind is SKIPPED, so re-submitting an overlapping range never
     duplicates. Returns (created, skipped). Raises SickCallError on validation
     failure (routers map to 422).
     """
+    if status not in ABSENCE_STATUSES_ON_CREATE:
+        raise SickCallError("Ukendt status.", code="bad_status")
     if kind not in VALID_ABSENCE_KINDS:
-        raise SickCallError("Ukendt fraværstype.")
+        raise SickCallError("Ukendt fraværstype.", code="bad_kind")
     if date_to < date_from:
-        raise SickCallError("Slutdato er før startdato.")
+        raise SickCallError("Slutdato er før startdato.", code="end_before_start")
     span = (date_to - date_from).days + 1
     if span > MAX_ABSENCE_RANGE_DAYS:
-        raise SickCallError(f"Perioden må højst være {MAX_ABSENCE_RANGE_DAYS} dage.")
+        raise SickCallError(
+            f"Perioden må højst være {MAX_ABSENCE_RANGE_DAYS} dage.", code="range_too_long",
+        )
     today = date.today()
     # Window: recent past (late sick registration) up to a year out (planned
     # ferie). Wide enough for real use, bounded against garbage input.
     if date_from < today - timedelta(days=31) or date_to > today + timedelta(days=365):
-        raise SickCallError("Datoen er uden for det tilladte vindue.")
+        raise SickCallError("Datoen er uden for det tilladte vindue.", code="out_of_window")
 
     # Tenant / ownership — defense in depth (router already token-checked).
     staff = db.query(StaffMember).filter(
@@ -413,9 +433,10 @@ def register_absence(
         StaffMember.is_deleted.isnot(True),
     ).first()
     if not staff:
-        raise SickCallError("Staff member not found.")
+        raise SickCallError("Staff member not found.", code="staff_not_found")
 
     norm_reason = _normalize_reason(reason)
+    stamp = utc_now() if status == "acknowledged" else None
     created = 0
     skipped = 0
     d = date_from
@@ -432,7 +453,8 @@ def register_absence(
         else:
             db.add(StaffAbsence(
                 user_id=owner_id, staff_id=staff_id, kind=kind,
-                date=d, reason=norm_reason, status="pending",
+                date=d, reason=norm_reason, status=status,
+                acknowledged_at=stamp,
             ))
             created += 1
         d += timedelta(days=1)

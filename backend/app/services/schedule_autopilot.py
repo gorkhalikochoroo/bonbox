@@ -13,8 +13,9 @@ Returned as STRUCTURED data only — no LLM. This is rules-based ops.
 Multi-layer defense
 ──────────────────────────────────────────────────────────────────────
   L1  TENANT BOUNDARY — every query filters by user_id (StaffMember,
-      Schedule, Sale, DailyWeather). Cross-tenant data NEVER touches
-      another owner's autopilot.
+      Schedule, DailyWeather, and revenue through revenue_resolver — daily
+      closes + sales). Cross-tenant data NEVER touches another owner's
+      autopilot.
   L2  FAIL-CLOSED ON THIN DATA — when the owner has < 3 weekday samples
       for a given weekday, the multiplier defaults to 1.0 + confidence
       is downgraded. We never invent a multiplier from a single sample.
@@ -65,7 +66,6 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models.business_profile import BusinessProfile
-from app.models.sale import Sale
 from app.models.staff import Schedule, StaffMember, StaffAvailability
 from app.models.user import User
 from app.models.weather import DailyWeather
@@ -93,16 +93,25 @@ MAX_TARGET_LABOR_PCT = 0.50
 # Default hourly rate for staff members missing base_rate. Avoid 0 so
 # the cost minimization can still rank candidates instead of dividing
 # everything by zero.
+#
+# A RANKING and DEMAND input only — never a cost anyone is shown. Week-cost
+# and the proposal's kroner used to price a staffer with no wage at this
+# figure and print it as "≈ 8.083 kr." beside real wages; a number invented
+# for one person read exactly like a measured one. Cost now comes from
+# _wage_rate, which returns None for them, and the payload names who is
+# missing a wage instead.
 DEFAULT_HOURLY_RATE = 150.0  # DKK — typical Copenhagen server entry rate
 
 # Default shift templates. Tuned to Copenhagen restaurant norms; non-
 # restaurant verticals (retail/cafe) use a single daytime shift.
+# `key` is what a warning carries (the client names the shift in the owner's
+# language); `label` is the English word the legacy warning text used.
 RESTAURANT_SHIFTS = [
-    {"label": "Lunch", "start": "11:00", "end": "15:00"},
-    {"label": "Dinner", "start": "17:00", "end": "22:00"},
+    {"key": "lunch", "label": "Lunch", "start": "11:00", "end": "15:00"},
+    {"key": "dinner", "label": "Dinner", "start": "17:00", "end": "22:00"},
 ]
 NONRESTAURANT_SHIFTS = [
-    {"label": "Day", "start": "09:00", "end": "17:00"},
+    {"key": "day", "label": "Day", "start": "09:00", "end": "17:00"},
 ]
 
 # DK labor law constants
@@ -154,7 +163,8 @@ class AutopilotShift:
     end: str
     break_minutes: int
     hours: float
-    cost: float
+    # None when the person has no wage on file — see DEFAULT_HOURLY_RATE.
+    cost: Optional[float]
 
 
 @dataclass
@@ -165,8 +175,23 @@ class AutopilotDay:
     predicted_revenue: float
     predicted_demand_hours: float
     shifts: list[AutopilotShift]
-    total_cost: float
+    total_cost: Optional[float]
     total_hours: float
+
+
+def _round_or_none(v: Optional[float]) -> Optional[float]:
+    return None if v is None else round(v, 2)
+
+
+def _sum_or_none(values) -> Optional[float]:
+    """A total is only as known as its least-known part: one shift with no
+    wage makes the day's (and the week's) kroner unknown, not smaller."""
+    total = 0.0
+    for v in values:
+        if v is None:
+            return None
+        total += v
+    return total
 
 
 @dataclass
@@ -174,12 +199,15 @@ class AutopilotSuggestion:
     week_start: str
     branch_id: Optional[str]
     confidence: str   # "high" | "medium" | "low"
-    basis: dict       # {weeks_of_data, weather_used, target_labor_pct}
+    basis: dict       # {weeks_of_data, weather_used, target_labor_pct, signal}
     days: list[AutopilotDay]
-    week_total_cost: float
+    week_total_cost: Optional[float]
     week_total_hours: float
     compared_to_last_week: dict
-    compliance_warnings: list[str]
+    # Structured, in the owner's language on the client: [{code, ...numbers}].
+    warnings: list[dict] = field(default_factory=list)
+    # Proposed staff with no wage on file — why the kroner above are None.
+    missing_wage_names: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -203,20 +231,47 @@ class AutopilotSuggestion:
                             "end": s.end,
                             "break_minutes": s.break_minutes,
                             "hours": round(s.hours, 2),
-                            "cost": round(s.cost, 2),
+                            "cost": _round_or_none(s.cost),
                         }
                         for s in d.shifts
                     ],
-                    "total_cost": round(d.total_cost, 2),
+                    "total_cost": _round_or_none(d.total_cost),
                     "total_hours": round(d.total_hours, 2),
                 }
                 for d in self.days
             ],
-            "week_total_cost": round(self.week_total_cost, 2),
+            "week_total_cost": _round_or_none(self.week_total_cost),
             "week_total_hours": round(self.week_total_hours, 2),
             "compared_to_last_week": self.compared_to_last_week,
-            "compliance_warnings": self.compliance_warnings,
+            "warnings": self.warnings,
+            "missing_wage_names": self.missing_wage_names,
+            # COMPATIBILITY ONLY. The committed iOS Scheduler bundle renders
+            # each entry of this list as text, so changing its shape would
+            # crash that app's autopilot card on the next response. The web
+            # page reads `warnings` (codes + numbers) and translates them;
+            # drop this list when the next Scheduler build has shipped.
+            "compliance_warnings": [_legacy_warning_text(w) for w in self.warnings],
         }
+
+
+_LEGACY_SHIFT_LABEL = {"lunch": "Lunch", "dinner": "Dinner", "day": "Day"}
+
+
+def _legacy_warning_text(w: dict) -> str:
+    """The English sentence an older client still expects for one warning."""
+    if w.get("code") == "unfilled":
+        shift = _LEGACY_SHIFT_LABEL.get(w.get("shift"), w.get("shift") or "")
+        return (
+            f"{w.get('date')} — needed {float(w.get('hours_short') or 0):.1f} more "
+            f"person-hours but no eligible staff available for the "
+            f"{shift} shift."
+        )
+    if w.get("code") == "over_weekly_cap":
+        return (
+            f"{w.get('staff_name')} scheduled {float(w.get('hours') or 0):.1f} hrs "
+            f"— exceeds weekly max of {float(w.get('cap') or 0):.0f}"
+        )
+    return str(w.get("code") or "")
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────
@@ -266,6 +321,24 @@ def _staff_hourly_rate(staff: StaffMember) -> float:
     if not candidates:
         return DEFAULT_HOURLY_RATE
     return min(candidates)
+
+
+def has_wage(staff: StaffMember | None) -> bool:
+    """True when the owner has entered ANY rate for this person. A base rate
+    alone, or only an evening/weekend premium, both count — a wage exists."""
+    if staff is None:
+        return False
+    return any(
+        float(r or 0) > 0
+        for r in (staff.base_rate, staff.evening_rate, staff.weekend_rate)
+    )
+
+
+def _wage_rate(staff: StaffMember | None) -> float | None:
+    """The rate a COST may be built from: the person's own lowest rate, or None
+    when they have none. Unlike _staff_hourly_rate there is no default — a
+    cost the owner reads must come from a wage they entered."""
+    return _staff_hourly_rate(staff) if has_wage(staff) else None
 
 
 def _shift_templates_for(user: User) -> list[dict]:
@@ -403,26 +476,24 @@ def _gather_history(
     history_start = week_start - timedelta(weeks=LOOKBACK_WEEKS)
     history_end = week_start - timedelta(days=1)
 
-    sales_q = (
-        db.query(Sale.date, Sale.amount)
-        .filter(
-            Sale.user_id == user.id,
-            Sale.is_deleted.isnot(True),
-            Sale.date >= history_start,
-            Sale.date <= history_end,
-        )
-    )
-    if branch_id is not None:
-        sales_q = sales_q.filter(Sale.branch_id == branch_id)
+    # Per-date revenue through THE resolver: a confirmed daily close wins,
+    # sales fill the days without one. This read `sales` alone, and an owner
+    # who closes the day — the way most venues record takings, the kasserapport
+    # never becomes Sale rows — had eight weeks of closes and an autopilot
+    # that proposed nothing, because to it every one of those days was 0 kr.
+    # One resolver means the dashboard, week-cost's labor% and this forecast
+    # all read the same revenue for the same day.
+    from app.services.revenue_resolver import effective_revenue_by_date
 
-    # Aggregate per-date totals first (don't double-count multiple sales
-    # on the same day as separate samples).
-    by_date: dict[date, float] = defaultdict(float)
-    for d, amt in sales_q.all():
-        if d is None or amt is None:
-            continue
-        # Guard: some test fixtures use Decimal — float() handles both.
-        by_date[d] += float(amt)
+    # A confirmed close of 0 kr. stays in as a sample — the owner said so,
+    # and a quiet day is exactly what the weekday mean should learn from.
+    by_date: dict[date, float] = {
+        d: float(v or 0)
+        for d, v in effective_revenue_by_date(
+            db, user.id, history_start, history_end, branch_id=branch_id,
+        ).items()
+        if d is not None
+    }
 
     # Pull weather rows for the same span so we can bucket each sample.
     weather_rows = (
@@ -557,7 +628,7 @@ def _assign_shifts_for_day(
     shift_templates: list[dict],
     weekly_hours_running: dict[uuid.UUID, float],
     last_shift_end_by_staff: dict[uuid.UUID, datetime],
-    warnings: list[str],
+    warnings: list[dict],
     unavailable_by_staff: dict[str, list[dict]] | None = None,
 ) -> list[AutopilotShift]:
     """Greedy assignment: cheapest available staff first, filling shift
@@ -626,16 +697,20 @@ def _assign_shifts_for_day(
         if picked is None:
             # Couldn't fill — record an availability warning and stop
             # trying further templates today (subsequent shifts would
-            # only deepen the gap).
-            warnings.append(
-                f"{target_date.isoformat()} — needed {remaining:.1f} more "
-                f"person-hours but no eligible staff available for the "
-                f"{tmpl['label']} shift."
-            )
+            # only deepen the gap). A code and numbers, never a sentence:
+            # the page words it in the owner's language.
+            warnings.append({
+                "code": "unfilled",
+                "date": target_date.isoformat(),
+                "hours_short": round(remaining, 2),
+                "shift": tmpl.get("key") or str(tmpl.get("label", "")).lower(),
+            })
             break
 
-        rate = _staff_hourly_rate(picked)
-        cost = rate * shift_hours
+        # The cost the owner reads comes from a wage they entered; nobody is
+        # priced at the ranking default.
+        rate = _wage_rate(picked)
+        cost = rate * shift_hours if rate is not None else None
 
         assigned.append(AutopilotShift(
             staff_id=str(picked.id),
@@ -669,7 +744,9 @@ def _last_week_cost(
     week_start: date,
     branch_id: Optional[uuid.UUID],
 ) -> Optional[float]:
-    """Sum cost of last week's scheduled shifts. None if no shifts."""
+    """Sum cost of last week's scheduled shifts. None if no shifts — and None
+    when anyone on them has no wage, because a comparison against a week that
+    was partly priced at an invented rate would be a comparison with nothing."""
     prev_start = week_start - timedelta(days=7)
     prev_end = week_start - timedelta(days=1)
     shifts = (
@@ -677,6 +754,7 @@ def _last_week_cost(
         .join(StaffMember, Schedule.staff_id == StaffMember.id)
         .filter(
             Schedule.user_id == user.id,
+            StaffMember.user_id == user.id,
             Schedule.date >= prev_start,
             Schedule.date <= prev_end,
         )
@@ -687,7 +765,9 @@ def _last_week_cost(
     total = 0.0
     for sh, st in shifts:
         hrs = _shift_hours(sh.start_time, sh.end_time, sh.break_minutes or 0)
-        rate = _staff_hourly_rate(st)
+        rate = _wage_rate(st)
+        if rate is None:
+            return None
         total += hrs * rate
     return total
 
@@ -955,7 +1035,7 @@ def suggest_week_schedule(
     # Build day-by-day plan
     weekly_hours_running: dict[uuid.UUID, float] = {}
     last_shift_end_by_staff: dict[uuid.UUID, datetime] = {}
-    compliance_warnings: list[str] = []
+    compliance_warnings: list[dict] = []
 
     days_out: list[AutopilotDay] = []
     for i in range(7):
@@ -984,7 +1064,7 @@ def suggest_week_schedule(
             unavailable_by_staff=unavailable_by_staff,
         )
 
-        total_cost = sum(s.cost for s in day_shifts)
+        total_cost = _sum_or_none(s.cost for s in day_shifts)
         total_hours = sum(s.hours for s in day_shifts)
 
         weather_display = {
@@ -1016,33 +1096,54 @@ def suggest_week_schedule(
             continue
         cap = float(s.max_hours_week) if s.max_hours_week else DK_MAX_HOURS_PER_WEEK
         if hrs > cap + 0.01:
-            compliance_warnings.append(
-                f"{s.name} scheduled {hrs:.1f} hrs — exceeds weekly max of {cap:.0f}"
-            )
+            compliance_warnings.append({
+                "code": "over_weekly_cap",
+                "staff_id": str(s.id),
+                "staff_name": s.name,
+                "hours": round(hrs, 2),
+                "cap": round(cap, 2),
+            })
 
-    week_total_cost = sum(d.total_cost for d in days_out)
+    week_total_cost = _sum_or_none(d.total_cost for d in days_out)
     week_total_hours = sum(d.total_hours for d in days_out)
 
-    # Comparison to last week
+    # Who made the kroner unknown, by name, so the page can say "Mangler
+    # timeløn: Anna, Bo" instead of a confident figure built on a guess.
+    missing_wage_names: list[str] = []
+    for d in days_out:
+        for s in d.shifts:
+            if s.cost is None and s.staff_name not in missing_wage_names:
+                missing_wage_names.append(s.staff_name)
+
+    # Comparison to last week — numbers and a direction; the page words it.
+    # It was an English sentence ("Saves 650 DKK vs last week") printed as is
+    # inside a Danish screen. `savings_label` stays for older clients only.
     last_week = _last_week_cost(db, user, monday, branch_id)
-    if last_week is None or last_week <= 0:
+    if last_week is None or last_week <= 0 or week_total_cost is None:
         compared = {
             "last_week_cost": None,
             "delta_pct": None,
+            "delta_kr": None,
+            "direction": None,
             "savings_label": None,
         }
     else:
         delta = week_total_cost - last_week
         delta_pct = (delta / last_week) * 100.0
         if delta < -1:
+            direction = "saves"
             label = f"Saves {abs(delta):,.0f} DKK vs last week"
         elif delta > 1:
+            direction = "costs_more"
             label = f"Costs {delta:,.0f} DKK more than last week"
         else:
+            direction = "same"
             label = "Roughly the same cost as last week"
         compared = {
             "last_week_cost": round(last_week, 2),
             "delta_pct": round(delta_pct, 1),
+            "delta_kr": round(delta, 2),
+            "direction": direction,
             "savings_label": label,
         }
 
@@ -1055,12 +1156,16 @@ def suggest_week_schedule(
             "avg_weekday_samples": round(avg_samples, 1),
             "weather_used": weather_used,
             "target_labor_pct": target_pct,
+            # "revenue" | "appointments" — lets the page explain an empty or
+            # revenue-less proposal truthfully instead of guessing.
+            "signal": signal,
         },
         days=days_out,
         week_total_cost=week_total_cost,
         week_total_hours=week_total_hours,
         compared_to_last_week=compared,
-        compliance_warnings=compliance_warnings,
+        warnings=compliance_warnings,
+        missing_wage_names=missing_wage_names,
     )
 
 
@@ -1082,7 +1187,7 @@ def apply_suggestion(
     for the same target week are deleted first so re-applying replaces
     cleanly (idempotent).
 
-    Returns: {applied: int, deleted_existing: int}.
+    Returns: {applied: int, deleted_existing: int, skipped_overlap: int}.
     """
     monday = _ensure_monday(week_start)
     week_end = monday + timedelta(days=6)
@@ -1119,7 +1224,41 @@ def apply_suggestion(
         .delete(synchronize_session=False)
     )
 
+    # What survives the delete is the week's PUBLISHED shifts. The proposal is
+    # built without looking at them, so a proposed Monday dinner could land on
+    # top of a published one for the same person — the double-booking the
+    # single-shift path refuses with a 409. Same overlap test, per cell; a
+    # proposal that collides is left out and counted, never stacked.
+    kept = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= monday,
+            Schedule.date <= week_end,
+        )
+        .all()
+    )
+    spans_by_cell: dict = {}
+    for k in kept:
+        try:
+            span = (_hhmm_to_minutes(k.start_time), _hhmm_to_minutes(k.end_time))
+        except (AttributeError, TypeError, ValueError):
+            continue  # a malformed legacy row cannot be compared; it never blocks
+        spans_by_cell.setdefault((str(k.staff_id), k.date), []).append(span)
+
+    def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
+        # Half-open [start, end), an end at or before the start rolls past
+        # midnight — the rule routers/staff.py::_shifts_overlap applies.
+        a_s, a_e = a
+        b_s, b_e = b
+        if a_e < a_s:
+            a_e += 24 * 60
+        if b_e < b_s:
+            b_e += 24 * 60
+        return a_s < b_e and b_s < a_e
+
     applied = 0
+    skipped_overlap = 0
     for s in shifts:
         try:
             d = date.fromisoformat(s["date"])
@@ -1138,6 +1277,15 @@ def apply_suggestion(
             sid = uuid.UUID(str(staff_id))
         except (TypeError, ValueError):
             continue
+        try:
+            span = (_hhmm_to_minutes(start), _hhmm_to_minutes(end))
+        except (TypeError, ValueError):
+            continue
+        cell = spans_by_cell.setdefault((str(sid), d), [])
+        if any(_overlaps(span, other) for other in cell):
+            skipped_overlap += 1
+            continue
+        cell.append(span)
         brk = int(s.get("break_minutes") or _compute_break_minutes(start, end))
         row = Schedule(
             id=uuid.uuid4(),
@@ -1155,4 +1303,8 @@ def apply_suggestion(
         applied += 1
 
     db.flush()
-    return {"applied": applied, "deleted_existing": int(deleted or 0)}
+    return {
+        "applied": applied,
+        "deleted_existing": int(deleted or 0),
+        "skipped_overlap": skipped_overlap,
+    }

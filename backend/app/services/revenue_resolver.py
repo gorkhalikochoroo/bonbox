@@ -38,12 +38,17 @@ def effective_revenue_by_date(
     user_id,
     start_date: date,
     end_date: date,
+    branch_id=None,
 ) -> dict[date, float]:
     """For each date in [start_date, end_date], return effective revenue.
 
     Confirmed DailyClose.revenue_total wins; otherwise SUM(Sale.amount).
     Inclusive on both ends. Returns a dict missing keys for dates with
     zero revenue — callers should treat missing as 0 (use ``dict.get(d, 0.0)``).
+
+    ``branch_id`` (optional) narrows BOTH sources to one location, for a
+    caller that plans per location (the schedule autopilot's branch lens).
+    None — every existing caller — is byte-identical to before.
 
     Two queries total regardless of range size:
       1) Pull confirmed, non-deleted DailyClose rows for (user_id, [start, end]).
@@ -62,7 +67,7 @@ def effective_revenue_by_date(
     # Step 1 — confirmed closes win. is_deleted IS NOT TRUE (not "== False")
     # because SQLite stores boolean as int and rows with NULL would slip
     # past `== False`. Same pattern Sale queries use across dashboard.py.
-    close_rows = (
+    close_q = (
         db.query(DailyClose.date, DailyClose.revenue_total)
         .filter(
             DailyClose.user_id == user_id,
@@ -71,14 +76,15 @@ def effective_revenue_by_date(
             DailyClose.is_deleted.isnot(True),
             DailyClose.status == "confirmed",
         )
-        .all()
     )
+    if branch_id is not None:
+        close_q = close_q.filter(DailyClose.branch_id == branch_id)
     result: dict[date, float] = {
-        d: float(rev or 0) for d, rev in close_rows
+        d: float(rev or 0) for d, rev in close_q.all()
     }
 
     # Step 2 — Sale fallback for dates without a confirmed close.
-    sale_rows = (
+    sale_q = (
         db.query(Sale.date, func.coalesce(func.sum(Sale.amount), 0).label("total"))
         .filter(
             Sale.user_id == user_id,
@@ -87,9 +93,10 @@ def effective_revenue_by_date(
             Sale.is_deleted.isnot(True),
             Sale.status == "completed",
         )
-        .group_by(Sale.date)
-        .all()
     )
+    if branch_id is not None:
+        sale_q = sale_q.filter(Sale.branch_id == branch_id)
+    sale_rows = sale_q.group_by(Sale.date).all()
     for d, total in sale_rows:
         if d in result:
             # Confirmed close already wins — Sale rows on this date are

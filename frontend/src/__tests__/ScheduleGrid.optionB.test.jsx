@@ -267,7 +267,9 @@ describe("ScheduleGrid — the shift cards", () => {
     );
     expect(draftCards).toHaveLength(1); // Wednesday's w-k1, and only that one
     const [card] = draftCards;
-    expect(card.textContent).toContain("09:00–15:00");
+    // The Danish clock: "09.00–15.00", the way a payslip and the booking
+    // book print it (fmtClock). English keeps the colon.
+    expect(card.textContent).toContain("09.00–15.00");
     expect(card.className).not.toContain("ring-1");
     expect(card.className).not.toContain("border-dashed"); // the role bar stays solid
     expect(within(card).getByText("Kladde")).toBeInTheDocument();

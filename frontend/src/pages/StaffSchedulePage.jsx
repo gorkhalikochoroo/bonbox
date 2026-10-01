@@ -58,6 +58,9 @@ import { summarizePortalReach, linkWasOpened } from "../utils/portalReach";
 import { formatDateClear, dateLocale } from "../utils/dateFormat";
 import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
+// The 11-hour / 48-hour checks the shift sheet runs BEFORE saving — mirrors
+// of the server's week-load rules, run on the week this page already holds.
+import { preSaveWarnings, minutesToDayTime } from "../utils/shiftRules";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
 // THE modal container. ShiftModal used to hand-roll a vertically-centred card
@@ -138,11 +141,19 @@ function roleToShiftOption(r, roles = ROLES_RESTAURANT) {
 // the twins in StaffPortalPage, StaffPayrollPage and StaffTipsPage.
 const ROLE_NAME_KEYS = {
   chef: ["stfRoleChef", "Chef"],
+  cook: ["stfRoleChef", "Chef"],
   server: ["stfRoleServer", "Server"],
+  waiter: ["stfRoleServer", "Server"],
   dishwasher: ["stfRoleDishwasher", "Dishwasher"],
   manager: ["teamRoleManager", "Manager"],
   kitchen: ["roleKitchen", "Kitchen"],
   floor: ["roleFloor", "Floor"],
+  // A staffer whose role is the SECTION word ("bar", lowercase, as the roster
+  // stores it) read as the raw key "bar" beside "Køkken" and "Gulv".
+  bar: ["roleBar", "Bar"],
+  bartender: ["stfRoleBartender", "Bartender"],
+  barista: ["stfRoleBarista", "Barista"],
+  runner: ["stfRoleRunner", "Runner"],
   "full-time": ["contractFull", "Full-time"],
   full_time: ["contractFull", "Full-time"],
   "part-time": ["contractPart", "Part-time"],
@@ -319,12 +330,27 @@ function toISO(date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Format shift time at FULL precision: "16:00–23:00". Owners double-check
-    these times, so we never crush "16:00" to a bare "16"; both sides are full
-    HH:MM joined by a true en-dash (–). */
-function formatShiftTime(start, end) {
+/** One clock time the way the owner writes it: "17.00" in Danish, "17:00" in
+    English. The API keeps the colon; only what is printed changes. Every time
+    on this surface goes through here — the grid said "17:00–23:30" while the
+    booking book and a Danish payslip say "17.00–23.30". */
+function fmtClock(hhmm, lang) {
+  if (!hhmm) return "";
+  const s = String(hhmm).slice(0, 5);
+  return lang === "da" ? s.replace(":", ".") : s;
+}
+
+/** Format shift time at FULL precision: "16.00–23.00" (da) / "16:00–23:00".
+    Owners double-check these times, so we never crush "16:00" to a bare
+    "16"; both sides are full HH:MM joined by a true en-dash (–). */
+function formatShiftTime(start, end, lang) {
   if (!start || !end) return "";
-  return `${start.slice(0, 5)}–${end.slice(0, 5)}`;
+  return `${fmtClock(start, lang)}–${fmtClock(end, lang)}`;
+}
+
+/** The separator between the hour and minute pickers — "." in Danish. */
+function clockSep(lang) {
+  return lang === "da" ? "." : ":";
 }
 
 /** Calculate hours between two HH:MM times minus break */
@@ -344,6 +370,19 @@ function calcHours(startTime, endTime, breakMinutes = 0) {
     A suggestion only (overenskomst varies) — always owner-overridable. */
 function suggestedBreak(startTime, endTime) {
   return calcHours(startTime, endTime, 0) >= 6 ? 45 : 0;
+}
+
+/** Keep a break the owner has not touched in step with the rule as the times
+    change. Only the rule's own two values move: 45 → 0 when the shift drops
+    under 6 hours (a 4-hour lunch inherited the 45 minutes of the evening
+    shift it was seeded from, and paid 3,25 t), 0 → 45 when it grows past 6.
+    Any other number is the owner's — 30, 15 — and is left alone. */
+function followBreakRule(prevBreak, startTime, endTime) {
+  const rule = suggestedBreak(startTime, endTime);
+  const prev = Number(prevBreak) || 0;
+  if (prev === 45 && rule === 0) return 0;
+  if (prev === 0 && rule === 45) return 45;
+  return prevBreak;
 }
 
 /** Absence type → short owner-facing label for the grid chip. */
@@ -396,6 +435,56 @@ function formatShiftHours(hrs, lang) {
   // helper that was supposed to enforce the opposite rule. A real zero-hour
   // shift is passed as 0 at the call site; anything unknown says "—".
   return formatHours(hrs, { lang, decimals: 2 });
+}
+
+/** The 409 double-booking refusal in the owner's own words: WHO already has
+    WHICH shift. The server names both now (_overlap_detail); an older server
+    sends only the code, and then the generic sentence is the honest one. */
+function overlapMessage(detail, t, lang) {
+  if (detail?.staff_name && detail?.existing_start && detail?.existing_end) {
+    return t("schedSlotTakenNamed", "{name} already has a shift {time} that day.", {
+      name: detail.staff_name,
+      time: formatShiftTime(detail.existing_start, detail.existing_end, lang),
+    });
+  }
+  return t("schedSlotTaken", "That overlaps a shift they already have that day.");
+}
+
+/** "man. 1. jun. kl. 14.00" — the start of the 24-hour period an 11-hour
+    rest warning is about. */
+function whenText(dateIso, hhmm, t, lang) {
+  let day = dateIso;
+  try {
+    day = new Date(`${dateIso}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", {
+      weekday: "short", day: "numeric", month: "short",
+    });
+  } catch {
+    day = dateIso; // an unparseable date still reads as itself, never blank
+  }
+  return t("schedWhenAt", "{day} {time}", { day, time: fmtClock(hhmm, lang) });
+}
+
+/** One 11-timersreglen warning, the same sentence on the strip, in the shift
+    sheet and in the publish sheet: how much CONSECUTIVE rest the person gets
+    in the 24 hours from when. */
+function restRuleText(name, restHours, dateIso, hhmm, t, lang) {
+  return t("shiftWarnRest", "{name}: only {gap} rest in a row in the 24 hours from {when} (11-hour rule)", {
+    name,
+    gap: formatHours(restHours, { lang, decimals: 2 }),
+    when: whenText(dateIso, hhmm, t, lang),
+  });
+}
+
+/** True when this staffer has a wage the server can price shifts from — a
+    base rate or any premium. Same test as schedule_autopilot.has_wage. */
+function memberHasWage(member) {
+  return [member?.base_rate, member?.evening_rate, member?.weekend_rate].some((r) => Number(r) > 0);
+}
+
+/** "Mangler timeløn: Anna, Bo" — the reason a kroner figure is "—". */
+function missingWageText(names, t) {
+  if (!names || !names.length) return "";
+  return t("schedMissingWage", "Missing hourly wage: {names}", { names: names.join(", ") });
 }
 
 /* ─── Saved shift presets (Vagt-skabeloner) ───
@@ -738,7 +827,7 @@ function ClockedInStrip() {
             <span className="text-[12px] tabular-nums">
               {t("schedForgotClockOut", "No clock-out since {date} {time}", {
                 date: r.since_date ? new Date(`${r.since_date}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short" }) : "",
-                time: r.since || "",
+                time: fmtClock(r.since, lang),
               })}
             </span>
           </RouterLink>
@@ -748,7 +837,7 @@ function ClockedInStrip() {
             className="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-2.5 py-1 text-sm"
           >
             <span className="font-medium truncate max-w-[10rem]">{r.name}</span>
-            <span className="text-[12px] opacity-80 tabular-nums">{r.since}</span>
+            <span className="text-[12px] opacity-80 tabular-nums">{fmtClock(r.since, lang)}</span>
             {r.elapsed_min != null && (
               <span className="text-[11px] font-semibold tabular-nums opacity-90">
                 {fmtDur(r.elapsed_min)}
@@ -774,7 +863,7 @@ function ClockedInStrip() {
 // current location" while standing at the venue to set the anchor; staff
 // clock-in then verifies device distance. Staff location is checked only at
 // the punch, never stored (GDPR) — the staff card shows that notice.
-function ClockGeofenceSettings() {
+function ClockGeofenceSettings({ className = "" }) {
   const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -886,7 +975,7 @@ function ClockGeofenceSettings() {
   // real call to action, not a setting.
   if (cfg.has_location && !open) {
     return (
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+      <div className={`rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] ${className}`}>
         <Icon name="MapPin" size={14} className="text-gray-400 dark:text-gray-500 shrink-0" />
         <span className="text-gray-600 dark:text-gray-300">
           {cfg.enabled
@@ -922,7 +1011,7 @@ function ClockGeofenceSettings() {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+    <div className={`rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex flex-wrap items-center gap-x-4 gap-y-2 ${className}`}>
       {/* Verbose explainer is desktop-only — on mobile it dominated the top of
           the Schedule page above the actual grid. The toggle + status below
           still convey the essential state. */}
@@ -1191,6 +1280,14 @@ export default function StaffSchedulePage() {
 
   // Shift modal
   const [shiftModal, setShiftModal] = useState(null); // { staffId, date, shift? }
+  // Fravær sheet — { staffId, date } while open. Opened from a person row
+  // (grid or phone) or from the shift sheet; the owner had no way to record
+  // "Anna is sick tomorrow" at all before this.
+  const [absenceSheet, setAbsenceSheet] = useState(null);
+  // The day the PHONE view is showing ("YYYY-MM-DD"), reported by
+  // MobileSchedule — so "Tilføj" opens on the day the owner is looking at
+  // instead of always on Monday.
+  const [phoneDayIso, setPhoneDayIso] = useState(null);
   // Smart-default memory: the last shift the owner saved this session
   // ({ start, end, break_minutes, role }). When they open "Add Shift"
   // again for a staff with no prior shift this week, the modal pre-fills
@@ -1227,6 +1324,7 @@ export default function StaffSchedulePage() {
   // Action states
   const [copying, setCopying] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const publishingRef = useRef(false); // see confirmPublish
   // Pre-publish confirm sheet (audit #248): holds a computed summary
   // { draftCount, staffCount, hours, cost, anyRate } while open; null = closed.
   // Publishing is the "money moment" staff see — owners get one calm glance at
@@ -1397,10 +1495,10 @@ export default function StaffSchedulePage() {
       const rowKind = a.kind === "preferred" ? "preferred" : "unavailable";
       if (rowKind !== kind) continue;
       const match = a.date ? a.date === iso : a.weekday === pyWd;
-      if (match) return { ...a, timeLabel: a.start_time ? `${a.start_time}–${a.end_time}` : null };
+      if (match) return { ...a, timeLabel: a.start_time ? formatShiftTime(a.start_time, a.end_time, lang) : null };
     }
     return null;
-  }, [availByStaff]);
+  }, [availByStaff, lang]);
 
   // Kept separate ON PURPOSE. Every caller of unavailFor treats a hit as a
   // reason NOT to roster someone; a preference is the opposite signal and must
@@ -1495,15 +1593,13 @@ export default function StaffSchedulePage() {
           err?.response?.status === 409 &&
           err?.response?.data?.detail?.code === "shift_overlap"
         ) {
-          setError(
-            t("schedSlotTaken", "That overlaps a shift they already have that day.")
-          );
+          setError(overlapMessage(err.response.data.detail, t, lang));
         } else {
           setError(errText(err, t("shiftCreateFailed", "Failed to create shift.")));
         }
       }
     },
-    [shifts, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, roles]
+    [shifts, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
   );
 
   const undoBloom = useCallback(async () => {
@@ -1558,15 +1654,13 @@ export default function StaffSchedulePage() {
           err?.response?.status === 409 &&
           err?.response?.data?.detail?.code === "shift_overlap"
         ) {
-          setError(
-            t("schedSlotTaken", "That overlaps a shift they already have that day.")
-          );
+          setError(overlapMessage(err.response.data.detail, t, lang));
         } else {
           setError(errText(err, t("shiftUpdateFailed", "Failed to update shift.")));
         }
       }
     },
-    [branchId, fetchShifts, t]
+    [branchId, fetchShifts, t, lang]
   );
 
   const undoMoveAction = useCallback(async () => {
@@ -1622,6 +1716,21 @@ export default function StaffSchedulePage() {
   // Date object and `===` on two Dates is never true.
   const isCurrentWeek = toISO(weekStart) === toISO(getWeekStart(new Date()));
 
+  // The day "Tilføj" opens on. It was always Monday (weekDates[0]): an owner
+  // looking at Saturday on the phone tapped Tilføj and got a Monday shift.
+  // Phone → the day on screen. Wider → today when this week is showing (no
+  // single day is "on screen" in a 7-column grid), else the week's Monday.
+  const defaultAddDate = () => {
+    const isPhone =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 767px)").matches;
+    const inWeek = (iso) => weekDates.some((d) => toISO(d) === iso);
+    if (isPhone && phoneDayIso && inWeek(phoneDayIso)) return phoneDayIso;
+    const todayIso = toISO(new Date());
+    return inWeek(todayIso) ? todayIso : toISO(weekDates[0]);
+  };
+
   /* ─── Actions ─── */
   const handleCopyLastWeek = async () => {
     setCopying(true);
@@ -1636,11 +1745,25 @@ export default function StaffSchedulePage() {
       });
       await fetchShifts();
       // Say what happened — a silent success left the owner counting cards.
+      // And say what did NOT come across: a shift that would have put
+      // someone on two overlapping shifts is left out by the server now, and
+      // the owner has to know whose Friday that was.
       const n = Number(res?.data?.copied) || 0;
-      setAutopilotToast(n === 1
+      const parts = [n === 1
         ? t("schedCopiedOne", "1 shift copied from last week")
-        : t("schedCopiedN", "{n} shifts copied from last week", { n }));
-      setTimeout(() => setAutopilotToast(""), 6000);
+        : t("schedCopiedN", "{n} shifts copied from last week", { n })];
+      const overlapN = Number(res?.data?.skipped_overlap) || 0;
+      const overlapWho = Array.isArray(res?.data?.skipped_overlap_names) ? res.data.skipped_overlap_names : [];
+      if (overlapN > 0) {
+        parts.push(overlapWho.length
+          ? t("schedCopySkippedOverlapWho", "{n} skipped (overlap): {names}", { n: overlapN, names: overlapWho.join(", ") })
+          : t("schedCopySkippedOverlap", "{n} skipped (overlap)", { n: overlapN }));
+      }
+      const dupN = Number(res?.data?.skipped) || 0;
+      if (dupN > 0) parts.push(t("schedCopyAlreadyThere", "{n} already in the week", { n: dupN }));
+      setAutopilotToast(parts.join(" · "));
+      // Longer when there is a name to read.
+      setTimeout(() => setAutopilotToast(""), overlapN > 0 ? 10000 : 6000);
     } catch (err) {
       // An empty last week is a fact, not a failure — it used to arrive as a
       // red English "No shifts found in source week".
@@ -1676,14 +1799,30 @@ export default function StaffSchedulePage() {
     let hours = 0;
     let cost = 0;
     let anyRate = false;
+    // Someone with no wage on file made this figure a confident UNDER-count:
+    // their shifts were priced at 0 and summed in. Same rule as the server's
+    // week-cost now — one unpriced shift makes the total unknown, and the
+    // sheet names who is missing a wage instead.
+    const missing = new Set();
     drafts.forEach((s) => {
       const sid = s.staff_id || s.staff_member_id;
       if (sid) staffIds.add(sid);
       const hrs = calcHours(s.start_time, s.end_time, s.break_minutes || 0);
       hours += hrs;
       const member = staff.find((m) => m.id === sid);
-      const rate = pickRate(member, s.date, s.start_time);
-      if (rate > 0) anyRate = true;
+      if (!memberHasWage(member)) {
+        missing.add(member?.name || "—");
+        return;
+      }
+      let rate = pickRate(member, s.date, s.start_time);
+      if (rate <= 0) {
+        // Only a premium on file: the server prices it at the person's own
+        // lowest rate (_staff_hourly_rate), and so does this.
+        rate = Math.min(
+          ...[member.base_rate, member.evening_rate, member.weekend_rate].map(Number).filter((r) => r > 0),
+        );
+      }
+      anyRate = true;
       cost += hrs * rate;
     });
     // Match the grid's basis: +12.5% feriepenge when "Inkl. feriepenge" is the
@@ -1694,8 +1833,11 @@ export default function StaffSchedulePage() {
     return {
       draftCount: drafts.length,
       staffCount: staffIds.size,
-      hours: Math.round(hours * 10) / 10,
-      cost: Math.round(cost),
+      // Two decimals — the Timer column's precision, so 50,75 never reads
+      // 50,8 one sheet away.
+      hours: Math.round(hours * 100) / 100,
+      cost: missing.size ? null : Math.round(cost),
+      missingWage: [...missing],
       anyRate,
     };
   };
@@ -1741,24 +1883,43 @@ export default function StaffSchedulePage() {
           shield.push({ kind: "month", name: e.name, hours: e.month_hours, cap: e.month_cap, period: e.period_label });
         }
         for (const r of e.rest_warnings || []) {
-          shield.push({ kind: "rest", name: e.name, gap: r.gap_hours });
+          shield.push({
+            kind: "rest",
+            name: e.name,
+            gap: r.rest_hours ?? r.gap_hours,
+            // "YYYY-MM-DDTHH:MM" — the start of the 24-hour period; absent
+            // from an older server, which then gets the older sentence.
+            windowStart: r.window_start || null,
+          });
         }
       }
     } catch {
       shield = null; // could not check — NOT "nothing to warn about"
     }
     // Who can actually be told? Said BEFORE publishing — the "nobody was
-    // told" news only came after, on the success screen.
+    // told" news only came after, on the success screen. And BY NAME: the
+    // owner's next step is "get Anna's number", which a count does not say.
     const weekStaffIds = new Set(
       shifts.filter((sh) => sh.status !== "published").map((sh) => String(sh.staff_id)),
     );
-    const reachable = staff.filter((m) => weekStaffIds.has(String(m.id)) && (m.email || m.phone)).length;
-    setPublishConfirm({ ...summary, shield, unreachable: weekStaffIds.size > 0 && reachable === 0 });
+    const weekStaff = staff.filter((m) => weekStaffIds.has(String(m.id)));
+    const noContact = weekStaff.filter((m) => !(m.email || m.phone)).map((m) => m.name);
+    setPublishConfirm({
+      ...summary,
+      shield,
+      unreachable: weekStaff.length > 0 && noContact.length === weekStaff.length,
+      noContact,
+    });
   };
 
   // Step 2 — actually publish (called from the confirm sheet's CTA), then show
   // an HONEST success banner built from the server's real counts.
   const confirmPublish = async () => {
+    // A second tap must never publish (and notify) twice. The button goes
+    // `busy` on the first, but a ref answers in the same frame, before React
+    // has re-rendered anything.
+    if (publishingRef.current) return;
+    publishingRef.current = true;
     setPublishing(true);
     setError("");
     try {
@@ -1786,10 +1947,14 @@ export default function StaffSchedulePage() {
       setPublishResult({
         published: Number(d.published) || 0,
         notify,
+        // Whose shifts changed but who has no email on file — named, so the
+        // owner knows who still has to be told another way.
+        notEmailed: Array.isArray(d.skipped_no_email_names) ? d.skipped_no_email_names : [],
       });
     } catch (err) {
       setError(errText(err, t("stfPublishFailed", "Failed to publish schedule.")));
     }
+    publishingRef.current = false;
     setPublishing(false);
   };
 
@@ -1919,6 +2084,9 @@ export default function StaffSchedulePage() {
         shifts,
       });
       const n = res.data?.applied ?? shifts.length;
+      // A proposal on top of a shift someone already has published is left
+      // out by the server — say how many, so a missing shift is explained.
+      const overlapN = Number(res.data?.skipped_overlap) || 0;
       setAutopilotToast(
         // The banner this lands in already draws a Lucide Sparkles at
         // icon="Sparkles"; the leading emoji was a second, mismatched
@@ -1926,7 +2094,10 @@ export default function StaffSchedulePage() {
         `${t("autopilotApplied", "Schedule applied")} — ${n} ${t(
           "autopilotShifts",
           "shifts scheduled"
-        )}`
+        )}` +
+          (overlapN > 0
+            ? ` · ${t("schedCopySkippedOverlap", "{n} skipped (overlap)", { n: overlapN })}`
+            : "")
       );
       setTimeout(() => setAutopilotToast(""), 7000);
       setAutopilotSuggestion(null);
@@ -1976,10 +2147,22 @@ export default function StaffSchedulePage() {
       });
       const sent = r.data?.sent || 0;
       const skipped = r.data?.skipped_no_email || 0;
-      const failed = (r.data?.failed || []).length;
-      let msg = `✓ ${sent} ${t("scheduleEmailSent", "sent")}`;
-      if (skipped) msg += ` · ${skipped} ${t("scheduleEmailSkippedNoEmail", "skipped (no email)")}`;
-      if (failed) msg += ` · ${failed} ${t("scheduleEmailFailed", "failed")}`;
+      const skippedWho = Array.isArray(r.data?.skipped_names) ? r.data.skipped_names : [];
+      const failedRows = r.data?.failed || [];
+      const failed = failedRows.length;
+      // No "✓" glyph: the banner already carries the Lucide CheckCircle2, and
+      // a text tick is a second icon system on the same line. Skipped and
+      // failed people are NAMED — the owner acts on who, not how many.
+      let msg = `${sent} ${t("scheduleEmailSent", "sent")}`;
+      if (skipped) {
+        msg += ` · ${skipped} ${t("scheduleEmailSkippedNoEmail", "skipped (no email)")}`;
+        if (skippedWho.length) msg += `: ${skippedWho.join(", ")}`;
+      }
+      if (failed) {
+        msg += ` · ${failed} ${t("scheduleEmailFailed", "failed")}`;
+        const failedWho = failedRows.map((f) => f?.name).filter(Boolean);
+        if (failedWho.length) msg += `: ${failedWho.join(", ")}`;
+      }
       setEmailToast(msg);
       setTimeout(() => setEmailToast(""), 7000);
     } catch (err) {
@@ -2049,15 +2232,19 @@ export default function StaffSchedulePage() {
       const emailed = r.data?.emailed_count || 0;
       const issued = r.data?.links_issued || 0;
       const skipped = r.data?.skipped_no_email || 0;
+      const skippedWho = Array.isArray(r.data?.skipped_names) ? r.data.skipped_names : [];
       const failed = r.data?.email_failed_count || 0;
-      let msg = `✓ ${emailed} ${t("scheduleShareEmailed", "links sent")}`;
+      // Lucide icon on the banner, no "✓" in the text — see the email toast.
+      let msg = `${emailed} ${t("scheduleShareEmailed", "links sent")}`;
       if (issued)
         msg += ` · ${issued} ${t("scheduleShareIssued", "new links minted")}`;
-      if (skipped)
+      if (skipped) {
         msg += ` · ${skipped} ${t(
           "scheduleShareSkippedNoEmail",
           "skipped (no email)"
         )}`;
+        if (skippedWho.length) msg += `: ${skippedWho.join(", ")}`;
+      }
       if (failed) msg += ` · ${failed} ${t("scheduleShareFailed", "failed")}`;
       setShareToast(msg);
       setTimeout(() => setShareToast(""), 7000);
@@ -2152,19 +2339,34 @@ export default function StaffSchedulePage() {
   const stats = useMemo(() => {
     let totalHours = 0;
     let totalCost = 0;
+    let unpriced = false;
     shifts.forEach((s) => {
       const hrs = calcHours(s.start_time, s.end_time, s.break_minutes || 0);
       totalHours += hrs;
       const member = staff.find((m) => m.id === (s.staff_member_id || s.staff_id));
-      const rate = member?.base_rate || 0;
-      totalCost += hrs * rate;
+      // Same rule as the server: no wage on file → no kroner, not 0 kroner.
+      if (!memberHasWage(member)) {
+        unpriced = true;
+        return;
+      }
+      totalCost += hrs * (Number(member.base_rate) || 0);
     });
     return {
-      totalHours: Math.round(totalHours * 10) / 10,
-      totalCost: Math.round(totalCost),
+      totalHours: Math.round(totalHours * 100) / 100,
+      totalCost: unpriced ? null : Math.round(totalCost),
       activeCount: activeStaff.length,
     };
   }, [shifts, staff, activeStaff]);
+
+  // Who has shifts this week and no wage — the server names them; while it
+  // has not answered, the roster in hand says the same thing.
+  const missingWageNames = useMemo(() => {
+    if (Array.isArray(weekCost?.missing_wage)) {
+      return weekCost.missing_wage.map((m) => m?.name).filter(Boolean);
+    }
+    const ids = new Set(shifts.map((s) => String(s.staff_member_id || s.staff_id)));
+    return staff.filter((m) => ids.has(String(m.id)) && !memberHasWage(m)).map((m) => m.name);
+  }, [weekCost, shifts, staff]);
 
   /* ─── Live labor-cost derivations ─── */
   // costForShift() used to live here: a per-shift kroner lookup the grid and
@@ -2215,8 +2417,10 @@ export default function StaffSchedulePage() {
 
     return {
       // null travels all the way to the screen on purpose — `|| 0` and `?? 0`
-      // here were what turned "unknown" into a number.
-      hours: hours == null ? null : Math.round(hours * 10) / 10,
+      // here were what turned "unknown" into a number. Two decimals, the
+      // Timer column's precision: this read 50,8 t above a column whose rows
+      // add up to 50,75 t.
+      hours: hours == null ? null : Math.round(hours * 100) / 100,
       cost: cost == null ? null : Math.round(cost),
       laborPct,
       isForecast: typeof expected.pct === "number" && expected.isForecast,
@@ -2431,7 +2635,12 @@ export default function StaffSchedulePage() {
     // Phone: the shifts come right under the week toolbar. Forecast, staff
     // management, legend and templates follow the day view (order-1) — the
     // first shift sat about two screens down.
-    <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto space-y-6 max-md:flex max-md:flex-col max-md:space-y-0 max-md:gap-4">
+    // Wide screens now get the same treatment for the two TALL panels
+    // (Prognose, Administrér medarbejdere): at 1024×768 they pushed the week
+    // grid — the thing an owner opens this page for — below the fold. A flex
+    // column at every width is what lets `order` move them; legend and
+    // templates stay above the grid on a wide screen, where they are one line.
+    <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto flex flex-col gap-6 max-md:gap-4">
       <PageHeader
         title={t("staffSchedule", "Staff Schedule")}
         subtitle={t("staffScheduleDesc", "Plan weekly shifts, manage staff, and track labor costs.")}
@@ -2492,14 +2701,20 @@ export default function StaffSchedulePage() {
                 to ~416pt against the ~338pt actually available inside the page
                 and card padding, so the label wrapped to two lines and pushed
                 the buttons into the card edges. sm: and up is unchanged. */}
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            {/* flex-wrap is the safety net, not the plan: at 768 the worded
+                arrows + the 220px pill + "Denne uge" ran past the card's
+                right edge. The words now show from lg: only (there is room
+                beside the actions there), and the arrows are 40px wide on a
+                phone \u2014 a 28px target was the smallest control on the page. */}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto min-w-0">
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={goToPrevWeek}
                 aria-label={t("schedPrevWeek", "Previous")}
+                className="max-sm:h-10 max-sm:min-w-[40px]"
               >
-                {"\u2190"}<span className="hidden sm:inline"> {t("schedPrevWeek", "Previous")}</span>
+                {"\u2190"}<span className="hidden lg:inline"> {t("schedPrevWeek", "Previous")}</span>
               </Button>
               {/* Week pill. "Uge 38" carries the weight; the dates follow in
                   normal gray as confirmation. It used to be one semibold run,
@@ -2526,8 +2741,9 @@ export default function StaffSchedulePage() {
                 size="sm"
                 onClick={goToNextWeek}
                 aria-label={t("schedNextWeek", "Next")}
+                className="max-sm:h-10 max-sm:min-w-[40px]"
               >
-                <span className="hidden sm:inline">{t("schedNextWeek", "Next")} </span>{"\u2192"}
+                <span className="hidden lg:inline">{t("schedNextWeek", "Next")} </span>{"\u2192"}
               </Button>
               {/* "Denne uge" \u2014 the way back after browsing. Clicking the pill
                   has always done this and nothing anywhere said so (the pill
@@ -2577,7 +2793,7 @@ export default function StaffSchedulePage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setShiftModal({ staffId: null, date: null, shift: null })}
+                onClick={() => setShiftModal({ staffId: null, date: defaultAddDate(), shift: null })}
                 iconLeft={<Icon name="Plus" size={14} />}
                 title={t("schedAddShiftTitle", "Add shift")}
               >
@@ -2643,8 +2859,11 @@ export default function StaffSchedulePage() {
                   so the tick cannot appear for a week we could not read. The
                   button shows "—" and says so in its title. The grid below
                   carries the amber banner and the Try again. */}
+              {/* primary (gray-900), not accent: emerald is the STATUS colour
+                  on this page — "published", "seen by staff" — and the button
+                  that DOES the publishing wearing it read as "already done". */}
               <Button
-                variant={draftCount > 0 ? "accent" : "secondary"}
+                variant={draftCount > 0 ? "primary" : "secondary"}
                 size="sm"
                 onClick={requestPublish}
                 disabled={publishing || loading || draftCount == null || shifts.length === 0}
@@ -2815,7 +3034,7 @@ export default function StaffSchedulePage() {
           by default. Sits between the week toolbar and the grid so the
           owner can glance at next week's weather + recommended headcount
           while planning, without it dominating the page. */}
-      <FadeIn delay={0.07} className="max-md:order-1">
+      <FadeIn delay={0.07} className="order-1">
         <ScheduleForecastPanel />
       </FadeIn>
 
@@ -2867,9 +3086,9 @@ export default function StaffSchedulePage() {
           rows) or Discard. */}
       {autopilotSuggestion && (
         <FadeIn delay={0.02}>
-          {/* No `currency` prop any more: every figure inside the panel goes
-              through formatKr, which emits its own "kr." — the bare code token
-              it used to append is gone with the bare toLocaleString. */}
+          {/* `currency` only feeds formatOwnerMoney (the week-on-week
+              difference); the panel's other figures go through formatKr,
+              which emits its own "kr.". */}
           <AutopilotPanel
             suggestion={autopilotSuggestion}
             staff={staff}
@@ -2878,13 +3097,14 @@ export default function StaffSchedulePage() {
             onDiscard={() => setAutopilotSuggestion(null)}
             t={t}
             lang={lang}
+            currency={currency}
           />
         </FadeIn>
       )}
 
 
       {/* Manage Staff collapsible */}
-      <FadeIn delay={0.1} className="max-md:order-1">
+      <FadeIn delay={0.1} className="order-1">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
           <button
             onClick={() => {
@@ -3004,14 +3224,25 @@ export default function StaffSchedulePage() {
         };
         const issues = (weekLoad?.staff || []).flatMap((e) => {
           const out = [];
-          const hrs = (n) => formatHours(n, { lang });
+          // Two decimals — the Timer column's precision. At one, this strip
+          // said 50,8 t about a person whose row read 50,75 t.
+          const hrs = (n) => formatHours(n, { lang, decimals: 2 });
           if (e.over_dk48) out.push(t("shieldWarnDk48", "{name}: {hours} — over the 48h weekly ceiling").replace("{name}", e.name).replace("{hours}", hrs(e.hours)));
           else if (e.over_cap) out.push(t("shieldWarnCap", "{name}: {hours} — over the contract cap of {cap}/week").replace("{name}", e.name).replace("{hours}", hrs(e.hours)).replace("{cap}", hrs(e.cap)));
           if (e.over_month) out.push(t("shieldWarnMonth", "{name}: {hours} in {period} — over the monthly limit of {cap}").replace("{name}", e.name).replace("{hours}", hrs(e.month_hours)).replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{cap}", hrs(e.month_cap)));
           for (const r of e.rest_warnings || []) {
-            out.push(t("schedWarnRestDay", "{name}: only {gap} rest between {from} and {to} (11h rule)")
-              .replace("{name}", e.name).replace("{gap}", hrs(r.gap_hours))
-              .replace("{from}", dayShort(r.prev_date)).replace("{to}", dayShort(r.next_date)));
+            // The server reports the 24-hour period the rest had to fit in
+            // (window_start); an older server only sends the two dates.
+            if (r.window_start) {
+              out.push(restRuleText(
+                e.name, r.rest_hours ?? r.gap_hours,
+                r.window_start.slice(0, 10), r.window_start.slice(11, 16), t, lang,
+              ));
+            } else {
+              out.push(t("schedWarnRestDay", "{name}: only {gap} rest between {from} and {to} (11h rule)")
+                .replace("{name}", e.name).replace("{gap}", hrs(r.gap_hours))
+                .replace("{from}", dayShort(r.prev_date)).replace("{to}", dayShort(r.next_date)));
+            }
           }
           return out;
         });
@@ -3111,6 +3342,7 @@ export default function StaffSchedulePage() {
                 t={t}
                 lang={lang}
                 onMoveShift={moveShift}
+                onAbsence={isStaffSeat ? null : (staffId) => setAbsenceSheet({ staffId, date: defaultAddDate() })}
                 onCellClick={(staffId, date, existingShift) =>
                   existingShift
                     ? setShiftModal({ staffId, date: toISO(date), shift: existingShift })
@@ -3136,8 +3368,16 @@ export default function StaffSchedulePage() {
                 weekCost={weekCost}
                 costBasis={costBasis}
                 targetPct={targetPct}
+                weekTotals={{
+                  hours: weekSummary.hours,
+                  cost: weekSummary.cost,
+                  missingWage: missingWageNames,
+                  hasDrafts: (draftCount || 0) > 0,
+                }}
                 t={t}
                 lang={lang}
+                onDayChange={setPhoneDayIso}
+                onAbsence={isStaffSeat ? null : (staffId, dateIso) => setAbsenceSheet({ staffId, date: dateIso })}
                 onCellClick={(staffId, date, existingShift) =>
                   existingShift
                     ? setShiftModal({ staffId, date: toISO(date), shift: existingShift })
@@ -3173,10 +3413,22 @@ export default function StaffSchedulePage() {
               <div className="flex items-center gap-2.5">
                 <Icon name="Clock" size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
                 <div className="leading-tight">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                    {t("schedTotalHours")}
+                  {/* "inkl. kladder" whenever drafts are in the figure. The
+                      Timer tab counts published shifts only, so with drafts
+                      in the week the two pages showed different hours for
+                      "this week" and nothing said why. */}
+                  <div
+                    className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500"
+                    title={(draftCount || 0) > 0 ? t("schedInclDraftsTitle", "The Hours tab counts published shifts only.") : undefined}
+                  >
+                    <span>{t("schedTotalHours")}</span>
+                    {(draftCount || 0) > 0 && (
+                      <span className="normal-case tracking-normal font-normal">
+                        · {t("schedInclDrafts", "incl. drafts")}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums whitespace-nowrap">
                     {formatTimer(weekSummary.hours, lang)}
                   </div>
                 </div>
@@ -3204,8 +3456,16 @@ export default function StaffSchedulePage() {
                       <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
                         {/* No "≈" in front of a dash — the squiggle promises
                             an estimate, and we do not have one. */}
-                        {weekSummary.cost == null ? "—" : `≈ ${formatKr(weekSummary.cost, { decimals: 0 })}`}
+                        {weekSummary.cost == null ? "—" : `≈ ${formatOwnerMoney(weekSummary.cost, currency)}`}
                       </div>
+                      {/* The reason for the dash, by name. A staffer with no
+                          wage used to be priced at 150 kr/t and folded into a
+                          confident total. */}
+                      {weekSummary.cost == null && missingWageNames.length > 0 && (
+                        <div className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 max-w-[16rem] leading-snug">
+                          {missingWageText(missingWageNames, t)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </>
@@ -3319,7 +3579,9 @@ export default function StaffSchedulePage() {
           sits BELOW the rota: it used to open the page above the week toolbar,
           where three reviewers found it pushing the schedule — the thing an
           owner comes here for, every week — below the fold. */}
-      <ClockGeofenceSettings />
+      {/* order-2: after Prognose / Administrér too — a one-time setting is
+          the last thing on a page built for planning the week. */}
+      <ClockGeofenceSettings className="order-2" />
 
       {/* Click-to-bloom undo — a calm one-tap Fortryd for the just-added draft.
           Auto-dismisses after ~6s. Drafts never notify, so this is purely a
@@ -3376,6 +3638,31 @@ export default function StaffSchedulePage() {
             fetchShifts();
           }}
           branchId={branchId}
+          absenceFor={absenceFor}
+          // One sheet at a time: the shift sheet hands over to the fravær
+          // sheet for the person and day it was showing.
+          onAbsence={isStaffSeat ? null : (staffId, dateIso) => {
+            setShiftModal(null);
+            setAbsenceSheet({ staffId, date: dateIso });
+          }}
+        />
+      )}
+
+      {absenceSheet && (
+        <AbsenceSheet
+          staff={activeStaff}
+          initialStaffId={absenceSheet.staffId}
+          initialDate={absenceSheet.date}
+          absences={absences}
+          onClose={() => setAbsenceSheet(null)}
+          onChanged={fetchWeekLayers}
+          onSaved={(msg) => {
+            setAbsenceSheet(null);
+            setAutopilotToast(msg);
+            setTimeout(() => setAutopilotToast(""), 7000);
+          }}
+          t={t}
+          lang={lang}
         />
       )}
 
@@ -3630,12 +3917,18 @@ export default function StaffSchedulePage() {
                       <span>{t("pinLabel", "PIN")}</span>
                     </button>
                     )}
+                    {/* Neutral ink: emerald is the status colour on this page,
+                        and "copy" is an action, not a status. The copied
+                        state is the Lucide Check, not a text "✓". */}
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); copyOneLink(s); }}
-                      className="text-[11px] px-2 py-1 rounded text-emerald-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+                      aria-label={shareRowCopied === s.id ? t("shareCopiedOne", "Copied") : undefined}
+                      className="text-[11px] px-2 py-1 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
                     >
-                      {shareRowCopied === s.id ? "✓" : t("shareCopyOne", "copy")}
+                      {shareRowCopied === s.id
+                        ? <Icon name="Check" size={14} strokeWidth={2.5} />
+                        : t("shareCopyOne", "copy")}
                     </button>
                   </label>
                   {/* Shown ONCE after generating — read it to the staffer. */}
@@ -3767,7 +4060,9 @@ function weekdayLong(iso) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
+// Exported (named) so the codes-not-sentences contract can be mounted in a
+// test; the page is its only real caller.
+export function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang, currency = "DKK" }) {
   // On phones the 7 day-cards stack into one ~1,200px column. Collapse them
   // behind a disclosure so the week summary + Apply/Discard stay above the
   // fold; always expanded from `sm:` up (desktop layout unchanged).
@@ -3778,18 +4073,71 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
   );
   const compared = suggestion.compared_to_last_week || {};
   const dayCount = suggestion.days.length;
+  const proposedCount = suggestion.days.reduce((n, d) => n + (d.shifts || []).length, 0);
+  const warnings = Array.isArray(suggestion.warnings) ? suggestion.warnings : [];
+  const signal = suggestion.basis?.signal || "revenue";
+  const noHistory = (suggestion.basis?.avg_weekday_samples ?? 0) === 0;
+  // The page names the reason in the owner's language. The server sends
+  // codes and numbers; it used to send English sentences ("Saves 650 DKK vs
+  // last week", "needed 4.0 more person-hours …") that sat untranslated in
+  // the middle of a Danish screen.
+  const shiftWord = (k) => ({
+    lunch: t("autopilotShiftLunch", "lunch shift"),
+    dinner: t("autopilotShiftDinner", "dinner shift"),
+    day: t("autopilotShiftDay", "day shift"),
+  }[k] || k);
+  const warningText = (w) => {
+    if (w.code === "unfilled") {
+      return t("autopilotWarnUnfilled", "{day}: {hours} more needed on the {shift} — nobody free to take it", {
+        day: formatDayShort(w.date, t),
+        hours: formatHours(w.hours_short, { lang, decimals: 2 }),
+        shift: shiftWord(w.shift),
+      });
+    }
+    if (w.code === "over_weekly_cap") {
+      return t("autopilotWarnOverCap", "{name}: {hours} — over the weekly limit of {cap}", {
+        name: w.staff_name,
+        hours: formatHours(w.hours, { lang, decimals: 2 }),
+        cap: formatHours(w.cap, { lang, decimals: 2 }),
+      });
+    }
+    return null; // an unknown code is not shown as a raw key
+  };
+  const compareText = (() => {
+    if (!compared.direction || typeof compared.delta_kr !== "number") return null;
+    const amount = formatOwnerMoney(Math.abs(compared.delta_kr), currency);
+    if (compared.direction === "saves") return t("autopilotSaves", "Saves {amount} vs last week", { amount });
+    if (compared.direction === "costs_more") return t("autopilotCostsMore", "Costs {amount} more than last week", { amount });
+    return t("autopilotSameCost", "Roughly the same cost as last week");
+  })();
+  const missingWage = Array.isArray(suggestion.missing_wage_names) ? suggestion.missing_wage_names : [];
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 sm:p-6 space-y-3 sm:space-y-4">
-      {totalRevenue <= 0 && (
-        // Seven empty day cards and "Forventet: 0 kr." read as a forecast of
-        // nothing. Say what the plan is built on instead, and where the
-        // missing basis comes from.
+      {/* WHY there is nothing (or no takings) behind this plan — honestly.
+          It used to say the plan "follows your opening hours and staff"
+          over seven empty days: there was no plan, and nothing here reads
+          opening hours. An empty proposal now says it is empty, and why. */}
+      {proposedCount === 0 ? (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-[13px] text-gray-700 dark:text-gray-300">
-          {t("autopilotNoSales", "There's no sales history yet, so this plan follows your opening hours and staff — not expected takings. After a couple of weeks of closed days it plans from your real sales.")}{" "}
-          <RouterLink to="/daily-close" className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2">
-            {t("autopilotNoSalesCta", "Close the day")}
-          </RouterLink>
+          {noHistory ? (
+            <>
+              {t("autopilotEmptyNoHistory", "No shifts proposed — there are no daily closes or sales from the last 8 weeks to plan from. Close a few days, then run Autopilot again.")}{" "}
+              <RouterLink to="/daily-close" className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2">
+                {t("autopilotNoSalesCta", "Close the day")}
+              </RouterLink>
+            </>
+          ) : warnings.length > 0 ? (
+            t("autopilotEmptyNoStaff", "No shifts proposed — nobody on the team could take them (see below).")
+          ) : (
+            t("autopilotEmptyNoDemand", "No shifts proposed — your history shows no demand for this week.")
+          )}
         </div>
+      ) : (
+        signal === "appointments" && (
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-[13px] text-gray-700 dark:text-gray-300">
+            {t("autopilotFromBookings", "Planned from your booked appointments — there's no sales forecast behind these shifts.")}
+          </div>
+        )
       )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -3835,7 +4183,9 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
                 · {formatTimer(suggestion.week_total_hours, lang)}
               </span>
             </span>
-            {totalRevenue > 0 && (
+            {/* No labor% from an unknown cost: null ÷ revenue is 0 in
+                JavaScript, and "0 %" would be the confident lie. */}
+            {totalRevenue > 0 && typeof suggestion.week_total_cost === "number" && (
               <span>
                 {t("schedLaborPct", "Labor %")}:{" "}
                 <strong className={laborTone(suggestion.week_total_cost / totalRevenue, suggestion.basis?.target_labor_pct ?? null)}>
@@ -3848,15 +4198,20 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
                 )}
               </span>
             )}
-            {compared.savings_label && (
+            {compareText && (
               <span
                 className={
-                  compared.delta_pct < 0
-                    ? "text-gray-700 dark:text-emerald-400 font-medium"
-                    : "text-amber-700 dark:text-amber-400"
+                  compared.direction === "costs_more"
+                    ? "text-amber-700 dark:text-amber-400"
+                    : "text-gray-700 dark:text-gray-300 font-medium"
                 }
               >
-                {compared.savings_label}
+                {compareText}
+              </span>
+            )}
+            {missingWage.length > 0 && (
+              <span className="text-amber-700 dark:text-amber-400">
+                {missingWageText(missingWage, t)}
               </span>
             )}
           </div>
@@ -3890,18 +4245,22 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
         </div>
       </div>
 
-      {/* Compliance warnings */}
-      {suggestion.compliance_warnings && suggestion.compliance_warnings.length > 0 && (
+      {/* Compliance warnings — worded here from the server's codes. */}
+      {warnings.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {suggestion.compliance_warnings.map((w, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs"
-            >
-              <Icon name="AlertTriangle" size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
-              {w}
-            </span>
-          ))}
+          {warnings.map((w, i) => {
+            const text = warningText(w);
+            if (!text) return null;
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs"
+              >
+                <Icon name="AlertTriangle" size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                {text}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -3986,7 +4345,7 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
                       </span>
                       <span className="text-gray-500 dark:text-gray-400">
                         {" "}
-                        · {s.start}-{s.end}
+                        · {formatShiftTime(s.start, s.end, lang)}
                       </span>
                       {s.break_minutes > 0 && (
                         <span className="text-gray-400">
@@ -5485,7 +5844,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
  *  Exported (named) so MobileSchedule.salon.test.jsx can mount the real thing
  *  — the salon crash below was found by reading, never by running, and a page
  *  this size needs the regression pinned by a render, not by a grep. */
-export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, weekCost, costBasis, targetPct, t, lang, onCellClick, unavailFor, preferredFor, absenceFor, isStaffSeat = false }) {
+export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, weekCost, costBasis, targetPct, t, lang, onCellClick, unavailFor, preferredFor, absenceFor, isStaffSeat = false, weekTotals = null, onDayChange = null, onAbsence = null, currency = "DKK" }) {
   const catFor = useCatFor();
   const { user } = useAuth();
   // Same rule as the desktop grid: the row dot only says something on a
@@ -5510,6 +5869,12 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
   const selectedDate = weekDates[dayIdx];
   const selectedISO = toISO(selectedDate);
   const isSelectedToday = selectedISO === todayISO;
+
+  // Tell the page which day is on screen, so the toolbar's "Tilføj" opens a
+  // shift on THIS day instead of on Monday.
+  useEffect(() => {
+    onDayChange?.(selectedISO);
+  }, [selectedISO, onDayChange]);
 
   // Same per-day rollup the desktop header dot uses, computed the same way, so
   // an owner switching phone → laptop mid-week reads the identical status. On a
@@ -5536,6 +5901,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
   const dayStats = useMemo(() => {
     let totalHours = 0;
     let totalCost = 0;
+    let unpriced = false;
     let staffOn = 0;
     staff.forEach((member) => {
       // EVERY shift of the day, not just the first: a split lunch+dinner day
@@ -5544,7 +5910,8 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
       // floor, and "2 on shift" for one staffer would be a plain lie.
       const shifts = getShiftsForCell(member.id, selectedDate);
       if (!shifts.length) return;
-      const rate = member.base_rate || 0;
+      if (!memberHasWage(member)) unpriced = true;
+      const rate = Number(member.base_rate) || 0;
       for (const shift of shifts) {
         const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
         totalHours += hrs;
@@ -5552,13 +5919,19 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
       }
       staffOn += 1;
     });
-    const cost = serverDay ? costByBasis(serverDay, costBasis) : null;
+    // The server's figure when it answered — INCLUDING its null, which means
+    // "someone on this day has no wage". Falling back to the client estimate
+    // there would print the very number the server refused to invent.
+    const cost = serverDay
+      ? costByBasis(serverDay, costBasis)
+      : (unpriced ? null : totalCost);
     const laborPct = serverDay
       ? (costBasis === "loaded" ? serverDay.labor_pct_loaded : serverDay.labor_pct_gross)
       : null;
     return {
-      hours: Math.round((serverDay && typeof serverDay.hours === "number" ? serverDay.hours : totalHours) * 10) / 10,
-      cost: Math.round(cost ?? totalCost),
+      // Two decimals, as everywhere hours are printed on this page.
+      hours: Math.round((serverDay && typeof serverDay.hours === "number" ? serverDay.hours : totalHours) * 100) / 100,
+      cost: cost == null ? null : Math.round(cost),
       staffOn,
       laborPct: typeof laborPct === "number" ? laborPct : null,
       hasRevenue: serverDay ? serverDay.revenue != null : false,
@@ -5573,11 +5946,12 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
       {/* ── Day-strip: 7 pills, today/selected highlighted ── */}
       <div className="px-3 pt-3 pb-2 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between gap-2 mb-2">
+          {/* 40px: the phone floor for a control (it was 32). */}
           <button
             type="button"
             onClick={goPrev}
             disabled={dayIdx === 0}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label={t("schedPrevDay", "Previous day")}
           >
             ←
@@ -5617,7 +5991,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             type="button"
             onClick={goNext}
             disabled={dayIdx === 6}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label={t("schedNextDay", "Next day")}
           >
             →
@@ -5665,6 +6039,38 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             );
           })}
         </div>
+        {/* The WEEK in one line — the desktop summary bar is hidden on a
+            phone, so the week's hours and wage bill existed nowhere on the
+            device most owners plan on. "planlagt, inkl. kladder" because the
+            Timer tab counts published shifts only; the two must never
+            disagree without saying why. */}
+        {weekTotals && (
+          <div
+            className="mt-2 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[12px] text-gray-600 dark:text-gray-300 tabular-nums"
+            data-testid="sched-week-line"
+          >
+            <span className="font-medium text-gray-900 dark:text-gray-100">{t("schedWeekLine", "Week")}:</span>
+            <span className="whitespace-nowrap">{formatTimer(weekTotals.hours, lang)}</span>
+            {showCost && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="whitespace-nowrap">
+                  {weekTotals.cost == null ? "—" : `≈ ${formatOwnerMoney(weekTotals.cost, currency)}`}
+                </span>
+              </>
+            )}
+            <span className="text-gray-500 dark:text-gray-400">
+              ({weekTotals.hasDrafts
+                ? t("schedWeekPlannedDrafts", "planned, incl. drafts")
+                : t("schedWeekPlanned", "planned")})
+            </span>
+            {showCost && weekTotals.cost == null && (weekTotals.missingWage || []).length > 0 && (
+              <span className="w-full text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                {missingWageText(weekTotals.missingWage, t)}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Per-day stats strip — staff · hours · (cost) · labor%. The labor%
@@ -5683,7 +6089,8 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             <>
               <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
               <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">
-                ≈ {formatKr(dayStats.cost, { decimals: 0 })}
+                {/* No "≈" in front of a dash: unknown is not an estimate. */}
+                {dayStats.cost == null ? "—" : `≈ ${formatKr(dayStats.cost, { decimals: 0 })}`}
               </span>
             </>
           )}
@@ -5724,14 +6131,28 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             const colors = ROLE_COLORS[cat] || ROLE_COLORS.floor;
             const dayShifts = getShiftsForCell(member.id, selectedDate);
             const hasShift = dayShifts.length > 0;
+            // The day's fravær, looked up for EVERY row — a shift on a day the
+            // person is off is exactly the row that must say so. It used to be
+            // read for empty rows only, so on a phone Anna's Wednesday shift
+            // looked normal on the day she had called in sick.
+            const dayAbs = absenceFor?.(member.id, selectedDate) || null;
             // Same precedence as the desktop grid: a concrete fravær (indigo)
-            // outranks a standing "kan ikke" (red); both only on empty rows.
-            const mAbs = !hasShift ? (absenceFor?.(member.id, selectedDate) || null) : null;
+            // outranks a standing "kan ikke" (red).
+            const mAbs = !hasShift ? dayAbs : null;
             const mBlk = !hasShift && !mAbs ? (unavailFor?.(member.id, selectedDate) || null) : null;
             // A staffer can now mark days they WANT. Reading as plain "OFF"
             // beside a red "Can't work" made the preference invisible on the
             // one screen it exists to inform.
             const mPref = !hasShift && !mAbs && !mBlk ? (preferredFor?.(member.id, selectedDate) || null) : null;
+            // On a day WITH shifts: the reason this person should not be on
+            // them, named — the absence kind, else a standing "kan ikke".
+            const shiftConflict = hasShift
+              ? (dayAbs
+                  ? absKindLabel(dayAbs.kind, t)
+                  : (unavailFor?.(member.id, selectedDate) ? t("schedConflictCantShort", "Can't work") : null))
+              : null;
+            // The person's whole week, the same sum as the desktop Timer column.
+            const weekHrs = weeklyHoursFor(member.id, weekDates, getShiftsForCell);
 
             // Identity half of the row — shared by both branches below so the
             // two layouts can never drift apart.
@@ -5758,19 +6179,42 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                       </span>
                     )}
                   </div>
+                  {/* This person's week, on the row — the desktop Timer column
+                      has no phone equivalent, so "how much is Anna on?" meant
+                      tapping through seven days. */}
+                  {weekHrs > 0 && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums truncate">
+                      {t("schedHoursThisWeek", "{hours} this week", { hours: formatTimer(weekHrs, lang) })}
+                    </div>
+                  )}
                 </div>
               </>
             );
+
+            // Fravær for this person, from the row itself — 40px, beside the
+            // row rather than inside it (a button inside the row's button is
+            // invalid HTML and only one of them would ever be reachable).
+            const absenceButton = onAbsence ? (
+              <button
+                type="button"
+                onClick={() => onAbsence(member.id, selectedISO)}
+                aria-label={t("absenceActionAria", "Register absence for {name}", { name: member.name })}
+                title={t("absenceAction", "Absence")}
+                className="w-10 h-10 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+              >
+                <Icon name="CalendarX2" size={17} />
+              </button>
+            ) : null;
 
             // EMPTY DAY — unchanged: the whole row stays one big tap target
             // that blooms a draft (or just shows fravær / kan ikke / helst).
             if (!hasShift) {
               return (
+                <div key={member.id} className={`flex items-center ${absenceButton ? "pr-2" : ""}`}>
                 <button
-                  key={member.id}
                   type="button"
                   onClick={() => onCellClick(member.id, selectedDate, null)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+                  className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
                   aria-label={t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
                 >
                   {identity}
@@ -5793,7 +6237,9 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                       <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">{mPref.timeLabel || t("schedHelstCell", "Prefers")}</span>
                     </span>
                   ) : (
-                    <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                    // gray-500 / dark gray-400: "FRI" read at ~2.5:1 in
+                    // gray-400; both now clear 4.5:1 on their card.
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
                       <span>{t("schedOff", "OFF")}</span>
                       <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 font-bold">
                         +
@@ -5801,6 +6247,8 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                     </div>
                   )}
                 </button>
+                {absenceButton}
+                </div>
               );
             }
 
@@ -5811,14 +6259,14 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             // rather than becoming a second button that silently means "the
             // first shift" — ambiguous on exactly the day this fixes.
             return (
-              <div key={member.id} className="w-full flex items-center gap-3 px-4 py-3">
+              <div key={member.id} className={`w-full flex items-center gap-3 pl-4 ${absenceButton ? "pr-2" : "pr-4"} py-3`}>
                 {identity}
                 <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                   {dayShifts.map((shift) => {
                     const shiftCat = catFor(shift.role_on_shift || member.role);
                     const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
                     const isDraft = shift.status === "draft";
-                    const timeLabel = formatShiftTime(shift.start_time, shift.end_time);
+                    const timeLabel = formatShiftTime(shift.start_time, shift.end_time, lang);
                     return (
                       <button
                         key={shift.id}
@@ -5828,11 +6276,19 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                         // content is ~40px with one line of hours, so without
                         // this a split day would hand the owner two targets
                         // that are each a hair too small to hit reliably.
-                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} tabular-nums text-right leading-tight transition-colors hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))]`}
+                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} ${shiftConflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""} tabular-nums text-right leading-tight transition-colors hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))]`}
                         aria-label={t("schedEditShiftAtAria", "Edit {name}'s {time} shift")
                           .replace("{name}", member.name)
-                          .replace("{time}", timeLabel)}
+                          .replace("{time}", timeLabel) + (shiftConflict ? ` · ${shiftConflict}` : "")}
                       >
+                        {/* The flag the phone never had: a shift inside a
+                            fravær (or on a "kan ikke" day) names WHY, in red,
+                            above the time — the same mark as the desktop card. */}
+                        {shiftConflict && (
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+                            {shiftConflict}
+                          </div>
+                        )}
                         <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                           {timeLabel}
                         </div>
@@ -5852,6 +6308,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                     );
                   })}
                 </div>
+                {absenceButton}
               </div>
             );
           })
@@ -5933,6 +6390,7 @@ function DroppableCell({ staffId, dateIso, occupied, className, onClick, title, 
    opens a tiny modal to define one. */
 function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t }) {
   const catFor = useCatFor();
+  const { lang } = useLanguage();
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mr-0.5">
@@ -5957,7 +6415,7 @@ function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t
           >
             <span className={`inline-block w-1.5 h-1.5 rounded-full ${(ROLE_COLORS[cat] || ROLE_COLORS.floor).dot}`} />
             <span className="font-medium max-w-[120px] truncate">{tpl.label}</span>
-            <span className="tabular-nums opacity-70">{tpl.start}–{tpl.end}</span>
+            <span className="tabular-nums opacity-70">{formatShiftTime(tpl.start, tpl.end, lang)}</span>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onRemove(tpl.id); }}
@@ -5999,6 +6457,7 @@ function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t
 }
 
 function TemplateCreateModal({ t, onClose, onSave }) {
+  const { lang } = useLanguage();
   const [label, setLabel] = useState("");
   const [startH, setStartH] = useState("16");
   const [startM, setStartM] = useState("00");
@@ -6019,7 +6478,7 @@ function TemplateCreateModal({ t, onClose, onSave }) {
     }
     onSave({
       id: `tpl_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
-      label: (label.trim() || `${start}–${end}`).slice(0, 28),
+      label: (label.trim() || formatShiftTime(start, end, lang)).slice(0, 28),
       start,
       end,
       role,
@@ -6063,7 +6522,7 @@ function TemplateCreateModal({ t, onClose, onSave }) {
           <select value={startH} onChange={(e) => setStartH(e.target.value)} className={selCls}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
           </select>
-          <span className="text-gray-400">:</span>
+          <span className="text-gray-400">{clockSep(lang)}</span>
           <select value={startM} onChange={(e) => setStartM(e.target.value)} className={selCls}>
             {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
@@ -6071,7 +6530,7 @@ function TemplateCreateModal({ t, onClose, onSave }) {
           <select value={endH} onChange={(e) => setEndH(e.target.value)} className={selCls}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
           </select>
-          <span className="text-gray-400">:</span>
+          <span className="text-gray-400">{clockSep(lang)}</span>
           <select value={endM} onChange={(e) => setEndM(e.target.value)} className={selCls}>
             {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
@@ -6113,6 +6572,7 @@ const OPEN_ROLE_CHOICES = [
 
 function OpenShiftChip({ row, t, onCancel }) {
   const catFor = useCatFor();
+  const { lang } = useLanguage();
   const cat = catFor(row.role_on_shift);
   if (row.status === "filled") {
     return (
@@ -6122,7 +6582,7 @@ function OpenShiftChip({ row, t, onCancel }) {
           <span className="truncate">{row.claimed_by_name || t("openTaken", "Taken")}</span>
         </div>
         <div className="text-emerald-700/80 dark:text-emerald-400/80 tabular-nums mt-0.5">
-          {formatShiftTime(row.start_time, row.end_time)}
+          {formatShiftTime(row.start_time, row.end_time, lang)}
         </div>
       </div>
     );
@@ -6134,7 +6594,7 @@ function OpenShiftChip({ row, t, onCancel }) {
     <div className="group relative rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-2 py-1.5 text-[11px] leading-tight">
       <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-200 tabular-nums">
         <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
-        {formatShiftTime(row.start_time, row.end_time)}
+        {formatShiftTime(row.start_time, row.end_time, lang)}
       </div>
       <div className="text-gray-400 dark:text-gray-500 mt-0.5">{roleLabel(catFor(row.role_on_shift), t)}</div>
       <button
@@ -6150,6 +6610,7 @@ function OpenShiftChip({ row, t, onCancel }) {
 }
 
 function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
+  const { lang } = useLanguage();
   // Multi-location S5: the open shift is posted AT the currently-viewed
   // location (same context rule as shift create) — no extra picker.
   const { branchId: _openShiftBranchId } = useBranch();
@@ -6219,7 +6680,7 @@ function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
           <select value={startH} onChange={(e) => setStartH(e.target.value)} className={selCls}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
           </select>
-          <span className="text-gray-400">:</span>
+          <span className="text-gray-400">{clockSep(lang)}</span>
           <select value={startM} onChange={(e) => setStartM(e.target.value)} className={selCls}>
             {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
@@ -6227,7 +6688,7 @@ function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
           <select value={endH} onChange={(e) => setEndH(e.target.value)} className={selCls}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
           </select>
-          <span className="text-gray-400">:</span>
+          <span className="text-gray-400">{clockSep(lang)}</span>
           <select value={endM} onChange={(e) => setEndM(e.target.value)} className={selCls}>
             {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
@@ -6254,6 +6715,7 @@ function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
 
 function OpenShiftsPanel({ weekStart, t }) {
   const confirm = useConfirm();
+  const { lang } = useLanguage();
   // Same resolver the chips render their role label with — the remove dialog
   // has to echo the chip word for word, not invent a second vocabulary.
   const catFor = useCatFor();
@@ -6292,7 +6754,7 @@ function OpenShiftsPanel({ weekStart, t }) {
         "removeOpenShiftBodyDetail",
         "{time} · {role} — it comes off the week, and anyone waiting to pick up a shift stops seeing it.",
         {
-          time: formatShiftTime(row.start_time, row.end_time),
+          time: formatShiftTime(row.start_time, row.end_time, lang),
           role: roleLabel(catFor(row.role_on_shift), t),
         },
       ),
@@ -6307,7 +6769,7 @@ function OpenShiftsPanel({ weekStart, t }) {
     } catch (err) {
       setError(errText(err, t("openCancelFailed", "Couldn't remove the open shift.")));
     }
-  }, [fetchOpen, t, confirm, catFor, weekDates]);
+  }, [fetchOpen, t, lang, confirm, catFor, weekDates]);
 
   // null, not 0, when the week did not load — and note WHICH week: the hook
   // keeps the previous week's rows through a failed switch, so a stale count
@@ -6442,6 +6904,9 @@ export function ScheduleGrid({
   weekLoad,
   t,
   lang,
+  // (staffId) => open the fravær sheet for this person. null for a seat that
+  // may not write one — the row then carries no action it cannot finish.
+  onAbsence = null,
 }) {
   const catFor = useCatFor();
   const { user } = useAuth();
@@ -6601,6 +7066,19 @@ export function ScheduleGrid({
                     </span>
                   );
                 })()}
+                {/* Fravær from the person's own row. gray-500 so the icon
+                    clears 3:1 on the card; the label is in aria-label/title. */}
+                {onAbsence && (
+                  <button
+                    type="button"
+                    onClick={() => onAbsence(member.id)}
+                    aria-label={t("absenceActionAria", "Register absence for {name}", { name: member.name })}
+                    title={t("absenceAction", "Absence")}
+                    className="shrink-0 h-6 w-6 -my-1 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+                  >
+                    <Icon name="CalendarX2" size={14} />
+                  </button>
+                )}
               </div>
               {/* 11px floor — role + contract type, in the 160px staff column
                   that has the room for it. */}
@@ -6658,9 +7136,11 @@ export function ScheduleGrid({
                     e.warn_enabled === false ? t("shieldWarnOffTitle", "Hour-limit warnings are off for this staffer") : "",
                   ].filter(Boolean).join(" · ");
                   return (
+                    // whitespace-nowrap: "29,25 t" broke after the number in
+                    // a narrow name column.
                     <span
                       title={title || t("shieldHoursTitle", "Scheduled hours this week")}
-                      className={`px-1 py-px rounded font-medium tabular-nums ${cls}`}
+                      className={`px-1 py-px rounded font-medium tabular-nums whitespace-nowrap ${cls}`}
                     >
                       {label}
                     </span>
@@ -6756,9 +7236,22 @@ export function ScheduleGrid({
           const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
           const isDraft = shift.status === "draft";
 
-          // A shift on a day the person said they CAN'T work: the "kan ikke"
-          // tint only painted empty cells, so the conflict was invisible.
-          const conflict = unavailFor(member.id, date) || absenceFor?.(member.id, date) || null;
+          // A shift on a day the person is OFF (a registered fravær) or said
+          // they CAN'T work: the tints only painted empty cells, so the
+          // conflict was invisible. The fravær wins and is named by its KIND —
+          // "Ferie" / "Syg" — where the ring used to say "Kan ikke" for both,
+          // which hid the one fact that decides what to do next.
+          const cellAbs = absenceFor?.(member.id, date) || null;
+          const cellBlk = cellAbs ? null : unavailFor(member.id, date);
+          const conflict = cellAbs || cellBlk || null;
+          const conflictLabel = cellAbs
+            ? absKindLabel(cellAbs.kind, t)
+            : cellBlk ? t("schedConflictCantShort", "Can't work") : null;
+          const conflictTitle = cellAbs
+            ? t("schedShiftInAbsence", "{name}: {kind} this day — registered as off", {
+                name: member.name, kind: absKindLabel(cellAbs.kind, t),
+              })
+            : cellBlk ? t("schedConflictCant", "Marked as can't work this day") : undefined;
           return (
             // FILLED cell = NOT a drop target (occupied) — forbids
             // overwrite. Its block is the DRAG SOURCE. The cell's
@@ -6776,16 +7269,16 @@ export function ScheduleGrid({
             >
               <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
                 <div
-                  title={conflict ? t("schedConflictCant", "Marked as can't work this day") : undefined}
+                  title={conflictTitle}
                   className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
                 >
-                  {conflict && (
+                  {conflictLabel && (
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
-                      {t("schedConflictCantShort", "Can't work")}
+                      {conflictLabel}
                     </div>
                   )}
                   <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {formatShiftTime(shift.start_time, shift.end_time)}
+                    {formatShiftTime(shift.start_time, shift.end_time, lang)}
                   </div>
                   {/* Line 2 carries everything that is NOT the time: hours, the
                       cross-role chip, and the two status marks. There is no
@@ -6834,11 +7327,19 @@ export function ScheduleGrid({
                     }}
                   >
                     <DraggableShiftBlock shift={ex} member={member} dateIso={toISO(date)}>
+                      {/* The second shift of the day is inside the same
+                          fravær — it carries the same ring and word. */}
                       <div
-                        className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)}`}
+                        title={conflictTitle}
+                        className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
                       >
+                        {conflictLabel && (
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+                            {conflictLabel}
+                          </div>
+                        )}
                         <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                          {formatShiftTime(ex.start_time, ex.end_time)}
+                          {formatShiftTime(ex.start_time, ex.end_time, lang)}
                         </div>
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                           {formatShiftHours(exHrs, lang)}
@@ -6858,8 +7359,10 @@ export function ScheduleGrid({
           );
         })}
         {/* Timer — this staffer's weekly net hours; amber when over
-            their max_hours_week cap, with the over-amount beneath. */}
-        <td className="px-3 py-2 text-right align-middle">
+            their max_hours_week cap, with the over-amount beneath.
+            whitespace-nowrap: "29,25 t" wrapped to two lines in a w-12
+            column at 1024. */}
+        <td className="px-3 py-2 text-right align-middle whitespace-nowrap">
           {(() => {
             const wh = weeklyHoursFor(member.id, weekDates, getShiftsForCell);
             if (wh <= 0) {
@@ -7003,7 +7506,10 @@ export function ScheduleGrid({
                 );
               })}
               {/* Timer column — weekly net hours per staffer (right edge). */}
-              <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider w-12">
+              <th
+                className="px-3 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider w-12 whitespace-nowrap"
+                title={t("schedTimerColTitle", "Planned this week, drafts included. The Hours tab counts published shifts only.")}
+              >
                 {t("schedTimerCol", "Hours")}
               </th>
             </tr>
@@ -7053,6 +7559,17 @@ export function ScheduleGrid({
                       {showCost && cost != null && (
                         <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
                           ≈ {formatKr(cost, { decimals: 0 })}
+                        </div>
+                      )}
+                      {/* A day with hours and no cost is a day someone without
+                          a wage works — say "—", not nothing, so the column
+                          does not read as costing 0 kr. */}
+                      {showCost && cost == null && d && hrs > 0 && (
+                        <div
+                          className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px"
+                          title={t("schedCostUnknownTitle", "Someone on this day has no hourly wage on file")}
+                        >
+                          —
                         </div>
                       )}
                       {/* Labor% — the column headline, color-coded vs target. */}
@@ -7126,7 +7643,7 @@ export function ScheduleGrid({
                   );
                 })}
                 {/* Timer — the week's grand total hours across all staff. */}
-                <td className="px-3 py-3 text-right align-top">
+                <td className="px-3 py-3 text-right align-top whitespace-nowrap">
                   {(() => {
                     const total = staff.reduce(
                       (sum, m) => sum + weeklyHoursFor(m.id, weekDates, getShiftsForCell),
@@ -7152,7 +7669,7 @@ export function ScheduleGrid({
           style={PREFERS_REDUCED_MOTION ? undefined : { transform: "rotate(2deg)" }}
         >
           <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-            {formatShiftTime(activeShift.start_time, activeShift.end_time)}
+            {formatShiftTime(activeShift.start_time, activeShift.end_time, lang)}
           </div>
           <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
             {formatShiftHours(calcHours(activeShift.start_time, activeShift.end_time, activeShift.break_minutes || 0), lang)}
@@ -7194,7 +7711,8 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
   // catalogue strings that typed the hour unit themselves, so a Danish owner
   // read an English unit here and the Danish one on the chip the sentence is
   // about — one row apart.
-  const fmtWarnHours = (n) => formatHours(n, { lang });
+  // Two decimals — the precision of the Timer column the owner just read.
+  const fmtWarnHours = (n) => formatHours(n, { lang, decimals: 2 });
   const done = !!result; // success state shown after a publish completes
   const nothing = !summary || summary.draftCount === 0;
   // The publish landed in the database and reached NOBODY. That is the state
@@ -7320,6 +7838,16 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 </p>
               </>
             )}
+            {/* Who was NOT mailed, by name — their shifts changed and there
+                is no address on file. A count of the others does not tell
+                the owner who still has to hear about the week. */}
+            {result.published > 0 && (result.notEmailed || []).length > 0 && (
+              <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                {t("publishedNotEmailed", "Not emailed (no address on file): {names}", {
+                  names: result.notEmailed.join(", "),
+                })}
+              </p>
+            )}
           </div>
         ) : nothing ? (
           <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
@@ -7363,6 +7891,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 />
               )}
             </div>
+            {summary.anyRate && summary.cost == null && (summary.missingWage || []).length > 0 && (
+              <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400 leading-snug">
+                {missingWageText(summary.missingWage, t)}
+              </p>
+            )}
 
             {/* Vagtplan Shield — labour-law signals for THIS week. Warns,
                 never blocks: the owner always decides (the §-rules are their
@@ -7399,9 +7932,10 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                       t("shieldWarnMonth", "{name}: {hours} in {period} — over the monthly limit of {cap}")
                         .replace("{name}", w.name).replace("{hours}", fmtWarnHours(w.hours))
                         .replace("{period}", w.period || t("shieldMonthWord", "Month")).replace("{cap}", fmtWarnHours(w.cap))}
-                    {w.kind === "rest" &&
-                      t("shieldWarnRest", "{name}: only {gap} rest between two shifts (11h rule)")
-                        .replace("{name}", w.name).replace("{gap}", fmtWarnHours(w.gap))}
+                    {w.kind === "rest" && (w.windowStart
+                      ? restRuleText(w.name, w.gap, w.windowStart.slice(0, 10), w.windowStart.slice(11, 16), t, lang)
+                      : t("shieldWarnRest", "{name}: only {gap} rest between two shifts (11h rule)")
+                          .replace("{name}", w.name).replace("{gap}", fmtWarnHours(w.gap)))}
                   </p>
                 ))}
                 {summary.shield.length > 6 && (
@@ -7417,17 +7951,28 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 {t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've opened their portal get a push. Share their portal links after publishing.")}
               </div>
             )}
+            {/* Some — not all — cannot be reached: name them, so "get Anna's
+                number" is something the owner can act on before publishing. */}
+            {!summary.unreachable && (summary.noContact || []).length > 0 && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5 text-[12px] text-amber-800 dark:text-amber-300 leading-snug">
+                {t("publishNoContact", "No email or phone on file: {names}", { names: summary.noContact.join(", ") })}
+              </div>
+            )}
             {/* Honest notify note — no count promised here; the success
-                banner reports the server's real number after publish. */}
-            <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
-              <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                {t(
-                  "publishNotifyNote",
-                  "Staff whose shifts changed get an email (and a push if they've opened their portal).",
-                )}
-              </p>
-            </div>
+                banner reports the server's real number after publish. Not
+                shown when nobody can be reached: it promised an email the
+                amber box right above had just said nobody would get. */}
+            {!summary.unreachable && (
+              <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
+                <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {t(
+                    "publishNotifyNote",
+                    "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+                  )}
+                </p>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -7450,8 +7995,10 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 <Button variant="secondary" size="sm" onClick={onClose}>
                   {t("publishDone", "Done")}
                 </Button>
+                {/* primary, not accent — see the toolbar's Udgiv: emerald is
+                    the status colour on this page, never an action's. */}
                 <Button
-                  variant="accent"
+                  variant="primary"
                   size="sm"
                   onClick={onShare}
                   iconLeft={<Icon name="Share2" size={14} />}
@@ -7460,7 +8007,7 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 </Button>
               </>
             ) : (
-              <Button variant="accent" size="sm" onClick={onClose} iconLeft={<Icon name="Check" size={14} />}>
+              <Button variant="primary" size="sm" onClick={onClose} iconLeft={<Icon name="Check" size={14} />}>
                 {t("publishDone", "Done")}
               </Button>
             )
@@ -7471,10 +8018,13 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
               </Button>
               {!nothing && (
                 <Button
-                  variant="accent"
+                  variant="primary"
                   size="sm"
                   onClick={onConfirm}
                   busy={publishing}
+                  // A second tap while the first is in flight must not
+                  // publish (and notify) twice — `busy` disables it.
+                  disabled={publishing}
                   iconLeft={<Icon name="Send" size={14} />}
                 >
                   {t("publishConfirmCta", "Publish Week")}
@@ -7483,6 +8033,336 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
             </>
           )}
       </div>
+    </Sheet>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FRAVÆR SHEET — the owner registers ferie / syg / barns sygedag
+   ═══════════════════════════════════════════════════════════
+   Until this existed the owner could SEE absences (the ones staff sent from
+   the portal) but not record one. A phone call — "Anna is sick tomorrow" —
+   had nowhere to go: the grid went on showing Anna on shift, the phone
+   view flagged nothing, and nobody looked for cover.
+
+   POST /staff/absences (one row per day, idempotent, the portal's own rules)
+   and DELETE /staff/absences/{id}. Entered by the owner = acknowledged —
+   nothing to approve. Shifts inside it are flagged on the grid and on the
+   phone by the absenceFor() lookup the page already paints with. */
+
+const ABSENCE_KINDS = ["sick", "ferie", "barns_syg", "andet"];
+
+/** "2026-10-01" → epoch day, for date arithmetic that DST cannot move. */
+function isoDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? Math.round(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000) : null;
+}
+
+/** One person's absence rows folded into ranges of consecutive days of the
+    same kind — "Ferie 7.–11. dec." is one thing to the owner, not five. */
+function groupAbsenceRanges(rows) {
+  const sorted = [...rows].sort((a, b) =>
+    a.kind === b.kind ? String(a.date).localeCompare(String(b.date)) : String(a.kind).localeCompare(String(b.kind)),
+  );
+  const out = [];
+  for (const r of sorted) {
+    const last = out[out.length - 1];
+    if (last && last.kind === r.kind && isoDay(r.date) === isoDay(last.to) + 1) {
+      last.to = r.date;
+      last.ids.push(r.id);
+    } else {
+      out.push({ key: `${r.kind}:${r.date}`, kind: r.kind, from: r.date, to: r.date, ids: [r.id] });
+    }
+  }
+  return out.sort((a, b) => String(a.from).localeCompare(String(b.from)));
+}
+
+function absenceRangeText(from, to, lang) {
+  const fmt = (iso) => {
+    try {
+      return new Date(`${iso}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short" });
+    } catch {
+      return iso; // an odd date still reads as itself, never blank
+    }
+  };
+  return from === to ? fmt(from) : `${fmt(from)} – ${fmt(to)}`;
+}
+
+/** Exported (named) so the sheet can be mounted in a test without the page. */
+export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = [], onClose, onChanged, onSaved, t, lang }) {
+  // The server's window (sick_call_service.register_absence): from a month
+  // back to a year ahead. The pickers offer the same span. Read once, when
+  // the sheet opens.
+  const [{ todayIso, minIso, maxIso }] = useState(() => {
+    const now = new Date();
+    const shift = (days) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() + days);
+      return toISO(d);
+    };
+    return { todayIso: toISO(now), minIso: shift(-31), maxIso: shift(365) };
+  });
+  const [staffId, setStaffId] = useState(initialStaffId || "");
+  const [kind, setKind] = useState("sick");
+  const [from, setFrom] = useState(initialDate || todayIso);
+  const [to, setTo] = useState(initialDate || todayIso);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const [removeAsk, setRemoveAsk] = useState(null); // range key awaiting "yes"
+  const [removing, setRemoving] = useState(null);
+  const submittingRef = useRef(false);
+  const member = staff.find((s) => s.id === staffId) || null;
+
+  // What this person already has registered, from a month back on.
+  const ranges = useMemo(
+    () => groupAbsenceRanges(
+      (absences || []).filter(
+        (a) => String(a.staff_id) === String(staffId) && a.status !== "cancelled" && String(a.date) >= minIso,
+      ),
+    ),
+    [absences, staffId, minIso],
+  );
+
+  const span = isoDay(to) !== null && isoDay(from) !== null ? isoDay(to) - isoDay(from) + 1 : 0;
+  // Checked here first, in the owner's words; the server checks again.
+  const rangeError =
+    to < from
+      ? t("absenceErrEndBeforeStart", "The end date is before the start date.")
+      : span > 60
+        ? t("absenceErrTooLong", "An absence can be at most 60 days at a time.")
+        : null;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (submittingRef.current) return;
+    if (!staffId) {
+      setErr(t("absenceErrPickPerson", "Pick a staff member."));
+      return;
+    }
+    if (rangeError) {
+      setErr(rangeError);
+      return;
+    }
+    submittingRef.current = true;
+    setSaving(true);
+    setErr("");
+    try {
+      await api.post("/staff/absences", { staff_id: staffId, kind, date_from: from, date_to: to });
+      await onChanged?.();
+      onSaved?.(t("absenceSaved", "{name}: {kind} {range} registered", {
+        name: member?.name || "",
+        kind: absKindLabel(kind, t),
+        range: absenceRangeText(from, to, lang),
+      }));
+    } catch (e2) {
+      const code = e2?.response?.data?.detail?.code;
+      const byCode = {
+        end_before_start: t("absenceErrEndBeforeStart", "The end date is before the start date."),
+        range_too_long: t("absenceErrTooLong", "An absence can be at most 60 days at a time."),
+        out_of_window: t("absenceErrWindow", "Pick dates from the last month up to a year ahead."),
+      }[code];
+      setErr(byCode || errText(e2, t("absenceErrFailed", "Couldn't save the absence.")));
+    }
+    submittingRef.current = false;
+    setSaving(false);
+  };
+
+  const removeRange = async (range) => {
+    setRemoving(range.key);
+    setErr("");
+    try {
+      for (const id of range.ids) {
+        await api.delete(`/staff/absences/${id}`);
+      }
+    } catch (e2) {
+      setErr(errText(e2, t("absenceErrRemoveFailed", "Couldn't remove the absence.")));
+    }
+    // Re-read either way: a partial removal must show what is really left.
+    await onChanged?.();
+    setRemoving(null);
+    setRemoveAsk(null);
+  };
+
+  const fieldCls =
+    "w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none";
+  const title = t("absenceSheetTitle", "Absence");
+
+  return (
+    <Sheet
+      onClose={onClose}
+      zClassName="z-50"
+      ariaLabel={title}
+      panelClassName="bg-white dark:bg-gray-800 shadow-sm border-t sm:border border-gray-200 dark:border-gray-700"
+    >
+      <form onSubmit={submit} noValidate className="flex flex-col flex-1 min-h-0">
+        <div className="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3 sm:px-6 sm:pt-5">
+          <div className="min-w-0">
+            <h2 className="text-[16px] font-semibold text-gray-900 dark:text-white">{title}</h2>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+              {t("absenceSheetSub", "Holiday, sick or a child's sick day. Their shifts on those days are flagged on the schedule.")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+          >
+            <Icon name="X" size={20} />
+          </button>
+        </div>
+
+        <div data-sheet-body="" className="flex-1 overflow-y-auto px-5 pb-4 space-y-4 sm:px-6">
+          {err && (
+            <div role="alert" className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2.5 text-red-700 dark:text-red-300 text-xs">
+              {err}
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="absence-staff" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("staffMember")}</label>
+            <select
+              id="absence-staff"
+              value={staffId}
+              onChange={(e) => { setStaffId(e.target.value); setErr(""); setRemoveAsk(null); }}
+              className={fieldCls}
+            >
+              <option value="">{t("selectStaff")}</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* The kind, one tap — not a dropdown: four words an owner can read
+              at a glance. */}
+          <fieldset>
+            <legend className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              {t("absenceKindLabel", "Type")}
+            </legend>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {ABSENCE_KINDS.map((k) => {
+                const on = kind === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setKind(k)}
+                    className={`min-h-[40px] px-2 rounded-lg border text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 ${
+                      on
+                        ? "border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                    }`}
+                  >
+                    {absKindLabel(k, t)}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="absence-from" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("absenceFrom", "From")}</label>
+              <input
+                id="absence-from"
+                type="date"
+                value={from}
+                min={minIso}
+                max={maxIso}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFrom(v);
+                  // An end before the new start follows it: one day, not an error.
+                  if (v && to < v) setTo(v);
+                  setErr("");
+                }}
+                className={fieldCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="absence-to" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("absenceTo", "To")}</label>
+              <input
+                id="absence-to"
+                type="date"
+                value={to}
+                min={from || minIso}
+                max={maxIso}
+                onChange={(e) => { setTo(e.target.value); setErr(""); }}
+                className={fieldCls}
+              />
+            </div>
+          </div>
+          {rangeError && (
+            <p className="-mt-2 text-[12px] text-red-700 dark:text-red-400">{rangeError}</p>
+          )}
+
+          {/* What is already registered for this person — and the way to
+              take a day back, two steps like deleting a shift. */}
+          {member && ranges.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                {t("absenceExisting", "Already registered")}
+              </div>
+              <ul className="space-y-1.5">
+                {ranges.map((r) => (
+                  <li key={r.key} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2 text-[13px]">
+                    <span className="min-w-0 text-gray-900 dark:text-gray-100">
+                      <span className="font-medium">{absKindLabel(r.kind, t)}</span>
+                      <span className="text-gray-500 dark:text-gray-400"> · {absenceRangeText(r.from, r.to, lang)}</span>
+                    </span>
+                    {removeAsk === r.key ? (
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setRemoveAsk(null)}
+                          disabled={removing === r.key}
+                          className="min-h-[32px] px-2.5 rounded-md text-[12px] font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                        >
+                          {t("cancel", "Cancel")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeRange(r)}
+                          disabled={removing === r.key}
+                          className="min-h-[32px] px-2.5 rounded-md text-[12px] font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {t("absenceRemoveYes", "Yes, remove")}
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRemoveAsk(r.key)}
+                        aria-label={t("absenceRemoveAria", "Remove {kind} {range}", {
+                          kind: absKindLabel(r.kind, t), range: absenceRangeText(r.from, r.to, lang),
+                        })}
+                        className="shrink-0 min-h-[32px] px-2.5 rounded-md text-[12px] font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      >
+                        {t("absenceRemove", "Remove")}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <div
+          data-sheet-footer=""
+          className="shrink-0 flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-5 pt-3 sm:px-6"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
+          <Button variant="secondary" onClick={onClose}>
+            {t("cancel", "Cancel")}
+          </Button>
+          <Button type="submit" variant="primary" busy={saving} disabled={saving || !!rangeError}>
+            {saving ? t("absenceSaving", "Saving…") : t("absenceSave", "Save absence")}
+          </Button>
+        </div>
+      </form>
     </Sheet>
   );
 }
@@ -7505,7 +8385,7 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
  * it blooms a seeded draft inline (see bloomDraft) — so any report that
  * reproduces through an empty cell is describing a path that does not exist.
  */
-export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId }) {
+export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId, absenceFor = null, onAbsence = null }) {
   const { t, lang } = useLanguage();
   const { user } = useAuth();
   const roles = rolesFor(user?.business_type);
@@ -7534,7 +8414,8 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [staffId, setStaffId] = useState(modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id || "");
+  const originalStaffId = existingShift?.staff_member_id || existingShift?.staff_id || null;
+  const [staffId, setStaffId] = useState(modal.staffId || originalStaffId || "");
   const [date, setDate] = useState(modal.date || (existingShift?.date) || toISO(weekDates[0]));
   const [startHour, setStartHour] = useState(() => (seed?.start ? seed.start.slice(0, 2) : "16"));
   const [startMin, setStartMin] = useState(() => (seed?.start ? seed.start.slice(3, 5) : "00"));
@@ -7545,7 +8426,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
   );
   const [roleOnShift, setRoleOnShift] = useState(() => {
     if (seed?.role) return roleToShiftOption(seed.role, roles);
-    const member = staff.find((s) => s.id === (modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id));
+    const member = staff.find((s) => s.id === (modal.staffId || originalStaffId));
     return roleToShiftOption(member?.role, roles);
   });
   const [notes, setNotes] = useState(existingShift?.notes || "");
@@ -7556,20 +8437,37 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
   // True once the owner edits any time/break field — stops auto re-seeding
   // on staff change so we never clobber a value they typed themselves.
   const [touched, setTouched] = useState(false);
+  // True once the owner types a break themselves. Until then the break
+  // follows the DK rule as the times change (followBreakRule); after it, the
+  // number is theirs.
+  const [breakTouched, setBreakTouched] = useState(false);
   // Same staff + same calendar day in the PREVIOUS week, fetched lazily so
   // the "Last week" quick-fill can mirror a recurring rota. null = none.
   const [prevWeekShift, setPrevWeekShift] = useState(null);
+  // A ref, not just the `saving` state: Enter in the notes field and a tap on
+  // the button can land in the same frame, before React has re-rendered the
+  // disabled button — and two POSTs make two shifts.
+  const submittingRef = useRef(false);
 
-  // When the owner picks a DIFFERENT staff in Add mode: default the role to
-  // that member's role, and (unless they've touched the form) re-seed the
+  // When the owner picks a DIFFERENT staff: default the role to that member's
+  // role. In Add mode (unless they've touched the form) also re-seed the
   // times from that staff's most recent shift this week.
+  //
+  // In EDIT mode the role follows too. Reassigning Ali's kitchen shift to
+  // Freja left it a "Kok" shift with the red kitchen bar on a bartender's
+  // row; the times stay exactly as the shift had them.
   const prevStaffRef = useRef(staffId);
   useEffect(() => {
-    if (isEdit) return;
     const changed = prevStaffRef.current !== staffId;
     prevStaffRef.current = staffId;
     if (!staffId) return;
     const member = staff.find((s) => s.id === staffId);
+    if (isEdit) {
+      if (changed && staffId !== originalStaffId && member?.role) {
+        setRoleOnShift(roleToShiftOption(member.role, roles));
+      }
+      return;
+    }
     if (member?.role) setRoleOnShift(roleToShiftOption(member.role, roles));
     if (!changed || touched) return;
     const r = mostRecentShiftFor(shifts, staffId);
@@ -7616,19 +8514,83 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
     setBreakMinutes(s.break_minutes || 0);
     if (s.role_on_shift) setRoleOnShift(s.role_on_shift);
     setTouched(true);
+    setModalError("");
+  };
+
+  // One handler for the four time pickers: the field itself, the owner's
+  // "I changed this" flag, a stale error cleared, and the break kept in step
+  // with the rule (unless the owner set the break by hand).
+  const setTime = (field, value) => {
+    const next = { startHour, startMin, endHour, endMin, [field]: value };
+    ({ startHour: setStartHour, startMin: setStartMin, endHour: setEndHour, endMin: setEndMin })[field](value);
+    setTouched(true);
+    setModalError("");
+    if (!breakTouched) {
+      setBreakMinutes((b) => followBreakRule(
+        b, `${next.startHour}:${next.startMin}`, `${next.endHour}:${next.endMin}`,
+      ));
+    }
   };
 
   const startTime = `${startHour}:${startMin}`;
   const endTime = `${endHour}:${endMin}`;
   const previewHours = calcHours(startTime, endTime, breakMinutes);
+  // A zero-length shift is a typo. The server refuses it with an English
+  // 422 ("start_time and end_time can't be the same"); the sheet now says so
+  // in the owner's language before anything is sent.
+  const sameTimes = startTime === endTime;
 
   const recentForStaff = useMemo(() => (isEdit ? null : mostRecentShiftFor(shifts, staffId)), [staffId, shifts, isEdit]);
-  // arbejdstidsloven: a break is expected for shifts over 6h. Suggest 30 min
-  // when none is set — one tap, fully overridable.
-  const BREAK_SUGGEST = 30;
+  // arbejdstidsloven: a break is expected for shifts over 6h. The suggestion
+  // is THE rule's own number (suggestedBreak — 45 min, what the punch clock
+  // and the autopilot apply), not a second figure that disagreed with it.
+  const BREAK_SUGGEST = suggestedBreak(startTime, endTime) || 45;
   const showBreakSuggest = previewHours >= 6 && (Number(breakMinutes) || 0) === 0;
 
+  const member = staff.find((s) => s.id === staffId) || null;
+
+  // What the shift being typed would break — the 11-hour rest and the
+  // 48-hour week (and a contract cap), from the week already on the page,
+  // BEFORE the owner saves. They used to surface only after saving (the strip
+  // above the grid) or at publish. Plus a fravær on the chosen day.
+  const ruleLines = useMemo(() => {
+    if (!member || !date || sameTimes) return [];
+    const out = [];
+    const abs = absenceFor ? absenceFor(member.id, new Date(`${date}T00:00:00`)) : null;
+    if (abs) {
+      out.push(t("schedShiftInAbsence", "{name}: {kind} this day — registered as off", {
+        name: member.name, kind: absKindLabel(abs.kind, t),
+      }));
+    }
+    for (const w of preSaveWarnings({
+      member,
+      weekShifts: shifts,
+      editingId: existingShift?.id,
+      dateIso: date,
+      start: startTime,
+      end: endTime,
+      breakMinutes: Number(breakMinutes) || 0,
+    })) {
+      if (w.kind === "rest") {
+        const at = minutesToDayTime(w.windowStart);
+        out.push(restRuleText(member.name, w.restHours, at.dateIso, at.hhmm, t, lang));
+      } else if (w.kind === "dk48") {
+        out.push(t("shiftWarnDk48", "{name}: {hours} this week — over the 48-hour limit", {
+          name: member.name, hours: formatHours(w.hours, { lang, decimals: 2 }),
+        }));
+      } else if (w.kind === "cap") {
+        out.push(t("shiftWarnCap", "{name}: {hours} this week — over the contract's {cap}", {
+          name: member.name,
+          hours: formatHours(w.hours, { lang, decimals: 2 }),
+          cap: formatHours(w.cap, { lang, decimals: 2 }),
+        }));
+      }
+    }
+    return out;
+  }, [member, date, sameTimes, absenceFor, shifts, existingShift, startTime, endTime, breakMinutes, t, lang]);
+
   const handleSave = async () => {
+    if (submittingRef.current) return;
     if (!staffId) {
       setModalError(t("shiftSelectStaffError", "Please select a staff member."));
       return;
@@ -7637,7 +8599,9 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
       setModalError(t("shiftSelectDateError", "Please select a date."));
       return;
     }
+    if (sameTimes) return; // the inline hint under the times already says why
 
+    submittingRef.current = true;
     setSaving(true);
     setModalError("");
 
@@ -7646,11 +8610,17 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
       date,
       start_time: startTime,
       end_time: endTime,
-      break_minutes: breakMinutes || 0,
+      break_minutes: Number(breakMinutes) || 0,
       role_on_shift: roleOnShift,
       notes: notes.trim() || undefined,
       branch_id: branchId || undefined,
     };
+    // An edit keeps the shift's own status. The PUT used to default a
+    // missing status to "draft", so changing a note on a PUBLISHED shift
+    // took it off the staffer's phone while still mailing them the change.
+    // The server now keeps the stored status when none is sent; sending it
+    // here as well means an older server cannot repeat the mistake.
+    if (isEdit && existingShift.status) payload.status = existingShift.status;
 
     try {
       if (isEdit) {
@@ -7659,7 +8629,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
         await api.post("/staff/schedules", payload);
       }
       // Remember this shift so the next "Add" pre-fills from it.
-      onTemplateSave?.({ start: startTime, end: endTime, break_minutes: breakMinutes || 0, role: roleOnShift });
+      onTemplateSave?.({ start: startTime, end: endTime, break_minutes: Number(breakMinutes) || 0, role: roleOnShift });
       onSaved();
     } catch (err) {
       const d = err.response?.data?.detail;
@@ -7667,14 +8637,25 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
         ? t("shiftUpdateFailed", "Failed to update shift.")
         : t("shiftCreateFailed", "Failed to create shift.");
       if (err.response?.status === 409 && d?.code === "shift_overlap") {
-        setModalError(t("schedSlotTaken", "That overlaps a shift they already have that day."));
+        // WHO already has WHICH shift — the generic sentence left the owner
+        // hunting the grid for the clash.
+        setModalError(overlapMessage(d, t, lang));
       } else {
         // errText safely coerces string / 422-array / {code,message} detail to a
         // string (never the raw object → no React-child crash).
         setModalError(errText(err, fallbackMsg));
       }
     }
+    submittingRef.current = false;
     setSaving(false);
+  };
+
+  // A real form, so the phone keyboard's Go and Enter in the notes field
+  // save — the sheet only saved on a tap of the button.
+  const onSubmit = (e) => {
+    e.preventDefault();
+    if (confirmDelete || deleting) return;
+    handleSave();
   };
 
   // Two-step delete: the "Delete Shift" button flips an in-modal confirm
@@ -7700,6 +8681,10 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
   }));
 
   const title = isEdit ? t("shiftEditTitle", "Edit Shift") : t("shiftAddTitle", "Add Shift");
+  // The four time pickers share the app's focus ring — they had none at all,
+  // so a keyboard owner could not see which of the four they were on.
+  const timeSelectCls =
+    "flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none";
 
   return (
     // Container swap ONLY — every field below is the one that shipped. Sheet
@@ -7712,6 +8697,11 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
       ariaLabel={title}
       panelClassName="bg-white dark:bg-gray-800 shadow-sm border-t sm:border border-gray-200 dark:border-gray-700"
     >
+      {/* The form takes the panel's place as the flex column (flex-1 +
+          min-h-0), so the body below is still the one scroller and the
+          footer is still pinned. noValidate: the checks are ours, worded in
+          the owner's language, not the browser's bubbles. */}
+      <form onSubmit={onSubmit} noValidate className="flex flex-col flex-1 min-h-0">
       {/* pt-4 on a phone: Sheet used to open with a grab bar whose padding was
           standing in for this header's top margin, and that bar was a dead
           affordance (nothing drags it). The spacing belongs here, stated. */}
@@ -7742,7 +8732,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("staffMember")}</label>
           <select
             value={staffId}
-            onChange={(e) => setStaffId(e.target.value)}
+            onChange={(e) => { setStaffId(e.target.value); setModalError(""); }}
             className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             <option value="">{t("selectStaff")}</option>
@@ -7759,29 +8749,46 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("shiftDateLabel", "Date")}</label>
           <select
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            // A "Det overlapper…" about Tuesday must not sit there once the
+            // owner has moved on to Wednesday.
+            onChange={(e) => { setDate(e.target.value); setModalError(""); }}
             className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             {dateOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          {/* Fravær from here: the owner on the phone with "I'm sick
+              tomorrow" is usually looking at that person's shift. Hands over
+              to the fravær sheet for this person and day. */}
+          {onAbsence && staffId && (
+            <button
+              type="button"
+              onClick={() => onAbsence(staffId, date)}
+              className="mt-1.5 inline-flex items-center gap-1.5 min-h-[32px] px-1 -mx-1 rounded-md text-[13px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+            >
+              <Icon name="CalendarX2" size={14} />
+              {t("shiftSheetAbsence", "Register absence (holiday, sick)")}
+            </button>
+          )}
         </div>
 
         {/* Quick-fill chips (Add mode) — one tap to reuse this staff's most
             recent shift or their shift from the same day last week. Kills the
-            "re-type every time" friction the audit flagged. */}
+            "re-type every time" friction the audit flagged. Both neutral:
+            emerald is the "published / seen" colour on this page, and a
+            green chip read as a status rather than a shortcut. */}
         {!isEdit && (recentForStaff || prevWeekShift) && (
           <div className="flex items-center gap-2 flex-wrap -mt-1">
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("shiftQuickFill", "Quick fill")}:</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">{t("shiftQuickFill", "Quick fill")}:</span>
             {recentForStaff && (
               <button
                 type="button"
                 onClick={() => applyTemplate(recentForStaff)}
                 title={t("shiftCopyRecentTitle", "Use this staff member's most recent shift this week")}
-                className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition"
+                className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
               >
-                {t("shiftCopyRecent", "Latest shift")} · {formatShiftTime(recentForStaff.start_time, recentForStaff.end_time)}
+                {t("shiftCopyRecent", "Latest shift")} · {formatShiftTime(recentForStaff.start_time, recentForStaff.end_time, lang)}
               </button>
             )}
             {prevWeekShift && (
@@ -7791,62 +8798,69 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
                 title={t("shiftSameLastWeekTitle", "Use the same shift from last week")}
                 className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
               >
-                {t("shiftSameLastWeek", "Last week")} · {formatShiftTime(prevWeekShift.start_time, prevWeekShift.end_time)}
+                {t("shiftSameLastWeek", "Last week")} · {formatShiftTime(prevWeekShift.start_time, prevWeekShift.end_time, lang)}
               </button>
             )}
           </div>
         )}
 
         {/* Time selectors */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("startTime")}</label>
-            <div className="flex gap-1">
-              <select
-                value={startHour}
-                onChange={(e) => { setStartHour(e.target.value); setTouched(true); }}
-                className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-              >
-                {HOUR_OPTIONS.map((h) => (
-                  <option key={h} value={h}>{h}</option>
-                ))}
-              </select>
-              <span className="text-gray-400 self-center">:</span>
-              <select
-                value={startMin}
-                onChange={(e) => { setStartMin(e.target.value); setTouched(true); }}
-                className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-              >
-                {MINUTE_OPTIONS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+        <div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("startTime")}</label>
+              <div className="flex gap-1">
+                <select
+                  value={startHour}
+                  onChange={(e) => setTime("startHour", e.target.value)}
+                  className={timeSelectCls}
+                >
+                  {HOUR_OPTIONS.map((h) => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+                <span className="text-gray-400 self-center">{clockSep(lang)}</span>
+                <select
+                  value={startMin}
+                  onChange={(e) => setTime("startMin", e.target.value)}
+                  className={timeSelectCls}
+                >
+                  {MINUTE_OPTIONS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("endTime")}</label>
+              <div className="flex gap-1">
+                <select
+                  value={endHour}
+                  onChange={(e) => setTime("endHour", e.target.value)}
+                  className={timeSelectCls}
+                >
+                  {HOUR_OPTIONS.map((h) => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+                <span className="text-gray-400 self-center">{clockSep(lang)}</span>
+                <select
+                  value={endMin}
+                  onChange={(e) => setTime("endMin", e.target.value)}
+                  className={timeSelectCls}
+                >
+                  {MINUTE_OPTIONS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("endTime")}</label>
-            <div className="flex gap-1">
-              <select
-                value={endHour}
-                onChange={(e) => { setEndHour(e.target.value); setTouched(true); }}
-                className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-              >
-                {HOUR_OPTIONS.map((h) => (
-                  <option key={h} value={h}>{h}</option>
-                ))}
-              </select>
-              <span className="text-gray-400 self-center">:</span>
-              <select
-                value={endMin}
-                onChange={(e) => { setEndMin(e.target.value); setTouched(true); }}
-                className="flex-1 px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-              >
-                {MINUTE_OPTIONS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {sameTimes && (
+            <p role="alert" className="mt-1.5 text-[12px] text-red-700 dark:text-red-400">
+              {t("shiftErrSameTime", "Start and end can't be the same time.")}
+            </p>
+          )}
         </div>
 
         {/* Break + Role */}
@@ -7856,20 +8870,25 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
             <input
               type="number"
               value={breakMinutes}
-              onChange={(e) => { setBreakMinutes(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0)); setTouched(true); }}
+              onChange={(e) => {
+                setBreakMinutes(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0));
+                setTouched(true);
+                setBreakTouched(true);
+              }}
               min="0"
               max="120"
               step="5"
               className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
             />
             {/* arbejdstidsloven nudge — a break is expected for 6h+ shifts.
-                One tap to add 30 min; fully overridable. */}
+                One tap to add the rule's break; fully overridable. Neutral
+                ink: it is an action, not a status. */}
             {showBreakSuggest && (
               <button
                 type="button"
-                onClick={() => { setBreakMinutes(BREAK_SUGGEST); setTouched(true); }}
+                onClick={() => { setBreakMinutes(BREAK_SUGGEST); setTouched(true); setBreakTouched(true); }}
                 title={t("shiftBreakHint", "Recommended for shifts over 6 hours")}
-                className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline"
+                className="mt-1 text-[11px] text-gray-700 dark:text-gray-300 underline underline-offset-2 hover:text-gray-900 dark:hover:text-gray-100"
               >
                 + {t("shiftBreakSuggest", "Add {n} min break").replace("{n}", BREAK_SUGGEST)}
               </button>
@@ -7891,9 +8910,9 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
 
         {/* Preview */}
         <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-          {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours} net)")
-            .replace("{start}", startTime)
-            .replace("{end}", endTime)
+          {t("shiftPreview", "Shift: {start} – {end} ({hours} net)")
+            .replace("{start}", fmtClock(startTime, lang))
+            .replace("{end}", fmtClock(endTime, lang))
             .replace("{hours}", formatShiftHours(previewHours, lang))}
           {breakMinutes > 0 && " " + t("shiftPreviewBreak", "with {n}min break").replace("{n}", breakMinutes)}
         </div>
@@ -7919,6 +8938,23 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
         className="shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur px-5 pt-3 sm:px-6"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
+        {/* The rules, BEFORE "Tilføj vagt" — in the pinned footer so they are
+            on screen whatever the body is scrolled to. Amber edge = needs
+            attention; the words stay in normal ink so they read as a
+            sentence, not an alarm. Warns, never blocks: the owner decides. */}
+        {!confirmDelete && ruleLines.length > 0 && (
+          <ul role="status" className="mb-2.5 space-y-1" data-testid="shift-rule-warnings">
+            {ruleLines.map((line, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-1.5 rounded-md border-l-[3px] border-amber-400 bg-amber-50 dark:bg-amber-500/10 px-2 py-1 text-[12px] leading-snug text-gray-900 dark:text-gray-100"
+              >
+                <Icon name="AlertTriangle" size={13} className="shrink-0 mt-px text-amber-600 dark:text-amber-400" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {confirmDelete ? (
           /* In-app delete confirmation — replaces the native window.confirm()
              so it matches BonBox's dialog style and is automatable/testable. */
@@ -7928,6 +8964,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
             </span>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => setConfirmDelete(false)}
                 disabled={deleting}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
@@ -7935,6 +8972,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
                 {t("cancel", "Cancel")}
               </button>
               <button
+                type="button"
                 onClick={handleDelete}
                 disabled={deleting}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50"
@@ -7948,6 +8986,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
             <div>
               {isEdit && (
                 <button
+                  type="button"
                   onClick={() => setConfirmDelete(true)}
                   disabled={deleting}
                   className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition disabled:opacity-50"
@@ -7958,14 +8997,15 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
             </div>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={onClose}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
               >
                 {t("cancel", "Cancel")}
               </button>
               <button
-                onClick={handleSave}
-                disabled={saving}
+                type="submit"
+                disabled={saving || sameTimes}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
               >
                 {saving ? t("shiftSaving", "Saving...") : isEdit ? t("shiftUpdateBtn", "Update Shift") : t("shiftAddTitle", "Add Shift")}
@@ -7974,6 +9014,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
           </div>
         )}
       </div>
+      </form>
     </Sheet>
   );
 }
