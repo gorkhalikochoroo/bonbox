@@ -5692,7 +5692,15 @@ def _store_tip_split(db: Session, user: User, tip: "Tip", data: "TipCreate") -> 
         # an hours split with no hours, a custom split with no valid shares).
         weights = [1.0] * len(people)
     wsum = sum(weights) or 1.0
-    for p, w, amount_ore in zip(people, weights, _split_ore(total_ore, weights)):
+    parts = _split_ore(total_ore, weights)
+    if not any(parts):
+        # Every weight came to nothing — custom percentages for people not on
+        # this pool. Storing the pool would book the pot to nobody.
+        raise HTTPException(
+            status_code=422,
+            detail="Fordelingen giver ingen medarbejder en andel. Tjek procenterne.",
+        )
+    for p, w, amount_ore in zip(people, weights, parts):
         if amount_ore > 0:
             _add(uuid.UUID(p), amount_ore, w / wsum * 100)
 

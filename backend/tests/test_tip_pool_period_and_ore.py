@@ -167,6 +167,20 @@ def test_a_pool_with_nobody_to_pay_is_refused_not_lost(env):
     assert s.query(Tip).count() == 0
 
 
+def test_a_custom_split_for_people_not_on_the_pool_is_refused(env):
+    """Percentages for Sara and Mia on a pool that only Ali is on gave every
+    weight zero — and the pool was stored with the whole pot paid to nobody."""
+    c, s, _o, staff = env
+    body = _pool(staff[:1], 100, method="custom")
+    body["distribution"] = [
+        {"staff_id": str(staff[1].id), "amount": 50, "percentage": 50},
+        {"staff_id": str(staff[2].id), "amount": 50, "percentage": 50},
+    ]
+    r = c.post("/api/staff/tips", json=body)
+    assert r.status_code == 422, r.text
+    assert s.query(Tip).count() == 0
+
+
 @pytest.mark.parametrize("bad", [
     {"total_amount": 0},
     {"total_amount": -100},
