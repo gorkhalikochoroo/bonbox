@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.reservation import Reservation
@@ -39,6 +40,8 @@ from app.services.tz_utils import (
 DEFAULT_MONTHS = 12
 MAX_MONTHS = 24
 ONLINE_SOURCES = ("public",)
+# cancel_reason for a drop-in the host removed again (seated by mistake).
+WALK_IN_REMOVED = "walk_in_removed"
 
 
 def empty_counts() -> dict:
@@ -83,6 +86,9 @@ def month_totals(rows, cutoff_hour: int, first_day: date, last_day: date) -> dic
     for r in rows:
         if r.starts_at is None:
             continue
+        # A removed drop-in never was a booking — not a cancellation either.
+        if getattr(r, "cancel_reason", None) == WALK_IN_REMOVED:
+            continue
         if first_day <= business_day_of(r.starts_at, cutoff_hour) <= last_day:
             add_booking(counts, r.status, r.party_size, getattr(r, "source", None))
     return counts
@@ -109,6 +115,8 @@ def monthly_summary(db: Session, user, months=DEFAULT_MONTHS) -> dict:
         .filter(
             Reservation.user_id == user.id,
             Reservation.is_deleted.is_(False),
+            # A removed drop-in never was a booking (see month_totals).
+            or_(Reservation.cancel_reason.is_(None), Reservation.cancel_reason != WALK_IN_REMOVED),
             Reservation.starts_at >= lo,
             Reservation.starts_at < hi,
         )

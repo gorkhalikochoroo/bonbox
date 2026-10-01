@@ -31,6 +31,8 @@ import { useConfirm } from "../../hooks/useConfirm";
 import useAsyncData from "../../hooks/useAsyncData";
 import Button from "../ui/Button";
 import LoadFailed from "../ui/LoadFailed";
+import { openTimesFor, sittingMinutes } from "../../utils/bookingTimes";
+import { fmtTime } from "../../utils/floorState";
 
 const inputCls =
   "w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 " +
@@ -59,7 +61,12 @@ function defaultBookTime() {
   return String(h).padStart(2, "0") + ":00";
 }
 
-export default function WaitlistSection({ day, spotMatches, refreshTick, onCountChange, onConverted }) {
+export default function WaitlistSection({
+  day, spotMatches, refreshTick, onCountChange, onConverted,
+  // Optional (the page passes them; without, every quarter is offered):
+  // the venue's hours and turn times, and how to name the table it landed on.
+  openHours = null, bookingRules = null, tableLabelFor = null,
+}) {
   const { t } = useLanguage();
   const confirm = useConfirm();
   // Is this a paired door device? Only used to explain a 404 on a call whose
@@ -272,10 +279,16 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     }
   };
 
+  // The times this party could start and still be done by closing.
+  const timesFor = (entry) =>
+    openTimesFor(day, openHours, sittingMinutes(Number(entry?.party_size) || 2, bookingRules));
+
   const book = async (entry) => {
     if (bookFor !== entry.id) {
       setBookFor(entry.id);
-      setBookTime(defaultBookTime());
+      const { times, known, closed } = timesFor(entry);
+      const want = defaultBookTime();
+      setBookTime(!known || closed ? want : times.find((q) => q >= want) || times[times.length - 1]);
       return;
     }
     setBusyId(entry.id);
@@ -284,13 +297,22 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
       // converted booking lands on a table just like a web booking (no
       // overflow, so it never lands table-less showing "—"). A 409 = the slot
       // genuinely filled; we surface the honest toast below.
-      await api.post(`/reservations/waitlist/${entry.id}/convert`, {
+      const res = await api.post(`/reservations/waitlist/${entry.id}/convert`, {
         starts_at: `${day}T${bookTime}:00`,
         auto_assign: true,
       });
       setBookFor(null);
       reloadWaitlist();
       if (onConverted) onConverted();
+      // Say what happened: the row just vanished, and the host had to go and
+      // find the booking to learn which table it got.
+      const booked = res?.data?.reservation;
+      const table = tableLabelFor ? tableLabelFor(booked) : null;
+      // Spelled as the book spells it ("18.00"), right above this line.
+      const time = fmtTime(booked?.starts_at) || bookTime;
+      flashToast(table
+        ? t("rsvpWlBookedAt", "Booked {time} · {table}", { time, table })
+        : t("rsvpWlBookedAtNoTable", "Booked {time}", { time }));
     } catch (err) {
       if (err?.response?.status === 409) {
         // Say WHY, as the new-booking sheet does: "just filled" was shown for
@@ -498,21 +520,33 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
                   </div>
                 </div>
                 {/* Inline time picker for Book */}
-                {bookFor === e.id && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <input type="time" value={bookTime} onChange={(ev) => setBookTime(ev.target.value)}
-                      className={inputCls + " max-w-[8rem]"} aria-label={t("rsvpColTime", "Time")} />
-                    <Button variant="primary" size="sm" disabled={busy}
-                      iconLeft={busy ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                      onClick={() => book(e)}>
-                      {t("rsvpWlBook", "Book")}
-                    </Button>
-                    <button type="button" onClick={() => setBookFor(null)}
-                      className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
-                      {t("cancel", "Cancel")}
-                    </button>
-                  </div>
-                )}
+                {bookFor === e.id && (() => {
+                  // Only times the venue is open for the whole sitting (a
+                  // free clock offered 03:00 and 21:55, both refused).
+                  const opts = timesFor(e);
+                  const list = opts.times.includes(bookTime) ? opts.times : [bookTime, ...opts.times];
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <select value={bookTime} onChange={(ev) => setBookTime(ev.target.value)}
+                        className={inputCls + " max-w-[8rem] tabular-nums"} aria-label={t("rsvpColTime", "Time")}>
+                        {list.map((q) => <option key={q} value={q}>{q}</option>)}
+                      </select>
+                      <Button variant="primary" size="md" className="h-10" disabled={busy}
+                        iconLeft={busy ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                        onClick={() => book(e)}>
+                        {t("rsvpWlBook", "Book")}
+                      </Button>
+                      <Button variant="ghost" size="md" className="h-10" onClick={() => setBookFor(null)}>
+                        {t("cancel", "Cancel")}
+                      </Button>
+                      {opts.closed && (
+                        <p className="w-full text-[12px] text-amber-700 dark:text-amber-400">
+                          {t("rsvpClosedThatDayShort", "You're closed that day.")}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </li>
             );
           })}

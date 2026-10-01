@@ -25,10 +25,16 @@ from app.services.note_intent import classify_note_intent
 logger = logging.getLogger("bonbox.reservation_ai")
 
 
-def apply_ai_signals(reservation, business_type: str | None) -> None:
+def apply_ai_signals(reservation, business_type: str | None, owner_entered: bool = False) -> None:
     """Mutate `reservation` in place with the unconfirmed allergy suggestion +
     the note intent. No return value; safe to call on any create path right
-    after the Reservation object is constructed and before commit."""
+    after the Reservation object is constructed and before commit.
+
+    owner_entered: the OWNER typed the allergy into the booking (owner create
+    paths). Their entry is the confirmed record — re-reading it as an AI
+    "Mulig allergi — bekræft venligst" asked them to confirm what they had just
+    typed. A guest's entry on the public page, and an allergy only mentioned in
+    a free-text note, stay a suggestion for the owner."""
     try:
         guest_notes = getattr(reservation, "guest_notes", None)
         allergy_note = getattr(reservation, "allergy_note", None)
@@ -45,6 +51,16 @@ def apply_ai_signals(reservation, business_type: str | None) -> None:
             reservation.allergy_ai_generic = bool(detection.get("generic"))
             reservation.allergy_ai_matched = matched or None
             reservation.allergy_ai_confirmed = False
+            owner_typed = bool(
+                getattr(reservation, "allergy_note", None)
+                or getattr(reservation, "allergy_severity", None)
+                or getattr(reservation, "allergen_tags", None)
+            )
+            # The owner's own entry IS the confirmed record: no "please
+            # confirm" over it. The confirmed fields stay exactly as typed —
+            # the AI channel still never writes into them.
+            if owner_entered and owner_typed:
+                reservation.allergy_ai_confirmed = True
 
         # ── Note intent (operational bucket) ──────────────────────────────
         # Reads occasion + guest_notes (the allergy channel is separate). A

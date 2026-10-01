@@ -389,6 +389,7 @@ def _reservation_dict(r: Reservation) -> dict:
         "allergen_tags": r.allergen_tags or [], "allergy_note": r.allergy_note,
         "allergy_severity": r.allergy_severity, "occasion": r.occasion,
         "guest_notes": r.guest_notes,
+        "cancel_reason": r.cancel_reason,
         # Rule-based AI SUGGESTION (unconfirmed) — a SEPARATE channel from the
         # confirmed allergen fields above; the owner confirms or dismisses it.
         # has_ai_suggested_allergy is the single flag the book keys on to show
@@ -1539,6 +1540,68 @@ def reservation_book(
     }
 
 
+@router.get("/search")
+def search_reservations(
+    q: str = Query(min_length=2, max_length=80),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Find a guest's booking on ANY day. "I booked Saturday under Hansen"
+    could only be found by paging the day rail one day at a time — the
+    search box filtered the open day alone.
+
+    Owner-scoped and read-only (the same rows /book serves, a day at a time).
+    Name contains, case-insensitive; or phone digits contain (≥3 digits).
+    From a week back to 90 days ahead, upcoming first, at most 20 —
+    a lookup, not an export. The door stand has no route here."""
+    enforce_feature(user, "reservations")
+    from app.services.tz_utils import _user_cutoff_hour
+
+    needle = q.strip()
+    if len(needle) < 2:
+        return {"results": []}
+    today = business_today_local(user)
+    lo, _ = business_day_window_local(user, today - timedelta(days=7))
+    _, hi = business_day_window_local(user, today + timedelta(days=90))
+    # LIKE wildcards in what the host typed are literal characters.
+    esc = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    conds = [Reservation.guest_name.ilike(f"%{esc}%", escape="\\")]
+    digits = re.sub(r"\D", "", needle)
+    if len(digits) >= 3:
+        conds.append(func.replace(Reservation.guest_phone, " ", "").like(f"%{digits}%"))
+    rows = (
+        db.query(Reservation)
+        .filter(
+            Reservation.user_id == user.id,
+            Reservation.is_deleted.is_(False),
+            Reservation.starts_at >= lo,
+            Reservation.starts_at < hi,
+            or_(*conds),
+        )
+        .order_by(Reservation.starts_at)
+        .limit(200)
+        .all()
+    )
+    # A drop-in that was removed was never a booking (see reservation_monthly).
+    rows = [r for r in rows if r.cancel_reason != "walk_in_removed"]
+    cutoff = _user_cutoff_hour(user)
+    now = now_local(user).replace(tzinfo=None)
+    upcoming = [r for r in rows if r.starts_at >= now]
+    past = sorted((r for r in rows if r.starts_at < now), key=lambda r: r.starts_at, reverse=True)
+    out = []
+    for r in (upcoming + past)[:20]:
+        out.append({
+            "id": str(r.id),
+            "starts_at": r.starts_at.isoformat(),
+            # The business day the book files it under (a 00:30 seating is
+            # tonight's service), so a tap opens the right day.
+            "day": (r.starts_at - timedelta(hours=cutoff)).date().isoformat(),
+            "guest_name": r.guest_name,
+            "party_size": r.party_size,
+            "status": r.status,
+        })
+    return {"results": out}
+
+
 def _assert_owned_resource(db: Session, user: User, resource_id: UUID) -> None:
     """404 unless `resource_id` is a live BookableResource owned by `user`.
     Prevents an owner from attaching another tenant's table to a
@@ -1693,7 +1756,7 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
     r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
     # Rule-based AI signals — unconfirmed allergy suggestion + note intent.
     from app.services.reservation_ai import apply_ai_signals
-    apply_ai_signals(r, btype)
+    apply_ai_signals(r, btype, owner_entered=True)
 
     if payload.stylist_resource_id is not None:
         # Named stylist → must be that exact provider, free, in a published
@@ -1779,7 +1842,7 @@ def create_manual(payload: ManualReservation, request: Request,
     # Rule-based AI signals — unconfirmed allergy suggestion + note intent.
     # Fail-soft; NEVER overwrites the confirmed allergen fields set above.
     from app.services.reservation_ai import apply_ai_signals
-    apply_ai_signals(r, btype)
+    apply_ai_signals(r, btype, owner_entered=True)
 
     overflow = False
     if payload.resource_id is None:
@@ -2018,10 +2081,21 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
               "party_size": r.party_size}
     old_starts_at = r.starts_at
 
+    _old_note, _old_party = r.guest_notes, r.party_size
     for f in ("guest_name", "guest_phone", "guest_email", "guest_notes"):
         v = getattr(payload, f)
         if v is not None:
             setattr(r, f, v)
+    # The note tag follows the note: an edited "barnestol" → "vinduesbord,
+    # kage" kept its "Tilgængelighed" tag and the Notetype filter with it.
+    _new_party = payload.party_size if getattr(payload, "party_size", None) else r.party_size
+    if r.guest_notes != _old_note or _new_party != _old_party:
+        try:
+            from app.services.note_intent import classify_note_intent
+            _txt = " ".join(x for x in (r.occasion, r.guest_notes) if x)
+            r.note_intent = classify_note_intent(_txt or None, _new_party)
+        except Exception:  # noqa: BLE001 — a tag must never block the edit
+            pass
 
     # Allergy (Art. 9 health data) — through the same sanitisers create uses,
     # so the vertical's vocabulary and severity vocabulary stay the only things

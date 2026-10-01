@@ -171,7 +171,7 @@ def test_human_entry_stops_the_ai_confirm_prompt(client, db):
     types the allergy themselves, the row must stop asking them to confirm a
     guess that sits underneath what they just wrote."""
     _as(_seed(db))
-    rid = _book(client, allergy_note="Allergisk over for nødder")
+    rid = _book(client, guest_notes="Allergisk over for nødder")
     assert _get(client, rid)["ai_allergy"]["has_ai_suggested_allergy"] is True
 
     assert _edit(client, rid, allergy_severity="severe").status_code == 200

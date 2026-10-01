@@ -29,6 +29,7 @@
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose } from "../utils/bookingTimes";
 import { createPortal } from "react-dom";
 import {
   CalendarCheck,
@@ -205,6 +206,27 @@ function relativeDayLabel(iso, t, locale) {
   } catch {
     return "";
   }
+}
+
+// Same, short — "I morgen 2/10", "Lør. 4/10" — for a row that also carries a
+// time and a name ("Søndag 27/9 · 1…" truncated in the search results).
+function shortDayLabel(iso, t, locale) {
+  const [y, m, d] = (iso || "").split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const today = serviceDayIso();
+  let head;
+  if (iso === today) head = t("rsvpToday", "Today");
+  else if (iso === shiftDay(today, 1)) head = t("rsvpDayTomorrow", "Tomorrow");
+  else if (iso === shiftDay(today, -1)) head = t("rsvpDayYesterday", "Yesterday");
+  else {
+    try {
+      const wd = new Date(y, m - 1, d).toLocaleDateString(locale || "en", { weekday: "short" });
+      head = wd.charAt(0).toUpperCase() + wd.slice(1);
+    } catch {
+      head = "";
+    }
+  }
+  return `${head} ${d}/${m}`.trim();
 }
 
 // Booking hours (per weekday) ↔ the "HH:MM-HH:MM" | "closed" dict the engine
@@ -899,9 +921,13 @@ function ReservationDrawer({
   onAllergyAction = null,
   allergyActionBusy = false,
   allergyActionError = "",
+  nowTs = 0,
 }) {
   if (!reservation) return null;
   const r = reservation;
+  // "Didn't arrive" can't be true before they were due — a no-show tapped
+  // at 17:00 for a 19:30 booking emptied the table and logged a false miss.
+  const due = !r.starts_at || !nowTs || new Date(r.starts_at).getTime() <= nowTs;
   const labels = statusLabels(t);
   const hasAllergy =
     (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
@@ -925,7 +951,7 @@ function ReservationDrawer({
     secondary.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), to: "cancelled" });
   } else if (r.status === "confirmed") {
     primary = { label: t("rsvpSeatAction", "Seat"), to: "seated", icon: Armchair };
-    secondary.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show" });
+    if (due) secondary.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show" });
     secondary.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled" });
   } else if (r.status === "seated") {
     primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed", icon: CheckCircle2 };
@@ -1226,6 +1252,8 @@ function PartySizeChips({ value, onChange, t }) {
   // A real party that is not on the ladder (12, 14 …) gets its own chip at
   // the end — selected, because it IS the booking.
   const offLadder = Number.isFinite(n) && n > 0 && !PARTY_SIZES.includes(n);
+  // The typed number IS the party once committed — the box then looks chosen.
+  const otherOn = offLadder && String(n) === String(other);
   const chipClass = (on) =>
     "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
     (on
@@ -1276,7 +1304,9 @@ function PartySizeChips({ value, onChange, t }) {
           onChange={(e) => setOther(e.target.value)}
           onBlur={commitOther}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitOther(); } }}
-          className="h-11 w-20 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm tabular-nums text-gray-900 dark:text-gray-100"
+          className={"h-11 w-20 px-3 rounded-lg border text-sm tabular-nums " + (otherOn
+            ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100 placeholder:text-gray-300"
+            : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100")}
         />
       </label>
     </div>
@@ -1494,15 +1524,6 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
 // for 09:15" was literally impossible). 15-min granularity matches the public
 // widget without pretending to be the availability engine (the backend's
 // auto-assign stays the source of truth on submit).
-const QUARTER_TIMES = (() => {
-  const out = [];
-  const pad = (n) => String(n).padStart(2, "0");
-  for (let m = 6 * 60; m <= 23 * 60 + 45; m += 15) {
-    out.push(`${pad(Math.floor(m / 60))}:${pad(m % 60)}`);
-  }
-  return out;
-})();
-
 // Default time for a new booking. For a future day it's the evening service
 // start (18:00). For TODAY it's the next quarter-hour from NOW (clamped to
 // 23:45) — a walk-up/soon booking is almost always for later today, so the
@@ -1525,21 +1546,10 @@ function defaultBookingTime(forDay) {
   return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 }
 
-// The venue's own bookable times for a date (booking hours, else opening
-// hours — /reservations/settings → open_hours). The pickers listed every
-// quarter from 06:00 to 23:45 and defaulted to 07:15.
-const WEEKDAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-function openTimesFor(dateIso, openHours) {
-  const key = WEEKDAY_KEY[new Date(`${dateIso}T12:00:00`).getDay()];
-  const wins = openHours && Array.isArray(openHours[key]) ? openHours[key] : null;
-  if (!wins) return { times: QUARTER_TIMES, closed: false, known: false };
-  if (wins.length === 0) return { times: QUARTER_TIMES, closed: true, known: true };
-  const times = QUARTER_TIMES.filter((q) => wins.some(([a, b]) => (b > a ? q >= a && q < b : q >= a || q < b)));
-  return { times: times.length ? times : QUARTER_TIMES, closed: false, known: true };
-}
-function pickBookingTime(dateIso, openHours) {
+// Bookable times (open hours, sitting length): utils/bookingTimes.js.
+function pickBookingTime(dateIso, openHours, sitting = 0) {
   const fallback = defaultBookingTime(dateIso);
-  const { times, known, closed } = openTimesFor(dateIso, openHours);
+  const { times, known, closed } = openTimesFor(dateIso, openHours, sitting);
   if (!known || closed || times.includes(fallback)) return fallback;
   return times.find((q) => q >= fallback) || (times.includes("18:00") ? "18:00" : times[0]);
 }
@@ -1551,11 +1561,14 @@ function pickBookingTime(dateIso, openHours) {
 // ─── Edit booking — "move us to 20:00 / we're 6 not 4" without the dishonest
 // cancel-and-recreate (which falsely notified the guest "aflyst"). PATCHes the
 // booking through the same occupancy machinery; a taken slot is an honest 409.
-function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
+function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose, openHours = null, bookingRules = null }) {
   const r = reservation;
   const [date, setDate] = useState(r.starts_at ? r.starts_at.slice(0, 10) : "");
   const [time, setTime] = useState(r.starts_at ? r.starts_at.slice(11, 16) : "18:00");
   const [party, setParty] = useState(String(r.party_size || 2));
+  // The same open-hours times as New booking — moving a booking offered
+  // 06:00–23:45, closed days and starts that run past closing included.
+  const editTimes = openTimesFor(date || r.starts_at?.slice(0, 10) || "", openHours, sittingMinutes(parseInt(party, 10) || 2, bookingRules));
   const [name, setName] = useState(r.guest_name || "");
   const [phone, setPhone] = useState(r.guest_phone || "");
   // The note could be read here but not changed — the one field a phone call
@@ -1594,18 +1607,25 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpDateLabel", "Date")}</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+            <label htmlFor="eb-date" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpDateLabel", "Date")}</label>
+            <input id="eb-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 dark:[color-scheme:dark]" />
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpTimeLabel", "Time")}</label>
-            <select value={time} onChange={(e) => setTime(e.target.value)}
+            <label htmlFor="eb-time" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpTimeLabel", "Time")}</label>
+            <select id="eb-time" value={time} onChange={(e) => setTime(e.target.value)}
               className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums">
-              {QUARTER_TIMES.map((q) => <option key={q} value={q}>{q}</option>)}
+              {/* The booking's own time stays listed even when it is outside
+                  today's hours, so opening Edit never silently moves it. */}
+              {(editTimes.times.includes(time) ? editTimes.times : [time, ...editTimes.times]).map((q) => <option key={q} value={q}>{q}</option>)}
             </select>
           </div>
         </div>
+        {editTimes.closed && (
+          <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400">
+            {t("rsvpClosedThatDayShort", "You're closed that day.")}
+          </p>
+        )}
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpPartySize", "Party size")}</label>
           {/* Was [1,2,3,4,5,6,8]: opening Edit on a party of 7, 9, 10 or 12
@@ -1615,13 +1635,13 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
           <PartySizeChips value={party} onChange={setParty} t={t} />
         </div>
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
-          <input value={name} onChange={(e) => setName(e.target.value)}
+          <label htmlFor="eb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
+          <input id="eb-name" value={name} onChange={(e) => setName(e.target.value)}
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
         </div>
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpEditPhone", "Phone")}</label>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
+          <label htmlFor="eb-phone" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpEditPhone", "Phone")}</label>
+          <input id="eb-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
         </div>
         <div>
@@ -1647,6 +1667,7 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
             })}
           </div>
           <input value={allergyNote} onChange={(e) => setAllergyNote(e.target.value)}
+            aria-label={t("rsvpEditAllergy", "Allergi")}
             placeholder={t("rsvpEditAllergyPh", "F.eks. skaldyr — ingen bisque, separat pande")}
             maxLength={2000}
             className="mt-2 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
@@ -1704,10 +1725,10 @@ function NewBookingSheet({
   providerStations = [],
   tables = [],
   openHours = null,
+  bookingRules = null,
 }) {
   const [date, setDate] = useState(day);
-  const [time, setTime] = useState(() => pickBookingTime(day, openHours));
-  const dayTimes = openTimesFor(date, openHours);
+  const [time, setTime] = useState(() => pickBookingTime(day, openHours, isProvider ? 0 : sittingMinutes(2, bookingRules)));
   const [party, setParty] = useState("2");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -1730,6 +1751,29 @@ function NewBookingSheet({
   );
   const [stylistId, setStylistId] = useState("");
   const [behandlingMissing, setBehandlingMissing] = useState(false);
+  // How long this booking holds its table/chair — a start time is only
+  // offered when the whole of it ends by closing.
+  const lengthFor = (p, bid) => {
+    if (!isProvider) return sittingMinutes(parseInt(p, 10) || 2, bookingRules);
+    const b = behandlinger.find((x) => String(x.id) === String(bid));
+    return Number(b?.duration_min) || 0;
+  };
+  const sitting = lengthFor(party, behandlingId);
+  const dayTimes = openTimesFor(date, openHours, sitting);
+  // A longer booking can push the chosen start past closing: move it to the
+  // latest start that still fits rather than offer a time that is refused.
+  const snapTime = (len) => {
+    const nt = openTimesFor(date, openHours, len);
+    if (nt.known && !nt.closed && !nt.times.includes(time)) {
+      setTime(nt.times.filter((q) => q <= time).pop() || nt.times[0]);
+    }
+  };
+  // The refusal and its two ways out appear at the bottom of a tall sheet —
+  // on a phone they landed below the fold, so the tap looked like nothing.
+  const footRef = useRef(null);
+  useEffect(() => {
+    if (warning || error) footRef.current?.scrollIntoView?.({ block: "end", behavior: "smooth" });
+  }, [warning, error]);
 
   const submit = (allowOverflow) => {
     const guest_name = name.trim();
@@ -1825,6 +1869,7 @@ function NewBookingSheet({
                 onChange={(e) => {
                   setBehandlingId(e.target.value);
                   if (e.target.value) setBehandlingMissing(false);
+                  snapTime(lengthFor(party, e.target.value));
                 }}
                 aria-label={t("rsvpPublicPickBehandling", "Vælg behandling")}
                 className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
@@ -1876,30 +1921,32 @@ function NewBookingSheet({
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <label htmlFor="nb-date" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               {t("rsvpDateLabel", "Date")}
             </label>
             <input
+              id="nb-date"
               type="date"
               value={date}
               onChange={(e) => {
                 if (e.target.value) {
                   setDate(e.target.value);
                   // A time the new day isn't open at moves to its first open slot.
-                  if (!openTimesFor(e.target.value, openHours).times.includes(time)) {
-                    setTime(pickBookingTime(e.target.value, openHours));
+                  if (!openTimesFor(e.target.value, openHours, sitting).times.includes(time)) {
+                    setTime(pickBookingTime(e.target.value, openHours, sitting));
                   }
                 }
                 if (warning) onClearWarning();
               }}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums dark:[color-scheme:dark]"
             />
           </div>
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <label htmlFor="nb-time" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               {t("rsvpTimeLabel", "Time")}
             </label>
             <select
+              id="nb-time"
               value={time}
               onChange={(e) => {
                 setTime(e.target.value);
@@ -1936,6 +1983,9 @@ function NewBookingSheet({
               value={party}
               onChange={(v) => {
                 setParty(v);
+                // A bigger party sits longer: a start time that no longer
+                // ends by closing moves to the latest one that does.
+                snapTime(lengthFor(v, behandlingId));
                 if (warning) onClearWarning();
               }}
               t={t}
@@ -1972,10 +2022,11 @@ function NewBookingSheet({
         )}
 
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label htmlFor="nb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t("rsvpNbGuestName", "Guest name")}
           </label>
           <input
+            id="nb-name"
             type="text"
             value={name}
             onChange={(e) => {
@@ -1997,10 +2048,11 @@ function NewBookingSheet({
         </div>
 
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <label htmlFor="nb-phone" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t("rsvpPhone", "Phone (optional)")}
           </label>
           <input
+            id="nb-phone"
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
@@ -2065,6 +2117,7 @@ function NewBookingSheet({
           </div>
         )}
 
+        <div ref={footRef} className="space-y-4 scroll-mb-4">
         {/* Honest room-full pushback — the room can't seat this party at that
             time. The host decides: take it anyway (waitlist-style, no table)
             or pick another time. */}
@@ -2089,6 +2142,8 @@ function NewBookingSheet({
                     time: warning.time,
                     hours: warning.openWindows.map(([a, b]) => `${a}–${b}`).join(", "),
                   })
+                : warning.busyAtThatTime === 0 && overrunsClose(warning.openWindows, warning.time, sitting)
+                ? t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time.")
                 : warning.busyAtThatTime === 0
                 ? t("rsvpNoTableAtTime", "No table can be booked at that time.")
                 : warning.seats != null
@@ -2128,6 +2183,7 @@ function NewBookingSheet({
         >
           {t("rsvpCreateBooking", "Create booking")}
         </Button>
+        </div>
       </div>
     </div>
   );
@@ -2196,7 +2252,7 @@ function TimelineBarLabel({ stickyLeft, children }) {
   );
 }
 
-function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
+function TimelineView({ reservations, resources, day, t, onSelect, onStatus, openHours = null }) {
   // One-tap seat from a booking bar. `justSeatedId` drives THE single ceremonial
   // beat (the ~500ms scale settle below); it self-clears so the bar returns to
   // stillness and never re-fires on a later render. The colour flip to the
@@ -2264,11 +2320,20 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
     return { blocks, laneCount: Math.max(1, laneEnds.length) };
   }, [holding]);
 
-  // Service window derived from the day's bookings (min start → max end),
-  // hour-aligned and clamped to at least 4h. Empty day falls back to 16–23.
+  // The day's opening hours, widened by any booking outside them (min start
+  // → max end), hour-aligned and at least 4h. Bookings alone made a quiet
+  // lunch read 12–16 with the evening missing; neither → 16–23.
   const { startMin, endMin } = useMemo(() => {
     let lo = Infinity;
     let hi = -Infinity;
+    const wins = openHours?.[WEEKDAY_KEY[new Date(`${day}T12:00:00`).getDay()]];
+    (Array.isArray(wins) ? wins : []).forEach(([a, b]) => {
+      const s = toMin(a);
+      let e = toMin(b);
+      if (e <= s) e += 1440;
+      lo = Math.min(lo, s);
+      hi = Math.max(hi, e);
+    });
     holding.forEach((r) => {
       if (!r.starts_at || !r.ends_at) return;
       let s = minOfDay(r.starts_at);
@@ -2285,7 +2350,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
     hi = Math.ceil(hi / 60) * 60;
     if (hi - lo < 240) hi = lo + 240;
     return { startMin: lo, endMin: hi };
-  }, [holding]);
+  }, [holding, openHours, day]);
 
   const PX = 1.2; // px per minute
   const ROW_H = 52;
@@ -2361,7 +2426,10 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
               <span
                 key={m}
                 style={{ left: (m - startMin) * PX }}
-                className="absolute top-1.5 -translate-x-1/2 text-[11px] tabular-nums text-gray-500 dark:text-gray-400"
+                // Centred on its tick, except the two ends: the first label sat
+                // half under the table rail ("7:00"), the last half off-canvas.
+                className={"absolute top-1.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400 " +
+                  (m === startMin ? "pl-1" : m === endMin ? "-translate-x-full pr-1" : "-translate-x-1/2")}
               >
                 {String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:00
               </span>
@@ -3337,10 +3405,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const [newOpen, setNewOpen] = useState(false);
   // The venue's bookable hours per weekday, for the new-booking time picker.
   const [openHours, setOpenHours] = useState(null);
+  // …and how long each party size holds a table, so a start is only offered
+  // when the whole sitting ends by closing.
+  const [bookingRules, setBookingRules] = useState(null);
   useEffect(() => {
     let alive = true;
     api.get("/reservations/settings")
-      .then((r) => { if (alive) setOpenHours(r.data?.open_hours || null); })
+      .then((r) => {
+        if (!alive) return;
+        setOpenHours(r.data?.open_hours || null);
+        setBookingRules(r.data?.settings || null);
+      })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -3653,6 +3728,30 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepWaitlistId]);
 
+  // The search on OTHER days — "booked Saturday under Hansen" was unfindable
+  // without paging the day rail, because the box filtered the open day only.
+  // Owner session only: the door stand has no route for it, by design.
+  const [found, setFound] = useState({ q: "", list: [], failed: false });
+  useEffect(() => {
+    const needle = q.trim();
+    if (isStandDevice || needle.length < 2) return undefined;
+    let alive = true;
+    const id = setTimeout(() => {
+      api.get("/reservations/search", { params: { q: needle } })
+        .then((r) => { if (alive) setFound({ q: needle, list: Array.isArray(r.data?.results) ? r.data.results : [], failed: false }); })
+        .catch(() => { if (alive) setFound({ q: needle, list: [], failed: true }); });
+    }, 250);
+    return () => { alive = false; clearTimeout(id); };
+  }, [q, isStandDevice]);
+  const searchLive = !isStandDevice && q.trim().length >= 2 && found.q === q.trim();
+  const otherDayHits = searchLive ? found.list.filter((h) => h.day !== day) : [];
+  const openOtherDay = (h) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("booking", h.id);
+    next.set("date", h.day);
+    setSearchParams(next, { replace: true });
+  };
+
   // The ring is a single beat — fade it after the drawer has settled.
   useEffect(() => {
     if (!deepLinkPulse) return;
@@ -3674,7 +3773,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         return;
       }
     }
-    if (status === "cancelled") {
+    // A drop-in removed again (seated by mistake) is not a cancelled booking:
+    // its own words, nobody notified, and it leaves the lists and counts.
+    const removingWalkIn = status === "cancelled" && r.source === "walk_in";
+    if (removingWalkIn) {
+      if (
+        !(await confirm({
+          title: t("rsvpRemoveWalkInTitle", "Remove this drop-in?"),
+          message: t("rsvpRemoveWalkInBody", "The table is freed. Nobody is notified."),
+          confirmLabel: t("rsvpRemoveWalkInCta", "Remove"),
+          cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
+          destructive: true,
+        }))
+      ) {
+        return;
+      }
+    } else if (status === "cancelled") {
       const who = r.guest_name || t("rsvpGuest", "Guest");
       // A `requested` booking is DECLINED (it was never confirmed), not a
       // confirmed booking CANCELLED — honest, distinct copy for each while
@@ -3737,7 +3851,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     try {
       const resp = await api.patch(`/reservations/reservations/${r.id}/status`, {
         status,
-        cancel_reason: status === "cancelled" ? "owner_cancelled" : null,
+        cancel_reason: removingWalkIn ? "walk_in_removed" : status === "cancelled" ? "owner_cancelled" : null,
+        ...(removingWalkIn ? { notify_guest: false } : {}),
       });
       // A cancel/no-show may have freed a table — surface the waiting parties
       // that fit (the backend already filtered by capacity + local day). This
@@ -4241,11 +4356,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // cancelled, the book was seven rows of nothing to act on.
   const [showCancelled, setShowCancelled] = useState(false);
   const cancelledCount = useMemo(
-    () => reservations.filter((r) => r.status === "cancelled").length,
+    () => reservations.filter((r) => r.status === "cancelled" && r.cancel_reason !== "walk_in_removed").length,
     [reservations],
   );
   const filtered = useMemo(() => {
-    let out = reservations;
+    // A removed drop-in never was a booking.
+    let out = reservations.filter((r) => r.cancel_reason !== "walk_in_removed");
     if (statusFilter !== "all") out = out.filter((r) => r.status === statusFilter);
     else if (!showCancelled && !q.trim()) out = out.filter((r) => r.status !== "cancelled");
     if (zoneFilter !== "all") {
@@ -4385,6 +4501,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </div>
             );
           })()}
+          {/* The guest's note, on the row — it was only in the drawer, so a
+              birthday cake or a high chair meant opening every booking. */}
+          {(r.occasion || r.guest_notes) && (
+            <div className="text-[12px] text-gray-500 dark:text-gray-400 truncate" title={[r.occasion, r.guest_notes].filter(Boolean).join(" · ")}>
+              {[r.occasion, r.guest_notes].filter(Boolean).join(" · ")}
+            </div>
+          )}
         </div>
       ),
     },
@@ -4485,7 +4608,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // row), i.e. with a mouse and hover tooltips: the two destructive
       // flips go icon-only so "Sæt til bords" stays whole — at 1280 the three
       // worded pills pushed the actions off-screen.
-      out.push({
+      // Only once they were due — see ReservationDrawer.
+      if (!r.starts_at || new Date(r.starts_at).getTime() <= nowTs) out.push({
         id: "no_show", label: t("rsvpNoShowAction", "No-show"), text: false, icon: <Ban className="w-4 h-4" />, variant: "danger", disabled: busy,
         onClick: guardedSet({
           title: t("rsvpNoShowConfirmTitle", "Mark as no-show?"),
@@ -4528,7 +4652,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const busy = actioningId === r.id;
     return (
       <div
-        className="flex items-center gap-3 cursor-pointer"
+        // Unfolded cancelled rows read as history, not as live bookings.
+        className={"flex items-center gap-3 cursor-pointer" + (r.status === "cancelled" ? " opacity-60" : "")}
         onClick={() => openDrawer(r)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -4556,9 +4681,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             a pill beside the action button it left the NAME ~30px — "G…",
             "Fø…" — on the one line a host reads to find the guest. */}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+          <div className={"text-sm font-medium text-gray-900 dark:text-gray-100 truncate" + (r.status === "cancelled" ? " line-through" : "")}>
             {r.guest_name || "—"}
-            {hasAllergy && (
+            {hasAllergy && r.status !== "cancelled" && (
               <AlertTriangle
                 className={
                   "inline w-3.5 h-3.5 ml-1 -mt-0.5 " +
@@ -4584,10 +4709,20 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 ? <span className="min-w-0 truncate">{tl}</span>
                 : <span className="min-w-0 truncate text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
             })()}
-            {/* The status stays whole ("Bekr…" said nothing); a long table
-                label gives way first. */}
-            <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>
+            {/* "Bekræftet" is the normal state — a dot says it, and the
+                table keeps its name ("B…", "M." before). Every other status
+                keeps its word. */}
+            {r.status === "confirmed"
+              ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" role="img" aria-label={labels.confirmed || "confirmed"} />
+              : <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>}
           </div>
+          {/* What the host must know before the party arrives: the allergy in
+              words and the note — on the row, not behind a tap. */}
+          {r.status !== "cancelled" && (r.allergy_note || r.guest_notes || r.occasion) && (
+            <div className={"mt-0.5 text-[12px] truncate " + (r.allergy_note ? (r.allergy_severity === "severe" ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400") : "text-gray-500 dark:text-gray-400")}>
+              {[r.allergy_note, r.occasion, r.guest_notes].filter(Boolean).join(" · ")}
+            </div>
+          )}
         </div>
         {primary && (
           <button
@@ -4742,7 +4877,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           widths on five loose rows and read as unfinished. */}
       {/* From 2xl up the toolbar is one row: both groups stop wrapping, so
           the refresh icon no longer drops onto a line of its own at 1280. */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 max-sm:gap-2">
+      {/* Below xl (tablet portrait, a narrow laptop window) the two actions are
+          a row of their own, equal halves — they used to wrap one by one under
+          the lens switch into a ragged stack. From xl the three groups share
+          one row with the lens switch beside the actions, as before. */}
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between xl:justify-start gap-3 max-sm:gap-2">
         <div className="flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch">
           {/* Date stepper — ◂ step a day ▸, tap the centre to jump via the
               native picker. The relative label ("I dag" / "I morgen") gives
@@ -4857,7 +4996,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch">
+        <div className="flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch xl:ml-auto">
           {/* Pop the book out to its own full-screen door screen (no sidebar).
               Opens /reservations/stand in a new tab — a dedicated host-stand
               display. Hidden while already inside the pop-out. On a phone it
@@ -4872,7 +5011,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               title={t("rsvpOpenStand", "Open host-stand view")}
               className={
                 "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
-                PHONE_TOOL + " " + PHONE_TOOL_SQUARE + " max-sm:order-1"
+                PHONE_TOOL + " " + PHONE_TOOL_SQUARE + " max-lg:order-1"
               }
             >
               <ExternalLink className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
@@ -4891,10 +5030,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             phone="segmented"
             className="max-sm:flex-1 max-sm:min-w-0"
           />
-          {/* The two actions travel as one pair on a phone — a full-width row,
-              equal halves. From sm: up the wrapper is `display: contents`, so
-              both buttons are items of this row exactly as before. */}
-          <div className="flex gap-2 max-sm:grid max-sm:grid-flow-col max-sm:auto-cols-fr max-sm:order-2 max-sm:basis-full sm:contents">
+        </div>
+          {/* The two actions travel as one pair — a full-width row of equal
+              halves on a phone and a tablet; from xl two buttons at the end of
+              the one toolbar row. */}
+          <div className="grid grid-flow-col auto-cols-fr gap-2 sm:basis-full xl:basis-auto xl:flex">
           {/* Seat walk-in — always reachable for TABLE venues, in every day
               lens (List / Timeline / Floor), not only by tapping a free tile
               on the Floor map. Opens SeatNowSheet in table-picker mode.
@@ -4928,7 +5068,6 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               : t("rsvpNewBooking", "New booking")}
           </Button>
           </div>
-        </div>
       </div>
 
       {/* Cockpit — the day's vitals, as ONE slim strip above the room.
@@ -5115,6 +5254,45 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           </FilterBar>
           </div>
 
+          {otherDayHits.length > 0 && (
+            <section
+              aria-label={t("rsvpSearchOtherDays", "On other days")}
+              className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))]"
+            >
+              <h3 className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {t("rsvpSearchOtherDays", "On other days")}
+              </h3>
+              <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                {otherDayHits.map((h) => (
+                  <li key={h.id}>
+                    <button
+                      type="button"
+                      onClick={() => openOtherDay(h)}
+                      className={"w-full min-h-[44px] px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 " +
+                        (h.status === "cancelled" || h.status === "no_show" ? "opacity-60" : "")}
+                    >
+                      <span className="min-w-[8.5rem] shrink-0 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 tabular-nums">
+                        {shortDayLabel(h.day, t, lang)} · {String(h.starts_at).slice(11, 16)}
+                      </span>
+                      <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {h.guest_name || t("rsvpGuest", "Guest")}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-sm tabular-nums text-gray-700 dark:text-gray-300 shrink-0">
+                        <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{h.party_size}
+                      </span>
+                      <span className="hidden sm:inline text-[12px] text-gray-500 dark:text-gray-400 shrink-0">{labels[h.status] || h.status}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {searchLive && found.failed && (
+            <p className="text-[12px] text-gray-500 dark:text-gray-400">
+              {t("rsvpSearchOtherDaysFailed", "Couldn't search other days just now — this day's list is still right.")}
+            </p>
+          )}
+
           <DataTable
             columns={columns}
             rows={filtered}
@@ -5206,6 +5384,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           refreshTick={bookTick}
           onCountChange={setWaitlistCount}
           onConverted={() => fetchBook(day)}
+          openHours={openHours}
+          bookingRules={bookingRules}
+          tableLabelFor={(r) => resolveTableLabel(r, labelById)}
         />
       </div>
 
@@ -5236,6 +5417,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             reservations={reservations}
             resources={resources}
             day={day}
+            openHours={openHours}
             t={t}
             onSelect={openDrawer}
             onStatus={setStatus}
@@ -5249,6 +5431,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {selected && (
         <ReservationDrawer
           reservation={selected}
+          nowTs={nowTs}
           tableLabel={resolveTableLabel(selected, labelById)}
           isProvider={isProvider}
           behandlerName={
@@ -5283,6 +5466,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {editRes && (
         <EditBookingSheet
           reservation={editRes}
+          openHours={openHours}
+          bookingRules={bookingRules}
           t={t}
           busy={editBusy}
           error={editError}
@@ -5312,6 +5497,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         <NewBookingSheet
           day={day}
           openHours={openHours}
+          bookingRules={bookingRules}
           t={t}
           busy={creating}
           warning={roomFull}

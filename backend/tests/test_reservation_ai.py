@@ -113,14 +113,27 @@ def _get(client, rid):
 # ── detection on create ──────────────────────────────────────────────
 
 def test_allergy_note_raises_unconfirmed_suggestion(client, db):
+    # A free-text NOTE that mentions an allergy is a suggestion to confirm.
     _as(_seed(db))
-    rid = _book(client, allergy_note="Allergisk over for nødder")
+    rid = _book(client, guest_notes="Allergisk over for nødder")
     r = _get(client, rid)
     ai = r["ai_allergy"]
     assert ai["has_ai_suggested_allergy"] is True
     assert "nuts" in ai["ai_tags"]
     assert ai["ai_confirmed"] is False
     # It did NOT leak into the confirmed structured field.
+    assert r["allergen_tags"] == []
+
+
+def test_the_owners_own_allergy_entry_is_not_a_question(client, db):
+    """The owner typed the allergy into the booking: asking them "Mulig allergi
+    — bekræft venligst" about it was asking them to confirm themselves. The
+    confirmed fields stay exactly as typed."""
+    _as(_seed(db))
+    rid = _book(client, allergy_note="Allergisk over for nødder", allergy_severity="severe")
+    r = _get(client, rid)
+    assert r["ai_allergy"]["has_ai_suggested_allergy"] is False
+    assert r["allergy_note"] == "Allergisk over for nødder"
     assert r["allergen_tags"] == []
 
 
@@ -223,3 +236,15 @@ def test_bad_action_rejected(client, db):
         json={"action": "delete"},
     )
     assert resp.status_code == 422
+
+
+def test_editing_the_note_re_tags_it(client, db):
+    """The tag follows the note: "barnestol" → "vinduesbord" kept its
+    accessibility tag (and the Notetype filter kept the booking under it)."""
+    _as(_seed(db))
+    rid = _book(client, guest_notes="Vi skal bruge en barnestol")
+    before = _get(client, rid)["note_intent"]
+    assert before is not None
+    res = client.patch(f"/api/reservations/reservations/{rid}", json={"guest_notes": "Bord ved vinduet tak"})
+    assert res.status_code == 200, res.text
+    assert _get(client, rid)["note_intent"] != before

@@ -196,7 +196,13 @@ def test_stand_hears_a_new_booking(client, db):
     NOTHING (opening the app never replays the morning's bookings), it hands back
     a server_time, and a booking taken after that anchor shows up on the next
     poll.
+
+    The booking is a GUEST's (source "public"): since round 3 the feed alerts
+    on guest events only — the owner's own phone booking no longer chimes back
+    at them — so an owner-made booking here would prove nothing.
     """
+    from app.models.reservation import Reservation
+
     u = _seed(db); _as(u)
     token = _pair(client, _mint(client)["code"])
 
@@ -206,7 +212,14 @@ def test_stand_hears_a_new_booking(client, db):
     anchor = first.json()["server_time"]
     assert anchor
 
-    rid = _book(client, u, guest_name="Sent efter anker")
+    start = datetime.fromisoformat(_START)
+    guest = Reservation(
+        user_id=u.id, guest_name="Sent efter anker", party_size=4,
+        starts_at=start, ends_at=start + timedelta(minutes=90), duration_min=90,
+        status="confirmed", source="public",
+    )
+    db.add(guest); db.commit(); db.refresh(guest)
+    rid = str(guest.id)
 
     again = client.get(f"/api/stand/{token}/changes", params={"since": anchor})
     assert again.status_code == 200, again.text
