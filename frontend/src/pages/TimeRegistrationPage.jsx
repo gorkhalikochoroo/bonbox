@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
-import { dateLocale, businessTodayIso } from "../utils/dateFormat";
+import { dateLocale, businessTodayIso, formatDateClear } from "../utils/dateFormat";
 import { useLanguage } from "../hooks/useLanguage";
 // This page printed "6.8 t" — a Danish unit wearing an English decimal, on an
 // English screen — because it typed the unit itself instead of asking
@@ -369,7 +369,7 @@ export default function TimeRegistrationPage() {
               period you were looking at. An Arbejdstilsynet request names its
               own dates, which is exactly when an owner is on this screen. */}
           {mode === "custom" ? (
-            <span className="text-[11px] text-gray-400 tabular-nums">{from} → {to}</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">{formatDateClear(from)} – {formatDateClear(to)}</span>
           ) : (
             <button
               type="button"
@@ -382,7 +382,9 @@ export default function TimeRegistrationPage() {
               title={t("tregPickDates", "Pick your own dates")}
               className="text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 tabular-nums underline decoration-dotted underline-offset-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
             >
-              {from} → {to}
+              {/* Danish dates, as on Timer — the ISO "2026-10-01 → …" was a
+                  third date format on the same four tabs. */}
+              {formatDateClear(from)} – {formatDateClear(to)}
             </button>
           )}
           <button

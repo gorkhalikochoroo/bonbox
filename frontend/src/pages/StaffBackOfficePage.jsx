@@ -148,6 +148,8 @@ export default function StaffBackOfficePage() {
             tabs={tabs}
             activeId={activeTab}
             onChange={setTab}
+            // One scrollable row: at 375 px "Løn" wrapped onto a line alone.
+            wrap={false}
             ariaLabel={t("staffBackOffice")}
           />
         </div>

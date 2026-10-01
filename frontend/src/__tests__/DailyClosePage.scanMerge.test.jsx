@@ -234,9 +234,9 @@ describe("daily close — a second Z-bon with its own total", () => {
 
     shootZReport(container, "bar.jpg");
     await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
-    // One till: the scanned MOMS is genuinely the receipt's, badged OCR.
+    // One till: the scanned MOMS is genuinely the receipt's, badged "aflæst" (was OCR).
     const momsHeading = () => screen.getByText(/MOMS \(25%\)/).closest("h3");
-    expect(within(momsHeading()).getByText("OCR")).toBeInTheDocument();
+    expect(within(momsHeading()).getByText("scanBadgeRead")).toBeInTheDocument();
 
     shootZReport(container, "disk.jpg");
     await waitFor(() => expect(screen.getByText("scanSecondTotalTitle")).toBeInTheDocument());
@@ -246,7 +246,7 @@ describe("daily close — a second Z-bon with its own total", () => {
     // MOMS is named as un-summable...
     expect(screen.getByText(/scanMergedIncompleteNamed:.*MOMS/)).toBeInTheDocument();
     // ...the OCR badge is withdrawn (the number no longer covers the total)...
-    expect(within(momsHeading()).queryByText("OCR")).not.toBeInTheDocument();
+    expect(within(momsHeading()).queryByText("scanBadgeRead")).not.toBeInTheDocument();
     // ...and the figure shown is 25% of the SUMMED revenue (21.240 → 4.248),
     // never the bar till's 3.406.
     expect(container.textContent).toContain("4.248 kr.");

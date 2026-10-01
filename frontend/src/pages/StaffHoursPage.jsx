@@ -712,6 +712,7 @@ const NAR_KEY = {
   trend_fewer: "hovNarTrendFewer",
   trend_flat: "hovNarTrendFlat",
   trust_caveat: "hovNarTrustCaveat",
+  typed_hours: "hovNarTypedHours",
 };
 
 // Hour params that stand ALONE in the sentence — they carry their own unit,
@@ -1163,9 +1164,14 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   let limAccent = "neutral";
   let limHelper = t("hovLimitsNone", "all under limit");
   if (flags.limits_configured === 0) {
-    // No limit on anyone: there is nothing to be "under".
+    // No limit on anyone: there is nothing to be "under" — and the tile says
+    // where to set one instead of being a dead end.
     limVal = "—";
-    limHelper = t("hovLimitsNotSet", "no limits set");
+    limHelper = (
+      <Link to="/staff/schedule" className="underline underline-offset-2 hover:no-underline">
+        {t("hovLimitsSetLink", "set limits under Staff")}
+      </Link>
+    );
   }
   if (over.length > 0) {
     limAccent = "critical";
@@ -1413,7 +1419,7 @@ function firstException(row) {
     || ex.find((e) => e.state === "no_clock_in") || ex[0] || null;
 }
 
-function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
+function ResolveSheet({ staffId, staffName, exception, onClose, onResolved, position = null }) {
   const { t, lang } = useLanguage();
   const [hours, setHours] = useState(
     exception?.scheduled_hours != null ? String(exception.scheduled_hours) : "",
@@ -1455,8 +1461,8 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
         ...(total != null ? { total_hours: total } : {}),
         ...(action === "clock_out" ? { end_time: endTime, confirm_long: longConfirm } : {}),
       });
+      // The parent reloads and opens the next unanswered shift, or closes.
       onResolved();
-      onClose();
     } catch (e) {
       {
         const d = e?.response?.data?.detail;
@@ -1487,7 +1493,14 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
         className="relative w-full sm:max-w-sm bg-white dark:bg-gray-800 rounded-t-2xl sm:rounded-2xl p-5"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
       >
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{staffName}</h3>
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{staffName}</h3>
+          {position && position.n > 1 && (
+            <span className="text-[12px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0">
+              {t("shpResolvePos", "{i} of {n}", { i: position.i, n: position.n })}
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           {fmtDateFull(exception.date)} ·{" "}
           {t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(exception.scheduled_hours, lang))}
@@ -1620,6 +1633,14 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // for, and dropping them would hide the shift that needs an answer.
   const rows = useMemo(() => orderForPaying(summary), [summary]);
   const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
+  // Every shift that needs the owner's answer, in table order — the sheet
+  // walks it ("2 af 5") instead of closing after each one.
+  const answerQueue = useMemo(() => rows.flatMap((r) => (r.exceptions || [])
+    .filter((e) => e.state === "forgot_clock_out" || e.state === "no_clock_in")
+    .map((e) => ({ staffId: r.staff_id, staffName: r.staff_name, exception: e }))), [rows]);
+  const sameItem = (a, b) => a && b && String(a.staffId) === String(b.staffId)
+    && a.exception?.date === b.exception?.date && a.exception?.state === b.exception?.state;
+  const resolvingIdx = resolving ? answerQueue.findIndex((q) => sameItem(q, resolving)) : -1;
   // ?resolve=<staff_id> (the schedule's "no clock-out" chip) opens that
   // person's answer sheet once the rows are here.
   const [resolveParams, setResolveParams] = useSearchParams();
@@ -2038,11 +2059,20 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
 
       {resolving && (
         <ResolveSheet
+          // A fresh sheet per shift: its hours/end-time state is the shift's own.
+          key={`${resolving.staffId}-${resolving.exception?.date}-${resolving.exception?.state}`}
           staffId={resolving.staffId}
           staffName={resolving.staffName}
           exception={resolving.exception}
           onClose={() => setResolving(null)}
-          onResolved={onResolved}
+          position={resolvingIdx >= 0 ? { i: resolvingIdx + 1, n: answerQueue.length } : null}
+          onResolved={() => {
+            const next = resolvingIdx >= 0
+              ? answerQueue.slice(resolvingIdx + 1).find((q) => !sameItem(q, resolving))
+              : null;
+            onResolved();
+            setResolving(next || null);
+          }}
         />
       )}
     </div>

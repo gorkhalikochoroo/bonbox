@@ -162,7 +162,12 @@ def build_hours_narrative(data: dict) -> tuple[list[dict], str]:
     measured_share = float(data.get("measured_share") or 0)
     if measured_share < TRUST_MEASURED_FLOOR:
         unclocked_pct = round((1.0 - measured_share) * 100)
-        if unclocked_pct > 0:
+        if unclocked_pct >= 100:
+            # A venue that types its hours isn't missing punches — saying
+            # "100 % not clocked, the figures are an estimate" every visit was
+            # a permanent amber nag about how it chose to work.
+            lines.append({"code": "typed_hours", "severity": "info", "params": {}})
+        elif unclocked_pct > 0:
             lines.append({
                 "code": "trust_caveat",
                 "severity": "watch",

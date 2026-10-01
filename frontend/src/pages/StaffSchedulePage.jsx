@@ -1747,7 +1747,13 @@ export default function StaffSchedulePage() {
     } catch {
       shield = null; // could not check — NOT "nothing to warn about"
     }
-    setPublishConfirm({ ...summary, shield });
+    // Who can actually be told? Said BEFORE publishing — the "nobody was
+    // told" news only came after, on the success screen.
+    const weekStaffIds = new Set(
+      shifts.filter((sh) => sh.status !== "published").map((sh) => String(sh.staff_id)),
+    );
+    const reachable = staff.filter((m) => weekStaffIds.has(String(m.id)) && (m.email || m.phone)).length;
+    setPublishConfirm({ ...summary, shield, unreachable: weekStaffIds.size > 0 && reachable === 0 });
   };
 
   // Step 2 — actually publish (called from the confirm sheet's CTA), then show
@@ -2973,6 +2979,18 @@ export default function StaffSchedulePage() {
             t={t}
           />
         </FadeIn>
+      )}
+
+      {/* An empty week says so where the shifts would be, with the one-tap way
+          to fill it — the copy button sat in the toolbar above. */}
+      {!loading && !loadFailed && activeStaff.length > 0 && shifts.length === 0 && (
+        <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-gray-700 dark:text-gray-300">{t("schedEmptyWeekBody", "No shifts this week yet.")}</p>
+          <Button size="sm" variant="secondary" onClick={handleCopyLastWeek} disabled={copying} busy={copying}
+            iconLeft={<Icon name="Copy" size={14} />}>
+            {t("schedCopyLastWeekInline", "Copy last week")}
+          </Button>
+        </div>
       )}
 
       {/* Hour and rest problems, in words, above the grid. They lived in a
@@ -5281,8 +5299,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
 
       {/* Portal Link Modal */}
       {linkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setLinkModal(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-sm w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setLinkModal(null)}
+          onKeyDown={(e) => { if (e.key === "Escape") setLinkModal(null); }}>
+          <div role="dialog" aria-modal="true" tabIndex={-1}
+            ref={(el) => { if (el && !el.contains(document.activeElement)) el.focus(); }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-sm w-full p-5 space-y-4 outline-none" onClick={(e) => e.stopPropagation()}>
             <div className="text-center">
               {/* A 30px emoji chain link was the largest thing in this dialog and
                   the only coloured one. Same Lucide Link2 the toolbar and the
@@ -6009,13 +6030,19 @@ function TemplateCreateModal({ t, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-label={t("schedTemplateNewTitle", "New shift template")} tabIndex={-1}
+        ref={(el) => { if (el && !el.contains(document.activeElement)) el.focus(); }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-5 outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("schedTemplateNewTitle", "New shift template")}
           </h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+          <button type="button" onClick={onClose} aria-label={t("close", "Close")}
+            className="h-9 w-9 -mr-2 inline-flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
         </div>
 
         <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
@@ -7385,6 +7412,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
               </div>
             )}
 
+            {summary.unreachable && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5 text-[12px] text-amber-800 dark:text-amber-300 leading-snug">
+                {t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've opened their portal get a push. Share their portal links after publishing.")}
+              </div>
+            )}
             {/* Honest notify note — no count promised here; the success
                 banner reports the server's real number after publish. */}
             <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">

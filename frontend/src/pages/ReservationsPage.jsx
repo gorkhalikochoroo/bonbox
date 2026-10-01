@@ -157,6 +157,12 @@ function isoDay(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Table pickers in the order the floor and timeline use: "Bord 2" before
+// "Bord 10", not API insertion order.
+function byTableLabel(a, b) {
+  return String(a?.label || "").localeCompare(String(b?.label || ""), "da", { numeric: true, sensitivity: "base" });
+}
+
 // The venue's SERVICE day. The server files every booking by business day
 // (06:00 cutoff for food service); the page asked for the calendar day, so a
 // drop-in seated at 00:20 vanished from "I dag" and the stand jumped to an
@@ -1122,7 +1128,7 @@ function ReservationDrawer({
                       ? t("rsvpNoTable", "No table")
                       : t("rsvpChooseTable", "Choose a table…")}
                   </option>
-                  {tables.map((tb) => (
+                  {[...tables].sort(byTableLabel).map((tb) => (
                     <option key={tb.id} value={String(tb.id)}>
                       {tb.label} · {tb.capacity_seats} {t("rsvpSeats", "seats")}
                     </option>
@@ -1396,7 +1402,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
               {tables.length === 0 && (
                 <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
               )}
-              {tables.map((tb) => (
+              {[...tables].sort(byTableLabel).map((tb) => (
                 <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
                   {tb.label}
                   {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
@@ -1887,7 +1893,7 @@ function NewBookingSheet({
               className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
             >
               <option value="">{t("rsvpBookingTableAuto", "Auto")}</option>
-              {tables.map((tb) => (
+              {[...tables].sort(byTableLabel).map((tb) => (
                 <option key={tb.id} value={String(tb.id)}>
                   {tb.label}
                   {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
@@ -4464,10 +4470,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             {!isProvider && ["confirmed", "seated"].includes(r.status) && (() => {
               const tl = resolveTableLabel(r, labelById);
               return tl
-                ? <span className="shrink-0">{tl}</span>
-                : <span className="shrink-0 text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
+                ? <span className="min-w-0 truncate">{tl}</span>
+                : <span className="min-w-0 truncate text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
             })()}
-            <StatusInline status={r.status} label={labels[r.status] || r.status} />
+            {/* The status stays whole ("Bekr…" said nothing); a long table
+                label gives way first. */}
+            <span className="shrink-0"><StatusInline status={r.status} label={labels[r.status] || r.status} /></span>
           </div>
         </div>
         {primary && (

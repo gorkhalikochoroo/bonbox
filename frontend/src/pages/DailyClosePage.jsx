@@ -2206,7 +2206,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const addCustomRevCat = () => {
     if (!customRevName.trim()) return;
     const key = customRevName.toLowerCase().replace(/\s+/g, "_");
-    if (!revCats.find(c => c.key === key)) {
+    // "Mad" typed as a custom category is the built-in Mad, not a second one.
+    const typed = customRevName.trim().toLowerCase();
+    const same = revCats.find(c => c.key === key || String(catLabel(t, c) || "").trim().toLowerCase() === typed);
+    if (!same) {
       setRevCats([...revCats, { key, label: customRevName, icon: "Tag" }]);
     }
     setCustomRevName("");
@@ -2685,8 +2688,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </Chip>
               </div>
             </div>
-            {/* Upload zone */}
-            <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-300 dark:hover:border-gray-300 transition-colors"
+            {/* Upload zone — desktop only: a phone has nothing to drag, and it
+                repeated the two buttons right above it. */}
+            <div className="hidden sm:block border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-300 dark:hover:border-gray-300 transition-colors"
               onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
               onDragOver={e => e.preventDefault()}
               onDrop={async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
@@ -3121,7 +3125,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}
-                      {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                      {val && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                       {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Controlled now, and the RAW string is what we keep. The
@@ -3203,7 +3207,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     After a sum whose second Z-bon had no readable MOMS line it
                     would be a one-till figure badged as the day's MOMS, sitting
                     under a two-till total. Same guard as applyScanValues. */}
-                {scanMomsTrusted && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                {scanMomsTrusted && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
               </h3>
               <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 tabular-nums">
                 <span>{t("totalMoms")}</span>
@@ -3247,7 +3251,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}
-                      {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                      {val && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                       {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
@@ -3301,7 +3305,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
                   {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                   <Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("tipsLabel", "Tips")}
-                  {scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                  {scanResult.tips && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                   {!scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                 </span>
                 {/* Raw string kept, same reason as the revenue field above. */}
@@ -3447,6 +3451,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           </SectionBanner>
         )}
 
+        {/* A locked day is read-only here: the form under the "already locked"
+            banner could still be filled in, only to be refused at the end. */}
+        <fieldset disabled={existingLocked} className={"min-w-0 m-0 p-0 border-0 " + (existingLocked ? "opacity-50 pointer-events-none select-none" : "")} aria-hidden={existingLocked || undefined}>
         {/* Draft auto-save indicator */}
         {draftSaved && (
           <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center text-xs text-gray-400 flex items-center justify-center gap-1.5">
@@ -3503,7 +3510,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             )}
           </SectionBanner>
         )}
-        {prefill && !prefillLoading && (
+        {/* "Synkroniseret fra 0 salg" announced a sync of nothing. */}
+        {prefill && !prefillLoading && (prefill.sales.count > 0 || prefill.expenses.count > 0) && (
           <SectionBanner severity="info" icon="RefreshCw" className="mb-4"
             title={
               (prefill.sales.count === 1
@@ -4309,6 +4317,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               );
             })()}
         </div>
+        </fieldset>
         </>)}
       </div>
     </div>
@@ -5501,9 +5510,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     figure is a fact, and colouring facts is what made this page
                     read as nine palettes. */}
                 <Amount value={dc.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} size="kpi" className="text-gray-900 dark:text-white" />
-                {revChange !== null && Math.abs(revChange) >= 1 && (
-                  <p className={`text-[11px] font-semibold tabular-nums mt-0.5 ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-                    {revChange > 0 ? "↑" : "↓"} {Math.abs(revChange)}% {t("dcVsPrev", "vs prev")}
+                {/* A direction word, not a raw percentage — "↑ 2219 %" against a
+                    test close of 734 kr. meant nothing. Within ±5 % it's
+                    stable; beyond 4× either way the days aren't comparable. */}
+                {revChange !== null && Math.abs(revChange) >= 5 && revChange <= 300 && revChange >= -75 && (
+                  <p className={`text-[11px] font-semibold mt-0.5 inline-flex items-center gap-1 ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                    <Icon name={revChange > 0 ? "TrendingUp" : "TrendingDown"} size={11} />
+                    {revChange > 0 ? t("trendUp", "Up") : t("trendDown", "Down")} {t("dcVsPrevClose", "vs the close before")}
                   </p>
                 )}
               </div>
@@ -5643,6 +5656,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
             <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock the kasserapport")}</h3>
+            {/* Which day — the dialog didn't say. */}
+            {(() => {
+              const row = (data || []).find((r) => r.id === unlockId);
+              return row ? (
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+                  {formatDateClear(String(row.date).slice(0, 10))} · <Amount value={row.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} />
+                </p>
+              ) : null;
+            })()}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
             </p>
