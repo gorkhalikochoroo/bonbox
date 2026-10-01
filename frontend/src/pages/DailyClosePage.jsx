@@ -810,8 +810,13 @@ export default function DailyClosePage() {
           Hidden once today is locked (no value showing a CTA that
           would just open an already-confirmed wizard). Emerald is the
           one DNA-approved money-moment accent. */}
+      {/* On a phone, with the wizard open right below, this card repeated
+          its two choices (snap / type) a second time — the wizard's own scan
+          card carries them there. It stays when it has news (lock status
+          unknown) and on the other tabs, where it is the way back. */}
       {!isLockedToday && (
-        <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className={"bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+          + (tab === "close" && !lockStatusUnknown ? " max-sm:hidden" : "")}>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {t("closeTheDayCta", "Close the day")}
@@ -5113,7 +5118,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 max-sm:flex max-sm:flex-col max-sm:space-y-0 max-sm:gap-3">
       {/* Stale, and saying so. A reload that failed keeps the rows that WERE
           true rather than blanking a list the owner may be reading mid-task —
           but a refreshed-looking list that is actually ten minutes old is the
@@ -5180,7 +5185,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           and pull a multi-day PDF or CSV in one click. Distinct from
           the per-close PDF on each row below — this is the
           "send the whole month to my bookkeeper" format. */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm max-sm:order-1">
         <div className="flex items-center gap-2 mb-3">
           <Icon name="Package" size={18} className="text-gray-500 dark:text-gray-400" />
           <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">
@@ -5468,8 +5473,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         )}
       </div>
 
-      {/* Calendar heat map */}
-      <CalendarHeatMap data={data} currency={currency} />
+      {/* Calendar heat map. On a phone the closes come first — the export
+          panel and this map put the first close about two screens down. */}
+      <div className="max-sm:order-1"><CalendarHeatMap data={data} currency={currency} /></div>
 
       {data.map((dc, idx) => {
         const rev = dc.revenue_breakdown || {};

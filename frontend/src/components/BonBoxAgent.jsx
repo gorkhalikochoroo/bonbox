@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { isFloatingChromeHidden } from "../config/floatingChrome";
 import { useAuth } from "../hooks/useAuth";
@@ -690,64 +691,27 @@ export default function BonBoxAgent() {
         <button
           onClick={handleOpen}
           aria-label={t("openBonBoxAi")}
+          title={t("openBonBoxAi")}
+          // Calm and neutral: a 56px pulsing green orb with particles was a
+          // second green "main action" on every page and sat over amounts and
+          // the lock button. Desktop only (phones use the header's sparkle),
+          // so no bottom-nav clearance is needed here.
           className="
             bonbox-ai-fab
             hidden md:flex
-            fixed md:bottom-6 right-6 z-[9999]
-            w-14 h-14 rounded-full
-            bg-[rgb(var(--brand-green))] hover:bg-[rgb(var(--brand-green-hover))]
-            shadow-lg shadow-[0_10px_20px_-6px_rgb(var(--brand-green)/0.45)]
+            fixed right-5 z-[9999]
+            w-11 h-11 rounded-full
+            bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white
+            text-white dark:text-gray-900
+            shadow-md
             items-center justify-center
             cursor-pointer select-none
-            transition-transform duration-300 ease-out
-            hover:scale-110 active:scale-95
+            transition-colors
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2
           "
-          // Inline `bottom` keeps FAB clear of the bottom nav + iOS home
-          // indicator (env(safe-area-inset-bottom)). Without this, FAB sits
-          // behind the nav on devices with a home indicator.
-          style={{
-            bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))",
-            animation: "orbPulse 3s ease-in-out infinite, orbFloat 4s ease-in-out infinite",
-          }}
+          style={{ bottom: "1.25rem" }}
         >
-          {/* particles (CSS pseudo-element approach via multiple small spans) */}
-          {[...Array(6)].map((_, i) => {
-            const angle = (i / 6) * Math.PI * 2;
-            const px = Math.cos(angle) * 18;
-            const py = Math.sin(angle) * 18;
-            return (
-              <span
-                key={i}
-                className="absolute w-1 h-1 rounded-full bg-emerald-300"
-                style={{
-                  "--px": `${px}px`,
-                  "--py": `${py}px`,
-                  animation: `orbParticle ${2 + i * 0.3}s ease-out infinite`,
-                  animationDelay: `${i * 0.4}s`,
-                }}
-              />
-            );
-          })}
-
-          {/* sparkle icon */}
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            className="relative z-10"
-          >
-            <path
-              d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"
-              fill="white"
-              fillOpacity="0.95"
-            />
-            <path
-              d="M19 3L20 6L23 7L20 8L19 11L18 8L15 7L18 6L19 3Z"
-              fill="white"
-              fillOpacity="0.6"
-            />
-          </svg>
+          <Sparkles className="w-5 h-5" strokeWidth={1.75} aria-hidden="true" />
         </button>
       )}
 

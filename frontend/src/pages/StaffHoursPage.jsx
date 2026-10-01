@@ -1859,7 +1859,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                 >
                   <td className="px-3 sm:px-5 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300 flex-shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-200 flex-shrink-0">
                         {(row.staff_name || "?").charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
