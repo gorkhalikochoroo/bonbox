@@ -1742,7 +1742,10 @@ export default function FloorPlan({
       </div>
       {pan.can && (
         <p className="text-[11px] text-gray-500 dark:text-gray-400">
-          {t("rsvpPlanPan", "Swipe to see the rest of the room.")}
+          {/* "Stryg" is a touch word; with a mouse the room scrolls. */}
+          {typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches
+            ? t("rsvpPlanPan", "Swipe to see the rest of the room.")
+            : t("rsvpPlanPanScroll", "Scroll sideways to see the rest of the room.")}
         </p>
       )}
 

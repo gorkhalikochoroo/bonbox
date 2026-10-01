@@ -177,6 +177,47 @@ def test_an_owner_corrected_total_is_saved_exactly(db_session, client):
     assert float(dc.revenue_total) == 20500.0
 
 
+def test_a_partly_read_zbon_saves_the_moms_of_the_saved_total(db_session, client):
+    """The scan read Mad 10.000 and a 17.030 total, no MOMS line. The page's
+    AUTO MOMS was the category sum's (2.000) while 17.030 was saved; the
+    server now recomputes that stale figure from what it saves (3.406)."""
+    u = _user(db_session)
+    r = client.post("/api/daily-close", headers=_headers(u), json={
+        "date": "2026-09-18",
+        "status": "draft",
+        "revenue_breakdown": {"food": 10000},
+        "revenue_total_override": 17030,
+        "moms_mode": "auto",
+        "moms_total": 2000,
+    })
+    assert r.status_code == 200, r.text
+    dc = db_session.query(DailyClose).filter(DailyClose.user_id == u.id).first()
+    assert float(dc.revenue_total) == 17030.0
+    assert float(dc.moms_total) == 3406.0
+
+
+def test_a_scanned_moms_line_is_kept(db_session, client):
+    """The till's own MOMS (split rates) is not second-guessed."""
+    u = _user(db_session)
+    client.post("/api/daily-close", headers=_headers(u), json={
+        "date": "2026-09-19", "status": "draft",
+        "revenue_breakdown": {"food": 10000}, "revenue_total_override": 17030,
+        "moms_mode": "auto", "moms_total": 3300,
+    })
+    dc = db_session.query(DailyClose).filter(DailyClose.user_id == u.id).first()
+    assert float(dc.moms_total) == 3300.0
+
+
+def test_tips_per_person_rounds_half_up_like_the_page(db_session, client):
+    u = _user(db_session)
+    client.post("/api/daily-close", headers=_headers(u), json={
+        "date": "2026-09-20", "status": "draft", "revenue_breakdown": {"food": 1000},
+        "tips_total": 342.5, "tips_staff_count": 4,
+    })
+    dc = db_session.query(DailyClose).filter(DailyClose.user_id == u.id).first()
+    assert float(dc.tips_per_person) == 85.63
+
+
 # ─────────────────── F1 — delete a kladde, never a record ────────────────────
 
 

@@ -102,6 +102,18 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
   // can depend on it without re-firing.
   const reloadWaitlist = q.reload;
   const entries = q.data?.waitlist || [];
+  // How long a party has waited — the question a host answers first when a
+  // table frees. The server stamps UTC without a zone, so read it as UTC.
+  const waitedLabel = (iso) => {
+    if (!iso) return null;
+    const ms = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`);
+    if (!Number.isFinite(ms)) return null;
+    const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (m > 12 * 60) return null;
+    if (m < 1) return t("rsvpWlJustNow", "just now");
+    if (m < 60) return t("rsvpWlWaitedMin", "{n} min", { n: m });
+    return t("rsvpWlWaitedHours", "{h} h {m} min", { h: Math.floor(m / 60), m: m % 60 });
+  };
   const activeCount = q.data?.active_count ?? entries.length;
 
   // Report the failure UPWARD, not a zero — a confident zero is the same lie one
@@ -429,6 +441,11 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
                       <span className="inline-flex items-center gap-1 text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums shrink-0">
                         <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{e.party_size}
                       </span>
+                      {waitedLabel(e.created_at) && (
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0">
+                          {waitedLabel(e.created_at)}
+                        </span>
+                      )}
                       {e.status === "notified" && (
                         <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
                           {t("rsvpWlNotified", "Notified")}
@@ -458,7 +475,7 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
                     </Button>
                     <button type="button" onClick={() => removeEntry(e)} disabled={busy}
                       aria-label={t("rsvpWlRemove", "Remove")}
-                      className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40">
+                      className="h-11 w-11 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40">
                       <X className="w-4 h-4" />
                     </button>
                   </div>

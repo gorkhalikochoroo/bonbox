@@ -120,7 +120,7 @@ def _logged(db, owner, staff, *, total, clock=None, resolution=None, d=_DAY):
 
 
 def _entries(client, token="tok"):
-    r = client.get(f"/api/portal/{token}/hours")
+    r = client.get(f"/api/portal/{token}/hours?start={_DAY - timedelta(days=3)}&end={_DAY + timedelta(days=3)}")
     assert r.status_code == 200, r.text
     return r.json()["entries"]
 

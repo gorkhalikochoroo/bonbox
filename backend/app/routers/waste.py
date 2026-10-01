@@ -19,7 +19,38 @@ from app.utils.time import utc_now
 _REASON_DA = {
     "expired": "udløbet", "spoiled": "fordærvet", "damaged": "beskadiget",
     "overproduction": "overproduktion", "dropped": "tabt", "other": "andet",
+    # The waste form's own reasons — "overcooked" booked "Svind: X
+    # (overcooked)", the line the revisor reads.
+    "overcooked": "overkogt", "burnt": "brændt", "returned": "returneret",
+    "contaminated": "forurenet", "theft": "svind/tyveri",
 }
+
+
+def _stock_item(db: Session, log: WasteLog):
+    """The stock line this waste row came off, if any (tenant-scoped)."""
+    if not getattr(log, "inventory_item_id", None):
+        return None
+    from app.models.inventory import InventoryItem
+    return db.query(InventoryItem).filter(
+        InventoryItem.id == log.inventory_item_id,
+        InventoryItem.user_id == log.user_id,
+    ).first()
+
+
+def _give_back(db: Session, log: WasteLog) -> None:
+    """Put the stock this waste took back on the shelf (delete)."""
+    inv = _stock_item(db, log)
+    if inv is not None and log.stock_deducted:
+        inv.quantity = float(inv.quantity or 0) + float(log.stock_deducted)
+
+
+def _take_again(db: Session, log: WasteLog) -> None:
+    """Take it off the shelf again (restore after a delete)."""
+    inv = _stock_item(db, log)
+    if inv is not None and log.stock_deducted:
+        before = float(inv.quantity or 0)
+        inv.quantity = max(0.0, before - float(log.stock_deducted))
+        log.stock_deducted = before - float(inv.quantity)
 
 
 def _get_or_create_waste_category(db: Session, user_id) -> ExpenseCategory:
@@ -107,6 +138,7 @@ def restore_waste(
         raise HTTPException(status_code=404, detail="Deleted waste log not found")
     log.is_deleted = False
     log.deleted_at = None
+    _take_again(db, log)
     # Re-sync expense on restore
     _sync_expense_for_waste(db, log)
     db.commit()
@@ -161,8 +193,18 @@ def create_waste(
             ).first()
         except Exception:  # noqa: BLE001 — a bad id never blocks the waste log
             inv = None
-        if inv is not None:
-            inv.quantity = max(0.0, float(inv.quantity or 0) - float(data.quantity or 0))
+        # Only in the item's own unit: "1 portion" of a kg item took 1 kg.
+        same_unit = inv is not None and (
+            not (data.unit or "").strip()
+            or (data.unit or "").strip().lower() == (inv.unit or "").strip().lower()
+        )
+        if inv is not None and same_unit:
+            before = float(inv.quantity or 0)
+            inv.quantity = max(0.0, before - float(data.quantity or 0))
+            # What actually came off — never more than was on the shelf — so
+            # a delete gives back exactly that.
+            log.inventory_item_id = inv.id
+            log.stock_deducted = before - float(inv.quantity)
     db.commit()
     db.refresh(log)
     # Sync to expenses
@@ -181,8 +223,17 @@ def update_waste(
     log = db.query(WasteLog).filter(WasteLog.id == log_id, WasteLog.user_id == user.id).first()
     if not log:
         raise HTTPException(status_code=404, detail="Waste log not found")
+    old_qty = float(log.quantity or 0)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(log, field, value)
+    # A corrected quantity moves the stock by the difference.
+    if log.stock_deducted is not None and not log.is_deleted and float(log.quantity or 0) != old_qty:
+        inv = _stock_item(db, log)
+        if inv is not None:
+            _give_back(db, log)
+            before = float(inv.quantity or 0)
+            inv.quantity = max(0.0, before - float(log.quantity or 0))
+            log.stock_deducted = before - float(inv.quantity)
     # Update synced expense
     _sync_expense_for_waste(db, log)
     db.commit()
@@ -199,8 +250,12 @@ def delete_waste(
     log = db.query(WasteLog).filter(WasteLog.id == log_id, WasteLog.user_id == user.id).first()
     if not log:
         raise HTTPException(status_code=404, detail="Waste log not found")
+    if log.is_deleted:
+        return  # already in the papirkurv — its stock went back then
     log.is_deleted = True
     log.deleted_at = utc_now()
+    # The stock goes back on the shelf with it.
+    _give_back(db, log)
     # Remove synced expense
     _delete_expense_for_waste(db, log.id, user.id)
     db.commit()

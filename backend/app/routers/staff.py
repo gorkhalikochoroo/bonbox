@@ -2651,11 +2651,15 @@ def update_schedule(
                 new_start=data.start_time, new_end=data.end_time, role=data.role_on_shift)))
 
     if notifs:
+        # In the venue's language: a Danish portal read "Vagt aflyst · Mon 19 Oct".
+        from app.services.owner_language import owner_lang
+        _lang = "da" if owner_lang(user) == "da" else "en"
+
         def _send_bg():
             bg_db = SessionLocal()
             try:
                 for _sid, _ch in notifs:
-                    send_single_shift_notification(bg_db, user_id, _sid, _ch, "shift_changed")
+                    send_single_shift_notification(bg_db, user_id, _sid, _ch, "shift_changed", lang=_lang)
             finally:
                 bg_db.close()
 
@@ -2710,6 +2714,8 @@ def delete_schedule(
     # Notify staff if a published shift was deleted
     if was_published:
         user_id = user.id
+        from app.services.owner_language import owner_lang
+        _lang = "da" if owner_lang(user) == "da" else "en"
         change = ShiftChange(
             change_type="removed",
             date=shift_date,
@@ -2721,7 +2727,7 @@ def delete_schedule(
         def _send_bg():
             bg_db = SessionLocal()
             try:
-                send_single_shift_notification(bg_db, user_id, staff_id, change, "shift_deleted")
+                send_single_shift_notification(bg_db, user_id, staff_id, change, "shift_deleted", lang=_lang)
             finally:
                 bg_db.close()
 
@@ -4031,6 +4037,14 @@ def get_clocked_in_staff(
                         year=r.date.year, month=r.date.month, day=r.date.day,
                         hour=hh, minute=mm, second=0, microsecond=0,
                     )
+                    # The row carries the BUSINESS day: a 00:34 clock-in is
+                    # filed under yesterday (06:00 cutoff), so its wall-clock
+                    # moment is the next calendar day. Read as the business
+                    # day it made every opener's punch "24 h open, missing
+                    # clock-out" the moment they clocked in.
+                    from app.services.tz_utils import _user_cutoff_hour
+                    if hh < _user_cutoff_hour(user):
+                        start_dt += timedelta(days=1)
                 else:
                     start_dt = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0)
                     if start_dt > now_dt:
@@ -4578,7 +4592,9 @@ def update_hours(
         entry.clock_hours = entry.total_hours
 
     rate = data.rate_applied if data.rate_applied else _pick_rate(staff, eff_date, start_time)
-    earned = data.earned if data.earned is not None else round(total_hours * rate, 2)
+    # float(): a stored total_hours comes back as Decimal, and Decimal × float
+    # made a PUT without total_hours a 500.
+    earned = data.earned if data.earned is not None else round(float(total_hours or 0) * float(rate or 0), 2)
 
     entry.staff_id = staff_id
     entry.date = eff_date
@@ -4737,6 +4753,7 @@ def hours_summary(
 
     sched_map: dict[str, float] = {}
     sched_by_day: dict = {}
+    sched_end_by_day: dict = {}
     try:
         for s in (
             db.query(Schedule)
@@ -4758,6 +4775,12 @@ def hours_summary(
             # Per-DAY as well as per-period. The period total alone cannot tell
             # you whether anyone actually turned up — see _shift_states below.
             sched_by_day[(sid, s.date)] = sched_by_day.get((sid, s.date), 0.0) + hrs
+            # The latest planned end of the day — the resolve sheet pre-fills
+            # a forgotten clock-out with it.
+            if s.end_time and (sid, s.date) not in sched_end_by_day or (
+                s.end_time and str(s.end_time) > str(sched_end_by_day.get((sid, s.date)) or "")
+            ):
+                sched_end_by_day[(sid, s.date)] = s.end_time
     except Exception as e:
         log.warning("hours_summary: scheduled-hours aggregation failed: %s", e)
         sched_map = {}
@@ -4804,6 +4827,22 @@ def hours_summary(
         actual_by_day = {}
         open_punch_days = set()
 
+    from app.services.tz_utils import _user_cutoff_hour
+    _now_wall = now_local(user)
+    _cut_h = _user_cutoff_hour(user)
+
+    def _open_is_forgotten(day, start_str) -> bool:
+        """Open for over 16 hours of wall-clock time (the strip's rule)."""
+        try:
+            hh, mm = (int(x) for x in str(start_str).split(":")[:2])
+            start = _now_wall.replace(year=day.year, month=day.month, day=day.day,
+                                      hour=hh, minute=mm, second=0, microsecond=0)
+            if hh < _cut_h:
+                start += timedelta(days=1)
+            return (_now_wall - start).total_seconds() > 16 * 3600
+        except Exception:  # noqa: BLE001 — no usable start: fall back to the calendar
+            return day < _today_biz
+
     def _classify(scheduled: float, actual: float, has_row: bool, open_punch: bool,
                   past: bool = False, resolved: bool = False) -> str:
         """One shift → one state. Order matters; the first match wins."""
@@ -4832,11 +4871,15 @@ def hours_summary(
     for (sid, day) in set(list(sched_by_day.keys()) + list(actual_by_day.keys())):
         scheduled = sched_by_day.get((sid, day), 0.0)
         actual = actual_by_day.get((sid, day), 0.0)
+        _open = (sid, day) in open_punch_days
         st = _classify(
             scheduled, actual,
             has_row=(sid, day) in actual_by_day,
-            open_punch=(sid, day) in open_punch_days,
-            past=day < _today_biz,
+            open_punch=_open,
+            # An open punch is "forgotten" by the clock, not the calendar: an
+            # opener in at 01:15 is filed under yesterday's business day and
+            # read as a forgotten clock-out from 06:00 while still on shift.
+            past=_open_is_forgotten(day, open_punch_start.get((sid, day))) if _open else day < _today_biz,
             resolved=(sid, day) in resolved_days,
         )
         bucket = states_by_staff.setdefault(sid, {"states": [], "exceptions": []})
@@ -4847,7 +4890,8 @@ def hours_summary(
                 "state": st,
                 "scheduled_hours": round(scheduled, 1),
                 "actual_hours": round(actual, 1),
-                **({"start_time": open_punch_start.get((sid, day))} if st == "forgot_clock_out" else {}),
+                **({"start_time": open_punch_start.get((sid, day)),
+                    "scheduled_end": sched_end_by_day.get((sid, day))} if st == "forgot_clock_out" else {}),
             })
 
     # Staff names + pay/limit fields — wrapped so a corrupt member row doesn't
@@ -5370,6 +5414,78 @@ def list_tips(
     return tips
 
 
+# Danish role/contract names for pay documents (CSV, payroll PDF, lønseddel).
+from app.services.pay_labels import PAY_ROLE_DA, PAY_CONTRACT_DA  # noqa: E402
+_DA_MONTH_NAMES = ["", "januar", "februar", "marts", "april", "maj", "juni", "juli",
+                   "august", "september", "oktober", "november", "december"]
+
+# The form's split ids ("hours"/"role"/"custom") and the API's historical ones
+# ("by_hours"/"by_role"). Only the latter were recognised, so every split the
+# owner saved from the page fell through to an equal split.
+_TIP_METHOD = {"hours": "by_hours", "by_hours": "by_hours", "role": "by_role",
+               "by_role": "by_role", "custom": "custom"}
+# Same weights as the page's preview (StaffTipsPage ROLE_SHARES).
+_TIP_ROLE_SHARE = {"full": 1.0, "hourly": 1.0, "full-time": 1.0, "full_time": 1.0,
+                   "manager": 1.0, "part": 0.5, "part-time": 0.5, "part_time": 0.5,
+                   "student": 0.5, "intern": 0.5, "trainee": 0.5}
+
+
+def _store_tip_split(db: Session, user: User, tip: "Tip", data: "TipCreate") -> None:
+    """Write the tip's distribution rows.
+
+    The owner's previewed split is the source of truth when it checks out:
+    every person is on this tip's roster AND on this venue's staff, no share
+    is negative, and the shares sum to the total. Otherwise it is computed
+    here by the chosen method — never silently equal for a method that isn't.
+    """
+    roster = {str(sh.staff_id): float(sh.hours or 0) for sh in data.staff_hours}
+    owned = {
+        str(m.id): m for m in db.query(StaffMember).filter(
+            StaffMember.user_id == user.id,
+            StaffMember.id.in_([sh.staff_id for sh in data.staff_hours] or [uuid.uuid4()]),
+        ).all()
+    }
+    total = float(data.total_amount or 0)
+
+    def _add(staff_id, amount, pct):
+        db.add(TipDistribution(
+            id=uuid.uuid4(), tip_id=tip.id, staff_id=staff_id,
+            share_pct=round(pct, 2), amount=round(amount, 2),
+        ))
+
+    shares = [d for d in (data.distribution or []) if str(d.staff_id) in roster]
+    if (
+        shares
+        and len(shares) == len(data.distribution)
+        and all(str(d.staff_id) in owned for d in shares)
+        and all(float(d.amount) >= 0 for d in shares)
+        and abs(sum(float(d.amount) for d in shares) - total) <= 0.05
+    ):
+        for d in shares:
+            pct = float(d.percentage) if d.percentage is not None else (float(d.amount) / total * 100 if total else 0)
+            _add(d.staff_id, float(d.amount), pct)
+        return
+
+    method = _TIP_METHOD.get((data.split_method or "").strip().lower(), "equal")
+    people = [sh.staff_id for sh in data.staff_hours if str(sh.staff_id) in owned]
+    if not people:
+        return
+    if method == "by_hours" and sum(roster[str(p)] for p in people) > 0:
+        weights = {p: roster[str(p)] for p in people}
+    elif method == "by_role":
+        weights = {
+            p: _TIP_ROLE_SHARE.get(str(owned[str(p)].contract_type or "full").strip().lower(), 1.0)
+            for p in people
+        }
+    else:
+        # Equal only when equal was asked for (or nothing else can apply:
+        # an hours split with no hours, a custom split with no valid shares).
+        weights = {p: 1.0 for p in people}
+    wsum = sum(weights.values()) or 1.0
+    for p, w in weights.items():
+        _add(p, total * w / wsum, w / wsum * 100)
+
+
 @router.post("/tips", response_model=TipResponse)
 def create_tip(
     data: TipCreate,
@@ -5387,59 +5503,7 @@ def create_tip(
     db.add(tip)
     db.flush()  # get tip.id for distributions
 
-    if data.staff_hours:
-        if data.split_method == "by_hours":
-            total_hours = sum(sh.hours for sh in data.staff_hours)
-            for sh in data.staff_hours:
-                pct = (sh.hours / total_hours * 100) if total_hours > 0 else 0
-                amount = round(data.total_amount * sh.hours / total_hours, 2) if total_hours > 0 else 0
-                dist = TipDistribution(
-                    id=uuid.uuid4(),
-                    tip_id=tip.id,
-                    staff_id=sh.staff_id,
-                    share_pct=round(pct, 2),
-                    amount=amount,
-                )
-                db.add(dist)
-
-        elif data.split_method == "by_role":
-            # Look up contract types to assign shares
-            staff_ids = [sh.staff_id for sh in data.staff_hours]
-            members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
-            contract_map = {str(m.id): m.contract_type for m in members}
-
-            shares = {}
-            for sh in data.staff_hours:
-                ct = contract_map.get(str(sh.staff_id), "full")
-                shares[sh.staff_id] = 1.0 if ct == "full" else 0.5
-
-            total_shares = sum(shares.values())
-            for staff_id, share in shares.items():
-                pct = (share / total_shares * 100) if total_shares > 0 else 0
-                amount = round(data.total_amount * share / total_shares, 2) if total_shares > 0 else 0
-                dist = TipDistribution(
-                    id=uuid.uuid4(),
-                    tip_id=tip.id,
-                    staff_id=staff_id,
-                    share_pct=round(pct, 2),
-                    amount=amount,
-                )
-                db.add(dist)
-
-        else:
-            # Equal split fallback
-            count = len(data.staff_hours)
-            per_person = round(data.total_amount / count, 2) if count > 0 else 0
-            pct = round(100.0 / count, 2) if count > 0 else 0
-            for sh in data.staff_hours:
-                dist = TipDistribution(
-                    id=uuid.uuid4(),
-                    tip_id=tip.id,
-                    staff_id=sh.staff_id,
-                    share_pct=pct,
-                    amount=per_person,
-                )
-                db.add(dist)
+    _store_tip_split(db, user, tip, data)
 
     db.commit()
     db.refresh(tip)
@@ -5471,57 +5535,7 @@ def update_tip(
     db.query(TipDistribution).filter(TipDistribution.tip_id == tip.id).delete()
     db.flush()
 
-    if data.staff_hours:
-        if data.split_method == "by_hours":
-            total_hours = sum(sh.hours for sh in data.staff_hours)
-            for sh in data.staff_hours:
-                pct = (sh.hours / total_hours * 100) if total_hours > 0 else 0
-                amount = round(data.total_amount * sh.hours / total_hours, 2) if total_hours > 0 else 0
-                dist = TipDistribution(
-                    id=uuid.uuid4(),
-                    tip_id=tip.id,
-                    staff_id=sh.staff_id,
-                    share_pct=round(pct, 2),
-                    amount=amount,
-                )
-                db.add(dist)
-
-        elif data.split_method == "by_role":
-            staff_ids = [sh.staff_id for sh in data.staff_hours]
-            members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
-            contract_map = {str(m.id): m.contract_type for m in members}
-
-            shares = {}
-            for sh in data.staff_hours:
-                ct = contract_map.get(str(sh.staff_id), "full")
-                shares[sh.staff_id] = 1.0 if ct == "full" else 0.5
-
-            total_shares = sum(shares.values())
-            for staff_id, share in shares.items():
-                pct = (share / total_shares * 100) if total_shares > 0 else 0
-                amount = round(data.total_amount * share / total_shares, 2) if total_shares > 0 else 0
-                dist = TipDistribution(
-                    id=uuid.uuid4(),
-                    tip_id=tip.id,
-                    staff_id=staff_id,
-                    share_pct=round(pct, 2),
-                    amount=amount,
-                )
-                db.add(dist)
-
-        else:
-            count = len(data.staff_hours)
-            per_person = round(data.total_amount / count, 2) if count > 0 else 0
-            pct = round(100.0 / count, 2) if count > 0 else 0
-            for sh in data.staff_hours:
-                dist = TipDistribution(
-                    id=uuid.uuid4(),
-                    tip_id=tip.id,
-                    staff_id=sh.staff_id,
-                    share_pct=pct,
-                    amount=per_person,
-                )
-                db.add(dist)
+    _store_tip_split(db, user, tip, data)
 
     db.commit()
     db.refresh(tip)
@@ -5667,17 +5681,8 @@ def export_payroll_csv(
     # as 768.750 kr. Roles and contracts were raw codes ("kitchen", "hourly").
     def _dk(v) -> str:
         return f"{float(v or 0):.2f}".replace(".", ",")
-    _ROLE_DA = {
-        "manager": "Leder", "kitchen": "Køkken", "chef": "Kok", "cook": "Kok",
-        "server": "Tjener", "waiter": "Tjener", "bar": "Bar", "bartender": "Bartender",
-        "barista": "Barista", "host": "Vært", "runner": "Runner", "dishwasher": "Opvasker",
-        "cleaner": "Rengøring", "floor": "Sal",
-    }
-    _CONTRACT_DA = {
-        "full": "Fuldtid", "full_time": "Fuldtid", "full-time": "Fuldtid",
-        "part": "Deltid", "part_time": "Deltid", "part-time": "Deltid",
-        "hourly": "Timeløn", "student": "Studerende", "trainee": "Elev", "intern": "Praktikant",
-    }
+    _ROLE_DA = PAY_ROLE_DA
+    _CONTRACT_DA = PAY_CONTRACT_DA
     writer.writerow([
         "Navn", "Rolle", "Ansættelse", "Timer", "Bruttoløn (kr.)",
         "AM-bidrag (8 %)", "A-skat (anslået)", "Udbetaling (anslået)",
@@ -5997,17 +6002,33 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
     styles = getSampleStyleSheet()
     story = []
 
+    # The revisor reads this in Danish: "1,530.00 DKK" reads as 1,53 there,
+    # and every label was English. Other currencies keep the English layout.
+    da = currency == "DKK"
+    L = (lambda dk, en: dk) if da else (lambda dk, en: en)
+
     def fmt(v):
         if v is None:
-            return "---"
+            return "—"
         try:
-            return f"{float(v):,.2f} {currency}"
+            n = float(v)
         except (TypeError, ValueError):
-            return "---"
+            return "—"
+        if da:
+            return f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " kr."
+        return f"{n:,.2f} {currency}"
+
+    def fh(v) -> str:
+        n = float(v or 0)
+        txt = f"{n:.2f}".rstrip("0").rstrip(".") if n % 1 else f"{n:.0f}"
+        return txt.replace(".", ",") if da else txt
+
+    def fdate(d) -> str:
+        return f"{d.day}. {_DA_MONTH_NAMES[d.month]} {d.year}" if da else d.strftime("%d %B %Y")
 
     # ── Title page ──
     title_style = ParagraphStyle("Title", parent=styles["Title"], fontSize=18, spaceAfter=4)
-    story.append(Paragraph("Payroll Report", title_style))
+    story.append(Paragraph(L("Lønrapport", "Payroll Report"), title_style))
 
     biz_name = profile.business_name if profile else ""
     if biz_name:
@@ -6020,7 +6041,7 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
             story.append(Paragraph(f"CVR: {_safe(profile.org_number)}", styles["Normal"]))
 
     story.append(Paragraph(
-        f"Period: {body.period_start.strftime('%d %B %Y')} - {body.period_end.strftime('%d %B %Y')}",
+        f"{L('Periode', 'Period')}: {fdate(body.period_start)} – {fdate(body.period_end)}",
         styles["Normal"],
     ))
     story.append(Spacer(1, 10 * mm))
@@ -6031,15 +6052,21 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
 
         try:
             story.append(Paragraph(_safe(sd["name"] or "—"), styles["Heading2"]))
+            _role = sd.get("role") or "—"
+            _ct = sd.get("contract_type") or "—"
+            if da:
+                _role = PAY_ROLE_DA.get(str(_role).strip().lower(), _role)
+                _ct = PAY_CONTRACT_DA.get(str(_ct).strip().lower(), _ct)
             story.append(Paragraph(
-                f"Role: {_safe(sd.get('role') or '—')}  |  Contract: {_safe(sd.get('contract_type') or '—')}",
+                f"{L('Rolle', 'Role')}: {_safe(_role)}  |  {L('Ansættelse', 'Contract')}: {_safe(_ct)}",
                 styles["Normal"],
             ))
             story.append(Spacer(1, 4 * mm))
 
             # Hours detail table — only render if employee has entries this period
             if sd["entries"]:
-                detail_data = [["Date", "Time", "Break", "Hours", "Rate", "Earned"]]
+                detail_data = [[L("Dato", "Date"), L("Tid", "Time"), L("Pause", "Break"),
+                                L("Timer", "Hours"), L("Sats", "Rate"), L("Løn", "Earned")]]
                 for h in sd["entries"]:
                     # If neither start nor end is logged (manual quick-entry of total
                     # hours only), show a single em-dash instead of "--- - ---".
@@ -6048,8 +6075,8 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
                     else:
                         time_str = "—"
                     date_str = h.date.strftime("%d/%m") if h.date else "—"
-                    break_str = f"{int(h.break_minutes or 0)}m"
-                    hrs_str = f"{float(h.total_hours or 0):.1f}"
+                    break_str = f"{int(h.break_minutes or 0)} {L('min.', 'm')}"
+                    hrs_str = fh(h.total_hours)
                     detail_data.append([
                         date_str,
                         time_str,
@@ -6079,11 +6106,11 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
             # Staff totals
             grand_total_row = (sd.get("total_earned") or 0.0) + (sd.get("tips") or 0.0)
             totals_data = [
-                ["Total Hours", f"{float(sd.get('total_hours') or 0):.1f}"],
-                ["Overtime Hours", f"{float(sd.get('overtime_hours') or 0):.1f}"],
-                ["Total Earned", fmt(sd.get("total_earned"))],
-                ["Tips Received", fmt(sd.get("tips"))],
-                ["GRAND TOTAL", fmt(grand_total_row)],
+                [L("Timer i alt", "Total Hours"), fh(sd.get("total_hours"))],
+                [L("Heraf overarbejde (timer)", "Overtime Hours"), fh(sd.get("overtime_hours"))],
+                [L("Løn i alt", "Total Earned"), fmt(sd.get("total_earned"))],
+                [L("Drikkepenge", "Tips Received"), fmt(sd.get("tips"))],
+                [L("I ALT", "GRAND TOTAL"), fmt(grand_total_row)],
             ]
             t = Table(totals_data, colWidths=[80 * mm, 60 * mm])
             t.setStyle(TableStyle([
@@ -6100,18 +6127,19 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
         except Exception as e:  # noqa: BLE001
             log.warning("payroll_pdf: failed to render staff %s: %s", sd.get("name"), e)
             story.append(Paragraph(
-                f"Could not render details for {_safe(sd.get('name') or '?')} — "
-                "skipped this employee.",
+                L(f"Detaljer for {_safe(sd.get('name') or '?')} kunne ikke vises — medarbejderen er sprunget over.",
+                  f"Could not render details for {_safe(sd.get('name') or '?')} — skipped this employee."),
                 styles["Normal"],
             ))
             story.append(Spacer(1, 4 * mm))
 
     # ── Summary page ──
     story.append(PageBreak())
-    story.append(Paragraph("Summary - All Staff", styles["Heading2"]))
+    story.append(Paragraph(L("Oversigt — alle medarbejdere", "Summary - All Staff"), styles["Heading2"]))
     story.append(Spacer(1, 4 * mm))
 
-    sum_data = [["Staff", "Hours", "Overtime", "Earned", "Tips", "Total"]]
+    sum_data = [[L("Medarbejder", "Staff"), L("Timer", "Hours"), L("Overarb.", "Overtime"),
+                 L("Løn", "Earned"), L("Drikkepenge", "Tips"), L("I alt", "Total")]]
     grand_hours = 0.0
     grand_overtime = 0.0
     grand_earned = 0.0
@@ -6129,8 +6157,8 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
         row_total = sd_earned + sd_tips
         sum_data.append([
             _safe(sd.get("name") or "—"),
-            f"{sd_hours:.1f}",
-            f"{sd_ot:.1f}",
+            fh(sd_hours),
+            fh(sd_ot),
             fmt(sd_earned),
             fmt(sd_tips),
             fmt(row_total),
@@ -6142,9 +6170,9 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
         grand_total += row_total
 
     sum_data.append([
-        "TOTAL",
-        f"{grand_hours:.1f}",
-        f"{grand_overtime:.1f}",
+        L("I ALT", "TOTAL"),
+        fh(grand_hours),
+        fh(grand_overtime),
         fmt(grand_earned),
         fmt(grand_tips),
         fmt(grand_total),
@@ -6169,8 +6197,10 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
     # Footer
     story.append(HRFlowable(width="100%", color=colors.grey))
     story.append(Spacer(1, 3 * mm))
+    _now = now_local(user)
     story.append(Paragraph(
-        f"Generated from BonBox on {utc_now().strftime('%d/%m/%Y %H:%M')}",
+        L(f"Genereret af BonBox {_now.strftime('%d.%m.%Y kl. %H:%M')} (dansk tid)",
+          f"Generated from BonBox on {_now.strftime('%d/%m/%Y %H:%M')} (local time)"),
         styles["Normal"],
     ))
 
@@ -6211,7 +6241,7 @@ def _refuse_open_punches(db: Session, user: User, period_start: date, period_end
             + (f" fra {st}" if st else "")
             for sid, d, st in open_rows[:6]
         )
-        more = f" (+{len(open_rows) - 6} more)" if len(open_rows) > 6 else ""
+        more = f" (+{len(open_rows) - 6} flere)" if len(open_rows) > 6 else ""
         raise HTTPException(
             409,
             {

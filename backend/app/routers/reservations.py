@@ -1581,9 +1581,19 @@ def _room_full_detail(db: Session, user: User, party_size: int,
             .scalar()
             or 0
         )
+    _open = []
     try:
         _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
-        _no_hours = not rsvc.hours_declared(_profile, rsvc.load_settings(_profile))
+        _settings = rsvc.load_settings(_profile)
+        _no_hours = not rsvc.hours_declared(_profile, _settings)
+        # The day's open windows, so a time outside them can be named as
+        # closed ("Lukket kl. 06 — åbent 11:30–22:00") instead of the
+        # unexplained "no table can be booked at that time".
+        if start is not None and not _no_hours:
+            _open = [
+                [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
+                for w in rsvc.restaurant_windows(_profile, start.date(), _settings)
+            ]
     except Exception:  # noqa: BLE001 — context only; never break the 409
         _no_hours = False
     try:
@@ -1606,6 +1616,7 @@ def _room_full_detail(db: Session, user: User, party_size: int,
         "total_seats": _venue_seats_total(db, user),
         # 0 with a full-looking error = not full, just not bookable then.
         "tables_busy_at_that_time": overlapping,
+        "open_windows": _open,
     }
 
 

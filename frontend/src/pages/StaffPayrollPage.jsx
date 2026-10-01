@@ -1,6 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { useConfirm } from "../hooks/useConfirm";
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
@@ -9,7 +10,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatHours } from "../utils/hours";
-import { formatDate, localIso } from "../utils/dateFormat";
+import { formatDate, localIso, formatDateClear } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
@@ -417,12 +418,25 @@ export default function StaffPayrollPage() {
    */
   const [sending, setSending] = useState(false);
   const [sendToast, setSendToast] = useState("");
+  const confirm = useConfirm();
   // UpgradeNudge state — shown as a dialog when a Free user tries
   // to send payroll to the accountant (Starter+ gated feature).
   const [upgradeNudge, setUpgradeNudge] = useState(null);
 
   const sendToAccountant = async () => {
     if (!period || selectedIds.size === 0) return;
+    // A pay report leaves the building on this tap — say to whom and for
+    // which period first. It sent on one tap with no recipient shown.
+    const ok = await confirm({
+      title: t("payrollSendConfirmTitle", "Send the payroll report to your revisor?"),
+      message: t("payrollSendConfirmBody", "{n} employees, {from} – {to}. You get a copy.", {
+        n: selectedIds.size,
+        from: formatDateClear(period.period_start),
+        to: formatDateClear(period.period_end),
+      }),
+      confirmLabel: t("payrollSendConfirmCta", "Send"),
+    });
+    if (!ok) return;
     setSending(true);
     setError("");
     setSendToast("");
@@ -435,7 +449,7 @@ export default function StaffPayrollPage() {
       });
       if (r.data?.ok) {
         setSendToast(
-          (t("payrollSentTo", "✓ Sent to") + " " + r.data.sent_to) +
+          (t("payrollSentToPlain", "Sent to") + " " + r.data.sent_to) +
           (r.data.cc_self ? ` (${t("ccdYou", "you cc'd")})` : "")
         );
         setTimeout(() => setSendToast(""), 7000);
@@ -661,7 +675,7 @@ export default function StaffPayrollPage() {
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300">
                           {s.role ? roleName(s.role, t) : t("teamRoleStaff", "Staff")}
                         </span>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300">
                           {contractLabel(s.contract_type, t) || t("stfContractHourly", "Hourly")}
                         </span>
                       </div>
@@ -853,7 +867,7 @@ export default function StaffPayrollPage() {
                   <DkStat label={t("stfPayrollEmployerCost", "Employer total cost")} value={dkEstimate.totals.employer_total_cost} currency={currency} small accent="dark" />
                 </div>
 
-                <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2.5 text-xs text-blue-800 dark:text-blue-200">
+                <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-xs text-gray-800 dark:text-gray-200">
                   <div className="font-semibold mb-0.5">{t("skatRemittance")}</div>
                   <div>{fmtMoney(dkEstimate.skat_remit.total, currency)} = AM-bidrag {fmtMoney(dkEstimate.skat_remit.am_bidrag, currency)} + A-skat {fmtMoney(dkEstimate.skat_remit.a_skat, currency)}</div>
                 </div>
@@ -1160,7 +1174,7 @@ export default function StaffPayrollPage() {
    ═══════════════════════════════════════════════════════════ */
 function DkStat({ label, value, currency, accent = "gray", small = false }) {
   const accentClass =
-    accent === "blue" ? "border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20"
+    accent === "blue" ? "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40"
     : accent === "green" ? "border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/50"
     : accent === "dark" ? "border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/40"
     : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40";

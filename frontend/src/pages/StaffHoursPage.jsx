@@ -1,9 +1,10 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { dateLocale } from "../utils/dateFormat";
+import { Link, useSearchParams } from "react-router-dom";
+import { dateLocale, businessTodayIso } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -86,8 +87,10 @@ function getMonday(iso) {
   return isoDate(d);
 }
 
+// The BUSINESS day (06:00 cutoff): after midnight tonight's hours still sit
+// on yesterday's date, and the Log form defaulted to tomorrow's.
 function today() {
-  return isoDate(new Date());
+  return businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
 }
 
 // Client mirror of backend _compute_pay_period (staff.py) — used ONLY to
@@ -501,7 +504,17 @@ export default function StaffHoursPage() {
   // Sub-tabs — the page now opens on the ANSWER (Oversigt), not the logging
   // form. Same three destinations on every viewport (desktop parity); the
   // logging block + the accountant detail are one tap away, never the landing.
-  const [subTab, setSubTab] = useState("overview"); // "overview" | "log" | "details"
+  // The sub-tab lives in the URL (?view=), so a reload, a back-button or a
+  // link from the schedule's clocked-in strip lands on the same view.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const SUB_IDS = ["overview", "log", "details"];
+  const subTab = SUB_IDS.includes(searchParams.get("view")) ? searchParams.get("view") : "overview";
+  const setSubTab = (id) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("view", id);
+    next.delete("resolve");
+    setSearchParams(next, { replace: true });
+  };
   const subTabs = [
     { id: "overview", label: t("hovTabOverview", "Overview") },
     { id: "log", label: t("hovTabLog", "Log") },
@@ -1408,8 +1421,30 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const [endTime, setEndTime] = useState("");
+  // Prefilled with the planned end — most forgotten clock-outs ended on time.
+  const [endTime, setEndTime] = useState(exception?.scheduled_end || "");
   const [longConfirm, setLongConfirm] = useState(false);
+  // What the chosen end time makes, before saving: start → end, the DK break
+  // the save will deduct (45 min from 6 h, the same rule as the punch clock),
+  // and the paid hours. The deduction used to happen silently.
+  const preview = (() => {
+    const st = exception?.start_time;
+    if (!st || !endTime) return null;
+    const [sh, sm] = st.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    if (![sh, sm, eh, em].every(Number.isFinite)) return null;
+    let mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) mins += 24 * 60;
+    const gross = mins / 60;
+    const pause = gross >= 6 ? 45 : 0;
+    return { gross, pause, paid: Math.max(0, gross - pause / 60) };
+  })();
+  // Esc closes, as every other sheet does.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
   const send = async (action, total) => {
     setBusy(true); setErr("");
     try {
@@ -1429,7 +1464,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
           // Over 16 h is usually a typo (16:30 for a 17:00 start wraps to
           // 23,5 t and pays it). Ask once; the next tap confirms.
           setLongConfirm(true);
-          setErr(t("shpResolveLongShift", "That makes {h} hours — check the time. Tap again to confirm.", { h: String(d.hours).replace(".", ",") }));
+          setErr(t("shpResolveLongShiftCheck", "That makes {h} hours — check the time.", { h: String(d.hours).replace(".", ",") }));
           setBusy(false);
           return;
         }
@@ -1467,14 +1502,28 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
               <label className="sr-only" htmlFor="resolve-end">{t("shpResolveEndLabel", "Clock-out time")}</label>
               <input
                 id="resolve-end" type="time" value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
+                // A new time is a new question: the "tap again" confirmation
+                // must not carry over to it (16:30 → 16:45 saved 23 t unasked).
+                onChange={(e) => { setEndTime(e.target.value); setLongConfirm(false); setErr(""); }}
                 className="w-32 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none"
               />
-              <Button className="flex-1" disabled={busy || !endTime} onClick={() => send("clock_out")}>
+              <Button className="flex-1" disabled={busy || !endTime || longConfirm} onClick={() => send("clock_out")}>
                 {t("shpResolveSaveOut", "Save clock-out")}
               </Button>
             </div>
+            {preview && (
+              <p className="text-[13px] text-gray-600 dark:text-gray-300 tabular-nums">
+                {exception.start_time}–{endTime} = {fmtHours(preview.gross, lang)}
+                {preview.pause > 0 && <> − {t("shpResolvePause", "{m} min break", { m: preview.pause })}</>}
+                {" = "}<strong className="text-gray-900 dark:text-gray-100">{fmtHours(preview.paid, lang)}</strong>
+              </p>
+            )}
             {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+            {longConfirm && (
+              <Button variant="secondary" className="w-full" disabled={busy} onClick={() => send("clock_out")}>
+                {t("shpResolveLongYes", "Yes, {h} is right", { h: preview ? fmtHours(preview.gross, lang) : endTime })}
+              </Button>
+            )}
           </div>
         ) : null}
 
@@ -1571,6 +1620,20 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // for, and dropping them would hide the shift that needs an answer.
   const rows = useMemo(() => orderForPaying(summary), [summary]);
   const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
+  // ?resolve=<staff_id> (the schedule's "no clock-out" chip) opens that
+  // person's answer sheet once the rows are here.
+  const [resolveParams, setResolveParams] = useSearchParams();
+  const resolveId = resolveParams.get("resolve");
+  useEffect(() => {
+    if (!resolveId || !rows.length) return;
+    const row = rows.find((r) => String(r.staff_id) === resolveId);
+    const ex = row && firstException(row);
+    if (ex) setResolving({ staffId: row.staff_id, staffName: row.staff_name, exception: ex });
+    const next = new URLSearchParams(resolveParams);
+    next.delete("resolve");
+    setResolveParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolveId, rows]);
   // Same server field the rows read, so the chip and the rows can never
   // disagree about how many shifts are unanswered.
   const needsAnswer = (summary || []).reduce(

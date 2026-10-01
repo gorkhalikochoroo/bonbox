@@ -203,7 +203,7 @@ export default function DataTable({
               }
             >
               {a.icon}
-              {withText && <span>{a.label}</span>}
+              {withText && <span className="whitespace-nowrap">{a.label}</span>}
             </button>
           );
         })}

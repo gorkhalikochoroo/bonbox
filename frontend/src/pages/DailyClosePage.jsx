@@ -890,10 +890,13 @@ export default function DailyClosePage() {
         ariaLabel={t("dcTabsAriaLabel", "Daily close view")}
       />
 
-      <div ref={closeWizardRef}>
+      {/* The wizard reads as a form, not a spreadsheet: number boxes ran
+          958px wide on desktop. History keeps the full width. */}
+      <div ref={closeWizardRef} className={tab === "close" ? "max-w-2xl" : ""}>
         {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
           manualRequest={manualRequest}
           heroScanFiles={heroScanFiles}
+          onHeroConsumed={() => setHeroScanFiles(null)}
           presetDate={wantDate}
           editDraft={editDraft}
           onEditConsumed={() => setEditDraft(null)}
@@ -1015,7 +1018,7 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
 
-function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory }) {
+function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -1305,23 +1308,28 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // field — and the draft autosave then re-saved the close WITHOUT it.
     const rev = {};
     const pay = {};
+    // Saved keys meet the built-in fields case-insensitively: a draft stored
+    // as "Food"/"Drinks" opened six revenue boxes — English ones beside empty
+    // Mad/Drikkevarer.
+    const canonRev = (k) => (revCats.find((c) => c.key.toLowerCase() === String(k).toLowerCase())?.key) || k;
+    const canonPay = (k) => (payMethods.find((m) => m.key.toLowerCase() === String(k).toLowerCase())?.key) || k;
     if (dc.revenue_breakdown) {
-      Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[k] = asInput(v); });
+      Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[canonRev(k)] = asInput(v); });
       setRevAmounts(rev);
       setRevCats((prev) => {
         const have = new Set(prev.map((c) => c.key));
-        const extra = Object.keys(dc.revenue_breakdown)
+        const extra = Object.keys(rev)
           .filter((k) => !have.has(k))
           .map((k) => ({ key: k, label: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "), icon: "Tag" }));
         return extra.length ? [...prev, ...extra] : prev;
       });
     }
     if (dc.payment_breakdown) {
-      Object.entries(dc.payment_breakdown).forEach(([k, v]) => { pay[k] = asInput(v); });
+      Object.entries(dc.payment_breakdown).forEach(([k, v]) => { pay[canonPay(k)] = asInput(v); });
       setPayAmounts(pay);
       setPayMethods((prev) => {
         const have = new Set(prev.map((c) => c.key));
-        const extra = Object.keys(dc.payment_breakdown)
+        const extra = Object.keys(pay)
           .filter((k) => !have.has(k))
           .map((k) => ({ key: k, label: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "), icon: "Wallet" }));
         return extra.length ? [...prev, ...extra] : prev;
@@ -1355,6 +1363,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     setScanMode("skipped");
     setStep(1);
     onEditConsumed?.();
+    // Rediger / Fortsæt / a link that names the day: the loaded form sat
+    // below the fold and nothing moved.
+    setTimeout(() => document.getElementById("close-date")?.scrollIntoView?.({ behavior: "smooth", block: "center" }), 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editDraft]);
 
@@ -1512,10 +1523,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   };
 
   // A photo taken from the page's hero button runs through this same scan.
+  // Consumed once: the page clears it at once, or every return to this tab
+  // re-scanned the same photo — over a draft opened with Rediger.
   const heroHandledRef = useRef(null);
   useEffect(() => {
     if (!heroScanFiles || heroHandledRef.current === heroScanFiles) return;
     heroHandledRef.current = heroScanFiles;
+    onHeroConsumed?.();
+    if (editingDate) return;
     (async () => { for (const f of heroScanFiles.files) await handleFileSelect(f); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heroScanFiles]);
@@ -1745,12 +1760,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const newRev = {};
     revCats.forEach(c => { if (r[c.key]) newRev[c.key] = String(r[c.key]); });
     Object.entries(r).forEach(([k, v]) => { if (v && !newRev[k]) newRev[k] = String(v); });
-    setRevAmounts(prev => ({ ...prev, ...newRev }));
+    // The scan's figures replace the previous scan's outright: merging kept a
+    // first photo's Drikkevarer/Kontant/MobilePay under a re-scan that read
+    // only Mad and Kort (22.060 paid against a 17.030 Z-bon).
+    setRevAmounts(newRev);
     // Fill payments — match against current template methods + extras
     const newPay = {};
     payMethods.forEach(m => { if (p[m.key]) newPay[m.key] = String(p[m.key]); });
     Object.entries(p).forEach(([k, v]) => { if (v && !newPay[k]) newPay[k] = String(v); });
-    setPayAmounts(prev => ({ ...prev, ...newPay }));
+    setPayAmounts(newPay);
     // Fill tips (only for types that have tips). Z-reports often show
     // tips as negative (paid out) — keep the sign for accountant clarity.
     if (config.hasTips && scanResult.tips) setTipsTotal(String(scanResult.tips));
@@ -1979,10 +1997,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // (the backend saves exactly that), else the category sum. MOMS followed
   // the category sum — a close corrected from 16.540 to 16.450 kept the
   // 16.540 MOMS.
+  // Mirrors the server exactly: the owner's typed total, else the larger of
+  // the category sum and the scanned total. A partly read Z-bon (Mad 10.000,
+  // total 17.030) saved 17.030 while MOMS and the day check ran on 10.000.
   const savedRevenue = useMemo(() => {
     const owner = Number(scanResult?.revenue_total);
-    return scanResult?.revenue_total_text && owner > 0 ? owner : revenueTotal;
-  }, [scanResult, revenueTotal]);
+    if (scanResult?.revenue_total_text && owner > 0) return owner;
+    const scanned = scanResult ? (headlineTotal(scanResult, mLocale) || 0) : 0;
+    return scanned > revenueTotal ? scanned : revenueTotal;
+  }, [scanResult, revenueTotal, mLocale]);
   const tieOut = useMemo(() => {
     if (!hasRevenueEntry || !hasPaymentEntry) return { state: "unknown", diff: null };
     const diff = savedRevenue - paymentTotal;
@@ -2026,7 +2049,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const scanPayComplete = scanLinesAddUp(scanResult?.payments, defaultPayMethods);
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
     && Number.isFinite(readMoney(tipsTotal))
-    ? Math.round(readMoney(tipsTotal) / parseInt(staffCount)) : null;
+    ? Math.round((readMoney(tipsTotal) * 100) / parseInt(staffCount)) / 100 : null;
 
   // ─── Tax-exempt awareness ──────────────────────────────────────────
   // Today's MOMS calc used to roll ALL revenue into the taxable base,
@@ -2172,12 +2195,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Only the sentence changes, to name where the number actually came from.
   const momsSource = useMemo(() => {
     if (momsMode === "manual") return "manual";
-    const scannedMoms = (scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+    const scannedMoms = ((scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+      || scanResult?.revenue_total_text)
       ? null
       : scanResult?.moms_total;
     return scannedMoms ? "scanned" : "computed";
   }, [momsMode, scanResult]);
-  const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
+  const revenueExMoms = useMemo(() => Math.round((savedRevenue - momsTotal) * 100) / 100, [savedRevenue, momsTotal]);
 
   const addCustomRevCat = () => {
     if (!customRevName.trim()) return;
@@ -2752,7 +2776,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
             {!pendingScan && renderMergeSummary({ withUndo: true })}
             {/* "Same terminal" replaced the figures — as undoable as a sum. */}
-            {!pendingScan && mergeUndo && !scanResult?.merge_info && (
+            {!pendingScan && mergeUndo && scanResult?.merge_info?.mode === MERGE_REPLACE && (
               <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3">
                 <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
                   <Icon name="RefreshCw" size={15} />
@@ -3582,7 +3606,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {currentStepId === "tips" && t("stepNTips", "Step {n} — Tips", { n: step })}
             {currentStepId === "review" && t("stepNReview", "Step {n} — Review & Submit", { n: step })}
           </h2>
-          <span className="text-[13px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">{step}/{totalSteps}</span>
+          <span className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0">{step}/{totalSteps}</span>
         </div>
 
         {/* ─── STEP: Revenue ─── */}
@@ -3694,7 +3718,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 da-DK grouping, a whispered "kr." token, and Amount's honest "—"
                 until the owner has actually typed something. */}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex items-baseline justify-between gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("total", "Total")}</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("total", "Total")}</span>
               <Amount
                 value={hasRevenueEntry ? revenueTotal : null}
                 currency={currency}
@@ -3719,7 +3743,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             ))}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("paymentTotal")}</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("paymentTotal")}</span>
                 <Amount
                   value={hasPaymentEntry ? paymentTotal : null}
                   currency={currency}
@@ -3730,8 +3754,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
               <div className="flex justify-between items-baseline gap-3 mt-1.5">
                 <span className="text-[12px] text-gray-500 dark:text-gray-400">{t("revenueTotal")}</span>
+                {/* The total that will be SAVED — the verdict below compares
+                    against it, so the line it explains must show it too. */}
                 <span className="text-[13px] text-gray-600 dark:text-gray-300">
-                  <Amount value={hasRevenueEntry ? revenueTotal : null} currency={currency} decimals={oreIfAny(revenueTotal)} />
+                  <Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={oreIfAny(savedRevenue)} />
                 </span>
               </div>
               {/* Same verdict object the review card renders, so the two
@@ -3823,8 +3849,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
                 {/* Was text-emerald-600 dark:text-gray-300 — the accent drained
                     to grey in dark. It is a LABEL, so it is neutral in both. */}
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("perPerson")}</p>
-                <Amount value={tipsPP} currency={currency} decimals={GLANCE_DECIMALS} size="kpi" className="mt-1 text-gray-900 dark:text-white" />
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("perPerson")}</p>
+                <Amount value={tipsPP} currency={currency} decimals={oreIfAny(tipsPP)} size="kpi" className="mt-1 text-gray-900 dark:text-white" />
               </div>
             )}
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-[12px] text-amber-700 dark:text-amber-300">
@@ -3860,7 +3886,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
               ))}
               <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
-                <span>{t("total")}</span><span><Amount value={hasRevenueEntry ? revenueTotal : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                <span>{t("total")}</span><span><Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
               </div>
             </div>
 
@@ -3904,7 +3930,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 )}
                 <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 py-0.5 tabular-nums">
                   <span>{t("revenueMedMoms", "Revenue (med moms)")}</span>
-                  <span><Amount value={revenueTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span><Amount value={savedRevenue} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 {/* Salg uden moms i dag — exempt rows the owner already
                     flagged via Quick Sale MOMS-fri or the Sales page.
@@ -3989,7 +4015,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <span>{t("totalExpenses")}</span><span><Amount value={-prefill.expenses.total} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 mt-1 text-gray-900 dark:text-gray-100 tabular-nums">
-                  <span>{t("dcSalesMinusExpenses", "Sales minus expenses")}</span><span><Amount value={hasRevenueEntry ? revenueTotal - prefill.expenses.total : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span>{t("dcSalesMinusExpenses", "Sales minus expenses")}</span><span><Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue - prefill.expenses.total : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               </div>
             )}
@@ -4222,7 +4248,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       not an amount. This close writes a ledger row and prints
                       a kasserapport, so it does not go out on a figure nobody
                       could read — the offending field says so in place. */}
-                  <Button variant="primary" size="lg" onClick={() => handleSubmit()} disabled={saving || willSave === 0 || moneyRejected}>
+                  {/* Not while the day's existing draft/lock question is open —
+                      locking then would replace that draft unasked. */}
+                  <Button variant="primary" size="lg" onClick={() => handleSubmit()} disabled={saving || willSave === 0 || moneyRejected || existingBlocks}>
                     {saving ? (
                       t("savingEllipsis", "Saving…")
                     ) : !isOnline ? (
@@ -4270,7 +4298,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     </strong>
                     {usingOverride && (
                       <span className="ml-1 text-amber-700 dark:text-amber-400">
-                        {t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
+                        {ownerSet
+                          // The owner typed this total — "from the receipt" was untrue.
+                          ? t("dcSavesYourTotal", "(your corrected total — the categories add up to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })
+                          : t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
                       </span>
                     )}
                   </p>

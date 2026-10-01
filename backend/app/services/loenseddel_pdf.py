@@ -43,6 +43,7 @@ from app.utils.document_hash import (
 )
 from app.utils.time import utc_now
 from app.services.bonbox_pdf_kit import escape_pdf_text
+from app.services.pay_labels import contract_da, role_da
 
 
 # Danish month names matching tax_filing_pdf.py — keep visual consistency.
@@ -645,10 +646,10 @@ def _build_story(
     ]
     role = getattr(employee, "role", None)
     if role:
-        employee_lines.append(f"<font color='#6b7280'>Rolle: {escape_pdf_text(role)}</font>")
+        employee_lines.append(f"<font color='#6b7280'>Rolle: {escape_pdf_text(role_da(role))}</font>")
     contract = getattr(employee, "contract_type", None)
     if contract:
-        employee_lines.append(f"<font color='#6b7280'>Kontrakt: {escape_pdf_text(contract)}</font>")
+        employee_lines.append(f"<font color='#6b7280'>Ansættelse: {escape_pdf_text(contract_da(contract))}</font>")
     employee_lines.append(
         f"<font color='#6b7280'>Trækkort: {escape_pdf_text(data['tax_card_type'])}</font>"
     )
@@ -688,19 +689,19 @@ def _build_story(
         body_rows = [header_row]
         for ln in data["lines"]:
             body_rows.append([
-                Paragraph(ln["date"].isoformat(), val_small),
+                Paragraph(ln["date"].strftime("%d.%m.%Y"), val_small),
                 Paragraph(ln["start_time"] or "—", val_small),
                 Paragraph(ln["end_time"] or "—", val_small),
-                Paragraph(f"{ln['hours']:.2f}", val_small_r),
+                Paragraph(f"{ln['hours']:.2f}".replace(".", ","), val_small_r),
                 Paragraph(_money_dk(ln["rate"]), val_small_r),
                 Paragraph(_money_dk(ln["line_total"]), val_small_r),
             ])
         # Totals row
         body_rows.append([
-            Paragraph("<b>Total</b>", val_small),
+            Paragraph("<b>I alt</b>", val_small),
             Paragraph("", val_small),
             Paragraph("", val_small),
-            Paragraph(f"<b>{data['total_hours']:.2f}</b>", val_small_r),
+            Paragraph(f"<b>{data['total_hours']:.2f}</b>".replace(".", ","), val_small_r),
             Paragraph("", val_small_r),
             Paragraph(f"<b>{_money_dk(data['total_gross'])}</b>", val_small_r),
         ])
@@ -801,7 +802,7 @@ def _build_story(
         [Paragraph("Antal arbejdsdage", val),
          Paragraph(f"{len(data['lines'])}", val_r)],
         [Paragraph("Sum arbejdstimer", val),
-         Paragraph(f"{data['total_hours']:.2f}", val_r)],
+         Paragraph(f"{data['total_hours']:.2f}".replace(".", ","), val_r)],
         [Paragraph("Sum bruttoløn (= Bruttoløn i sektion B)", val_b),
          Paragraph(_money_dk(data["total_gross"]), val_br)],
         [Paragraph("Periode", val),
@@ -818,7 +819,11 @@ def _build_story(
     story.append(td)
 
     # ─── Section E — Signering (Signature line) ───────────────────
-    story.append(Spacer(1, 8 * mm))
+    # Signature, footer and disclaimer travel as one block: they used to spill
+    # onto a page of their own, so five payslips printed as ten pages.
+    from reportlab.platypus import KeepTogether
+    _tail_start = len(story)
+    story.append(Spacer(1, 5 * mm))
     story.append(Paragraph("E · SIGNERING", section_title))
     sign_rows = [
         [Paragraph("Underskrift, medarbejder: ____________________________________",
@@ -836,7 +841,7 @@ def _build_story(
     story.append(ts)
 
     # ─── Footer + Bogføringsloven §10 notice ──────────────────────
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 3 * mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
                             spaceBefore=2, spaceAfter=4))
     footer_text = (
@@ -855,4 +860,7 @@ def _build_story(
         f"<font color='#94a3b8' size='7'><i>{disclaimer_text}</i></font>",
         foot,
     ))
+    tail = story[_tail_start:]
+    del story[_tail_start:]
+    story.append(KeepTogether(tail))
     return story

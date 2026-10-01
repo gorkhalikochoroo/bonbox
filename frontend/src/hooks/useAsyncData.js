@@ -60,6 +60,14 @@ export function useAsyncData(fetcher, deps = [], options = {}) {
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
+  // Which deps the current `data` was loaded for. A reload of the SAME deps
+  // (after a save) is a refresh, not a first load — pages that swap content
+  // for a skeleton on `loading` remounted their children on every save.
+  const depsKey = JSON.stringify(deps);
+  const depsKeyRef = useRef(depsKey);
+  depsKeyRef.current = depsKey;
+  const [loadedKey, setLoadedKey] = useState(null);
+
   // Guards a late response from a superseded request overwriting a newer one —
   // the owner clicks through three weeks fast and the slowest reply wins.
   const runIdRef = useRef(0);
@@ -74,6 +82,7 @@ export function useAsyncData(fetcher, deps = [], options = {}) {
       const res = await fetcherRef.current();
       if (runId !== runIdRef.current) return;
       setData(res && typeof res === "object" && "data" in res ? res.data : res);
+      setLoadedKey(depsKeyRef.current);
     } catch (e) {
       if (runId !== runIdRef.current) return;
       // `data` is deliberately NOT cleared. Stale-but-true beats blank, and
@@ -105,6 +114,8 @@ export function useAsyncData(fetcher, deps = [], options = {}) {
     error,
     /** Re-run. Pass straight to a Try again button. */
     reload: load,
+    /** Loading again for deps that already have data (a refresh after a save). */
+    refreshing: loading && loadedKey === depsKey,
     /** True only when the request genuinely came back with nothing. */
     isEmpty: !loading && !failed && (data == null || (Array.isArray(data) && data.length === 0)),
     /** Let a page write its own copy while keeping the same three states. */

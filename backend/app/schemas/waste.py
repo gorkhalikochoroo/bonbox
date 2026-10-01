@@ -35,6 +35,9 @@ class WasteLogResponse(BaseModel):
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
     created_at: datetime.datetime | None = None
+    # Set when the waste came off a stock line (and will go back on delete).
+    inventory_item_id: uuid.UUID | None = None
+    stock_deducted: float | None = None
 
     model_config = {"from_attributes": True}
 

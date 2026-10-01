@@ -95,8 +95,11 @@ describe("the difference is stated on the review card", () => {
 
 describe("the tie-out never blocks the lock", () => {
   it("the lock's disabled expression is still the original three gates", () => {
+    // Plus one that is not about the numbers: an open "this day already has
+    // a draft" question (existingBlocks) — locking then replaced the draft
+    // unasked. The tie-out is still not a gate.
     expect(CODE).toMatch(
-      /disabled=\{saving \|\| willSave === 0 \|\| moneyRejected\}/,
+      /disabled=\{saving \|\| willSave === 0 \|\| moneyRejected \|\| existingBlocks\}/,
     );
   });
 

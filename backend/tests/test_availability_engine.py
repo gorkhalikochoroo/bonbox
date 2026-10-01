@@ -47,8 +47,10 @@ def test_turn_time_scales_with_party_size():
     assert turn_time_minutes(3, c) == 105
     assert turn_time_minutes(4, c) == 105
     assert turn_time_minutes(6, c) == 120
-    # Bigger than the largest tier → default.
-    assert turn_time_minutes(10, c) == 90
+    # Bigger than the largest tier → at least the largest tier's time: a
+    # 12-top was held 90 min while an 8-top got 120, and its table resold.
+    assert turn_time_minutes(10, c) == 120
+    assert turn_time_minutes(12, c) == 120
 
 
 # ── empty day ──────────────────────────────────────────────────────────

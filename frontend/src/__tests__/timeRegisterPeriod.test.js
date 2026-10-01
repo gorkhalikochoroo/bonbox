@@ -138,7 +138,9 @@ describe("colour marks an exception, never a value", () => {
     // red whenever `totals` was empty — on first paint, before any request,
     // and again if the request failed. Both are "we have not checked", and
     // neither is a breach.
-    expect(PAGE).toMatch(/measured && totals\.all_compliant === false\s*\n?\s*\? "critical"/);
+    // …and not while the period is still running and the only "No" is staff
+    // with no time yet (notYetOnly).
+    expect(PAGE).toMatch(/measured && totals\.all_compliant === false && !notYetOnly\s*\n?\s*\? "critical"/);
     expect(CODE).not.toMatch(/accent=\{totals\.all_compliant \? "success" : "critical"\}/);
   });
 

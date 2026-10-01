@@ -20,6 +20,10 @@ class WasteLog(Base):
     unit: Mapped[str] = mapped_column(String(20), default="kg")
     estimated_cost: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     reason: Mapped[str] = mapped_column(String(50), default="expired")  # expired, overcooked, damaged, other
+    # The stock item this waste came off and how much was taken. Without them a
+    # deleted waste row could never give its stock back (Migration 080).
+    inventory_item_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    stock_deducted: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

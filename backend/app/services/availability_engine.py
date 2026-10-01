@@ -115,18 +115,28 @@ class AvailabilityConfig:
 
 def turn_time_minutes(party_size: int, config: AvailabilityConfig) -> int:
     """Turn-time for a party. Smallest tier whose `up_to` covers the party
-    wins; otherwise the default."""
+    wins. A party bigger than every tier sits at least as long as the largest
+    tier — it fell back to the 90-minute default, so a 12-top was held for
+    less time than an 8-top and its table resold at 20:30. With no tiers at
+    all, the default."""
     best: int | None = None
     best_up_to: int | None = None
+    largest: tuple[int, int] | None = None  # (up_to, minutes) of the top tier
     for tier in sorted(config.turn_time_tiers, key=lambda t: t.get("up_to", 0)):
         up_to = tier.get("up_to")
         minutes = tier.get("minutes")
         if up_to is None or minutes is None:
             continue
+        if largest is None or up_to >= largest[0]:
+            largest = (up_to, minutes)
         if party_size <= up_to:
             if best_up_to is None or up_to < best_up_to:
                 best, best_up_to = minutes, up_to
-    return int(best) if best is not None else int(config.default_duration_min)
+    if best is not None:
+        return int(best)
+    if largest is not None:
+        return max(int(largest[1]), int(config.default_duration_min))
+    return int(config.default_duration_min)
 
 
 def _overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:

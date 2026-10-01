@@ -1670,6 +1670,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
   const clock = useClock(token);
   const clockedIn = !!clock.st?.clocked_in;
+  const confirmPunch = useConfirm();
 
   // Local UI state: which week-strip is shown + which day is expanded.
   const [weekView, setWeekView] = useState("this"); // 'this' | 'next'
@@ -1828,6 +1829,28 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Clock-in is time-locked until the owner's window opens (server-authoritative
   // via clock.st.locked/opens_at). Only meaningful before a punch.
   const clockLocked = !!(clock?.st?.locked) && !clock?.st?.clocked_in;
+  // "Stempl ind" is the main button only when a shift is close (starts within
+  // 2 hours, or is running). It was the hero action on a shift 18 days away
+  // and punched in on one tap.
+  const shiftSoon = (() => {
+    if (!nextShift?.date || !nextShift?.start_time) return false;
+    const start = new Date(`${nextShift.date}T${nextShift.start_time}:00`);
+    const end = nextShift.end_time ? new Date(`${nextShift.date}T${nextShift.end_time}:00`) : null;
+    if (end && end <= start) end.setDate(end.getDate() + 1);
+    const now = Date.now();
+    return start.getTime() - now <= 2 * 3600 * 1000 && (!end || end.getTime() > now);
+  })();
+  const clockInNow = async () => {
+    if (!shiftSoon) {
+      const ok = await confirmPunch({
+        title: t("portalPunchNoShiftTitle", "No shift right now — clock in anyway?"),
+        message: t("portalPunchNoShiftBody", "Your hours start counting now and your manager sees an unplanned shift."),
+        confirmLabel: t("portalClockInCta"),
+      });
+      if (!ok) return;
+    }
+    clock.act("in");
+  };
   // A shift's length — a duration, so it goes through the one formatter. It
   // used to take its HOUR unit from t("portalHrsCompact") and type its MINUTE
   // unit inline: a hybrid that read "6t 15m" in Danish (glued, wrong minute
@@ -2072,8 +2095,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     <button
                       type="button"
                       disabled={clock.busy || clockLocked}
-                      onClick={() => clock.act("in")}
-                      className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl bg-white text-gray-900 text-sm font-semibold shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                      onClick={clockInNow}
+                      className={"flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl text-sm font-semibold active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900 " + (shiftSoon
+                        ? "bg-white text-gray-900 shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100"
+                        : "bg-white/10 ring-1 ring-white/15 text-gray-100 hover:bg-white/20")}
                     >
                       {clockLocked && <Lock className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />}
                       {t("portalClockInCta")}

@@ -3,11 +3,12 @@
 // lets the owner scan each employee's status, drill into a daily register,
 // and download the inspection-ready CSV. Starter+ (gated server-side; we
 // render an upgrade card on a 402).
+import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
-import { dateLocale } from "../utils/dateFormat";
+import { dateLocale, businessTodayIso } from "../utils/dateFormat";
 import { useLanguage } from "../hooks/useLanguage";
 // This page printed "6.8 t" — a Danish unit wearing an English decimal, on an
 // English screen — because it typed the unit itself instead of asking
@@ -77,7 +78,8 @@ export function stepCursor(mode, cursor, dir) {
 // person in sixteen has a rest issue, that single amber edge is the whole
 // point of the screen.
 const STATUS = {
-  ok:   { dot: "bg-green-500", text: "text-green-700 dark:text-green-400", key: "tregOk",     fb: "Compliant",           rail: "" },
+  // emerald, not green-*: index.css maps green to the brand blue.
+  ok:   { dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400", key: "tregOk",     fb: "Compliant",           rail: "" },
   warn: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", key: "tregWarn",   fb: "Rest issue",          rail: "border-l-2 border-amber-400 dark:border-amber-500" },
   over: { dot: "bg-red-500",   text: "text-red-700 dark:text-red-400",     key: "tregOver",   fb: "Over weekly cap",     rail: "border-l-2 border-red-500 dark:border-red-500" },
   gap:  { dot: "bg-gray-300",  text: "text-gray-500",                       key: "tregGap",    fb: "No time registered",  rail: "" },
@@ -93,7 +95,10 @@ function fmtDay(iso) {
 
 export default function TimeRegistrationPage() {
   const { t, lang } = useLanguage();
-  const [cursor, setCursor] = useState(() => new Date());
+  // The business day's month: at 01:07 on the 1st the night being worked is
+  // still September's, and the register opened on an empty October with a red
+  // "Nej" for every staffer.
+  const [cursor, setCursor] = useState(() => new Date(`${businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   // The third outcome. `loading` and `data` alone could not tell "the request
@@ -273,6 +278,12 @@ export default function TimeRegistrationPage() {
   // in flight and false if it failed — the compliance tiles below key off this
   // rather than off the shape of an empty object.
   const measured = !loading && !failed && data != null;
+  // Is the period on screen still running (the business day's month)?
+  const _bizNow = new Date(`${businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`);
+  const periodOpen = cursor.getFullYear() === _bizNow.getFullYear() && cursor.getMonth() === _bizNow.getMonth();
+  // "No" only because some staff have no time yet — not a breach while open.
+  const notYetOnly = periodOpen && measured && totals.all_compliant === false
+    && !((totals.with_rest_violations ?? 0) > 0) && !((totals.over_weekly_cap ?? 0) > 0);
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto page-enter space-y-4">
@@ -281,8 +292,8 @@ export default function TimeRegistrationPage() {
         title={t("tregTitle", "Time tracking")}
         subtitle={t("tregSubtitle", "Lovpligtig arbejdstidsregistrering — klar til Arbejdstilsynet")}
         actions={
-          <Button variant="secondary" onClick={downloadCsv} disabled={downloading || !staff.length}>
-            <Icon name="Download" size={15} strokeWidth={1.75} className="mr-1.5" />
+          <Button variant="secondary" onClick={downloadCsv} disabled={downloading || !staff.length}
+            iconLeft={<Icon name="Download" size={15} strokeWidth={1.75} />}>
             {downloading ? t("downloading", "Downloading…") : t("tregDownload", "Download register")}
           </Button>
         }
@@ -414,12 +425,14 @@ export default function TimeRegistrationPage() {
             // null from the server means "no employees in this period, so
             // there is nothing to be compliant ABOUT" — a third answer, not a
             // No. Python's all([]) used to make that an emerald Yes.
+            // In a period still running, staff with no time YET are not a
+            // breach: on the 1st every staffer read red "Nej".
             measured && totals.all_compliant != null
-              ? (totals.all_compliant ? t("yes", "Yes") : t("no", "No"))
+              ? (totals.all_compliant ? t("yes", "Yes") : notYetOnly ? t("tregNotYet", "Not yet") : t("no", "No"))
               : "—"
           }
           accent={
-            measured && totals.all_compliant === false
+            measured && totals.all_compliant === false && !notYetOnly
               ? "critical"
               : measured && totals.all_compliant === true
                 ? "success"
@@ -502,7 +515,9 @@ export default function TimeRegistrationPage() {
                     {!reg ? (
                       <p className="text-xs text-gray-400">{t("loading", "Loading…")}</p>
                     ) : !reg.length ? (
-                      <p className="text-xs text-amber-600 dark:text-amber-400">{t("tregNoneForStaff", "No time registered for this employee this period — not compliant. They must clock in or you must log their hours.")}</p>
+                      periodOpen
+                        ? <p className="text-xs text-gray-500 dark:text-gray-400">{t("tregNoneYet", "No time registered yet this period.")}</p>
+                        : <p className="text-xs text-amber-600 dark:text-amber-400">{t("tregNoneForStaff", "No time registered for this employee this period — not compliant. They must clock in or you must log their hours.")}</p>
                     ) : (
                       <table className="w-full text-xs">
                         <thead>
@@ -535,7 +550,7 @@ export default function TimeRegistrationPage() {
                       <div className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
                         {detail[s.staff_id].rest_violations.map((v, i) => (
                           <div key={i}>
-                            ⚠ {fmtDay(v.after_date)} → {fmtDay(v.next_date)}: {formatHoursMinutes(v.rest_hours, { lang })} {t("tregRestGap", "rest")} ({formatHoursMinutes(v.shortfall_hours, { lang })} {t("tregShort", "short")})
+                            <Icon name="AlertTriangle" size={12} className="inline align-text-bottom mr-1" />{fmtDay(v.after_date)} → {fmtDay(v.next_date)}: {formatHoursMinutes(v.rest_hours, { lang })} {t("tregRestGap", "rest")} ({formatHoursMinutes(v.shortfall_hours, { lang })} {t("tregShort", "short")})
                           </div>
                         ))}
                       </div>

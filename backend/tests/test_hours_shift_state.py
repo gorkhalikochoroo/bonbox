@@ -276,3 +276,28 @@ def test_period_totals_are_unchanged(client, db):
     assert row["scheduled_hours"] == 8.0
     assert row["actual_hours"] == 6.5
     assert row["total_hours"] == 6.5           # legacy key
+
+
+def test_an_opener_clocking_in_after_midnight_is_live_not_stale(client, db, monkeypatch):
+    """A 00:34 clock-in is filed under the BUSINESS day (yesterday, 06:00
+    cutoff). The live strip read it as yesterday 00:34 — "24 h open, missing
+    clock-out" — the moment the opener punched in."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import app.routers.staff as staff_mod
+
+    o = _owner(db)
+    o.business_type = "restaurant"
+    db.commit()
+    m = _staff(db, o)
+    db.add(HoursLogged(user_id=o.id, staff_id=m.id, date=date(2026, 9, 30),
+                       start_time="00:34", end_time=None, break_minutes=0,
+                       total_hours=0, entry_method="clock"))
+    db.commit()
+    monkeypatch.setattr(staff_mod, "now_local",
+                        lambda u: datetime(2026, 10, 1, 0, 40, tzinfo=ZoneInfo("Europe/Copenhagen")))
+    r = client.get("/api/staff/clocked-in")
+    assert r.status_code == 200, r.text
+    row = next(x for x in r.json()["clocked_in"] if x["staff_id"] == str(m.id))
+    assert row["elapsed_min"] == 6
+    assert row["stale"] is False

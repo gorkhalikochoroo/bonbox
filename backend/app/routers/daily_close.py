@@ -970,27 +970,49 @@ def create_daily_close(
 
     tips_per_person = None
     if data.tips_total and data.tips_staff_count and data.tips_staff_count > 0:
-        tips_per_person = round(data.tips_total / data.tips_staff_count, 2)
+        # Half-up to the øre, the same rule the page shows: Python's round()
+        # is half-even (342,50 / 4 → 85,62) while the review said 85,63.
+        from decimal import Decimal, ROUND_HALF_UP
+        tips_per_person = float(
+            (Decimal(str(data.tips_total)) / Decimal(int(data.tips_staff_count)))
+            .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
 
     # MOMS / VAT — use provided value or auto-calculate using the user's
     # currency rate AND their prices-include-Moms preference.
     # Previously hardcoded 25% which gave wrong MOMS for any non-DK user
     # (NPR 13%, GBP 20%, EUR 21%, etc.) and ignored B2B net-amount mode.
     moms_mode = data.moms_mode or "auto"
-    if data.moms_total is not None:
-        moms_total = round(data.moms_total, 2)
+    try:
+        from app.services.tax_service import _get_vat_rate
+        vat_rate = _get_vat_rate(user.currency or "DKK")
+    except Exception:  # noqa: BLE001
+        vat_rate = 0.25  # safe DK fallback if tax service load fails
+    # Per-close override beats user-level default (e.g. "this Z-report
+    # is gross because the user picked 'with MOMS' before scanning").
+    if data.prices_include_moms_override is not None:
+        prices_incl_moms = bool(data.prices_include_moms_override)
     else:
-        try:
-            from app.services.tax_service import _get_vat_rate
-            vat_rate = _get_vat_rate(user.currency or "DKK")
-        except Exception:  # noqa: BLE001
-            vat_rate = 0.25  # safe DK fallback if tax service load fails
-        # Per-close override beats user-level default (e.g. "this Z-report
-        # is gross because the user picked 'with MOMS' before scanning").
-        if data.prices_include_moms_override is not None:
-            prices_incl_moms = bool(data.prices_include_moms_override)
-        else:
-            prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
+        prices_incl_moms = bool(getattr(user, "prices_include_moms", True))
+
+    def _moms_of(amount: float) -> float:
+        return round(amount * vat_rate / (1 + vat_rate), 2) if prices_incl_moms else round(amount * vat_rate, 2)
+
+    sent_moms = data.moms_total
+    # A partly read Z-bon: the scanned total (17.030) won the revenue over
+    # the category sum (10.000), but the page's AUTO MOMS was worked out from
+    # the sum — 2.000 saved where 3.406 is owed. An auto figure that equals
+    # the sum's MOMS while the saved revenue is not the sum is stale: it is
+    # recomputed from what is saved. A scanned or manual MOMS is kept.
+    if (
+        sent_moms is not None and moms_mode == "auto" and vat_rate > 0
+        and breakdown_sum > 0 and abs(revenue_total - breakdown_sum) > 0.5
+        and abs(float(sent_moms) - _moms_of(breakdown_sum)) < 0.02
+    ):
+        sent_moms = None
+    if sent_moms is not None:
+        moms_total = round(sent_moms, 2)
+    else:
         # `!= 0`, not `> 0`. A net-negative correction day carries NEGATIVE
         # salgsmoms — that is what gets filed. The old `> 0` guard silently
         # wrote moms_total = 0 next to a non-zero revenue, which is what made

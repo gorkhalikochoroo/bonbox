@@ -381,7 +381,10 @@ function weeklyHoursFor(memberId, weekDates, getShiftsForCell) {
     change is the space — "38 t", not "38t"; a unit glued to a digit reads as
     part of the number. */
 function formatTimer(h, lang) {
-  return formatHours(h, { lang, decimals: 1 });
+  // Two decimals, trailing zeros trimmed — the same precision as the shift
+  // cells. Rows at one decimal read 5,3 t beside a 5,25 t shift, and the
+  // week total of 11,5 t matched neither.
+  return formatHours(h, { lang, decimals: 2 });
 }
 
 /** Per-shift / per-day hours: keeps 2-decimal precision (an 07:00–15:20 shift is
@@ -726,7 +729,9 @@ function ClockedInStrip() {
           // It goes where it can be fixed instead of ticking up forever.
           <RouterLink
             key={r.staff_id}
-            to="/staff/hours"
+            // Straight to that person's answer sheet — it landed on Oversigt,
+            // where nothing matched the chip.
+            to={`/staff/hours?view=details&resolve=${r.staff_id}`}
             className="inline-flex items-center gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-sm hover:bg-amber-100 dark:hover:bg-amber-900/40"
           >
             <span className="font-medium truncate max-w-[10rem]">{r.name}</span>
@@ -1279,7 +1284,10 @@ export default function StaffSchedulePage() {
   // Two words, kept apart everywhere below: `loading` means we are still
   // asking, `loadFailed` means we asked and got nothing back. The old page had
   // only the first, so the second fell through to the empty state.
-  const loading = staffQ.loading || shiftsQ.loading;
+  // Only the FIRST load swaps the grid for a skeleton. Every save reloads
+  // the queries; treating that as loading remounted the phone day view on its
+  // default day — the owner saved Monday and landed on Thursday.
+  const loading = (staffQ.loading && !staffQ.refreshing) || (shiftsQ.loading && !shiftsQ.refreshing);
   const loadFailed = staffQ.failed || shiftsQ.failed;
 
   // The layers painted ON TOP of the week (cost, hours load, forecast,
@@ -2414,7 +2422,10 @@ export default function StaffSchedulePage() {
 
   /* ─── Render ─── */
   return (
-    <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto space-y-6">
+    // Phone: the shifts come right under the week toolbar. Forecast, staff
+    // management, legend and templates follow the day view (order-1) — the
+    // first shift sat about two screens down.
+    <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto space-y-6 max-md:flex max-md:flex-col max-md:space-y-0 max-md:gap-4">
       <PageHeader
         title={t("staffSchedule", "Staff Schedule")}
         subtitle={t("staffScheduleDesc", "Plan weekly shifts, manage staff, and track labor costs.")}
@@ -2638,7 +2649,11 @@ export default function StaffSchedulePage() {
                     ? t("somethingWentWrong")
                     : draftCount > 0
                       ? t("schedPublishWeekTitle", "Publish week")
-                      : t("schedAllPublishedTitle", "All shifts published")}
+                      // An empty week's button says "Ingen vagter"; its name
+                      // must not claim every shift is published.
+                      : shifts.length === 0
+                        ? t("schedNoShiftsTitle", "No shifts this week")
+                        : t("schedAllPublishedTitle", "All shifts published")}
               >
                 {publishing ? (
                   "…"
@@ -2794,7 +2809,7 @@ export default function StaffSchedulePage() {
           by default. Sits between the week toolbar and the grid so the
           owner can glance at next week's weather + recommended headcount
           while planning, without it dominating the page. */}
-      <FadeIn delay={0.07}>
+      <FadeIn delay={0.07} className="max-md:order-1">
         <ScheduleForecastPanel />
       </FadeIn>
 
@@ -2863,7 +2878,7 @@ export default function StaffSchedulePage() {
 
 
       {/* Manage Staff collapsible */}
-      <FadeIn delay={0.1}>
+      <FadeIn delay={0.1} className="max-md:order-1">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
           <button
             onClick={() => {
@@ -2911,7 +2926,7 @@ export default function StaffSchedulePage() {
           The old "FRI / Ingen vagt" gray dot is gone: it matched nothing on the
           grid. An empty cell is SILENT — no dot was ever drawn in it — so the
           legend was teaching a mark that does not exist. */}
-      <FadeIn delay={0.12}>
+      <FadeIn delay={0.12} className="max-md:order-1">
         <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-gray-500 dark:text-gray-400">
           <span className="font-medium">{t("schedLegendStatus", "Status:")}</span>
           <span className="flex items-center gap-1.5">
@@ -2948,7 +2963,7 @@ export default function StaffSchedulePage() {
           Hidden while the week is unknown: the cells they arm are not on
           screen, so the tray would be a control with nowhere to land. */}
       {!loading && !loadFailed && activeStaff.length > 0 && (
-        <FadeIn delay={0.13}>
+        <FadeIn delay={0.13} className="max-md:order-1">
           <ShiftTemplatesTray
             templates={shiftTemplates}
             armedId={armedTemplateId}
@@ -2959,6 +2974,46 @@ export default function StaffSchedulePage() {
           />
         </FadeIn>
       )}
+
+      {/* Hour and rest problems, in words, above the grid. They lived in a
+          hover tooltip on the hours chip — a phone owner never saw "only 8 t
+          rest" until the publish dialog. */}
+      {!loading && (() => {
+        const dayShort = (iso) => {
+          try {
+            return new Date(`${iso}T12:00:00`).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { weekday: "short", day: "numeric", month: "short" });
+          } catch { return iso; }
+        };
+        const issues = (weekLoad?.staff || []).flatMap((e) => {
+          const out = [];
+          const hrs = (n) => formatHours(n, { lang });
+          if (e.over_dk48) out.push(t("shieldWarnDk48", "{name}: {hours} — over the 48h weekly ceiling").replace("{name}", e.name).replace("{hours}", hrs(e.hours)));
+          else if (e.over_cap) out.push(t("shieldWarnCap", "{name}: {hours} — over the contract cap of {cap}/week").replace("{name}", e.name).replace("{hours}", hrs(e.hours)).replace("{cap}", hrs(e.cap)));
+          if (e.over_month) out.push(t("shieldWarnMonth", "{name}: {hours} in {period} — over the monthly limit of {cap}").replace("{name}", e.name).replace("{hours}", hrs(e.month_hours)).replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{cap}", hrs(e.month_cap)));
+          for (const r of e.rest_warnings || []) {
+            out.push(t("schedWarnRestDay", "{name}: only {gap} rest between {from} and {to} (11h rule)")
+              .replace("{name}", e.name).replace("{gap}", hrs(r.gap_hours))
+              .replace("{from}", dayShort(r.prev_date)).replace("{to}", dayShort(r.next_date)));
+          }
+          return out;
+        });
+        if (!issues.length) return null;
+        return (
+          <div role="status" className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3">
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-800 dark:text-amber-300">
+              <Icon name="AlertTriangle" size={14} /> {t("schedWarnStripTitle", "This week breaks a rule")}
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {issues.slice(0, 5).map((line, i) => (
+                <li key={i} className="text-[13px] text-amber-800 dark:text-amber-300 leading-snug">{line}</li>
+              ))}
+            </ul>
+            {issues.length > 5 && (
+              <p className="mt-1 text-[12px] text-amber-700 dark:text-amber-400">+{issues.length - 5} {t("shieldWarnMore", "more — see the hour chips on the grid")}</p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Schedule Grid.
           The order is the whole fix, and it only works in this order:
@@ -3435,15 +3490,22 @@ export default function StaffSchedulePage() {
       )}
 
       {shareSheet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShareSheet(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg max-w-md w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShareSheet(false)}
+          // Esc closes it, like every other dialog.
+          onKeyDown={(e) => { if (e.key === "Escape") setShareSheet(false); }}>
+          <div role="dialog" aria-modal="true" aria-label={t("shareScheduleTitle", "Share this week's schedule")} tabIndex={-1}
+            ref={(el) => { if (el && !el.contains(document.activeElement)) el.focus(); }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg max-w-md w-full max-h-[85vh] flex flex-col outline-none" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="p-5 pb-3 border-b border-gray-100 dark:border-gray-700">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-gray-900 dark:text-white">
                   {t("shareScheduleTitle", "Share this week's schedule")}
                 </h3>
-                <button onClick={() => setShareSheet(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">×</button>
+                <button type="button" onClick={() => setShareSheet(false)} aria-label={t("close", "Close")}
+                  className="h-9 w-9 -mr-2 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700">
+                  <Icon name="X" size={18} />
+                </button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {t("shareScheduleSub", "Pick who to share with. The link needs no account — staff just open it.")}
@@ -3700,6 +3762,17 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
   const dayCount = suggestion.days.length;
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 sm:p-6 space-y-3 sm:space-y-4">
+      {totalRevenue <= 0 && (
+        // Seven empty day cards and "Forventet: 0 kr." read as a forecast of
+        // nothing. Say what the plan is built on instead, and where the
+        // missing basis comes from.
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-[13px] text-gray-700 dark:text-gray-300">
+          {t("autopilotNoSales", "There's no sales history yet, so this plan follows your opening hours and staff — not expected takings. After a couple of weeks of closed days it plans from your real sales.")}{" "}
+          <RouterLink to="/daily-close" className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2">
+            {t("autopilotNoSalesCta", "Close the day")}
+          </RouterLink>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
@@ -3727,7 +3800,8 @@ function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, lang }) {
             <span>
               {t("autopilotPredicted", "Predicted")}:{" "}
               <strong className="text-gray-900 dark:text-white">
-                {formatKr(totalRevenue, { decimals: 0 })}
+                {/* No sales history is no forecast — not a forecast of 0 kr. */}
+                {totalRevenue > 0 ? formatKr(totalRevenue, { decimals: 0 }) : "—"}
               </strong>
             </span>
             <span>

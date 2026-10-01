@@ -1,6 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { Clock, Users, SlidersHorizontal } from "lucide-react";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
@@ -8,7 +9,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
-import { formatDate, localIso, localDaysAgo, dateLocale } from "../utils/dateFormat";
+import { formatDate, localIso, localDaysAgo, dateLocale, businessTodayIso } from "../utils/dateFormat";
 import { formatHoursMinutes, formatHoursNumber } from "../utils/hours";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
 import { PageHeader, TabPills, Icon } from "../components/ui";
@@ -96,8 +97,9 @@ function getRoleShare(role) {
   return ROLE_SHARES[role.toLowerCase()] ?? 1.0;
 }
 
+// The business day, as on Timer: at 01:00 tonight's hours are on yesterday.
 function today() {
-  return localIso();
+  return businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -140,7 +142,7 @@ export default function StaffTipsPage() {
   }, []);
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <PageHeader
         title={t("tips", "Tips")}
         subtitle={t("tipsDesc", "Distribute tips fairly \u2014 by hours, role, or custom split")}
@@ -291,12 +293,12 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
     [staffHours]
   );
 
+  // A role split counts who WORKED — or, with no hours logged that day,
+  // everyone on the list. It gave everyone 0 % on a day without hours, while
+  // the banner told the owner to switch to exactly this split.
   const totalRoleWeight = useMemo(
-    () => staffHours.reduce((sum, s) => {
-      const hrs = parseFloat(s.hours) || 0;
-      return sum + (hrs > 0 ? getRoleShare(s.role) : 0);
-    }, 0),
-    [staffHours]
+    () => staffHours.reduce((sum, s) => sum + ((totalHours === 0 || (parseFloat(s.hours) || 0) > 0) ? getRoleShare(s.role) : 0), 0),
+    [staffHours, totalHours]
   );
 
   const totalCustomPercent = useMemo(
@@ -324,7 +326,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         pct = totalHours > 0 ? (hours / totalHours) * 100 : 0;
         share = totalHours > 0 ? (hours / totalHours) * amount : 0;
       } else if (splitMethod === "role") {
-        const weight = hours > 0 ? getRoleShare(s.role) : 0;
+        const weight = (totalHours === 0 || hours > 0) ? getRoleShare(s.role) : 0;
         pct = totalRoleWeight > 0 ? (weight / totalRoleWeight) * 100 : 0;
         share = totalRoleWeight > 0 ? (weight / totalRoleWeight) * amount : 0;
       } else if (splitMethod === "custom") {
@@ -620,7 +622,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
         {splitMethod === "hours" && totalHours === 0 && staffHours.length > 0 && (
           <div className="mx-5 mb-4 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-700 dark:text-amber-300">
-            {"\u26A0\uFE0F"} {t("stNoHoursBanner", "No hours logged for {date}. Enter hours manually above, or switch to Role or Custom split.").replace("{date}", date)}
+            <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("stNoHoursBanner", "No hours logged for {date}. Enter hours manually above, or switch to Role or Custom split.").replace("{date}", date)}
           </div>
         )}
       </div>

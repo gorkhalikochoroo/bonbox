@@ -369,12 +369,23 @@ class StaffHoursForTip(BaseModel):
     hours: float
 
 
+class TipShareIn(BaseModel):
+    """One person's share as the owner saw it in the preview."""
+    staff_id: uuid.UUID
+    amount: float
+    percentage: float | None = None
+
+
 class TipCreate(BaseModel):
     date: datetime.date
     total_amount: float
     split_method: str = "by_hours"
     notes: str | None = None
     staff_hours: list[StaffHoursForTip] = []
+    # The split the owner previewed and confirmed. When it checks out (on the
+    # roster, no negatives, sums to the total) it is what gets stored — the
+    # server used to ignore it and re-split, equally, whatever was chosen.
+    distribution: list[TipShareIn] = []
 
 
 class TipDistributionResponse(BaseModel):

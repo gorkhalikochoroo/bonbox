@@ -40,7 +40,8 @@ const CODE = SOURCE
 
 describe("a disabled Confirm & Lock explains itself", () => {
   it("the three gates are unchanged — this adds words, not permission", () => {
-    expect(CODE).toMatch(/disabled=\{saving \|\| willSave === 0 \|\| moneyRejected\}/);
+    // existingBlocks: the open draft question, explained by its own banner.
+    expect(CODE).toMatch(/disabled=\{saving \|\| willSave === 0 \|\| moneyRejected \|\| existingBlocks\}/);
   });
 
   it("a sentence renders whenever the button is dead for a reason the owner can fix", () => {

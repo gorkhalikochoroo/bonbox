@@ -81,7 +81,7 @@ describe("the floor plan on a phone", () => {
     );
 
     // The measurement ran: it knows the room overflows and says so.
-    expect(screen.getByText(/Swipe to see the rest of the room/i)).toBeTruthy();
+    expect(screen.getByText(/(Swipe|Scroll sideways) to see the rest of the room/i)).toBeTruthy();
   });
 
   it("keeps the room 1:1 rather than scaling it down to fit", () => {
@@ -100,7 +100,7 @@ describe("the floor plan on a phone", () => {
   it("says nothing when the whole room already fits", () => {
     stubLayout({ client: 900, scroll: 900 });
     render(<FloorPlan cells={[cell("a", "Bord 1", 2)]} nowMs={Date.now()} t={t} />);
-    expect(screen.queryByText(/Swipe to see the rest/i)).toBeNull();
+    expect(screen.queryByText(/(Swipe|Scroll sideways) to see the rest/i)).toBeNull();
   });
 
   it("shows the empty state rather than an empty room when there are no tables", () => {

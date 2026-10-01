@@ -2553,6 +2553,14 @@ _migrations = [
     "ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_user_id_fkey",
     "ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_actor_id_fkey",
     "ALTER TABLE security_events DROP CONSTRAINT IF EXISTS security_events_user_id_fkey",
+    # ── Migration 080 (2026-10-01): waste_logs remembers its stock ─────────
+    # Logging waste against a stock item lowered the stock, but the row kept
+    # no link to the item — so deleting, restoring or editing the waste could
+    # never give the stock back. Two nullable columns; old rows stay NULL and
+    # simply have nothing to reverse. Additive, no backfill, no lock beyond
+    # the brief ADD COLUMN.
+    "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS inventory_item_id UUID",
+    "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS stock_deducted NUMERIC(12,3)",
 ]
 
 
@@ -3167,6 +3175,9 @@ def _run_migrations():
             ok += _add("business_profiles", "public_address", "TEXT")
             # Mirror of Migration 074 — the acknowledgement fingerprint.
             ok += _add("schedules", "confirmed_for", "VARCHAR(64)")
+            # Mirror of Migration 080 — waste rows remember their stock.
+            ok += _add("waste_logs", "inventory_item_id", "VARCHAR(36)")
+            ok += _add("waste_logs", "stock_deducted", "NUMERIC(12,3)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

@@ -633,6 +633,10 @@ def record_expiry_action(
                 # "Wasted" chip must file the waste on the same business day
                 # the service's revenue lands on. See routers/waste.py.
                 date=business_today_local(user),
+                # Remember what came off the shelf so deleting this waste
+                # row gives it back (routers/waste.py).
+                inventory_item_id=item.id,
+                stock_deducted=qty,
             )
             db.add(_wl)
             db.flush()

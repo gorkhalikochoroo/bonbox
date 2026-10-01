@@ -31,6 +31,11 @@ export const CONTRACT_TYPES = [
   { value: "part", labelKey: "contractPart", fallback: "Part-time" },
   { value: "student", labelKey: "contractStudent", fallback: "Student" },
   { value: "freelance", labelKey: "contractFreelance", fallback: "Freelance" },
+  // Stored by the staff portal and older rows; without them "hourly" showed
+  // raw in the Danish UI.
+  { value: "hourly", labelKey: "contractHourly", fallback: "Hourly" },
+  { value: "trainee", labelKey: "contractTrainee", fallback: "Trainee" },
+  { value: "intern", labelKey: "contractIntern", fallback: "Intern" },
 ];
 
 /** contract_type → localized label. Returns "" for a missing value so callers

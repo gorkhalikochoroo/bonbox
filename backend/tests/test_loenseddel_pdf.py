@@ -376,9 +376,10 @@ def test_pdf_includes_one_row_per_hours_logged(db_session):
     # ARBEJDSTIMER section header is the DK label.
     assert "ARBEJDSTIMER" in text
     # Each date string must be present.
-    assert "2026-05-05" in text
-    assert "2026-05-12" in text
-    assert "2026-05-19" in text
+    # Danish dates, as the revisor reads them (were ISO).
+    assert "05.05.2026" in text
+    assert "12.05.2026" in text
+    assert "19.05.2026" in text
 
 
 # ─── Determinism (doc_hash stable for same input) ────────────────────
