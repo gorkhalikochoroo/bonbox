@@ -7,10 +7,11 @@
 // is the same colour on all three.
 const ZONE_RINGS = [
   "border-violet-500",
-  "border-pink-500",
   "border-stone-500",
   "border-fuchsia-400",
   "border-slate-400",
+  // Pink last: next to the red of "over time" it was the closest call.
+  "border-pink-500",
 ];
 
 export function zoneTones(rows, getId = (r) => r.id, getZone = (r) => r.zone) {

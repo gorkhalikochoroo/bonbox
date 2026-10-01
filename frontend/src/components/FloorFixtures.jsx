@@ -149,7 +149,7 @@ function Fixture({ f, t, editing, selected, onPointerDownDrag, onTap }) {
         />
         {/* left-2 clears the door leaf: at left-0 the 2px line sat on the
             first letter and a thin one vanished ("INDGANG" read "NDGANG") */}
-        <span className="absolute -top-3.5 left-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 select-none whitespace-nowrap">
+        <span className="absolute -top-3.5 left-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400 select-none whitespace-nowrap">
           {name}
         </span>
       </div>

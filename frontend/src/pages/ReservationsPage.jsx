@@ -1158,6 +1158,8 @@ function ReservationDrawer({
     // panel as before, pixel-identical. Scroll lock + Esc come with the Sheet.
     <Sheet
       onClose={onClose}
+      // A name for screen readers: the booking it shows.
+      ariaLabel={`${r.guest_name || t("rsvpGuest", "Guest")} · ${fmtTime(r.starts_at)}`}
       desktop="right"
       panelClassName={
         "bg-white dark:bg-[rgb(var(--surface-raised))] shadow-2xl border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-[rgb(var(--surface-line-strong))] transition-shadow duration-700 " +
@@ -1338,6 +1340,7 @@ function ReservationDrawer({
                   {r.resource_id ? t("rsvpColTable", "Table") : t("rsvpAssignTable", "Assign table")}
                 </label>
                 <select
+                  id="rsvp-drawer-table"
                   value={r.resource_id ? String(r.resource_id) : ""}
                   disabled={busy || assignBusy}
                   onChange={(e) => onAssign(r, e.target.value || null)}
@@ -2100,6 +2103,34 @@ function NewBookingSheet({
     const b = behandlinger.find((x) => String(x.id) === String(bid));
     return Number(b?.duration_min) || 0;
   };
+  // The chosen day's holds, so a table already booked at the chosen time says
+  // so in the list — the host found out only after "Opret reservation".
+  const [dayRows, setDayRows] = useState([]);
+  useEffect(() => {
+    if (isProvider || !date) return undefined;
+    let live = true;
+    api.get("/reservations/book", { params: { day: date } })
+      .then((res) => { if (live) setDayRows(res?.data?.reservations || []); })
+      .catch(() => { if (live) setDayRows([]); });
+    return () => { live = false; };
+  }, [date, isProvider]);
+  const tableTaken = useMemo(() => {
+    const out = {};
+    if (isProvider || !time || !date) return out;
+    const a0 = new Date(`${date}T${time}:00`).getTime();
+    const a1 = a0 + (lengthFor(party, behandlingId) || 90) * 60000;
+    for (const x of dayRows) {
+      if (!["requested", "confirmed", "seated"].includes(x.status) || !x.starts_at) continue;
+      const b0 = new Date(x.starts_at).getTime();
+      const b1 = x.ends_at ? new Date(x.ends_at).getTime() : b0 + 90 * 60000;
+      if (!(b0 < a1 && a0 < b1)) continue;
+      const ids = Array.isArray(x.combined_resource_ids) && x.combined_resource_ids.length
+        ? x.combined_resource_ids : x.resource_id ? [x.resource_id] : [];
+      ids.forEach((id) => { if (!out[String(id)]) out[String(id)] = x.starts_at; });
+    }
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayRows, date, time, party, behandlingId, isProvider]);
   const sitting = lengthFor(party, behandlingId);
   const dayTimes = openTimesFor(date, openHours, sitting);
   // A longer booking can push the chosen start past closing: move it to the
@@ -2396,13 +2427,30 @@ function NewBookingSheet({
               className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               <option value="">{t("rsvpBookingTableAuto", "Auto")}</option>
-              {[...tables].sort(byTableLabel).map((tb) => (
-                <option key={tb.id} value={String(tb.id)}>
-                  {tb.label}
-                  {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
-                </option>
-              ))}
+              {[...tables].sort(byTableLabel).map((tb) => {
+                const takenAt = tableTaken[String(tb.id)];
+                const small = tb.capacity_seats && (parseInt(party, 10) || 0) > tb.capacity_seats;
+                return (
+                  <option key={tb.id} value={String(tb.id)} disabled={!!takenAt && String(tb.id) !== resourceId}>
+                    {tb.label}
+                    {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
+                    {takenAt
+                      ? ` · ${t("rsvpTableOptBooked", "booked {time}", { time: fmtTime(takenAt) })}`
+                      : small ? ` · ${t("rsvpTableOptSmall", "too small")}` : ""}
+                  </option>
+                );
+              })}
             </select>
+            {/* The pinned table got taken by a time change: say it here, not
+                after Opret. */}
+            {resourceId && tableTaken[resourceId] && (
+              <p className="mt-1.5 text-[12px] text-gray-700 dark:text-gray-300">
+                ⚠ {t("rsvpTablePickedTaken", "{table} is booked at {time} — pick another table, or Auto.", {
+                  table: (tables.find((tb) => String(tb.id) === resourceId) || {}).label || t("rsvpTableFallback", "Table"),
+                  time: fmtTime(tableTaken[resourceId]),
+                })}
+              </p>
+            )}
           </div>
         )}
 
@@ -4252,6 +4300,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       cancelLabel: t("rsvpPickAnotherTable", "Another table"),
     });
   };
+  // "Andet bord": open the booking with its table picker in focus — focus
+  // used to land on "Sæt til bords" again.
+  const openOnTables = (r) => {
+    openDrawer(r);
+    setTimeout(() => {
+      const el = document.getElementById("rsvp-drawer-table");
+      if (el) { el.scrollIntoView?.({ block: "center" }); el.focus({ preventScroll: true }); }
+    }, 150);
+  };
   const setStatus = async (r, status, onProceed = null, opts = {}) => {
     let finishFirst = opts.finishFirst || null;
     if (!finishFirst && status === "seated" && r.status !== "seated") {
@@ -4266,7 +4323,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           overMin: overdueMinutes(occ, Date.now()),
           endsAt: occ.ends_at,
         }, r.guest_name);
-        if (!ok) { openDrawer(r); return; }
+        if (!ok) { openOnTables(r); return; }
         finishFirst = { id: occ.id, name: occ.guest_name };
       }
     }
@@ -4423,10 +4480,30 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // The server could not do the obvious thing — say so, never silently.
       const kept = resp?.data?.early_kept;
       if (kept) {
+        // A late party keeps its booked window when the table is needed
+        // soon: "keeps 15.00" said nothing useful at 17.12.
+        const wasLate = r.starts_at && new Date(r.starts_at).getTime() < Date.now();
         toast({
           severity: "notice",
-          message: t("rsvpSeatEarlyKept", "{table} is needed at {time}, so the booking keeps {booked}. Give them another table in the booking.", {
-            table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), booked: fmtTime(r.starts_at),
+          message: wasLate
+            ? t("rsvpSeatLateKept", "{table} is needed at {time} — {name} has it until then.", {
+                table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), name: r.guest_name || t("rsvpGuest", "Guest"),
+              })
+            : t("rsvpSeatEarlyKept", "{table} is needed at {time}, so the booking keeps {booked}. Give them another table in the booking.", {
+                table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), booked: fmtTime(r.starts_at),
+              }),
+        });
+      }
+      // Seated early or late, the sitting now runs from now — said, not a
+      // booking that silently moved from 18.00 to 17.07.
+      const movedFrom = resp?.data?.moved_from;
+      if (movedFrom && status === "seated" && !finishFirst) {
+        toast({
+          severity: "info",
+          message: t("rsvpSeatedMovedFrom", "{name} is seated — the table is theirs until {end} (booked {booked}).", {
+            name: r.guest_name || t("rsvpGuest", "Guest"),
+            end: fmtTime(resp.data.ends_at),
+            booked: fmtTime(movedFrom),
           }),
         });
       }
@@ -4446,7 +4523,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "success",
           message: tbl
-            ? t("rsvpFinishedDone", "{name} finished — {table} is free.", { name: doneName, table: tbl })
+            ? (Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1
+              ? t("rsvpFinishedDoneMany", "{name} finished — {table} are free.", { name: doneName, table: tbl })
+              : t("rsvpFinishedDone", "{name} finished — {table} is free.", { name: doneName, table: tbl }))
             : t("rsvpFinishedDoneNoTable", "{name} finished.", { name: doneName }),
         });
       } else if (status === "cancelled") {
@@ -4505,7 +4584,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         }, r.guest_name);
         setActioningId(null);
         if (ok) await setStatus(r, status, null, { finishFirst: { id: d.occupant.id, name: d.occupant.name }, retried: true });
-        else openDrawer(r);
+        else openOnTables(r);
         return;
       }
       setError(
@@ -5188,6 +5267,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           (r.guest_name || "").toLowerCase().includes(needle) ||
           (digits.length >= 3 && String(r.guest_phone || "").replace(/\D/g, "").includes(digits)),
       );
+      // A search shows cancelled rows too — after the live ones, each group
+      // in time order. Three live bookings sat buried among forty "Aflyst".
+      const dead = (r) => (r.status === "cancelled" || r.status === "no_show" ? 1 : 0);
+      out = [...out].sort((a, b) => dead(a) - dead(b));
     }
     return out;
   }, [reservations, statusFilter, zoneFilter, noteTypeFilter, q, resources, showCancelled]);

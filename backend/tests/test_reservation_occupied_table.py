@@ -36,6 +36,7 @@ from app.main import app, _db_ready
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
+from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.tz_utils import business_day_window_local, business_today_local, now_local
@@ -139,12 +140,21 @@ def _status(client, rid, status):
 
 
 def _overdue_two_top(client, db):
-    """Test Overdue seated 14.00-style on Bord 1, running 30 min over; Test
-    Late booked on Bord 1 from Overdue's end."""
+    """Test Overdue sat down on time on Bord 1 two hours ago and is still
+    there, 30 min past its end; Test Late is booked on Bord 1 from that end.
+    (Seated on time, then the clock moves on — seating a two-hour-old booking
+    now gives it its sitting from now, which is not a party running over.)"""
     u, (two, four) = _venue(db)
     start = _earlier_today(u, 120)
-    a = _book(client, two, start, "Test Overdue")
+    now = now_local(u).replace(tzinfo=None, second=0, microsecond=0)
+    a = _book(client, two, now, "Test Overdue")
     assert _status(client, a["id"], "seated").status_code == 200
+    db.expire_all()
+    row = db.query(Reservation).filter(Reservation.id == uuid.UUID(a["id"])).one()
+    row.starts_at, row.ends_at = start, start + timedelta(minutes=90)
+    for o in db.query(ReservationOccupancy).filter(ReservationOccupancy.reservation_id == row.id).all():
+        o.starts_at, o.ends_at = row.starts_at, row.ends_at
+    db.commit()
     b = _book(client, two, start + timedelta(minutes=90), "Test Late")
     return u, two, four, a, b
 
@@ -231,3 +241,43 @@ def test_gem_alligevel_on_a_too_big_party_says_what_was_kept(client, db):
     assert out["party_size"] == 9 and out["resource_id"] == str(four.id)
     assert out["kept"] == {"table": "Bord 2", "seats": 4, "party": 9}
     assert "moved" not in out
+
+
+def test_a_chosen_table_already_held_then_is_refused_on_any_database(client, db):
+    # Postgres has an exclusion constraint; SQLite (dev, tests) has only this
+    # check — a reviewer booked Bord 3 twice at 18.00 on the local build.
+    u, (two, four) = _venue(db)
+    later = (now_local(u).replace(tzinfo=None, second=0, microsecond=0) + timedelta(days=2)).replace(hour=18, minute=0)
+    _book(client, four, later, "Test Stor")
+    res = client.post("/api/reservations/book", json={
+        "guest_name": "Test Clash", "party_size": 2, "source": "manual",
+        "starts_at": later.isoformat(), "resource_id": str(four.id),
+    })
+    assert res.status_code == 409, res.text
+    assert res.json()["detail"]["error"] == "slot_unavailable"
+    # Back to back is not a clash.
+    ok = client.post("/api/reservations/book", json={
+        "guest_name": "Test Efter", "party_size": 2, "source": "manual",
+        "starts_at": (later + timedelta(minutes=90)).isoformat(), "resource_id": str(four.id),
+    })
+    assert ok.status_code in (200, 201), ok.text
+
+
+def test_a_party_seated_long_after_its_time_gets_its_sitting_from_now(client, db):
+    u, (two, four) = _venue(db)
+    booked = _earlier_today(u, 130)  # booked 15.00-style, sitting 90 → ended 40 min ago
+    b = _book(client, four, booked, "Test Sen")
+    res = _status(client, b["id"], "seated")
+    assert res.status_code == 200, res.text
+    out = res.json()
+    now = now_local(u).replace(tzinfo=None, second=0, microsecond=0)
+    from datetime import datetime
+    starts = datetime.fromisoformat(out["starts_at"])
+    ends = datetime.fromisoformat(out["ends_at"])
+    assert abs((starts - now).total_seconds()) <= 120
+    assert ends - starts == timedelta(minutes=90)
+    assert datetime.fromisoformat(out["moved_from"]) == booked
+    # Undo gives the booked time back.
+    back = _status(client, b["id"], "confirmed")
+    assert back.status_code == 200, back.text
+    assert datetime.fromisoformat(back.json()["starts_at"]) == booked

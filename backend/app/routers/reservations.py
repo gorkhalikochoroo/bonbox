@@ -1947,6 +1947,22 @@ def create_manual(payload: ManualReservation, request: Request,
         # NOT silently re-pick a different table (the owner chose THIS one);
         # if it's already occupied for the slot the DB exclusion constraint
         # rejects the insert and we surface a clean 409 slot_unavailable.
+        # The same check in the app, as assign_table has: the exclusion
+        # constraint exists on Postgres only, so on SQLite (dev, tests) a
+        # chosen table already held at that time was booked a second time.
+        clash = (
+            db.query(ReservationOccupancy.id)
+            .filter(
+                ReservationOccupancy.user_id == user.id,
+                ReservationOccupancy.resource_id == payload.resource_id,
+                ReservationOccupancy.active.is_(True),
+                ReservationOccupancy.starts_at < payload.starts_at + timedelta(minutes=duration),
+                ReservationOccupancy.ends_at > payload.starts_at,
+            )
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
         try:
             occ_service.create_reservation_with_occupancy(
                 db, profile=profile, reservation=r,
@@ -2533,7 +2549,10 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         _lo, _hi = business_day_window_local(user, business_today_local(user))
         if prev_status in ("requested", "confirmed") and r.starts_at and _lo <= r.starts_at < _hi:
             now_l = now_local(user).replace(tzinfo=None, second=0, microsecond=0)
-            if r.starts_at - now_l > timedelta(minutes=15):
+            # Seated well AFTER the booked start: the sitting runs from now
+            # too. A party booked 15.00 and seated 17.12 showed "Overtid
+            # +42 min" the moment it sat down.
+            if abs(r.starts_at - now_l) > timedelta(minutes=15):
                 new_end = now_l + timedelta(minutes=int(r.duration_min or 90))
                 held = [UUID(str(x)) for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
                 others = (
@@ -2669,6 +2688,10 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                                prev_status=prev_status)
 
     out = _reservation_dict(r)
+    if early_from is not None:
+        # The booked time the seating moved away from — the app says so; a
+        # booking moving from 18.00 to 17.07 without a word looked like a bug.
+        out["moved_from"] = early_from.isoformat()
     if early_kept:
         out["early_kept"] = early_kept
     if restore_blocked:

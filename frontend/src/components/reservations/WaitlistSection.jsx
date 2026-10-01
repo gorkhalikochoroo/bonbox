@@ -82,6 +82,7 @@ export default function WaitlistSection({
 
   const [busyId, setBusyId] = useState(null);
   const [adding, setAdding] = useState(false);
+  const addBtnRef = useRef(null);
   const [form, setForm] = useState({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
   const [addErr, setAddErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -305,7 +306,10 @@ export default function WaitlistSection({
       setBookFor(entry.id);
       const { times, known, closed } = timesFor(entry);
       const want = defaultBookTime();
-      setBookTime(!known || closed ? want : times.find((q) => q >= want) || times[times.length - 1] || want);
+      // Today: the first time still ahead (at 17.15 it offered 18.00 while
+      // 17.15 was free) — another day keeps the evening default.
+      const today = day === businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
+      setBookTime(!known || closed ? want : (today ? times[0] : times.find((q) => q >= want)) || times[times.length - 1] || want);
       return;
     }
     setBusyId(entry.id);
@@ -393,6 +397,7 @@ export default function WaitlistSection({
           </Button>
         ) : (
           <Button
+            ref={addBtnRef}
             variant="secondary"
             size="sm"
             iconLeft={<Plus className="w-4 h-4" />}
@@ -431,13 +436,17 @@ export default function WaitlistSection({
             setAdding(false);
             setAddErr("");
             setForm({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
+            // Back to "Tilføj" — focus fell to the page.
+            setTimeout(() => addBtnRef.current?.focus(), 0);
           }}
           className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 space-y-2"
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input className={inputCls} placeholder={t("rsvpWlName", "Name")} value={form.guest_name}
+              autoFocus aria-label={t("rsvpWlName", "Name")}
               onChange={(e) => setForm((f) => ({ ...f, guest_name: e.target.value }))} />
             <input className={inputCls} inputMode="tel" placeholder={t("rsvpWlPhoneReq", "Phone (required)")} value={form.guest_phone}
+              aria-label={t("rsvpWlPhoneReq", "Phone (required)")}
               required aria-required="true"
               onChange={(e) => setForm((f) => ({ ...f, guest_phone: e.target.value }))} />
           </div>
@@ -586,7 +595,7 @@ export default function WaitlistSection({
                       className="mt-2 flex flex-wrap items-center gap-2"
                       onKeyDown={(ev) => { if (ev.key === "Escape") { ev.stopPropagation(); setBookFor(null); } }}
                     >
-                      <select value={bookTime} onChange={(ev) => setBookTime(ev.target.value)}
+                      <select value={bookTime} onChange={(ev) => setBookTime(ev.target.value)} autoFocus
                         className={inputCls + " max-w-[8rem] tabular-nums"} aria-label={t("rsvpColTime", "Time")}>
                         {list.map((q) => <option key={q} value={q}>{hm(q)}</option>)}
                       </select>
