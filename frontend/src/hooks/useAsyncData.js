@@ -50,6 +50,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  */
 export function useAsyncData(fetcher, deps = [], options = {}) {
   const { initial = null, enabled = true } = options;
+  const initialRef = useRef(initial);
   const [data, setData] = useState(initial);
   const [loading, setLoading] = useState(enabled);
   const [failed, setFailed] = useState(false);
@@ -67,6 +68,7 @@ export function useAsyncData(fetcher, deps = [], options = {}) {
   const depsKeyRef = useRef(depsKey);
   depsKeyRef.current = depsKey;
   const [loadedKey, setLoadedKey] = useState(null);
+  const loadedKeyRef = useRef(null);
 
   // Guards a late response from a superseded request overwriting a newer one —
   // the owner clicks through three weeks fast and the slowest reply wins.
@@ -82,11 +84,19 @@ export function useAsyncData(fetcher, deps = [], options = {}) {
       const res = await fetcherRef.current();
       if (runId !== runIdRef.current) return;
       setData(res && typeof res === "object" && "data" in res ? res.data : res);
+      loadedKeyRef.current = depsKeyRef.current;
       setLoadedKey(depsKeyRef.current);
     } catch (e) {
       if (runId !== runIdRef.current) return;
-      // `data` is deliberately NOT cleared. Stale-but-true beats blank, and
-      // `failed` is what tells the page to say so.
+      // Stale-but-true beats blank — for the SAME question (a refresh after a
+      // save). Data for OTHER deps is not stale, it is wrong: a failed load
+      // after moving October → September showed October's figures under
+      // "1. sep. – 30. sep.". That data goes; `failed` tells the page why.
+      if (loadedKeyRef.current !== null && loadedKeyRef.current !== depsKeyRef.current) {
+        loadedKeyRef.current = null;
+        setLoadedKey(null);
+        setData(initialRef.current);
+      }
       setFailed(true);
       setError(e);
     } finally {

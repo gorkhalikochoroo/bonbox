@@ -101,12 +101,19 @@ describe("the converted surfaces do not swallow a load error", () => {
 });
 
 describe("the primitive itself keeps its contract", () => {
-  it("useAsyncData does not clear data on failure", async () => {
+  it("useAsyncData keeps data on a failed REFRESH, never another question's data", async () => {
     const src = readFileSync(join(SRC, "hooks", "useAsyncData.js"), "utf8");
     const catchBlock = src.slice(src.indexOf("} catch (e) {"), src.indexOf("} finally {"));
-    // Blanking on failure replaces one lie with another: numbers that were
-    // true a second ago vanish, and the owner cannot tell stale from gone.
-    expect(catchBlock).not.toMatch(/setData\(/);
+    // Blanking a failed REFRESH replaces one lie with another: numbers that
+    // were true a second ago vanish, and the owner cannot tell stale from gone.
+    // But data for OTHER deps is not stale, it is wrong — October's hours under
+    // "1. sep. – 30. sep." — so the only setData in the catch is guarded by the
+    // loaded-deps check.
+    const sets = catchBlock.match(/setData\(/g) || [];
+    expect(sets.length).toBeLessThanOrEqual(1);
+    if (sets.length) {
+      expect(catchBlock).toMatch(/loadedKeyRef\.current !== depsKeyRef\.current[\s\S]*setData\(initialRef\.current\)/);
+    }
     expect(catchBlock).toMatch(/setFailed\(true\)/);
   });
 

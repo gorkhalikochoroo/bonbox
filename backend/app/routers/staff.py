@@ -55,7 +55,7 @@ from app.utils.client_ip import client_ip
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 import json
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.database import get_db
 from app.models.user import User
@@ -3817,7 +3817,9 @@ def time_registration_csv(
         for e in ec["register"]:
             w.writerow([
                 csv_safe(ec["staff_name"]), e["date"], e["start"] or "", e["end"] or "",
-                e["break_minutes"], f"{e['hours']:.1f}".replace(".", ","),
+                # Two decimals: hours are stored to the quarter hour, and 6,25 t
+                # exported as "6,2" short-changed the register by 3 minutes.
+                e["break_minutes"], f"{e['hours']:.2f}".replace(".", ","),
                 kilde.get(e["source"], "Manuel"),
             ])
     buf.seek(0)
@@ -4548,6 +4550,10 @@ def update_hours(
     ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Hours entry not found")
+    # Approved hours are final until the approval is undone — an edit after
+    # "Godkend" would change what the revisor was told without a trace.
+    if getattr(entry, "resolution_note", None) == _PERIOD_APPROVAL_NOTE:
+        raise HTTPException(status_code=409, detail={"code": "approved"})
 
     sent = data.model_fields_set   # explicitly provided keys, not defaults
 
@@ -4632,8 +4638,111 @@ def delete_hours(
     ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Hours entry not found")
+    # Approved hours are final until the approval is undone — an edit after
+    # "Godkend" would change what the revisor was told without a trace.
+    if getattr(entry, "resolution_note", None) == _PERIOD_APPROVAL_NOTE:
+        raise HTTPException(status_code=409, detail={"code": "approved"})
     db.delete(entry)
     db.commit()
+
+
+# ── Approval: "these hours are final" ─────────────────────────────────────
+#
+# The owner's tick for a whole period (or one person in it). It reuses the
+# per-row resolution the double tick already writes — "I have seen this and it
+# is right" — so a shift answered one by one and a period approved in one go
+# mean the same thing everywhere. The note marks the rows this action ticked,
+# so an undo takes back exactly those and never an answer given shift by shift.
+_PERIOD_APPROVAL_NOTE = "Godkendt (periode)"
+
+
+class ApproveHoursRequest(BaseModel):
+    from_date: date = Field(alias="from")
+    to_date: date = Field(alias="to")
+    staff_id: uuid.UUID | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+def _approval_rows(db: Session, user: User, data: ApproveHoursRequest):
+    if data.to_date < data.from_date or (data.to_date - data.from_date).days > 62:
+        raise HTTPException(status_code=400, detail={"code": "bad_range"})
+    q = db.query(HoursLogged).filter(
+        HoursLogged.user_id == user.id,
+        HoursLogged.date >= data.from_date,
+        HoursLogged.date <= data.to_date,
+    )
+    if data.staff_id is not None:
+        owned = db.query(StaffMember.id).filter(
+            StaffMember.id == data.staff_id, StaffMember.user_id == user.id,
+        ).first()
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        q = q.filter(HoursLogged.staff_id == data.staff_id)
+    return q
+
+
+@router.post("/hours/approve")
+def approve_hours(
+    data: ApproveHoursRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Approve a period's hours (all staff, or one person).
+
+    Refused while a shift in it is still open — an hours figure nobody knows
+    yet cannot be approved. Rows the owner already answered keep their answer.
+    Approved rows are locked against edits until the approval is undone."""
+    rows = _approval_rows(db, user, data).all()
+    open_rows = [h for h in rows if h.start_time and not h.end_time]
+    if open_rows:
+        raise HTTPException(status_code=409, detail={"code": "open_punches", "count": len(open_rows)})
+    now = utc_now()
+    ticked = 0
+    for h in rows:
+        if not h.resolution:
+            h.resolution = "confirmed"
+            h.resolved_by = user.id
+            h.resolved_at = now
+            h.resolution_note = _PERIOD_APPROVAL_NOTE
+            ticked += 1
+    audit_service.record(
+        db, user, "staff_hours.approved", "staff_hours", None,
+        after={"from": data.from_date.isoformat(), "to": data.to_date.isoformat(),
+               "staff_id": str(data.staff_id) if data.staff_id else None,
+               "rows": len(rows), "ticked": ticked},
+    )
+    db.commit()
+    return {"approved": ticked, "already": len(rows) - ticked, "rows": len(rows)}
+
+
+@router.post("/hours/unapprove")
+def unapprove_hours(
+    data: ApproveHoursRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Undo "Godkend" for the period (or one person): only the rows that action
+    ticked — a shift answered on its own keeps its answer."""
+    rows = (
+        _approval_rows(db, user, data)
+        .filter(HoursLogged.resolution == "confirmed",
+                HoursLogged.resolution_note == _PERIOD_APPROVAL_NOTE)
+        .all()
+    )
+    for h in rows:
+        h.resolution = None
+        h.resolved_by = None
+        h.resolved_at = None
+        h.resolution_note = None
+    audit_service.record(
+        db, user, "staff_hours.unapproved", "staff_hours", None,
+        after={"from": data.from_date.isoformat(), "to": data.to_date.isoformat(),
+               "staff_id": str(data.staff_id) if data.staff_id else None,
+               "rows": len(rows)},
+    )
+    db.commit()
+    return {"unapproved": len(rows)}
 
 
 @router.get("/hours/summary")
@@ -4804,6 +4913,9 @@ def hours_summary(
     # An owner's answer settles the day — "De arbejdede ikke" (0 h) was
     # re-classified as "Gik tidligt" on the next load.
     resolved_days: set = set()
+    entries_by_staff: dict = {}
+    approved_by_staff: dict = {}
+    period_approved_by_staff: dict = {}
     _today_biz = business_today_local(user)
     try:
         for h in (
@@ -4822,6 +4934,13 @@ def hours_summary(
                 open_punch_start[k] = h.start_time
             if getattr(h, "resolution", None) in ("confirmed", "adjusted", "absent"):
                 resolved_days.add(k)
+            # Approval state per person: every row the owner has ticked (by
+            # the period's "Godkend" or by answering one shift) counts.
+            entries_by_staff[str(h.staff_id)] = entries_by_staff.get(str(h.staff_id), 0) + 1
+            if getattr(h, "resolution", None):
+                approved_by_staff[str(h.staff_id)] = approved_by_staff.get(str(h.staff_id), 0) + 1
+                if getattr(h, "resolution_note", None) == _PERIOD_APPROVAL_NOTE:
+                    period_approved_by_staff[str(h.staff_id)] = period_approved_by_staff.get(str(h.staff_id), 0) + 1
     except Exception as e:      # noqa: BLE001 — never kill the report
         log.warning("hours_summary: per-day actuals failed: %s", e)
         actual_by_day = {}
@@ -4991,6 +5110,12 @@ def hours_summary(
                 1 for e in states_by_staff.get(sid, {}).get("exceptions", [])
                 if e["state"] in ("no_clock_in", "forgot_clock_out")
             ),
+            # Approval: how many of the period's rows carry the owner's tick,
+            # and how many of those came from "Godkend" (the ones an undo can
+            # take back — a single answered shift stays answered).
+            "entries_count": entries_by_staff.get(sid, 0),
+            "approved_count": approved_by_staff.get(sid, 0),
+            "period_approved_count": period_approved_by_staff.get(sid, 0),
             "exceptions": sorted(
                 states_by_staff.get(sid, {}).get("exceptions", []),
                 key=lambda e: e["date"],
@@ -5222,6 +5347,13 @@ def hours_overview(
     # zero. Serialize pct as null (never a reassuring 0%) and flag the missing
     # basis so the UI shows a neutral "set wage rates" state.
     has_cost_basis = gross > 0
+    # People who worked but have no wage on file are costed at nothing, so with
+    # one of them the cost and the labour % read silently LOW. Counted, so the
+    # tile can say "ekskl. N uden løn" instead of a complete-looking figure.
+    unpriced_count = sum(
+        1 for sid, h in per_staff_actual.items()
+        if h > 0 and per_staff_gross.get(sid, 0.0) <= 0
+    )
     loaded_est = gross * (1.0 + FERIE_UPLIFT)
     pct_loaded = (loaded_est / revenue) if (revenue and has_cost_basis) else None
     pct_gross = (gross / revenue) if (revenue and has_cost_basis) else None
@@ -5355,6 +5487,7 @@ def hours_overview(
             "loaded_est": round(loaded_est, 2),
             "ferie_is_estimate": True,
             "has_basis": has_cost_basis,
+            "unpriced_count": unpriced_count,
             "currency": user.currency or "DKK",
         },
         "revenue": {

@@ -16,6 +16,7 @@ import { useAsyncData } from "../hooks/useAsyncData";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
 import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount } from "../components/ui";
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -123,6 +124,12 @@ function computePayPeriod(type, startDay, refIso) {
   // monthly_1st + fallback
   const lastDay = new Date(y, m + 1, 0).getDate();
   return { from: isoOf(y, m, 1), to: isoOf(y, m, lastDay) };
+}
+
+// "18 %" in Danish (a space before the sign), "18%" in English — one way on
+// every tile, line and sentence of this page; it said "18 %", "18%" and "0%".
+function pctText(n, lang) {
+  return lang === "da" ? `${n} %` : `${n}%`;
 }
 
 function calcHoursFromTimes(start, end, breakMin) {
@@ -603,11 +610,14 @@ export default function StaffHoursPage() {
             // resolves the tab is LOADING, not answered-and-empty.
             loading={overviewQ.loading || periodLoading}
             failed={overviewFailed}
-            onRetry={overviewQ.reload}
+            // All three: the overview's retry reloaded only itself, and the
+            // per-person and log figures under it stayed from before.
+            onRetry={refetchAll}
             denied={overviewDenied}
             currency={currency}
             onGoLog={() => setSubTab("log")}
             onGoDetails={() => setSubTab("details")}
+            people={summary}
             rosterEmpty={rosterEmpty}
             needsAnswer={summary.reduce((n, r) => n + (Number(r.needs_answer_count) || 0), 0)}
           />
@@ -646,6 +656,9 @@ export default function StaffHoursPage() {
               denied={summaryDenied}
               currency={currency}
               onResolved={refetchAll}
+              periodFrom={periodFrom}
+              periodTo={periodTo}
+              onGoLog={() => setSubTab("log")}
             />
           </FadeIn>
           <FadeIn delay={0.15}>
@@ -971,7 +984,7 @@ function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) 
   );
 }
 
-function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails, rosterEmpty = false, needsAnswer = 0 }) {
+function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails, rosterEmpty = false, needsAnswer = 0, people = [] }) {
   const { t, lang } = useLanguage();
 
   // THE THIRD STATE, on the tab this hub opens on. `if (!overview) return null`
@@ -1002,7 +1015,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
     return (
       <WagePrivacyNotice
         reason={denied}
-        actionLabel={t("hovTabDetails", "Details")}
+        actionLabel={t("hovTabPerStaff", "Per staff")}
         onAction={onGoDetails}
       />
     );
@@ -1012,7 +1025,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
     return (
       <div className="space-y-4">
         <div className="h-20 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-20 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
           ))}
@@ -1127,7 +1140,13 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   // so a payload that carried no cost at all rendered "~0 kr" — a venue told
   // it paid nothing for a period nobody had actually costed.
   let costValue = cost.loaded_est == null ? "—" : `~${formatOwnerMoney(cost.loaded_est, currency)}`;
-  let costHelper = `${t("hovTileCostSub", "~ incl. holiday pay · estimate")}${soFar}`;
+  // "ekskl. ATP": the Løn tab's total includes it, so the two figures for the
+  // same month differed (26.101 vs 26.164) with nothing saying why.
+  let costHelper = `${t("hovTileCostSubAtp", "incl. holiday pay · excl. ATP · estimate")}${soFar}`;
+  // Someone worked with no wage on file: the figure is short by their pay.
+  if (hasCostBasis && cost.unpriced_count > 0) {
+    costHelper = t("hovTileCostUnpriced", "excl. {n} without a wage — set their rate", { n: cost.unpriced_count });
+  }
   if (!hasCostBasis) {
     costValue = "—";
     costHelper = t("hovTileCostNoRates", "set wage rates");
@@ -1145,11 +1164,11 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   if (labor.partial && labor.pct_covered != null) {
     // Hours for only part of the revenue days: the covered-days figure, never
     // green — a whole-month % sat green under a banner saying 18 %.
-    pctValue = `${Math.round(labor.pct_covered * 100)} %`;
+    pctValue = pctText(Math.round(labor.pct_covered * 100), lang);
     pctHelper = t("hovTileLaborPartial", "on {covered} of {days} days with hours", { covered: labor.covered_days, days: labor.revenue_days });
     pctAccent = "warn";
   } else if (pct != null) {
-    pctValue = `${Math.round(pct * 100)}%`;
+    pctValue = pctText(Math.round(pct * 100), lang);
     pctHelper = `${t("hovTileLaborPctSub", "of revenue · target {target}%").split("{target}").join(Math.round(target * 100))}${soFar}`;
     if (pct <= target) pctAccent = "success";
     else if (pct <= target + 0.05) pctAccent = "warn";
@@ -1211,7 +1230,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
       )}
       <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           dense
           label={t("hovTileHours", "Hours")}
@@ -1240,7 +1259,52 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
         />
       </div>
 
+      {/* Who worked how much — the question the hub is opened for. It took a
+          second tap, onto "Pr. medarbejder", to see a single name. */}
+      <WhoWorkedCard people={people} currency={currency} onGoDetails={onGoDetails} />
+
       {overview.labor_split && <LaborSplitCard split={overview.labor_split} currency={currency} />}
+    </div>
+  );
+}
+
+function WhoWorkedCard({ people = [], currency, onGoDetails }) {
+  const { t, lang } = useLanguage();
+  const worked = (people || [])
+    .filter((p) => Number(p.actual_hours || p.total_hours || 0) > 0)
+    .sort((a, b) => Number(b.actual_hours || 0) - Number(a.actual_hours || 0));
+  if (!worked.length) return null;
+  const shown = worked.slice(0, 6);
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("hovWhoWorked", "Who worked")}</h3>
+        {onGoDetails && (
+          <button type="button" onClick={onGoDetails}
+            className="min-h-10 sm:min-h-0 text-[13px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white inline-flex items-center gap-1">
+            {worked.length > shown.length
+              ? t("hovSeeAllN", "See all {n}", { n: worked.length })
+              : t("hovSeeDetails", "Per staff")}
+            <Icon name="ChevronRight" size={14} />
+          </button>
+        )}
+      </div>
+      <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+        {shown.map((p) => (
+          <li key={p.staff_id} className="px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3 text-sm tabular-nums">
+            <span className="min-w-0 truncate text-gray-800 dark:text-gray-100">{p.staff_name}</span>
+            <span className="shrink-0 flex items-center gap-3">
+              <span className="font-semibold text-gray-900 dark:text-white">{formatHours(Number(p.actual_hours || 0), { lang, decimals: 2 })}</span>
+              {/* Money only where it may be shown; a redacted seat sees hours. */}
+              {p.earned != null && (
+                <span className="w-24 text-right text-gray-600 dark:text-gray-300">
+                  <Amount value={p.earned} currency={currency} decimals={2} />
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1268,7 +1332,7 @@ function deptLabel(vertical, category, t) {
 }
 
 function LaborSplitCard({ split, currency }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   // Backend only sends this when cost genuinely splits across ≥2 departments;
   // guard anyway so a stale/partial payload can never render a lone bar.
   if (!split || !Array.isArray(split.categories) || split.categories.length < 2) return null;
@@ -1296,7 +1360,7 @@ function LaborSplitCard({ split, currency }) {
                   <span className="text-gray-900 dark:text-gray-100 font-medium">
                     ~<Amount value={c.loaded} currency={currency} />
                   </span>
-                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{pct}%</span>
+                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{pctText(pct, lang)}</span>
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
@@ -1334,9 +1398,11 @@ function shiftStateMeta(state, t) {
   switch (state) {
     case "forgot_clock_out":
       // Clocked in on a day that's over and never out: needs the end time.
+      // Red: an open punch is a real problem — unknown hours on a pay record,
+      // and it blocks approval. A shift that needs an answer stays amber.
       return {
         label: t("shpStateForgotOut", "No clock-out"),
-        cls: "text-amber-600 dark:text-amber-400",
+        cls: "text-red-700 dark:text-red-400",
         needsAnswer: true,
       };
     case "no_clock_in":
@@ -1617,7 +1683,97 @@ export function orderForPaying(summary) {
   return list;
 }
 
-function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency, onResolved }) {
+// "These hours are final" for the period. The hub promised the owner
+// "godkender timer" and there was no way to: exports used every logged hour and
+// nothing said which ones the owner had looked at. One action for the whole
+// period, refused while shifts still need an answer; undo asks first.
+function ApprovalBar({ rows, from, to, needsAnswer = 0, onChanged }) {
+  const { t } = useLanguage();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  // A backend without approval sends no counts: say nothing rather than guess.
+  if (!from || !to || !(rows || []).some((r) => r.entries_count != null)) return null;
+  const worked = rows.filter((r) => (r.entries_count || 0) > 0);
+  if (!worked.length) return null;
+  const total = worked.reduce((n, r) => n + (r.entries_count || 0), 0);
+  const approved = worked.reduce((n, r) => n + Math.min(r.approved_count || 0, r.entries_count || 0), 0);
+  const byApproval = worked.reduce((n, r) => n + (r.period_approved_count || 0), 0);
+  const allApproved = approved >= total;
+  const range = fmtPeriod(from, to);
+
+  const run = async (path, ok) => {
+    setBusy(true);
+    setNote("");
+    try {
+      await api.post(`/staff/hours/${path}`, { from, to });
+      ok && setNote(ok);
+      onChanged?.();
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setNote(d?.code === "open_punches"
+        ? t("shpApproveOpenPunches", "{n} shifts were never clocked out — fix them first.", { n: d.count })
+        : houseErrText(e, t("shpApproveFailed", "Couldn't save the approval. Try again.")));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const approve = async () => {
+    if (!(await confirm({
+      title: t("shpApproveTitle", "Approve the hours for {range}?", { range }),
+      message: t("shpApproveBody", "{n} entries are marked approved and locked. The payroll export uses them. You can undo this.", { n: total - approved }),
+      confirmLabel: t("shpApproveCta", "Approve"),
+    }))) return;
+    run("approve", t("shpApprovedDone", "Approved — {range}.", { range }));
+  };
+  const undo = async () => {
+    if (!(await confirm({
+      title: t("shpUnapproveTitle", "Undo the approval for {range}?", { range }),
+      message: t("shpUnapproveBody", "The hours can be changed again. Shifts you answered one by one keep their answer."),
+      confirmLabel: t("shpUnapproveCta", "Undo approval"),
+      destructive: true,
+    }))) return;
+    run("unapprove", "");
+  };
+
+  return (
+    <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <p className="text-[13px] text-gray-700 dark:text-gray-300 inline-flex items-center gap-1.5 tabular-nums">
+        {allApproved ? (
+          <>
+            <Icon name="CheckCircle2" size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="font-medium text-gray-900 dark:text-gray-100">{t("shpApprovedAll", "Approved")}</span>
+            <span>· {t("shpApprovedCount", "{a} of {n} entries", { a: approved, n: total })}</span>
+          </>
+        ) : (
+          <span>{t("shpApprovedCount", "{a} of {n} entries", { a: approved, n: total })} {t("shpApprovedSuffix", "approved")}</span>
+        )}
+        {note && <span className="text-gray-600 dark:text-gray-400">· {note}</span>}
+      </p>
+      {allApproved ? (
+        byApproval > 0 && (
+          <Button size="md" variant="ghost" onClick={undo} disabled={busy} className="max-sm:h-10">
+            {t("shpUnapproveCta", "Undo approval")}
+          </Button>
+        )
+      ) : (
+        <div className="flex items-center gap-2">
+          {needsAnswer > 0 && (
+            <span className="text-[12px] text-gray-600 dark:text-gray-400">
+              {t("shpApproveAnswerFirst", "Answer the {n} shifts first", { n: needsAnswer })}
+            </span>
+          )}
+          <Button size="md" variant="primary" onClick={approve} disabled={busy || needsAnswer > 0} className="max-sm:h-10"
+            iconLeft={<Icon name="Check" size={15} />}>
+            {t("shpApprovePeriod", "Approve the period")}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency, onResolved, periodFrom = null, periodTo = null, onGoLog = null }) {
   const { t, lang } = useLanguage();
   // ORDER. The server builds these rows from a set union, so they arrived in
   // no order at all — and on a 16-person roster where two people worked, the
@@ -1668,6 +1824,8 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // as fact and the one thing this page must never do on a pay record.
   const wagesHidden =
     (summary || []).length > 0 && (summary || []).every((r) => r.total == null);
+  const { enabled: devShared, locked: devLocked } = useDeviceShare();
+  const deviceCurtained = Boolean(devShared && devLocked);
   // The totals used to print "12500 DKK" — no thousands separator and the raw
   // code — under an Overview tile that said "12.500 kr" for the same period.
   // Rendered through <Amount>, the same primitive as the rows it sums: a
@@ -1744,14 +1902,18 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // because it looks complete. Tips are recorded money and are never affected,
   // so that column keeps its total; the note under the table names the reason
   // and links to the fix, so the dash is never the end of the road.
+  // Øre, like every row above it and like the Løn tab: whole kroner made the
+  // rows (7.688) disagree with Løn (7.687,50) and sum to 23.202 under a
+  // total of 23.201. A column of nothing but "—" totals to "—", not 0 kr.
   const moneyTotal = (key, unknowable = false) => (
     <Amount
       value={
-        wagesHidden || unknowable
+        wagesHidden || unknowable || (summary || []).every((r) => r[key] == null)
           ? null
           : (summary || []).reduce((s, r) => s + (r[key] || 0), 0)
       }
       currency={currency}
+      decimals={2}
     />
   );
   if (loading) {
@@ -1790,7 +1952,12 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
         <Icon name="Clock" size={28} className="text-gray-400 mx-auto mb-2" />
         <p className="text-gray-700 dark:text-gray-200 font-medium">{t("noHoursLogged")}</p>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("shpSummaryEmptyHint", "Use the logging section below to start tracking hours.")}</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("shpSummaryEmptyHintLog", "Register hours under Log, or confirm the schedule there.")}</p>
+        {onGoLog && (
+          <Button size="md" variant="secondary" className="mt-3 max-sm:h-10" onClick={onGoLog}>
+            {t("shpGoLog", "Register hours")}
+          </Button>
+        )}
       </div>
     );
   }
@@ -1822,6 +1989,16 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
           )}
         </div>
       </div>
+      {/* A column of bare "—" said nothing about why. */}
+      {wagesHidden && (
+        <p className="px-5 py-2 border-b border-gray-200 dark:border-gray-700 text-[12px] text-gray-600 dark:text-gray-300 inline-flex items-center gap-1.5 w-full">
+          <Icon name="Lock" size={13} className="shrink-0" />
+          {deviceCurtained
+            ? t("shpWagesHiddenCurtain", "Pay is hidden on this shared device — unlock with your PIN to see it.")
+            : t("shpWagesHiddenRole", "Pay is hidden for your role — the owner sees it.")}
+        </p>
+      )}
+      <ApprovalBar rows={rows} from={periodFrom} to={periodTo} needsAnswer={needsAnswer} onChanged={onResolved} />
 
       {/* Mobile-friendly columns: name + actual + total survive on phones;
           scheduled / diff / rate / earned / tips hide on < sm so the table
@@ -1836,9 +2013,9 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
               <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
               <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("diff")}</th>
-              <th className="hidden md:table-cell px-3 py-3 font-medium text-right">{t("rate")}</th>
+              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("rate")}</th>
               <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("earned")}</th>
-              <th className="hidden md:table-cell px-3 py-3 font-medium text-right">{t("tips")}</th>
+              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("tips")}</th>
               <th className="px-3 sm:px-3 py-3 font-medium text-right">{t("total")}</th>
             </tr>
           </thead>
@@ -1863,7 +2040,14 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                         {(row.staff_name || "?").charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <span className="font-medium text-gray-800 dark:text-white">{row.staff_name}</span>
+                        <span className="font-medium text-gray-800 dark:text-white inline-flex items-center gap-1">
+                          {row.staff_name}
+                          {/* Approved: every row of theirs in the period carries the tick. */}
+                          {(row.entries_count || 0) > 0 && (row.approved_count || 0) >= row.entries_count && (
+                            <Icon name="CheckCircle2" size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0"
+                              aria-label={t("shpApprovedAll", "Approved")} role="img" />
+                          )}
+                        </span>
                         {/* Mobile-only inline reveal of scheduled hours (column hidden < sm). */}
                         <div className="sm:hidden text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
                           {/* This sub-line is the only place the phone can show
@@ -1962,7 +2146,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       currency code on a Danish payroll row. The unit now comes
                       off utils/hours.js, the same place the hour columns get
                       theirs, so a Danish owner reads "150 kr./t". */}
-                  <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
+                  <td className="hidden lg:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {(() => {
                       const rate = effectiveRate(row);
                       return rate != null
@@ -1980,11 +2164,11 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                     {rateMissing(row) ? (
                       <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
                     ) : (
-                      <Amount value={row.earned} currency={currency} />
+                      <Amount value={row.earned} currency={currency} decimals={2} />
                     )}
                   </td>
-                  <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
-                    {row.tips != null && row.tips > 0 ? <Amount value={row.tips} currency={currency} /> : "\u2014"}
+                  <td className="hidden lg:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
+                    {row.tips != null && row.tips > 0 ? <Amount value={row.tips} currency={currency} decimals={2} /> : "\u2014"}
                   </td>
                   {/* Total = earned + tips. With earned unknown the sum is
                       unknown too — printing the tips alone under a column
@@ -1993,7 +2177,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                     {rateMissing(row) ? (
                       <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
                     ) : (
-                      <Amount value={row.total} currency={currency} />
+                      <Amount value={row.total} currency={currency} decimals={2} />
                     )}
                   </td>
                 </tr>
@@ -2016,11 +2200,11 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                   return d === 0 ? "\u2014" : formatHours(d, { lang, sign: true });
                 })()}
               </td>
-              <td className="hidden md:table-cell px-3 py-3" />
+              <td className="hidden lg:table-cell px-3 py-3" />
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {moneyTotal("earned", missingRateCount > 0)}
               </td>
-              <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {moneyTotal("tips")}
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm">
@@ -2632,6 +2816,10 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
   const { t, lang } = useLanguage();
   const [editingId, setEditingId] = useState(null);
   const [editHours, setEditHours] = useState("");
+  // A shift with times is corrected AS times — start, end, break — so the
+  // working-time register keeps the right in/out. Only a typed total (no
+  // times) is corrected as a number.
+  const [editTimes, setEditTimes] = useState(null); // {start, end, brk} | null
   const [editSaving, setEditSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const confirm = useConfirm();
@@ -2656,8 +2844,23 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
     return map;
   }, [staffList]);
 
+  const startEdit = (entry) => {
+    setEditErr("");
+    setEditingId(entry.id);
+    if (entry.start_time) {
+      setEditTimes({ start: entry.start_time, end: entry.end_time || "", brk: String(entry.break_minutes || 0) });
+      setEditHours("");
+    } else {
+      setEditTimes(null);
+      setEditHours(String(entry.total_hours || ""));
+    }
+  };
+  const stopEdit = () => { setEditingId(null); setEditHours(""); setEditTimes(null); setEditErr(""); };
+
   const handleEdit = async (id) => {
-    if (!editHours) return;
+    if (editTimes) {
+      if (!editTimes.start || !editTimes.end) return;
+    } else if (!editHours) return;
     setEditErr("");
     setEditSaving(true);
     try {
@@ -2667,14 +2870,18 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
       // the venue's Arbejdstidsloven register and must show daily working time
       // for five years. Sending a "full" body to satisfy the old schema would
       // have blanked them.
-      await api.put(`/staff/hours/${id}`, { total_hours: parseFloat(editHours) });
+      await api.put(`/staff/hours/${id}`, editTimes
+        ? { start_time: editTimes.start, end_time: editTimes.end, break_minutes: parseInt(editTimes.brk, 10) || 0 }
+        : { total_hours: parseFloat(editHours) });
       setEditingId(null);
       setEditHours("");
       onUpdated();
     } catch (e) {
       // Stay open, keep what they typed, and SAY SO. Closing the editor here
       // would be the original bug wearing a different mask.
-      setEditErr(houseErrText(e, t("shpEditHoursFailed", "Could not save. Try again.")));
+      setEditErr(e?.response?.data?.detail?.code === "approved"
+        ? t("shpLockedApproved", "These hours are approved. Undo the approval under Per staff to change them.")
+        : houseErrText(e, t("shpEditHoursFailed", "Could not save. Try again.")));
     } finally {
       setEditSaving(false);
     }
@@ -2713,7 +2920,9 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
       await api.delete(`/staff/hours/${id}`);
       onUpdated();
     } catch (e) {
-      setDelErr(houseErrText(e, t("deleteHoursFailed")));
+      setDelErr(e?.response?.data?.detail?.code === "approved"
+        ? t("shpLockedApproved", "These hours are approved. Undo the approval under Per staff to change them.")
+        : houseErrText(e, t("deleteHoursFailed")));
     } finally {
       setDeletingId(null);
     }
@@ -2817,6 +3026,18 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                         </>
                       );
                     })()}
+                    {/* Never clocked out: the start and a red "no clock-out" —
+                        it read "stemplet · 0 t" with no time and no flag. */}
+                    {entry.start_time && !entry.end_time && (
+                      <>
+                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span className="tabular-nums">{`${entry.start_time}\u2013`}</span>
+                        <span className="inline-flex items-center gap-1 font-medium text-red-700 dark:text-red-400">
+                          <Icon name="AlertTriangle" size={11} />
+                          {t("shpStateForgotOut", "No clock-out")}
+                        </span>
+                      </>
+                    )}
                     {entry.start_time && entry.end_time && (
                       <>
                         <span className="text-gray-300 dark:text-gray-600">|</span>
@@ -2863,34 +3084,62 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                 {/* Hours + Earned */}
                 <div className="text-right flex-shrink-0">
                   {isEditing ? (
-                    <div className="flex flex-wrap items-center gap-1">
-                      <input
-                        type="number"
-                        step="0.25"
-                        min="0"
-                        max="24"
-                        value={editHours}
-                        onChange={e => setEditHours(e.target.value)}
-                        className="w-16 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded px-2 py-1 text-sm focus:ring-2 focus:ring-gray-400 outline-none"
-                        autoFocus
-                        onKeyDown={e => {
-                          if (e.key === "Enter") handleEdit(entry.id);
-                          if (e.key === "Escape") { setEditingId(null); setEditHours(""); }
-                        }}
-                      />
-                      <button
-                        onClick={() => handleEdit(entry.id)}
-                        disabled={editSaving}
-                        className="text-emerald-600 hover:text-gray-700 dark:text-gray-300 text-xs font-medium"
-                      >
-                        {editSaving ? "..." : t("save", "Save")}
-                      </button>
-                      <button
-                        onClick={() => { setEditingId(null); setEditHours(""); setEditErr(""); }}
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
-                      >
+                    <div className="flex flex-wrap items-end justify-end gap-2">
+                      {editTimes ? (
+                        <>
+                          {/* Times, not a total: the register keeps in/out. */}
+                          <label className="text-[11px] text-gray-500 dark:text-gray-400 text-left">
+                            {t("shpEditStart", "Start")}
+                            <input type="time" value={editTimes.start} autoFocus
+                              onChange={(e) => setEditTimes((v) => ({ ...v, start: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === "Enter") handleEdit(entry.id); if (e.key === "Escape") stopEdit(); }}
+                              className="block h-10 w-28 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400" />
+                          </label>
+                          <label className="text-[11px] text-gray-500 dark:text-gray-400 text-left">
+                            {t("shpEditEnd", "End")}
+                            <input type="time" value={editTimes.end}
+                              onChange={(e) => setEditTimes((v) => ({ ...v, end: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === "Enter") handleEdit(entry.id); if (e.key === "Escape") stopEdit(); }}
+                              className="block h-10 w-28 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400" />
+                          </label>
+                          <label className="text-[11px] text-gray-500 dark:text-gray-400 text-left">
+                            {t("shpEditBreak", "Break (min)")}
+                            <input type="number" inputMode="numeric" min="0" max="240" step="5" value={editTimes.brk}
+                              onChange={(e) => setEditTimes((v) => ({ ...v, brk: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === "Enter") handleEdit(entry.id); if (e.key === "Escape") stopEdit(); }}
+                              className="block h-10 w-20 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400" />
+                          </label>
+                          {editTimes.start && editTimes.end && (
+                            <span className="h-10 inline-flex items-center text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                              = {formatHours(calcHoursFromTimes(editTimes.start, editTimes.end, parseInt(editTimes.brk, 10) || 0), { lang, decimals: 2 })}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <label className="text-[11px] text-gray-500 dark:text-gray-400 text-left">
+                          {t("shpEditTotal", "Hours")}
+                          <input
+                            type="number"
+                            step="0.25"
+                            min="0"
+                            max="24"
+                            value={editHours}
+                            onChange={e => setEditHours(e.target.value)}
+                            className="block h-10 w-20 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400"
+                            autoFocus
+                            onKeyDown={e => {
+                              if (e.key === "Enter") handleEdit(entry.id);
+                              if (e.key === "Escape") stopEdit();
+                            }}
+                          />
+                        </label>
+                      )}
+                      <Button size="md" variant="primary" className="h-10" onClick={() => handleEdit(entry.id)} disabled={editSaving}>
+                        {editSaving ? t("saving", "Saving…") : t("save", "Save")}
+                      </Button>
+                      <Button size="md" variant="ghost" className="h-10" onClick={stopEdit}>
                         {t("cancel", "Cancel")}
-                      </button>
+                      </Button>
                       {editErr && (
                         <span role="alert" className="w-full text-xs text-red-600 dark:text-red-400">
                           {editErr}
@@ -2906,7 +3155,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                           trail of the same period the tiles price in "kr.". */}
                       {entry.earned != null && entry.earned > 0 && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          <Amount value={entry.earned} currency={currency} />
+                          <Amount value={entry.earned} currency={currency} decimals={2} />
                         </div>
                       )}
                     </>
@@ -2929,9 +3178,11 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     On hover:none they are always visible and become 44x44,
                     8px apart. */}
                 {!isEditing && (
-                  <div className="flex items-center gap-1 [@media(hover:none)]:gap-2 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  // focus-within: a keyboard user tabbed onto an invisible
+                  // Edit and Delete — on a pay record.
+                  <div className="flex items-center gap-1 [@media(hover:none)]:gap-2 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0">
                     <button
-                      onClick={() => { setEditingId(entry.id); setEditHours(String(entry.total_hours || "")); }}
+                      onClick={() => startEdit(entry)}
                       className="p-1.5 [@media(hover:none)]:min-w-[44px] inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                       title={t("editHours", "Edit hours")}
                       aria-label={t("editHours", "Edit hours")}

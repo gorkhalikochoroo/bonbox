@@ -13,10 +13,11 @@ import { useLanguage } from "../hooks/useLanguage";
 // This page printed "6.8 t" — a Danish unit wearing an English decimal, on an
 // English screen — because it typed the unit itself instead of asking
 // utils/hours.js. That is the exact hybrid hours.js was opened to end.
-// formatHoursMinutes, not formatHours, because this is a working-time
-// register: it answers "how long was this person here", and nobody, least of
-// all an inspector, thinks in 6,8 t.
-import { formatHours, formatHoursMinutes } from "../utils/hours";
+// Decimal hours at two places ("6,75 t"), the same as Timer, Løn and every
+// export. This register once read "39 t 30 min" beside "2,3 t/uge" on one
+// row, and "39,5 t" on the tab next door — two notations for the same hours
+// on one hub. Two decimals keep every quarter hour exact.
+import { formatHours } from "../utils/hours";
 import { PageHeader, Button, StatCard, Card, Empty, Icon, LoadFailed } from "../components/ui";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import { isNativeApp } from "../utils/platform";
@@ -318,7 +319,7 @@ export default function TimeRegistrationPage() {
               onClick={() => { setMode(m); setPrefSaved(false); }}
               aria-pressed={mode === m}
               className={
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors " +
+                "px-3 py-1.5 max-sm:min-h-10 rounded-lg text-xs font-medium transition-colors " +
                 (mode === m
                   ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
@@ -337,7 +338,7 @@ export default function TimeRegistrationPage() {
               max={customTo || undefined}
               onChange={(e) => { setCustomFrom(e.target.value); setPrefSaved(false); }}
               aria-label={t("tregFrom", "From")}
-              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm tabular-nums"
+              className="px-2.5 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm tabular-nums"
             />
             <span className="text-gray-400 text-sm">–</span>
             <input
@@ -346,16 +347,16 @@ export default function TimeRegistrationPage() {
               min={customFrom || undefined}
               onChange={(e) => { setCustomTo(e.target.value); setPrefSaved(false); }}
               aria-label={t("tregTo", "To")}
-              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm tabular-nums"
+              className="px-2.5 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm tabular-nums"
             />
           </div>
         ) : (
           <div className="flex items-center justify-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => setCursor(stepCursor(mode, cursor, -1))} aria-label={t("previousPeriod", "Previous period")}>
+            <Button variant="ghost" size="sm" className="max-sm:h-10 max-sm:w-10" onClick={() => setCursor(stepCursor(mode, cursor, -1))} aria-label={t("previousPeriod", "Previous period")}>
               <Icon name="ChevronLeft" size={18} />
             </Button>
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 capitalize min-w-[150px] text-center">{periodLabel}</span>
-            <Button variant="ghost" size="sm" onClick={() => setCursor(stepCursor(mode, cursor, 1))} aria-label={t("nextPeriod", "Next period")}>
+            <Button variant="ghost" size="sm" className="max-sm:h-10 max-sm:w-10" onClick={() => setCursor(stepCursor(mode, cursor, 1))} aria-label={t("nextPeriod", "Next period")}>
               <Icon name="ChevronRight" size={18} />
             </Button>
           </div>
@@ -501,7 +502,7 @@ export default function TimeRegistrationPage() {
                           the backend gives 0 because there were no rows, and
                           the status beside this already says so. "0 min" would
                           assert somebody worked none. */}
-                      {s.status === "gap" ? "\u2014" : formatHoursMinutes(s.total_hours, { lang })}
+                      {s.status === "gap" ? "\u2014" : formatHours(s.total_hours, { lang, decimals: 2 })}
                     </div>
                     {/* The 4-month average stays DECIMAL on purpose: it is the
                         figure Arbejdstidsloven's 48 t/uge cap is measured
@@ -537,7 +538,7 @@ export default function TimeRegistrationPage() {
                               <td className="py-1.5">{fmtDay(e.date)}</td>
                               <td className="py-1.5 tabular-nums">{e.start || "—"}</td>
                               <td className="py-1.5 tabular-nums">{e.end || "—"}</td>
-                              <td className="py-1.5 text-right tabular-nums">{formatHoursMinutes(e.hours, { lang })}</td>
+                              <td className="py-1.5 text-right tabular-nums">{formatHours(e.hours, { lang, decimals: 2 })}</td>
                               <td className="py-1.5 text-right">
                                 <span className="text-[10px] uppercase tracking-wide text-gray-400">
                                   {e.source === "clock" ? t("tregClock", "Clock") : t("tregLogged", "Logged")}
@@ -552,7 +553,7 @@ export default function TimeRegistrationPage() {
                       <div className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
                         {detail[s.staff_id].rest_violations.map((v, i) => (
                           <div key={i}>
-                            <Icon name="AlertTriangle" size={12} className="inline align-text-bottom mr-1" />{fmtDay(v.after_date)} → {fmtDay(v.next_date)}: {formatHoursMinutes(v.rest_hours, { lang })} {t("tregRestGap", "rest")} ({formatHoursMinutes(v.shortfall_hours, { lang })} {t("tregShort", "short")})
+                            <Icon name="AlertTriangle" size={12} className="inline align-text-bottom mr-1" />{fmtDay(v.after_date)} → {fmtDay(v.next_date)}: {formatHours(v.rest_hours, { lang, decimals: 2 })} {t("tregRestGap", "rest")} ({formatHours(v.shortfall_hours, { lang, decimals: 2 })} {t("tregShort", "short")})
                           </div>
                         ))}
                       </div>

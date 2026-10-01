@@ -33,6 +33,7 @@
  * deep link into a dropped tab gets WagePrivacyNotice instead of the page, so
  * the denied fetch never fires. See WAGE_TABS below.
  */
+import { Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDeviceShare } from "../hooks/useDeviceShare";
@@ -131,7 +132,7 @@ export default function StaffBackOfficePage() {
   if (!devReady) {
     return (
       <div className="px-4 sm:px-6 pt-4 sm:pt-6">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl 2xl:max-w-[1400px] mx-auto">
           <div className="h-9 w-72 bg-gray-100 dark:bg-gray-800 rounded-full animate-pulse" />
         </div>
       </div>
@@ -143,7 +144,7 @@ export default function StaffBackOfficePage() {
       {/* Tab row — matches the child pages' top gutters (px-4 sm:px-6) so the
           pills line up with the page content below. */}
       <div className="px-4 sm:px-6 pt-4 sm:pt-6">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl 2xl:max-w-[1400px] mx-auto">
           <TabPills
             tabs={tabs}
             activeId={activeTab}
@@ -160,7 +161,7 @@ export default function StaffBackOfficePage() {
           state to misread while it fails. */}
       {blocked ? (
         <div className="px-4 sm:px-6 pt-4 sm:pt-6">
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-6xl 2xl:max-w-[1400px] mx-auto">
             {/* WHY it is blocked decides what the card may honestly say. A
                 curtained owner is not blocked by their role and must not be
                 told to go ask themselves — they get the PIN. */}
@@ -172,12 +173,16 @@ export default function StaffBackOfficePage() {
           </div>
         </div>
       ) : (
-        <>
+        // Keyed on the curtain: when it re-locks (5 min idle, the app sent to
+        // the background) the page remounts and re-reads, so the server's
+        // redaction applies. Wage figures fetched before the lock stayed on
+        // screen — "Lønudgift ~26.101 kr." and every person's pay.
+        <Fragment key={curtained ? "curtained" : "open"}>
           {activeTab === "hours" && <StaffHoursPage />}
           {activeTab === "time" && <TimeRegistrationPage />}
           {activeTab === "tips" && <StaffTipsPage />}
           {activeTab === "payroll" && <StaffPayrollPage />}
-        </>
+        </Fragment>
       )}
     </div>
   );
