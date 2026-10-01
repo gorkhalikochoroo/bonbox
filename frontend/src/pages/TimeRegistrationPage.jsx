@@ -5,6 +5,8 @@
 // render an upgrade card on a 402).
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
+import { readViewedPeriod } from "../utils/viewedPeriod";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
@@ -99,7 +101,13 @@ export default function TimeRegistrationPage() {
   // The business day's month: at 01:07 on the 1st the night being worked is
   // still September's, and the register opened on an empty October with a red
   // "Nej" for every staffer.
-  const [cursor, setCursor] = useState(() => new Date(`${businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`));
+  // …unless the owner came from Timer or Løn looking at another period: then
+  // the register opens on that period's month (utils/viewedPeriod.js).
+  const [searchParams] = useSearchParams();
+  const [cursor, setCursor] = useState(() => {
+    const carried = readViewedPeriod(searchParams);
+    return new Date(`${carried ? carried.from : businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`);
+  });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   // The third outcome. `loading` and `data` alone could not tell "the request

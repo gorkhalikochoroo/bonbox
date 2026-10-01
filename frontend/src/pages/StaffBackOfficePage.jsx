@@ -97,7 +97,16 @@ export default function StaffBackOfficePage() {
   const setTab = (id) => {
     // Replace (not push) so the tab switch doesn't pile up history entries —
     // the back button should leave Staff, not step through its tabs.
-    setSearchParams({ tab: id }, { replace: true });
+    // The period on screen goes WITH the owner (utils/viewedPeriod.js):
+    // September in Timer is September in Løn, not this month's payroll.
+    const next = { tab: id };
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    if (from && to) {
+      next.from = from;
+      next.to = to;
+    }
+    setSearchParams(next, { replace: true });
   };
 
   // All four are ordinary UI chrome — the DK terminology lock covers the tax

@@ -646,3 +646,66 @@ def test_autopilot_does_not_price_a_staffer_without_a_wage(client, db):
     assert all(s["cost"] is None for s in proposed)
     assert body["week_total_cost"] is None
     assert body["missing_wage_names"] == ["NoWage"]
+
+
+# ── Staff email budget: a fixed mailer must not become a mail cannon ─────
+
+def _stub_mail(monkeypatch, sent_to):
+    import app.services.email_service as email_service
+    monkeypatch.setattr(
+        email_service, "send_email_with_attachment",
+        lambda addr, *a, **k: (sent_to.append(addr) or True, None),
+    )
+    monkeypatch.setattr(staff_router, "send_email", lambda **k: sent_to.append(k.get("to")) or True)
+
+
+def test_the_schedule_email_stops_at_the_daily_send_cap(client, db, monkeypatch):
+    sent_to = []
+    _stub_mail(monkeypatch, sent_to)
+    monkeypatch.setattr(staff_router, "_STAFF_EMAIL_CALLS_PER_DAY", 2)
+    owner = _owner(db)
+    _staff(db, owner, name="Anna")
+    _as(owner)
+    body = {"week_start": MONDAY.isoformat(), "lang": "da", "cc_self": False}
+    assert client.post("/api/staff/schedules/email", json=body).status_code == 200
+    assert client.post("/api/staff/schedules/email", json=body).status_code == 200
+    third = client.post("/api/staff/schedules/email", json=body)
+    assert third.status_code == 429, third.text
+    assert third.json()["detail"]["code"] == "staff_email_daily_cap"
+    assert "døgn" in third.json()["detail"]["message"]
+    assert len(sent_to) == 2  # nothing left on the refused call
+
+
+def test_both_staff_mailers_share_one_recipient_budget(client, db, monkeypatch):
+    sent_to = []
+    _stub_mail(monkeypatch, sent_to)
+    monkeypatch.setattr(staff_router, "_STAFF_EMAIL_RECIPIENTS_PER_DAY", 4)
+    owner = _owner(db)
+    anna = _staff(db, owner, name="Anna")
+    bo = _staff(db, owner, name="Bo")
+    cy = _staff(db, owner, name="Cy")
+    week = _next_monday()
+    for p in (anna, bo, cy):
+        _shift(db, owner, p, week, "10:00", "16:00")
+    _as(owner)
+    first = client.post("/api/staff/schedules/email",
+                        json={"week_start": week.isoformat(), "lang": "da", "cc_self": False})
+    assert first.status_code == 200 and first.json()["sent"] == 3
+    # Three more would make six — over the budget of four — on either mailer.
+    again = client.post("/api/staff/schedules/email",
+                        json={"week_start": week.isoformat(), "lang": "en", "cc_self": False})
+    assert again.status_code == 429
+    share = client.post("/api/staff/schedules/share-with-staff",
+                        json={"week_start": week.isoformat()}, params={"lang": "da"})
+    assert share.status_code == 429
+    assert len(sent_to) == 3
+
+
+def test_the_owners_note_is_bounded(client, db, monkeypatch):
+    _stub_mail(monkeypatch, [])
+    owner = _owner(db)
+    _staff(db, owner, name="Anna")
+    _as(owner)
+    r = client.post("/api/staff/schedules/email",
+                    json={"week_start": MONDAY.isoformat(), "lang": "da", "message": "x" * 1001})
+    assert r.status_code == 422

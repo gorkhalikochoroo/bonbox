@@ -6,6 +6,8 @@ import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { stepPayPeriod } from "../utils/payPeriod";
+import { useSearchParams } from "react-router-dom";
+import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -168,8 +170,24 @@ export default function StaffPayrollPage() {
     custom_start_day: currentQ.data?.custom_start_day || 16,
   }), [currentQ.data]);
   // Where Previous/Next has stepped to; null = the server's current window.
-  const [periodOverride, setPeriodOverride] = useState(null);
+  // Seeded from the URL: the window the owner was looking at in Timer comes
+  // with them (utils/viewedPeriod.js) — approving September there and landing
+  // on October's payroll here is how the wrong month reaches the revisor.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [periodOverride, setPeriodOverride] = useState(() => {
+    const p = readViewedPeriod(searchParams);
+    return p ? { period_start: p.from, period_end: p.to } : null;
+  });
   const period = periodOverride || serverPeriod;
+  // …and the window on screen goes back into the URL for the next tab.
+  useEffect(() => {
+    if (!serverPeriod) return;
+    writeViewedPeriod(
+      searchParams, setSearchParams,
+      periodOverride ? { from: periodOverride.period_start, to: periodOverride.period_end } : null,
+      { from: serverPeriod.period_start, to: serverPeriod.period_end },
+    );
+  }, [periodOverride, serverPeriod, searchParams, setSearchParams]);
   // Owner-configurable DK lønperiode (calendar month / 15th→14th / custom day):
   // what was last SAVED, and what is being typed into the controls right now.
   const [lastSavedCfg, setLastSavedCfg] = useState(null);

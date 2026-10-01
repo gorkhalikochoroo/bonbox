@@ -5365,9 +5365,6 @@ export const en = {
     absenceErrFailed: "Couldn't save the absence.",
     absenceErrRemoveFailed: "Couldn't remove the absence.",
     absenceErrPickPerson: "Pick a staff member.",
-    stfRoleBartender: "Bartender",
-    stfRoleBarista: "Barista",
-    stfRoleRunner: "Runner",
     schedUndo: "Undo",
     // Timer column (weekly hours)
     schedTimerCol: "Hours",

@@ -1786,6 +1786,9 @@ def share_with_staff(
         StaffMember.id.in_(scheduled_staff_ids),
         StaffMember.is_deleted.isnot(True),
     ).all()
+    _check_staff_email_budget(
+        db, user, incoming=sum(1 for m in members if "@" in (m.email or "")), lang=lang,
+    )
 
     # Resolve business name once for the email body.
     try:
@@ -3590,10 +3593,66 @@ class _EmailScheduleRequest(BaseModel):
     # with an email". Lets the owner re-send to one or two people who
     # missed it without spamming the whole crew.
     staff_ids: list[str] | None = None
-    # Free-text message rendered at the top of the email body
-    message: str | None = None
+    # Free-text message rendered at the top of the email body. Bounded: it
+    # leaves BonBox's domain in the owner's words.
+    message: str | None = Field(None, max_length=1000)
     # cc the owner so they have a record / can forward
     cc_self: bool = True
+
+
+# ── Staff email budget ──────────────────────────────────────────────────
+# Both owner-to-staff mailers — "Send ugens vagtplan" and "Del med
+# personalet" — send real email from BonBox's domain, one of them with the
+# owner's own words at the top. Per owner per 24 hours: at most
+# _STAFF_EMAIL_CALLS_PER_DAY sends and _STAFF_EMAIL_RECIPIENTS_PER_DAY emails,
+# counted from the audit row each send already writes (audit_logs are the
+# usage counters; same shape as the supplier-email cap in inventory.py). A
+# double-tap, a retry loop or a misused account stops here; a venue sending
+# its roster and a few re-sends never gets near it.
+_STAFF_EMAIL_CALLS_PER_DAY = 10
+_STAFF_EMAIL_RECIPIENTS_PER_DAY = 100
+# audit action -> the `after` field that holds how many emails left.
+_STAFF_EMAIL_ACTIONS = {
+    "staff_schedule.email_bulk": "sent",
+    "staff_link.shared_week": "emailed_count",
+}
+
+
+def _check_staff_email_budget(db: Session, user: User, incoming: int, lang: str) -> None:
+    """429 before anything is sent when this send would pass the budget."""
+    from app.models.audit_log import AuditLog
+
+    since = utc_now() - timedelta(hours=24)
+    rows = (
+        db.query(AuditLog.action, AuditLog.after_state)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action.in_(list(_STAFF_EMAIL_ACTIONS)),
+            AuditLog.created_at >= since,
+        )
+        .all()
+    )
+    already = 0
+    for action, after in rows:
+        try:
+            already += int((json.loads(after or "{}") or {}).get(_STAFF_EMAIL_ACTIONS[action]) or 0)
+        except Exception:  # noqa: BLE001 — a malformed row counts as nothing sent
+            continue
+    if len(rows) >= _STAFF_EMAIL_CALLS_PER_DAY or already + max(0, incoming) > _STAFF_EMAIL_RECIPIENTS_PER_DAY:
+        da = (lang or "").lower() == "da"
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "staff_email_daily_cap",
+                "message": (
+                    "Du har sendt mange mails til personalet det seneste døgn. "
+                    "Prøv igen i morgen — eller del vagtplanen som PDF."
+                    if da else
+                    "You have sent a lot of staff emails in the last 24 hours. "
+                    "Try again tomorrow — or share the schedule as a PDF."
+                ),
+            },
+        )
 
 
 @router.post("/schedules/email")
@@ -3714,6 +3773,12 @@ def email_schedule_to_staff(
             f"{safe}"
             "</div>"
         )
+
+    _check_staff_email_budget(
+        db, user,
+        incoming=sum(1 for t in targets if "@" in (t.email or "")),
+        lang=body.lang,
+    )
 
     sent = 0
     skipped = 0

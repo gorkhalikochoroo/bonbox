@@ -5192,9 +5192,6 @@ export const da = {
     absenceErrFailed: "Kunne ikke gemme fraværet.",
     absenceErrRemoveFailed: "Kunne ikke fjerne fraværet.",
     absenceErrPickPerson: "Vælg en medarbejder.",
-    stfRoleBartender: "Bartender",
-    stfRoleBarista: "Barista",
-    stfRoleRunner: "Runner",
     schedUndo: "Fortryd",
     // Timer-kolonne (ugentlige timer)
     schedTimerCol: "Timer",

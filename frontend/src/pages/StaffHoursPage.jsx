@@ -17,6 +17,7 @@ import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } f
 import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount } from "../components/ui";
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
 import { useDeviceShare } from "../hooks/useDeviceShare";
+import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -210,6 +211,12 @@ export default function StaffHoursPage() {
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
 
+  // The hub's shared URL: ?view= (this tab's sub-view) and ?from=&to= (the
+  // period on screen, shared with Løn and Tidsregistrering — viewedPeriod.js).
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The period a tab switch or a link brought with it — read once, at mount.
+  const [urlPeriodAtMount] = useState(() => readViewedPeriod(searchParams));
+
   // Period state
   const [periodConfig, setPeriodConfig] = useState(null);
   const [periodFrom, setPeriodFrom] = useState(null);
@@ -319,8 +326,9 @@ export default function StaffHoursPage() {
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), 1);
       const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      setPeriodFrom(isoDate(start));
-      setPeriodTo(isoDate(end));
+      // A window carried in from another tab is still the one to show.
+      setPeriodFrom(urlPeriodAtMount?.from || isoDate(start));
+      setPeriodTo(urlPeriodAtMount?.to || isoDate(end));
       setCurrentWindow({ from: isoDate(start), to: isoDate(end) });
     };
 
@@ -333,9 +341,25 @@ export default function StaffHoursPage() {
         const start = d?.start_date || d?.period_start || d?.start || d?.from;
         const end = d?.end_date || d?.period_end || d?.end || d?.to;
         if (start && end) {
-          setPeriodFrom(start);
-          setPeriodTo(end);
           setCurrentWindow({ from: start, to: end });
+          if (urlPeriodAtMount) {
+            // Carried in from Løn / a link: show THAT window. Off the saved
+            // frame (a one-off range) it is a custom range, so Previous/Next
+            // step by its length instead of snapping to the frame.
+            const type = d?.period_type || "monthly_1st";
+            const aligned = CALENDAR_FRAMES.includes(type)
+              ? (() => {
+                  const p = computePayPeriod(type, d?.custom_start_day || 16, urlPeriodAtMount.from);
+                  return p.from === urlPeriodAtMount.from && p.to === urlPeriodAtMount.to;
+                })()
+              : true;
+            if (!aligned) setFrameMode("custom");
+            setPeriodFrom(urlPeriodAtMount.from);
+            setPeriodTo(urlPeriodAtMount.to);
+          } else {
+            setPeriodFrom(start);
+            setPeriodTo(end);
+          }
         } else {
           fallbackPeriod();
         }
@@ -412,6 +436,14 @@ export default function StaffHoursPage() {
     setPeriodFrom(addDays(periodFrom, -periodLength));
     setPeriodTo(addDays(periodTo, -periodLength));
   };
+
+  // Keep the URL in step with the window on screen, so the next tab opens on
+  // it — and a reload or a shared link does too. Not before the first load:
+  // writing then would drop the period another tab just handed over.
+  useEffect(() => {
+    if (periodLoading || !periodFrom || !periodTo) return;
+    writeViewedPeriod(searchParams, setSearchParams, { from: periodFrom, to: periodTo }, currentWindow);
+  }, [periodLoading, periodFrom, periodTo, currentWindow, searchParams, setSearchParams]);
 
   // Is the window on screen the current pay period? Compared against the
   // server's own window, NOT against the device date — see currentWindow.
@@ -513,7 +545,6 @@ export default function StaffHoursPage() {
   // logging block + the accountant detail are one tap away, never the landing.
   // The sub-tab lives in the URL (?view=), so a reload, a back-button or a
   // link from the schedule's clocked-in strip lands on the same view.
-  const [searchParams, setSearchParams] = useSearchParams();
   const SUB_IDS = ["overview", "log", "details"];
   const subTab = SUB_IDS.includes(searchParams.get("view")) ? searchParams.get("view") : "overview";
   const setSubTab = (id) => {
