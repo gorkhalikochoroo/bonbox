@@ -50,9 +50,12 @@ const inputCls =
 const UNKNOWN_COUNT = "—";
 
 // Next round hour today (local) as an HH:MM default for the Book time picker.
+// Outside service hours (before 11, after 21) it offers the evening: 08:00
+// was a time no restaurant takes a table.
 function defaultBookTime() {
   const d = new Date();
-  const h = Math.min(23, d.getMinutes() > 0 ? d.getHours() + 1 : d.getHours());
+  let h = Math.min(23, d.getMinutes() > 0 ? d.getHours() + 1 : d.getHours());
+  if (h < 11 || h > 21) h = 18;
   return String(h).padStart(2, "0") + ":00";
 }
 
@@ -290,7 +293,20 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
       if (onConverted) onConverted();
     } catch (err) {
       if (err?.response?.status === 409) {
-        flashToast(t("rsvpConvertFull", "That slot just filled — pick another time."));
+        // Say WHY, as the new-booking sheet does: "just filled" was shown for
+        // a time the venue is closed and for a sitting that runs past closing.
+        const d = err?.response?.data?.detail || {};
+        const wins = Array.isArray(d.open_windows) ? d.open_windows : null;
+        const inside = wins && wins.some(([a, b]) => (a <= bookTime && bookTime < b) || (b < a && (bookTime >= a || bookTime < b)));
+        if (wins && wins.length === 0) {
+          flashToast(t("rsvpClosedThatDay", "You're closed that day — change the opening hours under Settings to take it."));
+        } else if (wins && !inside) {
+          flashToast(t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: bookTime, hours: wins.map(([a, b]) => `${a}–${b}`).join(", ") }));
+        } else if (d.tables_busy_at_that_time === 0) {
+          flashToast(t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time."));
+        } else {
+          flashToast(t("rsvpConvertFull", "That slot just filled — pick another time."));
+        }
       } else {
         // 402 / 500 / network — the button was spinning then silently gave up.
         // Surface an honest generic error so the owner knows to retry.
@@ -465,11 +481,12 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
                   </div>
                   {/* Actions — ≥44px taps, wrap on narrow screens */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <Button variant="secondary" size="sm" disabled={busy}
+                    {/* 40px — these are tapped on the host stand mid-service. */}
+                    <Button variant="secondary" size="md" className="h-10" disabled={busy}
                       iconLeft={<Bell className="w-4 h-4" />} onClick={() => notify(e)}>
                       {t("rsvpWlNotify", "Notify")}
                     </Button>
-                    <Button variant="primary" size="sm" disabled={busy}
+                    <Button variant="primary" size="md" className="h-10" disabled={busy}
                       iconLeft={<CalendarPlus className="w-4 h-4" />} onClick={() => book(e)}>
                       {t("rsvpWlBook", "Book")}
                     </Button>

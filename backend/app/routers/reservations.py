@@ -521,6 +521,26 @@ def list_changes(
 
 
 # ─── settings ────────────────────────────────────────────────────────
+_WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _open_hours_by_weekday(profile, settings, user) -> dict:
+    """{"mon": [["11:30", "22:00"]], "tue": [], ...} for the coming week.
+    An empty list is a closed day; a missing key means it could not be read."""
+    out: dict = {}
+    try:
+        start = business_today_local(user)
+        for i in range(7):
+            d = start + timedelta(days=i)
+            out[_WEEKDAY_KEYS[d.weekday()]] = [
+                [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
+                for w in rsvc.restaurant_windows(profile, d, settings)
+            ]
+    except Exception:  # noqa: BLE001 — context for the pickers, never a 500
+        return {}
+    return out
+
+
 @router.get("/settings")
 def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "reservations")
@@ -539,6 +559,10 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # False ⇒ no opening hours on record: the page offers no times (the
         # engine no longer invents 11–22) and the owner's hours card says so.
         "hours_declared": rsvc.hours_declared(profile, settings),
+        # The bookable windows per weekday (booking hours, else opening hours),
+        # so the owner's own time pickers offer open times — the new-booking
+        # sheet listed 06:00–23:45 and defaulted to 07:15.
+        "open_hours": _open_hours_by_weekday(profile, settings, user),
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
         "resources_cap": get_cap(user, "bookable_resources_max"),
