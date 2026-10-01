@@ -4657,6 +4657,38 @@ def delete_hours(
 _PERIOD_APPROVAL_NOTE = "Godkendt (periode)"
 
 
+def _hours_approval_text(approved: int, total: int, da: bool = True) -> str:
+    """One person's hours as the revisor reads them on the payroll CSV and
+    PDF: final, partly final, or not. Any answered row counts — the period's
+    "Godkend" and a shift answered on its own mean the same thing."""
+    if total <= 0:
+        return "—"
+    if approved >= total:
+        return "Ja" if da else "Yes"
+    if approved <= 0:
+        return "Nej" if da else "No"
+    return f"Delvist ({approved} af {total})" if da else f"Partly ({approved} of {total})"
+
+
+def _hours_approval_by_staff(db: Session, user: User, start: date, end: date) -> dict:
+    """{staff_id: (approved rows, all rows)} for the window, this venue only."""
+    answered = case(
+        (or_(HoursLogged.resolution.is_(None), HoursLogged.resolution == ""), 0),
+        else_=1,
+    )
+    rows = (
+        db.query(HoursLogged.staff_id, func.count(HoursLogged.id), func.sum(answered))
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.date >= start,
+            HoursLogged.date <= end,
+        )
+        .group_by(HoursLogged.staff_id)
+        .all()
+    )
+    return {str(sid): (int(appr or 0), int(n or 0)) for sid, n, appr in rows}
+
+
 class ApproveHoursRequest(BaseModel):
     from_date: date = Field(alias="from")
     to_date: date = Field(alias="to")
@@ -5904,12 +5936,15 @@ def export_payroll_csv(
     """
     Hours + wages CSV for the owner to map into their lønsystem.
 
-    COLUMNS, as actually written below — eleven:
+    COLUMNS, as actually written below — twelve:
         Name; Role; Contract; Hours; Gross (DKK); AM-bidrag (8%);
-        A-skat (est.); Net pay; Period start; Period end; Tips (DKK)
+        A-skat (est.); Net pay; Period start; Period end; Tips (DKK);
+        Hours approved
     Semicolon-delimited with a UTF-8 BOM, because DK Excel locales split on ";".
-    Tips ("Drikkepenge") is LAST on purpose: an owner who mapped the first ten
-    columns into their lønsystem once keeps a working import.
+    Tips ("Drikkepenge") and the approval mark are APPENDED on purpose: an
+    owner who mapped the first ten columns into their lønsystem once keeps a
+    working import. "Timer godkendt" tells the revisor whether the hours are
+    final: Ja / Nej / Delvist (3 af 5), or — with no hours in the window.
 
     NOT a drop-in import. The previous wording promised "drop-in import for
     DataLøn / Zenegy / Salary" and that these "match the universal columns
@@ -6000,6 +6035,20 @@ def export_payroll_csv(
             ),
         ) from exc
 
+    # Which hours the owner has approved. A failed lookup writes "Ukendt" —
+    # never "Nej", which would claim the owner has not looked.
+    try:
+        approval = _hours_approval_by_staff(db, user, period_start, period_end)
+    except Exception:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger(__name__).exception("payroll CSV approval lookup failed")
+        approval = None
+
+    def _approved(sid) -> str:
+        if approval is None:
+            return "Ukendt"
+        return _hours_approval_text(*approval.get(str(sid), (0, 0)))
+
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";")  # DK lønsystems prefer ; (Excel locale)
     # Danish headers, labels and DECIMAL COMMAS. The file is ;-separated for
@@ -6014,7 +6063,7 @@ def export_payroll_csv(
         "AM-bidrag (8 %)", "A-skat (anslået)", "Udbetaling (anslået)",
         "Periode fra", "Periode til",
         # Appended, never inserted — see the docstring.
-        "Drikkepenge (kr.)",
+        "Drikkepenge (kr.)", "Timer godkendt",
     ])
     for s in per_staff:
         role = str(s.get("role", "") or "")
@@ -6031,6 +6080,7 @@ def export_payroll_csv(
             str(period_start),
             str(period_end),
             _dk(tips_by_staff.get(str(s.get("staff_id")), 0)),
+            _approved(s.get("staff_id")),
         ])
     # Tips-only rows, after everyone with wages: no hours and no wage in this
     # window, so those columns are honestly 0,00 — only the tips are owed.
@@ -6048,6 +6098,7 @@ def export_payroll_csv(
             str(period_start),
             str(period_end),
             _dk(tips_by_staff[sid]),
+            _approved(sid),
         ])
 
     csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel locale handling
@@ -6403,8 +6454,11 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
             if da:
                 _role = PAY_ROLE_DA.get(str(_role).strip().lower(), _role)
                 _ct = PAY_CONTRACT_DA.get(str(_ct).strip().lower(), _ct)
+            _n = len(sd["entries"])
+            _ok = sum(1 for h in sd["entries"] if getattr(h, "resolution", None))
             story.append(Paragraph(
-                f"{L('Rolle', 'Role')}: {_safe(_role)}  |  {L('Ansættelse', 'Contract')}: {_safe(_ct)}",
+                f"{L('Rolle', 'Role')}: {_safe(_role)}  |  {L('Ansættelse', 'Contract')}: {_safe(_ct)}"
+                f"  |  {L('Timer godkendt', 'Hours approved')}: {_safe(_hours_approval_text(_ok, _n, da))}",
                 styles["Normal"],
             ))
             story.append(Spacer(1, 4 * mm))
@@ -6538,6 +6592,28 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     story.append(t)
+    story.append(Spacer(1, 4 * mm))
+
+    # Are these hours final? The revisor should not have to open every page
+    # to find out. Names only for people whose hours are NOT all approved.
+    _with_hours = [staff_data[sid] for sid in staff_ids if staff_data[sid]["entries"]]
+    _open = []
+    for sd in _with_hours:
+        _n = len(sd["entries"])
+        _ok = sum(1 for h in sd["entries"] if getattr(h, "resolution", None))
+        if _ok < _n:
+            _open.append(f"{_safe(sd.get('name') or '—')} ({_ok} {L('af', 'of')} {_n} {L('godkendt', 'approved')})")
+    if _with_hours:
+        if _open:
+            _note = L(
+                f"Timer godkendt for {len(_with_hours) - len(_open)} af {len(_with_hours)} medarbejdere. "
+                f"Mangler godkendelse: {', '.join(_open)}.",
+                f"Hours approved for {len(_with_hours) - len(_open)} of {len(_with_hours)} staff. "
+                f"Awaiting approval: {', '.join(_open)}.",
+            )
+        else:
+            _note = L("Alle timer i perioden er godkendt.", "All hours in the period are approved.")
+        story.append(Paragraph(_note, styles["Normal"]))
     story.append(Spacer(1, 8 * mm))
 
     # Footer

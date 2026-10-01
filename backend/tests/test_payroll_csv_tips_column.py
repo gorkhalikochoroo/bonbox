@@ -99,7 +99,8 @@ def test_tips_are_the_last_column_and_the_first_ten_are_untouched(env):
     _tipped(s, owner, date(2026, 9, 21), [(ali, 100.25)])
     header, rows = _csv(c)
     assert header[:10] == FIRST_TEN
-    assert header[10] == "Drikkepenge (kr.)" and len(header) == 11
+    assert header[10] == "Drikkepenge (kr.)"
+    assert header[11] == "Timer godkendt" and len(header) == 12
     (row,) = rows
     assert row[0] == "Ali" and row[1] == "Bar"
     # Both pools in the window, summed, with a decimal comma for Danish Excel.
@@ -146,3 +147,58 @@ def test_another_venues_tips_never_reach_this_file(env):
     _header, rows = _csv(c)
     assert [r[0] for r in rows] == ["Ali"]
     assert rows[0][10] == "0,00"
+
+
+# ── Is this period's pay final? ───────────────────────────────────────────
+
+def _worked_row(s, owner, m, day, resolution=None):
+    h = HoursLogged(user_id=owner.id, staff_id=m.id, date=day, start_time="10:00",
+                    end_time="18:00", break_minutes=0, total_hours=8, rate_applied=150,
+                    earned=1200, entry_method="clock", resolution=resolution)
+    s.add(h); s.commit()
+    return h
+
+
+def test_the_csv_says_whose_hours_are_approved(env):
+    """The revisor gets the hours with no sign of whether the owner has
+    looked at them. Last column: Ja / Nej / Delvist (n af m), — for none."""
+    c, s, owner = env
+    ali = _member(s, owner, "Ali")
+    bo = _member(s, owner, "Bo")
+    cy = _member(s, owner, "Cy")
+    sara = _member(s, owner, "Sara")
+    _worked_row(s, owner, ali, date(2026, 9, 10), resolution="confirmed")
+    _worked_row(s, owner, ali, date(2026, 9, 11))
+    _worked_row(s, owner, bo, date(2026, 9, 10), resolution="confirmed")
+    _worked_row(s, owner, cy, date(2026, 9, 10))
+    _tipped(s, owner, date(2026, 9, 14), [(sara, 200)])
+    _header, rows = _csv(c)
+    mark = {r[0]: r[11] for r in rows}
+    assert mark == {"Ali": "Delvist (1 af 2)", "Bo": "Ja", "Cy": "Nej", "Sara": "—"}
+
+    # One "Godkend" for the period and every row reads Ja.
+    r = c.post("/api/staff/hours/approve", json={"from": str(START), "to": str(END)})
+    assert r.status_code == 200, r.text
+    _header, rows = _csv(c)
+    assert {r[0]: r[11] for r in rows if r[0] != "Sara"} == {"Ali": "Ja", "Bo": "Ja", "Cy": "Ja"}
+
+
+def test_the_pdf_says_whose_hours_are_approved(env):
+    """Read the PDF's TEXT — a size check passes on an error page."""
+    import io
+    from pypdf import PdfReader
+
+    c, s, owner = env
+    ali = _member(s, owner, "Ali")
+    bo = _member(s, owner, "Bo")
+    _worked_row(s, owner, ali, date(2026, 9, 10), resolution="confirmed")
+    _worked_row(s, owner, ali, date(2026, 9, 11))
+    _worked_row(s, owner, bo, date(2026, 9, 10), resolution="confirmed")
+    r = c.post("/api/staff/payroll/pdf", json={"period_start": str(START), "period_end": str(END)})
+    assert r.status_code == 200, r.text
+    text = " ".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(r.content)).pages)
+    text = " ".join(text.split())
+    assert "Timer godkendt: Delvist (1 af 2)" in text
+    assert "Timer godkendt: Ja" in text
+    assert "Timer godkendt for 1 af 2 medarbejdere" in text
+    assert "Mangler godkendelse: Ali (1 af 2 godkendt)." in text
