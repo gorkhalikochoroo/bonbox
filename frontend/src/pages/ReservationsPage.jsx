@@ -74,6 +74,7 @@ import {
   Hourglass,
   Gauge,
   ListOrdered,
+  Loader2,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -85,6 +86,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
+import PartySizeChips from "../components/reservations/PartySizeChips";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import Sheet from "../components/ui/Sheet";
@@ -650,15 +652,16 @@ export default function ReservationsPage() {
           className={
             isHostStand
               ? ""
-              // From 2xl (1536): at 1280–1440 the 300px rail left the book
-              // 666–752px, and the toolbar and row actions overflowed.
-              : "2xl:grid 2xl:grid-cols-[300px_minmax(0,1fr)] 2xl:gap-6 2xl:items-start"
+              // The calendar rail only where the full table still fits beside
+              // it: from 1680. At 1280–1440 it left the book 666–752px, and
+              // at 1536 it still clipped the row actions.
+              : "min-[1680px]:grid min-[1680px]:grid-cols-[300px_minmax(0,1fr)] min-[1680px]:gap-6 min-[1680px]:items-start"
           }
         >
           {/* A host never changes the date mid-service, and the month grid was
               holding the prime top-left of a screen read at arm's length. */}
           {!isHostStand && (
-          <div className="hidden 2xl:block 2xl:sticky 2xl:top-6">
+          <div className="hidden min-[1680px]:block min-[1680px]:sticky min-[1680px]:top-6">
             <DayRail day={bookDay} onPick={setBookDay} t={t} />
             <div ref={setRailSlot} className="mt-4 empty:hidden" />
           </div>
@@ -1420,89 +1423,7 @@ function ReservationDrawer({
   );
 }
 
-/* ─── ONE party ladder for every sheet that asks "how many?" ───────────
- * There used to be three: Seat-now and Edit offered [1,2,3,4,5,6,8] while
- * New booking offered 1–10 and the public page offers 1–max_party_size.
- * So a booking of 7, 9 or 10 — takeable in New booking, arrivable from the
- * public page — opened in Edit with the whole Party row blank, and the host
- * could not seat a walk-in of 7 at all.
- *
- * Parties above the ladder exist (the backend accepts 1–100 and the owner
- * can raise max_party_size), so the field also renders the ACTUAL number as
- * a selected chip rather than showing nothing.
- */
-const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-function PartySizeChips({ value, onChange, t }) {
-  const n = parseInt(value, 10);
-  const [other, setOther] = useState("");
-  const commitOther = () => {
-    const v = parseInt(other, 10);
-    if (Number.isFinite(v) && v >= 1 && v <= 100) onChange(String(v));
-  };
-  // A real party that is not on the ladder (12, 14 …) gets its own chip at
-  // the end — selected, because it IS the booking.
-  const offLadder = Number.isFinite(n) && n > 0 && !PARTY_SIZES.includes(n);
-  // The typed number IS the party once committed — the box then looks chosen.
-  const otherOn = offLadder && String(n) === String(other);
-  const chipClass = (on) =>
-    "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
-    (on
-      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600");
-  return (
-    <div className="flex flex-wrap gap-2 mt-1.5">
-      {PARTY_SIZES.map((s) => {
-        const on = String(s) === String(value);
-        return (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onChange(String(s))}
-            aria-pressed={on}
-            aria-label={s === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n: s })}
-            className={chipClass(on)}
-          >
-            {s}
-          </button>
-        );
-      })}
-      {offLadder && String(n) !== String(other) && (
-        <button
-          type="button"
-          onClick={() => onChange(String(n))}
-          aria-pressed="true"
-          aria-label={t("rsvpPartyN", "{n} guests", { n })}
-          className={chipClass(true)}
-        >
-          {n}
-        </button>
-      )}
-      {/* 11+ could not be entered at all, although the backend takes 1–100.
-          A small number box for the big table. */}
-      <label className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-        <span className="sr-only">{t("rsvpPartyOther", "Other number of guests")}</span>
-        <input
-          type="number"
-          inputMode="numeric"
-          min={11}
-          max={100}
-          placeholder="11+"
-          // A draft of its own: committing on every keystroke set the party
-          // to 1 on the "1" of "12" and emptied the box, so no two-digit
-          // number could be typed. Commit on blur / Enter.
-          value={other}
-          onChange={(e) => setOther(e.target.value)}
-          onBlur={commitOther}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitOther(); } }}
-          className={"h-11 w-20 px-3 rounded-lg border text-sm tabular-nums " + (otherOn
-            ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100 placeholder:text-gray-300"
-            : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100")}
-        />
-      </label>
-    </div>
-  );
-}
+// The party ladder (1–10 + an 11+ box): components/reservations/PartySizeChips.
 
 // ─── Seat-now (mark a free table occupied with a walk-in) ─────────────
 // Two launch paths, same sheet:
@@ -1757,7 +1678,11 @@ function warningFrom(d, time, totalCapacity = null) {
     // the previous wording rather than claiming an empty room.
     busyAtThatTime: d.tables_busy_at_that_time,
     noHours: d.hours_declared === false,
-    tooBig: Number(d.largest_table) > 0 && Number(d.requested) > Number(d.largest_table),
+    tooBig:
+      Number(d.largest_table) > 0 && Number(d.requested) > Number(d.largest_table) &&
+      !(d.clash_table && Number(d.held_seats) >= Number(d.requested)),
+    clashTable: d.clash_table || null,
+    clashAt: d.clash_at || null,
     largest: Number(d.largest_table) || null,
     requested: Number(d.requested) || null,
     openWindows: Array.isArray(d.open_windows) ? d.open_windows : null,
@@ -1771,6 +1696,13 @@ function warningFrom(d, time, totalCapacity = null) {
 // table fits, which is several different facts; each gets its own sentence.
 function roomFullText(w, t, sitting, { edit = false } = {}) {
   const hours = (w.openWindows || []).map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", ");
+  // A taken table is its own fact — "no table seats 12 (largest 8)" was said
+  // for a 12 on Bord 5 + 6 whose Bord 5 is booked at 20.00.
+  if (edit && w.clashTable && !w.tooBig) {
+    return t("rsvpEditClash", "{table} is booked from {time}. Save anyway and they keep no table until you give them one.", {
+      table: w.clashTable, time: hm(w.clashAt),
+    });
+  }
   if (w.tooBig) {
     return edit
       ? t("rsvpEditTooBig", "No table seats {n} (largest: {max}). Save anyway and put tables together when they arrive.", { n: w.requested, max: w.largest })
@@ -1925,7 +1857,7 @@ function EditBookingSheet({
               className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums">
               {/* The booking's own time stays listed even when it is outside
                   today's hours, so opening Edit never silently moves it. */}
-              {(editTimes.times.includes(time) ? editTimes.times : [time, ...editTimes.times]).map((q) => <option key={q} value={q}>{hm(q)}</option>)}
+              {(editTimes.times.includes(time) ? editTimes.times : [...editTimes.times, time].sort()).map((q) => <option key={q} value={q}>{hm(q)}</option>)}
             </select>
           </div>
         </div>
@@ -2295,7 +2227,7 @@ function NewBookingSheet({
             >
               {/* Only the times the venue takes bookings (a time typed
                   elsewhere stays selectable rather than vanishing). */}
-              {(dayTimes.times.includes(time) ? dayTimes.times : [time, ...dayTimes.times]).map((tm) => (
+              {(dayTimes.times.includes(time) ? dayTimes.times : [...dayTimes.times, time].sort()).map((tm) => (
                 <option key={tm} value={tm}>
                   {hm(tm)}
                 </option>
@@ -4139,6 +4071,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     return () => { alive = false; clearTimeout(id); };
   }, [q, isStandDevice]);
   const searchLive = !isStandDevice && q.trim().length >= 2 && found.q === q.trim();
+  // Typed, not answered yet: the other-day hits arrived a second after
+  // "Intet matcher", which read as the final word.
+  const searchPending = !isStandDevice && q.trim().length >= 2 && found.q !== q.trim();
   const otherDayHits = searchLive ? found.list.filter((h) => h.day !== day) : [];
   const openOtherDay = (h) => {
     const next = new URLSearchParams(searchParams);
@@ -4154,7 +4089,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     return () => clearTimeout(id);
   }, [deepLinkPulse]);
 
-  const setStatus = async (r, status) => {
+  // onProceed runs once every confirm has said yes — the drawer closes
+  // then, not before: "Behold" on the cancel question closed it anyway.
+  const setStatus = async (r, status, onProceed = null) => {
     // Seating a booking hours early is almost always the wrong row (a 20:00
     // party seated at 10:05 started its turn timer and held the table all
     // day). Ask once when it is more than an hour ahead; reopening a
@@ -4163,10 +4100,32 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const aheadMin = (new Date(r.starts_at).getTime() - Date.now()) / 60000;
       if (aheadMin > 60) {
         const who = r.guest_name || t("rsvpGuest", "Guest");
+        // Someone else due on the same table inside their sitting: say who
+        // and when, before the host commits — it was silent.
+        const mine = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+          ? r.combined_resource_ids.map(String) : r.resource_id ? [String(r.resource_id)] : [];
+        const nowMs = Date.now();
+        const endMs = nowMs + (Number(r.duration_min) || 90) * 60000;
+        const next = reservations
+          .filter((x) => x.id !== r.id && ["requested", "confirmed", "seated"].includes(x.status) && x.starts_at)
+          .filter((x) => {
+            const ids = Array.isArray(x.combined_resource_ids) && x.combined_resource_ids.length
+              ? x.combined_resource_ids.map(String) : x.resource_id ? [String(x.resource_id)] : [];
+            const s0 = new Date(x.starts_at).getTime();
+            const s1 = x.ends_at ? new Date(x.ends_at).getTime() : s0 + 90 * 60000;
+            return ids.some((id) => mine.includes(id)) && s0 < endMs && s1 > nowMs;
+          })
+          .sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1))[0];
+        const nextTable = next ? resolveTableLabel(next, labelById) || t("rsvpTableFallback", "Table") : null;
+        const clashLine = !next
+          ? ""
+          : new Date(next.starts_at).getTime() - nowMs >= 30 * 60000
+            ? " " + t("rsvpSeatEarlyUntil", "{table} is booked at {time} — they can sit until then.", { table: nextTable, time: fmtTime(next.starts_at) })
+            : " " + t("rsvpSeatEarlyTaken", "{table} is needed at {time} — give them another table first.", { table: nextTable, time: fmtTime(next.starts_at) });
         if (
           !(await confirm({
             title: t("rsvpSeatEarlyTitle", "Seat {name} now?", { name: who }),
-            message: t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) }),
+            message: t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) }) + clashLine,
             confirmLabel: t("rsvpSeatAction", "Seat"),
             cancelLabel: t("rsvpSeatEarlyNotNow", "Not now"),
           }))
@@ -4246,6 +4205,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         return;
       }
     }
+    onProceed?.();
     setActioningId(r.id);
     // Physical feedback at the moment of decision (no-op on web): success on
     // the money moment (completed), a firm tick otherwise.
@@ -4274,6 +4234,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // only SHOWS them; the owner still taps Notify / Book.
       const m = resp?.data?.waitlist_matches;
       if (Array.isArray(m) && m.length) setSpotMatches(m);
+      // The server could not do the obvious thing — say so, never silently.
+      const kept = resp?.data?.early_kept;
+      if (kept) {
+        toast({
+          severity: "warn",
+          message: t("rsvpSeatEarlyKept", "{table} is needed at {time}, so the booking keeps {booked}. Give them another table in the booking.", {
+            table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), booked: fmtTime(r.starts_at),
+          }),
+        });
+      }
+      const blocked = resp?.data?.restore_blocked;
+      if (blocked) {
+        toast({
+          severity: "warn",
+          message: t("rsvpUndoNotRestored", "Couldn't give {booked} back — {table} is taken then. The booking stays at {now}.", {
+            booked: hm(blocked.booked_at), table: blocked.table || t("rsvpTableFallback", "Table"), now: fmtTime(resp.data.starts_at),
+          }),
+        });
+      }
       window.dispatchEvent(new Event("bonbox-reservations-changed"));
       await fetchBook(day);
       // Seated with no table (a 12 "booked without a table"): the booking
@@ -4379,8 +4358,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             auto_assign: !form.resource_id,
             ...(allowOverflow ? { allow_overflow: true } : {}),
           };
-      await api.post("/reservations/book", payload);
+      const created = await api.post("/reservations/book", payload);
       trackEvent("reservation_created", "reservations");  // product analytics
+      // Say what was made — New booking closed in silence (the waitlist's Book
+      // said "booket 19.30 · Bord 2"), and booking another day also jumped
+      // the book to that date without a word.
+      {
+        const row = created?.data || {};
+        const when = (form.date === serviceDayIso() ? "" : shortDayLabel(form.date, t, lang) + " ") + fmtTime(row.starts_at || `${form.date}T${form.time}:00`);
+        const table = resolveTableLabel(row, labelById);
+        const name = form.guest_name || t("rsvpGuest", "Guest");
+        toast({
+          severity: "success",
+          message: table
+            ? t("rsvpBookedToast", "{name} booked {when} · {table}", { name, when, table })
+            : t("rsvpBookedToastNoTable", "{name} booked {when} — no table yet", { name, when }),
+        });
+      }
       // The day rail's per-day counts come from a separate month query.
       window.dispatchEvent(new Event("bonbox-reservations-changed"));
       setNewOpen(false);
@@ -4528,7 +4522,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // the server moved them to one that fits — say where, or the host
       // walks the party to the old table.
       const mv = res?.data?.moved;
-      if (mv?.to) {
+      if (mv && !mv.to) {
+        toast({
+          severity: "warn",
+          message: t("rsvpEditNoTableNow", "{name} is saved without a table — {table} is booked from {time}.", {
+            name: res.data.guest_name || t("rsvpGuest", "Guest"),
+            table: mv.clash_table || mv.from || t("rsvpTableFallback", "Table"),
+            time: hm(mv.clash_at || ""),
+          }),
+        });
+      } else if (mv?.to) {
         toast({
           severity: "success",
           message: mv.from
@@ -4767,6 +4770,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     };
   }, [reservations, totalCapacity]);
   const nextArrival = useMemo(() => {
+    // A day that is over has no next arrival — it named a party from
+    // yesterday that nobody marked.
+    if (day < serviceDayIso()) return null;
     const live = reservations.filter(
       (r) => !["completed", "cancelled", "no_show", "seated"].includes(r.status),
     );
@@ -4784,7 +4790,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       [...pool].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0] ||
       null
     );
-  }, [reservations, isViewingToday]);
+  }, [reservations, isViewingToday, day]);
   // Host-stand read: WHO is next, HOW MANY, and WHERE they sit. The table was
   // the one missing piece — a host reading this tile still had to open the
   // drawer or scan the list to find out where to walk them. Everything here is
@@ -5639,7 +5645,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           },
           {
             key: "next",
-            label: t("rsvpNextArrival", "Next arrival"),
+            // Another day's first party is its first arrival, not "next".
+            label: isViewingToday ? t("rsvpNextArrival", "Next arrival") : t("rsvpFirstArrival", "First arrival"),
             value: nextArrival ? fmtTime(nextArrival.starts_at) : "—",
             icon: Clock,
             tone: nextArrival ? "info" : "neutral",
@@ -5832,6 +5839,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </ul>
             </section>
           )}
+          {searchPending && (
+            <p className="text-[12px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1.5" role="status">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+              {t("rsvpSearchingOtherDays", "Searching other days…")}
+            </p>
+          )}
           {searchLive && found.failed && (
             <p className="text-[12px] text-gray-500 dark:text-gray-400">
               {t("rsvpSearchOtherDaysFailed", "Couldn't search other days just now — this day's list is still right.")}
@@ -5851,9 +5864,19 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
             // Compact rows up to lg: at 768 (the host stand's tablet) the table
             // was 884px in 718px, with Udeblevet/Aflys off screen.
-            mobileBreakpoint="lg"
+            // Compact rows below xl: from 1024 to 1279 (the stand in landscape,
+            // a laptop with the sidebar) the table was 25–48px wider than its
+            // card and "Afslut" was cut in half.
+            mobileBreakpoint="xl"
             mobileRow={compactRow}
             empty={
+              // Nothing today, but found on other days (listed above): a
+              // line pointing there, not a big "Nothing matches" card.
+              filtersOn && otherDayHits.length > 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  {t("rsvpNoMatchTodayOtherDays", "Nothing on this day — see the other days above.")}
+                </p>
+              ) :
               /* Three honest empty states, not one: filtered-to-nothing, a
                  quiet day, and a venue that has no tables yet — the last used
                  to wear the second one's copy and promise bookings that could
@@ -6024,10 +6047,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onAllergyAction={(action) => actionAllergy(selected, action)}
           allergyActionBusy={allergyBusy}
           allergyActionError={allergyError}
-          onStatus={(r, to) => {
-            setStatus(r, to);
-            setSelected(null);
-          }}
+          onStatus={(r, to) => setStatus(r, to, () => setSelected(null))}
           onClose={() => {
             setSelected(null);
             setAssignError("");

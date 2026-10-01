@@ -2240,7 +2240,7 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
             # Same app-level clash guard as assign_table, for the NEW window
             # (Postgres exclusion constraint is the backstop on commit).
             clash = (
-                db.query(ReservationOccupancy.id)
+                db.query(ReservationOccupancy)
                 .filter(
                     ReservationOccupancy.user_id == user.id,
                     ReservationOccupancy.resource_id.in_(held_ids),
@@ -2249,9 +2249,22 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
                     ReservationOccupancy.starts_at < new_end,
                     ReservationOccupancy.ends_at > new_start,
                 )
+                .order_by(ReservationOccupancy.starts_at)
                 .first()
             )
             seats = sum(int(h.capacity_seats or 0) for h in held)
+            label_of = {
+                str(x.id): x.label
+                for x in db.query(BookableResource).filter(BookableResource.user_id == user.id).all()
+            }
+            # Name the real cause when it is a taken table: "Intet bord har
+            # plads til 12 (største: 8)" was shown for a 12 on Bord 5 + 6
+            # whose Bord 5 is booked at 20.00.
+            clash_info = (
+                {"clash_table": label_of.get(str(clash.resource_id)),
+                 "clash_at": clash.starts_at.strftime("%H:%M")}
+                if clash is not None else {}
+            )
             # Six on a two-top, or a sitting past closing, used to save
             # without a word — create would never have booked either.
             fits = clash is None and (
@@ -2269,22 +2282,27 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
                     party_size=new_party, now=None, duration_min=duration,
                     owner_booking=True,
                 )
-                if not ids:
+                old_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
+                if not ids and payload.allow_overflow:
+                    # "Gem alligevel" against a taken table: the change is
+                    # saved and the party loses the table — never two parties
+                    # on one table. It used to answer the same 409 forever.
+                    held_ids = []
+                    r.resource_id = None
+                    r.combined_resource_ids = None
+                    moved = {"from": old_label or None, "to": None, **clash_info}
+                elif not ids:
                     detail = _room_full_detail(db, user, new_party, start=new_start, end=new_end)
                     db.rollback()
-                    detail.update({"edit": True, "held_seats": seats, "sitting_min": duration})
+                    detail.update({"edit": True, "held_seats": seats, "sitting_min": duration, **clash_info})
                     raise HTTPException(status_code=409, detail=detail)
-                label_of = {
-                    str(x.id): x.label
-                    for x in db.query(BookableResource).filter(BookableResource.user_id == user.id).all()
-                }
-                old_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
-                held_ids = [UUID(str(x)) for x in ids]
-                new_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
-                if [str(x) for x in held_ids] != [str(h) for h in (r.combined_resource_ids or [r.resource_id])]:
-                    moved = {"from": old_label or None, "to": new_label or None}
-                r.resource_id = held_ids[0]
-                r.combined_resource_ids = [str(x) for x in held_ids] if len(held_ids) > 1 else None
+                else:
+                    held_ids = [UUID(str(x)) for x in ids]
+                    new_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
+                    if [str(x) for x in held_ids] != [str(h) for h in (r.combined_resource_ids or [r.resource_id])]:
+                        moved = {"from": old_label or None, "to": new_label or None}
+                    r.resource_id = held_ids[0]
+                    r.combined_resource_ids = [str(x) for x in held_ids] if len(held_ids) > 1 else None
 
         r.starts_at = new_start
         r.ends_at = new_end
@@ -2370,6 +2388,8 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # (keeps the book's "Bord 1 + Bord 2" chip honest).
         r.combined_resource_ids = None
     early_from = None  # the booked start, when the party was seated early
+    early_kept = None  # why an early seating could not take the table from now
+    restore_blocked = None  # why an undo could not give the booked time back
     if payload.status == "seated":
         # Reopening a finished table keeps its real seat time — overwriting it
         # restarted the turn timer and skewed turn-time stats.
@@ -2388,8 +2408,8 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
             if r.starts_at - now_l > timedelta(minutes=15):
                 new_end = now_l + timedelta(minutes=int(r.duration_min or 90))
                 held = [UUID(str(x)) for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
-                clash = held and (
-                    db.query(ReservationOccupancy.id)
+                others = (
+                    db.query(ReservationOccupancy)
                     .filter(
                         ReservationOccupancy.user_id == user.id,
                         ReservationOccupancy.resource_id.in_(held),
@@ -2398,11 +2418,21 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                         ReservationOccupancy.starts_at < new_end,
                         ReservationOccupancy.ends_at > now_l,
                     )
-                    .first()
-                )
-                if not clash:
+                    .order_by(ReservationOccupancy.starts_at)
+                    .all()
+                ) if held else []
+                nxt = others[0] if others else None
+                # Another party due on the table later: they have it until
+                # then (half an hour or more). Someone on it now, or due within
+                # half an hour: the booked time stays — and the host is told.
+                if nxt is not None and nxt.starts_at > now_l and nxt.starts_at - now_l >= timedelta(minutes=30):
+                    new_end, nxt = nxt.starts_at, None
+                if nxt is None:
                     early_from = r.starts_at
                     r.starts_at, r.ends_at = now_l, new_end
+                else:
+                    _lbl = db.query(BookableResource.label).filter(BookableResource.id == nxt.resource_id).scalar()
+                    early_kept = {"table": _lbl, "at": nxt.starts_at.strftime("%H:%M")}
     restored_from = None  # the early-seat time, when an undo gave the booked time back
     if payload.status in ("requested", "confirmed") and prev_status == "seated" and r.starts_at:
         # Undo of an early seating: the booking gets its booked time back. A
@@ -2410,10 +2440,14 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # party booked for 12:50 — it would turn up to a table sold twice.
         try:
             from app.models.audit_log import AuditLog
+            # The newest seating that RECORDED the booked time — a reopen
+            # (finished → seated) writes a seating without it, and that one
+            # used to hide the time to give back.
             seat_row = (
                 db.query(AuditLog)
                 .filter(AuditLog.user_id == user.id, AuditLog.entity_id == r.id,
-                        AuditLog.action == "reservation.seated")
+                        AuditLog.action == "reservation.seated",
+                        AuditLog.before_state.isnot(None))
                 .order_by(AuditLog.created_at.desc())
                 .first()
             )
@@ -2423,8 +2457,8 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                 booked = datetime.fromisoformat(was["starts_at"])
                 booked_end = booked + timedelta(minutes=int(r.duration_min or 90))
                 held = [UUID(str(x)) for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
-                clash = held and (
-                    db.query(ReservationOccupancy.id)
+                clash = (
+                    db.query(ReservationOccupancy)
                     .filter(
                         ReservationOccupancy.user_id == user.id,
                         ReservationOccupancy.resource_id.in_(held),
@@ -2434,10 +2468,15 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                         ReservationOccupancy.ends_at > booked,
                     )
                     .first()
-                )
-                if not clash:
+                ) if held else None
+                if clash is None:
                     restored_from = r.starts_at
                     r.starts_at, r.ends_at = booked, booked_end
+                else:
+                    # Said, not silent: the host must know the booked time is
+                    # gone before the guest turns up for it.
+                    _lbl = db.query(BookableResource.label).filter(BookableResource.id == clash.resource_id).scalar()
+                    restore_blocked = {"booked_at": booked.strftime("%H:%M"), "table": _lbl}
         except Exception:  # noqa: BLE001 — the undo itself must still go through
             restored_from = None
     if payload.status == "cancelled":
@@ -2502,6 +2541,10 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                                prev_status=prev_status)
 
     out = _reservation_dict(r)
+    if early_kept:
+        out["early_kept"] = early_kept
+    if restore_blocked:
+        out["restore_blocked"] = restore_blocked
     # Auto-fill SURFACING (Venteliste): a cancel / no-show just freed a table,
     # so surface the waiting parties that fit — the owner then taps Notify or
     # Book. This ONLY reads + returns matches; it sends no SMS, holds nothing,

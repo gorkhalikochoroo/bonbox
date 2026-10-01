@@ -275,6 +275,8 @@ function TableNode({
   cell,
   pos,
   nowMs,
+  // Seats of all the tables a combined party sits at (null when single).
+  comboSeats = null,
   t,
   profile,
   editing,
@@ -587,8 +589,10 @@ function TableNode({
               <>
                 <Users className="w-3 h-3 opacity-70" aria-hidden />
                 <span className="text-[13px] tabular-nums">
+                  {/* A party across tables counts every table's seats: 12 at
+                      Bord 5 + 6 read "12/6" and "12/8", as if over-full. */}
                   {status !== "free" && partySize != null
-                    ? `${partySize}/${seats}`
+                    ? `${partySize}/${comboSeats || seats}`
                     : seats}
                 </span>
                 {combined && <Link2 className="w-3 h-3 opacity-70 ml-0.5" aria-hidden />}
@@ -677,6 +681,11 @@ export default function FloorPlan({
   // icon, empty state, hints, zone presets). Per-resource provider overrides
   // are resolved separately, per cell, inside the render loop.
   const profile = useMemo(() => venueProfile(businessType), [businessType]);
+  // Seats per table, for a party sitting across several.
+  const seatsByRes = useMemo(
+    () => Object.fromEntries((cells || []).map((c) => [String(c.res.id), Number(c.res.capacity_seats) || 0])),
+    [cells],
+  );
 
   // Layout for the live (server) data — recomputed when resources change.
   const baseLayout = useMemo(
@@ -1700,6 +1709,11 @@ export default function FloorPlan({
                   cell={c}
                   pos={pos}
                   nowMs={nowMs}
+                  comboSeats={
+                    c.combined && Array.isArray(c.booking?.reservation?.combined_resource_ids)
+                      ? c.booking.reservation.combined_resource_ids.reduce((sum, rid) => sum + (seatsByRes[String(rid)] || 0), 0) || null
+                      : null
+                  }
                   t={t}
                   profile={cellProfile}
                   editing={editing}

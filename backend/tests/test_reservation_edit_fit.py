@@ -208,8 +208,10 @@ def test_allow_overflow_never_double_books(client, db):
     _book(client, only, time="20:00", party=2)  # holds Bord 1 20:00–21:30
     b = _book(client, only, time="17:00", party=2)
     res = _edit(client, b["id"], starts_at=f"{_DAY}T20:30:00", allow_overflow=True)
-    assert res.status_code == 409
-    assert _held(db, b["id"]) == [str(only.id)]
+    # Saved — without the taken table; never a second party on it.
+    assert res.status_code == 200, res.text
+    assert res.json()["resource_id"] is None
+    assert _held(db, b["id"]) == []
 
 
 def test_a_smaller_party_stays_put(client, db):
@@ -391,3 +393,94 @@ def test_seating_early_never_runs_into_another_hold(client, db):
     assert out.status_code == 200, out.text
     assert _row(db, b["id"]).starts_at == later       # not moved onto Test Nu
     assert other["id"]
+
+
+# ── round 9: save-anyway on a clash, undo after a reopen, squeezed seating ──
+
+def test_save_anyway_onto_a_taken_table_saves_without_a_table(client, db):
+    _, (only,) = _venue(db, seats=(8,))
+    _book(client, only, time="20:00", party=2)          # holds Bord 1 20:00–21:30
+    b = _book(client, only, time="17:00", party=2)
+    refused = _edit(client, b["id"], starts_at=f"{_DAY}T19:30:00")
+    d = refused.json()["detail"]
+    assert refused.status_code == 409 and d["clash_table"] == "Bord 1" and d["clash_at"] == "20:00"
+    res = _edit(client, b["id"], starts_at=f"{_DAY}T19:30:00", allow_overflow=True)
+    assert res.status_code == 200, res.text
+    out = res.json()
+    assert out["resource_id"] is None and out["starts_at"].startswith(f"{_DAY}T19:30")
+    assert out["moved"] == {"from": "Bord 1", "to": None, "clash_table": "Bord 1", "clash_at": "20:00"}
+    assert _held(db, b["id"]) == []
+
+
+def _status(client, rid, status):
+    res = client.patch(f"/api/reservations/reservations/{rid}/status", json={"status": status})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_undo_after_a_reopen_still_gives_the_booked_time_back(client, db):
+    u, (two, eight) = _venue(db)
+    _, at = _later_today(u, minutes=180)
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Genåbn", "party_size": 2, "source": "manual",
+        "starts_at": at.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    _status(client, b["id"], "seated")        # early → moved to now
+    _status(client, b["id"], "completed")
+    _status(client, b["id"], "seated")        # reopen: a seating with no booked time
+    _status(client, b["id"], "confirmed")     # undo
+    assert _row(db, b["id"]).starts_at == at
+
+
+def test_undo_that_cannot_give_the_time_back_says_so(client, db):
+    u, (two, eight) = _venue(db)
+    _, at = _later_today(u, minutes=180)
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Tabt", "party_size": 2, "source": "manual",
+        "starts_at": at.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    _status(client, b["id"], "seated")        # early → the booked slot frees
+    client.post("/api/reservations/book", json={  # someone takes the booked slot
+        "guest_name": "Test Ny", "party_size": 2, "source": "manual",
+        "starts_at": at.isoformat(), "resource_id": str(eight.id),
+    })
+    out = _status(client, b["id"], "confirmed")
+    assert out["restore_blocked"] == {"booked_at": at.strftime("%H:%M"), "table": "Bord 2"}
+    assert _row(db, b["id"]).starts_at != at
+
+
+def test_seating_early_before_a_later_party_holds_the_table_until_them(client, db):
+    from datetime import timedelta
+    u, (two, eight) = _venue(db)
+    now, later = _later_today(u, minutes=240)
+    nxt = (now + timedelta(minutes=60)).replace(second=0)
+    client.post("/api/reservations/book", json={
+        "guest_name": "Test Efter", "party_size": 2, "source": "manual",
+        "starts_at": nxt.isoformat(), "resource_id": str(eight.id),
+    })
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Klem", "party_size": 2, "source": "manual",
+        "starts_at": later.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    out = _status(client, b["id"], "seated")
+    row = _row(db, b["id"])
+    assert row.ends_at == nxt and abs((row.starts_at - now).total_seconds()) <= 60
+    assert "early_kept" not in out
+
+
+def test_seating_early_on_a_table_needed_soon_keeps_the_time_and_says_so(client, db):
+    from datetime import timedelta
+    u, (two, eight) = _venue(db)
+    now, later = _later_today(u, minutes=240)
+    soon = (now + timedelta(minutes=10)).replace(second=0)
+    client.post("/api/reservations/book", json={
+        "guest_name": "Test Snart", "party_size": 2, "source": "manual",
+        "starts_at": soon.isoformat(), "resource_id": str(eight.id),
+    })
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Vent", "party_size": 2, "source": "manual",
+        "starts_at": later.isoformat(), "resource_id": str(eight.id),
+    }).json()
+    out = _status(client, b["id"], "seated")
+    assert out["early_kept"] == {"table": "Bord 2", "at": soon.strftime("%H:%M")}
+    assert _row(db, b["id"]).starts_at == later

@@ -101,11 +101,13 @@ const BREAKPOINT_TABLE_HIDE = {
   sm: "hidden sm:block",
   md: "hidden md:block",
   lg: "hidden lg:block",
+  xl: "hidden xl:block",
 };
 const BREAKPOINT_CARDS_HIDE = {
   sm: "sm:hidden",
   md: "md:hidden",
   lg: "lg:hidden",
+  xl: "xl:hidden",
 };
 
 function resolveKey(row, rowKey, idx) {

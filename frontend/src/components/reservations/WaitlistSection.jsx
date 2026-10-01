@@ -34,6 +34,7 @@ import Button from "../ui/Button";
 import LoadFailed from "../ui/LoadFailed";
 import { openTimesFor, sittingMinutes, hm } from "../../utils/bookingTimes";
 import { fmtTime } from "../../utils/floorState";
+import PartySizeChips from "./PartySizeChips";
 
 const inputCls =
   "w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 " +
@@ -370,14 +371,22 @@ export default function WaitlistSection({
             </span>
           )}
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          iconLeft={<Plus className="w-4 h-4" />}
-          onClick={() => { setAdding((v) => !v); setAddErr(""); }}
-        >
-          {t("rsvpWlAddCta", "Add")}
-        </Button>
+        {/* While the form is open it has its own Add and Cancel — a second
+            "+ Tilføj" above it read as another, different action. */}
+        {adding ? (
+          <Button variant="ghost" size="sm" onClick={() => { setAdding(false); setAddErr(""); }}>
+            {t("cancel", "Cancel")}
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            iconLeft={<Plus className="w-4 h-4" />}
+            onClick={() => { setAdding(true); setAddErr(""); }}
+          >
+            {t("rsvpWlAddCta", "Add")}
+          </Button>
+        )}
       </div>
 
       {/* "A spot may have opened" — surfaced, never auto-acted. */}
@@ -406,16 +415,20 @@ export default function WaitlistSection({
               required aria-required="true"
               onChange={(e) => setForm((f) => ({ ...f, guest_phone: e.target.value }))} />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="inline-flex items-center gap-2">
-              <Users className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
-              <input className={inputCls} type="number" min="1" max="100" value={form.party_size}
-                aria-label={t("rsvpWlPartySize", "Guests")}
-                onChange={(e) => setForm((f) => ({ ...f, party_size: e.target.value }))} />
-            </div>
-            <input className={inputCls} placeholder={t("rsvpWlNote", "Note (optional)")} value={form.note}
-              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+          {/* The same party ladder as every other sheet (it was a bare
+              number box here). */}
+          <div role="group" aria-label={t("rsvpWlPartySize", "Guests")}>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("rsvpPartySize", "Party size")}
+            </span>
+            <PartySizeChips
+              value={String(form.party_size)}
+              onChange={(v) => setForm((f) => ({ ...f, party_size: v }))}
+              t={t}
+            />
           </div>
+          <input className={inputCls} placeholder={t("rsvpWlNote", "Note (optional)")} value={form.note}
+            onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
           {addErr && <p className="text-xs text-red-600 dark:text-red-400">{addErr}</p>}
           <div className="flex justify-end">
             <Button type="submit" variant="primary" size="sm" disabled={saving}
@@ -454,7 +467,7 @@ export default function WaitlistSection({
             body={t("rsvpWlLoadFailedBody", "We couldn't load the waitlist just now — that isn't the same as nobody waiting.")}
           />
         </div>
-      ) : entries.length === 0 ? (
+      ) : entries.length === 0 && adding ? null : entries.length === 0 ? (
         <div className="px-4 py-6 text-center">
           <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t("rsvpWlEmpty", "No one waiting yet")}</p>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -517,12 +530,16 @@ export default function WaitlistSection({
                     </Button>
                     {/* While the time row is open its own Book is the one —
                         two "Book" buttons side by side asked which. */}
-                    {bookFor !== e.id && (
-                      <Button variant="primary" size="md" className="h-10" disabled={busy}
-                        iconLeft={<CalendarPlus className="w-4 h-4" />} onClick={() => book(e)}>
-                        {t("rsvpWlBook", "Book")}
-                      </Button>
-                    )}
+                    {/* Hidden, not removed, while its time row is open: removing
+                        it slid "Giv besked" under the pointer. */}
+                    <Button variant="primary" size="md"
+                      className={"h-10" + (bookFor === e.id ? " invisible" : "")}
+                      aria-hidden={bookFor === e.id ? "true" : undefined}
+                      tabIndex={bookFor === e.id ? -1 : undefined}
+                      disabled={busy}
+                      iconLeft={<CalendarPlus className="w-4 h-4" />} onClick={() => book(e)}>
+                      {t("rsvpWlBook", "Book")}
+                    </Button>
                     <button type="button" onClick={() => removeEntry(e)} disabled={busy}
                       aria-label={t("rsvpWlRemove", "Remove")}
                       className="h-11 w-11 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40">
@@ -535,7 +552,7 @@ export default function WaitlistSection({
                   // Only times the venue is open for the whole sitting (a
                   // free clock offered 03:00 and 21:55, both refused).
                   const opts = timesFor(e);
-                  const list = opts.times.includes(bookTime) ? opts.times : [bookTime, ...opts.times];
+                  const list = opts.times.includes(bookTime) ? opts.times : [...opts.times, bookTime].sort();
                   return (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <select value={bookTime} onChange={(ev) => setBookTime(ev.target.value)}

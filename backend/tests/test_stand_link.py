@@ -92,6 +92,14 @@ def client(engine_and_session):
             s.close()
 
     app.dependency_overrides[get_db] = _get_test_db
+    # The stand routes carry per-minute limits, and the in-memory counters
+    # outlive a test — the route limiter and the app's 600-a-minute per-IP
+    # ceiling, which every TestClient request shares. Run after a busy file,
+    # these tests met 429s that had nothing to do with them.
+    from app.main import _coarse_hits
+    from app.routers.stand_link import limiter as _stand_limiter
+    _stand_limiter.reset()
+    _coarse_hits.clear()
     yield TestClient(app)
     app.dependency_overrides.clear()
 
