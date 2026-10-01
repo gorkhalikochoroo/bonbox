@@ -3349,6 +3349,7 @@ export const en = {
     expiryCardAria: "Open expiry alerts",
     // Daily Close — Lane A UI strings (see DailyClosePage.jsx)
     autoEmailToggleLabel: "Email owner + revisor automatically on lock",
+    autoEmailToggleHintNoPhoto: "When you tap Confirm & Lock, we send one email with the kasserapport PDF to your owner email and your revisor.",
     autoEmailToggleHint:
       "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your revisor.",
     autoEmailToggleStarterGate: "Auto-email on lock is on Starter+",

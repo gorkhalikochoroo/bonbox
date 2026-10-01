@@ -1035,6 +1035,12 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
 
+// "25. sep." in the owner's own words — a range picker read ISO dates.
+function shortRangeDay(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return iso || "";
+  return new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+}
+
 // The part of the saved total that no category line carries — a Z-bon read
 // as a total (or one line), or a total corrected below its lines. Without it
 // the review's rows did not add up to the total it was about to lock.
@@ -4323,7 +4329,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                         <Icon name="Mail" size={14} className="text-gray-500 dark:text-gray-400" /> {t("autoEmailToggleLabel", "Email owner + revisor automatically on lock")}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {t("autoEmailToggleHint", "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your revisor.")}
+                        {/* The photo only when there is one — a typed close has none. */}
+                        {receiptPhotoUrl
+                          ? t("autoEmailToggleHint", "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your revisor.")
+                          : t("autoEmailToggleHintNoPhoto", "When you tap Confirm & Lock, we send one email with the kasserapport PDF to your owner email and your revisor.")}
                       </p>
                     </div>
                   </label>
@@ -5523,9 +5532,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         {/* Range summary + download buttons */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            <strong className="text-gray-700 dark:text-gray-300">{activeRange.from}</strong>
-            {" → "}
-            <strong className="text-gray-700 dark:text-gray-300">{activeRange.to}</strong>
+            {/* "25. sep. – 1. okt.", not the ISO "2026-09-25 → 2026-10-01". */}
+            <strong className="text-gray-700 dark:text-gray-300">{shortRangeDay(activeRange.from)}</strong>
+            {" – "}
+            <strong className="text-gray-700 dark:text-gray-300">{shortRangeDay(activeRange.to)}</strong>
             {"  ·  "}
             {rangeCount} {rangeCount === 1
               ? (t("closeSingular", "close"))

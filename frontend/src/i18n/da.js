@@ -3230,6 +3230,7 @@ export const da = {
     expiryCardAria: "Åbn spildalarmer",
     // Daily Close — Lane A UI-strenge
     autoEmailToggleLabel: "Send automatisk til ejer + revisor når jeg låser",
+    autoEmailToggleHintNoPhoto: "Når du trykker Bekræft & Lås, sender vi én mail med kasserapport-PDF til ejer og revisor.",
     autoEmailToggleHint:
       "Når du trykker Bekræft & Lås, sender vi én mail med kasserapport-PDF + scannet Z-rapport-foto til ejer og revisor.",
     autoEmailToggleStarterGate: "Auto-send ved låsning kræver Starter+",

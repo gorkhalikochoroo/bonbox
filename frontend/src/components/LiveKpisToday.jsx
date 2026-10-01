@@ -141,10 +141,11 @@ export default function LiveKpisToday({ eventId = null } = {}) {
     let isFirstFetch = report === null;
 
     const runFetch = async () => {
-      // If the tab is hidden, skip the network call entirely. The
-      // visibility listener (below) will trigger a fresh fetch on
-      // resume, so we won't be stuck with stale numbers.
-      if (typeof document !== "undefined" && document.hidden) return;
+      // If the tab is hidden, skip the POLL. The visibility listener
+      // (below) triggers a fresh fetch on resume, so we won't be stuck with
+      // stale numbers. Never the FIRST fetch: a page opened in a background
+      // tab sat on grey skeleton cards until someone looked at it.
+      if (!isFirstFetch && typeof document !== "undefined" && document.hidden) return;
 
       // Mark a fresh in-flight request — previous one (if any) is
       // dropped via its closed-over `localCancelled` token.
