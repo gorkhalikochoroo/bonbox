@@ -28,7 +28,14 @@ import { ACCENT_VALUE_CLASS } from "./statAccents";
  *   hideOnPhone?,       hide below sm: (only pass true when the cell is quiet)
  * }]
  */
-export default function StatStrip({ items, className = "" }) {
+// Up to which width a cell uses its shortLabel. "sm" = phones only; "xl" for
+// a strip whose six cells share a narrow column on a tablet ("Næste a…").
+const SHORT_LABEL_AT = {
+  sm: ["sm:hidden", "max-sm:hidden"],
+  xl: ["xl:hidden", "max-xl:hidden"],
+};
+
+export default function StatStrip({ items, className = "", shortBelow = "sm" }) {
   // On a phone the strip is three across and quiet cells hide, so its last row
   // is often short — four cells left one stat beside a blank white box. The
   // phone grid is 6 columns with each cell spanning 2; the cells of a short
@@ -55,6 +62,7 @@ export default function StatStrip({ items, className = "" }) {
         <StatStripCell
           key={key || item.label}
           phoneSpan={tailKeys.has(key || item.label) ? tailSpan : "col-span-2"}
+          shortBelow={shortBelow}
           {...item}
         />
       ))}
@@ -84,7 +92,9 @@ function StatStripCell({
   selected = false,
   hideOnPhone = false,
   phoneSpan = "col-span-2",
+  shortBelow = "sm",
 }) {
+  const [shortCls, fullCls] = SHORT_LABEL_AT[shortBelow] || SHORT_LABEL_AT.sm;
   const isClickable = typeof onClick === "function";
   const valueClass = ACCENT_VALUE_CLASS[accent] || ACCENT_VALUE_CLASS.neutral;
   const cls =
@@ -124,8 +134,8 @@ function StatStripCell({
           )}
           {shortLabel ? (
             <>
-              <span className="truncate sm:hidden">{shortLabel}</span>
-              <span className="truncate max-sm:hidden">{label}</span>
+              <span className={"truncate " + shortCls}>{shortLabel}</span>
+              <span className={"truncate " + fullCls}>{label}</span>
             </>
           ) : (
             <span className="truncate">{label}</span>

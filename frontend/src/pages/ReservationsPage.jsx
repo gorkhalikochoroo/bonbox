@@ -88,6 +88,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import PartySizeChips from "../components/reservations/PartySizeChips";
 import { zoneTones } from "../utils/zoneColors";
+import { lateMinutes, overdueMinutes, overByText } from "../utils/serviceClock";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import Sheet from "../components/ui/Sheet";
@@ -162,6 +163,12 @@ const STATUS_PILL = {
     pill: "font-medium bg-orange-50 text-orange-800 ring-1 ring-inset ring-orange-600/25 dark:bg-orange-950/40 dark:text-orange-300 dark:ring-orange-800/60",
     dot: "bg-orange-500 dark:bg-orange-400",
   },
+  // Not a stored status: a seated party past its booked end — still in the
+  // room (solid, like seated), but red: the table must be turned.
+  overdue: {
+    pill: "font-semibold bg-red-600 text-white",
+    dot: "bg-white/80",
+  },
 };
 
 // A booking's status as a 3px bar at the row's left edge (the Vagtplan role
@@ -173,6 +180,7 @@ const STATUS_BAR = {
   confirmed: "bg-sky-600 dark:bg-sky-400",
   late: "bg-orange-600 dark:bg-orange-400",
   seated: "bg-emerald-600 dark:bg-emerald-400",
+  overdue: "bg-red-600 dark:bg-red-400",
   completed: "bg-gray-300 dark:bg-gray-600",
   no_show: "bg-red-500 dark:bg-red-400",
   cancelled: "bg-gray-200 dark:bg-gray-700",
@@ -184,14 +192,8 @@ function ZoneDot({ dot }) {
   return <span className={"inline-block w-2 h-2 rounded-full border-2 shrink-0 " + dot.cls} role="img" aria-label={dot.zone} title={dot.zone} />;
 }
 
-// One "late" everywhere — list, drawer, timeline, floor and strip: a
-// confirmed party 5+ minutes past its start, on today's book. Whole minutes
-// rounded DOWN, so every view says the same number (they said 28, 29, 29).
-function lateMinutes(r, nowMs, onToday = true) {
-  if (!onToday || !r || r.status !== "confirmed" || !r.starts_at || !nowMs) return 0;
-  const m = Math.floor((nowMs - new Date(r.starts_at).getTime()) / 60000);
-  return m >= 5 ? m : 0;
-}
+// One "late" and one "over time" everywhere — list, drawer, timeline, floor
+// and strip: utils/serviceClock.
 
 // The statuses whose party sizes the server counts as the day's covers.
 const COVER_STATUSES = ["confirmed", "seated", "completed"];
@@ -1198,12 +1200,12 @@ function ReservationDrawer({
           </div>
 
           {/* A party past its time reads "Forsinket · +30 min", in the list's
-              orange — the drawer still said "Bekræftet". */}
-          {lateMinutes(r, nowTs, isToday) ? (
-            <StatusPill
-              status="late"
-              label={t("rsvpLatePill", "Late · +{n} min", { n: lateMinutes(r, nowTs, isToday) })}
-            />
+              orange; a table running over "Overtid · +47 min" in red — the
+              drawer said "Bekræftet" and a calm green "Sidder". */}
+          {overdueMinutes(r, nowTs, isToday) ? (
+            <StatusPill status="overdue" label={t("rsvpOverduePill", "Over time · {txt}", { txt: overByText(t, overdueMinutes(r, nowTs, isToday)) })} />
+          ) : lateMinutes(r, nowTs, isToday) ? (
+            <StatusPill status="late" label={t("rsvpLatePillText", "Late · {txt}", { txt: overByText(t, lateMinutes(r, nowTs, isToday)) })} />
           ) : (
             <StatusPill status={r.status} label={labels[r.status] || r.status} />
           )}
@@ -1453,6 +1455,49 @@ function ReservationDrawer({
 //     from `tables` (the live free/busy list). Defaults to the first free
 //     table; busy tables are annotated + disabled. On submit both paths call
 //     the same `onSeat({ resource_id, party_size, guest_name })`.
+// A sheet is modal for the keyboard too: focus moves into it, Tab stays in
+// it, and focus goes back to whatever opened it. Tab + Enter behind an open
+// New booking switched the book's status filter.
+const SHEET_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function useSheetFocus() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const opener = document.activeElement;
+    // The dialog itself, not its first field: on a phone a focused field
+    // throws the keyboard up over the sheet the host is still reading.
+    el.focus({ preventScroll: true });
+    const onKey = (e) => {
+      if (e.key !== "Tab") return;
+      const act = document.activeElement;
+      // A confirm opened over the sheet owns the keyboard.
+      const top = act && act.closest ? act.closest('[role="dialog"],[role="alertdialog"]') : null;
+      if (top && top !== el) return;
+      const list = Array.from(el.querySelectorAll(SHEET_FOCUSABLE)).filter((n) => n.getClientRects().length > 0);
+      if (!list.length) { e.preventDefault(); return; }
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (!el.contains(act) || act === el) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && act === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && act === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      if (opener && opener.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+    };
+  }, []);
+  return ref;
+}
+
 // Every sheet on this page closes on Esc — only the new-booking sheet did.
 function useEscToClose(onClose, busy = false) {
   useEffect(() => {
@@ -1465,6 +1510,7 @@ function useEscToClose(onClose, busy = false) {
 function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
   useEscToClose(onClose, busy);
+  const dialogRef = useSheetFocus();
 
   // PARTY FIRST, TABLE FOLLOWS. This used to run the other way: pick the first
   // free table, then default the party to THAT TABLE'S CAPACITY. So a couple
@@ -1539,7 +1585,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
     });
   };
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+    <div ref={dialogRef} tabIndex={-1} aria-labelledby="rsvp-seat-title" className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center outline-none" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       {/* A form, like the other sheets — Enter in the name field seats them. */}
       <form
@@ -1549,7 +1595,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h3 id="rsvp-seat-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {t("rsvpSeatNowTitle", "Seat guests")}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -1815,6 +1861,7 @@ function EditBookingSheet({
     { v: "severe", label: t("rsvpSevSevere", "Alvorlig") },
   ];
   useEscToClose(onClose, busy);
+  const dialogRef = useSheetFocus();
   const changed = () => warning && onClearWarning && onClearWarning();
   const save = (allowOverflow = false) => {
     const body = {
@@ -1837,7 +1884,7 @@ function EditBookingSheet({
     onSubmit(body, { time });
   };
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+    <div ref={dialogRef} tabIndex={-1} aria-labelledby="rsvp-edit-title" className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center outline-none" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       {/* Fields scroll; the answer and Save stay pinned at the bottom — the
           button sat below the fold at 1366×768 and on every phone. A form, so
@@ -1851,7 +1898,7 @@ function EditBookingSheet({
           className="shrink-0 flex items-start justify-between gap-3 pt-5 pb-1"
           style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
         >
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 id="rsvp-edit-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("rsvpEditTitle", "Edit reservation")}
           </h3>
           <button type="button" onClick={onClose} aria-label={t("close", "Close")}
@@ -1916,7 +1963,7 @@ function EditBookingSheet({
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
         <div>
-          <label htmlFor="eb-phone" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpEditPhone", "Phone")}</label>
+          <label htmlFor="eb-phone" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpPhone", "Phone (optional)")}</label>
           <input id="eb-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
@@ -2131,10 +2178,14 @@ function NewBookingSheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, busy]);
+  const dialogRef = useSheetFocus();
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center"
+      ref={dialogRef}
+      tabIndex={-1}
+      aria-labelledby="rsvp-new-title"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center outline-none"
       role="dialog"
       aria-modal="true"
     >
@@ -2152,7 +2203,7 @@ function NewBookingSheet({
           className="shrink-0 flex items-start justify-between gap-3 pt-5 pb-1"
           style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
         >
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 id="rsvp-new-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {isProvider
               ? t("rsvpNewBookingProvider", "Book an appointment")
               : t("rsvpNewBooking", "New booking")}
@@ -2560,8 +2611,10 @@ function allergyLevel(r) {
 
 // Hover tooltip for a timeline block — includes the allergy detail so the
 // host can read tags/notes without opening the drawer.
-function blockTitle(r, labels, t, late = 0) {
-  const word = late ? t("rsvpLatePill", "Late · +{n} min", { n: late }) : labels[r.status] || r.status;
+function blockTitle(r, labels, t, late = 0, over = 0) {
+  const word = over
+    ? t("rsvpOverduePill", "Over time · {txt}", { txt: overByText(t, over) })
+    : late ? t("rsvpLatePillText", "Late · {txt}", { txt: overByText(t, late) }) : labels[r.status] || r.status;
   const base = `${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${word}`;
   if (!allergyLevel(r)) return base;
   const detail = [
@@ -2801,12 +2854,15 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     requested: "bg-amber-50 text-amber-950 border-dashed border-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-600",
     late: "bg-orange-50 text-orange-950 border-orange-400 dark:bg-orange-950 dark:text-orange-100 dark:border-orange-600",
     confirmed: "bg-sky-50 text-sky-950 border-sky-300 dark:bg-sky-950 dark:text-sky-100 dark:border-sky-700",
+    // Seated and still there past the booked end: the bar runs on to now.
+    overdue: "bg-red-50 text-red-950 border-red-400 dark:bg-red-950 dark:text-red-100 dark:border-red-600",
   };
   const SEAT_FACE = {
     confirmed: "bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300 dark:hover:bg-sky-900",
     late: "bg-orange-50 text-orange-700 hover:bg-orange-100 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900",
   };
-  const blockKind = (r) => (lateMinutes(r, nowTick, day === todayIso) ? "late" : r.status);
+  const overOf = (r) => overdueMinutes(r, nowTick, day === todayIso);
+  const blockKind = (r) => (overOf(r) ? "overdue" : lateMinutes(r, nowTick, day === todayIso) ? "late" : r.status);
 
   return (
     <div ref={measureRef} className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-x-auto">
@@ -2878,7 +2934,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                     key={r.id}
                     type="button"
                     onClick={() => onSelect(r)}
-                    title={blockTitle(r, labels, t, lateMinutes(r, nowTick, day === todayIso))}
+                    title={blockTitle(r, labels, t, lateMinutes(r, nowTick, day === todayIso), overOf(r))}
                     style={{ left, width, top: lane * 44 + 5, height: 34 }}
                     // The booking's own colour — the lane already says "no
                     // table"; amber-dashed for every bar read as "request".
@@ -2952,6 +3008,10 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                   let s = minOfDay(r.starts_at);
                   let e = minOfDay(r.ends_at);
                   if (e <= s) e += 1440;
+                  // A party still seated past its end holds the table until
+                  // now — the bar stopped at the booked end and the table
+                  // looked free while they were still eating.
+                  if (overOf(r)) e = Math.max(e, nowMin < s ? nowMin + 1440 : nowMin);
                   const left = Math.max(0, (s - startMin) * PX);
                   const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
                   const combined = (r.combined_resource_ids || []).length > 1;
@@ -2983,7 +3043,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                     <button
                       type="button"
                       onClick={() => onSelect(r)}
-                      title={blockTitle(r, labels, t, lateMinutes(r, nowTick, day === todayIso))}
+                      title={blockTitle(r, labels, t, lateMinutes(r, nowTick, day === todayIso), overOf(r))}
                       style={{ left, width, top: 5, height: ROW_H - 12 }}
                       className={
                         "absolute rounded-md border px-1.5 overflow-clip text-left flex flex-col justify-center transition-colors duration-500 " +
@@ -4172,7 +4232,44 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
   // onProceed runs once every confirm has said yes — the drawer closes
   // then, not before: "Behold" on the cancel question closed it anyway.
-  const setStatus = async (r, status, onProceed = null) => {
+  // The tables a booking holds (a combination, or its one table).
+  const heldOf = (x) => (Array.isArray(x?.combined_resource_ids) && x.combined_resource_ids.length
+    ? x.combined_resource_ids.map(String) : x?.resource_id ? [String(x.resource_id)] : []);
+  // "Bord 2 is still taken" — a party SEATED there, running over or never
+  // marked finished. Seating on top of it put two parties "Sidder" on a
+  // 2-top. One tap finishes them and seats this party; the other choice
+  // opens this booking on its tables.
+  const occupiedConfirm = ({ table, name, overMin, endsAt }, guest) => {
+    const occName = name || t("rsvpGuest", "Guest");
+    const who = guest || t("rsvpGuest", "Guest");
+    const tbl = table || t("rsvpTableFallback", "Table");
+    return confirm({
+      title: t("rsvpTableTakenTitle", "{table} is still taken", { table: tbl }),
+      message: overMin
+        ? t("rsvpTableTakenOverBody", "{name} is still seated there — {txt} over time. Finish them and seat {guest}, or give {guest} another table.", { name: occName, txt: overByText(t, overMin), guest: who })
+        : t("rsvpTableTakenBody", "{name} is seated there until {time}. Finish them and seat {guest}, or give {guest} another table.", { name: occName, time: endsAt ? fmtTime(endsAt) : "—", guest: who }),
+      confirmLabel: t("rsvpFinishAndSeat", "Finish {name} and seat", { name: occName.split(" ")[0] }),
+      cancelLabel: t("rsvpPickAnotherTable", "Another table"),
+    });
+  };
+  const setStatus = async (r, status, onProceed = null, opts = {}) => {
+    let finishFirst = opts.finishFirst || null;
+    if (!finishFirst && status === "seated" && r.status !== "seated") {
+      const mine = heldOf(r);
+      const occ = mine.length
+        ? reservations.find((x) => x.id !== r.id && x.status === "seated" && heldOf(x).some((id) => mine.includes(id)))
+        : null;
+      if (occ) {
+        const ok = await occupiedConfirm({
+          table: resolveTableLabel(occ, labelById),
+          name: occ.guest_name,
+          overMin: overdueMinutes(occ, Date.now()),
+          endsAt: occ.ends_at,
+        }, r.guest_name);
+        if (!ok) { openDrawer(r); return; }
+        finishFirst = { id: occ.id, name: occ.guest_name };
+      }
+    }
     // Seating a booking hours early is almost always the wrong row (a 20:00
     // party seated at 10:05 started its turn timer and held the table all
     // day). Ask once when it is more than an hour ahead; reopening a
@@ -4303,12 +4400,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         ? {
             ...prev,
             reservations: prev.reservations.map((row) =>
-              row.id === r.id ? { ...row, status } : row,
+              row.id === r.id ? { ...row, status }
+                : finishFirst && row.id === finishFirst.id ? { ...row, status: "completed" } : row,
             ),
           }
         : prev,
     );
     try {
+      if (finishFirst) {
+        await api.patch(`/reservations/reservations/${finishFirst.id}/status`, { status: "completed" });
+      }
       const resp = await api.patch(`/reservations/reservations/${r.id}/status`, {
         status,
         cancel_reason: removingWalkIn ? "walk_in_removed" : status === "cancelled" ? "owner_cancelled" : null,
@@ -4323,7 +4424,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const kept = resp?.data?.early_kept;
       if (kept) {
         toast({
-          severity: "warn",
+          severity: "notice",
           message: t("rsvpSeatEarlyKept", "{table} is needed at {time}, so the booking keeps {booked}. Give them another table in the booking.", {
             table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), booked: fmtTime(r.starts_at),
           }),
@@ -4334,6 +4435,37 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           severity: "info",
           message: t("rsvpNoShowDone", "{name} is marked as no-show. Reopen the booking if they turn up.", {
             name: r.guest_name || t("rsvpGuest", "Guest"),
+          }),
+        });
+      }
+      // Every change on the book is said, not just some: finishing, a
+      // cancel and a removed drop-in only changed a colour.
+      const doneName = r.guest_name || t("rsvpGuest", "Guest");
+      if (status === "completed" && !finishFirst) {
+        const tbl = resolveTableLabel(r, labelById);
+        toast({
+          severity: "success",
+          message: tbl
+            ? t("rsvpFinishedDone", "{name} finished — {table} is free.", { name: doneName, table: tbl })
+            : t("rsvpFinishedDoneNoTable", "{name} finished.", { name: doneName }),
+        });
+      } else if (status === "cancelled") {
+        toast({
+          severity: "info",
+          message: removingWalkIn
+            ? t("rsvpWalkInRemovedDone", "Drop-in removed — the table is free.")
+            : r.status === "requested"
+              ? t("rsvpDeclinedDone", "The request from {name} is declined.", { name: doneName })
+              : t("rsvpCancelledDone", "The booking for {name} is cancelled.", { name: doneName }),
+        });
+      }
+      if (finishFirst) {
+        toast({
+          severity: "success",
+          message: t("rsvpFinishedAndSeated", "{done} finished — {name} seated at {table}.", {
+            done: finishFirst.name || t("rsvpGuest", "Guest"),
+            name: r.guest_name || t("rsvpGuest", "Guest"),
+            table: resolveTableLabel(resp?.data || r, labelById) || t("rsvpTableFallback", "Table"),
           }),
         });
       }
@@ -4349,7 +4481,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const blocked = resp?.data?.restore_blocked;
       if (blocked) {
         toast({
-          severity: "warn",
+          severity: "notice",
           message: t("rsvpUndoNotRestored", "Couldn't give {booked} back — {table} is taken then. The booking stays at {now}.", {
             booked: hm(blocked.booked_at), table: blocked.table || t("rsvpTableFallback", "Table"), now: fmtTime(resp.data.starts_at),
           }),
@@ -4365,9 +4497,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         setSelected(row);
       }
     } catch (e) {
+      const d = e?.response?.data?.detail || {};
+      if (e?.response?.status === 409 && d.error === "table_occupied" && d.occupant && !opts.retried) {
+        await fetchBook(day);
+        const ok = await occupiedConfirm({
+          table: d.occupant.table, name: d.occupant.name, overMin: d.occupant.over_min, endsAt: d.occupant.ends_at,
+        }, r.guest_name);
+        setActioningId(null);
+        if (ok) await setStatus(r, status, null, { finishFirst: { id: d.occupant.id, name: d.occupant.name }, retried: true });
+        else openDrawer(r);
+        return;
+      }
       setError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpActionError", "Action failed. Please try again."),
+        d.error === "table_occupied"
+          ? t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
+              table: d.occupant?.table || t("rsvpTableFallback", "Table"),
+            })
+          : d.error || t("rsvpActionError", "Action failed. Please try again."),
       );
       await fetchBook(day);
     } finally {
@@ -4408,6 +4554,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       if (e?.response?.status === 409 && code === "slot_unavailable") {
         setError(
           t("rsvpSeatTableTaken", "That table is now taken — pick another free table."),
+        );
+      } else if (e?.response?.status === 409 && code === "table_occupied") {
+        setError(
+          t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
+            table: e.response.data.detail.occupant?.table || t("rsvpTableFallback", "Table"),
+          }),
         );
       } else {
         setError(code || t("rsvpSeatError", "Couldn't seat the guests."));
@@ -4558,9 +4710,24 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       setBookTick((n) => n + 1);
       const fresh = (res.data?.reservations || []).find((x) => x.id === r.id);
       if (fresh) setSelected(fresh);
+      // Pushing tables together changed where the party sits — say it, as
+      // every other change on the book does.
+      if (many) {
+        toast({
+          severity: "success",
+          message: t("rsvpCombinedDone", "{name} now has {tables}.", {
+            name: r.guest_name || t("rsvpGuest", "Guest"),
+            tables: many.map((id) => labelById[String(id)]).filter(Boolean).join(" + "),
+          }),
+        });
+      }
     } catch (e) {
       const d = e?.response?.data?.detail || {};
-      if (e?.response?.status === 409 && d.error === "slot_unavailable") {
+      if (e?.response?.status === 409 && d.error === "table_occupied") {
+        setAssignError(t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
+          table: d.occupant?.table || t("rsvpTableFallback", "Table"),
+        }));
+      } else if (e?.response?.status === 409 && d.error === "slot_unavailable") {
         const label = many
           ? many.map((id) => labelById[String(id)]).filter(Boolean).join(" + ")
           : (next && labelById[next]) || t("rsvpTableFallback", "Table");
@@ -4626,7 +4793,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const mv = res?.data?.moved;
       if (mv && !mv.to) {
         toast({
-          severity: "warn",
+          severity: "notice",
           message: t("rsvpEditNoTableNow", "{name} is saved without a table — {table} is booked from {time}.", {
             name: res.data.guest_name || t("rsvpGuest", "Guest"),
             table: mv.clash_table || mv.from || t("rsvpTableFallback", "Table"),
@@ -4643,6 +4810,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 ? t("rsvpEditMovedSeats", "{name} moved to {to} — {from} seats {seats}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, seats: mv.from_seats })
                 : t("rsvpEditMovedTable", "{name} moved to {to} — {from} didn't fit.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from })
             : t("rsvpEditMovedTableShort", "{name} is now at {to}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to }),
+        });
+      }
+      // "Gem alligevel" kept the booking as typed although it doesn't fit —
+      // say what that means. Nine on a 4-top used to save with the sheet
+      // just closing.
+      const kept = res?.data?.kept;
+      if (!mv && kept) {
+        const name = res.data.guest_name || t("rsvpGuest", "Guest");
+        toast({
+          severity: "info",
+          message: kept.party > kept.seats && kept.table
+            ? t("rsvpEditKeptOverFull", "Saved — {name}: {n} guests at {table} ({seats} seats). Push tables together when they arrive.", {
+                name, n: kept.party, table: kept.table, seats: kept.seats,
+              })
+            : kept.ends
+              ? t("rsvpEditKeptPastClose", "Saved — {name} sits until {time}, after closing.", { name, time: hm(kept.ends) })
+              : t("rsvpEditKeptSaved", "Saved — {name} is kept as typed.", { name }),
         });
       }
       setEditRes(null);
@@ -4724,10 +4908,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     if (!selected?.starts_at) return out;
     const a0 = new Date(selected.starts_at).getTime();
     const a1 = selected.ends_at ? new Date(selected.ends_at).getTime() : a0 + 90 * 60000;
+    // This party sits down now (seated, or due within half an hour / late):
+    // a table someone is SEATED at is taken until they are finished, however
+    // long past their booked end — the drawer offered it as free.
+    const sitsNow = selected.status === "seated"
+      || (["requested", "confirmed"].includes(selected.status) && a0 - nowTs <= 30 * 60000);
     for (const x of reservations) {
       if (x.id === selected.id || !["requested", "confirmed", "seated"].includes(x.status) || !x.starts_at) continue;
       const b0 = new Date(x.starts_at).getTime();
-      const b1 = x.ends_at ? new Date(x.ends_at).getTime() : b0 + 90 * 60000;
+      const booked1 = x.ends_at ? new Date(x.ends_at).getTime() : b0 + 90 * 60000;
+      const b1 = x.status === "seated" && sitsNow ? Math.max(booked1, nowTs + 60000) : booked1;
       if (b0 < a1 && a0 < b1) {
         const ids = Array.isArray(x.combined_resource_ids) && x.combined_resource_ids.length
           ? x.combined_resource_ids : x.resource_id ? [x.resource_id] : [];
@@ -4735,7 +4925,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       }
     }
     return out;
-  }, [selected, reservations]);
+  }, [selected, reservations, nowTs]);
   // Walk-in table picker (header-launched Seat-walk-in, no preset tile). Uses
   // the SAME live floor state the Floor map paints, but "busy" here means
   // OCCUPIED RIGHT NOW — a guest seated NOW can take a table whose next booking
@@ -4926,7 +5116,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const table = resolveTableLabel(nextArrival, labelById);
     const lateBy = lateMinutes(nextArrival, nowTs, isViewingToday);
     if (lateBy) {
-      return t("rsvpNextLate", "+{n} min late · {who}", { n: lateBy, who: table ? `${table} · ${who}` : who });
+      return t("rsvpNextLateText", "Late {txt} · {who}", { txt: overByText(t, lateBy), who: table ? `${table} · ${who}` : who });
     }
     // Table FIRST: the cockpit strip truncates the end of this line in a slim
     // cell, and where the party sits matters more to a host than the name.
@@ -5035,23 +5225,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // is history; a future day is never late). Orange = needs a decision:
         // hold the table, call them, or give it away.
         const lateMin = lateMinutes(r, nowTs, isViewingToday);
+        const overMin = overdueMinutes(r, nowTs, isViewingToday);
+        const clock = overMin || lateMin;
         return (
           <div className="flex items-stretch gap-2.5">
           {/* The row's status as a bar, as on the phone list. */}
           <span
-            className={"w-[3px] rounded-full shrink-0 " + (STATUS_BAR[lateMin >= 5 ? "late" : r.status] || STATUS_BAR.completed)}
+            className={"w-[3px] rounded-full shrink-0 " + (STATUS_BAR[overMin ? "overdue" : lateMin ? "late" : r.status] || STATUS_BAR.completed)}
             aria-hidden="true"
           />
           <div className="leading-tight">
             <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
               {fmtTime(r.starts_at)}
             </div>
-            {lateMin >= 5 ? (
-              <div className="inline-flex items-center gap-1 text-[11px] font-medium text-orange-700 dark:text-orange-400 tabular-nums">
+            {clock ? (
+              // One way to say it, as on the pill: "+49 min", "+2 t 05".
+              <div className={"inline-flex items-center gap-1 text-[11px] font-medium tabular-nums whitespace-nowrap " +
+                (overMin ? "text-red-700 dark:text-red-400" : "text-orange-700 dark:text-orange-400")}>
                 <Clock className="w-3 h-3 shrink-0" aria-hidden />
-                {lateMin >= 60
-                  ? t("rsvpLateByHours", "{h} h {m} min late", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
-                  : t("rsvpLateBy", "{n} min late", { n: lateMin })}
+                {overByText(t, clock)}
               </div>
             ) : (
               <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
@@ -5191,9 +5383,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // A late party is "Forsinket · +29 min" here too — the column said
       // "Bekræftet" while the drawer and the floor said late.
       render: (r) => {
+        const over = overdueMinutes(r, nowTs, isViewingToday);
         const late = lateMinutes(r, nowTs, isViewingToday);
-        return late
-          ? <StatusPill status="late" label={t("rsvpLatePill", "Late · +{n} min", { n: late })} />
+        return over
+          ? <StatusPill status="overdue" label={t("rsvpOverduePill", "Over time · {txt}", { txt: overByText(t, over) })} />
+          : late
+          ? <StatusPill status="late" label={t("rsvpLatePillText", "Late · {txt}", { txt: overByText(t, late) })} />
           : <StatusPill status={r.status} label={labels[r.status] || r.status} />;
       },
     },
@@ -5265,6 +5460,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // useConfirm. Replaces the generic ~200px label:value card dump per booking.
   const compactRow = (r) => {
     const lateMin = lateMinutes(r, nowTs, isViewingToday);
+    const overMin = overdueMinutes(r, nowTs, isViewingToday);
     const hasAllergy =
       (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
       r.allergy_note ||
@@ -5282,7 +5478,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // Unfolded cancelled rows read as history, not as live bookings.
         className={"flex items-center gap-3 cursor-pointer" + (r.status === "cancelled" ? " opacity-60" : "")}
         onClick={() => openDrawer(r)}
-        data-status={lateMin >= 5 ? "late" : r.status}
+        data-status={overMin ? "overdue" : lateMin ? "late" : r.status}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -5293,21 +5489,20 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         tabIndex={0}
       >
         <span
-          className={"w-[3px] self-stretch rounded-full shrink-0 -ml-1 " + (STATUS_BAR[lateMin >= 5 ? "late" : r.status] || STATUS_BAR.completed)}
+          className={"w-[3px] self-stretch rounded-full shrink-0 -ml-1 " + (STATUS_BAR[overMin ? "overdue" : lateMin ? "late" : r.status] || STATUS_BAR.completed)}
           aria-hidden="true"
         />
-        <div className="w-14 shrink-0 leading-tight">
+        <div className="min-w-14 shrink-0 leading-tight">
           <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
             {fmtTime(r.starts_at)}
           </div>
-          {lateMin >= 5 && (
-            <div className="inline-flex items-center gap-0.5 text-[11px] font-medium text-orange-700 dark:text-orange-400 tabular-nums">
+          {(overMin || lateMin) ? (
+            <div className={"inline-flex items-center gap-0.5 text-[11px] font-medium tabular-nums whitespace-nowrap " +
+              (overMin ? "text-red-700 dark:text-red-400" : "text-orange-700 dark:text-orange-400")}>
               <Clock className="w-3 h-3 shrink-0" aria-hidden />
-              {lateMin >= 60
-                ? t("rsvpLateShortHours", "+{h} h {m} min", { h: Math.floor(lateMin / 60), m: lateMin % 60 })
-                : t("rsvpLateShortMin", "+{n} min", { n: lateMin })}
+              {overByText(t, overMin || lateMin)}
             </div>
-          )}
+          ) : null}
         </div>
         {/* The status rides the second line as a coloured dot and a word. As
             a pill beside the action button it left the NAME ~30px — "G…",
@@ -5359,7 +5554,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             {/* "Bekræftet" is the normal state — a dot says it, and the
                 table keeps its name ("B…", "M." before). Every other status
                 keeps its word. */}
-            {lateMin
+            {overMin
+              ? <span className="shrink-0"><StatusInline status="overdue" label={t("rsvpPlanOverdue", "Over time")} /></span>
+              : lateMin
               ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-orange-500 dark:bg-orange-400" role="img" aria-label={t("rsvpLegLate", "Late")} />
               : r.status === "confirmed"
               ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-sky-500 dark:bg-sky-400" role="img" aria-label={labels.confirmed || "confirmed"} />
@@ -5763,6 +5960,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           Covers, Seated now and Next arrival always show: those are the three
           a host reads during service. */}
       <StatStrip
+        shortBelow="xl"
         items={[
           {
             key: "covers",
@@ -5986,7 +6184,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                       <span className="inline-flex items-center gap-1 text-sm tabular-nums text-gray-700 dark:text-gray-300 shrink-0">
                         <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{h.party_size}
                       </span>
-                      <span className="hidden sm:inline text-[12px] text-gray-500 dark:text-gray-400 shrink-0">{labels[h.status] || h.status}</span>
+                      {/* The book's own status colour, not a grey word. */}
+                      <span className="hidden sm:inline-flex text-[12px] shrink-0"><StatusInline status={h.status} label={labels[h.status] || h.status} /></span>
                     </button>
                   </li>
                 ))}
@@ -6315,6 +6514,8 @@ const STATUS_INLINE = {
   seated: { dot: "bg-emerald-600 dark:bg-emerald-400", text: "font-semibold text-emerald-700 dark:text-emerald-400" },
   completed: { dot: "bg-gray-400 dark:bg-gray-500", text: "text-gray-500 dark:text-gray-400" },
   no_show: { dot: "bg-red-500 dark:bg-red-400", text: "font-medium text-red-600 dark:text-red-400" },
+  overdue: { dot: "bg-red-600 dark:bg-red-400", text: "font-semibold text-red-700 dark:text-red-400" },
+  late: { dot: "bg-orange-500 dark:bg-orange-400", text: "font-medium text-orange-700 dark:text-orange-400" },
   cancelled: {
     dot: "bg-gray-300 dark:bg-gray-600",
     text: "text-gray-500 dark:text-gray-400 line-through decoration-gray-400 dark:decoration-gray-600",

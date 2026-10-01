@@ -17,7 +17,7 @@
  * parent refetch unmounting the caller cannot take the message with it.
  *
  * API — toast(opts) where opts is a string (message) or:
- *   { message, severity? = "info" }      severity: info | success | warn | critical
+ *   { message, severity? = "info" }      severity: info | success | warn | notice | critical
  *
  * Messages STACK rather than replace. WineListPage's handleSaveAll loops
  * handleSave, so N failing rows used to mean N stacked blocking dialogs; with
@@ -42,7 +42,7 @@ import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 const ToastContext = createContext(null);
 
 /** How long each severity stays up. Errors carry text worth reading twice. */
-const LIFETIME_MS = { info: 4000, success: 4000, warn: 6000, critical: 7000 };
+const LIFETIME_MS = { info: 4000, success: 4000, warn: 6000, notice: 6000, critical: 7000 };
 
 /**
  * useToast() → toast(opts).
@@ -67,6 +67,9 @@ const SEVERITY = {
   info: { Icon: Info, cls: "text-gray-500 dark:text-gray-400" },
   success: { Icon: CheckCircle2, cls: "text-emerald-600 dark:text-emerald-400" },
   warn: { Icon: AlertTriangle, cls: "text-amber-600 dark:text-amber-400" },
+  // A warning said in ink — for screens where amber already means something
+  // (on the reservations book amber is a request waiting for an answer).
+  notice: { Icon: AlertTriangle, cls: "text-gray-700 dark:text-gray-300" },
   critical: { Icon: AlertTriangle, cls: "text-red-600 dark:text-red-400" },
 };
 

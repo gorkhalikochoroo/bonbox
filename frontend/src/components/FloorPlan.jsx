@@ -92,6 +92,7 @@ import {
 } from "../config/tableArchetypes";
 import { fitRoom, roomMinWidth } from "../utils/floorFit";
 import { zoneTones } from "../utils/zoneColors";
+import { lateMinutes, overdueMinutes, overByText } from "../utils/serviceClock";
 
 // ── Status → visual tokens ────────────────────────────────────────────
 // Mirrors deriveFloorState's status vocabulary, in the book's colours (one
@@ -185,23 +186,16 @@ function visualStatus(cell, nowMs) {
   if (cell.status === "inactive") return "inactive";
   if (cell.status === "free") return "free";
   if (cell.status === "seated") {
-    const endsAt = cell.booking?.reservation?.ends_at;
-    if (endsAt) {
-      const end = new Date(endsAt).getTime();
-      if (Number.isFinite(end) && end < nowMs) return "overdue";
-    }
-    return "seated";
+    // The shared clock (utils/serviceClock) — the list, drawer and timeline
+    // now say "Overtid" at the same minute the floor turns red.
+    return overdueMinutes(cell.booking?.reservation, nowMs) ? "overdue" : "seated";
   }
   // The book's own words for a party that isn't in yet: a request still to
   // answer is amber, a confirmed party past its time is orange — both read
   // as sky "upcoming" here while the list said amber / orange.
   const res = cell.booking?.reservation;
   if (res?.status === "requested") return "requested";
-  if (res?.status === "confirmed" && res.starts_at) {
-    // Same rule as the list: whole minutes, rounded down, 5 or more.
-    const start = new Date(res.starts_at).getTime();
-    if (Number.isFinite(start) && Math.floor((nowMs - start) / 60000) >= 5) return "late";
-  }
+  if (lateMinutes(res, nowMs)) return "late";
   return "upcoming";
 }
 
@@ -384,33 +378,20 @@ function TableNode({
   //   • overdue  → how far past the table has run ("+12 min over") — the
   //                "turn this table" nudge, shown bold so it reads as urgent
   const partySize = booking?.reservation?.party_size ?? null;
-  const overMin =
-    status === "overdue" && booking?.reservation?.ends_at
-      ? Math.max(
-          0,
-          Math.round((nowMs - new Date(booking.reservation.ends_at).getTime()) / 60000),
-        )
-      : null;
+  const overMin = status === "overdue" ? overdueMinutes(booking?.reservation, nowMs) : null;
   // "+2940m over" is not a number a host can read — that is a party seated
   // two days ago that nobody cleared. Minutes up to an hour, then hours, then
   // days.
   // Compact on purpose: the red fill and the legend already say "overdue", and
   // this line has to fit a 2-top.
-  const overText = (m) =>
-    m < 60
-      ? t("rsvpOverBy", "+{n} min", { n: m })
-      : m < 1440
-        ? t("rsvpOverByHours", "+{h} h {m}", { h: Math.floor(m / 60), m: String(m % 60).padStart(2, "0") })
-        : t("rsvpOverByDays", "+{n} d", { n: Math.floor(m / 1440) });
+  const overText = (m) => overByText(t, m);
   const sub =
     status === "free"
       ? null
       : status === "overdue"
         ? overText(overMin ?? 0)
         : status === "late" && booking?.reservation?.starts_at
-          ? t("rsvpLateOnFloor", "+{n} m late", {
-              n: Math.max(0, Math.floor((nowMs - new Date(booking.reservation.starts_at).getTime()) / 60000)),
-            })
+          ? overText(lateMinutes(booking.reservation, nowMs))
         : (status === "upcoming" || status === "requested") && booking?.eta != null
           ? t("rsvpEtaIn", "in {n}m", { n: booking.eta })
           : // Seated: lead with WHEN it frees — the host's decision number when a
@@ -459,6 +440,14 @@ function TableNode({
   if (labelFs == null && shortLabel !== fullLabel) {
     labelText = shortLabel;
     labelFs = fitFs(shortLabel);
+  }
+  // Still too long on one line ("Vindue 3" on a 2-top read "Vind…"): two
+  // lines, sized for the longest word, before any ellipsis.
+  let labelTwoLines = false;
+  if (labelFs == null && /\s/.test(labelText.trim())) {
+    const longest = labelText.trim().split(/\s+/).reduce((a, w) => (w.length > a.length ? w : a), "");
+    const fs = fitFs(longest);
+    if (fs != null) { labelFs = fs; labelTwoLines = true; }
   }
   if (labelFs == null) labelFs = 10; // still too long: 10px + ellipsis
   // Room for a third line: a circle needs more diameter than a box needs height.
@@ -599,16 +588,8 @@ function TableNode({
                 <AlertTriangle className="w-2.5 h-2.5 text-white" aria-hidden />
               </span>
             )}
-            {zoneDot && (
-              <span
-                className={"inline-block w-2 h-2 rounded-full border-2 shrink-0 " + zoneDot.cls}
-                role="img"
-                aria-label={zoneDot.zone}
-                title={zoneDot.zone}
-              />
-            )}
             <span
-              className={"font-semibold leading-none truncate min-w-0 " + style.text}
+              className={"font-semibold min-w-0 " + (labelTwoLines ? "leading-[1.05] text-center whitespace-normal line-clamp-2 " : "leading-none truncate ") + style.text}
               style={{ fontSize: labelFs }}
             >
               {labelText}
@@ -617,6 +598,17 @@ function TableNode({
           <span
             className={"inline-flex items-center gap-0.5 leading-none " + style.text}
           >
+            {/* The zone's ring rides the seat line, which has room: in the
+                name's row it took the space the fit above had counted for
+                the name ("Bor…" for Bord 11). */}
+            {zoneDot && (
+              <span
+                className={"inline-block w-2 h-2 rounded-full border-2 shrink-0 mr-0.5 " + zoneDot.cls}
+                role="img"
+                aria-label={zoneDot.zone}
+                title={zoneDot.zone}
+              />
+            )}
             {stationLike ? (
               <>
                 <User className="w-3 h-3 opacity-70" aria-hidden />
@@ -901,15 +893,19 @@ export default function FloorPlan({
   const turn = useMemo(() => {
     let freeNow = 0;
     let occupied = 0;
+    let overdue = 0;
     let nextAt = null;
     let nextIn = null;
     for (const c of cells) {
       const vs = visualStatus(c, nowMs);
       if (vs === "free") { freeNow += 1; continue; }
-      if (vs === "seated" || vs === "overdue") {
+      if (vs === "overdue") { occupied += 1; overdue += 1; continue; }
+      if (vs === "seated") {
         occupied += 1;
         const b = c.booking;
-        if (b?.freesAt && b.freesInMin != null) {
+        // A table already past its end is counted as "over time" above —
+        // "næste frigøres 15.30" at 16.20 was a time that had passed.
+        if (b?.freesAt && b.freesInMin != null && b.freesInMin > 0) {
           if (nextIn == null || b.freesInMin < nextIn) {
             nextIn = b.freesInMin;
             nextAt = b.freesAt;
@@ -917,7 +913,7 @@ export default function FloorPlan({
         }
       }
     }
-    return { freeNow, occupied, nextAt, nextIn };
+    return { freeNow, occupied, overdue, nextAt, nextIn };
   }, [cells, nowMs]);
 
   // ── Edit lifecycle ───────────────────────────────────────────────────
@@ -1593,9 +1589,11 @@ export default function FloorPlan({
               <span className="font-medium shrink-0">
                 {t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
               </span>
-              {turn.nextAt && (
-                <span className="text-gray-400 dark:text-gray-500 truncate min-w-0">
-                  · {t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
+              {(turn.overdue > 0 || turn.nextAt) && (
+                <span className="text-gray-600 dark:text-gray-400 truncate min-w-0">
+                  {turn.overdue > 0
+                    ? " · " + t("rsvpTurnOverdue", "{n} over time", { n: turn.overdue })
+                    : " · " + t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
                 </span>
               )}
             </>
@@ -1605,14 +1603,16 @@ export default function FloorPlan({
               <span className="font-medium shrink-0">
                 {t("rsvpTurnAllBusy", "All tables occupied")}
               </span>
-              {turn.nextAt && (
+              {turn.overdue > 0 ? (
+                <span className="truncate min-w-0">
+                  · {t("rsvpTurnOverdue", "{n} over time", { n: turn.overdue })}
+                </span>
+              ) : turn.nextAt && (
                 <span className="truncate min-w-0">
                   · {t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
-                  {turn.nextIn != null && turn.nextIn <= 0
-                    ? " " + t("rsvpTurnNow", "(now)")
-                    : turn.nextIn != null && turn.nextIn <= 30
-                      ? " " + t("rsvpTurnInMin", "(~{n} min)", { n: turn.nextIn })
-                      : ""}
+                  {turn.nextIn != null && turn.nextIn <= 30
+                    ? " " + t("rsvpTurnInMin", "(~{n} min)", { n: turn.nextIn })
+                    : ""}
                 </span>
               )}
             </>
@@ -1809,7 +1809,7 @@ export default function FloorPlan({
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
         <LegendItem dotCls="bg-white ring-1 ring-gray-300 dark:bg-[rgb(var(--surface-card))] dark:ring-gray-600" label={t("rsvpTileFree", "Free")} />
-        <LegendItem dotCls="bg-sky-500" label={t("rsvpLegUpcoming", "Upcoming")} />
+        <LegendItem dotCls="bg-sky-500" label={t("rsvpLegConfirmed", "Confirmed")} />
         <LegendItem dotCls="bg-amber-500" label={t("rsvpLegRequest", "Request")} />
         <LegendItem dotCls="bg-orange-500" label={t("rsvpLegLate", "Late")} />
         {/* Zones: the same hollow rings as on the tables and in the list. */}

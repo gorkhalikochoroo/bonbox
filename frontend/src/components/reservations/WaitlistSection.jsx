@@ -32,7 +32,9 @@ import { useToast } from "../../hooks/useToast";
 import useAsyncData from "../../hooks/useAsyncData";
 import Button from "../ui/Button";
 import LoadFailed from "../ui/LoadFailed";
-import { openTimesFor, sittingMinutes, hm } from "../../utils/bookingTimes";
+import { openTimesFor, sittingMinutes, hm, toMin } from "../../utils/bookingTimes";
+import { businessTodayIso } from "../../utils/dateFormat";
+import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../../utils/dailyCloseDay";
 import { fmtTime } from "../../utils/floorState";
 import PartySizeChips from "./PartySizeChips";
 
@@ -284,16 +286,26 @@ export default function WaitlistSection({
     }
   };
 
-  // The times this party could start and still be done by closing.
-  const timesFor = (entry) =>
-    openTimesFor(day, openHours, sittingMinutes(Number(entry?.party_size) || 2, bookingRules));
+  // The times this party could start and still be done by closing — and,
+  // today, only those still ahead: "Book 12.00" at 16.20 booked a waiting
+  // party into the past.
+  const timesFor = (entry) => {
+    const o = openTimesFor(day, openHours, sittingMinutes(Number(entry?.party_size) || 2, bookingRules));
+    if (day !== businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)) return o;
+    const cut = DEFAULT_CLOSE_CUTOFF_HOUR * 60;
+    const norm = (m) => (m < cut ? m + 1440 : m);
+    const d = new Date();
+    const nowM = norm(d.getHours() * 60 + d.getMinutes());
+    const times = o.times.filter((q) => norm(toMin(q)) >= nowM);
+    return { ...o, times, none: o.known && !o.closed && times.length === 0 };
+  };
 
   const book = async (entry) => {
     if (bookFor !== entry.id) {
       setBookFor(entry.id);
       const { times, known, closed } = timesFor(entry);
       const want = defaultBookTime();
-      setBookTime(!known || closed ? want : times.find((q) => q >= want) || times[times.length - 1]);
+      setBookTime(!known || closed ? want : times.find((q) => q >= want) || times[times.length - 1] || want);
       return;
     }
     setBusyId(entry.id);
@@ -467,7 +479,9 @@ export default function WaitlistSection({
           RELOAD fails on top of rows we already had, the banner sits above those
           rows instead: stale-but-true beats a blank card in the middle of
           service, and the banner is what says they're stale. */}
-      {q.loading || !day ? (
+      {/* Only the FIRST load: a refresh after every booking change blanked
+          the rows into "Loading…" and back. */}
+      {(q.loading && !q.data) || !day ? (
         <div className="px-4 py-6 flex items-center justify-center gap-2">
           <Loader2 className="w-5 h-5 text-gray-300 dark:text-gray-600 animate-spin" aria-hidden />
           <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -566,7 +580,7 @@ export default function WaitlistSection({
                   // Only times the venue is open for the whole sitting (a
                   // free clock offered 03:00 and 21:55, both refused).
                   const opts = timesFor(e);
-                  const list = opts.times.includes(bookTime) ? opts.times : [...opts.times, bookTime].sort();
+                  const list = opts.none ? [] : opts.times.includes(bookTime) ? opts.times : [...opts.times, bookTime].sort();
                   return (
                     <div
                       className="mt-2 flex flex-wrap items-center gap-2"
@@ -576,7 +590,7 @@ export default function WaitlistSection({
                         className={inputCls + " max-w-[8rem] tabular-nums"} aria-label={t("rsvpColTime", "Time")}>
                         {list.map((q) => <option key={q} value={q}>{hm(q)}</option>)}
                       </select>
-                      <Button variant="primary" size="md" className="h-10" disabled={busy}
+                      <Button variant="primary" size="md" className="h-10" disabled={busy || opts.none}
                         iconLeft={busy ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
                         onClick={() => book(e)}>
                         {t("rsvpWlBook", "Book")}
@@ -585,8 +599,13 @@ export default function WaitlistSection({
                         {t("cancel", "Cancel")}
                       </Button>
                       {opts.closed && (
-                        <p className="w-full text-[12px] text-amber-700 dark:text-amber-400">
+                        <p className="w-full text-[12px] text-gray-700 dark:text-gray-300">
                           {t("rsvpClosedThatDayShort", "You're closed that day.")}
+                        </p>
+                      )}
+                      {opts.none && (
+                        <p className="w-full text-[12px] text-gray-700 dark:text-gray-300">
+                          {t("rsvpWlNoTimesLeft", "No times left today — book them on another day.")}
                         </p>
                       )}
                     </div>

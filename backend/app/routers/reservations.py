@@ -1617,10 +1617,18 @@ def search_reservations(
     rows = [r for r in rows if r.cancel_reason != "walk_in_removed"]
     cutoff = _user_cutoff_hour(user)
     now = now_local(user).replace(tzinfo=None)
-    upcoming = [r for r in rows if r.starts_at >= now]
-    past = sorted((r for r in rows if r.starts_at < now), key=lambda r: r.starts_at, reverse=True)
+    # Live bookings first: 16 of today's cancelled rows filled the 20 and the
+    # Saturday booking the host was looking for never showed. Within each
+    # group, upcoming first, then the most recent past.
+    dead = ("cancelled", "no_show")
+    def _ranked(group):
+        up = [r for r in group if r.starts_at >= now]
+        past = sorted((r for r in group if r.starts_at < now), key=lambda r: r.starts_at, reverse=True)
+        return up + past
+    live = _ranked([r for r in rows if r.status not in dead])
+    gone = _ranked([r for r in rows if r.status in dead])
     out = []
-    for r in (upcoming + past)[:20]:
+    for r in (live + gone)[:20]:
         out.append({
             "id": str(r.id),
             "starts_at": r.starts_at.isoformat(),
@@ -1849,6 +1857,12 @@ def create_manual(payload: ManualReservation, request: Request,
         return _create_provider_booking(db, user, profile, payload)
     if payload.resource_id is not None:
         _assert_owned_resource(db, user, payload.resource_id)
+        # A drop-in seated on a table someone is still sitting at — the hold
+        # rows only know booked windows, so a party running over looked gone.
+        if payload.status == "seated":
+            occupant = _seated_occupant(db, user, [payload.resource_id])
+            if occupant is not None:
+                raise _occupied_409(db, user, occupant, [payload.resource_id])
     duration = rsvc.resolve_duration(profile, payload.party_size, payload.duration_min)
     from app.services.allergens import sanitize_tags, sanitize_severity
     btype = getattr(user, "business_type", None) or "restaurant"
@@ -2005,6 +2019,10 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
         return out
 
     _assert_owned_resource(db, user, payload.resource_id)
+    if r.status == "seated":
+        occupant = _seated_occupant(db, user, [payload.resource_id], exclude_id=r.id)
+        if occupant is not None:
+            raise _occupied_409(db, user, occupant, [payload.resource_id])
 
     # App-level fast path: refuse a target table that already has an active,
     # overlapping hold from ANOTHER reservation (half-open [start, end)).
@@ -2049,6 +2067,59 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
     return _reservation_dict(r)
 
 
+def _seated_occupant(db: Session, user: User, table_ids, exclude_id=None):
+    """A party SEATED on any of these tables right now, or None.
+
+    A seated party holds its table until it is finished — not until its booked
+    end. The occupancy rows only know booked windows, so a party running over
+    looked gone: the next booking on that table was seated on top of it, and a
+    2-top showed two parties "Sidder". Today's business day only — a party
+    left "seated" from an earlier day is not on today's floor."""
+    ids = {str(x) for x in (table_ids or []) if x}
+    if not ids:
+        return None
+    lo, hi = business_day_window_local(user, business_today_local(user))
+    q = db.query(Reservation).filter(
+        Reservation.user_id == user.id,
+        Reservation.status == "seated",
+        Reservation.is_deleted.is_(False),
+        Reservation.starts_at >= lo,
+        Reservation.starts_at < hi,
+    )
+    if exclude_id is not None:
+        q = q.filter(Reservation.id != exclude_id)
+    for x in q.order_by(Reservation.starts_at).all():
+        held = {str(y) for y in (x.combined_resource_ids or ([x.resource_id] if x.resource_id else [])) if y}
+        if held & ids:
+            return x
+    return None
+
+
+def _occupied_409(db: Session, user: User, occupant: Reservation, table_ids) -> HTTPException:
+    """409 that names who is still at the table, so the app can offer
+    "finish them and seat" instead of a dead end."""
+    ids = {str(x) for x in (table_ids or []) if x}
+    held = [str(y) for y in (occupant.combined_resource_ids or ([occupant.resource_id] if occupant.resource_id else [])) if y]
+    shared = next((y for y in held if y in ids), held[0] if held else None)
+    label = None
+    if shared:
+        label = db.query(BookableResource.label).filter(BookableResource.id == UUID(shared)).scalar()
+    now_l = now_local(user).replace(tzinfo=None)
+    over = None
+    if occupant.ends_at and occupant.ends_at < now_l:
+        over = int((now_l - occupant.ends_at).total_seconds() // 60)
+    return HTTPException(status_code=409, detail={
+        "error": "table_occupied",
+        "occupant": {
+            "id": str(occupant.id),
+            "name": occupant.guest_name,
+            "table": label,
+            "ends_at": occupant.ends_at.isoformat() if occupant.ends_at else None,
+            "over_min": over,
+        },
+    })
+
+
 def _sitting_end_for(db: Session, user: User, r: Reservation, ids: list):
     """Where the hold should end on the table(s) being moved to. A party
     seated early before another booking had its sitting cut to that
@@ -2079,6 +2150,10 @@ def _assign_tables(db: Session, user: User, r: Reservation, ids: list) -> dict:
     so either all of them land or none does."""
     for rid in ids:
         _assert_owned_resource(db, user, rid)
+    if r.status == "seated":
+        occupant = _seated_occupant(db, user, ids, exclude_id=r.id)
+        if occupant is not None:
+            raise _occupied_409(db, user, occupant, ids)
     ends_at = _sitting_end_for(db, user, r, ids)
     if r.status in occ_service.HOLDING_STATUSES:
         clash = (
@@ -2240,6 +2315,7 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
         r.allergy_ai_confirmed = True
 
     moved = None  # {"from": label, "to": label} when the party had to change table
+    kept = None  # kept as typed on "Gem alligevel" although it does not fit
     if time_or_party:
         profile = _profile(db, user)
         settings = rsvc.load_settings(profile)
@@ -2299,6 +2375,16 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
             fits = clash is None and (
                 is_provider or (seats >= new_party and _sitting_inside_hours(profile, settings, new_start, new_end))
             )
+            if not fits and payload.allow_overflow and clash is None and not is_provider:
+                # Kept on the owner's say-so — and said: nine on a 4-top was
+                # saved with the sheet just closing, no word of what it meant.
+                kept = {
+                    "table": " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +") or None,
+                    "seats": seats,
+                    "party": new_party,
+                    **({"ends": new_end.strftime("%H:%M")}
+                       if not _sitting_inside_hours(profile, settings, new_start, new_end) else {}),
+                }
             if not fits and not (payload.allow_overflow and clash is None):
                 if is_provider:
                     raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
@@ -2386,6 +2472,8 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     out = _reservation_dict(r)
     if moved:
         out["moved"] = moved
+    if kept:
+        out["kept"] = kept
     return out
 
 
@@ -2405,6 +2493,14 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
 
     prev_status = r.status
     prev_resource_id = r.resource_id
+    # Seating (or reopening) onto a table someone is still sitting at: refuse,
+    # and say who — before anything on this booking changes.
+    if payload.status == "seated" and prev_status != "seated":
+        target = ([payload.resource_id] if payload.resource_id is not None
+                  else (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])))
+        occupant = _seated_occupant(db, user, target, exclude_id=r.id)
+        if occupant is not None:
+            raise _occupied_409(db, user, occupant, target)
     r.status = payload.status
     # Owner may (re)assign a table as part of the transition. If they move it
     # to a DIFFERENT resource, free the old occupancy row first so it stops

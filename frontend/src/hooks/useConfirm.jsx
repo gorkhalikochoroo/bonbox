@@ -87,6 +87,9 @@ export function ConfirmProvider({ children }) {
   useEffect(() => {
     if (!state) return undefined;
     const isDestructive = !!state.opts?.destructive;
+    // Back to whatever asked, when the answer is in — a keyboard user was
+    // left on <body>, at the top of the page.
+    const opener = document.activeElement;
     (isDestructive ? cancelBtnRef : confirmBtnRef).current?.focus();
     // Capture phase + stopPropagation: the confirm owns these keys while it
     // is open. Listening in the bubble phase like everything else, Esc also
@@ -109,6 +112,7 @@ export function ConfirmProvider({ children }) {
     return () => {
       document.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = prevOverflow;
+      if (opener && opener.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true });
     };
   }, [state, settle]);
 

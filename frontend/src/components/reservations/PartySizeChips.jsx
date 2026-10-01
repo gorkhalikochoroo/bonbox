@@ -65,11 +65,12 @@ export default function PartySizeChips({ value, onChange, t }) {
           A small number box for the big table. */}
       <label className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
         <span className="sr-only">{t("rsvpPartyOther", "Other number of guests")}</span>
+        {/* No min/max on the box: a "9" typed here met the browser's own
+            "must be at least 11" bubble (in English) and Save did nothing.
+            The number is checked here, and a ladder number lands on its chip. */}
         <input
           type="number"
           inputMode="numeric"
-          min={11}
-          max={100}
           placeholder="11+"
           // A draft of its own: committing EVERY keystroke set the party to 1
           // on the "1" of "12". From 11 up it takes over as you type — the
@@ -81,12 +82,18 @@ export default function PartySizeChips({ value, onChange, t }) {
             const v = parsed(e.target.value);
             if (v != null && v >= 11) onChange(String(v));
           }}
-          onBlur={() => { const v = parsed(other); if (v != null) onChange(String(v)); }}
+          onBlur={() => {
+            const v = parsed(other);
+            if (v == null) { if (other !== "") setOther(""); return; }
+            onChange(String(v));
+            if (v < 11) setOther("");
+          }}
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             const v = parsed(other);
             if (v == null) { e.preventDefault(); return; }
             onChange(String(v));
+            if (v < 11) setOther("");
           }}
           className={"h-11 w-20 px-3 rounded-lg border text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 " + (otherOn
             ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100 placeholder:text-gray-300"
