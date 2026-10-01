@@ -29,7 +29,7 @@
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose } from "../utils/bookingTimes";
+import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose, windowsFor, windowAt } from "../utils/bookingTimes";
 import { createPortal } from "react-dom";
 import {
   CalendarCheck,
@@ -81,6 +81,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
+import { useToast } from "../hooks/useToast";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import Sheet from "../components/ui/Sheet";
@@ -730,7 +731,7 @@ function TablesCell({ r, labelById, t }) {
   // A live booking with no table is something the host has to fix — say so,
   // like the phone row does, instead of a bare dash.
   if (["confirmed", "seated"].includes(r.status)) {
-    return <span className="text-sm text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
+    return <span className="text-sm text-amber-700 dark:text-amber-400 whitespace-nowrap">{t("rsvpNoTableShort", "No table")}</span>;
   }
   return <span className="text-sm text-gray-400 dark:text-gray-500">—</span>;
 }
@@ -928,6 +929,13 @@ function ReservationDrawer({
   // "Didn't arrive" can't be true before they were due — a no-show tapped
   // at 17:00 for a 19:30 booking emptied the table and logged a false miss.
   const due = !r.starts_at || !nowTs || new Date(r.starts_at).getTime() <= nowTs;
+  // Live, single-table bookings get the table as a select (move it there).
+  const canAssign =
+    !isProvider &&
+    !!onAssign &&
+    tables.length > 0 &&
+    ["requested", "confirmed", "seated"].includes(r.status) &&
+    !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1);
   const labels = statusLabels(t);
   const hasAllergy =
     (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
@@ -1105,7 +1113,9 @@ function ReservationDrawer({
                 />
               </>
             ) : (
-              tableLabel && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />
+              // The table select below already names it — the drawer said
+              // "Bord 2" twice, once as a row and once in the select.
+              tableLabel && !canAssign && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />
             )}
             {r.guest_phone && (
               <DetailRow
@@ -1141,14 +1151,10 @@ function ReservationDrawer({
               which span multiple tables and are managed by the engine).
               Picking a table PATCHes immediately; 409 slot_unavailable shows
               an honest inline error and leaves the booking untouched. */}
-          {!isProvider &&
-            onAssign &&
-            tables.length > 0 &&
-            ["requested", "confirmed", "seated"].includes(r.status) &&
-            !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1) && (
+          {canAssign && (
               <div>
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  {t("rsvpAssignTable", "Assign table")}
+                  {r.resource_id ? t("rsvpColTable", "Table") : t("rsvpAssignTable", "Assign table")}
                 </label>
                 <select
                   value={r.resource_id ? String(r.resource_id) : ""}
@@ -1269,7 +1275,7 @@ function PartySizeChips({ value, onChange, t }) {
             type="button"
             onClick={() => onChange(String(s))}
             aria-pressed={on}
-            aria-label={t("rsvpPartyN", "{n} guests", { n: s })}
+            aria-label={s === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n: s })}
             className={chipClass(on)}
           >
             {s}
@@ -1554,6 +1560,71 @@ function pickBookingTime(dateIso, openHours, sitting = 0) {
   return times.find((q) => q >= fallback) || (times.includes("18:00") ? "18:00" : times[0]);
 }
 
+// A refused time as the 409 room_full detail describes it, for both sheets.
+function warningFrom(d, time, totalCapacity = null) {
+  return {
+    seats: d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null),
+    // undefined (older backend) stays undefined, so the message falls back to
+    // the previous wording rather than claiming an empty room.
+    busyAtThatTime: d.tables_busy_at_that_time,
+    noHours: d.hours_declared === false,
+    tooBig: Number(d.largest_table) > 0 && Number(d.requested) > Number(d.largest_table),
+    largest: Number(d.largest_table) || null,
+    requested: Number(d.requested) || null,
+    openWindows: Array.isArray(d.open_windows) ? d.open_windows : null,
+    time: time || null,
+    sitting: Number(d.sitting_min) || null,
+  };
+}
+
+// The one line a refused time gets — New booking and Edit share it, so the
+// same refusal is never explained two ways. "room_full" is raised whenever no
+// table fits, which is several different facts; each gets its own sentence.
+function roomFullText(w, t, sitting, { edit = false } = {}) {
+  const hours = (w.openWindows || []).map(([a, b]) => `${a}–${b}`).join(", ");
+  if (w.tooBig) {
+    return edit
+      ? t("rsvpEditTooBig", "No table seats {n} (largest: {max}). Save anyway and put tables together when they arrive.", { n: w.requested, max: w.largest })
+      : t("rsvpNoTableTooBig", "No table seats {n} (largest: {max}). Book without a table and put tables together when they arrive.", { n: w.requested, max: w.largest });
+  }
+  if (w.noHours) return t("rsvpNoTableNoHours", "No table fits this party at that time. Opening hours aren't saved yet — add them under Settings → Opening hours.");
+  if (w.busyAtThatTime === 0 && w.openWindows && w.openWindows.length === 0) {
+    return t("rsvpClosedThatDay", "You're closed that day — change the opening hours under Settings to take it.");
+  }
+  if (w.busyAtThatTime === 0 && w.openWindows && w.time && !windowAt(w.openWindows, w.time)) {
+    return t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: w.time, hours });
+  }
+  if (overrunsClose(w.openWindows, w.time, w.sitting || sitting)) {
+    return t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time.");
+  }
+  if (w.busyAtThatTime === 0) return t("rsvpNoTableAtTime", "No table can be booked at that time.");
+  return w.seats != null
+    ? t("rsvpRoomFullWarn", "That time is full — {n} seats.", { n: w.seats })
+    : t("rsvpRoomFullShort", "That time is full.");
+}
+
+// When the party, the service or the date changes, a start that no longer
+// fits moves to the nearest one that does — and the sheet says so in one
+// line. A silent 20:30 → 20:00 read as the form changing its mind.
+function snapStart({ dateIso, time, openHours, sitting, n, service, t }) {
+  const nt = openTimesFor(dateIso, openHours, sitting);
+  if (!nt.known || nt.closed || nt.times.includes(time)) return { to: time, note: "" };
+  const to = nt.times.filter((q) => q <= time).pop() || nt.times[0];
+  const wins = windowsFor(dateIso, openHours) || [];
+  const win = windowAt(wins, time);
+  let note;
+  if (win && overrunsClose(wins, time, sitting)) {
+    note = service
+      ? t("rsvpTimeMovedCloseService", "Moved to {to} — the appointment has to end by {close}.", { to, close: win[1] })
+      : t("rsvpTimeMovedClose", "Moved to {to} — {n} guests have to be done by {close}.", { to, n, close: win[1] });
+  } else {
+    note = t("rsvpTimeMovedOpen", "Moved to {to} — open {hours} that day.", {
+      to, hours: wins.map(([a, b]) => `${a}–${b}`).join(", "),
+    });
+  }
+  return { to, note };
+}
+
 // NewBookingSheet — the host takes a future (phone) booking: date, time,
 // party, name, optional phone. Submits through the page-level handler so
 // the 409 room_full warning ("honest pushback") can keep the sheet open
@@ -1561,14 +1632,28 @@ function pickBookingTime(dateIso, openHours, sitting = 0) {
 // ─── Edit booking — "move us to 20:00 / we're 6 not 4" without the dishonest
 // cancel-and-recreate (which falsely notified the guest "aflyst"). PATCHes the
 // booking through the same occupancy machinery; a taken slot is an honest 409.
-function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose, openHours = null, bookingRules = null }) {
+function EditBookingSheet({
+  reservation, t, busy, error, onSubmit, onClose, openHours = null, bookingRules = null,
+  warning = null, onClearWarning = null,
+}) {
   const r = reservation;
-  const [date, setDate] = useState(r.starts_at ? r.starts_at.slice(0, 10) : "");
-  const [time, setTime] = useState(r.starts_at ? r.starts_at.slice(11, 16) : "18:00");
+  const origDate = r.starts_at ? r.starts_at.slice(0, 10) : "";
+  const origTime = r.starts_at ? r.starts_at.slice(11, 16) : "18:00";
+  const [date, setDate] = useState(origDate);
+  const [time, setTime] = useState(origTime);
   const [party, setParty] = useState(String(r.party_size || 2));
+  const [timeNote, setTimeNote] = useState("");
   // The same open-hours times as New booking — moving a booking offered
   // 06:00–23:45, closed days and starts that run past closing included.
-  const editTimes = openTimesFor(date || r.starts_at?.slice(0, 10) || "", openHours, sittingMinutes(parseInt(party, 10) || 2, bookingRules));
+  const sitting = sittingMinutes(parseInt(party, 10) || 2, bookingRules);
+  const editTimes = openTimesFor(date || origDate, openHours, sitting);
+  // A bigger party sits longer; a new day may open later. Either way the
+  // start moves to the nearest one that fits, and the sheet says so.
+  const snapTime = (len, onDate, n) => {
+    const { to, note } = snapStart({ dateIso: onDate, time, openHours, sitting: len, n, service: false, t });
+    setTime(to);
+    setTimeNote(note);
+  };
   const [name, setName] = useState(r.guest_name || "");
   const [phone, setPhone] = useState(r.guest_phone || "");
   // The note could be read here but not changed — the one field a phone call
@@ -1589,13 +1674,41 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose, open
     { v: "severe", label: t("rsvpSevSevere", "Alvorlig") },
   ];
   useEscToClose(onClose, busy);
+  const changed = () => warning && onClearWarning && onClearWarning();
+  const save = (allowOverflow = false) => {
+    const body = {
+      guest_name: name.trim() || null,
+      guest_phone: phone.trim() || null,
+    };
+    // Time and party only when they changed: a phone-number fix on a seated
+    // table must not be refused as "can't move a started booking".
+    if (date !== origDate || time !== origTime) body.starts_at = `${date}T${time}:00`;
+    const p = Math.max(1, Math.min(100, parseInt(party, 10) || r.party_size));
+    if (p !== r.party_size) body.party_size = p;
+    // Only send allergy when the host actually touched it. Sending it
+    // unchanged would mark a pending AI allergy suggestion "confirmed"
+    // as a side effect of editing a phone number — deciding something
+    // the host never looked at.
+    if (allergyNote.trim() !== initialAllergy) body.allergy_note = allergyNote.trim();
+    if (severity !== initialSeverity) body.allergy_severity = severity;
+    if (note.trim() !== initialNote) body.guest_notes = note.trim();
+    if (allowOverflow) body.allow_overflow = true;
+    onSubmit(body, { time });
+  };
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
-      <div
-        className="relative w-full sm:max-w-sm bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
-        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+      {/* Fields scroll; the answer and Save stay pinned at the bottom — the
+          button sat below the fold at 1366×768 and on every phone. A form, so
+          the keyboard's Go saves. */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (!busy) save(false); }}
+        className="relative w-full sm:max-w-sm flex flex-col max-h-[90vh] overflow-hidden bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl animate-fadeIn"
       >
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4"
+          style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+        >
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("rsvpEditTitle", "Edit reservation")}
@@ -1608,12 +1721,18 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose, open
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="eb-date" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpDateLabel", "Date")}</label>
-            <input id="eb-date" type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            <input id="eb-date" type="date" value={date}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setDate(e.target.value);
+                snapTime(sitting, e.target.value, parseInt(party, 10) || 2);
+                changed();
+              }}
               className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 dark:[color-scheme:dark]" />
           </div>
           <div>
             <label htmlFor="eb-time" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpTimeLabel", "Time")}</label>
-            <select id="eb-time" value={time} onChange={(e) => setTime(e.target.value)}
+            <select id="eb-time" value={time} onChange={(e) => { setTime(e.target.value); setTimeNote(""); changed(); }}
               className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums">
               {/* The booking's own time stays listed even when it is outside
                   today's hours, so opening Edit never silently moves it. */}
@@ -1626,13 +1745,25 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose, open
             {t("rsvpClosedThatDayShort", "You're closed that day.")}
           </p>
         )}
+        {timeNote && !editTimes.closed && (
+          <p role="status" className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">{timeNote}</p>
+        )}
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpPartySize", "Party size")}</label>
           {/* Was [1,2,3,4,5,6,8]: opening Edit on a party of 7, 9, 10 or 12
               showed the whole row unselected — the booking said seven and
               the sheet showed nothing. (It saved 7 correctly; the host just
               had no way to see that without tapping a chip and losing it.) */}
-          <PartySizeChips value={party} onChange={setParty} t={t} />
+          <PartySizeChips
+            value={party}
+            onChange={(v) => {
+              setParty(v);
+              const n = parseInt(v, 10) || 2;
+              snapTime(sittingMinutes(n, bookingRules), date || origDate, n);
+              changed();
+            }}
+            t={t}
+          />
         </div>
         <div>
           <label htmlFor="eb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
@@ -1684,29 +1815,39 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose, open
             placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
         </div>
-        {error && (
-          <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-2 rounded-lg text-sm">{error}</div>
-        )}
-        <Button variant="primary" size="lg" busy={busy} className="w-full justify-center"
-          onClick={() => {
-            const body = {
-              starts_at: `${date}T${time}:00`,
-              party_size: Math.max(1, Math.min(100, parseInt(party, 10) || r.party_size)),
-              guest_name: name.trim() || null,
-              guest_phone: phone.trim() || null,
-            };
-            // Only send allergy when the host actually touched it. Sending it
-            // unchanged would mark a pending AI allergy suggestion "confirmed"
-            // as a side effect of editing a phone number — deciding something
-            // the host never looked at.
-            if (allergyNote.trim() !== initialAllergy) body.allergy_note = allergyNote.trim();
-            if (severity !== initialSeverity) body.allergy_severity = severity;
-            if (note.trim() !== initialNote) body.guest_notes = note.trim();
-            onSubmit(body);
-          }}>
-          {t("rsvpEditSave", "Save changes")}
-        </Button>
-      </div>
+        </div>
+        <div
+          className="shrink-0 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] px-5 pt-3 space-y-3"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+        >
+          {/* The same answer New booking gives — six on a two-top, a sitting
+              past closing, a taken table — with the owner's way through. */}
+          {warning && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
+              <div className="font-semibold flex items-start gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
+                <span>{roomFullText(warning, t, sitting, { edit: true })}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" size="md" disabled={busy} onClick={() => save(true)}>
+                  {t("rsvpEditSaveAnyway", "Save anyway")}
+                </Button>
+                {!warning.tooBig && (
+                  <Button variant="ghost" size="md" disabled={busy} onClick={onClearWarning}>
+                    {t("rsvpPickAnotherTime", "Pick another time")}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-2 rounded-lg text-sm">{error}</div>
+          )}
+          <Button type="submit" variant="primary" size="lg" busy={busy} className="w-full justify-center">
+            {t("rsvpEditSave", "Save changes")}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -1727,8 +1868,10 @@ function NewBookingSheet({
   openHours = null,
   bookingRules = null,
 }) {
-  const [date, setDate] = useState(day);
-  const [time, setTime] = useState(() => pickBookingTime(day, openHours, isProvider ? 0 : sittingMinutes(2, bookingRules)));
+  // Opened from a past day's book, a new booking still starts today.
+  const [date, setDate] = useState(() => (day < serviceDayIso() ? serviceDayIso() : day));
+  const [time, setTime] = useState(() => pickBookingTime(day < serviceDayIso() ? serviceDayIso() : day, openHours, isProvider ? 0 : sittingMinutes(2, bookingRules)));
+  const [timeNote, setTimeNote] = useState("");
   const [party, setParty] = useState("2");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -1762,23 +1905,20 @@ function NewBookingSheet({
   const dayTimes = openTimesFor(date, openHours, sitting);
   // A longer booking can push the chosen start past closing: move it to the
   // latest start that still fits rather than offer a time that is refused.
-  const snapTime = (len) => {
-    const nt = openTimesFor(date, openHours, len);
-    if (nt.known && !nt.closed && !nt.times.includes(time)) {
-      setTime(nt.times.filter((q) => q <= time).pop() || nt.times[0]);
-    }
+  const snapTime = (len, onDate = date, n = parseInt(party, 10) || 2) => {
+    const { to, note } = snapStart({ dateIso: onDate, time, openHours, sitting: len, n, service: isProvider, t });
+    setTime(to);
+    setTimeNote(note);
   };
-  // The refusal and its two ways out appear at the bottom of a tall sheet —
-  // on a phone they landed below the fold, so the tap looked like nothing.
-  const footRef = useRef(null);
-  useEffect(() => {
-    if (warning || error) footRef.current?.scrollIntoView?.({ block: "end", behavior: "smooth" });
-  }, [warning, error]);
+  // A missing name is said under the field — and the field gets the focus,
+  // since on a phone it sat above the fold while the tap was on Create.
+  const nameRef = useRef(null);
 
   const submit = (allowOverflow) => {
     const guest_name = name.trim();
     if (!guest_name) {
       setNameMissing(true);
+      nameRef.current?.focus?.();
       return;
     }
     if (isProvider) {
@@ -1827,10 +1967,18 @@ function NewBookingSheet({
       aria-modal="true"
     >
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
-      <div
-        className="relative w-full sm:max-w-sm bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
-        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+      {/* Fields scroll; the refusal and Create stay pinned at the bottom —
+          Create sat below the fold at 1366×768 and on every phone, and the
+          refusal appeared where nobody was looking. A form, so the phone
+          keyboard's Go creates the booking. */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (!busy && !(isProvider && behandlinger.length === 0)) submit(false); }}
+        className="relative w-full sm:max-w-sm flex flex-col max-h-[90vh] overflow-hidden bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl animate-fadeIn"
       >
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4"
+          style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+        >
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {isProvider
@@ -1931,10 +2079,9 @@ function NewBookingSheet({
               onChange={(e) => {
                 if (e.target.value) {
                   setDate(e.target.value);
-                  // A time the new day isn't open at moves to its first open slot.
-                  if (!openTimesFor(e.target.value, openHours, sitting).times.includes(time)) {
-                    setTime(pickBookingTime(e.target.value, openHours, sitting));
-                  }
+                  // A time the new day can't take moves to the nearest one it
+                  // can (it used to jump to the 18:00 default), and says so.
+                  snapTime(sitting, e.target.value);
                 }
                 if (warning) onClearWarning();
               }}
@@ -1950,6 +2097,7 @@ function NewBookingSheet({
               value={time}
               onChange={(e) => {
                 setTime(e.target.value);
+                setTimeNote("");
                 if (warning) onClearWarning();
               }}
               className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
@@ -1969,6 +2117,14 @@ function NewBookingSheet({
             {t("rsvpClosedThatDayShort", "You're closed that day.")}
           </p>
         )}
+        {timeNote && !dayTimes.closed && (
+          <p role="status" className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">{timeNote}</p>
+        )}
+        {date < serviceDayIso() && (
+          <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400">
+            {t("rsvpPastDateNote", "That day has already passed.")}
+          </p>
+        )}
 
         {/* Party size — TABLE venues only. A provider tidsbestilling is one
             customer; the behandling sets the booking length, not party size. */}
@@ -1985,7 +2141,7 @@ function NewBookingSheet({
                 setParty(v);
                 // A bigger party sits longer: a start time that no longer
                 // ends by closing moves to the latest one that does.
-                snapTime(lengthFor(v, behandlingId));
+                snapTime(lengthFor(v, behandlingId), date, parseInt(v, 10) || 2);
                 if (warning) onClearWarning();
               }}
               t={t}
@@ -2027,6 +2183,7 @@ function NewBookingSheet({
           </label>
           <input
             id="nb-name"
+            ref={nameRef}
             type="text"
             value={name}
             onChange={(e) => {
@@ -2117,7 +2274,11 @@ function NewBookingSheet({
           </div>
         )}
 
-        <div ref={footRef} className="space-y-4 scroll-mb-4">
+        </div>
+        <div
+          className="shrink-0 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] px-5 pt-3 space-y-3"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+        >
         {/* Honest room-full pushback — the room can't seat this party at that
             time. The host decides: take it anyway (waitlist-style, no table)
             or pick another time. */}
@@ -2130,25 +2291,7 @@ function NewBookingSheet({
                   occupying the room at that time, saying "full" contradicts a
                   book showing zero covers and makes a host turn away a caller
                   they could have seated. */}
-              {warning.tooBig
-                ? t("rsvpNoTableTooBig", "No table seats {n} (largest: {max}). Book without a table and put tables together when they arrive.", { n: warning.requested, max: warning.largest })
-                : warning.noHours
-                ? t("rsvpNoTableNoHours", "No table fits this party at that time. Opening hours aren't saved yet — add them under Settings → Opening hours.")
-                : warning.busyAtThatTime === 0 && warning.openWindows && warning.openWindows.length === 0
-                ? t("rsvpClosedThatDay", "You're closed that day — change the opening hours under Settings to take it.")
-                : warning.busyAtThatTime === 0 && warning.openWindows && warning.time
-                  && !warning.openWindows.some(([a, b]) => (a <= warning.time && warning.time < b) || (b < a && (warning.time >= a || warning.time < b)))
-                ? t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", {
-                    time: warning.time,
-                    hours: warning.openWindows.map(([a, b]) => `${a}–${b}`).join(", "),
-                  })
-                : warning.busyAtThatTime === 0 && overrunsClose(warning.openWindows, warning.time, sitting)
-                ? t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time.")
-                : warning.busyAtThatTime === 0
-                ? t("rsvpNoTableAtTime", "No table can be booked at that time.")
-                : warning.seats != null
-                  ? t("rsvpRoomFullWarn", "That time is full — {n} seats.", { n: warning.seats })
-                  : t("rsvpRoomFullShort", "That time is full.")}
+              {roomFullText(warning, t, sitting)}
             </div>
             {/* Combining is on by default, but it only uses tables marked as
                 combinable — with fewer than two, big parties never get one. */}
@@ -2174,17 +2317,17 @@ function NewBookingSheet({
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <Button
+          type="submit"
           variant="primary"
           size="lg"
           busy={busy}
           disabled={isProvider && behandlinger.length === 0}
           className="w-full justify-center"
-          onClick={() => submit(false)}
         >
           {t("rsvpCreateBooking", "Create booking")}
         </Button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -2352,10 +2495,8 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     return { startMin: lo, endMin: hi };
   }, [holding, openHours, day]);
 
-  const PX = 1.2; // px per minute
   const ROW_H = 52;
   const RAIL_W = 116;
-  const bodyW = (endMin - startMin) * PX;
   const hours = [];
   for (let m = startMin; m <= endMin; m += 60) hours.push(m);
   const labels = statusLabels(t);
@@ -2384,10 +2525,50 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     };
   }, [day, todayIso]);
 
+  // The grid fills the box whenever the whole day fits at 1 px/min or more —
+  // at a fixed 1.2, 1440 left ~240px of empty grid after closing and 960 hid
+  // 23px of it behind a scrollbar. Narrower than that (phone, tablet
+  // portrait) it stays at 1.2, where a 90-minute bar still has room for a
+  // name, and scrolls. A callback ref: the box mounts once tables load.
+  const [boxW, setBoxW] = useState(0);
+  const boxRef = useRef(null);
+  const measureRef = useCallback((el) => {
+    boxRef.current = el;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(([entry]) => setBoxW(Math.round(entry.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const span = endMin - startMin;
+  const fitPx = boxW > RAIL_W ? (boxW - RAIL_W - 2) / span : 0;
+  const PX = fitPx >= 1 ? fitPx : 1.2; // px per minute
+  const bodyW = span * PX;
+
   const nowD = new Date(nowTick);
   const nowMin = nowD.getHours() * 60 + nowD.getMinutes();
   const nowX =
     day === todayIso && nowMin >= startMin && nowMin <= endMin ? (nowMin - startMin) * PX : null;
+
+  // Where the grid opens when it is wider than the screen (phone, tablet
+  // portrait): at now on today, else at the first booking — it opened at
+  // the day's first hour, with tonight's bookings off to the right.
+  const firstStart = useMemo(() => {
+    const ms = holding.filter((r) => r.starts_at).map((r) => minOfDay(r.starts_at));
+    return ms.length ? Math.min(...ms) : null;
+  }, [holding]);
+  const scrolledFor = useRef("");
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || !boxW || el.scrollWidth <= el.clientWidth + 4 || scrolledFor.current === day) return;
+    const at = day === todayIso && nowMin >= startMin && nowMin <= endMin ? nowMin : firstStart;
+    if (at == null) return;
+    scrolledFor.current = day;
+    // Only when that point is off-screen — the day's first hour stays in
+    // view whenever it can.
+    if (RAIL_W + (at - startMin + 60) * PX > el.clientWidth) {
+      el.scrollLeft = Math.max(0, (at - 30 - startMin) * PX);
+    }
+  }, [day, todayIso, nowMin, startMin, endMin, firstStart, PX, boxW]);
 
   if (tables.length === 0) {
     return (
@@ -2409,7 +2590,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
       : "bg-white dark:bg-[rgb(var(--surface-card))] border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100";
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-x-auto">
+    <div ref={measureRef} className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-x-auto">
       {/* THE ONE ceremonial beat for seating — a single ~500ms scale settle,
           then stillness. The global prefers-reduced-motion rule (index.css)
           already collapses this animation to ~0.01ms, so no local guard. */}
@@ -3694,7 +3875,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     if (!deepBookingId) return;
     // Still waiting to arrive on the right day, or mid-fetch — let it settle.
     if (deepDate && /^\d{4}-\d{2}-\d{2}$/.test(deepDate) && deepDate !== day) return;
-    if (loading) return;
+    if (loading || !data) return;
+    // …and the list on screen must BE that day's. Right after the switch the
+    // previous day's book is still in `data` until the new one lands, and the
+    // booking was looked for there: every search result on another day said
+    // "this reservation no longer exists".
+    if (data.date && data.date !== day) return;
     const fresh = (data?.reservations || []).find(
       (r) => String(r.id) === String(deepBookingId),
     );
@@ -3760,6 +3946,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   }, [deepLinkPulse]);
 
   const setStatus = async (r, status) => {
+    // Seating a booking hours early is almost always the wrong row (a 20:00
+    // party seated at 10:05 started its turn timer and held the table all
+    // day). Ask once when it is more than an hour ahead; reopening a
+    // finished table is not a first seating and is never asked about.
+    if (status === "seated" && r.status !== "completed" && r.starts_at) {
+      const aheadMin = (new Date(r.starts_at).getTime() - Date.now()) / 60000;
+      if (aheadMin > 60) {
+        const who = r.guest_name || t("rsvpGuest", "Guest");
+        if (
+          !(await confirm({
+            title: t("rsvpSeatEarlyTitle", "Seat {name} now?", { name: who }),
+            message: t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) }),
+            confirmLabel: t("rsvpSeatAction", "Seat"),
+            cancelLabel: t("rsvpSeatEarlyNotNow", "Not now"),
+          }))
+        ) {
+          return;
+        }
+      }
+    }
     if (status === "no_show") {
       const who = r.guest_name || t("rsvpGuest", "Guest");
       if (
@@ -3989,16 +4195,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           ),
         );
       } else if (e?.response?.status === 409 && d.error === "room_full") {
-        const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
-        // undefined (older backend) stays undefined, so the message falls back
-        // to the previous wording rather than claiming an empty room.
-        setRoomFull({
-          seats, busyAtThatTime: d.tables_busy_at_that_time, noHours: d.hours_declared === false,
-          tooBig: Number(d.largest_table) > 0 && Number(d.requested) > Number(d.largest_table),
-          largest: Number(d.largest_table) || null, requested: Number(d.requested) || null,
-          openWindows: Array.isArray(d.open_windows) ? d.open_windows : null,
-          time: form.time || null,
-        });
+        setRoomFull(warningFrom(d, form.time, totalCapacity));
       } else {
         setCreateError(
           d.error || t("rsvpCreateError", "Couldn't create the booking."),
@@ -4098,24 +4295,46 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const [editRes, setEditRes] = useState(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState("");
-  const submitEdit = async (fields) => {
+  // The edit's own honest refusal (six on a two-top, a sitting past closing).
+  const [editWarning, setEditWarning] = useState(null);
+  const toast = useToast();
+  const submitEdit = async (fields, ctx = {}) => {
     if (!editRes) return;
     setEditBusy(true);
     setEditError("");
+    setEditWarning(null);
     try {
-      await api.patch(`/reservations/reservations/${editRes.id}`, fields);
+      const res = await api.patch(`/reservations/reservations/${editRes.id}`, fields);
       haptic.success();
+      // More guests than the table seats (or a taken table at the new time):
+      // the server moved them to one that fits — say where, or the host
+      // walks the party to the old table.
+      const mv = res?.data?.moved;
+      if (mv?.to) {
+        toast({
+          severity: "success",
+          message: mv.from
+            ? t("rsvpEditMovedTable", "{name} moved to {to} — {from} didn't fit.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from })
+            : t("rsvpEditMovedTableShort", "{name} is now at {to}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to }),
+        });
+      }
       setEditRes(null);
       setSelected(null);
       fetchBook(day);
     } catch (e) {
       haptic.error();
-      const code = e?.response?.data?.detail?.error;
-      setEditError(
-        code === "slot_unavailable"
-          ? t("rsvpEditSlotTaken", "The table isn't free at that time — pick another time, or move the table first.")
-          : t("rsvpEditError", "Couldn't save the changes. Please try again."),
-      );
+      const d = e?.response?.data?.detail || {};
+      if (e?.response?.status === 409 && d.error === "room_full") {
+        setEditWarning(warningFrom(d, ctx.time || (fields.starts_at || "").slice(11, 16), totalCapacity));
+      } else {
+        setEditError(
+          d.error === "slot_unavailable"
+            ? t("rsvpEditSlotTaken", "The table isn't free at that time — pick another time, or move the table first.")
+            : d.error === "not_editable"
+              ? t("rsvpEditNotEditable", "A seated or finished booking can't change time or party — reopen it first.")
+              : t("rsvpEditError", "Couldn't save the changes. Please try again."),
+        );
+      }
     } finally {
       setEditBusy(false);
     }
@@ -4359,6 +4578,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => reservations.filter((r) => r.status === "cancelled" && r.cancel_reason !== "walk_in_removed").length,
     [reservations],
   );
+  // The day's live bookings — what "N bookings on this day" may count. It
+  // counted cancelled rows and removed drop-ins too (14 beside a strip
+  // saying 2).
+  const liveCount = useMemo(
+    () => reservations.filter((r) => r.status !== "cancelled" && r.cancel_reason !== "walk_in_removed").length,
+    [reservations],
+  );
   const filtered = useMemo(() => {
     // A removed drop-in never was a booking.
     let out = reservations.filter((r) => r.cancel_reason !== "walk_in_removed");
@@ -4449,7 +4675,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       label: t("rsvpColGuest", "Guest"),
       render: (r) => (
         <div className="min-w-0 max-w-[16rem]">
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" title={r.guest_name || undefined}>
+          <div
+            className={"text-sm font-medium text-gray-900 dark:text-gray-100 truncate " + (r.status === "cancelled" ? "line-through decoration-gray-400" : "")}
+            title={r.guest_name || undefined}
+          >
             {r.guest_name || "—"}
           </div>
           {r.guest_phone && (
@@ -4707,7 +4936,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               const tl = resolveTableLabel(r, labelById);
               return tl
                 ? <span className="min-w-0 truncate">{tl}</span>
-                : <span className="min-w-0 truncate text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
+                : <span className="shrink-0 whitespace-nowrap text-amber-700 dark:text-amber-400">{t("rsvpNoTableShort", "No table")}</span>;
             })()}
             {/* "Bekræftet" is the normal state — a dot says it, and the
                 table keeps its name ("B…", "M." before). Every other status
@@ -4718,9 +4947,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           </div>
           {/* What the host must know before the party arrives: the allergy in
               words and the note — on the row, not behind a tap. */}
+          {/* The allergy in its colour, the note in grey: one red line made
+              "barnestol" read like an allergy. */}
           {r.status !== "cancelled" && (r.allergy_note || r.guest_notes || r.occasion) && (
-            <div className={"mt-0.5 text-[12px] truncate " + (r.allergy_note ? (r.allergy_severity === "severe" ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400") : "text-gray-500 dark:text-gray-400")}>
-              {[r.allergy_note, r.occasion, r.guest_notes].filter(Boolean).join(" · ")}
+            <div className="mt-0.5 text-[12px] truncate text-gray-500 dark:text-gray-400">
+              {r.allergy_note && (
+                <span className={r.allergy_severity === "severe" ? "font-medium text-red-600 dark:text-red-400" : "font-medium text-amber-700 dark:text-amber-400"}>
+                  {r.allergy_note}
+                </span>
+              )}
+              {r.allergy_note && (r.occasion || r.guest_notes) ? " · " : ""}
+              {[r.occasion, r.guest_notes].filter(Boolean).join(" · ")}
             </div>
           )}
         </div>
@@ -5300,6 +5537,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             loading={loading}
             rowActions={rowActions}
             onRowClick={openDrawer}
+            // A cancelled or no-show row reads as history, as it already does
+            // on the phone list — at full ink it looked like a live table.
+            rowClassName={(r) => (r.status === "cancelled" || r.status === "no_show" ? "opacity-60" : "")}
 
             // Compact rows up to lg: at 768 (the host stand's tablet) the table
             // was 884px in 718px, with Udeblevet/Aflys off screen.
@@ -5327,7 +5567,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 }
                 body={
                   filtersOn
-                    ? t("rsvpNoMatchBody", "{n} bookings on this day — clear the search or filters to see them.", { n: reservations.length })
+                    ? liveCount > 0
+                      ? t("rsvpNoMatchBody", "{n} bookings on this day — clear the search or filters to see them.", { n: liveCount })
+                      : t("rsvpNoMatchNoneBody", "No active bookings on this day.")
                     : cancelledCount > 0 && !showCancelled
                       ? t("rsvpOnlyCancelledBody", "{n} cancelled — shown under the list.", { n: cancelledCount })
                     : noTablesYet
@@ -5447,7 +5689,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           // Close the drawer first: Edit is its own sheet at the same z-level,
           // so leaving the drawer open put the form UNDER its backdrop and the
           // first tap in Edit only closed the drawer.
-          onEdit={(r) => { setEditError(""); setSelected(null); setEditRes(r); }}
+          onEdit={(r) => { setEditError(""); setEditWarning(null); setSelected(null); setEditRes(r); }}
           onAllergyAction={(action) => actionAllergy(selected, action)}
           allergyActionBusy={allergyBusy}
           allergyActionError={allergyError}
@@ -5471,8 +5713,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           t={t}
           busy={editBusy}
           error={editError}
+          warning={editWarning}
+          onClearWarning={() => setEditWarning(null)}
           onSubmit={submitEdit}
-          onClose={() => setEditRes(null)}
+          onClose={() => { setEditRes(null); setEditWarning(null); }}
         />
       )}
 
@@ -7066,6 +7310,8 @@ function SettingsSection({ t }) {
   // The per-party-size table times, and the booking length as loaded. Saving
   // ANY setting used to resend the prefilled length and wipe the tiers.
   const [tiers, setTiers] = useState([]);
+  // The editable copy: one minutes field per party-size band.
+  const [tierDraft, setTierDraft] = useState([]);
   const loadedDurationRef = useRef("");
   // Opening / booking hours, per weekday. Owner-settable so slots come from
   // when they actually open — not a hard-coded default.
@@ -7077,7 +7323,11 @@ function SettingsSection({ t }) {
     setData(d);
     setSlugDraft(d?.reservation_slug || "");
     const s = d?.settings || {};
-    setTiers(Array.isArray(s.turn_time_tiers) ? s.turn_time_tiers : []);
+    const loadedTiers = (Array.isArray(s.turn_time_tiers) ? s.turn_time_tiers : [])
+      .filter((tr) => tr?.up_to && tr?.minutes)
+      .sort((a, b) => a.up_to - b.up_to);
+    setTiers(loadedTiers);
+    setTierDraft(loadedTiers.map((tr) => ({ up_to: tr.up_to, minutes: String(tr.minutes) })));
     loadedDurationRef.current = s.default_duration_min ?? "";
     setForm({
       max_party_size: s.max_party_size ?? "",
@@ -7210,14 +7460,20 @@ function SettingsSection({ t }) {
     // pacing: blank → null (no cap); a number → that cap.
     settings.pacing_max_per_slot =
       form.pacing_max_per_slot === "" ? null : toInt(form.pacing_max_per_slot) ?? null;
-    // Booking length — how long a table is held per booking. Setting a flat
-    // value clears the per-party-size turn-time tiers so the owner's number
-    // applies to EVERY party (otherwise the tiers would override it). Clamped
-    // 15–360 min. Blank leaves the existing rules untouched.
+    // Table times — per party-size band when the venue has bands, plus the
+    // time for bigger parties (or for every party when it has none). Each is
+    // sent only when it changed, and neither ever wipes the other: one new
+    // number used to clear all the bands. Clamped 15–360 min.
+    const clamp = (v) => Math.max(15, Math.min(360, v));
+    const nextTiers = tierDraft
+      .filter((tr) => toInt(tr.minutes) !== undefined)
+      .map((tr) => ({ up_to: tr.up_to, minutes: clamp(toInt(tr.minutes)) }));
+    if (JSON.stringify(nextTiers) !== JSON.stringify(tiers.map((tr) => ({ up_to: tr.up_to, minutes: Number(tr.minutes) })))) {
+      settings.turn_time_tiers = nextTiers;
+    }
     if (toInt(form.default_duration_min) !== undefined
         && String(form.default_duration_min) !== String(loadedDurationRef.current ?? "")) {
-      settings.default_duration_min = Math.max(15, Math.min(360, toInt(form.default_duration_min)));
-      settings.turn_time_tiers = [];
+      settings.default_duration_min = clamp(toInt(form.default_duration_min));
     }
     // Table combining: always send the on/off flag; cap is clamped to 2–6
     // (blank leaves the backend default of 3).
@@ -7584,21 +7840,60 @@ function SettingsSection({ t }) {
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <NumberField
-            label={t("rsvpBookingLength", "Booking length (minutes)")}
-            hint={tiers.length
-              ? t("rsvpBookingLengthTiers", "Now by party size: {tiers}. A new number here holds every party that long.", {
-                  tiers: [...tiers]
-                    .filter((tr) => tr?.up_to && tr?.minutes)
-                    .sort((a, b) => a.up_to - b.up_to)
-                    .map((tr, i, arr) => `${i === 0 ? 1 : arr[i - 1].up_to + 1}–${tr.up_to}: ${tr.minutes} min`)
-                    .concat(tiers.length ? [`${t("rsvpBiggerParties", "bigger")}: ${Math.max(...tiers.map((tr) => Number(tr?.minutes) || 0), Number(form.default_duration_min) || 0)} min`] : [])
-                    .join(" · "),
-                })
-              : t("rsvpBookingLengthHint", "How long a table is held per booking. Leave blank to keep your current rules.")}
-            value={form.default_duration_min}
-            onChange={(v) => setForm((f) => ({ ...f, default_duration_min: v }))}
-          />
+          {/* Table time by party size — the engine's own rule (the smallest
+              band that fits; bigger parties hold the "bigger" time). This was
+              one number that, saved, overwrote every band. */}
+          <fieldset className="sm:col-span-2 min-w-0 m-0 p-0 border-0">
+            <legend className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              {t("rsvpTableTimes", "Table time (minutes)")}
+            </legend>
+            {tierDraft.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {tierDraft.map((tr, i) => (
+                  <NumberField
+                    key={tr.up_to}
+                    label={t("rsvpTierBand", "{from}–{to} guests", { from: i === 0 ? 1 : tierDraft[i - 1].up_to + 1, to: tr.up_to })}
+                    value={tr.minutes}
+                    onChange={(v) => setTierDraft((cur) => cur.map((x, j) => (j === i ? { ...x, minutes: v } : x)))}
+                  />
+                ))}
+                <NumberField
+                  label={t("rsvpTierBigger", "{n}+ guests", { n: tierDraft[tierDraft.length - 1].up_to + 1 })}
+                  value={form.default_duration_min}
+                  onChange={(v) => setForm((f) => ({ ...f, default_duration_min: v }))}
+                  hint={
+                    Number(form.default_duration_min) > 0 &&
+                    Number(form.default_duration_min) < Number(tierDraft[tierDraft.length - 1].minutes)
+                      ? t("rsvpTierBiggerAtLeast", "Held at least {m} min, like the band before.", { m: tierDraft[tierDraft.length - 1].minutes })
+                      : null
+                  }
+                />
+              </div>
+            ) : (
+              <div className="flex items-end gap-3 flex-wrap">
+                <div className="w-40">
+                  <NumberField
+                    label={t("rsvpTierEvery", "Every party")}
+                    value={form.default_duration_min}
+                    onChange={(v) => setForm((f) => ({ ...f, default_duration_min: v }))}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = String(parseInt(form.default_duration_min, 10) || 90);
+                    setTierDraft([{ up_to: 2, minutes: d }, { up_to: 4, minutes: d }, { up_to: 8, minutes: d }]);
+                  }}
+                  className="h-11 px-3 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  {t("rsvpTierSplit", "Set by party size")}
+                </button>
+              </div>
+            )}
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+              {t("rsvpTableTimesHint", "How long a table is held. New bookings, the time pickers and the floor all use these.")}
+            </p>
+          </fieldset>
           <NumberField
             label={t("rsvpMaxParty", "Max party size (online)")}
             hint={t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}

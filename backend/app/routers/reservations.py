@@ -578,6 +578,23 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
     }
 
 
+def _clean_tiers(raw) -> list[dict]:
+    """Owner-edited table times → the engine's shape: [{up_to, minutes}],
+    sorted, one per party size, minutes 15–360, at most 6. Anything malformed
+    is dropped here — the availability engine reads these on every public
+    page load and must never meet a string where it expects minutes."""
+    out: dict[int, int] = {}
+    for tier in raw if isinstance(raw, list) else []:
+        try:
+            up_to = int(tier.get("up_to"))
+            minutes = int(tier.get("minutes"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if 1 <= up_to <= 100:
+            out[up_to] = max(15, min(360, minutes))
+    return [{"up_to": k, "minutes": out[k]} for k in sorted(out)][:6]
+
+
 @router.put("/settings")
 def update_settings(payload: SettingsUpdate, request: Request,
                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -590,7 +607,15 @@ def update_settings(payload: SettingsUpdate, request: Request,
 
     if payload.settings is not None:
         merged = rsvc.load_settings(profile)
-        merged.update({k: v for k, v in payload.settings.items()})
+        incoming = dict(payload.settings)
+        if "turn_time_tiers" in incoming:
+            incoming["turn_time_tiers"] = _clean_tiers(incoming["turn_time_tiers"])
+        if "default_duration_min" in incoming:
+            try:
+                incoming["default_duration_min"] = max(15, min(360, int(incoming["default_duration_min"])))
+            except (TypeError, ValueError):
+                incoming.pop("default_duration_min")
+        merged.update(incoming)
         profile.reservation_settings_json = json.dumps(merged)
 
     if payload.reservations_enabled is not None:
@@ -2030,6 +2055,25 @@ class ReservationEdit(BaseModel):
     # Email the guest when the date/time really moves? Default yes; False for
     # a quiet correction the guest should not hear about.
     notify_guest: bool = True
+    # Keep the booking as typed although it no longer fits — more guests than
+    # its table seats, or a sitting that runs past closing. The owner's call,
+    # as "Book anyway" is on create. Never past a clash: two parties on one
+    # table at the same time is still a 409.
+    allow_overflow: bool = False
+
+
+def _sitting_inside_hours(profile, settings: dict, start: datetime, end: datetime) -> bool:
+    """The whole sitting inside an open window — the rule the booking engine
+    applies to a new booking. No hours on record: the owner is the authority,
+    as on create. Yesterday's window counts too, for a 00:30 after a late
+    close."""
+    if not rsvc.hours_declared(profile, settings):
+        return True
+    for d in (start.date(), start.date() - timedelta(days=1)):
+        for w in rsvc.restaurant_windows(profile, d, settings):
+            if w.start <= start and end <= w.end:
+                return True
+    return False
 
 
 def _queue_guest_email(background_tasks: BackgroundTasks, user: User, r: Reservation,
@@ -2120,15 +2164,32 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     if allergy_touched:
         r.allergy_ai_confirmed = True
 
+    moved = None  # {"from": label, "to": label} when the party had to change table
     if time_or_party:
         profile = _profile(db, user)
+        settings = rsvc.load_settings(profile)
         new_start = payload.starts_at or r.starts_at
         new_party = payload.party_size or r.party_size
-        # Keep an explicit per-booking duration; else re-resolve for the party.
-        duration = int(r.duration_min) if r.duration_min else rsvc.resolve_duration(profile, new_party, None)
+        held_ids = [UUID(str(x)) for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
+        held = (
+            db.query(BookableResource)
+            .filter(BookableResource.user_id == user.id, BookableResource.id.in_(held_ids))
+            .all()
+            if held_ids else []
+        )
+        is_provider = any(h.kind == "provider" for h in held) or bool(r.service_name)
+        # The sitting follows the party, as on create: six people hold a table
+        # 120 min, not the 90 the booking was made with as a two — the edit
+        # kept 90 and the book showed the table free while they were still
+        # eating. A length set by hand (anything but the rule's value for the
+        # old party) is kept, and so is a salon appointment's service length.
+        duration = int(r.duration_min or 0) or rsvc.resolve_duration(profile, new_party, None)
+        if not is_provider and new_party != r.party_size and int(r.duration_min or 0) in (
+            0, rsvc.resolve_duration(profile, r.party_size, None),
+        ):
+            duration = rsvc.resolve_duration(profile, new_party, None)
         new_end = new_start + timedelta(minutes=duration)
 
-        held_ids = [x for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
         if held_ids:
             # Same app-level clash guard as assign_table, for the NEW window
             # (Postgres exclusion constraint is the backstop on commit).
@@ -2144,14 +2205,45 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
                 )
                 .first()
             )
-            if clash is not None:
-                raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+            seats = sum(int(h.capacity_seats or 0) for h in held)
+            # Six on a two-top, or a sitting past closing, used to save
+            # without a word — create would never have booked either.
+            fits = clash is None and (
+                is_provider or (seats >= new_party and _sitting_inside_hours(profile, settings, new_start, new_end))
+            )
+            if not fits and not (payload.allow_overflow and clash is None):
+                if is_provider:
+                    raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+                # Find the table(s) that do fit, the way create does, with this
+                # booking's own hold released so its table counts as free.
+                occ_service.release_occupancy(db, r.id)
+                db.flush()
+                ids = rsvc.recheck_and_assign_combo(
+                    db, profile=profile, user_id=user.id, start=new_start,
+                    party_size=new_party, now=None, duration_min=duration,
+                    owner_booking=True,
+                )
+                if not ids:
+                    detail = _room_full_detail(db, user, new_party, start=new_start, end=new_end)
+                    db.rollback()
+                    detail.update({"edit": True, "held_seats": seats, "sitting_min": duration})
+                    raise HTTPException(status_code=409, detail=detail)
+                label_of = {
+                    str(x.id): x.label
+                    for x in db.query(BookableResource).filter(BookableResource.user_id == user.id).all()
+                }
+                old_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
+                held_ids = [UUID(str(x)) for x in ids]
+                new_label = " + ".join(label_of.get(str(x), "") for x in held_ids).strip(" +")
+                if [str(x) for x in held_ids] != [str(h) for h in (r.combined_resource_ids or [r.resource_id])]:
+                    moved = {"from": old_label or None, "to": new_label or None}
+                r.resource_id = held_ids[0]
+                r.combined_resource_ids = [str(x) for x in held_ids] if len(held_ids) > 1 else None
 
         r.starts_at = new_start
         r.ends_at = new_end
         r.party_size = new_party
         r.duration_min = duration
-        settings = rsvc.load_settings(profile)
         r.purge_after = new_start + timedelta(days=int(settings.get("retention_days", 90)))
         try:
             # Re-anchor the hold(s) to the new window.
@@ -2195,7 +2287,10 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
             old_starts_at=old_local.isoformat() if old_local else None,
             new_starts_at=new_local.isoformat() if new_local else None,
         )
-    return _reservation_dict(r)
+    out = _reservation_dict(r)
+    if moved:
+        out["moved"] = moved
+    return out
 
 
 @router.patch("/reservations/{reservation_id}/status")

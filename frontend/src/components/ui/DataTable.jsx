@@ -155,6 +155,9 @@ export default function DataTable({
   // Optional: make each row/card clickable (e.g. open a detail drawer).
   // Row-action buttons already stopPropagation, so they won't double-fire.
   onRowClick = null,
+  // Optional: extra classes for one desktop row (row) => string — e.g. a
+  // cancelled booking dims, as it already does in the caller's mobileRow.
+  rowClassName = null,
 }) {
   const { t } = useLanguage();
   const tableHide = BREAKPOINT_TABLE_HIDE[mobileBreakpoint] || BREAKPOINT_TABLE_HIDE.md;
@@ -346,7 +349,8 @@ export default function DataTable({
                     // selected row and a hovered row were both invisible.
                     (isSelected
                       ? "bg-gray-100 dark:bg-[rgb(var(--surface-ground))]"
-                      : "hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-subtle))]")
+                      : "hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-subtle))]") +
+                    (rowClassName ? " " + (rowClassName(row) || "") : "")
                   }
                 >
                   {selectable && (

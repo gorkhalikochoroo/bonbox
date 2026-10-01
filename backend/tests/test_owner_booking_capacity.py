@@ -461,11 +461,14 @@ def test_edit_moves_time_and_reanchors_occupancy(client, db):
     u, _, resources = _restaurant(db, tables=1)
     _override_user(u)
     rid = _book(client, time="2027-03-05T18:00:00", resource_id=str(resources[0].id)).json()["id"]
+    # 4 still fits the 4-top (6 used to be saved here too — onto a 4-top;
+    # see test_reservation_edit_fit.py for what a party that outgrows its
+    # table gets now).
     resp = client.patch(f"/api/reservations/reservations/{rid}",
-                        json={"starts_at": "2027-03-05T20:00:00", "party_size": 6})
+                        json={"starts_at": "2027-03-05T20:00:00", "party_size": 4})
     assert resp.status_code == 200, resp.text
     out = resp.json()
-    assert out["starts_at"].startswith("2027-03-05T20:00") and out["party_size"] == 6
+    assert out["starts_at"].startswith("2027-03-05T20:00") and out["party_size"] == 4
     occ = _active_occ(db, rid)
     assert len(occ) == 1 and occ[0].starts_at.hour == 20  # hold re-anchored
 
@@ -477,7 +480,9 @@ def test_edit_into_occupied_window_409(client, db):
     _book(client, time="2027-03-05T20:00:00", resource_id=tid)  # blocker
     rid = _book(client, time="2027-03-05T17:00:00", resource_id=tid).json()["id"]
     resp = client.patch(f"/api/reservations/reservations/{rid}", json={"starts_at": "2027-03-05T20:30:00"})
-    assert resp.status_code == 409 and resp.json()["detail"]["error"] == "slot_unavailable"
+    # No other table to move to → the same honest room_full create gives.
+    assert resp.status_code == 409 and resp.json()["detail"]["error"] == "room_full"
+    assert resp.json()["detail"]["edit"] is True
     db.expire_all()
     occ = _active_occ(db, rid)
     assert occ and occ[0].starts_at.hour == 17  # unchanged

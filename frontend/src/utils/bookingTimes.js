@@ -43,13 +43,28 @@ function inWindow([a, b], hhmm) {
   return { start, end, t0 };
 }
 
+// The day's open windows ([["11:30","22:00"]]), [] when closed, null when
+// no hours were loaded.
+export function windowsFor(dateIso, openHours) {
+  const key = WEEKDAY_KEY[new Date(`${dateIso}T12:00:00`).getDay()];
+  return openHours && Array.isArray(openHours[key]) ? openHours[key] : null;
+}
+
+// The window a start falls in, or null.
+export function windowAt(wins, hhmm) {
+  if (!Array.isArray(wins) || !hhmm) return null;
+  return wins.find((w) => {
+    const { start, end, t0 } = inWindow(w, hhmm);
+    return t0 >= start && t0 < end;
+  }) || null;
+}
+
 // The venue's bookable times for a date (booking hours, else opening hours).
 // A start counts only if the whole sitting ends by closing: 21:45 was
 // offered for a 22:00 close and then always refused. known=false means no
 // hours were loaded — the caller shows every quarter rather than nothing.
 export function openTimesFor(dateIso, openHours, sitting = 0) {
-  const key = WEEKDAY_KEY[new Date(`${dateIso}T12:00:00`).getDay()];
-  const wins = openHours && Array.isArray(openHours[key]) ? openHours[key] : null;
+  const wins = windowsFor(dateIso, openHours);
   if (!wins) return { times: QUARTER_TIMES, closed: false, known: false };
   if (wins.length === 0) return { times: QUARTER_TIMES, closed: true, known: true };
   const fits = (q, s) => wins.some((w) => {

@@ -28,6 +28,7 @@ import api from "../../services/api";
 import { getStandToken } from "../../services/standAuth";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useConfirm } from "../../hooks/useConfirm";
+import { useToast } from "../../hooks/useToast";
 import useAsyncData from "../../hooks/useAsyncData";
 import Button from "../ui/Button";
 import LoadFailed from "../ui/LoadFailed";
@@ -69,6 +70,7 @@ export default function WaitlistSection({
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
+  const appToast = useToast();
   // Is this a paired door device? Only used to explain a 404 on a call whose
   // owner-side handler can never produce one (POST /waitlist) — there, and only
   // there, a 404 unambiguously means "this device's credential doesn't reach
@@ -308,11 +310,16 @@ export default function WaitlistSection({
       // find the booking to learn which table it got.
       const booked = res?.data?.reservation;
       const table = tableLabelFor ? tableLabelFor(booked) : null;
-      // Spelled as the book spells it ("18.00"), right above this line.
+      // Spelled as the book spells it ("18.00"). The app's toast, so it
+      // outlives the row (it vanished with it after ~2 s) and names who.
       const time = fmtTime(booked?.starts_at) || bookTime;
-      flashToast(table
-        ? t("rsvpWlBookedAt", "Booked {time} · {table}", { time, table })
-        : t("rsvpWlBookedAtNoTable", "Booked {time}", { time }));
+      const name = entry.guest_name || t("rsvpGuest", "Guest");
+      appToast({
+        severity: "success",
+        message: table
+          ? t("rsvpWlBookedName", "{name} booked {time} · {table}", { name, time, table })
+          : t("rsvpWlBookedNameNoTable", "{name} booked {time}", { name, time }),
+      });
     } catch (err) {
       if (err?.response?.status === 409) {
         // Say WHY, as the new-booking sheet does: "just filled" was shown for
@@ -508,10 +515,14 @@ export default function WaitlistSection({
                       iconLeft={<Bell className="w-4 h-4" />} onClick={() => notify(e)}>
                       {t("rsvpWlNotify", "Notify")}
                     </Button>
-                    <Button variant="primary" size="md" className="h-10" disabled={busy}
-                      iconLeft={<CalendarPlus className="w-4 h-4" />} onClick={() => book(e)}>
-                      {t("rsvpWlBook", "Book")}
-                    </Button>
+                    {/* While the time row is open its own Book is the one —
+                        two "Book" buttons side by side asked which. */}
+                    {bookFor !== e.id && (
+                      <Button variant="primary" size="md" className="h-10" disabled={busy}
+                        iconLeft={<CalendarPlus className="w-4 h-4" />} onClick={() => book(e)}>
+                        {t("rsvpWlBook", "Book")}
+                      </Button>
+                    )}
                     <button type="button" onClick={() => removeEntry(e)} disabled={busy}
                       aria-label={t("rsvpWlRemove", "Remove")}
                       className="h-11 w-11 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40">
