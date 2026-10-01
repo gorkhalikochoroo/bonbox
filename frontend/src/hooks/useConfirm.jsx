@@ -88,20 +88,26 @@ export function ConfirmProvider({ children }) {
     if (!state) return undefined;
     const isDestructive = !!state.opts?.destructive;
     (isDestructive ? cancelBtnRef : confirmBtnRef).current?.focus();
+    // Capture phase + stopPropagation: the confirm owns these keys while it
+    // is open. Listening in the bubble phase like everything else, Esc also
+    // reached the sheet underneath — "Aflys" then Esc closed the booking's
+    // drawer too, and Enter could submit the form behind the dialog.
     const onKey = (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         settle(false);
       } else if (e.key === "Enter" && !isDestructive) {
         e.preventDefault();
+        e.stopPropagation();
         settle(true);
       }
     };
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = prevOverflow;
     };
   }, [state, settle]);

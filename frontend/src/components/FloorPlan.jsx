@@ -119,6 +119,22 @@ const STATUS_STYLE = {
     chair: "bg-sky-300 dark:bg-sky-700",
     glow: "shadow-[0_0_0_4px_rgba(14,165,233,0.12)]",
   },
+  requested: {
+    fill: "bg-amber-50 dark:bg-amber-950",
+    ring: "ring-amber-400 dark:ring-amber-600",
+    dot: "bg-amber-500",
+    text: "text-amber-950 dark:text-amber-100",
+    chair: "bg-amber-300 dark:bg-amber-700",
+    glow: "shadow-[0_0_0_4px_rgba(245,158,11,0.12)]",
+  },
+  late: {
+    fill: "bg-orange-50 dark:bg-orange-950",
+    ring: "ring-orange-500 dark:ring-orange-500",
+    dot: "bg-orange-500",
+    text: "text-orange-950 dark:text-orange-100",
+    chair: "bg-orange-300 dark:bg-orange-700",
+    glow: "shadow-[0_0_0_4px_rgba(249,115,22,0.15)]",
+  },
   seated: {
     // In use = solid green, white ink at AA (emerald-700 is 5.5:1) — the room
     // reads at a glance: green = people at it, blue = arriving, red = running
@@ -155,6 +171,8 @@ const STATUS_STYLE = {
 const STOOL_BORDER = {
   free: "border-gray-300 dark:border-gray-600",
   upcoming: "border-sky-400 dark:border-sky-600",
+  requested: "border-amber-400 dark:border-amber-600",
+  late: "border-orange-500 dark:border-orange-500",
   seated: "border-emerald-600 dark:border-emerald-500",
   overdue: "border-red-300 dark:border-red-700",
   inactive: "border-gray-300 dark:border-gray-600",
@@ -173,7 +191,15 @@ function visualStatus(cell, nowMs) {
     }
     return "seated";
   }
-  // requested / confirmed holding a future slot
+  // The book's own words for a party that isn't in yet: a request still to
+  // answer is amber, a confirmed party past its time is orange — both read
+  // as sky "upcoming" here while the list said amber / orange.
+  const res = cell.booking?.reservation;
+  if (res?.status === "requested") return "requested";
+  if (res?.status === "confirmed" && res.starts_at) {
+    const start = new Date(res.starts_at).getTime();
+    if (Number.isFinite(start) && nowMs - start > 5 * 60000) return "late";
+  }
   return "upcoming";
 }
 
@@ -377,7 +403,11 @@ function TableNode({
       ? null
       : status === "overdue"
         ? overText(overMin ?? 0)
-        : status === "upcoming" && booking?.eta != null
+        : status === "late" && booking?.reservation?.starts_at
+          ? t("rsvpLateOnFloor", "+{n} m late", {
+              n: Math.max(0, Math.round((nowMs - new Date(booking.reservation.starts_at).getTime()) / 60000)),
+            })
+        : (status === "upcoming" || status === "requested") && booking?.eta != null
           ? t("rsvpEtaIn", "in {n}m", { n: booking.eta })
           : // Seated: lead with WHEN it frees — the host's decision number when a
             // walk-in arrives. Counts down inside 20 min, else the clock time.
@@ -540,13 +570,8 @@ function TableNode({
             allergy badge and the combined-table link all landed on a chair
             or off the table's edge. The allergy mark and the link now sit in
             the text, where they cannot collide with anything. */}
-        {/* Faint venue icon centred behind the label — the per-business
-            signature (chair / beer / scissors). Decorative only: very low
-            opacity so the label + count stay the focus, no brand color. */}
-        <VenueIcon
-          className={"absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1/2 h-1/2 opacity-[0.06] pointer-events-none " + style.text}
-          aria-hidden
-        />
+        {/* (The faint venue icon behind the label is gone: colour on the
+            floor carries meaning now, and a watermark carried none.) */}
         {/* Label + seat chip + detail — counter-rotated so they stay upright and
             legible no matter how the table is turned. The seat number here is the
             honesty anchor: it never tilts, and (once free-resize lands) never
@@ -665,6 +690,8 @@ export default function FloorPlan({
   // Parent refetch hook — called after this component creates a table from
   // the arrange toolbar so the page's resources state picks it up.
   onResourcesChanged = null,
+  // Host stand: size the room to the screen's height (whole room in view).
+  fitToScreen = false,
   // May this surface rearrange the room at all? FALSE on a PAIRED DOOR DEVICE
   // (/stand/<token>), whose requests are rewritten onto /stand/<token>/… where
   // the layout route deliberately does not exist — so arranging there ends in
@@ -959,6 +986,33 @@ export default function FloorPlan({
         : fitRoom(cells, layout, canvasSize, shownFixtures),
     [editing, cells, layout, canvasSize, shownFixtures],
   );
+
+  // Each zone drawn around where its tables actually stand. The room used to
+  // be cut into equal horizontal bands, so "VINDUE" sat over Indendørs
+  // tables in any room not laid out by auto-arrange.
+  const zoneBoxes = useMemo(() => {
+    if (zoneBands.length < 2) return [];
+    return zoneBands
+      .map((z) => {
+        const pts = cells
+          .filter((c) => c.res.zone === z)
+          .map((c) => {
+            const id = String(c.res.id);
+            const p = { ...(layout[id] || {}), ...(fitted.pos[id] || {}) };
+            return [Number(p.pos_x), Number(p.pos_y)];
+          })
+          .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+        if (!pts.length) return null;
+        const xs = pts.map((p) => p[0]);
+        const ys = pts.map((p) => p[1]);
+        const left = Math.max(1, Math.min(...xs) - 7);
+        const right = Math.min(99, Math.max(...xs) + 7);
+        const top = Math.max(1, Math.min(...ys) - 11);
+        const bottom = Math.min(99, Math.max(...ys) + 11);
+        return { z, left, top, width: right - left, height: bottom - top };
+      })
+      .filter(Boolean);
+  }, [zoneBands, cells, layout, fitted]);
 
   const enterEdit = useCallback(() => {
     if (!canArrange) return;
@@ -1639,7 +1693,18 @@ export default function FloorPlan({
               ? "border-slate-700 ring-2 ring-white/15"
               : "border-slate-900 dark:border-black")
           }
-          style={{ aspectRatio: "16 / 10", minWidth: roomMinW }}
+          style={
+            fitToScreen
+              ? {
+                  aspectRatio: "16 / 10",
+                  minWidth: roomMinW,
+                  // As wide as the screen's height allows (≈300px of chrome
+                  // above it), centred; never narrower than the tables need.
+                  width: "min(100%, calc((100dvh - 300px) * 1.6))",
+                  marginInline: "auto",
+                }
+              : { aspectRatio: "16 / 10", minWidth: roomMinW }
+          }
         >
           {/* Walls + drafting grid + paper floor. FIRST child on purpose:
               nothing here is positioned or z-indexed, so paint order is DOM
@@ -1664,25 +1729,19 @@ export default function FloorPlan({
             }}
           />
 
-          {/* Soft zone bands + labels behind the tables */}
-          {zoneBands.length > 1 &&
-            zoneBands.map((z, i) => {
-              const h = 100 / zoneBands.length;
-              return (
-                <div
-                  key={z}
-                  className="absolute inset-x-0 pointer-events-none"
-                  style={{ top: `${h * i}%`, height: `${h}%` }}
-                >
-                  {i > 0 && (
-                    <div className="absolute inset-x-4 top-0 border-t border-dashed border-gray-200 dark:border-gray-700/60" />
-                  )}
-                  <span className="absolute left-3 top-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400/80 dark:text-gray-500/80">
-                    {z}
-                  </span>
-                </div>
-              );
-            })}
+          {/* Soft zone outlines + labels behind the tables, where the
+              zone's tables are. */}
+          {zoneBoxes.map((b) => (
+            <div
+              key={b.z}
+              className="absolute pointer-events-none rounded-xl border border-dashed border-gray-300/80 dark:border-gray-600/60"
+              style={{ left: `${b.left}%`, top: `${b.top}%`, width: `${b.width}%`, height: `${b.height}%` }}
+            >
+              <span className="absolute left-2 top-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                {b.z}
+              </span>
+            </div>
+          ))}
 
           {/* Tables */}
           {cells.map((c) => {
@@ -1770,6 +1829,8 @@ export default function FloorPlan({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
         <LegendItem dotCls="bg-white ring-1 ring-gray-300 dark:bg-[rgb(var(--surface-card))] dark:ring-gray-600" label={t("rsvpTileFree", "Free")} />
         <LegendItem dotCls="bg-sky-500" label={t("rsvpLegUpcoming", "Upcoming")} />
+        <LegendItem dotCls="bg-amber-500" label={t("rsvpLegRequest", "Request")} />
+        <LegendItem dotCls="bg-orange-500" label={t("rsvpLegLate", "Late")} />
         <LegendItem dotCls="bg-emerald-600" label={t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (

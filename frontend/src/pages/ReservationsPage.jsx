@@ -156,6 +156,11 @@ const STATUS_PILL = {
     dot: "bg-gray-300 dark:bg-gray-600",
     strike: true,
   },
+  // Not a stored status: a confirmed party past its time (5 min grace).
+  late: {
+    pill: "font-medium bg-orange-50 text-orange-800 ring-1 ring-inset ring-orange-600/25 dark:bg-orange-950/40 dark:text-orange-300 dark:ring-orange-800/60",
+    dot: "bg-orange-500 dark:bg-orange-400",
+  },
 };
 
 // A booking's status as a 3px bar at the row's left edge (the Vagtplan role
@@ -376,7 +381,7 @@ function WeekHoursEditor({ t, hours, setHourDay, onApplyMonToAll }) {
                     value={d.open}
                     onChange={(e) => setHourDay(k, { open: e.target.value })}
                     aria-label={t("rsvpHoursOpenAt", "Opens")}
-                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                   />
                   <span className="text-gray-400" aria-hidden>–</span>
                   <input
@@ -384,7 +389,7 @@ function WeekHoursEditor({ t, hours, setHourDay, onApplyMonToAll }) {
                     value={d.close}
                     onChange={(e) => setHourDay(k, { close: e.target.value })}
                     aria-label={t("rsvpHoursCloseAt", "Closes")}
-                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                   />
                 </div>
               ) : (
@@ -591,19 +596,17 @@ export default function ReservationsPage() {
       className={
         isHostStand
           ? "space-y-4"
-          : "relative isolate p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6"
+          // The page's one piece of atmosphere (Manoj, 1 Oct 2026:
+          // "background … nice"): a soft light of the brand green behind the
+          // header, fading out before the content — painted as this box's own
+          // background. (An absolutely placed layer needed `isolate`, and that
+          // stacking context trapped the sheets under the phone's bottom bar.)
+          // Rides the brand token, so dark mode gets its own lighter green.
+          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6 " +
+            "bg-no-repeat bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.14),transparent_70%)] " +
+            "dark:bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]"
       }
     >
-      {/* The page's one piece of atmosphere (Manoj, 1 Oct 2026: "background
-          … nice"): a soft light of the brand green behind the header, fading
-          out before the content. Rides the brand token, so dark mode gets its
-          own lighter green; the cards stay white. Not on the host stand. */}
-      {!isHostStand && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(65%_100%_at_50%_0%,rgb(var(--brand-green-accent)/0.14),transparent_70%)] dark:bg-[radial-gradient(65%_100%_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]"
-        />
-      )}
       {/* BookSection's own standalone wrapper already sets full-bleed padding
           and safe-area insets, and its header already prints the venue name and
           "Vært-skærm" — the owner wrapper and title would double both. */}
@@ -904,7 +907,7 @@ function ComingSoonView({ icon, title, body }) {
 // draggable tables, chairs, zone bands, and edit/save). The tap + seat-now
 // handlers are passed straight through so FloorPlan reuses the page's shared
 // ReservationDrawer + SeatNowSheet.
-function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged, canArrange = true, fixtures = [] }) {
+function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged, canArrange = true, fixtures = [], fitToScreen = false }) {
   // Tick every 60s so the floor is LIVE, not a snapshot: a seated table that
   // crosses its end-time flips to "overdue" (red) on its own, and upcoming
   // ETAs ("om 25 min") count down — no manual refresh. This is the difference
@@ -946,6 +949,7 @@ function FloorView({ reservations, resources, t, businessType, onSelect, onSeatN
       onResourcesChanged={onResourcesChanged}
       canArrange={canArrange}
       fixtures={fixtures}
+      fitToScreen={fitToScreen}
     />
   );
 }
@@ -1004,7 +1008,9 @@ function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
       <div className={"text-[12px] tabular-nums " + (total >= r.party_size ? "text-gray-500 dark:text-gray-400" : "text-amber-700 dark:text-amber-400")}>
         {t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
       </div>
-      <div className="grid grid-cols-2 gap-1 max-h-52 overflow-y-auto">
+      {/* Every table, no inner scroll: Bord 11–13 and Vindue 1 hid below a
+          208px box with nothing saying there was more. */}
+      <div className="grid grid-cols-2 gap-1">
         {[...tables].sort(byTableLabel).map((tb) => {
           const id = String(tb.id);
           const on = picked.includes(id);
@@ -1186,7 +1192,16 @@ function ReservationDrawer({
             </button>
           </div>
 
-          <StatusPill status={r.status} label={labels[r.status] || r.status} />
+          {/* A party past its time reads "Forsinket · +30 min", in the list's
+              orange — the drawer still said "Bekræftet". */}
+          {isToday && r.status === "confirmed" && r.starts_at && nowTs - new Date(r.starts_at).getTime() > 5 * 60000 ? (
+            <StatusPill
+              status="late"
+              label={t("rsvpLatePill", "Late · +{n} min", { n: Math.round((nowTs - new Date(r.starts_at).getTime()) / 60000) })}
+            />
+          ) : (
+            <StatusPill status={r.status} label={labels[r.status] || r.status} />
+          )}
 
           {hasAllergy && (
             <div
@@ -1320,7 +1335,7 @@ function ReservationDrawer({
                   disabled={busy || assignBusy}
                   onChange={(e) => onAssign(r, e.target.value || null)}
                   aria-label={t("rsvpAssignTable", "Assign table")}
-                  className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm disabled:opacity-50 text-gray-900 dark:text-gray-100"
+                  className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm disabled:opacity-50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                 >
                   <option value="">
                     {r.resource_id
@@ -1568,7 +1583,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
                 setPickedId(e.target.value);
               }}
               aria-label={t("rsvpSeatWalkInTable", "Table")}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               {tables.length === 0 && (
                 <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
@@ -1615,7 +1630,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
             onChange={(e) => setName(e.target.value)}
             maxLength={160}
             placeholder={t("rsvpWalkIn", "Drop-in")}
-            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
         </div>
         <Button
@@ -1826,11 +1841,11 @@ function EditBookingSheet({
         onSubmit={(e) => { e.preventDefault(); if (!busy) save(false); }}
         className="relative w-full sm:max-w-sm flex flex-col max-h-[90vh] overflow-hidden bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl animate-fadeIn"
       >
+        {/* Title and close stay put while the fields scroll. */}
         <div
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4"
+          className="shrink-0 flex items-start justify-between gap-3 pt-5 pb-1"
           style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
         >
-        <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("rsvpEditTitle", "Edit reservation")}
           </h3>
@@ -1839,6 +1854,10 @@ function EditBookingSheet({
             <X className="w-5 h-5" />
           </button>
         </div>
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-3 pb-5 space-y-4"
+          style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+        >
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="eb-date" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpDateLabel", "Date")}</label>
@@ -1849,12 +1868,12 @@ function EditBookingSheet({
                 snapTime(sitting, e.target.value, parseInt(party, 10) || 2);
                 changed();
               }}
-              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 dark:[color-scheme:dark]" />
+              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
           </div>
           <div>
             <label htmlFor="eb-time" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpTimeLabel", "Time")}</label>
             <select id="eb-time" value={time} onChange={(e) => { setTime(e.target.value); setTimeNote(""); changed(); }}
-              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums">
+              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent">
               {/* The booking's own time stays listed even when it is outside
                   today's hours, so opening Edit never silently moves it. */}
               {(editTimes.times.includes(time) ? editTimes.times : [...editTimes.times, time].sort()).map((q) => <option key={q} value={q}>{hm(q)}</option>)}
@@ -1889,12 +1908,12 @@ function EditBookingSheet({
         <div>
           <label htmlFor="eb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
           <input id="eb-name" value={name} onChange={(e) => setName(e.target.value)}
-            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
         <div>
           <label htmlFor="eb-phone" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpEditPhone", "Phone")}</label>
           <input id="eb-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
-            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
         {/* Same order and words as New booking: note, then the allergy with
             its severity under it — the two sheets disagreed on all three. */}
@@ -1902,7 +1921,7 @@ function EditBookingSheet({
           <label htmlFor="eb-note" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNewNote", "Note (optional)")}</label>
           <input id="eb-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
             placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
-            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
         <div>
           <label htmlFor="eb-allergy" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -1911,7 +1930,7 @@ function EditBookingSheet({
           <input id="eb-allergy" value={allergyNote} onChange={(e) => setAllergyNote(e.target.value)}
             placeholder={t("rsvpNewAllergyPh", "e.g. nuts, gluten")}
             maxLength={2000}
-            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
           {(allergyNote.trim() || severity) && (
             <div className="flex flex-wrap gap-2 mt-2" role="group" aria-label={t("rsvpEditAllergy", "Allergi")}>
               {severities.filter((sv) => sv.v).map((sv) => {
@@ -2037,13 +2056,33 @@ function NewBookingSheet({
   // since on a phone it sat above the fold while the tap was on Create.
   const nameRef = useRef(null);
 
-  const submit = (allowOverflow) => {
+  // A time that has passed is asked about once, not booked as "Bekræftet"
+  // on a note nobody reads (it went through on the first tap).
+  const [pastWarn, setPastWarn] = useState(false);
+  const isPast = () => {
+    const today = serviceDayIso();
+    if (date < today) return true;
+    if (date > today) return false;
+    const now = new Date();
+    let nowM = now.getHours() * 60 + now.getMinutes();
+    if (nowM < 6 * 60) nowM += 1440; // after midnight: still tonight's service
+    const [h, m] = String(time).split(":").map(Number);
+    let at = h * 60 + m;
+    if (at < 6 * 60) at += 1440;
+    return at < nowM - 15;
+  };
+  const submit = (allowOverflow, pastOk = false) => {
     const guest_name = name.trim();
     if (!guest_name) {
       setNameMissing(true);
       nameRef.current?.focus?.();
       return;
     }
+    if (!pastOk && isPast()) {
+      setPastWarn(true);
+      return;
+    }
+    setPastWarn(false);
     if (isProvider) {
       if (!behandlingId) {
         setBehandlingMissing(true);
@@ -2098,11 +2137,11 @@ function NewBookingSheet({
         onSubmit={(e) => { e.preventDefault(); if (!busy && !(isProvider && behandlinger.length === 0)) submit(false); }}
         className="relative w-full sm:max-w-sm flex flex-col max-h-[90vh] overflow-hidden bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl animate-fadeIn"
       >
+        {/* Title and close stay put while the fields scroll. */}
         <div
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4"
+          className="shrink-0 flex items-start justify-between gap-3 pt-5 pb-1"
           style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
         >
-        <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {isProvider
               ? t("rsvpNewBookingProvider", "Book an appointment")
@@ -2117,6 +2156,10 @@ function NewBookingSheet({
             <X className="w-5 h-5" />
           </button>
         </div>
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-3 pb-5 space-y-4"
+          style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+        >
 
         {/* Provider (salon) tidsbestilling — behandling → behandler, ahead of
             dato → tid. No behandlinger yet → an honest guide to add them
@@ -2143,7 +2186,7 @@ function NewBookingSheet({
                   snapTime(lengthFor(party, e.target.value));
                 }}
                 aria-label={t("rsvpPublicPickBehandling", "Vælg behandling")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               >
                 <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
                 {behandlinger.map((b) => {
@@ -2176,7 +2219,7 @@ function NewBookingSheet({
                 value={stylistId}
                 onChange={(e) => setStylistId(e.target.value)}
                 aria-label={t("rsvpPublicPickBehandler", "Vælg behandler")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               >
                 {/* Default = Valgfri behandler (no pinned behandler). */}
                 <option value="">{t("rsvpBookValgfriOwner", "Any stylist")}</option>
@@ -2205,10 +2248,11 @@ function NewBookingSheet({
                   // A time the new day can't take moves to the nearest one it
                   // can (it used to jump to the 18:00 default), and says so.
                   snapTime(sitting, e.target.value);
+                  setPastWarn(false);
                 }
                 if (warning) onClearWarning();
               }}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums dark:[color-scheme:dark] text-gray-900 dark:text-gray-100"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums dark:[color-scheme:dark] text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
           </div>
           <div>
@@ -2221,9 +2265,10 @@ function NewBookingSheet({
               onChange={(e) => {
                 setTime(e.target.value);
                 setTimeNote("");
+                setPastWarn(false);
                 if (warning) onClearWarning();
               }}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               {/* Only the times the venue takes bookings (a time typed
                   elsewhere stays selectable rather than vanishing). */}
@@ -2287,7 +2332,7 @@ function NewBookingSheet({
                 if (warning) onClearWarning();
               }}
               aria-label={t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
-              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               <option value="">{t("rsvpBookingTableAuto", "Auto")}</option>
               {[...tables].sort(byTableLabel).map((tb) => (
@@ -2315,7 +2360,7 @@ function NewBookingSheet({
             }}
             maxLength={160}
             placeholder={t("rsvpNamePh", "Anna Hansen")}
-            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           {nameMissing && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">
@@ -2338,7 +2383,7 @@ function NewBookingSheet({
             onChange={(e) => setPhone(e.target.value)}
             maxLength={40}
             placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
-            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
         </div>
 
@@ -2355,7 +2400,7 @@ function NewBookingSheet({
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={500}
                 placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               />
             </div>
             <div>
@@ -2369,7 +2414,7 @@ function NewBookingSheet({
                 onChange={(e) => setAllergy(e.target.value)}
                 maxLength={500}
                 placeholder={t("rsvpNewAllergyPh", "e.g. nuts, gluten")}
-                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               />
               {allergy.trim() && (
                 <div className="flex flex-wrap gap-2 mt-2" role="group" aria-label={t("rsvpEditAllergy", "Allergi")}>
@@ -2424,7 +2469,8 @@ function NewBookingSheet({
               </p>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(true)}>
+              {/* Reached only after the past-time question (if any) was answered. */}
+              <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(true, true)}>
                 {t("rsvpBookAnyway", "Book anyway (no table)")}
               </Button>
               {/* Another time can't help when no table is big enough. */}
@@ -2437,6 +2483,22 @@ function NewBookingSheet({
           </div>
         )}
 
+        {pastWarn && !warning && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
+            <div className="font-semibold flex items-start gap-1.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
+              <span>{t("rsvpPastTimeWarn", "That time has already passed. Book it anyway?")}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(false, true)}>
+                {t("rsvpPastBookAnyway", "Book anyway")}
+              </Button>
+              <Button variant="ghost" size="md" disabled={busy} onClick={() => setPastWarn(false)}>
+                {t("rsvpPickAnotherTime", "Pick another time")}
+              </Button>
+            </div>
+          </div>
+        )}
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <Button
@@ -2800,9 +2862,11 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                     onClick={() => onSelect(r)}
                     title={blockTitle(r, labels, t)}
                     style={{ left, width, top: lane * 44 + 5, height: 34 }}
+                    // The booking's own colour — the lane already says "no
+                    // table"; amber-dashed for every bar read as "request".
                     className={
-                      "absolute rounded-md border border-dashed border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-1.5 overflow-clip text-left flex flex-col justify-center" +
-                      (allergy === "severe" ? " ring-2 ring-inset ring-red-500 dark:ring-red-400" : "")
+                      "absolute rounded-md border px-1.5 overflow-clip text-left flex flex-col justify-center " +
+                      (BLOCK[blockKind(r)] || BLOCK.confirmed)
                     }
                   >
                     <TimelineBarLabel stickyLeft={RAIL_W + 6}>
@@ -2906,12 +2970,10 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                       className={
                         "absolute rounded-md border px-1.5 overflow-clip text-left flex flex-col justify-center transition-colors duration-500 " +
                         (BLOCK[blockKind(r)] || BLOCK.confirmed) +
-                        (justSeatedId === r.id ? " bb-seat-settle" : "") +
-                        (allergy === "severe"
-                          ? " ring-2 ring-inset ring-red-500 dark:ring-red-400"
-                          : allergy
-                            ? " ring-2 ring-inset ring-amber-400 dark:ring-amber-500"
-                            : "")
+                        // No allergy ring round the bar: red/amber outlines
+                        // read as "running long" / "request". The triangle in
+                        // the label carries it.
+                        (justSeatedId === r.id ? " bb-seat-settle" : "")
                       }
                     >
                       <TimelineBarLabel stickyLeft={RAIL_W + 6}>
@@ -4244,6 +4306,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           }),
         });
       }
+      // Undo said nothing — the row just changed colour.
+      if (r.status === "seated" && status === "confirmed" && !resp?.data?.restore_blocked) {
+        toast({
+          severity: "info",
+          message: t("rsvpUndoSeatDone", "Seating undone — {name} is booked for {time} again.", {
+            name: r.guest_name || t("rsvpGuest", "Guest"), time: fmtTime(resp?.data?.starts_at || r.starts_at),
+          }),
+        });
+      }
       const blocked = resp?.data?.restore_blocked;
       if (blocked) {
         toast({
@@ -4779,7 +4850,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     if (live.length === 0) return null;
     let pool = live;
     if (isViewingToday) {
-      const cutoff = new Date().getTime() - 5 * 60 * 1000; // 5-min grace
+      // A party up to an hour late is still the one the host is waiting for —
+      // it fell off "Næste ankomst" at 5 minutes, while the list showed it
+      // orange. Later than that, the list and the no-show button take over.
+      const cutoff = new Date().getTime() - 60 * 60 * 1000;
       const ahead = live.filter((r) => {
         const ts = new Date(r.starts_at).getTime();
         return !Number.isNaN(ts) && ts >= cutoff;
@@ -4802,13 +4876,19 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       ? `${name} · ${nextArrival.party_size}`
       : t("rsvpPartyOf", "Party of {n}", { n: nextArrival.party_size });
     const table = resolveTableLabel(nextArrival, labelById);
+    const lateBy = isViewingToday && nextArrival.status === "confirmed"
+      ? Math.round((nowTs - new Date(nextArrival.starts_at).getTime()) / 60000)
+      : 0;
+    if (lateBy > 5) {
+      return t("rsvpNextLate", "+{n} min late · {who}", { n: lateBy, who: table ? `${table} · ${who}` : who });
+    }
     // Table FIRST: the cockpit strip truncates the end of this line in a slim
     // cell, and where the party sits matters more to a host than the name.
     if (!table) return who;
     return name
       ? `${table} · ${nextArrival.party_size} · ${name}`
       : `${table} · ${who}`;
-  }, [nextArrival, labelById, t]);
+  }, [nextArrival, labelById, t, isViewingToday, nowTs]);
   // "Kommende" (desktop side column): the day's bookings nobody has seated yet.
   const todayIso = serviceDayIso();
   const upcomingRows = useMemo(
@@ -5649,7 +5729,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             label: isViewingToday ? t("rsvpNextArrival", "Next arrival") : t("rsvpFirstArrival", "First arrival"),
             value: nextArrival ? fmtTime(nextArrival.starts_at) : "—",
             icon: Clock,
-            tone: nextArrival ? "info" : "neutral",
+            tone: !nextArrival
+              ? "neutral"
+              : isViewingToday && nextArrival.status === "confirmed" && nowTs - new Date(nextArrival.starts_at).getTime() > 5 * 60000
+                ? "warn"
+                : "info",
             helper: nextArrivalHelper,
             onClick: nextArrival ? () => openDrawer(nextArrival) : null,
           },
@@ -5996,6 +6080,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             onSeatNow={setSeatTarget}
             onResourcesChanged={fetchResources}
             canArrange={!isStandDevice}
+            // The door screen shows the whole room at once — at 1024×768 half
+            // the tables sat below the fold.
+            fitToScreen={standalone}
             fixtures={fixtures}
           />
         ))}
@@ -6056,7 +6143,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         />
       )}
 
-      {editRes && (
+      {/* Sheets render at <body>: inside the page they sat under the phone's
+          bottom bar, and the sidebar stayed clickable behind them. */}
+      {editRes && createPortal(
         <EditBookingSheet
           reservation={editRes}
           openHours={openHours}
@@ -6068,13 +6157,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onClearWarning={() => setEditWarning(null)}
           onSubmit={submitEdit}
           onClose={() => { setEditRes(null); setEditWarning(null); }}
-        />
+        />,
+        document.body,
       )}
 
       {/* Seat-now sheet — opened by tapping a FREE tile on the Plan view, OR
           from the header "Seat walk-in" button (SEAT_WALK_IN_PICK sentinel →
           the sheet shows a table picker over the live free/busy list). */}
-      {seatTarget && (
+      {seatTarget && createPortal(
         <SeatNowSheet
           table={seatTarget}
           tables={walkInTables}
@@ -6082,13 +6172,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           busy={seating}
           onSeat={seatWalkIn}
           onClose={() => setSeatTarget(null)}
-        />
+        />,
+        document.body,
       )}
 
       {/* New booking sheet — the host takes a future (phone) booking. For a
           provider (salon) venue this is a tidsbestilling: behandling →
           behandler → dato → tid. */}
-      {newOpen && (
+      {newOpen && createPortal(
         <NewBookingSheet
           day={day}
           openHours={openHours}
@@ -6108,7 +6199,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             setRoomFull(null);
             setCreateError("");
           }}
-        />
+        />,
+        document.body,
       )}
     </div>
   );
@@ -6698,7 +6790,7 @@ function FloorSection({ t, businessType }) {
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
               aria-label={t("rsvpProviderPickStaff", "Choose a stylist")}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               <option value="">{t("rsvpProviderPickStaff", "Choose a stylist")}</option>
               {staffMembers.map((s) => (
@@ -6713,7 +6805,7 @@ function FloorSection({ t, businessType }) {
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t("rsvpStationLabelPh", "Station name (optional)")}
               maxLength={120}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -6762,7 +6854,7 @@ function FloorSection({ t, businessType }) {
                   onChange={(e) => setBulkRow(i, { seats: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
                   placeholder={t("rsvpBulkSeatsPh", "Seats")}
                   aria-label={t("rsvpBulkSeatsAria", "Seats per table")}
-                  className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+                  className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                 />
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
                   {t("rsvpSeatsShort", "pax")}
@@ -6825,7 +6917,7 @@ function FloorSection({ t, businessType }) {
             onChange={(e) => setBulkZone(e.target.value)}
             maxLength={60}
             placeholder={t("rsvpTableZonePh", "Zone (optional)")}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           <label className="flex items-center gap-2.5 cursor-pointer select-none px-1">
             <input
@@ -6888,7 +6980,7 @@ function FloorSection({ t, businessType }) {
             onChange={(e) => setLabel(e.target.value)}
             placeholder={t("rsvpTableLabelPh", "Name (e.g. Table 4)")}
             maxLength={120}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           <div className="relative">
             <input
@@ -6897,7 +6989,7 @@ function FloorSection({ t, businessType }) {
               value={seats}
               onChange={(e) => setSeats(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
               placeholder={t("rsvpTableSeatsPh", "Seats")}
-              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
               {t("rsvpSeats", "seats")}
@@ -6909,7 +7001,7 @@ function FloorSection({ t, businessType }) {
             onChange={(e) => setZone(e.target.value)}
             placeholder={t("rsvpTableZonePh", "Zone (optional)")}
             maxLength={60}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
         </div>
         <ZonePresetChips profile={profile} t={t} value={zone} onPick={setZone} />
@@ -7119,7 +7211,7 @@ function FloorSection({ t, businessType }) {
                       if (v && parseInt(v, 10) !== r.capacity_seats) saveSeats(r, v);
                     }}
                     aria-label={t("rsvpTableSeatsAria", "Seats at {label}", { label: r.label })}
-                    className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+                    className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
                     {t("rsvpSeatsShort", "pax")}
@@ -7306,7 +7398,7 @@ function BehandlingerSection({ t }) {
             placeholder={t("rsvpBehandlingNamePh", "Name (e.g. Klip dame)")}
             maxLength={120}
             aria-label={t("rsvpBehandlingNameLabel", "Service name")}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           <div className="relative">
             <input
@@ -7316,7 +7408,7 @@ function BehandlingerSection({ t }) {
               onChange={(e) => setDuration(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
               placeholder={t("rsvpBehandlingDurationLabel", "Duration")}
               aria-label={t("rsvpBehandlingDurationLabel", "Duration")}
-              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
               {t("rsvpBehandlingMinSuffix", "min")}
@@ -7330,7 +7422,7 @@ function BehandlingerSection({ t }) {
               onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
               placeholder={t("rsvpBehandlingPriceLabel", "Price (optional)")}
               aria-label={t("rsvpBehandlingPriceLabel", "Price (optional)")}
-              className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+              className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
               kr.
@@ -8064,7 +8156,7 @@ function SettingsSection({ t }) {
               {t("rsvpCustomLink", "Customise your link")}
             </label>
             <div className="flex items-center gap-2">
-              <div className="flex items-center flex-1 min-w-0 h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden text-gray-900 dark:text-gray-100">
+              <div className="flex items-center flex-1 min-w-0 h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent">
                 <span className="px-3 text-sm text-gray-400 dark:text-gray-500 border-r border-gray-200 dark:border-gray-700 shrink-0 self-stretch flex items-center">
                   /r/
                 </span>
@@ -8191,7 +8283,7 @@ function SettingsSection({ t }) {
             onChange={(e) => setForm((f) => ({ ...f, contact_phone: e.target.value }))}
             placeholder={t("rsvpContactPhonePh", "+45 12 34 56 78")}
             maxLength={40}
-            className="w-full sm:max-w-[18rem] h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+            className="w-full sm:max-w-[18rem] h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
             {t("rsvpContactPhoneHint", "Guests see a tap-to-call link on your booking page. Leave blank to use your business phone.")}
@@ -8431,7 +8523,7 @@ function SettingsSection({ t }) {
                 onBlur={() => saveSms()}
                 placeholder="BonBox"
                 maxLength={11}
-                className="flex-1 min-w-0 h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                className="flex-1 min-w-0 h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               />
               <Button
                 type="button"
@@ -8797,7 +8889,7 @@ function NumberField({ label, hint, value, onChange }) {
         inputMode="numeric"
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-        className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100"
+        className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
       />
       {hint && <span className="text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>}
     </label>

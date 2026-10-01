@@ -407,7 +407,12 @@ export default function WaitlistSection({
 
       {/* Add form */}
       {adding && (
-        <form onSubmit={addEntry} className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 space-y-2">
+        <form
+          onSubmit={addEntry}
+          // Esc closes it, as it closes every sheet on the page.
+          onKeyDown={(ev) => { if (ev.key === "Escape") { ev.stopPropagation(); setAdding(false); setAddErr(""); } }}
+          className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 space-y-2"
+        >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input className={inputCls} placeholder={t("rsvpWlName", "Name")} value={form.guest_name}
               onChange={(e) => setForm((f) => ({ ...f, guest_name: e.target.value }))} />
@@ -554,7 +559,10 @@ export default function WaitlistSection({
                   const opts = timesFor(e);
                   const list = opts.times.includes(bookTime) ? opts.times : [...opts.times, bookTime].sort();
                   return (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div
+                      className="mt-2 flex flex-wrap items-center gap-2"
+                      onKeyDown={(ev) => { if (ev.key === "Escape") { ev.stopPropagation(); setBookFor(null); } }}
+                    >
                       <select value={bookTime} onChange={(ev) => setBookTime(ev.target.value)}
                         className={inputCls + " max-w-[8rem] tabular-nums"} aria-label={t("rsvpColTime", "Time")}>
                         {list.map((q) => <option key={q} value={q}>{hm(q)}</option>)}
