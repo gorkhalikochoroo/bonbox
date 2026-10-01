@@ -173,3 +173,21 @@ describe("daily close — a saved total above its category lines", () => {
     expect(screen.getByText("dcUnsplitRevenue")).toBeInTheDocument();
   });
 });
+
+describe("daily close — the cash count", () => {
+  it("counts the whole drawer and saves the takings (float taken off)", async () => {
+    closes = [];
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByText("closeManualCta"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "4500" } });
+    for (let i = 0; i < 4 && !container.querySelector("#cash-counted"); i++) {
+      tapNext();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    await waitFor(() => expect(container.querySelector("#cash-counted")).not.toBeNull());
+    expect(container.querySelector("#cash-float").value).toBe("1000");
+    fireEvent.change(container.querySelector("#cash-counted"), { target: { value: "5500" } });
+    await waitFor(() => expect(closePosts().some(([, b]) => b.cash_counted === 4500)).toBe(true), { timeout: 3500 });
+  });
+});

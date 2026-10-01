@@ -458,8 +458,9 @@ describe("daily close — the cash step does not invent a baseline", () => {
     tapNext(); // payments → cash
     await waitFor(() => expect(screen.getByText(/^stepNCash:/)).toBeInTheDocument());
 
+    // The label and its figure share one row of the count summary.
     const label = screen.getByText("expectedFromEntry");
-    const figure = label.parentElement.querySelector("div");
+    const figure = label.closest("div");
     expect(figure.textContent).toContain("—");
     expect(figure.textContent).not.toMatch(/\b0\b/);
   });
@@ -476,7 +477,7 @@ describe("daily close — the cash step does not invent a baseline", () => {
     await waitFor(() => expect(screen.getByText(/^stepNCash:/)).toBeInTheDocument());
 
     const label = screen.getByText("expectedFromEntry");
-    expect(label.parentElement.querySelector("div").textContent).not.toContain("—");
+    expect(label.closest("div").textContent).not.toContain("—");
   });
 });
 

@@ -450,15 +450,16 @@ def _compute_bank_drop_hint(dc: DailyClose) -> dict | None:
     counted = float(dc.cash_counted) if dc.cash_counted is not None else None
     if counted is None or counted <= 0:
         return None
-    # Conservative default float — 1.000 DKK is the Copenhagen café
-    # standard for opening cash. Anything left over goes in the safe
-    # / drop bag for the morning trip to the bank.
-    DEFAULT_FLOAT = 1000.0
-    to_drop = max(0.0, round(counted - DEFAULT_FLOAT, 2))
+    # cash_counted is the day's TAKINGS — the form counts the whole drawer and
+    # takes the float off before saving, which is also what cash_difference
+    # compares with cash sales. So all of it goes in the bag and the float
+    # (which the server never sees) stays in the drawer. This used to subtract
+    # a fixed 1.000 kr. "float" from the takings a second time, telling the
+    # owner to keep 1.000 kr. of the day's money back.
     return {
         "counted_dkk": round(counted, 2),
-        "leave_in_drawer_dkk": DEFAULT_FLOAT,
-        "to_drop_dkk": to_drop,
+        "leave_in_drawer_dkk": None,
+        "to_drop_dkk": round(counted, 2),
     }
 
 

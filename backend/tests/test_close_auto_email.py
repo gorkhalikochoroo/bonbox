@@ -516,8 +516,8 @@ def test_audit_log_written_on_each_attempt(db_session, client, monkeypatch):
 
 def test_bank_drop_hint_in_response_when_cash_counted(db_session, client, monkeypatch):
     """Universal (free + paid) — the bank-drop reminder block lands in
-    the response so the locked-state card can render '🏦 Put X DKK in
-    safe, keep 1.000 in drawer'."""
+    the response so the locked-state card can render 'Put X in the safe —
+    the float stays in the drawer'."""
     monkeypatch.setattr(
         "app.services.email_service.resend.Emails.send", lambda p: None,
     )
@@ -532,9 +532,10 @@ def test_bank_drop_hint_in_response_when_cash_counted(db_session, client, monkey
     ritual = r.json()["close_ritual"]
     bank = ritual["bank_drop"]
     assert bank is not None
+    # cash_counted is the takings (float already off): all of it is bagged.
     assert bank["counted_dkk"] == 4500.00
-    assert bank["leave_in_drawer_dkk"] == 1000.00
-    assert bank["to_drop_dkk"] == 3500.00
+    assert bank["leave_in_drawer_dkk"] is None
+    assert bank["to_drop_dkk"] == 4500.00
 
 
 def test_bank_drop_hint_none_when_no_cash(db_session, client):

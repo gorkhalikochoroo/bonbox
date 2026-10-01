@@ -1044,6 +1044,8 @@ function UnsplitLine({ amount, show, currency, t }) {
   );
 }
 
+const CASH_FLOAT_KEY = "bonbox.dc.cashFloat.v1";
+
 // What an edited close looks like, field by field — compared before an
 // autosave so opening "Rediger" is not a save, and any real change is.
 const editSignature = (o) => JSON.stringify([
@@ -1073,6 +1075,31 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // contributes nothing AND turns red AND blocks the save below, so nothing
   // can be written on the strength of a figure this skipped.
   const readMoney0 = (v) => { const n = readMoney(v); return Number.isFinite(n) ? n : 0; };
+  // A figure back into the owner's own notation ("2350,5", not "2350.5").
+  const toMoneyInput = (n) => {
+    const txt = Number.isInteger(n) ? String(n) : n.toFixed(2);
+    return mLocale === "da-DK" ? txt.replace(".", ",") : txt;
+  };
+  // Drawer − float = the takings the close saves. An unreadable drawer box is
+  // passed through as typed, so the form's own money check flags it.
+  const takingsFrom = (drawer, float) => {
+    if (String(drawer ?? "").trim() === "") return "";
+    const d = readMoney(drawer);
+    if (!Number.isFinite(d)) return String(drawer);
+    return toMoneyInput(Math.round((d - readMoney0(float)) * 100) / 100);
+  };
+  // The other way, for takings that arrive saved (Rediger) or scanned.
+  const drawerFrom = (takings, float) => {
+    if (String(takings ?? "").trim() === "") return "";
+    const n = readMoney(takings);
+    return Number.isFinite(n) ? toMoneyInput(Math.round((n + readMoney0(float)) * 100) / 100) : String(takings);
+  };
+  const onDrawerChange = (v) => { setDrawerCount(v); setCashCounted(takingsFrom(v, cashFloat)); };
+  const onFloatChange = (v) => {
+    setCashFloat(v);
+    try { localStorage.setItem(CASH_FLOAT_KEY, v); } catch { /* private mode: just this session */ }
+    if (String(drawerCount).trim() !== "") setCashCounted(takingsFrom(drawerCount, v));
+  };
 
   // Lane A — auto-email-on-lock preference. Mirrors user.auto_email_on_close
   // and writes through to /auth/profile when toggled. Starter+ feature;
@@ -1166,6 +1193,16 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
 
   // Step 3: Cash drawer
   const [cashCounted, setCashCounted] = useState("");
+  // What the owner actually counts is the WHOLE drawer, float included. The
+  // close stores the day's cash TAKINGS (drawer − float): that is what the
+  // cash difference compares with cash sales, and what the bank-drop card
+  // tells them to bag. Before, one box meant both — counted with the float it
+  // showed "+1.000 off"; counted without it, the bank-drop kept 1.000 kr. of
+  // the day's takings back. The float is remembered on this device.
+  const [drawerCount, setDrawerCount] = useState("");
+  const [cashFloat, setCashFloat] = useState(() => {
+    try { return localStorage.getItem(CASH_FLOAT_KEY) ?? "1000"; } catch { return "1000"; }
+  });
   // Register-derived expected cash (POS `kontant`/`cash` total for the
   // business day, from the /daily-close/prefill suggested_prefill block).
   // When present this is the REAL baseline for the drawer variance —
@@ -1401,6 +1438,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
       momsManual: dc.moms_mode === "manual" && dc.moms_total != null ? asInput(dc.moms_total) : "",
     };
     setCashCounted(loaded.cash);
+    setDrawerCount(drawerFrom(loaded.cash, cashFloat));
     setMomsMode(loaded.momsMode);
     setMomsManual(loaded.momsManual);
     // Autosave waits for a real change: opening "Rediger" re-saved the close
@@ -1861,7 +1899,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     if (pf) {
       // Step 3 — Cash drawer counted total (from denomination math)
       if (pf.cash_drawer?.counted_total != null) {
-        setCashCounted(String(pf.cash_drawer.counted_total));
+        // A denomination count of the drawer — float included.
+        const drawer = toMoneyInput(Number(pf.cash_drawer.counted_total));
+        setDrawerCount(drawer);
+        setCashCounted(takingsFrom(drawer, cashFloat));
       }
       // Notes — per-clerk earnings + any kasserapport notes
       const noteParts = [];
@@ -3922,30 +3963,40 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             {/* Was the page's second blue surface. A step instruction is neutral
                 information, not a status — SectionBanner's `info` severity. */}
             <SectionBanner severity="info" icon="Info">
-              {t("countPhysicalCash", "Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.")}
+              {t("dcCashCountIntro", "Count everything in the drawer. We take the float off and compare the rest with today's cash sales.")}
             </SectionBanner>
             <div>
-              <label className={labelClass}>
-                {cashExpectedFromRegister
-                  ? t("expectedFromRegister", "Expected (from register)")
-                  : t("expectedFromEntry", "Expected (from your entry)")}
-              </label>
-              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-right text-[16px] font-semibold text-gray-900 dark:text-gray-100">
-                <Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={oreIfAny(cashExpected)} />
+              <label htmlFor="cash-counted" className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("dcDrawerCounted", "Counted in the drawer")}</label>
+              <MoneyField id="cash-counted" locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
+                value={drawerCount} onChange={e => onDrawerChange(e.target.value)} />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="cash-float" className={labelClass}>{t("dcCashFloat", "Float (stays in the drawer)")}</label>
+              <MoneyField id="cash-float" locale={mLocale} placeholder="0" wrapperClassName="w-36 shrink-0"
+                className="w-full h-11 px-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
+                value={cashFloat} onChange={e => onFloatChange(e.target.value)} />
+            </div>
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-700/50 px-4 py-3 space-y-1.5 tabular-nums">
+              <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
+                <span>{t("dcCashTakings", "Cash from today's sales")}</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100"><Amount value={cashCounted ? cashCountedVal : null} currency={currency} decimals={oreIfAny(cashCountedVal)} /></span>
+              </div>
+              <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
+                <span>
+                  {cashExpectedFromRegister
+                    ? t("expectedFromRegister", "Expected (from register)")
+                    : t("expectedFromEntry", "Expected (from your entry)")}
+                </span>
+                <span><Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={oreIfAny(cashExpected)} /></span>
               </div>
               {cashExpectedFromRegister && (
-                <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-[12px] text-gray-500 dark:text-gray-400">
                   {t("expectedFromRegisterHint", "From your synced POS register — counting against this flags a real cash shortage, not just a typo.")}
                 </p>
               )}
-            </div>
-            <div>
-              <label htmlFor="cash-counted" className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("countedAmount", "Counted Amount")}</label>
-              <MoneyField id="cash-counted" locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
-                value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
               {cashCountedNegative && (
-                <p className="mt-1 text-[12px] text-red-600 dark:text-red-400">
-                  {t("dcCountedNegative", "Counted cash can't be below 0 — check the sign.")}
+                <p className="text-[12px] text-red-600 dark:text-red-400">
+                  {t("dcDrawerBelowFloat", "Less than the float — check the count or the float.")}
                 </p>
               )}
             </div>
@@ -4131,7 +4182,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 mb-2">{t("cashDrawer")}</h3>
                 <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{cashExpectedFromRegister ? t("expectedFromRegister", "Expected (from register)") : t("expectedFromEntry", "Expected (from your entry)")}</span><span><Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
-                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("counted")}</span><span><Amount value={cashCountedVal} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
+                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("dcCashTakingsCounted", "Counted (float taken off)")}</span><span><Amount value={cashCountedVal} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
                 <div className={`flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 tabular-nums ${cashDiff < -100 ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>
                   <span>{t("difference")}</span><span><Amount value={cashDiff} currency={currency} decimals={LEDGER_DECIMALS} sign /></span>
                 </div>
@@ -4626,10 +4677,11 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
                         print "4.200 kr. DKK". The formatted amounts go in and
                         the template's token (with the space before it) comes
                         out — one token per figure, "kr." everywhere. */}
-                    {(t("bankDropReminderBody", "Put {amount} {currency} in safe / drop bag. Keep {float} {currency} float in the drawer."))
-                      .replace("{amount}", formatOwnerMoney(bankDrop.to_drop_dkk ?? 0, currency, { decimals: GLANCE_DECIMALS }))
-                      .replace("{float}", formatOwnerMoney(bankDrop.leave_in_drawer_dkk ?? 1000, currency, { decimals: GLANCE_DECIMALS }))
-                      .replace(/\s*\{currency\}/g, "")}
+                    {/* The close stores the day's takings (the float already
+                        taken off), so all of it goes in the bag. */}
+                    {t("bankDropReminderTakings", "Put {amount} in the safe or drop bag — the float stays in the drawer.", {
+                      amount: formatOwnerMoney(bankDrop.to_drop_dkk ?? 0, currency, { decimals: GLANCE_DECIMALS }),
+                    })}
                   </p>
                   {/* A secondary button: white on amber-500 read at ~2:1. */}
                   <Button size="md" variant="secondary" onClick={handleBankDropDone} className="mt-2">
