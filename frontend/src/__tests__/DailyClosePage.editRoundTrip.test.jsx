@@ -87,8 +87,8 @@ const tapNext = () => {
   if (btn) fireEvent.click(btn);
   return !!btn;
 };
+// The day's draft is offered on the wizard's first screen, before any scan.
 const continueDraft = async (container) => {
-  fireEvent.click(await screen.findByText("closeManualCta"));
   fireEvent.click(await screen.findByText("dcContinueDraft"));
   await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("12000"));
 };
@@ -140,7 +140,6 @@ describe("daily close — a branch's close, with All branches picked", () => {
 
   it("is found for its day, and named", async () => {
     renderPage();
-    fireEvent.click(await screen.findByText("closeManualCta"));
     await waitFor(() => expect(screen.getByText("dcDayHasDraft")).toBeInTheDocument());
     expect(screen.getByText(/Mirabelle:/)).toBeInTheDocument();
   });
@@ -155,8 +154,9 @@ describe("daily close — a branch's close, with All branches picked", () => {
 
   it("starting over replaces that branch's draft", async () => {
     const { container } = renderPage();
-    fireEvent.click(await screen.findByText("closeManualCta"));
     fireEvent.click(await screen.findByText("dcStartOverDraft"));
+    fireEvent.click(await screen.findByText("skipEnterManually"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "900" } });
     await waitFor(() => expect(closePosts()).toHaveLength(1), { timeout: 3500 });
     expect(closePosts()[0][1].branch_id).toBe("b1");
@@ -167,7 +167,6 @@ describe("daily close — a saved total above its category lines", () => {
   it("shows the unsplit part, so the rows add up", async () => {
     closes = [{ ...BASE, revenue_total: 17030, revenue_breakdown: { food: 10000 }, payment_breakdown: { card: 17030 } }];
     const { container } = renderPage();
-    fireEvent.click(await screen.findByText("closeManualCta"));
     fireEvent.click(await screen.findByText("dcContinueDraft"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("10000"));
     expect(screen.getByText("dcUnsplitRevenue")).toBeInTheDocument();
@@ -178,7 +177,7 @@ describe("daily close — the cash count", () => {
   it("counts the whole drawer and saves the takings (float taken off)", async () => {
     closes = [];
     const { container } = renderPage();
-    fireEvent.click(await screen.findByText("closeManualCta"));
+    fireEvent.click(await screen.findByText("skipEnterManually"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "4500" } });
     for (let i = 0; i < 4 && !container.querySelector("#cash-counted"); i++) {

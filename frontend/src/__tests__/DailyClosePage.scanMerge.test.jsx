@@ -266,8 +266,11 @@ describe("daily close — a second Z-bon with its own total", () => {
 
     fireEvent.click(screen.getByText("scanMergedUndo"));
     await waitFor(() => expect(screen.queryByText("scanMergedTerminals:2")).not.toBeInTheDocument());
-    // The headline is the bar till again — 21.240 is no longer a total.
-    expect(screen.getByText(/scanGapTotalIs:17\.030 kr\./)).toBeInTheDocument();
+    // The headline is the bar till again — 21.240 is no longer a total. (Read
+    // off the card itself: the bar till's lines add up to 17.030, so the
+    // "categories missing" banner that used to repeat it no longer fires.)
+    expect(container.textContent).toContain("17.030 kr.");
+    expect(screen.queryByText(/scanGapTotalIs/)).not.toBeInTheDocument();
     // ...and the counter till is NOT thrown away: the question comes back so
     // the owner can answer it the other way. An undo that silently discarded
     // the second scan would be the same loss in a friendlier wrapper.

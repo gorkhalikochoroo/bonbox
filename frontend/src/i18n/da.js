@@ -4191,6 +4191,8 @@ export const da = {
     dcDrawerBelowFloat: "Mindre end byttepengene — tjek optællingen eller byttepengene.",
     dcCashTakingsCounted: "Optalt (uden byttepenge)",
     bankDropReminderTakings: "Læg {amount} i sikkerhedsboksen eller pengeposen — byttepengene bliver i skuffen.",
+    dcScanPayShort: "Betalingerne giver {sum} — {diff} mangler, før de går op med totalen. Udfyld den, der mangler.",
+    dcNotOnReceipt: "ikke på bonen",
     returns: "Returneringer", noSalesYet: "Ingen salg endnu",
     voidsToday: "annulleringer i dag — værd at kigge på", inSalesToday: "i salg i dag",
     ordersToday: "ordrer", ordersTodayPlural: "ordrer", order: "ordre",

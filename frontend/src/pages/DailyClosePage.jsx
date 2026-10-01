@@ -821,9 +821,13 @@ export default function DailyClosePage() {
           its two choices (snap / type) a second time — the wizard's own scan
           card carries them there. It stays when it has news (lock status
           unknown) and on the other tabs, where it is the way back. */}
-      {!isLockedToday && !(tab === "close" && formEditingDate) && (
-        <div className={"bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-          + (tab === "close" && !lockStatusUnknown ? " max-sm:hidden" : "")}>
+      {/* On the close tab the wizard's own scan card is the way in — on a
+          desktop this card repeated its two choices right above it (two
+          "snap" buttons, two "type it" buttons). It stays when it has news
+          (lock status unknown) and on the other tabs, where it is the way
+          back. */}
+      {!isLockedToday && !(tab === "close" && (formEditingDate || !lockStatusUnknown)) && (
+        <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {t("closeTheDayCta", "Close the day")}
@@ -2155,6 +2159,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     && Math.abs(lines.reduce((a, c) => a + readMoney0(bucket?.[c.key]), 0) - scanTotalNow) < 1;
   const scanRevComplete = scanLinesAddUp(scanResult?.revenue, defaultRevCats);
   const scanPayComplete = scanLinesAddUp(scanResult?.payments, defaultPayMethods);
+  const scanPaySum = defaultPayMethods.reduce((a, m) => a + readMoney0(scanResult?.payments?.[m.key]), 0);
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
     && Number.isFinite(readMoney(tipsTotal))
     ? Math.round((readMoney(tipsTotal) * 100) / parseInt(staffCount)) / 100 : null;
@@ -3265,7 +3270,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 the wrong number (was the original bug). */}
             {(() => {
               const hasTotal = (scanResult.revenue_total || 0) > 0;
-              if (!hasTotal) return null;
+              // Lines that add up to the total ARE the split: an empty
+              // Takeaway was 0 that night, not something to ask for.
+              if (!hasTotal || scanRevComplete) return null;
               const detected = defaultRevCats
                 .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
                 .filter(r => r.val != null && r.val !== 0 && r.val !== "");
@@ -3426,9 +3433,20 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             {/* Payments */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">{t("paymentsLabel")}</h3>
+              {/* ONE line for a short payments column. Every unread method
+                  used to wear an amber "missing" — Faktura and MobilePay on a
+                  card-and-cash night — when only the shortfall is known. */}
+              {!scanPayComplete && scanPaySum > 0 && scanTotalNow > 0 && (
+                <p className="text-[12px] text-gray-600 dark:text-gray-300">
+                  <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" />
+                  {t("dcScanPayShort", "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.", {
+                    sum: formatOwnerMoney(scanPaySum, currency, { decimals: GLANCE_DECIMALS }),
+                    diff: formatOwnerMoney(Math.abs(scanTotalNow - scanPaySum), currency, { decimals: GLANCE_DECIMALS }),
+                  })}
+                </p>
+              )}
               {defaultPayMethods.map(m => {
                 const val = scanResult.payments?.[m.key];
-                const isEmpty = !val && !scanPayComplete;
                 return (
                   <div key={m.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
                     {/* Icons and badges keep their size; the label gives way. In the
@@ -3437,7 +3455,6 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
                       <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, m)}</span>
                       {val && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
-                      {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
                     <MoneyField
@@ -3445,9 +3462,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       // The field IS the flex child of the row above, so the
                       // wrapper has to carry the growth or the box collapses.
                       wrapperClassName="flex-1 min-w-0"
-                      className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
+                      className={inputClass}
                       value={val ?? ""}
-                      placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
+                      placeholder=""
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
@@ -3487,19 +3504,20 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             {config.hasTips && (
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
               <div className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
-                <span className="text-sm sm:w-44 sm:shrink-0 flex items-center gap-2 dark:text-gray-300">
-                  {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                  <Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("tipsLabel", "Tips")}
-                  {scanResult.tips && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
-                  {!scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
+                {/* Most Z-bons carry no tips line, so an unread one is not
+                    "missing" — it is simply not on the receipt. */}
+                <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
+                  {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
+                  <Icon name="Coins" size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{t("tipsLabel", "Tips")}</span>
+                  {scanResult.tips && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                 </span>
                 {/* Raw string kept, same reason as the revenue field above. */}
                 <MoneyField
                   locale={mLocale}
                   wrapperClassName="flex-1 min-w-0"
-                  className={`${inputClass} ${!scanResult.tips ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
+                  className={inputClass}
                   value={scanResult.tips ?? ""}
-                  placeholder={!scanResult.tips ? t("enterActualAmount", "enter actual amount") : ""}
+                  placeholder={!scanResult.tips ? t("dcNotOnReceipt", "not on the receipt") : ""}
                   onChange={e => {
                     setScanResult(prev => ({ ...prev, tips: e.target.value }));
                   }} />
@@ -3581,7 +3599,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 </button>
               )}
               <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setScanMode("idle"); }}
-                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2">
+                className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
               </button>
             </div>

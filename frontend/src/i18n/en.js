@@ -4332,6 +4332,8 @@ export const en = {
     dcDrawerBelowFloat: "Less than the float — check the count or the float.",
     dcCashTakingsCounted: "Counted (float taken off)",
     bankDropReminderTakings: "Put {amount} in the safe or drop bag — the float stays in the drawer.",
+    dcScanPayShort: "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.",
+    dcNotOnReceipt: "not on the receipt",
     returns: "Returns", noSalesYet: "No sales yet",
     voidsToday: "voids today — worth a look", inSalesToday: "in sales today",
     ordersToday: "orders", ordersTodayPlural: "orders", order: "order",
