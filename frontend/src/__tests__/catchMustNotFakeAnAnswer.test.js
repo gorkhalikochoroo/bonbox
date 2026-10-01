@@ -145,7 +145,6 @@ const KNOWN_OFFENDERS = [
   "pages/RegisterPage.jsx",
   "pages/ReservationPublicPage.jsx",
   "pages/ReservationsPage.jsx",
-  "pages/StaffPayrollPage.jsx",
   "pages/StaffPortalPage.jsx",
   "pages/TerminalsPage.jsx",
   "pages/WineListPage.jsx",

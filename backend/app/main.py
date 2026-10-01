@@ -2561,6 +2561,16 @@ _migrations = [
     # the brief ADD COLUMN.
     "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS inventory_item_id UUID",
     "ALTER TABLE waste_logs ADD COLUMN IF NOT EXISTS stock_deducted NUMERIC(12,3)",
+    # ── Migration 081 (2026-10-01): a tip pool covers a period ────────────
+    # tips.period_start is the pool's FIRST day; `date` stays its last, so
+    # payroll keeps bucketing pools exactly as before. NULL = a one-day pool,
+    # which is every existing row. tip_distributions.hours keeps the hours a
+    # share was worked out from, so the history can say why someone got what
+    # they got; NULL on old rows. Both nullable, no default, no backfill — the
+    # ALTERs are metadata-only on Postgres. Doc record:
+    # alembic/versions/028_tip_period.py.
+    "ALTER TABLE tips ADD COLUMN IF NOT EXISTS period_start DATE",
+    "ALTER TABLE tip_distributions ADD COLUMN IF NOT EXISTS hours NUMERIC(6,2)",
 ]
 
 
@@ -3178,6 +3188,9 @@ def _run_migrations():
             # Mirror of Migration 080 — waste rows remember their stock.
             ok += _add("waste_logs", "inventory_item_id", "VARCHAR(36)")
             ok += _add("waste_logs", "stock_deducted", "NUMERIC(12,3)")
+            # Mirror of Migration 081 — a tip pool's period + each share's hours.
+            ok += _add("tips", "period_start", "DATE")
+            ok += _add("tip_distributions", "hours", "NUMERIC(6,2)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

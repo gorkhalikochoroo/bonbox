@@ -8,12 +8,13 @@ import { saveFile } from "../utils/download";
 import { stepPayPeriod } from "../utils/payPeriod";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatHours } from "../utils/hours";
 import { formatDate, localIso, formatDateClear } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
 import { isStaffMemberRole } from "../config/navManifest";
 import { contractLabel } from "../config/scheduleGrid";
 
@@ -24,12 +25,24 @@ import { contractLabel } from "../config/scheduleGrid";
 // stored value is never rewritten — only what is shown. Same map as the twins
 // in StaffSchedulePage, StaffTipsPage and StaffPortalPage; unknown roles (and
 // the salon vocabulary, Danish in both languages) show exactly as typed.
+//
+// It also covers every code the revisor CSV and the lønseddel translate
+// (backend services/pay_labels.py): "bar" printed raw on this screen while
+// the file made from the same row said "Bar".
 const ROLE_NAME_KEYS = {
   chef: ["stfRoleChef", "Chef"],
+  cook: ["stfRoleChef", "Chef"],
   server: ["stfRoleServer", "Server"],
+  waiter: ["stfRoleServer", "Server"],
   dishwasher: ["stfRoleDishwasher", "Dishwasher"],
   manager: ["teamRoleManager", "Manager"],
   kitchen: ["roleKitchen", "Kitchen"],
+  bar: ["roleBar", "Bar"],
+  bartender: ["stfRoleBartender", "Bartender"],
+  barista: ["stfRoleBarista", "Barista"],
+  host: ["stfRoleHost", "Host"],
+  runner: ["stfRoleRunner", "Runner"],
+  cleaner: ["stfRoleCleaner", "Cleaner"],
   floor: ["roleFloor", "Floor"],
   "full-time": ["contractFull", "Full-time"],
   full_time: ["contractFull", "Full-time"],
@@ -79,19 +92,35 @@ function periodLabel(start, end) {
   return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
-function addDays(dateStr, days) {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return localIso(d);
-}
-
 // `value` is what the API stores (weather_condition); the label is t(labelKey).
+// `icon` is a Lucide name for <Icon>, not an emoji: the list and the select
+// rendered a face, a house, a cloud and a memo, drawn differently on every
+// platform and announced to a screen reader as just that.
 const REASON_OPTIONS = [
-  { value: "sick", labelKey: "sickReasonSick", fallback: "Sick", icon: "🤒" },
-  { value: "personal", labelKey: "sickReasonPersonal", fallback: "Personal", icon: "🏠" },
-  { value: "weather", labelKey: "sickReasonWeather", fallback: "Weather", icon: "🌧️" },
-  { value: "other", labelKey: "sickReasonOther", fallback: "Other", icon: "📝" },
+  { value: "sick", labelKey: "sickReasonSick", fallback: "Sick", icon: "Thermometer" },
+  { value: "personal", labelKey: "sickReasonPersonal", fallback: "Personal", icon: "Home" },
+  { value: "weather", labelKey: "sickReasonWeather", fallback: "Weather", icon: "CloudRain" },
+  { value: "other", labelKey: "sickReasonOther", fallback: "Other", icon: "FileText" },
 ];
+
+// The three lønperioder this select offers. Timer can also SAVE "weekly" and
+// "biweekly" to the same shared config (StaffHoursPage FRAME_OPTIONS); when it
+// has, that value is shown here as it is instead of falling to the first
+// option — a select reading "Kalendermåned" over a weekly period is a setting
+// the owner never chose.
+const PAY_PERIOD_TYPES = ["monthly_1st", "monthly_15th", "custom"];
+const SAVED_ELSEWHERE_FRAME_KEYS = {
+  weekly: ["hovFrameWeekly", "Every week (Mon–Sun)"],
+  biweekly: ["hovFrameBiweekly", "Every 2 weeks"],
+};
+
+// Phone controls are 40px at the least (the house floor, Sep-27). Selects and
+// number inputs get no help from the coarse-pointer button rule in index.css.
+const PHONE_FIELD = "min-h-[40px] sm:min-h-0";
+
+// A person on the roster with nothing logged in the period: a real zero,
+// because the hours read DID answer (a failed read never reaches the table).
+const NO_PAY = { hours: 0, base_earned: 0, overtime: 0, overtime_hours: 0, tips: 0, total: 0 };
 
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
@@ -108,31 +137,86 @@ export default function StaffPayrollPage() {
   // reading as a broken button.
   const isStaffSeat = isStaffMemberRole(user?.role);
 
+  // ─── Reads ───
+  // THREE outcomes per read (hooks/useAsyncData), never two. Every fetch on
+  // this tab used to `.catch()` into something that looked like an answer: a
+  // failed hours read became "5 medarbejdere · 0 t · 0,00 kr. i alt", a failed
+  // estimate "registrér medarbejdertimer først", a failed roster "no staff",
+  // and a failed pay period a made-up fortnight ending today — all of them
+  // exportable. A failure is now LoadFailed with a retry, and the exports wait
+  // for it (exportBlocked below).
+
   // ─── Pay Period ───
-  const [period, setPeriod] = useState(null);
-  const [periodLoading, setPeriodLoading] = useState(true);
-  // Owner-configurable DK lønperiode (calendar month / 15th→14th / custom day).
-  const [periodCfg, setPeriodCfg] = useState({ period_type: "monthly_1st", custom_start_day: 16 });
+  // /pay-period/current carries the saved frame as well (period_type +
+  // custom_start_day), so ONE read hydrates the window and the select. The
+  // separate GET /pay-period it used to make could fail on its own and leave
+  // the select — and the Previous/Next stepping — on a frame nobody chose.
+  const currentQ = useAsyncData(() => api.get("/staff/pay-period/current"), []);
+  const serverPeriod = useMemo(() => {
+    const d = currentQ.data;
+    if (!d) return null;
+    // Backend returns { start_date, end_date }; the rest of this page
+    // reads period_start / period_end. Normalise here so we don't have
+    // to thread the legacy key names through every consumer below.
+    return {
+      period_start: d.period_start || d.start_date || null,
+      period_end: d.period_end || d.end_date || null,
+    };
+  }, [currentQ.data]);
+  const serverCfg = useMemo(() => ({
+    period_type: currentQ.data?.period_type || "monthly_1st",
+    custom_start_day: currentQ.data?.custom_start_day || 16,
+  }), [currentQ.data]);
+  // Where Previous/Next has stepped to; null = the server's current window.
+  const [periodOverride, setPeriodOverride] = useState(null);
+  const period = periodOverride || serverPeriod;
+  // Owner-configurable DK lønperiode (calendar month / 15th→14th / custom day):
+  // what was last SAVED, and what is being typed into the controls right now.
+  const [lastSavedCfg, setLastSavedCfg] = useState(null);
+  const [cfgDraft, setCfgDraft] = useState(null);
+  const periodCfg = cfgDraft || lastSavedCfg || serverCfg;
   const [savingCfg, setSavingCfg] = useState(false);
+  const [cfgError, setCfgError] = useState("");
 
   // ─── Staff & Hours ───
-  const [staffList, setStaffList] = useState([]);
-  const [hoursSummary, setHoursSummary] = useState([]);
-  const [selectedIds, setSelectedIds] = useState(new Set());
+  const staffQ = useAsyncData(() => api.get("/staff/members"), [], { initial: [] });
+  const staffList = useMemo(() => staffQ.data || [], [staffQ.data]);
+  // Who is LEFT OUT, rather than who is in: everyone starts selected without an
+  // effect copying the roster into state, as the first load always did.
+  const [deselected, setDeselected] = useState(() => new Set());
+  const selectedIds = useMemo(
+    () => new Set(staffList.map((s) => s.id).filter((id) => !deselected.has(id))),
+    [staffList, deselected],
+  );
+  const hoursQ = useAsyncData(
+    () => api.get("/staff/hours/summary", {
+      params: { from: period.period_start, to: period.period_end },
+    }),
+    [period?.period_start, period?.period_end],
+    { initial: [], enabled: !!period },
+  );
+  const hoursSummary = useMemo(() => hoursQ.data || [], [hoursQ.data]);
   // Staff list collapses by default — 16+ checkboxes was too much scroll on
   // the way to the preview + export buttons. Header shows the count; tap to open.
   const [staffOpen, setStaffOpen] = useState(false);
   // Per-staff preview table also collapses by default — same scroll problem.
   // Collapsed state still shows the grand total (staff · hours · payout).
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [staffLoading, setStaffLoading] = useState(true);
 
   // ─── PDF ───
   const [pdfLoading, setPdfLoading] = useState(false);
 
   // ─── Sick Calls ───
-  const [sickCalls, setSickCalls] = useState([]);
-  const [sickStats, setSickStats] = useState(null);
+  const sickQ = useAsyncData(async () => {
+    const [calls, stats] = await Promise.all([
+      api.get("/weather/sick-calls"),
+      api.get("/weather/sick-calls/stats"),
+    ]);
+    return { calls: calls.data || [], stats: stats.data || null };
+  }, []);
+  const sickCalls = sickQ.data?.calls || [];
+  const sickStats = sickQ.data?.stats || null;
+  const sickLoading = sickQ.loading && !sickQ.data;
   const [sickForm, setSickForm] = useState({
     staff_name: "",
     date: localIso(),
@@ -140,7 +224,6 @@ export default function StaffPayrollPage() {
     notes: "",
   });
   const [sickSuccess, setSickSuccess] = useState("");
-  const [sickLoading, setSickLoading] = useState(true);
 
   // ─── Error ───
   const [error, setError] = useState("");
@@ -154,117 +237,53 @@ export default function StaffPayrollPage() {
   }, [error]);
 
   // ─── Danish payroll estimate (only relevant for DKK users) ───
-  const [dkEstimate, setDkEstimate] = useState(null);
-  const [dkLoading, setDkLoading] = useState(false);
   const isDanish = user?.currency === "DKK";
-
-  useEffect(() => {
-    if (!period || !isDanish) { setDkEstimate(null); return; }
-    setDkLoading(true);
-    api.get("/staff/payroll/estimate", {
+  const dkQ = useAsyncData(
+    () => api.get("/staff/payroll/estimate", {
       params: { period_start: period.period_start, period_end: period.period_end },
-    })
-      .then(r => { setDkEstimate(r.data); setDkLoading(false); })
-      .catch(() => { setDkEstimate(null); setDkLoading(false); });
-  }, [period, isDanish]);
+    }),
+    [period?.period_start, period?.period_end],
+    { enabled: !!period && isDanish },
+  );
+  const dkEstimate = dkQ.data;
+  const dkLoading = dkQ.loading;
 
-  /* ─── Fetch current pay period ─── */
-  useEffect(() => {
-    setPeriodLoading(true);
-    api.get("/staff/pay-period/current")
-      .then(r => {
-        // Backend returns { start_date, end_date }; the rest of this page
-        // reads period_start / period_end. Normalise here so we don't have
-        // to thread the legacy key names through every consumer below.
-        const d = r.data || {};
-        setPeriod({
-          period_start: d.period_start || d.start_date || null,
-          period_end: d.period_end || d.end_date || null,
-          period_type: d.period_type || null,
-        });
-        setPeriodLoading(false);
-      })
-      .catch(() => {
-        // Fallback: bi-weekly period ending today
-        const today = localIso();
-        const start = addDays(today, -13);
-        setPeriod({ period_start: start, period_end: today });
-        setPeriodLoading(false);
-      });
-  }, []);
+  // Every export waits for the reads it is made from. A file produced while
+  // this screen could not read the period, the roster or the hours is a file
+  // the owner had no way to check — and the CSV and the lønseddel are built
+  // from the same window the estimate failed to load.
+  const exportBlocked =
+    !period || currentQ.failed || staffQ.failed || hoursQ.failed || (isDanish && dkQ.failed);
 
-  /* ─── Fetch the saved lønperiode config (type + custom day) ─── */
-  useEffect(() => {
-    api.get("/staff/pay-period")
-      .then((r) => setPeriodCfg({
-        period_type: r.data?.period_type || "monthly_1st",
-        custom_start_day: r.data?.custom_start_day || 16,
-      }))
-      .catch(() => {});
-  }, []);
-
-  /* ─── Save lønperiode config → refetch the computed current period ─── */
+  /* ─── Save lønperiode config → reload the computed current period ─── */
   const savePeriodCfg = async (periodType, customDay) => {
     const day = Math.min(28, Math.max(1, Number(customDay) || 16));
+    const next = { period_type: periodType, custom_start_day: day };
     setSavingCfg(true);
-    setPeriodCfg({ period_type: periodType, custom_start_day: day });
+    setCfgError("");
+    setCfgDraft(next);
     try {
       await api.post("/staff/pay-period", {
         period_type: periodType,
         custom_start_day: periodType === "custom" ? day : null,
       });
-      const r = await api.get("/staff/pay-period/current");
-      const d = r.data || {};
-      setPeriod({
-        period_start: d.period_start || d.start_date || null,
-        period_end: d.period_end || d.end_date || null,
-        period_type: d.period_type || periodType,
-      });
-    } catch (e) {
-      /* keep the current period on failure */
+    } catch {
+      // Put the select back. It went on showing the frame that failed to
+      // save while every number and export below still used the old one.
+      setCfgDraft(null);
+      setCfgError(t("payrollPeriodSaveFailed", "Couldn't save the pay period. Try again."));
+      setSavingCfg(false);
+      return;
     }
+    // Saved. Back to the current window of the new frame, through the same
+    // read as the first load — so if it fails, it says so (LoadFailed) instead
+    // of keeping the old window under the new frame's name.
+    setLastSavedCfg(next);
+    setCfgDraft(null);
+    setPeriodOverride(null);
+    await currentQ.reload();
     setSavingCfg(false);
   };
-
-  /* ─── Fetch staff list ─── */
-  useEffect(() => {
-    api.get("/staff/members")
-      .then(r => {
-        setStaffList(r.data || []);
-        setSelectedIds(new Set((r.data || []).map(s => s.id)));
-      })
-      .catch(() => setStaffList([]));
-  }, []);
-
-  /* ─── Fetch hours when period changes ─── */
-  useEffect(() => {
-    if (!period) return;
-    setStaffLoading(true);
-    api.get("/staff/hours/summary", {
-      params: { from: period.period_start, to: period.period_end },
-    })
-      .then(r => {
-        setHoursSummary(r.data || []);
-        setStaffLoading(false);
-      })
-      .catch(() => {
-        setHoursSummary([]);
-        setStaffLoading(false);
-      });
-  }, [period]);
-
-  /* ─── Fetch sick calls ─── */
-  useEffect(() => {
-    setSickLoading(true);
-    Promise.allSettled([
-      api.get("/weather/sick-calls"),
-      api.get("/weather/sick-calls/stats"),
-    ]).then(([callsRes, statsRes]) => {
-      if (callsRes.status === "fulfilled") setSickCalls(callsRes.value.data || []);
-      if (statsRes.status === "fulfilled") setSickStats(statsRes.value.data);
-      setSickLoading(false);
-    });
-  }, []);
 
   /* ─── Period navigation ─── */
   const navigatePeriod = (direction) => {
@@ -289,12 +308,12 @@ export default function StaffPayrollPage() {
       period.period_end,
       direction === "next" ? "next" : "prev",
     );
-    setPeriod({ period_start: stepped.from, period_end: stepped.to });
+    setPeriodOverride({ period_start: stepped.from, period_end: stepped.to });
   };
 
   /* ─── Selection helpers ─── */
   const toggleStaff = (id) => {
-    setSelectedIds(prev => {
+    setDeselected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -304,43 +323,50 @@ export default function StaffPayrollPage() {
 
   const toggleAll = () => {
     if (selectedIds.size === staffList.length) {
-      setSelectedIds(new Set());
+      setDeselected(new Set(staffList.map(s => s.id)));
     } else {
-      setSelectedIds(new Set(staffList.map(s => s.id)));
+      setDeselected(new Set());
     }
   };
 
-  /* ─── Build payroll rows (merge staff list + hours) ─── */
-  const payrollRows = useMemo(() => {
-    const hoursMap = {};
-    hoursSummary.forEach(h => { hoursMap[h.staff_id] = h; });
+  /* ─── Pay per person, for the period (merge staff list + hours) ─── */
+  // One map for BOTH the staff picker and the preview. The picker added up
+  // keys the summary never sends (base_earned, tips), so its "earned" line was
+  // each person's tips alone while the table under it showed their wages.
+  const payById = useMemo(() => {
+    const map = {};
+    hoursSummary.forEach(h => {
+      // Backend `/staff/hours/summary` returns: total_hours, total_earned,
+      // overtime_hours, tips_received. We accept legacy field names too
+      // (base_earned / overtime_pay / tips) so a stale schema mid-deploy
+      // won't render zeros — multi-layer fallback.
+      const baseEarned = h.total_earned ?? h.base_earned ?? 0;
+      const overtimePay = h.overtime_pay ?? 0; // not yet computed by backend
+      const tips = h.tips_received ?? h.tips ?? 0;
+      map[h.staff_id] = {
+        hours: h.total_hours || 0,
+        base_earned: baseEarned,
+        overtime: overtimePay,
+        overtime_hours: h.overtime_hours || 0,
+        tips,
+        total: baseEarned + overtimePay + tips,
+      };
+    });
+    return map;
+  }, [hoursSummary]);
 
+  const payrollRows = useMemo(() => {
     return staffList
       .filter(s => selectedIds.has(s.id))
-      .map(s => {
-        const h = hoursMap[s.id] || {};
-        // Backend `/staff/hours/summary` returns: total_hours, total_earned,
-        // overtime_hours, tips_received. We accept legacy field names too
-        // (base_earned / overtime_pay / tips) so a stale schema mid-deploy
-        // won't render zeros — multi-layer fallback.
-        const baseEarned = h.total_earned ?? h.base_earned ?? 0;
-        const overtimePay = h.overtime_pay ?? 0; // not yet computed by backend
-        const tips = h.tips_received ?? h.tips ?? 0;
-        return {
-          id: s.id,
-          name: s.name || s.staff_name || "—",
-          // Display-only; the fallback words are resolved at render (t()).
-          role: s.role || null,
-          contract_type: s.contract_type || null,
-          hours: h.total_hours || 0,
-          base_earned: baseEarned,
-          overtime: overtimePay,
-          overtime_hours: h.overtime_hours || 0,
-          tips,
-          total: baseEarned + overtimePay + tips,
-        };
-      });
-  }, [staffList, hoursSummary, selectedIds]);
+      .map(s => ({
+        id: s.id,
+        name: s.name || s.staff_name || "—",
+        // Display-only; the fallback words are resolved at render (t()).
+        role: s.role || null,
+        contract_type: s.contract_type || null,
+        ...(payById[s.id] || NO_PAY),
+      }));
+  }, [staffList, payById, selectedIds]);
 
   /* ─── Grand totals ─── */
   const totals = useMemo(() => {
@@ -358,7 +384,7 @@ export default function StaffPayrollPage() {
 
   /* ─── PDF export ─── */
   const generatePdf = async () => {
-    if (!period || selectedIds.size === 0) return;
+    if (exportBlocked || selectedIds.size === 0) return;
     setPdfLoading(true);
     setError("");
     try {
@@ -424,7 +450,7 @@ export default function StaffPayrollPage() {
   const [upgradeNudge, setUpgradeNudge] = useState(null);
 
   const sendToAccountant = async () => {
-    if (!period || selectedIds.size === 0) return;
+    if (exportBlocked || selectedIds.size === 0) return;
     // A pay report leaves the building on this tap — say to whom and for
     // which period first. It sent on one tap with no recipient shown.
     const ok = await confirm({
@@ -465,7 +491,7 @@ export default function StaffPayrollPage() {
         setUpgradeNudge({
           tier: detail.required_plan || "starter",
           benefit: t("nudgePayrollSend", "Email payroll to your bogholder in one tap"),
-          icon: "📤",
+          iconName: "Send",
         });
       } else {
         setError(
@@ -493,19 +519,17 @@ export default function StaffPayrollPage() {
       setSickForm({ staff_name: "", date: localIso(), reason: "", notes: "" });
       setSickSuccess(t("sickCallLogged", "Sick call logged"));
       setTimeout(() => setSickSuccess(""), 2500);
-      const [res, statsRes] = await Promise.all([
-        api.get("/weather/sick-calls"),
-        api.get("/weather/sick-calls/stats"),
-      ]);
-      setSickCalls(res.data || []);
-      setSickStats(statsRes.data);
     } catch {
       setError(t("couldNotLogSickCall", "Could not log sick call"));
+      return;
     }
+    // Outside the try: the call IS logged. A failed refresh after it used to
+    // land in the catch above and tell the owner it was not.
+    sickQ.reload();
   };
 
   /* ─── LOADING STATE ─── */
-  if (periodLoading) {
+  if (!period && currentQ.loading) {
     return (
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -518,12 +542,33 @@ export default function StaffPayrollPage() {
     );
   }
 
+  /* ─── NO PERIOD ─── */
+  // Everything on this tab is a sum over the pay period, so without one there
+  // is nothing to show — and nothing to export. It used to invent a fortnight
+  // ending today and carry on as if the owner had picked it.
+  if (!period) {
+    return (
+      <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
+        <PageHeader
+          eyebrow={t("shpEyebrow", "STAFF")}
+          title={t("payroll", "Payroll")}
+          subtitle={t("payrollSubtitle", "Generate payroll reports for your revisor")}
+        />
+        <LoadFailed
+          title={t("payrollPeriodLoadFailed", "Couldn't load your pay period.")}
+          onRetry={currentQ.reload}
+        />
+      </div>
+    );
+  }
+
   /* ═══════════════════════════════════════════════════════════
      RENDER
      ═══════════════════════════════════════════════════════════ */
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <PageHeader
+        eyebrow={t("shpEyebrow", "STAFF")}
         title={t("payroll", "Payroll")}
         subtitle={t("payrollSubtitle", "Generate payroll reports for your revisor")}
       />
@@ -554,8 +599,13 @@ export default function StaffPayrollPage() {
       <FadeIn delay={0.05}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <Button variant="secondary" size="sm" onClick={() => navigatePeriod("prev")}>
-              ← {t("payrollPrevPeriod", "Previous")}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigatePeriod("prev")}
+              iconLeft={<Icon name="ChevronLeft" size={14} />}
+            >
+              {t("payrollPrevPeriod", "Previous")}
             </Button>
             <div className="text-center">
               <p className="text-sm text-gray-500 dark:text-gray-400">{t("payPeriod")}</p>
@@ -563,22 +613,35 @@ export default function StaffPayrollPage() {
                 {period ? periodLabel(period.period_start, period.period_end) : "—"}
               </p>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => navigatePeriod("next")}>
-              {t("next", "Next")} →
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigatePeriod("next")}
+              iconRight={<Icon name="ChevronRight" size={14} />}
+            >
+              {t("next", "Next")}
             </Button>
           </div>
           {/* DK lønperiode is often mid-month (16.→15., 25.→24.) rather than the
               calendar month — let the owner set it. Staff Hours + payroll totals
               follow automatically (the backend computes from this config). */}
+          {/* This is the SAVED lønperiode (POST /staff/pay-period), the same
+              shared config Timer's frame picker writes — not a viewing frame.
+              Previous/Next above is how the owner looks at another window. */}
           <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-center gap-2 text-xs">
             <span className="text-gray-500 dark:text-gray-400">{t("payPeriodLabel", "Pay period")}:</span>
             <select
               value={periodCfg.period_type}
               onChange={(e) => savePeriodCfg(e.target.value, periodCfg.custom_start_day)}
               disabled={savingCfg}
-              className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs focus:ring-2 focus:ring-gray-400 outline-none disabled:opacity-50"
+              className={`${PHONE_FIELD} px-2.5 py-1.5 sm:px-2 sm:py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-[13px] sm:text-xs focus:ring-2 focus:ring-gray-400 outline-none disabled:opacity-50`}
               aria-label={t("payPeriodLabel", "Pay period")}
             >
+              {!PAY_PERIOD_TYPES.includes(periodCfg.period_type) && SAVED_ELSEWHERE_FRAME_KEYS[periodCfg.period_type] && (
+                <option value={periodCfg.period_type}>
+                  {t(...SAVED_ELSEWHERE_FRAME_KEYS[periodCfg.period_type])}
+                </option>
+              )}
               <option value="monthly_1st">{t("payPeriodMonth1", "Calendar month (1st → end)")}</option>
               <option value="monthly_15th">{t("payPeriodMonth15", "15th → 14th")}</option>
               <option value="custom">{t("payPeriodCustomOpt", "Custom start day…")}</option>
@@ -591,15 +654,28 @@ export default function StaffPayrollPage() {
                   min="1"
                   max="28"
                   value={periodCfg.custom_start_day}
-                  onChange={(e) => setPeriodCfg((c) => ({ ...c, custom_start_day: e.target.value }))}
+                  onChange={(e) => setCfgDraft({ ...periodCfg, custom_start_day: e.target.value })}
                   onBlur={(e) => savePeriodCfg("custom", e.target.value)}
                   disabled={savingCfg}
-                  className="w-14 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs tabular-nums focus:ring-2 focus:ring-gray-400 outline-none disabled:opacity-50"
+                  className={`${PHONE_FIELD} w-16 sm:w-14 px-2 py-1.5 sm:py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-[13px] sm:text-xs tabular-nums focus:ring-2 focus:ring-gray-400 outline-none disabled:opacity-50`}
                   aria-label={t("payPeriodStartDay", "Start day of month")}
                 />
               </span>
             )}
           </div>
+          {cfgError && (
+            <p role="alert" className="mt-2 text-center text-xs text-red-600 dark:text-red-400">{cfgError}</p>
+          )}
+          {/* The window could not be (re)loaded — after a frame change, say.
+              The dates above may belong to the old frame, so say so. */}
+          {currentQ.failed && (
+            <div className="mt-3">
+              <LoadFailed
+                title={t("payrollPeriodLoadFailed", "Couldn't load your pay period.")}
+                onRetry={currentQ.reload}
+              />
+            </div>
+          )}
         </div>
       </FadeIn>
 
@@ -615,31 +691,42 @@ export default function StaffPayrollPage() {
             >
               <span className={`text-gray-400 transition-transform ${staffOpen ? "rotate-90" : ""}`}>›</span>
               <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("staffSelection")}</h2>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums">
-                {selectedIds.size}/{staffList.length}
-              </span>
+              {!staffQ.failed && !staffQ.loading && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums">
+                  {selectedIds.size}/{staffList.length}
+                </span>
+              )}
             </button>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={staffList.length > 0 && selectedIds.size === staffList.length}
                 onChange={toggleAll}
+                disabled={staffQ.failed || staffList.length === 0}
                 className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-gray-400"
               />
               <span className="text-sm text-gray-600 dark:text-gray-400">{t("selectAll")}</span>
             </label>
           </div>
 
-          {staffOpen && (staffLoading ? (
+          {/* A failed roster is not "no staff members found" — and it is shown
+              whether or not the list is open, because the exports below are
+              waiting on it. */}
+          {staffQ.failed ? (
+            <LoadFailed
+              title={t("stfStaffLoadFailed", "Couldn't load your staff.")}
+              onRetry={staffQ.reload}
+            />
+          ) : staffOpen && (staffQ.loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
-                <div className="text-2xl mb-2 animate-pulse">👥</div>
+                <Icon name="Users" size={24} className="mx-auto mb-2 text-gray-400 animate-pulse" />
                 <p className="text-sm text-gray-400">{t("payrollLoadingStaff", "Loading staff...")}</p>
               </div>
             </div>
           ) : staffList.length === 0 ? (
             <div className="text-center py-8">
-              <div className="text-3xl mb-2">👥</div>
+              <Icon name="Users" size={28} className="mx-auto mb-2 text-gray-400 dark:text-gray-500" />
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {t("payrollNoStaffFound", "No staff members found. Add staff from the Staffing page to get started.")}
               </p>
@@ -647,10 +734,9 @@ export default function StaffPayrollPage() {
           ) : (
             <div className="space-y-2">
               {staffList.map(s => {
-                const hoursMap = {};
-                hoursSummary.forEach(h => { hoursMap[h.staff_id] = h; });
-                const h = hoursMap[s.id] || {};
-                const totalEarned = (h.base_earned || 0) + (h.overtime_pay || 0) + (h.tips || 0);
+                // "—" while the hours are not known: a failed or pending read
+                // is not "0 t · 0,00 kr." for this person.
+                const pay = hoursQ.failed || hoursQ.loading ? null : (payById[s.id] || NO_PAY);
 
                 return (
                   <label
@@ -681,11 +767,11 @@ export default function StaffPayrollPage() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                        {formatHours(h.total_hours || 0, { lang })}
+                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 tabular-nums">
+                        {pay ? formatHours(pay.hours, { lang, decimals: 2 }) : "—"}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {fmtMoney(totalEarned, currency)}
+                      <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                        {pay ? fmtMoney(pay.total, currency) : "—"}
                       </p>
                     </div>
                   </label>
@@ -693,7 +779,7 @@ export default function StaffPayrollPage() {
               })}
             </div>
           ))}
-          {!staffOpen && staffList.length > 0 && (
+          {!staffOpen && !staffQ.failed && staffList.length > 0 && (
             <button
               type="button"
               onClick={() => setStaffOpen(true)}
@@ -725,9 +811,20 @@ export default function StaffPayrollPage() {
             )}
           </button>
 
-          {payrollRows.length === 0 ? (
+          {/* The hours read failed (or the roster did): say so, instead of
+              the "5 medarbejdere · 0 t · 0,00 kr. i alt" it used to print. */}
+          {staffQ.failed || hoursQ.failed ? (
+            <LoadFailed
+              title={staffQ.failed
+                ? t("stfStaffLoadFailed", "Couldn't load your staff.")
+                : t("payrollHoursLoadFailed", "Couldn't load the hours for this pay period.")}
+              onRetry={staffQ.failed ? staffQ.reload : hoursQ.reload}
+            />
+          ) : staffQ.loading || hoursQ.loading ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t("loading", "Loading…")}</p>
+          ) : payrollRows.length === 0 ? (
             <div className="text-center py-8">
-              <div className="text-3xl mb-2">📊</div>
+              <Icon name="BarChart3" size={28} className="mx-auto mb-2 text-gray-400 dark:text-gray-500" />
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {t("payrollSelectToPreview", "Select staff members above to preview payroll")}
               </p>
@@ -736,12 +833,15 @@ export default function StaffPayrollPage() {
             <div className="overflow-x-auto -mx-2">
               <table className="w-full text-sm">
                 <thead>
+                  {/* One neutral header row. Overtime and tips had amber and
+                      emerald headers — colour that says "attention" and "done"
+                      about two ordinary columns of pay. */}
                   <tr className="border-b border-gray-200 dark:border-gray-700">
                     <th className="text-left py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("navStaff")}</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("hoursLabel")}</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("baseEarned")}</th>
-                    <th className="text-right py-3 px-2 text-amber-600 dark:text-amber-400 font-medium">{t("overtime")}</th>
-                    <th className="text-right py-3 px-2 text-emerald-600 dark:text-gray-300 font-medium">{t("tips", "Tips")}</th>
+                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("overtime")}</th>
+                    <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("tips", "Tips")}</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("total")}</th>
                   </tr>
                 </thead>
@@ -757,14 +857,14 @@ export default function StaffPayrollPage() {
                         </p>
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
-                        {formatHours(row.hours, { lang })}
+                        {formatHours(row.hours, { lang, decimals: 2 })}
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
                         {fmtMoney(row.base_earned, currency)}
                       </td>
                       <td className="text-right py-3 px-2 tabular-nums">
                         {row.overtime > 0 ? (
-                          <span className="text-amber-600 dark:text-amber-400 font-medium">
+                          <span className="text-gray-900 dark:text-gray-100">
                             {fmtMoney(row.overtime, currency)}
                           </span>
                         ) : (
@@ -773,7 +873,7 @@ export default function StaffPayrollPage() {
                       </td>
                       <td className="text-right py-3 px-2 tabular-nums">
                         {row.tips > 0 ? (
-                          <span className="text-emerald-600 dark:text-gray-300 font-medium">
+                          <span className="text-gray-900 dark:text-gray-100">
                             {fmtMoney(row.tips, currency)}
                           </span>
                         ) : (
@@ -792,15 +892,15 @@ export default function StaffPayrollPage() {
                       {t("payrollGrandTotal", "Grand Total ({count} staff)").replace("{count}", payrollRows.length)}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
-                      {formatHours(totals.hours, { lang })}
+                      {formatHours(totals.hours, { lang, decimals: 2 })}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
                       {fmtMoney(totals.base_earned, currency)}
                     </td>
-                    <td className="text-right py-3 px-2 font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                    <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
                       {fmtMoney(totals.overtime, currency)}
                     </td>
-                    <td className="text-right py-3 px-2 font-bold text-emerald-600 dark:text-gray-300 tabular-nums">
+                    <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
                       {fmtMoney(totals.tips, currency)}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
@@ -818,7 +918,7 @@ export default function StaffPayrollPage() {
             >
               {t("payrollPreviewSummaryTap", "{count} staff · {hours} · {total} total — tap to see per-staff")
                 .replace("{count}", payrollRows.length)
-                .replace("{hours}", formatHours(totals.hours, { lang }))
+                .replace("{hours}", formatHours(totals.hours, { lang, decimals: 2 }))
                 .replace("{total}", fmtMoney(totals.total, currency))}
             </button>
           )}
@@ -841,12 +941,15 @@ export default function StaffPayrollPage() {
               </span>
             </div>
 
-            {dkLoading ? (
+            {/* A failed estimate told the owner to "log staff hours first" —
+                to a venue that had logged them. */}
+            {dkQ.failed ? (
+              <LoadFailed
+                title={t("payrollEstimateLoadFailed", "Couldn't load the estimate for this pay period.")}
+                onRetry={dkQ.reload}
+              />
+            ) : dkLoading || !dkEstimate ? (
               <div className="text-sm text-gray-500 dark:text-gray-400">{t("payrollLoadingEstimate", "Loading estimate…")}</div>
-            ) : !dkEstimate ? (
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                {t("payrollNoEstimate", "No estimate available — log staff hours first.")}
-              </div>
             ) : dkEstimate.staff_count === 0 ? (
               <div className="text-sm text-gray-500 dark:text-gray-400">
                 {t("payrollNoActiveStaff", "No active staff or hours logged in this period.")}
@@ -884,10 +987,18 @@ export default function StaffPayrollPage() {
                     )}
                   </p>
                 )}
+              </>
+            )}
 
-                {!isStaffSeat && (
+            {/* The two payroll files. Outside the estimate's own branch so a
+                failed read leaves them visible and DISABLED, with the reason,
+                rather than silently gone. */}
+            {!isStaffSeat && (dkQ.failed || (!dkLoading && dkEstimate?.staff_count > 0)) && (
+              <>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <button
+                    type="button"
+                    disabled={exportBlocked || dkLoading}
                     onClick={async () => {
                       try {
                         const res = await api.get("/staff/payroll/csv", {
@@ -910,11 +1021,13 @@ export default function StaffPayrollPage() {
                         }
                       }
                     }}
-                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
+                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {t("payrollDownloadCsv", "Download summary CSV (for DataLøn / Zenegy)")}
                   </button>
                   <button
+                    type="button"
+                    disabled={exportBlocked || dkLoading}
                     onClick={async () => {
                       try {
                         const res = await api.get("/staff/payroll/loenseddel", {
@@ -937,16 +1050,26 @@ export default function StaffPayrollPage() {
                         }
                       }
                     }}
-                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {t("payrollLoenseddelPdf", "Lønseddel PDF (one per employee)")}
                   </button>
                 </div>
+                {exportBlocked && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {t("payrollExportBlocked", "Exports are paused until the figures above have loaded.")}
+                  </p>
                 )}
+              </>
+            )}
 
+            {!dkQ.failed && !dkLoading && dkEstimate?.staff_count > 0 && (
+              <>
                 {dkEstimate.per_staff?.length > 0 && (
                   <details className="mt-3">
-                    <summary className="cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300 select-none">
+                    {/* py-3 on a phone: a 16px-tall disclosure is not a target
+                        a thumb can hit. */}
+                    <summary className="cursor-pointer py-3 sm:py-1 text-xs font-medium text-gray-700 dark:text-gray-300 select-none">
                       {t("payrollPerEmployeeBreakdown", "Per-employee breakdown ({count})").replace("{count}", dkEstimate.per_staff.length)}
                     </summary>
                     <div className="overflow-x-auto mt-2">
@@ -966,7 +1089,7 @@ export default function StaffPayrollPage() {
                           {dkEstimate.per_staff.map((s) => (
                             <tr key={s.staff_id} className="border-b border-gray-100 dark:border-gray-800">
                               <td className="py-1.5 px-2">{s.name}</td>
-                              <td className="py-1.5 px-2 text-right">{formatHours(s.hours, { lang })}</td>
+                              <td className="py-1.5 px-2 text-right">{formatHours(s.hours, { lang, decimals: 2 })}</td>
                               <td className="py-1.5 px-2 text-right">{fmtMoney(s.gross, currency)}</td>
                               <td className="py-1.5 px-2 text-right">{fmtMoney(s.am_bidrag, currency)}</td>
                               <td className="py-1.5 px-2 text-right">{fmtMoney(s.a_skat, currency)}</td>
@@ -993,7 +1116,7 @@ export default function StaffPayrollPage() {
               variant="primary"
               size="lg"
               onClick={generatePdf}
-              disabled={pdfLoading || sending || selectedIds.size === 0}
+              disabled={exportBlocked || pdfLoading || sending || selectedIds.size === 0}
               busy={pdfLoading}
               iconLeft={!pdfLoading && <Icon name="FileText" size={16} />}
               title={t("downloadPdfTooltip", "Download PDF to your device")}
@@ -1004,7 +1127,7 @@ export default function StaffPayrollPage() {
               variant="accent"
               size="lg"
               onClick={sendToAccountant}
-              disabled={sending || pdfLoading || selectedIds.size === 0}
+              disabled={exportBlocked || sending || pdfLoading || selectedIds.size === 0}
               busy={sending}
               iconLeft={!sending && <Icon name="Send" size={16} />}
               title={t("payrollSendTooltip", "Email this payroll directly to your accountant — set their address on Profile")}
@@ -1012,7 +1135,9 @@ export default function StaffPayrollPage() {
               {sending ? t("payrollSending", "Sending…") : t("payrollSendToAccountant", "Send to accountant")}
             </Button>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {selectedIds.size === 0
+              {exportBlocked
+                ? t("payrollExportBlocked", "Exports are paused until the figures above have loaded.")
+                : selectedIds.size === 0
                 ? t("payrollSelectToExport", "Select at least one staff member to export")
                 : `${selectedIds.size > 1
                     ? t("payrollStaffSelectedPlural", "{count} staff members selected", { count: selectedIds.size })
@@ -1038,6 +1163,15 @@ export default function StaffPayrollPage() {
           <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4">
             {t("sickCallTracker", "Sick Calls")}
           </h2>
+
+          {/* A failed read is not "No sick calls recorded yet". */}
+          {sickQ.failed && (
+            <LoadFailed
+              className="mb-4"
+              title={t("payrollSickLoadFailed", "Couldn't load sick calls.")}
+              onRetry={sickQ.reload}
+            />
+          )}
 
           {/* Stats cards */}
           {sickLoading ? (
@@ -1069,26 +1203,26 @@ export default function StaffPayrollPage() {
           {/* Quick log form */}
           <form onSubmit={logSickCall} className="flex flex-wrap gap-2 mb-4">
             <input
-              placeholder={t("staffName", "Staff name")}
+              placeholder={t("staffName", "Name")}
               value={sickForm.staff_name}
               onChange={e => setSickForm(f => ({ ...f, staff_name: e.target.value }))}
-              className="flex-1 min-w-[120px] px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white placeholder-gray-400"
+              className={`${PHONE_FIELD} flex-1 min-w-[120px] px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white placeholder-gray-400`}
             />
             <input
               type="date"
               value={sickForm.date}
               onChange={e => setSickForm(f => ({ ...f, date: e.target.value }))}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
+              className={`${PHONE_FIELD} px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white`}
             />
             <select
               value={sickForm.reason}
               onChange={e => setSickForm(f => ({ ...f, reason: e.target.value }))}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
+              className={`${PHONE_FIELD} px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white`}
             >
               <option value="">{t("reason", "Reason")}</option>
               {REASON_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.icon} {t(opt.labelKey, opt.fallback)}
+                  {t(opt.labelKey, opt.fallback)}
                 </option>
               ))}
             </select>
@@ -1128,7 +1262,7 @@ export default function StaffPayrollPage() {
                 return (
                   <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">{reasonObj?.icon || "📝"}</span>
+                      <Icon name={reasonObj?.icon || "FileText"} size={18} className="text-gray-400 dark:text-gray-500 shrink-0" />
                       <div>
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{sc.staff_name}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -1143,7 +1277,7 @@ export default function StaffPayrollPage() {
                 );
               })}
             </div>
-          ) : (
+          ) : sickQ.failed ? null : (
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
               {t("noSickCalls", "No sick calls recorded yet")}
             </p>
@@ -1160,7 +1294,7 @@ export default function StaffPayrollPage() {
           intent="dialog"
           tier={upgradeNudge.tier}
           benefit={upgradeNudge.benefit}
-          icon={upgradeNudge.icon}
+          iconName={upgradeNudge.iconName}
           ctaLabel={t("nudgeSeePlans", "See plans")}
           onTry={() => setUpgradeNudge(null)}
         />
@@ -1181,8 +1315,11 @@ function DkStat({ label, value, currency, accent = "gray", small = false }) {
   return (
     <div className={`rounded-lg border ${accentClass} px-3 py-2.5`}>
       <div className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>
-      <div className={`mt-0.5 font-bold text-gray-900 dark:text-white ${small ? "text-base" : "text-lg"}`}>
-        {value == null ? "—" : formatOwnerMoney(value, currency, { decimals: 0 })}
+      {/* Øre, as everywhere else on this tab: "12.345,50 kr.". These tiles
+          rounded to the krone, so the gross on the tile and the gross in the
+          table under it disagreed by up to 50 øre — on the lønseddel figures. */}
+      <div className={`mt-0.5 font-bold text-gray-900 dark:text-white tabular-nums ${small ? "text-base" : "text-lg"}`}>
+        {value == null ? "—" : formatOwnerMoney(value, currency, { decimals: 2 })}
       </div>
     </div>
   );

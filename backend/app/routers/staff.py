@@ -34,6 +34,7 @@ Endpoints:
   POST   /tips                       — create tip with auto-distribution
   PUT    /tips/{id}                  — update (before confirmed)
   POST   /tips/{id}/confirm          — lock distribution
+  DELETE /tips/{id}                  — delete (before confirmed)
 
   # Payroll
   POST   /payroll/pdf                — generate payroll PDF
@@ -5534,8 +5535,14 @@ def list_tips(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # The history prints every recipient's NAME (TipDistribution.staff_name),
+    # so load the shares and their people up front — lazily it was one query
+    # per pool, then one per name.
+    from sqlalchemy.orm import selectinload
+
     tips = (
         db.query(Tip)
+        .options(selectinload(Tip.distributions).selectinload(TipDistribution.staff_member))
         .filter(
             Tip.user_id == user.id,
             Tip.date >= from_date,
@@ -5563,13 +5570,54 @@ _TIP_ROLE_SHARE = {"full": 1.0, "hourly": 1.0, "full-time": 1.0, "full_time": 1.
                    "student": 0.5, "intern": 0.5, "trainee": 0.5}
 
 
+from decimal import Decimal, ROUND_HALF_UP  # noqa: E402 — the tip split counts øre
+
+
+def _hundredths(value) -> int:
+    """`value` x 100 as a whole number, rounded half-up on its decimal string —
+    kroner to øre, hours or percent to hundredths — so binary noise in a float
+    like 33.335 never decides which way an øre goes."""
+    return int((Decimal(str(value)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _split_ore(total_ore: int, weights: list) -> list[int]:
+    """Split `total_ore` in proportion to `weights` so the parts add up to
+    EXACTLY the total — the largest-remainder method.
+
+    Everyone gets the floor of their exact share; the øre left over go one
+    each to the largest remainders, ties to whoever is earlier on the roster.
+    Weights are taken in hundredths so the arithmetic is integer, and the page
+    builds its preview with the same rule (StaffTipsPage `splitOre`), so a
+    split recomputed here matches the one the owner was shown.
+
+    The old split rounded every share on its own: 100,00 kr. over three people
+    came to 3 x 33,33 = 99,99 kr., and the last øre belonged to nobody.
+    """
+    w = [max(0, _hundredths(x)) for x in weights]
+    wsum = sum(w)
+    if total_ore <= 0 or wsum <= 0:
+        return [0] * len(w)
+    parts = [total_ore * wi // wsum for wi in w]
+    rest = [total_ore * wi % wsum for wi in w]
+    left = total_ore - sum(parts)
+    for i in sorted(range(len(w)), key=lambda i: (-rest[i], i))[:left]:
+        parts[i] += 1
+    return parts
+
+
 def _store_tip_split(db: Session, user: User, tip: "Tip", data: "TipCreate") -> None:
     """Write the tip's distribution rows.
 
     The owner's previewed split is the source of truth when it checks out:
-    every person is on this tip's roster AND on this venue's staff, no share
-    is negative, and the shares sum to the total. Otherwise it is computed
-    here by the chosen method — never silently equal for a method that isn't.
+    every person is on this tip's roster AND on this venue's staff, nobody is
+    listed twice, no share is negative, and the shares add up to the total TO
+    THE ØRE. This used to wave through a split up to 0,05 kr. short, and those
+    øre were then paid to nobody. Otherwise the split is computed here by the
+    chosen method — largest remainder in øre, so it always adds up, and never
+    silently equal for a method that isn't.
+
+    Only people who receive money get a row. 422 when nobody can: a pool
+    stored without recipients is the whole pot lost.
     """
     roster = {str(sh.staff_id): float(sh.hours or 0) for sh in data.staff_hours}
     owned = {
@@ -5578,45 +5626,75 @@ def _store_tip_split(db: Session, user: User, tip: "Tip", data: "TipCreate") -> 
             StaffMember.id.in_([sh.staff_id for sh in data.staff_hours] or [uuid.uuid4()]),
         ).all()
     }
-    total = float(data.total_amount or 0)
+    total_ore = _hundredths(data.total_amount)
 
-    def _add(staff_id, amount, pct):
+    def _add(staff_id, amount_ore, pct):
         db.add(TipDistribution(
             id=uuid.uuid4(), tip_id=tip.id, staff_id=staff_id,
-            share_pct=round(pct, 2), amount=round(amount, 2),
+            # 0-100: share_pct is Numeric(5, 2), and a client's percentage is
+            # a label here, not a number anything is computed from.
+            share_pct=round(min(max(float(pct), 0.0), 100.0), 2),
+            amount=Decimal(amount_ore) / 100,
+            hours=round(roster.get(str(staff_id), 0.0), 2),
         ))
 
-    shares = [d for d in (data.distribution or []) if str(d.staff_id) in roster]
+    shares = data.distribution or []
+    share_ids = [str(d.staff_id) for d in shares]
     if (
         shares
-        and len(shares) == len(data.distribution)
-        and all(str(d.staff_id) in owned for d in shares)
-        and all(float(d.amount) >= 0 for d in shares)
-        and abs(sum(float(d.amount) for d in shares) - total) <= 0.05
+        and all(sid in roster and sid in owned for sid in share_ids)
+        and len(set(share_ids)) == len(share_ids)
+        and all(_hundredths(d.amount) >= 0 for d in shares)
+        and sum(_hundredths(d.amount) for d in shares) == total_ore
     ):
         for d in shares:
-            pct = float(d.percentage) if d.percentage is not None else (float(d.amount) / total * 100 if total else 0)
-            _add(d.staff_id, float(d.amount), pct)
+            amount_ore = _hundredths(d.amount)
+            if amount_ore == 0:
+                continue
+            pct = d.percentage
+            if pct is None or not (0 <= float(pct) <= 100):
+                pct = amount_ore / total_ore * 100
+            _add(d.staff_id, amount_ore, pct)
         return
 
     method = _TIP_METHOD.get((data.split_method or "").strip().lower(), "equal")
-    people = [sh.staff_id for sh in data.staff_hours if str(sh.staff_id) in owned]
+    # Once each, in roster order — the order is the tie-break for a spare øre.
+    people = list(dict.fromkeys(
+        str(sh.staff_id) for sh in data.staff_hours if str(sh.staff_id) in owned
+    ))
     if not people:
-        return
-    if method == "by_hours" and sum(roster[str(p)] for p in people) > 0:
-        weights = {p: roster[str(p)] for p in people}
+        raise HTTPException(
+            status_code=422,
+            detail="Ingen medarbejdere at fordele drikkepengene til.",
+        )
+    worked = [p for p in people if roster[p] > 0]
+    if method == "by_hours" and worked:
+        weights = [roster[p] for p in people]
     elif method == "by_role":
-        weights = {
-            p: _TIP_ROLE_SHARE.get(str(owned[str(p)].contract_type or "full").strip().lower(), 1.0)
+        # Who WORKED the period, as the page counts it — or everyone on the
+        # list when nobody has hours yet. Counting the people who did not work
+        # gave them a share the preview never showed.
+        on_shift = set(worked or people)
+        weights = [
+            _TIP_ROLE_SHARE.get(str(owned[p].contract_type or "full").strip().lower(), 1.0)
+            if p in on_shift else 0.0
             for p in people
-        }
+        ]
+    elif method == "custom" and any(
+        d.percentage is not None and float(d.percentage) > 0 for d in shares
+    ):
+        # The owner's own percentages, re-spread so the øre add up. Falling to
+        # an equal split here threw a 70/30 away over a one-øre rounding miss.
+        pct_by = {str(d.staff_id): max(0.0, float(d.percentage or 0)) for d in shares}
+        weights = [pct_by.get(p, 0.0) for p in people]
     else:
         # Equal only when equal was asked for (or nothing else can apply:
         # an hours split with no hours, a custom split with no valid shares).
-        weights = {p: 1.0 for p in people}
-    wsum = sum(weights.values()) or 1.0
-    for p, w in weights.items():
-        _add(p, total * w / wsum, w / wsum * 100)
+        weights = [1.0] * len(people)
+    wsum = sum(weights) or 1.0
+    for p, w, amount_ore in zip(people, weights, _split_ore(total_ore, weights)):
+        if amount_ore > 0:
+            _add(uuid.UUID(p), amount_ore, w / wsum * 100)
 
 
 @router.post("/tips", response_model=TipResponse)
@@ -5629,6 +5707,7 @@ def create_tip(
         id=uuid.uuid4(),
         user_id=user.id,
         date=data.date,
+        period_start=data.period_start,
         total_amount=data.total_amount,
         split_method=data.split_method,
         notes=data.notes,
@@ -5660,6 +5739,7 @@ def update_tip(
         raise HTTPException(status_code=400, detail="Cannot edit a confirmed tip")
 
     tip.date = data.date
+    tip.period_start = data.period_start
     tip.total_amount = data.total_amount
     tip.split_method = data.split_method
     tip.notes = data.notes
@@ -5675,22 +5755,82 @@ def update_tip(
     return tip
 
 
+def _tip_snapshot(tip: "Tip") -> dict:
+    """What the audit trail keeps of a pool: the period, the money and how it
+    was split — counts, not names, like the payroll export's own entry."""
+    return {
+        "date": tip.date.isoformat() if tip.date else None,
+        "period_start": tip.period_start.isoformat() if tip.period_start else None,
+        "total_amount": float(tip.total_amount or 0),
+        "split_method": tip.split_method,
+        "recipients": len(tip.distributions or []),
+        "confirmed": bool(tip.confirmed),
+    }
+
+
 @router.post("/tips/{tip_id}/confirm", response_model=TipResponse)
 def confirm_tip(
     tip_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Locking a split is a pay decision. The Drikkepenge tab is hidden behind
+    # the shared-device curtain, and the decision stays behind it too.
+    _require_uncurtained_wages(user)
     tip = db.query(Tip).filter(
         Tip.id == tip_id,
         Tip.user_id == user.id,
     ).first()
     if not tip:
         raise HTTPException(status_code=404, detail="Tip not found")
-    tip.confirmed = True
+    if not tip.confirmed:
+        before = _tip_snapshot(tip)
+        tip.confirmed = True
+        # The lock is what tells staff "this is what you got" — keep who set it
+        # and when, so a disputed split can be traced.
+        audit_service.record(
+            db, user, "staff.tip_confirmed", "tip",
+            entity_id=tip.id, before=before, after=_tip_snapshot(tip),
+            ip_address=client_ip(request) if request else None,
+        )
     db.commit()
     db.refresh(tip)
     return tip
+
+
+@router.delete("/tips/{tip_id}")
+def delete_tip(
+    tip_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a saved pool that has not been confirmed.
+
+    An unconfirmed pool is the owner's working copy — typed for the wrong week,
+    split the wrong way — and until it is gone it sits in the history, on the
+    Timer column and on the payroll PDF. A CONFIRMED pool is what staff were
+    told they got: it is locked against deleting exactly as against editing.
+    """
+    _require_uncurtained_wages(user)
+    tip = db.query(Tip).filter(
+        Tip.id == tip_id,
+        Tip.user_id == user.id,
+    ).first()
+    if not tip:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    if tip.confirmed:
+        raise HTTPException(status_code=400, detail="Cannot delete a confirmed tip")
+    before = _tip_snapshot(tip)
+    db.delete(tip)  # the shares go with it (cascade on Tip.distributions)
+    audit_service.record(
+        db, user, "staff.tip_deleted", "tip",
+        entity_id=tip_id, before=before,
+        ip_address=client_ip(request) if request else None,
+    )
+    db.commit()
+    return {"ok": True, "id": str(tip_id)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -5756,11 +5896,12 @@ def export_payroll_csv(
     """
     Hours + wages CSV for the owner to map into their lønsystem.
 
-    COLUMNS, as actually written below — ten, not the seven this docstring
-    used to claim:
+    COLUMNS, as actually written below — eleven:
         Name; Role; Contract; Hours; Gross (DKK); AM-bidrag (8%);
-        A-skat (est.); Net pay; Period start; Period end
+        A-skat (est.); Net pay; Period start; Period end; Tips (DKK)
     Semicolon-delimited with a UTF-8 BOM, because DK Excel locales split on ";".
+    Tips ("Drikkepenge") is LAST on purpose: an owner who mapped the first ten
+    columns into their lønsystem once keeps a working import.
 
     NOT a drop-in import. The previous wording promised "drop-in import for
     DataLøn / Zenegy / Salary" and that these "match the universal columns
@@ -5807,6 +5948,50 @@ def export_payroll_csv(
             ),
         ) from exc
 
+    # Drikkepenge per person, summed exactly as the payroll PDF sums them: every
+    # pool whose last day falls in the window. Tips were on the PDF and missing
+    # from this file, so the two documents for one period disagreed. Fails
+    # CLOSED like the estimate above — an empty tips column reads as "no tips",
+    # which is the same lie as an empty file.
+    per_staff = est.get("per_staff", [])
+    try:
+        tip_rows = (
+            db.query(
+                TipDistribution.staff_id,
+                func.sum(TipDistribution.amount).label("tips_total"),
+            )
+            .join(Tip, Tip.id == TipDistribution.tip_id)
+            .filter(
+                Tip.user_id == user.id,
+                Tip.date >= period_start,
+                Tip.date <= period_end,
+            )
+            .group_by(TipDistribution.staff_id)
+            .all()
+        )
+        tips_by_staff = {str(r.staff_id): float(r.tips_total or 0) for r in tip_rows}
+        # Someone can be owed tips for a period they have no wages in — a pool
+        # split by role, a shift logged after the export. They still need a row,
+        # or their tips are simply not in the file.
+        on_payroll = {str(s.get("staff_id")) for s in per_staff}
+        tips_only_ids = [sid for sid, v in tips_by_staff.items() if v and sid not in on_payroll]
+        tips_only = {
+            str(m.id): m for m in db.query(StaffMember).filter(
+                StaffMember.user_id == user.id,
+                StaffMember.id.in_(tips_only_ids),
+            ).all()
+        } if tips_only_ids else {}
+    except Exception as exc:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger(__name__).exception("payroll CSV tips lookup failed")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Kunne ikke hente drikkepengene for perioden. Prøv igen — "
+                "din eksport er IKKE tom, den blev ikke lavet."
+            ),
+        ) from exc
+
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";")  # DK lønsystems prefer ; (Excel locale)
     # Danish headers, labels and DECIMAL COMMAS. The file is ;-separated for
@@ -5820,8 +6005,10 @@ def export_payroll_csv(
         "Navn", "Rolle", "Ansættelse", "Timer", "Bruttoløn (kr.)",
         "AM-bidrag (8 %)", "A-skat (anslået)", "Udbetaling (anslået)",
         "Periode fra", "Periode til",
+        # Appended, never inserted — see the docstring.
+        "Drikkepenge (kr.)",
     ])
-    for s in est.get("per_staff", []):
+    for s in per_staff:
         role = str(s.get("role", "") or "")
         contract = str(s.get("contract_type", "") or "")
         writer.writerow([
@@ -5835,6 +6022,24 @@ def export_payroll_csv(
             _dk(s.get("net_pay", 0)),
             str(period_start),
             str(period_end),
+            _dk(tips_by_staff.get(str(s.get("staff_id")), 0)),
+        ])
+    # Tips-only rows, after everyone with wages: no hours and no wage in this
+    # window, so those columns are honestly 0,00 — only the tips are owed.
+    for sid in sorted(tips_only_ids, key=lambda i: (getattr(tips_only.get(i), "name", "") or "").lower()):
+        m = tips_only.get(sid)
+        role = str(getattr(m, "role", "") or "")
+        contract = str(getattr(m, "contract_type", "") or "")
+        writer.writerow([
+            # Never hard-deleted, so a miss here is a data fault — still a
+            # row, because dropping it would drop the money with it.
+            csv_safe(m.name if m is not None else f"Ukendt medarbejder ({sid[:8]})"),
+            csv_safe(_ROLE_DA.get(role.strip().lower(), role)),
+            csv_safe(_CONTRACT_DA.get(contract.strip().lower(), contract)),
+            _dk(0), _dk(0), _dk(0), _dk(0), _dk(0),
+            str(period_start),
+            str(period_end),
+            _dk(tips_by_staff[sid]),
         ])
 
     csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel locale handling

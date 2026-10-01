@@ -317,7 +317,14 @@ class Tip(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    # The pool's LAST day — the day it was closed and split. Payroll, the hours
+    # summary and the lønseddel all bucket tips by this date, so a pool lands
+    # in the pay period it was closed in.
     date: Mapped[date] = mapped_column(Date)
+    # The pool's FIRST day. A tip jar fills over a week, not an evening, so a
+    # pool covers a period and its hours are summed over all of it. NULL is a
+    # one-day pool — every row written before pools had a start.
+    period_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     total_amount: Mapped[float] = mapped_column(Numeric(10, 2))
     split_method: Mapped[str] = mapped_column(String(20), default="by_hours")
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -339,9 +346,22 @@ class TipDistribution(Base):
     staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
     share_pct: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     amount: Mapped[float] = mapped_column(Numeric(10, 2))
+    # The hours this share was worked out from: the period's logged hours, or
+    # what the owner typed over them in the form. Kept so the history can say
+    # WHY someone got what they got ("37,5 t · 62,5 %") — `amount` alone cannot.
+    # NULL on rows written before it existed. 62 days x 24 h fits in (6, 2).
+    hours: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
 
     tip: Mapped["Tip"] = relationship(back_populates="distributions")
     staff_member: Mapped["StaffMember"] = relationship(back_populates="tip_distributions")
+
+    @property
+    def staff_name(self) -> Optional[str]:
+        """Who got this share, for the history — which read "Medarbejder
+        #b819efb7-…" because the response carried only the id. `name`, not
+        `display_name`: this is pay, and pay prints the owner-set legal name."""
+        member = self.staff_member
+        return member.name if member is not None else None
 
 
 class StaffLink(Base):

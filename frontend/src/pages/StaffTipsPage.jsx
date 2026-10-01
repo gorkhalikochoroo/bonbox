@@ -3,16 +3,19 @@
 // + i18n + a11y unchanged.
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { Clock, Users, SlidersHorizontal } from "lucide-react";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
-import { formatDate, localIso, localDaysAgo, dateLocale, businessTodayIso } from "../utils/dateFormat";
-import { formatHoursMinutes, formatHoursNumber } from "../utils/hours";
-import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
-import { PageHeader, TabPills, Icon } from "../components/ui";
+import Chip from "../components/ui/Chip";
+import { localIso, localDaysAgo, dateLocale, businessTodayIso } from "../utils/dateFormat";
+import { formatHours, formatHoursNumber } from "../utils/hours";
+import { FadeIn, StaggerContainer, StaggerItem } from "../components/AnimationKit";
+import { PageHeader, TabPills, Icon, Button, LoadFailed } from "../components/ui";
 import { errText } from "../utils/errText";
 
 /* ═══════════════════════════════════════════════════════════
@@ -24,7 +27,7 @@ const SPLIT_METHODS = [
   {
     id: "hours", icon: Clock,
     labelKey: "stfTipSplitHours", labelFallback: "By Hours Worked",
-    descKey: "stfTipSplitHoursDesc", descFallback: "Proportional to hours logged today",
+    descKey: "stfTipSplitHoursDesc", descFallback: "Proportional to hours worked in the period",
   },
   {
     id: "role", icon: Users,
@@ -56,6 +59,7 @@ const ROLE_NAME_KEYS = {
   dishwasher: ["stfRoleDishwasher", "Dishwasher"],
   manager: ["teamRoleManager", "Manager"],
   kitchen: ["roleKitchen", "Kitchen"],
+  bar: ["roleBar", "Bar"],
   floor: ["roleFloor", "Floor"],
   full: ["contractFull", "Full-time"],
   part: ["contractPart", "Part-time"],
@@ -66,9 +70,14 @@ const ROLE_NAME_KEYS = {
   part_time: ["contractPart", "Part-time"],
   student: ["contractStudent", "Student"],
 };
-// "23,1 %", not "23.1%" — a Dane reads the dot as a thousands separator.
-function pctDa(v) {
-  return `${new Intl.NumberFormat("da-DK", { maximumFractionDigits: 1 }).format(Number(v) || 0)} %`;
+
+// The language's decimal mark, as the hours beside it (utils/hours): "23,1 %"
+// in Danish, "23.1%" in English. This was Danish for everyone, so an English
+// session read "23,1" — a comma an English reader takes for thousands.
+function pct(v, lang) {
+  const n = new Intl.NumberFormat(lang === "da" ? "da-DK" : "en-GB", { maximumFractionDigits: 1 })
+    .format(Number(v) || 0);
+  return lang === "da" ? `${n} %` : `${n}%`;
 }
 
 function roleName(role, t) {
@@ -103,6 +112,146 @@ function today() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   MONEY — øre, not floats
+   ═══════════════════════════════════════════════════════════ */
+// Hundredths as a whole number: kroner to øre, hours or percent to hundredths.
+// Taken from the same 2-decimal values the page SENDS, so the server's own
+// recompute (routers/staff.py `_split_ore`) works from identical weights.
+const hundredths = (v) => Math.round((Number(v) || 0) * 100);
+const round2 = (v) => hundredths(v) / 100;
+
+/**
+ * Split `totalOre` in proportion to `weights` so the parts add up to EXACTLY
+ * the pot — the largest-remainder method, and the server's rule to the øre.
+ * Everyone gets the floor of their exact share; the øre left over go one each
+ * to the largest remainders, ties to whoever is earlier in the list. Returns
+ * the parts plus which rows got one of those spare øre, so the page can say so.
+ *
+ * Each share used to be rounded on its own: 100,00 kr. over three people came
+ * to 3 × 33,33 = 99,99 kr., with "Afrundingsforskel: 0,01 kr." given to nobody.
+ */
+function splitOre(totalOre, weights) {
+  const w = weights.map((x) => Math.max(0, hundredths(x)));
+  const sum = w.reduce((a, b) => a + b, 0);
+  const bumped = new Set();
+  if (!(totalOre > 0) || !(sum > 0)) return { parts: w.map(() => 0), bumped };
+  const parts = w.map((wi) => Math.floor((totalOre * wi) / sum));
+  const rest = w.map((wi) => (totalOre * wi) % sum);
+  let left = totalOre - parts.reduce((a, b) => a + b, 0);
+  const order = w.map((_, i) => i).sort((i, j) => rest[j] - rest[i] || i - j);
+  for (const i of order) {
+    if (left <= 0) break;
+    parts[i] += 1;
+    bumped.add(i);
+    left -= 1;
+  }
+  return { parts, bumped };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PERIOD — a pool covers days, not a day
+   ═══════════════════════════════════════════════════════════ */
+// Same cap as the server (schemas/staff.py TIP_POOL_MAX_DAYS): a week of the
+// jar, sometimes two, at most a pay period.
+const TIP_POOL_MAX_DAYS = 62;
+
+// Calendar arithmetic on LOCAL days. new Date("2026-09-20") is UTC midnight —
+// the evening before, anywhere west of Greenwich — so build the date from its
+// parts, at noon, where no daylight-saving shift can move it.
+function isoToDate(iso) {
+  const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d, 12);
+}
+function shiftIso(iso, days) {
+  const d = isoToDate(iso);
+  d.setDate(d.getDate() + days);
+  return localIso(d);
+}
+function daysInclusive(fromIso, toIso) {
+  return Math.round((isoToDate(toIso) - isoToDate(fromIso)) / 86400000) + 1;
+}
+function mondayOf(iso) {
+  return shiftIso(iso, -((isoToDate(iso).getDay() + 6) % 7));
+}
+
+const PERIOD_PRESETS = [
+  { id: "last7", key: "stTipPeriodLast7", fallback: "Last 7 days" },
+  { id: "thisWeek", key: "stTipPeriodThisWeek", fallback: "This week" },
+  { id: "lastWeek", key: "stTipPeriodLastWeek", fallback: "Last week" },
+  { id: "custom", key: "stTipPeriodCustom", fallback: "Pick dates" },
+];
+
+function presetRange(id, todayIso) {
+  if (id === "thisWeek") return { from: mondayOf(todayIso), to: todayIso };
+  if (id === "lastWeek") {
+    const monday = shiftIso(mondayOf(todayIso), -7);
+    return { from: monday, to: shiftIso(monday, 6) };
+  }
+  // The default: the seven business days ending today — a week of the jar,
+  // whatever weekday the owner sits down to split it.
+  return { from: shiftIso(todayIso, -6), to: todayIso };
+}
+
+/**
+ * A pool's period the way the language writes a range — "14.–20. sep." in
+ * Danish, "14–20 Sept" in English — in the app's date locale, never raw ISO.
+ * The year only when it is not this one. A one-day pool (period_start NULL,
+ * every row from before periods) is just its day.
+ */
+function periodLabel(fromIso, toIso) {
+  if (!toIso) return "";
+  const a = isoToDate(fromIso || toIso);
+  const b = isoToDate(toIso);
+  const thisYear = new Date().getFullYear();
+  const opts = { day: "numeric", month: "short" };
+  if (a.getFullYear() !== thisYear || b.getFullYear() !== thisYear) opts.year = "numeric";
+  const f = new Intl.DateTimeFormat(dateLocale(), opts);
+  if (!fromIso || fromIso >= toIso) return f.format(b);
+  return typeof f.formatRange === "function" ? f.formatRange(a, b) : `${f.format(a)} – ${f.format(b)}`;
+}
+
+/**
+ * One row per person in the pool. Hours are SUMMED over every entry in the
+ * period — seven evenings of the week, and both halves of a split shift.
+ *
+ * Who is on it: everyone who logged hours in the period, including someone
+ * deactivated since (they worked it). With no hours logged at all, the active
+ * roster at 0 t, so the owner can type them in. Roster order (the server sorts
+ * by name) is also the tie-break for a spare øre, here and on the server.
+ */
+function buildRoster(members, entries) {
+  const hoursBy = new Map();
+  let openPunches = 0;
+  for (const h of entries || []) {
+    const id = String(h.staff_id);
+    hoursBy.set(id, (hoursBy.get(id) || 0) + (Number(h.total_hours ?? h.hours) || 0));
+    // An open clock-in stores 0 hours — say so, rather than quietly paying
+    // that evening as nothing.
+    if (h.entry_method === "clock" && !h.end_time) openPunches += 1;
+  }
+  const row = (id, m, hours) => ({
+    staff_id: id,
+    name: m?.name || m?.full_name || "",
+    // The split's promise is "part-time = 0,5" — that's the CONTRACT,
+    // not the job title ("kitchen", "bar" all weighed 1.0).
+    role: m?.contract_type || m?.employment_type || m?.role || "full-time",
+    hours: round2(hours),
+  });
+  const list = members || [];
+  const known = new Set(list.map((m) => String(m.id)));
+  const worked = list.filter((m) => (hoursBy.get(String(m.id)) || 0) > 0)
+    .map((m) => row(String(m.id), m, hoursBy.get(String(m.id))));
+  // Hours from someone no longer on the roster at all still count.
+  for (const [id, h] of hoursBy) {
+    if (h > 0 && !known.has(id)) worked.push(row(id, null, h));
+  }
+  const rows = worked.length
+    ? worked
+    : list.filter((m) => m.active !== false).map((m) => row(String(m.id), m, 0));
+  return { rows, openPunches };
+}
+
+/* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
 export default function StaffTipsPage() {
@@ -111,41 +260,29 @@ export default function StaffTipsPage() {
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("new"); // new | history
-  const [tipHistory, setTipHistory] = useState([]);
-  const [staffMembers, setStaffMembers] = useState([]);
-  const [loading, setLoading] = useState(false);
 
-  const fetchHistory = useCallback(() => {
-    const from = new Date();
-    from.setDate(from.getDate() - 90);
-    api.get("/staff/tips", { params: { from: localIso(from), to: today() } })
-      .then(r => setTipHistory(r.data))
-      .catch(() => {});
-  }, []);
-
-  const fetchStaff = useCallback(() => {
-    api.get("/staff/members")
-      .then(r => setStaffMembers(r.data))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    setLoading(true);
-    Promise.allSettled([
-      api.get("/staff/tips", { params: { from: localDaysAgo(90), to: today() } }),
-      api.get("/staff/members"),
-    ]).then(([histRes, staffRes]) => {
-      if (histRes.status === "fulfilled") setTipHistory(histRes.value.data);
-      if (staffRes.status === "fulfilled") setStaffMembers(staffRes.value.data);
-      setLoading(false);
-    });
-  }, []);
+  // THREE outcomes per request, not two (hooks/useAsyncData). Both of these
+  // used to `.catch(() => {})` into an empty list, so a failed history read as
+  // "Endnu ingen fordelinger" and a failed roster as a page with nobody on it.
+  // include_inactive: someone who worked the period and has left since is
+  // still owed their share of it.
+  const staffQ = useAsyncData(
+    () => api.get("/staff/members", { params: { include_inactive: true } }),
+    [],
+    { initial: [] },
+  );
+  const historyQ = useAsyncData(
+    () => api.get("/staff/tips", { params: { from: localDaysAgo(90), to: today() } }),
+    [],
+    { initial: [] },
+  );
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <PageHeader
+        eyebrow={t("shpEyebrow", "STAFF")}
         title={t("tips", "Tips")}
-        subtitle={t("tipsDesc", "Distribute tips fairly \u2014 by hours, role, or custom split")}
+        subtitle={t("tipsDesc", "Distribute tips fairly — by hours, role, or custom split")}
       />
 
       {/* Tab bar */}
@@ -159,27 +296,19 @@ export default function StaffTipsPage() {
         ariaLabel={t("stTipsViewAria", "Tips view")}
       />
 
-      {loading && (
-        <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-          <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full mb-3" />
-          <p className="text-sm">{t("loading", "Loading...")}</p>
-        </div>
-      )}
-
-      {!loading && tab === "new" && (
+      {tab === "new" && (
         <TipEntryForm
           currency={currency}
           t={t}
-          staffMembers={staffMembers}
-          onDone={() => { fetchHistory(); setTab("history"); }}
+          staffQ={staffQ}
+          onDone={() => { historyQ.reload(); setTab("history"); }}
         />
       )}
-      {!loading && tab === "history" && (
+      {tab === "history" && (
         <TipHistoryView
-          data={tipHistory}
+          historyQ={historyQ}
           currency={currency}
           t={t}
-          onRefresh={fetchHistory}
         />
       )}
     </div>
@@ -190,7 +319,7 @@ export default function StaffTipsPage() {
 /* ═══════════════════════════════════════════════════════════
    TIP ENTRY FORM
    ═══════════════════════════════════════════════════════════ */
-function TipEntryForm({ currency, t, staffMembers, onDone }) {
+function TipEntryForm({ currency, t, staffQ, onDone }) {
   // `t` arrives as a prop here, so there is no hook call in this component and
   // `lang` was not in scope — the hours total below needs it for the decimal
   // mark, and a bare reference would have thrown at render, which a green
@@ -201,164 +330,156 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
   // percentage columns beside it stay number inputs: neither is kroner.
   // See components/ui/MoneyField.jsx.
   const mLocale = moneyLocale(currency);
+  const oreText = (ore) => formatOwnerMoney(ore / 100, currency, { decimals: 2 });
   // A row with no name on file reads "Staff #12" — resolved at render so it
   // follows the language, never baked into the row.
-  const nameOf = (s) => s.name || t("stfStaffNumber", "Staff #{id}", { id: s.staff_id });
-  const [date, setDate] = useState(today());
+  const nameOf = (s) => s.name || t("stfStaffNumber", "Staff #{id}", { id: String(s.staff_id).slice(0, 8) });
+
+  // The pool's PERIOD. It was one date, and the hours fetched were that one
+  // day's — so a week's jar was split by whoever happened to work on Sunday.
+  const todayIso = today();
+  const [period, setPeriod] = useState(() => ({ preset: "last7", ...presetRange("last7", todayIso) }));
   const [totalAmount, setTotalAmount] = useState("");
   const [splitMethod, setSplitMethod] = useState("hours");
-  const [staffHours, setStaffHours] = useState([]);
-  const [customRatios, setCustomRatios] = useState({});
-  const [hoursLoading, setHoursLoading] = useState(false);
+  // What the owner typed over the logged figures, by staff_id. Cleared with
+  // every period change (in changePeriod, not an effect): a new period starts
+  // from what was logged in it.
+  const [hoursEdits, setHoursEdits] = useState({});
+  const [ratioEdits, setRatioEdits] = useState({});
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Fetch hours for the selected date
-  useEffect(() => {
-    if (!date) return;
-    setHoursLoading(true);
-    api.get("/staff/hours", { params: { from: date, to: date } })
-      .then(r => {
-        const hoursData = r.data || [];
-        // Merge with staff members to get names and roles
-        const merged = staffMembers.map(member => {
-          // Every entry of the day, not the first — a split shift was counted
-          // as its first half.
-          const entries = hoursData.filter(h => h.staff_id === member.id);
-          const hourEntry = entries.length
-            ? { hours: entries.reduce((n, h) => n + parseFloat(h.hours || h.total_hours || 0), 0) }
-            : null;
-          return {
-            staff_id: member.id,
-            name: member.name || member.full_name || "",
-            // The split's promise is "part-time = 0,5" — that's the CONTRACT,
-            // not the job title ("kitchen", "bar" all weighed 1.0).
-            role: member.contract_type || member.employment_type || member.role || "full-time",
-            hours: hourEntry ? parseFloat(hourEntry.hours || hourEntry.total_hours || 0) : 0,
-          };
-        }).filter(m => m.hours > 0 || hoursData.length === 0);
-
-        // If no hours data, show all staff with 0 hours for manual entry
-        if (merged.length === 0 && staffMembers.length > 0) {
-          setStaffHours(staffMembers.map(m => ({
-            staff_id: m.id,
-            name: m.name || m.full_name || "",
-            role: m.role || m.employment_type || "full-time",
-            hours: 0,
-          })));
-        } else if (merged.length > 0) {
-          setStaffHours(merged);
-        } else if (hoursData.length > 0) {
-          // If we have hours data but no matching staff, use hours data directly
-          setStaffHours(hoursData.map(h => ({
-            staff_id: h.staff_id,
-            name: h.staff_name || h.name || "",
-            role: h.role || "full-time",
-            hours: parseFloat(h.hours || h.total_hours || 0),
-          })));
-        }
-      })
-      .catch(() => {
-        // Fallback: use staff members list with 0 hours
-        if (staffMembers.length > 0) {
-          setStaffHours(staffMembers.map(m => ({
-            staff_id: m.id,
-            name: m.name || m.full_name || "",
-            role: m.role || m.employment_type || "full-time",
-            hours: 0,
-          })));
-        }
-      })
-      .finally(() => setHoursLoading(false));
-  }, [date, staffMembers]);
-
-  // Initialize custom ratios when staff changes
-  useEffect(() => {
-    if (staffHours.length > 0 && Object.keys(customRatios).length === 0) {
-      const even = Math.floor(10000 / staffHours.length) / 100;
-      const initial = {};
-      staffHours.forEach((s, i) => {
-        initial[s.staff_id] = i === 0
-          ? (100 - even * (staffHours.length - 1)).toFixed(2)
-          : even.toFixed(2);
-      });
-      setCustomRatios(initial);
+  const changePeriod = (next) => {
+    // Only a different RANGE starts over; opening "Pick dates" on the same
+    // days keeps what the owner already typed.
+    if (next.from !== period.from || next.to !== period.to) {
+      setHoursEdits({});
+      setRatioEdits({});
     }
-  }, [staffHours]);
+    setPeriod(next);
+    setError("");
+  };
+  const pickPreset = (id) => {
+    changePeriod(id === "custom"
+      ? { ...period, preset: "custom" }
+      : { preset: id, ...presetRange(id, todayIso) });
+  };
 
-  const totalHours = useMemo(
-    () => staffHours.reduce((sum, s) => sum + (parseFloat(s.hours) || 0), 0),
-    [staffHours]
+  const span = period.from && period.to ? daysInclusive(period.from, period.to) : 0;
+  const periodError = !period.from || !period.to
+    ? t("stTipPeriodMissing", "Pick a from and a to date.")
+    : period.from > period.to
+      ? t("stTipPeriodBackwards", "The period has to start before it ends.")
+      : period.to > todayIso
+        ? t("stTipPeriodFuture", "The period can't end after today.")
+        : span > TIP_POOL_MAX_DAYS
+          ? t("stTipPeriodTooLong", "A pool can cover at most {n} days.", { n: TIP_POOL_MAX_DAYS })
+          : "";
+  const periodValid = !periodError;
+  const periodText = periodValid ? periodLabel(period.from, period.to) : "";
+
+  // Every hour in the period, summed per person below. Held while the period
+  // is not a real one, so an un-asked question is never shown as a failure.
+  const hoursQ = useAsyncData(
+    () => api.get("/staff/hours", { params: { from: period.from, to: period.to } }),
+    [period.from, period.to],
+    { initial: [], enabled: periodValid },
   );
 
-  // A role split counts who WORKED — or, with no hours logged that day,
-  // everyone on the list. It gave everyone 0 % on a day without hours, while
-  // the banner told the owner to switch to exactly this split.
-  const totalRoleWeight = useMemo(
-    () => staffHours.reduce((sum, s) => sum + ((totalHours === 0 || (parseFloat(s.hours) || 0) > 0) ? getRoleShare(s.role) : 0), 0),
-    [staffHours, totalHours]
+  const members = staffQ.data;
+  const entries = hoursQ.data;
+  const roster = useMemo(() => buildRoster(members, entries), [members, entries]);
+  const staffHours = useMemo(
+    () => roster.rows.map((r) => (r.staff_id in hoursEdits ? { ...r, hours: hoursEdits[r.staff_id] } : r)),
+    [roster, hoursEdits],
   );
 
-  const totalCustomPercent = useMemo(
-    () => Object.values(customRatios).reduce((sum, v) => sum + (parseFloat(v) || 0), 0),
-    [customRatios]
-  );
+  // An even split of 100 %, to the hundredth, as the custom split's starting
+  // point — the same largest-remainder rule as the money, so it sums to 100.
+  const evenPct = useMemo(() => {
+    const { parts } = splitOre(10000, roster.rows.map(() => 1));
+    return Object.fromEntries(roster.rows.map((r, i) => [r.staff_id, (parts[i] / 100).toFixed(2)]));
+  }, [roster]);
+  const ratioOf = (id) => ratioEdits[id] ?? evenPct[id] ?? "";
+
+  // Loads this form cannot save without. A failed staff list or hours read
+  // must never become a split of the wrong people or of zero hours.
+  const staffFailed = staffQ.failed;
+  const hoursFailed = periodValid && hoursQ.failed;
+  const loadsPending = staffQ.loading || (periodValid && hoursQ.loading);
+  const loadsFailed = staffFailed || hoursFailed;
+  const rosterReady = periodValid && !loadsPending && !loadsFailed;
 
   // parseMoneyInput, not parseFloat: this is what the whole distribution is
   // divided by, so a "1.500,50" read as 1.5005 would hand every staff member
   // a thousandth of their share.
   const amountParsed = parseMoneyInput(totalAmount, mLocale);
-  const amount = Number.isFinite(amountParsed) ? amountParsed : 0;
+  const amount = Number.isFinite(amountParsed) && amountParsed > 0 ? amountParsed : 0;
+  const amountOre = hundredths(amount);
   const amountRejected = isMoneyRejected(totalAmount, mLocale);
 
-  // Calculate distribution for each staff member
-  const distribution = useMemo(() => {
-    if (!amount || staffHours.length === 0) return [];
-
-    return staffHours.map(s => {
-      const hours = parseFloat(s.hours) || 0;
-      let share = 0;
-      let pct = 0;
-
-      if (splitMethod === "hours") {
-        pct = totalHours > 0 ? (hours / totalHours) * 100 : 0;
-        share = totalHours > 0 ? (hours / totalHours) * amount : 0;
-      } else if (splitMethod === "role") {
-        const weight = (totalHours === 0 || hours > 0) ? getRoleShare(s.role) : 0;
-        pct = totalRoleWeight > 0 ? (weight / totalRoleWeight) * 100 : 0;
-        share = totalRoleWeight > 0 ? (weight / totalRoleWeight) * amount : 0;
-      } else if (splitMethod === "custom") {
-        pct = parseFloat(customRatios[s.staff_id]) || 0;
-        share = (pct / 100) * amount;
-      }
-
-      return {
-        ...s,
-        share_pct: Math.round(pct * 100) / 100,
-        share_amount: Math.round(share * 100) / 100,
-      };
-    });
-  }, [staffHours, amount, splitMethod, totalHours, totalRoleWeight, customRatios]);
-
-  const distributionTotal = useMemo(
-    () => distribution.reduce((sum, d) => sum + d.share_amount, 0),
-    [distribution]
+  const totalHours = useMemo(
+    () => staffHours.reduce((sum, s) => sum + round2(s.hours), 0),
+    [staffHours],
   );
 
-  const updateStaffHours = (staffId, newHours) => {
-    setStaffHours(prev => prev.map(s =>
-      s.staff_id === staffId ? { ...s, hours: parseFloat(newHours) || 0 } : s
-    ));
+  const totalCustomPercent = staffHours.reduce((sum, s) => sum + round2(ratioOf(s.staff_id)), 0);
+
+  // The split, computed for every row from the moment the period loads — not
+  // only once an amount is typed. The rows were hidden until then, while the
+  // banner below already told the owner to "enter hours above".
+  const split = useMemo(() => {
+    const weights = staffHours.map((s) => {
+      const h = round2(s.hours);
+      if (splitMethod === "hours") return h;
+      // A role split counts who WORKED — or, with no hours logged in the
+      // period, everyone on the list. It gave everyone 0 % without hours,
+      // while the banner told the owner to switch to exactly this split.
+      if (splitMethod === "role") return (totalHours === 0 || h > 0) ? getRoleShare(s.role) : 0;
+      return round2(ratioEdits[s.staff_id] ?? evenPct[s.staff_id] ?? 0);
+    });
+    const weightSum = weights.reduce((a, b) => a + b, 0);
+    const { parts, bumped } = splitOre(amountOre, weights);
+    const rows = staffHours.map((s, i) => ({
+      ...s,
+      weight: weights[i],
+      share_pct: splitMethod === "custom"
+        ? round2(weights[i])
+        : (weightSum > 0 ? round2((weights[i] / weightSum) * 100) : 0),
+      share_ore: parts[i],
+      bumped: bumped.has(i),
+    }));
+    return { rows, distributedOre: parts.reduce((a, b) => a + b, 0) };
+  }, [staffHours, splitMethod, totalHours, ratioEdits, evenPct, amountOre]);
+
+  // Where the spare øre went, in words — the honest version of the old
+  // "Afrundingsforskel", which named a difference and gave it to nobody.
+  const bumpedNames = split.rows.filter((r) => r.bumped).map(nameOf);
+  const roundingNote = !bumpedNames.length ? "" : bumpedNames.length === 1
+    ? t("stTipRoundingOne", "{amount} extra to {name} (rounding)", { amount: oreText(1), name: bumpedNames[0] })
+    : t("stTipRoundingMany", "{amount} extra each to {names} (rounding)", {
+      amount: oreText(1),
+      names: new Intl.ListFormat(lang === "da" ? "da" : "en", { type: "conjunction" }).format(bumpedNames),
+    });
+
+  const updateStaffHours = (staffId, value) => {
+    const h = Math.min(TIP_POOL_MAX_DAYS * 24, Math.max(0, parseFloat(value) || 0));
+    setHoursEdits((prev) => ({ ...prev, [staffId]: h }));
   };
 
-  const updateCustomRatio = (staffId, newPct) => {
-    setCustomRatios(prev => ({ ...prev, [staffId]: newPct }));
+  const updateCustomRatio = (staffId, value) => {
+    setRatioEdits((prev) => ({ ...prev, [staffId]: value }));
   };
+
+  // `!success`: the saved message stays up for a beat before the history
+  // opens, and the button under it must not save the same pool twice.
+  const canSave = rosterReady && !saving && !success && amountOre > 0 && !amountRejected && staffHours.length > 0;
 
   const handleSubmit = async () => {
-    if (!amount || amount <= 0) {
+    if (!rosterReady) return;
+    if (!amountOre) {
       setError(t("stErrEnterAmount", "Please enter a tip amount."));
       return;
     }
@@ -366,7 +487,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
       setError(t("stErrNoStaff", "No staff available for distribution."));
       return;
     }
-    if (splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5) {
+    if (splitMethod === "custom" && (Math.abs(totalCustomPercent - 100) > 0.5 || split.distributedOre !== amountOre)) {
       setError(t("stErrCustomTotal", "Custom percentages must add up to 100%."));
       return;
     }
@@ -379,16 +500,20 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
     setError("");
     try {
       await api.post("/staff/tips", {
-        date,
-        total_amount: amount,
+        // `date` is the pool's LAST day — payroll buckets tips by it.
+        date: period.to,
+        period_start: period.from,
+        total_amount: amountOre / 100,
         split_method: splitMethod,
-        staff_hours: staffHours.map(s => ({
+        staff_hours: staffHours.map((s) => ({
           staff_id: s.staff_id,
-          hours: parseFloat(s.hours) || 0,
+          hours: round2(s.hours),
         })),
-        distribution: distribution.map(d => ({
+        // Only the people who get money. The server stores this split as
+        // shown when it adds up to the øre, which by construction it does.
+        distribution: split.rows.filter((d) => d.share_ore > 0).map((d) => ({
           staff_id: d.staff_id,
-          amount: d.share_amount,
+          amount: d.share_ore / 100,
           percentage: d.share_pct,
         })),
       });
@@ -406,46 +531,87 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
   const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-lg";
   const labelClass = "text-sm font-medium text-gray-600 dark:text-gray-300";
+  const dateClass = "w-full min-h-[44px] px-3 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400";
 
   return (
     <div className="space-y-4">
-      {/* Date & Amount Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
-        <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDCDD"} {t("stTipDetails", "Tip Details")}</h2>
+      {/* Period & Amount Card */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-5">
+        <h2 className="text-lg font-bold dark:text-white">{t("stTipDetails", "Tip Details")}</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>{"\uD83D\uDCC5"} {t("stDate", "Date")}</label>
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              max={today()}
-              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400"
-            />
+        <div className="space-y-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className={labelClass} id="tip-period-label">{t("stTipPeriod", "Period")}</span>
+            {periodValid && (
+              <span className="text-sm text-gray-900 dark:text-gray-100 tabular-nums text-right">
+                {periodText}
+                <span className="text-gray-500 dark:text-gray-400">
+                  {" · "}
+                  {span === 1 ? t("stTipPeriodOneDay", "1 day") : t("stTipPeriodDays", "{n} days", { n: span })}
+                </span>
+              </span>
+            )}
           </div>
-          <div>
-            <label className={labelClass}>{"\uD83D\uDCB0"} {t("stTotalTips", "Total Tips")} ({currency})</label>
-            <MoneyField
-              locale={mLocale}
-              placeholder="0,00"
-              value={totalAmount}
-              onChange={e => setTotalAmount(e.target.value)}
-              className={inputClass}
-            />
+          <div className="flex flex-wrap gap-2" role="group" aria-labelledby="tip-period-label">
+            {PERIOD_PRESETS.map((p) => (
+              <Chip key={p.id} selected={period.preset === p.id} onClick={() => pickPreset(p.id)}>
+                {t(p.key, p.fallback)}
+              </Chip>
+            ))}
           </div>
+          {period.preset === "custom" && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block space-y-1">
+                <span className={labelClass}>{t("stTipPeriodFrom", "From")}</span>
+                <input
+                  type="date"
+                  value={period.from}
+                  max={period.to || todayIso}
+                  onChange={(e) => changePeriod({ ...period, from: e.target.value })}
+                  className={dateClass}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={labelClass}>{t("stTipPeriodTo", "To")}</span>
+                <input
+                  type="date"
+                  value={period.to}
+                  min={period.from || undefined}
+                  max={todayIso}
+                  onChange={(e) => changePeriod({ ...period, to: e.target.value })}
+                  className={dateClass}
+                />
+              </label>
+            </div>
+          )}
+          {periodError && (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">{periodError}</p>
+          )}
+        </div>
+
+        <div className="sm:max-w-sm">
+          <label className={labelClass}>{t("stTotalTips", "Total Tips")} ({currency})</label>
+          <MoneyField
+            locale={mLocale}
+            placeholder="0,00"
+            value={totalAmount}
+            onChange={e => setTotalAmount(e.target.value)}
+            className={inputClass}
+          />
         </div>
       </div>
 
       {/* Split Method Card */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
-        <h2 className="text-lg font-bold dark:text-white">{"\u2696\uFE0F"} {t("stSplitMethod", "Split Method")}</h2>
+        <h2 className="text-lg font-bold dark:text-white">{t("stSplitMethod", "Split Method")}</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {SPLIT_METHODS.map(method => (
             <button
               key={method.id}
+              type="button"
               onClick={() => setSplitMethod(method.id)}
+              aria-pressed={splitMethod === method.id}
               className={`p-3 rounded-xl border-2 text-left transition-all ${
                 splitMethod === method.id
                   ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50"
@@ -462,7 +628,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   {t(method.labelKey, method.labelFallback)}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-7">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
                 {t(method.descKey, method.descFallback)}
               </p>
             </button>
@@ -474,33 +640,50 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="p-5 sm:p-6 pb-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDC65"} {t("stStaffDistribution", "Staff Distribution")}</h2>
-            {amount > 0 && (
-              <span className="text-sm font-semibold text-emerald-600 dark:text-gray-300">
-                {formatOwnerMoney(amount, currency, { decimals: 2 })}
+            <h2 className="text-lg font-bold dark:text-white">{t("stStaffDistribution", "Staff Distribution")}</h2>
+            {amountOre > 0 && (
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                {oreText(amountOre)}
               </span>
             )}
           </div>
 
-          {hoursLoading && (
+          {/* Failure first, and INSTEAD of the table: a roster read from a
+              failed request is the wrong people, or everyone at 0 t. */}
+          {staffFailed && (
+            <LoadFailed
+              className="mb-5"
+              title={t("stfStaffLoadFailed", "Couldn't load your staff.")}
+              onRetry={staffQ.reload}
+            />
+          )}
+          {!staffFailed && hoursFailed && (
+            <LoadFailed
+              className="mb-5"
+              title={t("stTipHoursFailed", "Couldn't load the hours for this period.")}
+              onRetry={hoursQ.reload}
+            />
+          )}
+
+          {!loadsFailed && periodValid && loadsPending && (
             <div className="text-center py-8 text-gray-400">
               <div className="animate-spin inline-block w-5 h-5 border-2 border-gray-300 border-t-transparent rounded-full mb-2" />
               <p className="text-sm">{t("stLoadingHours", "Loading staff hours...")}</p>
             </div>
           )}
 
-          {!hoursLoading && staffHours.length === 0 && (
+          {rosterReady && staffHours.length === 0 && (
             <div className="text-center py-8">
-              <p className="text-3xl mb-2">{"\uD83D\uDC65"}</p>
+              <Icon name="Users" size={28} className="mx-auto mb-2 text-gray-400 dark:text-gray-500" />
               <p className="font-semibold dark:text-white">{t("stNoStaffFound", "No staff found")}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("stNoStaffHint", "Add staff members first, or check that hours are logged for {date}.").replace("{date}", date)}
+                {t("stNoStaffHint", "Add staff members first, or check that hours are logged in {date}.", { date: periodText })}
               </p>
             </div>
           )}
         </div>
 
-        {!hoursLoading && staffHours.length > 0 && (
+        {rosterReady && staffHours.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -525,12 +708,12 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                {distribution.map(row => (
+                {split.rows.map(row => (
                   <tr key={row.staff_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                     <td className="px-5 py-3">
                       <div>
                         <p className="text-sm font-medium dark:text-white">{nameOf(row)}</p>
-                        <p className="text-xs text-gray-400 capitalize">{roleName(row.role, t)}</p>
+                        <p className="text-xs text-gray-400">{roleName(row.role, t)}</p>
                       </div>
                     </td>
                     <td className="px-3 py-3 text-right">
@@ -539,16 +722,18 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                         inputMode="decimal"
                         step="0.5"
                         min="0"
+                        max={TIP_POOL_MAX_DAYS * 24}
                         value={row.hours || ""}
                         onChange={e => updateStaffHours(row.staff_id, e.target.value)}
+                        aria-label={`${t("stColHours", "Hours")} — ${nameOf(row)}`}
                         className="w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                         placeholder="0"
                       />
                     </td>
                     {splitMethod === "role" && (
                       <td className="px-3 py-3 text-right">
-                        <span className="text-sm text-gray-600 dark:text-gray-300">
-                          {getRoleShare(row.role).toFixed(1)}x
+                        <span className="text-sm text-gray-600 dark:text-gray-300 tabular-nums">
+                          {formatHoursNumber(getRoleShare(row.role), lang)}x
                         </span>
                       </td>
                     )}
@@ -560,20 +745,21 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                           step="0.01"
                           min="0"
                           max="100"
-                          value={customRatios[row.staff_id] || ""}
+                          value={ratioOf(row.staff_id)}
                           onChange={e => updateCustomRatio(row.staff_id, e.target.value)}
-                          className="w-20 px-2 py-1.5 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                          aria-label={`${t("stColShare", "Share %")} — ${nameOf(row)}`}
+                          className="w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                           placeholder="0"
                         />
                       ) : (
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          {pctDa(row.share_pct)}
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 tabular-nums">
+                          {pct(row.share_pct, lang)}
                         </span>
                       )}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">
-                        {row.share_amount > 0 ? formatOwnerMoney(row.share_amount, currency, { decimals: 2 }) : "\u2014"}
+                      <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                        {row.share_ore > 0 ? oreText(row.share_ore) : "—"}
                       </span>
                     </td>
                   </tr>
@@ -582,30 +768,30 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               <tfoot>
                 <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50">
                   <td className="px-5 py-3 text-sm font-bold dark:text-white">{t("total", "Total")}</td>
-                  <td className="px-3 py-3 text-right text-sm font-semibold dark:text-gray-300">
+                  <td className="px-3 py-3 text-right text-sm font-semibold dark:text-gray-300 tabular-nums">
                     {/* formatHoursNumber, not formatHours: the unit is
                         already in this column's header, and the cells above
                         are raw number inputs the owner typed — stamping a unit
                         on the total alone would read as a different notation
                         from the column it sums. toFixed(1) handed a Danish
                         owner "38.5" where they write "38,5". */}
-                    {totalHours > 0 ? formatHoursNumber(totalHours, lang) : "\u2014"}
+                    {totalHours > 0 ? formatHoursNumber(totalHours, lang, 2) : "—"}
                   </td>
                   {splitMethod === "role" && <td className="px-3 py-3" />}
                   <td className="px-3 py-3 text-right">
-                    <span className={`text-sm font-semibold ${
+                    <span className={`text-sm font-semibold tabular-nums ${
                       splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5
                         ? "text-red-500"
                         : "dark:text-gray-300"
                     }`}>
                       {splitMethod === "custom"
-                        ? pctDa(totalCustomPercent)
-                        : pctDa(distribution.reduce((s, d) => s + d.share_pct, 0))
+                        ? pct(totalCustomPercent, lang)
+                        : pct(split.rows.reduce((s, d) => s + d.share_pct, 0), lang)
                       }
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right text-sm font-bold text-emerald-600 dark:text-gray-300">
-                    {distributionTotal > 0 ? formatOwnerMoney(distributionTotal, currency, { decimals: 2 }) : "\u2014"}
+                  <td className="px-5 py-3 text-right text-sm font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+                    {split.distributedOre > 0 ? oreText(split.distributedOre) : "—"}
                   </td>
                 </tr>
               </tfoot>
@@ -613,39 +799,57 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           </div>
         )}
 
-        {/* Validation messages */}
-        {splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5 && totalCustomPercent > 0 && (
-          <div className="mx-5 mb-4 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 rounded-xl text-sm text-red-600 dark:text-red-400">
-            {t("stPercentTotalPrefix", "Percentages total")} {pctDa(totalCustomPercent)} — {t("stMustEqual100", "must equal 100%")}
+        {/* Notes under the table — quiet unless something needs the owner. */}
+        {rosterReady && staffHours.length > 0 && roundingNote && (
+          <p className="mx-5 mt-3 mb-1 text-xs text-gray-500 dark:text-gray-400 text-right">{roundingNote}</p>
+        )}
+
+        {rosterReady && roster.openPunches > 0 && (
+          <div className="mx-5 my-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+            <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />
+            {roster.openPunches === 1
+              ? t("stTipOpenPunchesOne", "1 shift in this period has no clock-out and counts as 0 hours. Fix it under Hours, or type the hours above.")
+              : t("stTipOpenPunches", "{n} shifts in this period have no clock-out and count as 0 hours. Fix them under Hours, or type the hours above.", { n: roster.openPunches })}
           </div>
         )}
 
-        {splitMethod === "hours" && totalHours === 0 && staffHours.length > 0 && (
-          <div className="mx-5 mb-4 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-700 dark:text-amber-300">
-            <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("stNoHoursBanner", "No hours logged for {date}. Enter hours manually above, or switch to Role or Custom split.").replace("{date}", date)}
+        {rosterReady && splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5 && totalCustomPercent > 0 && (
+          <div className="mx-5 my-3 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 rounded-xl text-sm text-red-600 dark:text-red-400">
+            {t("stPercentTotalPrefix", "Percentages total")} {pct(totalCustomPercent, lang)} — {t("stMustEqual100", "must equal 100%")}
           </div>
         )}
+
+        {rosterReady && splitMethod === "hours" && totalHours === 0 && staffHours.length > 0 && (
+          <div className="mx-5 my-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+            <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />
+            {t("stNoHoursBanner", "No hours logged in {date}. Enter hours above, or switch to Role or Custom split.", { date: periodText })}
+          </div>
+        )}
+        <div className="h-2" />
       </div>
 
       {/* Preview & Submit */}
-      {amount > 0 && staffHours.length > 0 && (
+      {amountOre > 0 && (staffHours.length > 0 || loadsFailed) && (
         <div className="space-y-3">
           {/* Preview Toggle */}
-          {!showPreview && (
+          {!showPreview && rosterReady && (
             <button
+              type="button"
               onClick={() => setShowPreview(true)}
-              className="w-full py-3 text-sm font-medium text-emerald-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+              className="w-full min-h-[44px] py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition inline-flex items-center justify-center gap-2"
             >
-              {"\uD83D\uDD0D"} {t("stPreviewDistribution", "Preview Distribution")}
+              <Icon name="Search" size={16} />
+              {t("stPreviewDistribution", "Preview Distribution")}
             </button>
           )}
 
-          {showPreview && (
+          {showPreview && rosterReady && (
             <FadeIn>
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold dark:text-white">{"\u2705"} {t("stDistributionPreview", "Distribution Preview")}</h2>
+                  <h2 className="text-lg font-bold dark:text-white">{t("stDistributionPreview", "Distribution Preview")}</h2>
                   <button
+                    type="button"
                     onClick={() => setShowPreview(false)}
                     className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 inline-flex items-center justify-end min-h-[44px] min-w-[44px] sm:inline-block sm:min-h-0 sm:min-w-0"
                   >
@@ -654,41 +858,41 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                 </div>
 
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
-                  <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                    <span>{t("stDate", "Date")}</span>
-                    <span className="dark:text-gray-300">{formatDate(date)}</span>
+                  <div className="flex justify-between gap-3 text-sm text-gray-500 dark:text-gray-400">
+                    <span>{t("stTipPeriod", "Period")}</span>
+                    <span className="text-gray-900 dark:text-gray-300 text-right">{periodText}</span>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                  <div className="flex justify-between gap-3 text-sm text-gray-500 dark:text-gray-400">
                     <span>{t("stMethod", "Method")}</span>
-                    <span className="dark:text-gray-300">
+                    <span className="text-gray-900 dark:text-gray-300 text-right">
                       {splitMethodLabel(splitMethod, t)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm font-bold pt-2 border-t dark:border-gray-600 dark:text-white">
                     <span>{t("stTotalTips", "Total Tips")}</span>
-                    <span className="text-emerald-600 dark:text-gray-300">{formatOwnerMoney(amount, currency, { decimals: 2 })}</span>
+                    <span className="text-gray-900 dark:text-gray-100 tabular-nums">{oreText(amountOre)}</span>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  {distribution.filter(d => d.share_amount > 0).map(d => (
+                  {split.rows.filter(d => d.share_ore > 0).map(d => (
                     <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
                       <div>
                         <p className="text-sm font-medium dark:text-white">{nameOf(d)}</p>
-                        <p className="text-xs text-gray-400">{pctDa(d.share_pct)} {t("stShareSuffix", "share")}</p>
+                        <p className="text-xs text-gray-400">
+                          {round2(d.hours) > 0 ? `${formatHours(round2(d.hours), { lang, decimals: 2 })} · ` : ""}
+                          {pct(d.share_pct, lang)} {t("stShareSuffix", "share")}
+                        </p>
                       </div>
-                      <span className="text-lg font-bold text-emerald-600 dark:text-gray-300">
-                        {formatOwnerMoney(d.share_amount, currency, { decimals: 2 })}
+                      <span className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+                        {oreText(d.share_ore)}
                       </span>
                     </div>
                   ))}
                 </div>
 
-                {/* Rounding note */}
-                {Math.abs(distributionTotal - amount) > 0.01 && (
-                  <p className="text-xs text-gray-400 text-center">
-                    {t("stRoundingDiff", "Rounding difference:")} {formatOwnerMoney(amount - distributionTotal, currency, { decimals: 2 })}
-                  </p>
+                {roundingNote && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center">{roundingNote}</p>
                 )}
               </div>
             </FadeIn>
@@ -696,24 +900,31 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
           {/* Error / Success */}
           {error && (
-            <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
+            <div role="alert" className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
               {error}
             </div>
           )}
           {success && (
-            <div className="bg-gray-50 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium text-center">
-              {"\u2705"} {success}
+            <div className="bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-3 rounded-xl text-sm font-medium text-center inline-flex w-full items-center justify-center gap-2">
+              <Icon name="Check" size={16} className="text-emerald-600 dark:text-emerald-400" />
+              {success}
             </div>
           )}
 
           {/* Submit Button */}
           <button
+            type="button"
             onClick={handleSubmit}
-            disabled={saving || amount <= 0 || amountRejected}
-            className="w-full py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
+            disabled={!canSave}
+            className="w-full min-h-[44px] py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
           >
-            {saving ? t("stDistributing", "Distributing...") : `\uD83D\uDCB0 ${t("stDistribute", "Distribute")} ${amount > 0 ? formatOwnerMoney(amount, currency, { decimals: 2 }) : t("tips", "Tips")}`}
+            {saving ? t("stDistributing", "Distributing...") : `${t("stDistribute", "Distribute")} ${oreText(amountOre)}`}
           </button>
+          {loadsFailed && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+              {t("stTipSaveBlocked", "Saving is paused until your staff and their hours have loaded.")}
+            </p>
+          )}
 
           {/* Tax reminder */}
           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
@@ -729,29 +940,102 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 /* ═══════════════════════════════════════════════════════════
    TIP HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
-function TipHistoryView({ data, currency, t, onRefresh }) {
+// Status chips: amber = still the owner's to decide, emerald = done. The same
+// soft 50/700 pairs as Timer's method badges. "Afventer" was yellow, a colour
+// with no meaning anywhere else in the app.
+const CHIP_PENDING = "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/25 dark:text-amber-300 dark:ring-amber-900/40";
+const CHIP_CONFIRMED = "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-900/40";
+
+function TipHistoryView({ historyQ, currency, t }) {
   // `t` arrives as a prop, but the hour unit is the LANGUAGE's, not the
   // catalogue's — so this view reads `lang` straight from the hook.
   const { lang } = useLanguage();
-  const [confirmingId, setConfirmingId] = useState(null);
+  const confirm = useConfirm();
+  const [busyId, setBusyId] = useState(null);
+  const [actionError, setActionError] = useState(null); // { id, msg }
   const [expandedId, setExpandedId] = useState(null);
+  const money = (n) => formatOwnerMoney(parseFloat(n) || 0, currency, { decimals: 2 });
+  const nameOf = (d) => d.staff_name || t("stfStaffNumber", "Staff #{id}", { id: String(d.staff_id).slice(0, 8) });
 
-  const handleConfirm = async (tipId) => {
-    setConfirmingId(tipId);
+  const data = historyQ.data || [];
+
+  // Locking is one tap from irreversible: say what it does, to how much, for
+  // which period — it locked on a single tap with no question at all.
+  const handleConfirm = async (tip) => {
+    const ok = await confirm({
+      title: t("stTipConfirmTitle", "Confirm the split?"),
+      message: t(
+        "stTipConfirmBody",
+        "{amount} for {period} is locked once you confirm. It can't be changed or deleted afterwards.",
+        { amount: money(tip.total_amount), period: periodLabel(tip.period_start, tip.date) },
+      ),
+      confirmLabel: t("stTipConfirmCta", "Confirm and lock"),
+    });
+    if (!ok) return;
+    setBusyId(tip.id);
+    setActionError(null);
     try {
-      await api.post(`/staff/tips/${tipId}/confirm`);
-      onRefresh();
-    } catch {
-      // silent
+      await api.post(`/staff/tips/${tip.id}/confirm`);
+      historyQ.reload();
+    } catch (err) {
+      // It failed silently: the button came back and the pool still said
+      // "Afventer", which reads like the tap did not register.
+      setActionError({ id: tip.id, msg: errText(err, t("stTipConfirmFailed", "Couldn't confirm the split. Try again.")) });
     } finally {
-      setConfirmingId(null);
+      setBusyId(null);
     }
   };
 
-  if (!data || data.length === 0) {
+  const handleDelete = async (tip) => {
+    const ok = await confirm({
+      title: t("stTipDeleteTitle", "Delete this split?"),
+      message: t(
+        "stTipDeleteBody",
+        "The {amount} split for {period} will be deleted. This can't be undone.",
+        { amount: money(tip.total_amount), period: periodLabel(tip.period_start, tip.date) },
+      ),
+      confirmLabel: t("delete", "Delete"),
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyId(tip.id);
+    setActionError(null);
+    try {
+      await api.delete(`/staff/tips/${tip.id}`);
+      setExpandedId(null);
+      historyQ.reload();
+    } catch (err) {
+      setActionError({ id: tip.id, msg: errText(err, t("stTipDeleteFailed", "Couldn't delete the split. Try again.")) });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // THE THIRD STATE. A failed read is never "no distributions yet". With
+  // nothing loaded it is only the failure; with an earlier answer on screen,
+  // that answer stays and is labelled stale.
+  if (historyQ.failed && data.length === 0) {
+    return (
+      <LoadFailed
+        title={t("stTipHistoryFailed", "Couldn't load the tip history.")}
+        onRetry={historyQ.reload}
+      />
+    );
+  }
+  // Nothing on screen yet, so a spinner — including the reload right after
+  // the first save, which otherwise flashed a "0 kr. · 0/0" summary.
+  if (historyQ.loading && data.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-400 dark:text-gray-500">
+        <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full mb-3" />
+        <p className="text-sm">{t("loading", "Loading…")}</p>
+      </div>
+    );
+  }
+  if (historyQ.isEmpty) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <p className="text-4xl mb-3">{"\uD83D\uDCB0"}</p>
+        <Icon name="Coins" size={32} className="mx-auto mb-3 text-gray-400 dark:text-gray-500" />
         <p className="font-semibold dark:text-white">{t("stNoDistributions", "No tip distributions yet")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           {t("stNoDistributionsHint", "Create your first tip distribution to see history here.")}
@@ -760,8 +1044,9 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
     );
   }
 
-  // Sort by date descending
-  const sorted = [...data].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  // Newest pool first: by its last day, then by when it was saved.
+  const sorted = [...data].sort((a, b) =>
+    (b.date || "").localeCompare(a.date || "") || (b.created_at || "").localeCompare(a.created_at || ""));
 
   // Stats summary
   const totalTips = data.reduce((s, d) => s + (parseFloat(d.total_amount) || 0), 0);
@@ -769,21 +1054,28 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
 
   return (
     <div className="space-y-4">
+      {historyQ.failed && (
+        <LoadFailed
+          onRetry={historyQ.reload}
+          body={t("loadFailedStale", "These are the last figures that loaded — they may be out of date.")}
+        />
+      )}
+
       {/* Summary Row */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("stTotalDistributed", "Total Distributed")}</p>
-          <p className="text-lg font-bold text-emerald-600 dark:text-gray-300 mt-1">
-            {formatOwnerMoney(totalTips, currency, { decimals: 2 })}
+          <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">
+            {money(totalTips)}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("stDistributions", "Distributions")}</p>
-          <p className="text-lg font-bold dark:text-white mt-1">{data.length}</p>
+          <p className="text-lg font-bold dark:text-white mt-1 tabular-nums">{data.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400">{t("stConfirmedLabel", "Confirmed")}</p>
-          <p className="text-lg font-bold dark:text-white mt-1">
+          <p className="text-lg font-bold dark:text-white mt-1 tabular-nums">
             {confirmedCount}/{data.length}
           </p>
         </div>
@@ -796,49 +1088,50 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
           const isPending = !isConfirmed;
           const isExpanded = expandedId === tip.id;
           const distributions = tip.distribution || tip.distributions || [];
+          const busy = busyId === tip.id;
 
           return (
             <StaggerItem key={tip.id}>
               <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
                 {/* Card Header */}
                 <button
+                  type="button"
                   onClick={() => setExpandedId(isExpanded ? null : tip.id)}
+                  aria-expanded={isExpanded}
                   className="w-full p-4 sm:p-5 text-left"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-bold dark:text-white">
-                        {tip.date ? new Date(tip.date).toLocaleDateString(dateLocale(), {
-                          weekday: "short", day: "numeric", month: "short", year: "numeric",
-                        }) : t("stUnknownDate", "Unknown date")}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-gray-900 dark:text-white">
+                        {tip.date ? periodLabel(tip.period_start, tip.date) : t("stUnknownDate", "Unknown date")}
                       </h3>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
                         {/* No `capitalize`: the label is already cased per
                             language, and CSS would Title-Case the Danish
                             ("Efter Rolle"). */}
-                        <span className="text-xs text-gray-400">
-                          
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
                           {splitMethodLabel(tip.split_method, t)}
                         </span>
-                        <span className="text-xs text-gray-300 dark:text-gray-600">{"\u2022"}</span>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-300 dark:text-gray-600" aria-hidden="true">{"·"}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
                           {distributions.length === 1
                             ? t("stfStaffCountOne", "1 staff member")
                             : `${distributions.length} ${t("stStaffCountSuffix", "staff")}`}
                         </span>
                       </div>
                     </div>
-                    <div className="text-right flex flex-col items-end gap-2">
-                      <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">
-                        {formatOwnerMoney(parseFloat(tip.total_amount) || 0, currency, { decimals: 2 })}
+                    <div className="text-right flex flex-col items-end gap-2 shrink-0">
+                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+                        {money(tip.total_amount)}
                       </p>
                       {isConfirmed ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                          {"\u2713"} {t("stConfirmedBadge", "Confirmed")}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${CHIP_CONFIRMED}`}>
+                          <Icon name="Check" size={12} />
+                          {t("stConfirmedBadge", "Confirmed")}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">
-                          {"\u25CB"} {t("stPendingBadge", "Pending")}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${CHIP_PENDING}`}>
+                          {t("stPendingBadge", "Pending")}
                         </span>
                       )}
                     </div>
@@ -848,8 +1141,8 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                   {!isExpanded && distributions.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3">
                       {distributions.slice(0, 3).map((d, i) => (
-                        <span key={i} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
-                          {d.staff_name || d.name || t("stfStaffNumber", "Staff #{id}", { id: d.staff_id })}: {formatOwnerMoney(parseFloat(d.amount) || 0, currency, { decimals: 2 })}
+                        <span key={i} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium tabular-nums">
+                          {nameOf(d)}: {money(d.amount)}
                         </span>
                       ))}
                       {distributions.length > 3 && (
@@ -865,38 +1158,65 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                 {isExpanded && (
                   <div className="px-4 sm:px-5 pb-4 sm:pb-5 border-t border-gray-100 dark:border-gray-700">
                     <div className="pt-4 space-y-2">
-                      {distributions.map((d, i) => (
-                        <div key={i} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                          <div>
-                            <p className="text-sm font-medium dark:text-white">
-                              {d.staff_name || d.name || t("stfStaffNumber", "Staff #{id}", { id: d.staff_id })}
-                            </p>
-                            <p className="text-xs text-gray-400">
-                              {d.hours ? formatHoursMinutes(parseFloat(d.hours), { lang }) : ""}{d.hours && d.percentage ? " \u2022 " : ""}
-                              {d.percentage ? pctDa(d.percentage) : ""}
-                            </p>
+                      {distributions.map((d, i) => {
+                        // Hours as a pay quantity ("37,5 t"), not a duration
+                        // ("37 t 30 min"); the share the API stores is
+                        // share_pct — `percentage` was read and never present.
+                        const facts = [
+                          d.hours != null && Number(d.hours) > 0 ? formatHours(Number(d.hours), { lang, decimals: 2 }) : null,
+                          d.share_pct != null ? pct(d.share_pct, lang) : null,
+                        ].filter(Boolean);
+                        return (
+                          <div key={i} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                            <div>
+                              <p className="text-sm font-medium dark:text-white">{nameOf(d)}</p>
+                              {facts.length > 0 && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{facts.join(" · ")}</p>
+                              )}
+                            </div>
+                            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                              {money(d.amount)}
+                            </span>
                           </div>
-                          <span className="text-sm font-bold text-emerald-600 dark:text-gray-300">
-                            {formatOwnerMoney(parseFloat(d.amount) || 0, currency, { decimals: 2 })}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
-                    {/* Confirm button for pending */}
+                    {actionError?.id === tip.id && (
+                      <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{actionError.msg}</p>
+                    )}
+
+                    {/* An unconfirmed pool: lock it, or throw it away. */}
                     {isPending && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleConfirm(tip.id); }}
-                        disabled={confirmingId === tip.id}
-                        className="mt-4 w-full py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold text-sm transition disabled:opacity-50"
-                      >
-                        {confirmingId === tip.id ? t("stConfirming", "Confirming...") : `\u2705 ${t("stConfirmDistribution", "Confirm Distribution")}`}
-                      </button>
+                      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                        <Button
+                          variant="primary"
+                          size="lg"
+                          className="w-full sm:flex-1"
+                          onClick={() => handleConfirm(tip)}
+                          disabled={busy}
+                          busy={busy}
+                          iconLeft={<Icon name="Lock" size={16} />}
+                        >
+                          {t("stConfirmDistribution", "Confirm Distribution")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="lg"
+                          className="w-full sm:w-auto"
+                          onClick={() => handleDelete(tip)}
+                          disabled={busy}
+                          iconLeft={<Icon name="Trash2" size={16} />}
+                        >
+                          {t("delete", "Delete")}
+                        </Button>
+                      </div>
                     )}
 
                     {isConfirmed && (
-                      <div className="mt-4 px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-center text-sm text-emerald-600 dark:text-gray-300 font-medium">
-                        {"\uD83D\uDD12"} {t("stLockedNotice", "Locked \u2014 This distribution has been confirmed")}
+                      <div className="mt-4 px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-sm text-gray-600 dark:text-gray-300 font-medium inline-flex w-full items-center justify-center gap-2">
+                        <Icon name="Lock" size={14} />
+                        {t("stLockedNotice", "Locked — This distribution has been confirmed")}
                       </div>
                     )}
                   </div>

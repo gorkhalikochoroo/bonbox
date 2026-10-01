@@ -363,23 +363,41 @@ class HoursLogResponse(BaseModel):
 # ── Tips ───────────────────────────────────────────────────────────────────
 
 
+# A pool is a week of the jar, sometimes two, at most a pay period. A longer
+# span is a typo in the from-date, not a pool.
+TIP_POOL_MAX_DAYS = 62
+
+
 class StaffHoursForTip(BaseModel):
     """Helper used inside TipCreate to distribute tips."""
     staff_id: uuid.UUID
-    hours: float
+    # Never negative: in an hours split a negative weight hands everyone else
+    # MORE than the whole pot. 62 days x 24 h is the most one pool can hold.
+    hours: float = Field(ge=0, le=TIP_POOL_MAX_DAYS * 24)
 
 
 class TipShareIn(BaseModel):
     """One person's share as the owner saw it in the preview."""
     staff_id: uuid.UUID
-    amount: float
-    percentage: float | None = None
+    # Finite only: the split counts øre with Decimal, and a NaN or Infinity —
+    # which a JSON body can carry — must be refused here rather than reach that
+    # arithmetic. A NEGATIVE share stays accepted; the split recomputes instead
+    # of storing it (routers/staff.py _store_tip_split).
+    amount: float = Field(allow_inf_nan=False)
+    percentage: float | None = Field(None, allow_inf_nan=False)
 
 
 class TipCreate(BaseModel):
+    # The pool's LAST day. Payroll buckets tips by it.
     date: datetime.date
-    total_amount: float
-    split_method: str = "by_hours"
+    # The pool's FIRST day. None is a one-day pool, which is what every client
+    # before periods sends.
+    period_start: datetime.date | None = None
+    # Positive, and inside Numeric(10, 2). A zero pot has nothing to split, and
+    # a negative one would book a debt against every person on the roster.
+    total_amount: float = Field(gt=0, le=99_999_999.99)
+    # The column is String(20); a longer value was a 500 on Postgres.
+    split_method: str = Field("by_hours", max_length=20)
     notes: str | None = None
     staff_hours: list[StaffHoursForTip] = []
     # The split the owner previewed and confirmed. When it checks out (on the
@@ -387,13 +405,25 @@ class TipCreate(BaseModel):
     # server used to ignore it and re-split, equally, whatever was chosen.
     distribution: list[TipShareIn] = []
 
+    @model_validator(mode="after")
+    def _a_pool_covers_a_real_period(self):
+        if self.period_start is not None:
+            if self.period_start > self.date:
+                raise ValueError("period_start must be on or before date")
+            if (self.date - self.period_start).days + 1 > TIP_POOL_MAX_DAYS:
+                raise ValueError(f"a tip pool can cover at most {TIP_POOL_MAX_DAYS} days")
+        return self
+
 
 class TipDistributionResponse(BaseModel):
     id: uuid.UUID
     tip_id: uuid.UUID
     staff_id: uuid.UUID
+    # From the staff_member relationship, so the history can print a name.
+    staff_name: str | None = None
     share_pct: float | None = None
     amount: float
+    hours: float | None = None
 
     model_config = {"from_attributes": True}
 
@@ -401,6 +431,8 @@ class TipDistributionResponse(BaseModel):
 class TipResponse(BaseModel):
     id: uuid.UUID
     date: datetime.date
+    # None = a one-day pool on `date`.
+    period_start: datetime.date | None = None
     total_amount: float
     split_method: str
     confirmed: bool = False
