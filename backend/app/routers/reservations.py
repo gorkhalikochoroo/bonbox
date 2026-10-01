@@ -2008,7 +2008,7 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
     # On Postgres the exclusion constraint is the real backstop (caught below);
     # on SQLite (dev/tests) this check IS the guard — same caveat as the
     # create paths.
-    ends_at = r.ends_at or (r.starts_at + timedelta(minutes=int(r.duration_min or 90)))
+    ends_at = _sitting_end_for(db, user, r, [payload.resource_id])
     if r.status in occ_service.HOLDING_STATUSES:
         clash = (
             db.query(ReservationOccupancy.id)
@@ -2026,6 +2026,7 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
 
     r.resource_id = payload.resource_id
+    r.ends_at = ends_at
     # Owner pinned ONE specific table — drop any stale combined-set (same
     # rule as update_status's reassign branch).
     r.combined_resource_ids = None
@@ -2045,13 +2046,37 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
     return _reservation_dict(r)
 
 
+def _sitting_end_for(db: Session, user: User, r: Reservation, ids: list):
+    """Where the hold should end on the table(s) being moved to. A party
+    seated early before another booking had its sitting cut to that
+    booking's start; moved to a table free for the whole sitting, it gets
+    the full sitting back — it kept the old table's 15.30."""
+    base = r.ends_at or (r.starts_at + timedelta(minutes=int(r.duration_min or 90)))
+    full = r.starts_at + timedelta(minutes=int(r.duration_min or 90))
+    if r.status != "seated" or full <= base:
+        return base
+    clash = (
+        db.query(ReservationOccupancy.id)
+        .filter(
+            ReservationOccupancy.user_id == user.id,
+            ReservationOccupancy.resource_id.in_(ids),
+            ReservationOccupancy.reservation_id != r.id,
+            ReservationOccupancy.active.is_(True),
+            ReservationOccupancy.starts_at < full,
+            ReservationOccupancy.ends_at > r.starts_at,
+        )
+        .first()
+    )
+    return base if clash is not None else full
+
+
 def _assign_tables(db: Session, user: User, r: Reservation, ids: list) -> dict:
     """Seat one party across several tables (2–6). Every table must be the
     owner's and free for the booking's window; the holds are written together
     so either all of them land or none does."""
     for rid in ids:
         _assert_owned_resource(db, user, rid)
-    ends_at = r.ends_at or (r.starts_at + timedelta(minutes=int(r.duration_min or 90)))
+    ends_at = _sitting_end_for(db, user, r, ids)
     if r.status in occ_service.HOLDING_STATUSES:
         clash = (
             db.query(ReservationOccupancy.id)
@@ -2069,6 +2094,7 @@ def _assign_tables(db: Session, user: User, r: Reservation, ids: list) -> dict:
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     r.resource_id = ids[0]
     r.combined_resource_ids = [str(x) for x in ids]
+    r.ends_at = ends_at
     try:
         occ_service.release_occupancy(db, r.id)
         if r.status in occ_service.HOLDING_STATUSES:

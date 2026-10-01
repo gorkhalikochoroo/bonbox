@@ -484,3 +484,26 @@ def test_seating_early_on_a_table_needed_soon_keeps_the_time_and_says_so(client,
     out = _status(client, b["id"], "seated")
     assert out["early_kept"] == {"table": "Bord 2", "at": soon.strftime("%H:%M")}
     assert _row(db, b["id"]).starts_at == later
+
+
+def test_moving_a_squeezed_early_party_to_a_free_table_restores_the_sitting(client, db):
+    from datetime import timedelta
+    u, (two, eight) = _venue(db, seats=(8, 8))
+    now, later = _later_today(u, minutes=240)
+    nxt = (now + timedelta(minutes=60)).replace(second=0)
+    client.post("/api/reservations/book", json={            # Bord 1 needed in an hour
+        "guest_name": "Test Efter", "party_size": 2, "source": "manual",
+        "starts_at": nxt.isoformat(), "resource_id": str(two.id),
+    })
+    b = client.post("/api/reservations/book", json={
+        "guest_name": "Test Flyt", "party_size": 2, "source": "manual",
+        "starts_at": later.isoformat(), "resource_id": str(two.id),
+    }).json()
+    _status(client, b["id"], "seated")                    # squeezed: ends at nxt
+    assert _row(db, b["id"]).ends_at == nxt
+    out = client.patch(f"/api/reservations/reservations/{b['id']}/table",
+                       json={"resource_id": str(eight.id)})
+    assert out.status_code == 200, out.text
+    row = _row(db, b["id"])
+    assert row.resource_id == eight.id
+    assert int((row.ends_at - row.starts_at).total_seconds() // 60) == 90
