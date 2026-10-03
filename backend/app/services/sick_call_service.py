@@ -324,6 +324,24 @@ def assign_cover(
     return absence
 
 
+def shift_span(start: Optional[str], end: Optional[str]):
+    """(start_min, end_min) of an "HH:MM"–"HH:MM" shift; an end at or before
+    the start runs past midnight. None when a time is missing or malformed."""
+    try:
+        sh, sm = (int(x) for x in str(start).split(":")[:2])
+        eh, em = (int(x) for x in str(end).split(":")[:2])
+    except Exception:  # noqa: BLE001
+        return None
+    s_min, e_min = sh * 60 + sm, eh * 60 + em
+    if e_min <= s_min:
+        e_min += 24 * 60
+    return (s_min, e_min)
+
+
+def spans_overlap(a, b) -> bool:
+    return a[0] < b[1] and b[0] < a[1]
+
+
 def suggest_replacements(
     db: Session,
     *,
@@ -348,12 +366,23 @@ def suggest_replacements(
     fairness rotation. Today's heuristic is the floor we can ship and
     test; smarter ranking goes in once availability data exists.
     """
-    # Find staff already scheduled on this date — exclude them.
-    busy_q = db.query(Schedule.staff_id).filter(
+    # Exclude staff whose shift that day OVERLAPS the shift to cover. Anyone
+    # scheduled at all used to be excluded, so a 11.30–15.00 lunch shift hid
+    # a person who was free for 17.00–22.30 and the card said "nobody is
+    # free". With no shift to cover, any shift that day still counts as busy.
+    day_rows = db.query(Schedule.staff_id, Schedule.start_time, Schedule.end_time).filter(
         Schedule.user_id == owner_id,
         Schedule.date == absence_date,
-    )
-    busy_ids = {row.staff_id for row in busy_q.all()}
+    ).all()
+    to_cover = [shift_span(r.start_time, r.end_time) for r in day_rows if r.staff_id == absent_staff_id]
+    to_cover = [sp for sp in to_cover if sp]
+    busy_ids = set()
+    for r in day_rows:
+        if r.staff_id == absent_staff_id:
+            continue
+        sp = shift_span(r.start_time, r.end_time)
+        if not to_cover or sp is None or any(spans_overlap(sp, c) for c in to_cover):
+            busy_ids.add(r.staff_id)
     busy_ids.add(absent_staff_id)  # never suggest the absent staff
 
     candidates_q = db.query(StaffMember).filter(

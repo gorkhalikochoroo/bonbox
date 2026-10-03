@@ -324,9 +324,24 @@ def test_cover_is_refused_when_the_replacement_already_works_that_day(client, db
     o = _owner(db); _as(o)
     anna = _staff(db, o, "Anna"); bo = _staff(db, o, "Bo")
     _shift_on(db, o, anna, D0)
-    _shift_on(db, o, bo, D0, "08:00", "12:00")
+    _shift_on(db, o, bo, D0, "15:00", "19:00")   # overlaps Anna's 16–22
     _post(client, anna, kind="sick", start=D0)
     absence = db.query(StaffAbsence).filter(StaffAbsence.staff_id == anna.id).first()
     r = client.post(f"/api/staff/absences/{absence.id}/cover", json={"replacement_staff_id": str(bo.id)})
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "replacement_busy"
+
+
+def test_someone_on_an_earlier_shift_is_suggested_and_can_cover(client, db):
+    """A 11.30–15.00 lunch shift hid a person free for 17.00–22.30; the card
+    said nobody was free."""
+    o = _owner(db); _as(o)
+    anna = _staff(db, o, "Anna"); jonas = _staff(db, o, "Jonas")
+    _shift_on(db, o, anna, D0, "17:00", "22:30")
+    _shift_on(db, o, jonas, D0, "11:30", "15:00")
+    _post(client, anna, kind="sick", start=D0)
+    absence = db.query(StaffAbsence).filter(StaffAbsence.staff_id == anna.id).first()
+    names = [c.get("name") for c in client.get(f"/api/staff/absences/{absence.id}/replacement-suggestions").json()]
+    assert "Jonas" in names
+    r = client.post(f"/api/staff/absences/{absence.id}/cover", json={"replacement_staff_id": str(jonas.id)})
+    assert r.status_code == 200, r.text

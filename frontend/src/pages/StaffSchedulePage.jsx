@@ -1622,6 +1622,9 @@ export default function StaffSchedulePage() {
   // Holds { id, prevStaffId, prevDateIso } of the just-moved shift for ~6s so a
   // mis-drop is one tap to put it back (Fortryd). null = nothing to undo.
   const [undoMove, setUndoMove] = useState(null);
+  // Why a drag snapped back. It went to the error banner above the grid —
+  // off-screen whenever the grid is in view — so the card just bounced home.
+  const [moveRefusal, setMoveRefusal] = useState(null);
 
   // Reassign a shift to a NEW staff and/or day via PUT /staff/schedules/{id}
   // with the full payload where staff_id + date are the new target. Backend
@@ -1665,10 +1668,11 @@ export default function StaffSchedulePage() {
           err?.response?.status === 409 &&
           err?.response?.data?.detail?.code === "shift_overlap"
         ) {
-          setError(overlapMessage(err.response.data.detail, t, lang));
+          setMoveRefusal(overlapMessage(err.response.data.detail, t, lang));
         } else {
-          setError(errText(err, t("shiftUpdateFailed", "Failed to update shift.")));
+          setMoveRefusal(errText(err, t("shiftUpdateFailed", "Failed to update shift.")));
         }
+        setTimeout(() => setMoveRefusal(null), 9000);
       }
     },
     [branchId, fetchShifts, t, lang, staff, roles]
@@ -1815,9 +1819,20 @@ export default function StaffSchedulePage() {
     // week-cost now — one unpriced shift makes the total unknown, and the
     // sheet names who is missing a wage instead.
     const missing = new Set();
+    // Draft shifts that sit on someone's fravær day — publishing them tells a
+    // sick person to come in. Named here, before the owner taps Udgiv.
+    const onAbsence = [];
     drafts.forEach((s) => {
       const sid = s.staff_id || s.staff_member_id;
       if (sid) staffIds.add(sid);
+      if (sid && absenceFor) {
+        const abs = absenceFor(sid, new Date(`${String(s.date).slice(0, 10)}T00:00:00`));
+        if (abs) {
+          const who = staff.find((m) => m.id === sid)?.name || "—";
+          const day = new Date(`${String(s.date).slice(0, 10)}T12:00:00`).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
+          onAbsence.push(`${who} (${day})`);
+        }
+      }
       const hrs = calcHours(s.start_time, s.end_time, s.break_minutes || 0);
       hours += hrs;
       const member = staff.find((m) => m.id === sid);
@@ -1849,6 +1864,7 @@ export default function StaffSchedulePage() {
       hours: Math.round(hours * 100) / 100,
       cost: missing.size ? null : Math.round(cost),
       missingWage: [...missing],
+      onAbsence,
       anyRate,
     };
   };
@@ -3631,6 +3647,25 @@ export default function StaffSchedulePage() {
       {/* Drag-to-move undo — a calm one-tap Fortryd for the just-moved shift.
           Auto-dismisses after ~6s. A move to another day of a PUBLISHED shift
           tells the staffer (removed + added), and so does its undo. */}
+      {moveRefusal && !undoMove && (
+        <div
+          role="alert"
+          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg max-w-[92vw]"
+        >
+          <span className="text-sm">
+            <span className="text-amber-300">⚠ </span>
+            {t("schedMoveRefused", "Not moved:")} {moveRefusal}
+          </span>
+          <button
+            type="button"
+            onClick={() => setMoveRefusal(null)}
+            className="text-sm font-semibold underline underline-offset-2 shrink-0"
+          >
+            {t("ok", "OK")}
+          </button>
+        </div>
+      )}
+
       {undoMove && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
           <span className="text-sm">
@@ -6164,7 +6199,11 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                   {pctLabel(dayStats.laborPct)}
                 </span>
               ) : (
-                <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+                <span
+                  className="text-sm font-bold text-gray-400 dark:text-gray-500 tabular-nums"
+                  title={t("schedLaborNoRev")}
+                  aria-label={t("schedLaborNoRev")}
+                >—</span>
               )}
             </span>
           )}
@@ -7950,6 +7989,14 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
             {summary.anyRate && summary.cost == null && (summary.missingWage || []).length > 0 && (
               <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400 leading-snug">
                 {missingWageText(summary.missingWage, t)}
+              </p>
+            )}
+            {(summary.onAbsence || []).length > 0 && (
+              <p className="-mt-2 text-[12px] text-amber-700 dark:text-amber-400 leading-snug">
+                ⚠ {t("publishOnAbsence", "{n} shift(s) on an absence day: {who}", {
+                  n: summary.onAbsence.length,
+                  who: summary.onAbsence.join(", "),
+                })}
               </p>
             )}
 

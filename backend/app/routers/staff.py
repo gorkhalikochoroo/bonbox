@@ -7505,11 +7505,19 @@ def assign_absence_cover(
             Schedule.staff_id == _abs.staff_id,
             Schedule.date == _abs.date,
         ).all()
-        if moving and db.query(Schedule).filter(
-            Schedule.user_id == user.id,
-            Schedule.staff_id == replacement_uuid,
-            Schedule.date == _abs.date,
-        ).first():
+        from app.services.sick_call_service import shift_span as _span, spans_overlap as _overlap
+        _theirs = [
+            _span(r.start_time, r.end_time) for r in db.query(Schedule).filter(
+                Schedule.user_id == user.id,
+                Schedule.staff_id == replacement_uuid,
+                Schedule.date == _abs.date,
+            ).all()
+        ]
+        if moving and any(
+            t is None or _span(m.start_time, m.end_time) is None
+            or _overlap(t, _span(m.start_time, m.end_time))
+            for t in _theirs for m in moving
+        ):
             raise HTTPException(
                 status_code=409,
                 detail={"code": "replacement_busy",
