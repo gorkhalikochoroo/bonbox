@@ -26,6 +26,7 @@ import { CalendarOff, Check } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { dateLocale } from "../utils/dateFormat";
+import { roleName } from "../utils/roleNames";
 
 
 /** Absence type → owner-facing label (ferie/sick/barns_syg/andet). */
@@ -40,7 +41,7 @@ function kindLabel(kind, t) {
 
 
 export default function SickCallNotificationCard() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [absences, setAbsences] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -49,7 +50,8 @@ export default function SickCallNotificationCard() {
       const res = await api.get("/staff/absences", {
         params: { days_back: 7, include_resolved: false },
       });
-      setAbsences(res.data || []);
+      // Oldest day first — a Thu–Fri sick call listed Friday above Thursday.
+      setAbsences([...(res.data || [])].sort((a, b) => String(a.date).localeCompare(String(b.date))));
     } catch {
       // Silent fail — dashboard shouldn't crash if the staff feature
       // isn't enabled / isn't reachable. Card just stays hidden.
@@ -72,7 +74,10 @@ export default function SickCallNotificationCard() {
   // never a filler.
   if (!loaded || absences.length === 0) return null;
   const pendingCount = absences.filter((a) => a.status === "pending").length;
-  const uncoveredCount = absences.filter((a) => a.status !== "pending" && !a.replacement_staff_name).length;
+  // Cover is only owed where the person HAS a shift that day.
+  const uncoveredCount = absences.filter(
+    (a) => a.status !== "pending" && !a.replacement_staff_name && a.shift_start,
+  ).length;
 
   return (
     <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 sm:p-5">
@@ -98,7 +103,7 @@ export default function SickCallNotificationCard() {
       </div>
       <div className="space-y-2">
         {absences.map((a) => (
-          <AbsenceRow key={a.id} absence={a} onChanged={fetchAbsences} t={t} />
+          <AbsenceRow key={a.id} absence={a} onChanged={fetchAbsences} t={t} lang={lang} />
         ))}
       </div>
     </div>
@@ -106,10 +111,16 @@ export default function SickCallNotificationCard() {
 }
 
 
-function AbsenceRow({ absence, onChanged, t }) {
+function AbsenceRow({ absence, onChanged, t, lang }) {
   const [showCover, setShowCover] = useState(false);
   const [candidates, setCandidates] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  // "17.00–22.30" in Danish, "17:00–22:30" in English.
+  const clock = (hhmm) => (lang === "da" ? String(hhmm || "").replace(":", ".") : hhmm);
+  const shiftText = absence.shift_start && absence.shift_end
+    ? `${clock(absence.shift_start)}–${clock(absence.shift_end)}`
+    : null;
 
   // Colour with meaning: amber = waits for the owner, emerald = approved.
   const statusBadge =
@@ -162,11 +173,16 @@ function AbsenceRow({ absence, onChanged, t }) {
 
   const assignCover = async (replacementId) => {
     setBusy(true);
+    setErr("");
     try {
+      // Moves the shift to the replacement (and tells them if published).
       await api.post(`/staff/absences/${absence.id}/cover`, {
         replacement_staff_id: replacementId,
       });
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       onChanged();
+    } catch (e) {
+      setErr(e?.response?.data?.detail?.message || t("sickCallCoverFailed", "Couldn't assign cover. Try again."));
     } finally {
       setBusy(false);
     }
@@ -182,7 +198,7 @@ function AbsenceRow({ absence, onChanged, t }) {
           {kindLabel(absence.kind, t)}
         </span>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {dateText}
+          {dateText}{shiftText ? ` · ${shiftText}` : ""}
         </span>
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusBadge}`}>
           {statusText}
@@ -200,7 +216,13 @@ function AbsenceRow({ absence, onChanged, t }) {
         </div>
       )}
 
-      {!absence.replacement_staff_name && (
+      {!absence.replacement_staff_name && !absence.shift_start && absence.status !== "pending" && (
+        <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+          {t("absenceNoShiftThatDay", "No shift that day — no cover needed.")}
+        </div>
+      )}
+      {err && <div className="text-[11px] text-red-600 dark:text-red-400 mt-1">{err}</div>}
+      {!absence.replacement_staff_name && (absence.status === "pending" || absence.shift_start) && (
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           {absence.status === "pending" && (
             <>
@@ -220,7 +242,7 @@ function AbsenceRow({ absence, onChanged, t }) {
               </button>
             </>
           )}
-          {!showCover && (
+          {!showCover && absence.shift_start && (
             <button
               onClick={openCover}
               disabled={busy}
@@ -254,7 +276,7 @@ function AbsenceRow({ absence, onChanged, t }) {
                       {c.name}
                     </div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                      {c.role}{c.phone ? ` · ${c.phone}` : ""}
+                      {roleName(c.role, t)}{c.phone ? ` · ${c.phone}` : ""}
                     </div>
                   </div>
                   <button

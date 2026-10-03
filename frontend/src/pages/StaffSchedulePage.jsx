@@ -61,6 +61,7 @@ import { expectedWeekLabor } from "../utils/weekLaborPct";
 // The 11-hour / 48-hour checks the shift sheet runs BEFORE saving — mirrors
 // of the server's week-load rules, run on the week this page already holds.
 import { preSaveWarnings, minutesToDayTime } from "../utils/shiftRules";
+import { roleName } from "../utils/roleNames";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
 // THE modal container. ShiftModal used to hand-roll a vertically-centred card
@@ -140,31 +141,6 @@ function roleToShiftOption(r, roles = ROLES_RESTAURANT) {
 // ("server", "kitchen") resolve too. Unknown roles — and the salon vocabulary,
 // Danish in both languages by decision — show exactly as stored. Same map as
 // the twins in StaffPortalPage, StaffPayrollPage and StaffTipsPage.
-const ROLE_NAME_KEYS = {
-  chef: ["stfRoleChef", "Chef"],
-  cook: ["stfRoleChef", "Chef"],
-  server: ["stfRoleServer", "Server"],
-  waiter: ["stfRoleServer", "Server"],
-  dishwasher: ["stfRoleDishwasher", "Dishwasher"],
-  manager: ["teamRoleManager", "Manager"],
-  kitchen: ["roleKitchen", "Kitchen"],
-  floor: ["roleFloor", "Floor"],
-  // A staffer whose role is the SECTION word ("bar", lowercase, as the roster
-  // stores it) read as the raw key "bar" beside "Køkken" and "Gulv".
-  bar: ["roleBar", "Bar"],
-  bartender: ["stfRoleBartender", "Bartender"],
-  barista: ["stfRoleBarista", "Barista"],
-  runner: ["stfRoleRunner", "Runner"],
-  "full-time": ["contractFull", "Full-time"],
-  full_time: ["contractFull", "Full-time"],
-  "part-time": ["contractPart", "Part-time"],
-  part_time: ["contractPart", "Part-time"],
-  student: ["contractStudent", "Student"],
-};
-function roleName(role, t) {
-  const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
-  return hit ? t(hit[0], hit[1]) : role;
-}
 // CONTRACT_TYPES moved to config/scheduleGrid.js when its labels became i18n
 // keys — a hardcoded "Full-time" was rendering English inside an otherwise
 // Danish staff drawer, and the grid now shows the same label as a row chip.
@@ -1656,20 +1632,27 @@ export default function StaffSchedulePage() {
     async (shift, toStaffId, toDateIso) => {
       const prevStaffId = shift.staff_id ?? shift.staff_member_id;
       const prevDateIso = String(shift.date);
+      // Handed to someone else, the shift takes THEIR role — the sheet's rule.
+      // A drag kept the old one: Jonas (Tjener) got a "Køkken" shift.
+      const toMember = String(toStaffId) !== String(prevStaffId)
+        ? (staff || []).find((m) => String(m.id) === String(toStaffId))
+        : null;
       const payload = {
         staff_id: toStaffId,
         date: toDateIso,
         start_time: shift.start_time,
         end_time: shift.end_time,
         break_minutes: shift.break_minutes || 0,
-        role_on_shift: shift.role_on_shift,
+        role_on_shift: toMember ? roleToShiftOption(toMember.role, roles) : shift.role_on_shift,
         notes: shift.notes || undefined,
         status: shift.status,
         branch_id: branchId || undefined,
       };
       try {
         await api.put(`/staff/schedules/${shift.id}`, payload);
-        setUndoMove({ id: shift.id, prevStaffId, prevDateIso, toDateIso });
+        // A refused drag's reason must not outlive the next good move.
+        setError("");
+        setUndoMove({ id: shift.id, prevStaffId, prevDateIso, toDateIso, toName: toMember?.name || null, prevRole: shift.role_on_shift });
         setTimeout(
           () => setUndoMove((u) => (u && u.id === shift.id ? null : u)),
           6000
@@ -1688,12 +1671,12 @@ export default function StaffSchedulePage() {
         }
       }
     },
-    [branchId, fetchShifts, t, lang]
+    [branchId, fetchShifts, t, lang, staff, roles]
   );
 
   const undoMoveAction = useCallback(async () => {
     if (!undoMove) return;
-    const { id, prevStaffId, prevDateIso } = undoMove;
+    const { id, prevStaffId, prevDateIso, prevRole } = undoMove;
     setUndoMove(null);
     const s = shifts.find((x) => x.id === id);
     if (!s) return;
@@ -1704,7 +1687,7 @@ export default function StaffSchedulePage() {
         start_time: s.start_time,
         end_time: s.end_time,
         break_minutes: s.break_minutes || 0,
-        role_on_shift: s.role_on_shift,
+        role_on_shift: prevRole ?? s.role_on_shift,
         notes: s.notes || undefined,
         status: s.status,
         branch_id: branchId || undefined,
@@ -3655,9 +3638,14 @@ export default function StaffSchedulePage() {
             {undoMove?.toDateIso && (
               <>
                 {" "}
-                {t("schedMovedTo", "to {day}", {
-                  day: new Date(`${undoMove.toDateIso}T12:00:00`).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "numeric" }),
-                })}
+                {undoMove.toName
+                  ? t("schedMovedToPerson", "to {name}, {day}", {
+                      name: undoMove.toName,
+                      day: new Date(`${undoMove.toDateIso}T12:00:00`).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "numeric" }),
+                    })
+                  : t("schedMovedTo", "to {day}", {
+                      day: new Date(`${undoMove.toDateIso}T12:00:00`).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "numeric" }),
+                    })}
               </>
             )}
           </span>

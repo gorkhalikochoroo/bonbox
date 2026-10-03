@@ -7253,6 +7253,11 @@ class _AbsenceResponse(_BM):
     replacement_staff_name: str | None = None
     acknowledged_at: datetime | None = None
     called_at: datetime
+    # The absent person's shift on that day, if any — a sick day with no
+    # shift needs no cover, and the card must not ask for one.
+    shift_id: str | None = None
+    shift_start: str | None = None
+    shift_end: str | None = None
 
 
 class _AssignCoverRequest(_BM):
@@ -7270,7 +7275,22 @@ def _serialize_absence(absence: _StaffAbsence, db: Session) -> _AbsenceResponse:
         repl = db.query(StaffMember).filter(
             StaffMember.id == absence.replacement_staff_id,
         ).first()
+    shift = db.query(Schedule).filter(
+        Schedule.user_id == absence.user_id,
+        Schedule.staff_id == absence.staff_id,
+        Schedule.date == absence.date,
+    ).order_by(Schedule.start_time).first()
+    # Once covered, the shift belongs to the replacement — show that one.
+    if shift is None and absence.replacement_staff_id:
+        shift = db.query(Schedule).filter(
+            Schedule.user_id == absence.user_id,
+            Schedule.staff_id == absence.replacement_staff_id,
+            Schedule.date == absence.date,
+        ).order_by(Schedule.start_time).first()
     return _AbsenceResponse(
+        shift_id=str(shift.id) if shift else None,
+        shift_start=shift.start_time if shift else None,
+        shift_end=shift.end_time if shift else None,
         id=str(absence.id),
         staff_id=str(absence.staff_id),
         staff_name=staff.name if staff else None,
@@ -7456,18 +7476,45 @@ def acknowledge_absence(
 def assign_absence_cover(
     absence_id: str,
     body: _AssignCoverRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Owner picks a replacement staff. Service layer validates the
     replacement is real, active, and not the same person as the
-    absentee."""
+    absentee.
+
+    "Tildel" MOVES the absent person's shift that day to the replacement.
+    It used to record the name only: the card said "Dækket af Jonas" while
+    the vagtplan still had the sick person on the shift and Jonas was never
+    told. A published shift tells the replacement it was added."""
     import uuid as _uuid
     try:
         absence_uuid = _uuid.UUID(absence_id)
         replacement_uuid = _uuid.UUID(body.replacement_staff_id)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid id")
+    _abs = db.query(_StaffAbsence).filter(
+        _StaffAbsence.id == absence_uuid,
+        _StaffAbsence.user_id == user.id,
+    ).first()
+    moving = []
+    if _abs is not None:
+        moving = db.query(Schedule).filter(
+            Schedule.user_id == user.id,
+            Schedule.staff_id == _abs.staff_id,
+            Schedule.date == _abs.date,
+        ).all()
+        if moving and db.query(Schedule).filter(
+            Schedule.user_id == user.id,
+            Schedule.staff_id == replacement_uuid,
+            Schedule.date == _abs.date,
+        ).first():
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "replacement_busy",
+                        "message": "Afløseren har allerede en vagt den dag."},
+            )
     try:
         absence = _assign_cover(
             db,
@@ -7477,6 +7524,31 @@ def assign_absence_cover(
         )
     except _SickCallError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    notifs = []
+    for sh in moving:
+        if sh.status == "published":
+            notifs.append((replacement_uuid, ShiftChange(
+                change_type="added", date=str(sh.date),
+                old_start=sh.start_time, old_end=sh.end_time,
+                new_start=sh.start_time, new_end=sh.end_time, role=sh.role_on_shift)))
+        sh.staff_id = replacement_uuid
+    if moving:
+        db.commit()
+    if notifs:
+        from app.services.owner_language import owner_lang
+        _lang = "da" if owner_lang(user) == "da" else "en"
+        _uid = user.id
+
+        def _send_bg():
+            bg_db = SessionLocal()
+            try:
+                for _sid, _ch in notifs:
+                    send_single_shift_notification(bg_db, _uid, _sid, _ch, "shift_changed", lang=_lang)
+            finally:
+                bg_db.close()
+
+        background_tasks.add_task(_send_bg)
     return _serialize_absence(absence, db)
 
 

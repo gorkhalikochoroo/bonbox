@@ -276,3 +276,57 @@ def test_a_malformed_id_is_422_not_500(client, db):
     owner = _owner(db)
     _as(owner)
     assert client.delete("/api/staff/absences/not-a-uuid").status_code == 422
+
+
+# ── cover: "Tildel" moves the shift, and only days with a shift need cover ──
+
+def _shift_on(db, owner, member, day, start="16:00", end="22:00", status="published"):
+    from app.models.staff import Schedule
+    sh = Schedule(id=uuid.uuid4(), user_id=owner.id, staff_id=member.id, date=day,
+                  start_time=start, end_time=end, break_minutes=0, status=status)
+    db.add(sh); db.commit(); db.refresh(sh)
+    return sh
+
+
+def test_the_list_says_which_days_have_a_shift(client, db):
+    o = _owner(db); _as(o)
+    anna = _staff(db, o, "Anna")
+    _shift_on(db, o, anna, D0 + timedelta(days=1), "17:00", "22:30")
+    assert _post(client, anna, kind="sick", start=D0, end=D0 + timedelta(days=1)).status_code == 200
+    rows = {r["date"]: r for r in client.get("/api/staff/absences", params={"days_back": 30}).json()}
+    assert rows[D0.isoformat()]["shift_start"] is None
+    assert (rows[(D0 + timedelta(days=1)).isoformat()]["shift_start"],
+            rows[(D0 + timedelta(days=1)).isoformat()]["shift_end"]) == ("17:00", "22:30")
+
+
+def test_assigning_cover_moves_the_shift_to_the_replacement(client, db, monkeypatch):
+    """The card said "Dækket af Bo" while Anna stayed on the vagtplan and Bo
+    was never told."""
+    from app.models.staff import Schedule
+    from app.routers import staff as staff_router
+    told = []
+    monkeypatch.setattr(staff_router, "send_single_shift_notification",
+                        lambda bg, uid, sid, ch, kind, lang="en": told.append((str(sid), ch.change_type)))
+    o = _owner(db); _as(o)
+    anna = _staff(db, o, "Anna"); bo = _staff(db, o, "Bo")
+    sh = _shift_on(db, o, anna, D0)
+    _post(client, anna, kind="sick", start=D0)
+    absence = db.query(StaffAbsence).filter(StaffAbsence.staff_id == anna.id).first()
+    r = client.post(f"/api/staff/absences/{absence.id}/cover", json={"replacement_staff_id": str(bo.id)})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(Schedule, sh.id).staff_id == bo.id
+    assert told == [(str(bo.id), "added")]
+    assert r.json()["shift_start"] == "16:00"
+
+
+def test_cover_is_refused_when_the_replacement_already_works_that_day(client, db):
+    o = _owner(db); _as(o)
+    anna = _staff(db, o, "Anna"); bo = _staff(db, o, "Bo")
+    _shift_on(db, o, anna, D0)
+    _shift_on(db, o, bo, D0, "08:00", "12:00")
+    _post(client, anna, kind="sick", start=D0)
+    absence = db.query(StaffAbsence).filter(StaffAbsence.staff_id == anna.id).first()
+    r = client.post(f"/api/staff/absences/{absence.id}/cover", json={"replacement_staff_id": str(bo.id)})
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "replacement_busy"
