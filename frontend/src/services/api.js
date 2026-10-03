@@ -6,7 +6,10 @@ import { requestStarted, requestSettled } from "./apiActivity";
 
 // The one prod origin. A native Capacitor shell (iOS/Android) has NO other
 // backend it could ever talk to — it ships pre-built and always points here.
-const PROD_API_URL = "https://api.bonbox.dk/api";
+// VITE_NATIVE_API_URL lets a LOCAL simulator build talk to a local backend
+// (e.g. http://localhost:8000/api) with local test data. Unset in every real
+// build, so the store apps always talk to production.
+const PROD_API_URL = import.meta.env.VITE_NATIVE_API_URL || "https://api.bonbox.dk/api";
 
 // Default API URL when no VITE_API_URL env var is set. Production users on
 // any *.bonbox.dk page get pointed at api.bonbox.dk so cookies stay

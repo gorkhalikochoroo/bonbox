@@ -1400,10 +1400,12 @@ function mateTone(name) {
 }
 
 // Hours in the reader's notation: "15,5", never "15.5".
-function fmtPortalHours(v) {
+// One formatter for every hours figure on the portal, in the portal's own
+// language — the Hours tab printed "101,5" beside "86.5 hrs" on one screen.
+function fmtPortalHours(v, lang = "da") {
   const n = Number(v);
   if (!Number.isFinite(n)) return v ?? "";
-  return new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 }).format(n);
+  return new Intl.NumberFormat(lang === "da" ? "da-DK" : "en-GB", { maximumFractionDigits: 2 }).format(n);
 }
 
 function staffInitials(name) {
@@ -2444,15 +2446,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
                     {all.map((fs) => (
                       <div key={fs.id || `${fs.date}-${fs.start_time}`} className="flex items-center justify-between gap-3 mt-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift, businessType)}`} aria-hidden />
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          {/* Top-aligned: with a "Med Sara, Jonas" line the
+                              block grows, and a centred bar drifted below the
+                              time it belongs to. */}
+                          <span className={`w-1.5 h-8 mt-0.5 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift, businessType)}`} aria-hidden />
                           <div className="min-w-0">
                             <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
                               {fs.start_time}–{fs.end_time}
                             </div>
-                            <div className="text-[11px] text-gray-500 truncate">
-                              {fs.role_on_shift ? `${roleName(fs.role_on_shift, t)} · ` : ""}{fmtHM(fs.net_hours)}
-                            </div>
+                            {/* The hours are on the right of the row; printing
+                                them here too said "8h 30m" twice per shift. */}
+                            {fs.role_on_shift && (
+                              <div className="text-[11px] text-gray-500 truncate">
+                                {roleName(fs.role_on_shift, t)}
+                              </div>
+                            )}
                             {/* Who you are on with, for EVERY shift — not just
                                 the hero's next one. "Who am I on with?" was
                                 answerable for exactly one day; a staffer
@@ -2967,7 +2976,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
 
         <div className="relative flex items-end gap-2">
           <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
-            {fmtPortalHours(data.total_hours)}
+            {fmtPortalHours(data.total_hours, lang)}
           </span>
           {/* hoursLabel already says "Rostered hours" or "Hours worked" from
               hours_source — the number must never claim to be the other one. */}
@@ -2994,7 +3003,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
-                {data.total_hours} / {maxHours}
+                {fmtPortalHours(data.total_hours, lang)} / {fmtPortalHours(maxHours, lang)}
               </div>
             </div>
           ) : soFar > 0 && ahead > 0 ? (
@@ -3008,7 +3017,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   against a cap. This is a SPLIT of the period, so it states the
                   one number the staffer does not already have. */}
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
-                {ahead} {t("portalHrsShort")}
+                {fmtPortalHours(ahead, lang)} {t("portalHrsShort")}
               </div>
             </div>
           ) : delta !== null ? (
@@ -3022,7 +3031,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
                 {delta === 0
                   ? t("portalHoursSameAsLast", "Same")
-                  : `${delta > 0 ? "+" : "−"}${Math.abs(delta)} ${t("portalHrsUnit")}`}
+                  : `${delta > 0 ? "+" : "−"}${fmtPortalHours(Math.abs(delta), lang)} ${t("portalHrsUnit")}`}
               </div>
             </div>
           ) : nextUp ? (
@@ -3065,7 +3074,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
             {weekBars.map((b) => (
               <div key={b.w} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }}>
-                <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{b.v}</span>
+                <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{fmtPortalHours(b.v, lang)}</span>
                 <div
                   style={{
                     width: "100%", borderRadius: 7,
@@ -3169,17 +3178,17 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 >
                   <div className="flex items-center" style={{ gap: 11 }}>
                     <span className="text-sm text-gray-500 flex-1">
-                      {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                      {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                     </span>
-                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtPortalHours(h.total_hours)} {t("portalHrsShort")}</span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtPortalHours(h.total_hours, lang)} {t("portalHrsShort")}</span>
                   </div>
                   {adjusted && (
                     <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
                       <PencilLine size={12} className="shrink-0 mt-0.5" />
                       <span className="tabular-nums">
                         {t("portalHoursAdjusted", "You clocked {clocked} · recorded {recorded}", {
-                          clocked: `${h.clock_hours} ${t("portalHrsShort")}`,
-                          recorded: `${h.total_hours} ${t("portalHrsShort")}`,
+                          clocked: `${fmtPortalHours(h.clock_hours, lang)} ${t("portalHrsShort")}`,
+                          recorded: `${fmtPortalHours(h.total_hours, lang)} ${t("portalHrsShort")}`,
                         })}
                       </span>
                     </p>
@@ -3234,9 +3243,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               {extra.map((h, i) => (
                 <div key={`rc-${i}`} className="flex items-center justify-between px-3 py-2.5 rounded-[18px] bg-white border border-[#e8edf3] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                   <span className="text-sm text-gray-500">
-                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                   </span>
-                  <span className="text-sm font-semibold text-gray-900">{fmtPortalHours(h.total_hours)} {t("portalHrsShort")}</span>
+                  <span className="text-sm font-semibold text-gray-900">{fmtPortalHours(h.total_hours, lang)} {t("portalHrsShort")}</span>
                 </div>
               ))}
             </div>

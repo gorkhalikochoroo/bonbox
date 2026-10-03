@@ -8,7 +8,9 @@ import { platform } from "../utils/platform";
 
 // This is the scheduler iOS app's PRIMARY client — every /s/:token portal +
 // /join screen goes through here. The native shell has exactly one backend.
-const PROD_API_URL = "https://api.bonbox.dk/api";
+// Same opt-in as services/api.js: a LOCAL simulator build may point at a local
+// backend. Unset in every real build.
+const PROD_API_URL = import.meta.env.VITE_NATIVE_API_URL || "https://api.bonbox.dk/api";
 
 // Same defaulting logic as api.js — bonbox.dk pages point at api.bonbox.dk.
 const _DEFAULT_API_URL = (() => {
