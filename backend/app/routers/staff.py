@@ -2752,13 +2752,26 @@ def update_schedule(
     #   • Reassigned (staffer changed): tell the OLD staffer it was REMOVED and
     #     the NEW staffer it was ADDED. (The old code emailed the OLD staffer the
     #     NEW times for a shift no longer theirs, and never told the new one.)
-    #   • Same staffer, times changed: 'modified' to that staffer.
+    #   • Same staffer, moved to another DAY: 'removed' on the old day and
+    #     'added' on the new one — a drag to Thursday used to tell them nothing,
+    #     and they would have turned up on Wednesday.
+    #   • Same staffer, same day, times changed: 'modified' to that staffer.
     user_id = user.id
     staffer_changed = str(old_staff_id) != str(data.staff_id)
+    date_changed = old_date != str(data.date)
     times_changed = old_start != data.start_time or old_end != data.end_time
     notifs = []  # list[(recipient_staff_id, ShiftChange)]
     if was_published:
         if staffer_changed:
+            notifs.append((old_staff_id, ShiftChange(
+                change_type="removed", date=old_date,
+                old_start=old_start, old_end=old_end,
+                new_start=old_start, new_end=old_end, role=data.role_on_shift)))
+            notifs.append((data.staff_id, ShiftChange(
+                change_type="added", date=str(data.date),
+                old_start=data.start_time, old_end=data.end_time,
+                new_start=data.start_time, new_end=data.end_time, role=data.role_on_shift)))
+        elif date_changed:
             notifs.append((old_staff_id, ShiftChange(
                 change_type="removed", date=old_date,
                 old_start=old_start, old_end=old_end,
@@ -3706,6 +3719,27 @@ def email_schedule_to_staff(
             },
         )
 
+    # The PDF carries PUBLISHED shifts only. A week with nothing published
+    # would reach every staffer as an empty rota labelled "this week's plan".
+    _published = db.query(func.count(Schedule.id)).filter(
+        Schedule.user_id == user.id,
+        Schedule.date >= body.week_start,
+        Schedule.date <= body.week_start + timedelta(days=6),
+        Schedule.status == "published",
+    ).scalar() or 0
+    if not _published:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_published_shifts",
+                "message": (
+                    "Udgiv ugen først — der er ingen udgivne vagter at sende."
+                    if (body.lang or "").lower() == "da" else
+                    "Publish the week first — there are no published shifts to send."
+                ),
+            },
+        )
+
     from io import BytesIO  # noqa: F401 (matches pattern in /schedules/pdf)
     from app.services.staff_schedule_pdf import render_schedule_pdf
     from app.services.email_service import send_email_with_attachment
@@ -3785,6 +3819,13 @@ def email_schedule_to_staff(
     skipped_names: list[str] = []
     failed: list[dict] = []
     cc = [user.email] if (body.cc_self and user.email) else None
+    # "23. november" / "23 November" — staff read a date, not "2026-11-23".
+    _ws = body.week_start
+    _week_human = (
+        f"{_ws.day}. {['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'][_ws.month - 1]}"
+        if is_danish else
+        f"{_ws.day} {['January','February','March','April','May','June','July','August','September','October','November','December'][_ws.month - 1]}"
+    )
 
     for s in targets:
         addr = (s.email or "").strip().lower()
@@ -3793,13 +3834,13 @@ def email_schedule_to_staff(
             skipped_names.append(s.name or "—")
             continue
 
-        first_name = (s.name or "").split(" ")[0] or s.name or ""
+        first_name = escape((s.name or "").split(" ")[0] or s.name or "")
         if is_danish:
             subject = f"Vagtplan uge {body.week_start.strftime('%V')} — {biz_name}"
             greeting = f"Hej {first_name},".strip(", ")
             intro = (
                 f"Vedhæftet finder du vagtplanen for ugen "
-                f"<strong>fra mandag {week_iso}</strong>."
+                f"<strong>fra mandag {_week_human}</strong>."
             )
             footer = (
                 "Sendt direkte fra BonBox. "
@@ -3810,7 +3851,7 @@ def email_schedule_to_staff(
             greeting = f"Hi {first_name},".strip(", ")
             intro = (
                 f"Attached is the schedule for the week starting "
-                f"<strong>Monday {week_iso}</strong>."
+                f"<strong>Monday {_week_human}</strong>."
             )
             footer = (
                 "Sent directly from BonBox. "

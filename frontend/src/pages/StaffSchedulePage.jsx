@@ -88,6 +88,7 @@ import {
   useDraggable,
   useDroppable,
   closestCenter,
+  pointerWithin,
 } from "@dnd-kit/core";
 // C7 Intelligence collapse — weather + smart-staffing forecasts fold into a
 // collapsed panel right here on the Schedule page (where shift decisions are
@@ -1577,15 +1578,42 @@ export default function StaffSchedulePage() {
         branch_id: branchId || undefined,
         // status intentionally OMITTED → backend defaults 'draft' → no notify.
       };
+      // The one-tap add skips the sheet, so it must not skip the rules the
+      // sheet shows: a tap that gives Ali a 53-hour week says so in the undo
+      // toast, right where "Fortryd" is.
+      const member = (staff || []).find((m) => m.id === staffId);
+      const breach = preSaveWarnings({
+        member,
+        weekShifts: shifts,
+        dateIso: payload.date,
+        start: startT,
+        end: endT,
+        breakMinutes: payload.break_minutes || 0,
+      })[0];
+      let warning = null;
+      if (breach?.kind === "rest") {
+        const at = minutesToDayTime(breach.windowStart);
+        warning = restRuleText(member.name, breach.restHours, at.dateIso, at.hhmm, t, lang);
+      } else if (breach?.kind === "dk48") {
+        warning = t("shiftWarnDk48", "{name}: {hours} this week — over the 48-hour limit", {
+          name: member.name, hours: formatHours(breach.hours, { lang, decimals: 2 }),
+        });
+      } else if (breach?.kind === "cap") {
+        warning = t("shiftWarnCap", "{name}: {hours} this week — over the contract's {cap}", {
+          name: member.name,
+          hours: formatHours(breach.hours, { lang, decimals: 2 }),
+          cap: formatHours(breach.cap, { lang, decimals: 2 }),
+        });
+      }
       try {
         const res = await api.post("/staff/schedules", payload);
         const createdId = res?.data?.id ?? null;
         await fetchShifts();
         if (createdId != null) {
-          setUndoShift({ id: createdId });
+          setUndoShift({ id: createdId, warning });
           setTimeout(
             () => setUndoShift((u) => (u && u.id === createdId ? null : u)),
-            6000
+            warning ? 10000 : 6000
           );
         }
       } catch (err) {
@@ -1599,7 +1627,7 @@ export default function StaffSchedulePage() {
         }
       }
     },
-    [shifts, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
+    [shifts, staff, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
   );
 
   const undoBloom = useCallback(async () => {
@@ -1641,7 +1669,7 @@ export default function StaffSchedulePage() {
       };
       try {
         await api.put(`/staff/schedules/${shift.id}`, payload);
-        setUndoMove({ id: shift.id, prevStaffId, prevDateIso });
+        setUndoMove({ id: shift.id, prevStaffId, prevDateIso, toDateIso });
         setTimeout(
           () => setUndoMove((u) => (u && u.id === shift.id ? null : u)),
           6000
@@ -1853,6 +1881,17 @@ export default function StaffSchedulePage() {
     () => (shiftsQ.failed ? null : (shifts || []).filter((s) => s.status === "draft").length),
     [shifts, shiftsQ.failed],
   );
+  // The emailed schedule and the staff PDF carry PUBLISHED shifts only. With
+  // drafts on the week (or nothing published) they would hand staff an empty
+  // or partial rota as if it were the plan — so both wait for "Udgiv".
+  const handoffBlockedReason =
+    draftCount == null
+      ? null
+      : draftCount > 0
+        ? t("schedHandoffPublishFirst", "Publish the week first — drafts are not included.")
+        : (shifts || []).length === 0
+          ? t("schedHandoffNothingPublished", "There are no published shifts this week yet.")
+          : null;
 
   // Step 1 — open the confirm sheet (the deliberate gate before going live).
   const requestPublish = async () => {
@@ -2686,8 +2725,10 @@ export default function StaffSchedulePage() {
 
       {/* "3 of 4 staff confirmed this week's schedule" — the owner half of the
           bidirectional confirmation loop. Self-hides when nothing is published
-          or once everyone has confirmed. */}
-      <ScheduleConfirmationCard />
+          or once everyone has confirmed. It speaks about THIS week ("i denne
+          uge"), so it only shows on this week — above Uge 48 it described a
+          week the owner wasn't looking at. */}
+      {isCurrentWeek && <ScheduleConfirmationCard />}
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>
@@ -3588,7 +3629,12 @@ export default function StaffSchedulePage() {
           local convenience (no "unsend"). */}
       {undoShift && (
         <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
-          <span className="text-sm">{t("schedShiftAdded", "Shift added as draft")}</span>
+          <span className="text-sm">
+            {t("schedShiftAdded", "Shift added as draft")}
+            {undoShift.warning && (
+              <span className="block text-amber-300 text-[13px] mt-0.5">⚠ {undoShift.warning}</span>
+            )}
+          </span>
           <button
             type="button"
             onClick={undoBloom}
@@ -3600,11 +3646,21 @@ export default function StaffSchedulePage() {
       )}
 
       {/* Drag-to-move undo — a calm one-tap Fortryd for the just-moved shift.
-          Auto-dismisses after ~6s. A move never changes the time, so a published
-          shift is NOT re-notified by the move (or by this undo). */}
+          Auto-dismisses after ~6s. A move to another day of a PUBLISHED shift
+          tells the staffer (removed + added), and so does its undo. */}
       {undoMove && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
-          <span className="text-sm">{t("schedMoved", "Shift moved")}</span>
+          <span className="text-sm">
+            {t("schedMoved", "Shift moved")}
+            {undoMove?.toDateIso && (
+              <>
+                {" "}
+                {t("schedMovedTo", "to {day}", {
+                  day: new Date(`${undoMove.toDateIso}T12:00:00`).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "numeric" }),
+                })}
+              </>
+            )}
+          </span>
           <button
             type="button"
             onClick={undoMoveAction}
@@ -3762,6 +3818,7 @@ export default function StaffSchedulePage() {
                 label: t("schedHandoffEmailLabel", "Email this week's schedule"),
                 body: t("schedHandoffEmailBody", "One email with this week only, to everyone who has an email on file. No app, no notification."),
                 busy: emailing,
+                blocked: handoffBlockedReason,
                 run: () => { setHandoffSheet(false); handleEmailToStaff(); },
               },
               {
@@ -3770,13 +3827,14 @@ export default function StaffSchedulePage() {
                 label: t("schedHandoffPdfLabel", "PDF for the staff board"),
                 body: t("schedHandoffPdfBody", "Downloads a sheet you can print and pin up. Nothing is sent to anyone."),
                 busy: exporting,
+                blocked: handoffBlockedReason,
                 run: () => { setHandoffSheet(false); handleExportPdf(); },
               },
             ].map((row) => (
               <button
                 key={row.key}
                 type="button"
-                disabled={sharing || emailing || exporting}
+                disabled={sharing || emailing || exporting || !!row.blocked}
                 onClick={row.run}
                 className="w-full flex items-start gap-3 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-3.5 text-left hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition disabled:opacity-60"
               >
@@ -3786,6 +3844,9 @@ export default function StaffSchedulePage() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-medium text-gray-900 dark:text-gray-100">{row.label}</span>
                   <span className="block text-[13px] text-gray-500 dark:text-gray-400 leading-snug mt-0.5">{row.body}</span>
+                  {row.blocked && (
+                    <span className="block text-[13px] text-amber-700 dark:text-amber-400 leading-snug mt-1">{row.blocked}</span>
+                  )}
                 </span>
                 <Icon name="ChevronRight" size={16} className="shrink-0 text-gray-300 dark:text-gray-600 mt-1" />
               </button>
@@ -4104,6 +4165,9 @@ export function AutopilotPanel({ suggestion, applying, onApply, onDiscard, t, la
     return null; // an unknown code is not shown as a raw key
   };
   const compareText = (() => {
+    // An empty proposal saves nothing — comparing "no week" with last week
+    // printed "Sparer 23.201 kr." over a plan that had no shifts in it.
+    if (proposedCount === 0) return null;
     if (!compared.direction || typeof compared.delta_kr !== "number") return null;
     const amount = formatOwnerMoney(Math.abs(compared.delta_kr), currency);
     if (compared.direction === "saves") return t("autopilotSaves", "Saves {amount} vs last week", { amount });
@@ -6363,11 +6427,10 @@ function DraggableShiftBlock({ shift, member, dateIso, children }) {
 function DroppableCell({ staffId, dateIso, occupied, className, onClick, title, "aria-label": ariaLabel, children }) {
   const { setNodeRef, isOver, active } = useDroppable({
     id: `${staffId}::${dateIso}`,
-    data: { staffId, dateIso },
-    disabled: occupied,
+    data: { staffId, dateIso, occupied },
   });
   const dropRing =
-    isOver && active && !occupied
+    isOver && active
       ? " ring-2 ring-inset ring-gray-900/30 dark:ring-gray-100/30 rounded-lg"
       : "";
   return (
@@ -7401,7 +7464,12 @@ export function ScheduleGrid({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      // The cell UNDER THE POINTER, nothing else. closestCenter with occupied
+      // cells disabled dropped a shift onto the nearest EMPTY day when the
+      // owner let go over a busy one — Wednesday's shift silently became
+      // Thursday's. Now a busy day is a real target and the server's overlap
+      // rule (409 + who/when) decides; between cells, nothing moves.
+      collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
@@ -8148,6 +8216,7 @@ export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = []
     setErr("");
     try {
       await api.post("/staff/absences", { staff_id: staffId, kind, date_from: from, date_to: to });
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       await onChanged?.();
       onSaved?.(t("absenceSaved", "{name}: {kind} {range} registered", {
         name: member?.name || "",
@@ -8178,6 +8247,7 @@ export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = []
       setErr(errText(e2, t("absenceErrRemoveFailed", "Couldn't remove the absence.")));
     }
     // Re-read either way: a partial removal must show what is really left.
+    window.dispatchEvent(new Event("bonbox-data-changed"));
     await onChanged?.();
     setRemoving(null);
     setRemoveAsk(null);

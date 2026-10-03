@@ -25,6 +25,7 @@ import { useEffect, useState } from "react";
 import { CalendarOff, Check } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { dateLocale } from "../utils/dateFormat";
 
 
 /** Absence type → owner-facing label (ferie/sick/barns_syg/andet). */
@@ -58,11 +59,20 @@ export default function SickCallNotificationCard() {
     }
   };
 
-  useEffect(() => { fetchAbsences(); }, []);
+  useEffect(() => {
+    fetchAbsences();
+    // The owner's own Fravær sheet writes absences on this same page; without
+    // this the card kept showing what was there before the sheet closed.
+    const onChanged = () => fetchAbsences();
+    window.addEventListener("bonbox-data-changed", onChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onChanged);
+  }, []);
 
   // Hide when nothing's pending — the card is "interrupt-only" UX,
   // never a filler.
   if (!loaded || absences.length === 0) return null;
+  const pendingCount = absences.filter((a) => a.status === "pending").length;
+  const uncoveredCount = absences.filter((a) => a.status !== "pending" && !a.replacement_staff_name).length;
 
   return (
     <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 sm:p-5">
@@ -72,9 +82,17 @@ export default function SickCallNotificationCard() {
           <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
             {t("absenceCardTitle", "Absence needs your attention")}
           </h3>
+          {/* Say what is actually asked. Only a PENDING absence waits for an
+              approve/decline — one the owner entered (acknowledged) only
+              needs cover, and counting it as "afventer" offered buttons the
+              rows don't have. */}
           <p className="text-[12px] text-amber-700 dark:text-amber-300/80 mt-0.5">
-            {t("absenceCardSubtitle", "{n} pending — approve or decline.")
-              .replace("{n}", absences.length)}
+            {[
+              pendingCount > 0 &&
+                t("absenceCardSubtitle", "{n} pending — approve or decline.").replace("{n}", pendingCount),
+              uncoveredCount > 0 &&
+                t("absenceCardNeedsCover", "{n} without cover — find a replacement.").replace("{n}", uncoveredCount),
+            ].filter(Boolean).join(" · ")}
           </p>
         </div>
       </div>
@@ -93,12 +111,24 @@ function AbsenceRow({ absence, onChanged, t }) {
   const [candidates, setCandidates] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // Colour with meaning: amber = waits for the owner, emerald = approved.
   const statusBadge =
     absence.status === "pending"
       ? "bg-amber-200 dark:bg-amber-800/40 text-amber-900 dark:text-amber-200"
       : absence.status === "acknowledged"
-        ? "bg-blue-200 dark:bg-blue-800/40 text-blue-900 dark:text-blue-200"
+        ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200"
         : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200";
+  const statusText = {
+    pending: t("absenceStatusPending", "Pending"),
+    acknowledged: t("absenceStatusApproved", "Approved"),
+    declined: t("absenceStatusDeclined", "Declined"),
+  }[absence.status] || t("absenceStatusOther", "Registered");
+  // "lør. 28. nov." in the app's date language — never the raw ISO date.
+  const dateText = (() => {
+    const [y, m, d] = String(absence.date || "").slice(0, 10).split("-").map(Number);
+    if (!y || !m || !d) return absence.date || "";
+    return new Date(y, m - 1, d, 12).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
+  })();
 
   const acknowledge = async () => {
     setBusy(true);
@@ -152,10 +182,10 @@ function AbsenceRow({ absence, onChanged, t }) {
           {kindLabel(absence.kind, t)}
         </span>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {absence.date}
+          {dateText}
         </span>
-        <span className={`text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${statusBadge}`}>
-          {absence.status}
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusBadge}`}>
+          {statusText}
         </span>
       </div>
       {absence.reason && (

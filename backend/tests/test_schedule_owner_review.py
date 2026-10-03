@@ -601,10 +601,11 @@ def test_emailing_the_week_names_who_has_no_address(client, db, monkeypatch):
         lambda addr, *a, **k: (sent_to.append(addr) or True, None),
     )
     owner = _owner(db)
-    _staff(db, owner, name="Anna")
+    anna = _staff(db, owner, name="Anna")
     cy = _staff(db, owner, name="Cy")
     cy.email = ""
     db.commit()
+    _shift(db, owner, anna, MONDAY, "10:00", "16:00", status="published")
     _as(owner)
     res = client.post("/api/staff/schedules/email",
                       json={"week_start": MONDAY.isoformat(), "lang": "da", "cc_self": False})
@@ -664,7 +665,8 @@ def test_the_schedule_email_stops_at_the_daily_send_cap(client, db, monkeypatch)
     _stub_mail(monkeypatch, sent_to)
     monkeypatch.setattr(staff_router, "_STAFF_EMAIL_CALLS_PER_DAY", 2)
     owner = _owner(db)
-    _staff(db, owner, name="Anna")
+    anna = _staff(db, owner, name="Anna")
+    _shift(db, owner, anna, MONDAY, "10:00", "16:00", status="published")
     _as(owner)
     body = {"week_start": MONDAY.isoformat(), "lang": "da", "cc_self": False}
     assert client.post("/api/staff/schedules/email", json=body).status_code == 200
@@ -709,3 +711,34 @@ def test_the_owners_note_is_bounded(client, db, monkeypatch):
     r = client.post("/api/staff/schedules/email",
                     json={"week_start": MONDAY.isoformat(), "lang": "da", "message": "x" * 1001})
     assert r.status_code == 422
+
+
+def test_moving_a_published_shift_to_another_day_tells_the_staffer(client, db, notified):
+    """A drag from Wednesday to Thursday sent nothing — the staffer would have
+    turned up on Wednesday."""
+    owner = _owner(db)
+    anna = _staff(db, owner)
+    day = date.today() + timedelta(days=2)
+    sh = _shift(db, owner, anna, day, "16:00", "22:00", status="published")
+    _as(owner)
+    res = client.put(f"/api/staff/schedules/{sh.id}", json=_body(anna, day + timedelta(days=1), "16:00", "22:00"))
+    assert res.status_code == 200, res.text
+    assert [c["change"] for c in notified] == ["removed", "added"]
+    assert {c["staff_id"] for c in notified} == {str(anna.id)}
+
+
+def test_emailing_a_week_with_nothing_published_is_refused(client, db, monkeypatch):
+    """The PDF carries published shifts only — a draft-only week reached staff
+    as an empty rota."""
+    sent_to = []
+    _stub_mail(monkeypatch, sent_to)
+    owner = _owner(db)
+    anna = _staff(db, owner, name="Anna")
+    week = _next_monday()
+    _shift(db, owner, anna, week, "10:00", "16:00", status="draft")
+    _as(owner)
+    r = client.post("/api/staff/schedules/email",
+                    json={"week_start": week.isoformat(), "lang": "da", "cc_self": False})
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "no_published_shifts"
+    assert sent_to == []
