@@ -345,3 +345,19 @@ def test_someone_on_an_earlier_shift_is_suggested_and_can_cover(client, db):
     assert "Jonas" in names
     r = client.post(f"/api/staff/absences/{absence.id}/cover", json={"replacement_staff_id": str(jonas.id)})
     assert r.status_code == 200, r.text
+
+
+def test_copy_week_leaves_out_shifts_on_an_absence_day(client, db):
+    """Re-copying put Sara back on her sick Friday next to her cover."""
+    o = _owner(db); _as(o)
+    sara = _staff(db, o, "Sara")
+    src_monday = D0 - timedelta(days=D0.weekday())
+    tgt_monday = src_monday + timedelta(days=7)
+    _shift_on(db, o, sara, src_monday + timedelta(days=4), "17:00", "22:30")
+    _post(client, sara, kind="sick", start=tgt_monday + timedelta(days=4))
+    r = client.post("/api/staff/schedules/copy-week",
+                    json={"source_week": src_monday.isoformat(), "target_week": tgt_monday.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["copied"] == 0 and body["skipped_absence"] == 1
+    assert body["skipped_absence_names"] == ["Sara"]

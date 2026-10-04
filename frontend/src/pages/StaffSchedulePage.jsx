@@ -1577,7 +1577,12 @@ export default function StaffSchedulePage() {
         breakMinutes: payload.break_minutes || 0,
       })[0];
       let warning = null;
-      if (breach?.kind === "rest") {
+      const absToday = absenceFor ? absenceFor(staffId, dateObj) : null;
+      if (absToday) {
+        warning = t("schedShiftInAbsence", "{name}: {kind} this day — registered as off", {
+          name: member?.name || "", kind: absKindLabel(absToday.kind, t),
+        });
+      } else if (breach?.kind === "rest") {
         const at = minutesToDayTime(breach.windowStart);
         warning = restRuleText(member.name, breach.restHours, at.dateIso, at.hhmm, t, lang);
       } else if (breach?.kind === "dk48") {
@@ -1613,7 +1618,7 @@ export default function StaffSchedulePage() {
         }
       }
     },
-    [shifts, staff, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
+    [shifts, staff, absenceFor, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
   );
 
   const undoBloom = useCallback(async () => {
@@ -1784,11 +1789,17 @@ export default function StaffSchedulePage() {
           ? t("schedCopySkippedOverlapWho", "{n} skipped (overlap): {names}", { n: overlapN, names: overlapWho.join(", ") })
           : t("schedCopySkippedOverlap", "{n} skipped (overlap)", { n: overlapN }));
       }
+      const absN = Number(res?.data?.skipped_absence) || 0;
+      if (absN > 0) {
+        parts.push(t("schedCopySkippedAbsence", "{n} skipped (absence day): {names}", {
+          n: absN, names: (res?.data?.skipped_absence_names || []).join(", "),
+        }));
+      }
       const dupN = Number(res?.data?.skipped) || 0;
       if (dupN > 0) parts.push(t("schedCopyAlreadyThere", "{n} already in the week", { n: dupN }));
       setAutopilotToast(parts.join(" · "));
       // Longer when there is a name to read.
-      setTimeout(() => setAutopilotToast(""), overlapN > 0 ? 10000 : 6000);
+      setTimeout(() => setAutopilotToast(""), overlapN > 0 || absN > 0 ? 10000 : 6000);
     } catch (err) {
       // An empty last week is a fact, not a failure — it used to arrive as a
       // red English "No shifts found in source week".
@@ -6014,7 +6025,8 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
         totalHours += hrs;
         totalCost += hrs * rate;
       }
-      staffOn += 1;
+      // Someone sick or on ferie that day is rostered, not on the floor.
+      if (!(absenceFor && absenceFor(member.id, selectedDate))) staffOn += 1;
     });
     // The server's figure when it answered — INCLUDING its null, which means
     // "someone on this day has no wage". Falling back to the client estimate
@@ -7295,7 +7307,7 @@ export function ScheduleGrid({
                         : t("schedKanIkkeCell", "Can't work"))
                     : t("schedBloomHint", "Click to add a shift")}
                 aria-label={abs
-                  ? t("schedFravaerAria", "{name} is off this day").replace("{name}", member.name)
+                  ? `${member.name}: ${absLabel}`
                   : blk
                     ? t("schedKanIkkeAria", "{name} can't work this day").replace("{name}", member.name)
                     : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
@@ -8582,6 +8594,10 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
     if (isEdit) {
       if (changed && staffId !== originalStaffId && member?.role) {
         setRoleOnShift(roleToShiftOption(member.role, roles));
+      } else if (changed && staffId === originalStaffId) {
+        // Back to the shift's own person: back to the shift's own role. Jonas →
+        // Mette → Jonas left "Bestyrer" on Jonas's shift and saved it.
+        setRoleOnShift(existingShift?.role_on_shift || roleToShiftOption(member?.role, roles));
       }
       return;
     }

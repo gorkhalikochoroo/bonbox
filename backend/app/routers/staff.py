@@ -3061,14 +3061,30 @@ def copy_week(
     spans_by_cell: dict = {}
     for e in existing:
         spans_by_cell.setdefault((str(e.staff_id), e.date), []).append((e.start_time, e.end_time))
+    # Fravær in the target week: a copied shift on a sick or ferie day would
+    # roster someone who has said they are off (and, once covered, put two
+    # people on one shift). Those are left out and named, like overlaps.
+    absent_days = {
+        (str(a.staff_id), a.date)
+        for a in db.query(_StaffAbsence).filter(
+            _StaffAbsence.user_id == user.id,
+            _StaffAbsence.date >= target_start,
+            _StaffAbsence.date <= target_end,
+            _StaffAbsence.status != "cancelled",
+        ).all()
+    }
     created = []
     skipped = 0
     overlapped = []
+    on_absence = []
     for s in source_shifts:
         target_date = s.date + timedelta(days=day_offset)
         key = (str(s.staff_id), target_date, s.start_time, s.end_time)
         if key in seen:
             skipped += 1
+            continue
+        if (str(s.staff_id), target_date) in absent_days:
+            on_absence.append(s)
             continue
         cell = spans_by_cell.setdefault((str(s.staff_id), target_date), [])
         if any(_shifts_overlap(s.start_time, s.end_time, a, b) for a, b in cell):
@@ -3096,8 +3112,9 @@ def copy_week(
     # Who was left out, by name — the owner has to know whose Friday did not
     # come across to decide whether that is what they wanted.
     overlap_names: list[str] = []
-    if overlapped:
-        ids = {o.staff_id for o in overlapped}
+    absence_names: list[str] = []
+    if overlapped or on_absence:
+        ids = {o.staff_id for o in overlapped} | {o.staff_id for o in on_absence}
         names = {
             m.id: m.name
             for m in db.query(StaffMember).filter(
@@ -3108,6 +3125,10 @@ def copy_week(
             n = names.get(o.staff_id)
             if n and n not in overlap_names:
                 overlap_names.append(n)
+        for o in on_absence:
+            n = names.get(o.staff_id)
+            if n and n not in absence_names:
+                absence_names.append(n)
     return {
         "copied": len(created),
         # Exact duplicates already in the week (a second click).
@@ -3115,6 +3136,9 @@ def copy_week(
         # Different shifts that would have double-booked someone.
         "skipped_overlap": len(overlapped),
         "skipped_overlap_names": overlap_names,
+        # Shifts that would have landed on someone's fravær day.
+        "skipped_absence": len(on_absence),
+        "skipped_absence_names": absence_names,
         "target_week": body.target_week.isoformat(),
     }
 
