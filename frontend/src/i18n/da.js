@@ -7029,7 +7029,7 @@ export const da = {
     absenceCardSubtitle: "{n} afventer — godkend eller afvis.",
     schedMoveRefused: "Ikke flyttet:",
     ok: "OK",
-    publishOnAbsence: "{n} vagt(er) på en fraværsdag: {who}",
+    publishOnAbsence: "På en fraværsdag: {who}",
     absenceNoShiftThatDay: "Ingen vagt den dag — ingen afløser nødvendig.",
     sickCallCoverFailed: "Kunne ikke tildele afløser. Prøv igen.",
     schedMovedToPerson: "til {name}, {day}",

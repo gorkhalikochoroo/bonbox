@@ -1449,6 +1449,16 @@ export default function StaffSchedulePage() {
     [reloadShifts, fetchWeekLayers],
   );
 
+  // A write made elsewhere on this page — the sick-call card's "Tildel" moves
+  // a shift to the replacement — must show on the grid at once. It moved the
+  // shift on the server while the grid kept the sick person on it until a
+  // reload, and an edit from that stale card would have sent the wrong person.
+  useEffect(() => {
+    const onChanged = () => { fetchShifts(); };
+    window.addEventListener("bonbox-data-changed", onChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onChanged);
+  }, [fetchShifts]);
+
   // Map staff_id → their standing "unavailable" blocks; a soft signal the owner
   // sees but can still override (they can hand-place onto a red cell).
   const availByStaff = useMemo(() => {
@@ -2734,7 +2744,7 @@ export default function StaffSchedulePage() {
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           {/* Stacked until lg: side by side at 768–1024 the five actions ran
               past the screen edge (x 754–896 on a 768 tablet). */}
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col 2xl:flex-row items-center justify-between gap-4">
             {/* Week nav — on a phone the arrows lose their word labels and the
                 date label flexes into whatever is left. With the words shown,
                 Previous (~100pt) + the 220pt label + Next (~80pt) + gaps came
@@ -3587,7 +3597,7 @@ export default function StaffSchedulePage() {
                   </>
                 ) : (
                   <>
-                    <div className="text-4xl font-bold leading-none tracking-tight tabular-nums text-gray-300 dark:text-gray-600 mt-1">
+                    <div className="text-4xl font-bold leading-none tracking-tight tabular-nums text-gray-300 dark:text-gray-500 mt-1">
                       —
                     </div>
                     <div className="text-[11px] text-gray-400 dark:text-gray-500 max-w-[13rem] leading-snug mt-1">
@@ -6200,7 +6210,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                 </span>
               ) : (
                 <span
-                  className="text-sm font-bold text-gray-400 dark:text-gray-500 tabular-nums"
+                  className="text-sm font-bold text-gray-400 dark:text-gray-400 tabular-nums"
                   title={t("schedLaborNoRev")}
                   aria-label={t("schedLaborNoRev")}
                 >—</span>
@@ -7501,7 +7511,9 @@ export function ScheduleGrid({
       onDragEnd={handleDragEnd}
     >
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* relative: the day headers' sr-only spans are absolutely positioned
+          and otherwise escape this scroller, widening the page at 768. */}
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[700px]">
           <thead>
             <tr className="border-b border-gray-100 dark:border-gray-700">

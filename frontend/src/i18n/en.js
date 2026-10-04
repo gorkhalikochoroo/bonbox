@@ -7269,7 +7269,7 @@ export const en = {
     absenceCardSubtitle: "{n} pending — approve or decline.",
     schedMoveRefused: "Not moved:",
     ok: "OK",
-    publishOnAbsence: "{n} shift(s) on an absence day: {who}",
+    publishOnAbsence: "On an absence day: {who}",
     absenceNoShiftThatDay: "No shift that day — no cover needed.",
     sickCallCoverFailed: "Couldn't assign cover. Try again.",
     schedMovedToPerson: "to {name}, {day}",
