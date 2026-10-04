@@ -188,11 +188,14 @@ def test_worked_without_being_scheduled(client, db):
 
 def test_still_on_the_clock_is_not_an_exception(client, db):
     """An open punch mid-shift TODAY is normal, not a problem to resolve."""
-    from app.services.tz_utils import business_today_local
+    from app.services.tz_utils import business_today_local, now_local
     o = _owner(db); m = _staff(db, o)
     today = business_today_local(o)
     _sched(db, o, m, today)
-    db.add(HoursLogged(user_id=o.id, staff_id=m.id, date=today, start_time="08:00",
+    # Clocked in an hour ago. A fixed 08:00 made this test fail every night
+    # from midnight to the 06:00 cutoff, when 08:00 "today" is 16+ hours old.
+    start = (now_local(o).replace(tzinfo=None) - timedelta(hours=1)).strftime("%H:%M")
+    db.add(HoursLogged(user_id=o.id, staff_id=m.id, date=today, start_time=start,
                        end_time=None, break_minutes=0, total_hours=0,
                        entry_method="clock"))
     db.commit()

@@ -47,6 +47,35 @@ MAX_WEEKLY_HOURS = 48.0         # §4 weekly cap, averaged over reference period
 REFERENCE_PERIOD_DAYS = 120     # ~4 months — the averaging window for the cap
 RETENTION_YEARS = 5             # how long the register must be kept
 
+# An open punch (clocked in, never out) is somebody ON SHIFT until it has been
+# open longer than any real shift — then it is a forgotten clock-out. 16 hours
+# of wall-clock time is the rule the Timer tab's exception feed and the
+# schedule's clocked-in strip already use; it lives here so the register and
+# Timer can never disagree about which punches are forgotten.
+OPEN_PUNCH_STALE_HOURS = 16.0
+
+
+def open_punch_is_forgotten(day: date, start: Optional[str], now: Optional[datetime],
+                            cutoff_hour: int = 6) -> bool:
+    """Has this open punch been open longer than any real shift?
+
+    ``now`` is the owner's local wall time (naive or aware — the tzinfo is
+    dropped). A punch before the venue's business-day cutoff (an opener in at
+    01:15) is filed under yesterday's business day, so its real start is the
+    next calendar day. Without a usable start or a ``now``, fall back to the
+    calendar: open on a day before today.
+    """
+    if now is None:
+        return day < date.today()
+    wall = now.replace(tzinfo=None)
+    st = _parse_hm(start)
+    if st is None:
+        return day < wall.date()
+    start_dt = datetime.combine(day, st)
+    if st.hour < int(cutoff_hour or 0):
+        start_dt += timedelta(days=1)
+    return (wall - start_dt).total_seconds() > OPEN_PUNCH_STALE_HOURS * 3600
+
 
 # ── Value objects ─────────────────────────────────────────────────────
 @dataclass
@@ -174,13 +203,31 @@ def _staff_rows(db: Session, user_id, staff_id, start: date, end: date) -> list[
     )
 
 
+def forgotten_open_punches(rows: list[HoursLogged], now: Optional[datetime] = None,
+                           cutoff_hour: int = 6) -> list[dict]:
+    """The punches in ``rows`` that were clocked in and never out — and have
+    been open longer than a shift (see open_punch_is_forgotten). One still
+    running tonight is somebody at work, not a gap in the register."""
+    out = []
+    for r in rows:
+        if r.start_time and not r.end_time and open_punch_is_forgotten(r.date, r.start_time, now, cutoff_hour):
+            out.append({"date": r.date.isoformat(), "start": r.start_time})
+    out.sort(key=lambda p: (p["date"], p["start"] or ""))
+    return out
+
+
 def employee_compliance(db: Session, user_id, member: StaffMember,
-                        start: date, end: date) -> dict:
+                        start: date, end: date, now: Optional[datetime] = None,
+                        cutoff_hour: int = 6) -> dict:
     """Full compliance view for one employee over [start, end].
 
     Returns the register, the rest violations within the period, the rolling
     weekly average (over the 4-month reference window ending at ``end``), and a
-    single ``status`` an owner can scan: ok | warn (rest issue) | over (cap).
+    single ``status`` an owner can scan: ok | warn (rest issue) | open (a
+    forgotten clock-out) | over (cap) | gap (nothing registered).
+
+    ``now`` is the owner's local wall time; callers that have the owner pass
+    it so a punch still running tonight is not reported as forgotten.
     """
     period_rows = _staff_rows(db, user_id, member.id, start, end)
     # Weekly cap needs the full reference window, which may reach before `start`.
@@ -190,6 +237,11 @@ def employee_compliance(db: Session, user_id, member: StaffMember,
     violations = rest_violations(period_rows)
     weekly_avg = weekly_average(ref_rows, end)
     total_hours = round(sum(float(r.total_hours or 0) for r in period_rows), 1)
+    # A punch with a start and no end. It used to read "Overholder" beside
+    # 0 t: the day's working time is not KNOWN, which is the one thing a
+    # working-time register exists to know — and the rest check above skips
+    # it entirely, because rest cannot be measured from an open end.
+    open_punches = forgotten_open_punches(period_rows, now, cutoff_hour)
 
     over_cap = weekly_avg > MAX_WEEKLY_HOURS
     # An employee with NO registered time is not compliant — they are the one
@@ -199,10 +251,18 @@ def employee_compliance(db: Session, user_id, member: StaffMember,
     # "gap" is the status the owner UI already renders for this row
     # (TimeRegistrationPage STATUS map) — it just had to compute it client-side
     # because the server insisted the employee was fine.
+    #
+    # Precedence: a breached cap is the statutory finding; a forgotten
+    # clock-out comes next because until it is fixed the day's hours (and the
+    # rest around it) are unknown; then rest issues.
     if not period_rows:
         status = "gap"
+    elif over_cap:
+        status = "over"
+    elif open_punches:
+        status = "open"
     else:
-        status = "over" if over_cap else ("warn" if violations else "ok")
+        status = "warn" if violations else "ok"
 
     return {
         "staff_id": str(member.id),
@@ -214,15 +274,19 @@ def employee_compliance(db: Session, user_id, member: StaffMember,
         "over_weekly_cap": over_cap,
         "rest_violations": [asdict(v) for v in violations],
         "rest_violation_count": len(violations),
+        "open_punches": open_punches,
+        "open_punch_count": len(open_punches),
         "status": status,
         "register": [asdict(e) for e in daily_register(period_rows)],
     }
 
 
 def venue_compliance_summary(db: Session, user_id, members: list[StaffMember],
-                             start: date, end: date) -> dict:
+                             start: date, end: date, now: Optional[datetime] = None,
+                             cutoff_hour: int = 6) -> dict:
     """One scan-line per employee + venue rollup for the owner's overview."""
-    rows = [employee_compliance(db, user_id, m, start, end) for m in members]
+    rows = [employee_compliance(db, user_id, m, start, end, now=now, cutoff_hour=cutoff_hour)
+            for m in members]
     return {
         "period_start": start.isoformat(),
         "period_end": end.isoformat(),
@@ -259,6 +323,9 @@ def venue_compliance_summary(db: Session, user_id, members: list[StaffMember],
             # in pages/TimeRegistrationPage.jsx.
             "all_compliant": all(r["status"] == "ok" for r in rows),
             "with_rest_violations": sum(1 for r in rows if r["rest_violation_count"] > 0),
+            # People with a forgotten clock-out in the period — their day is
+            # not known yet, so the register cannot vouch for it.
+            "with_open_punches": sum(1 for r in rows if r["open_punch_count"] > 0),
             "over_weekly_cap": sum(1 for r in rows if r["over_weekly_cap"]),
             "without_registration": sum(1 for r in rows if r["days_registered"] == 0),
         },

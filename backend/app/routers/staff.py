@@ -4047,6 +4047,19 @@ def list_hours(
 # Starter+ (sits with the rest of the staff section).
 # Route order matters: the literal /export.csv MUST come before /{staff_id}
 # or FastAPI matches "export.csv" as a staff_id (the route-shadow trap).
+def _open_punch_clock(user: User) -> dict:
+    """The owner's wall clock + business-day cutoff, for the one rule that
+    decides when an open punch stops being "on shift" and becomes a forgotten
+    clock-out (time_registration.open_punch_is_forgotten). Timer's exception
+    feed and the working-time register both call it with this, so they can
+    never disagree about whose clock-out is missing."""
+    from app.services.tz_utils import _user_cutoff_hour
+    try:
+        return {"now": now_local(user).replace(tzinfo=None), "cutoff_hour": _user_cutoff_hour(user)}
+    except Exception:  # noqa: BLE001 — no clock: the calendar fallback applies
+        return {"now": None, "cutoff_hour": 6}
+
+
 def _require_time_registration(user: User):
     from app.services.billing import has_feature, feature_locked_detail
     if not has_feature(user, "time_registration"):
@@ -4109,7 +4122,12 @@ def time_registration_summary(
     _require_time_registration(user)
     from app.services import time_registration as tr
     members = _register_staff(db, user.id, from_date, to_date)
-    return tr.venue_compliance_summary(db, user.id, members, from_date, to_date)
+    # The owner's wall clock + business-day cutoff, so a punch still running
+    # tonight reads as on-shift and only a FORGOTTEN one is flagged — the same
+    # rule Timer's exception feed uses (time_registration.open_punch_is_forgotten).
+    return tr.venue_compliance_summary(
+        db, user.id, members, from_date, to_date, **_open_punch_clock(user),
+    )
 
 
 @router.get("/time-registration/export.csv")
@@ -4256,7 +4274,7 @@ def time_registration_employee(
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
-    return tr.employee_compliance(db, user.id, member, from_date, to_date)
+    return tr.employee_compliance(db, user.id, member, from_date, to_date, **_open_punch_clock(user))
 
 
 @router.post("/hours", response_model=HoursLogResponse)
@@ -4669,11 +4687,124 @@ class ResolveHoursRequest(BaseModel):
     point is that the ambiguous case has no row to reference yet."""
     staff_id: str
     date: date_type
-    action: str                       # "confirm" | "adjust" | "absent" | "clock_out"
+    # "confirm" | "adjust" | "absent" | "clock_out" | "as_planned"
+    action: str
     total_hours: float | None = None  # required for "adjust"
     end_time: str | None = None       # required for "clock_out" ("HH:MM")
+    # "clock_out" only, both optional. The owner may correct the measured start
+    # (a 16:58 punch for a 17:00 shift) and choose the pause; without them the
+    # punch's start stands and the DK suggestion applies, as before.
+    start_time: str | None = None     # "HH:MM"
+    break_minutes: int | None = None  # 0–240, and shorter than the shift
     confirm_long: bool = False        # the owner confirmed a > 16 h shift
     note: str | None = None
+
+
+# A pause longer than this is a typo, not a break.
+_RESOLVE_MAX_BREAK_MINUTES = 240
+
+
+def _valid_hhmm(value: str | None) -> str | None:
+    """'7:05' / '07:05' → '07:05'; anything that is not a real clock time → None.
+    The bare \\d{1,2}:\\d{2} shape let '25:99' through to the arithmetic."""
+    if not value:
+        return None
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", str(value))
+    if not m:
+        return None
+    hh, mm = int(m.group(1)), int(m.group(2))
+    if hh > 23 or mm > 59:
+        return None
+    return f"{hh:02d}:{mm:02d}"
+
+
+def _resolve_as_planned(db: Session, user: User, staff: StaffMember, day: date, note: str | None):
+    """"Arbejdede som planlagt" — the answer to a shift the clock never saw.
+
+    Writes what the owner asserts: the PLANNED times, one row per planned
+    shift, so the working-time register keeps a start and an end (the
+    "they worked N hours" answer leaves both blank). Priced at the member's
+    rate for that shift, like every other path that creates hours.
+
+    Refused, never guessed:
+      • a day that already has a row — that is not a missing clock-in;
+      • a day with no published/confirmed plan — there is nothing to copy;
+      • a shift that has not ENDED yet — nobody can have worked it.
+    """
+    existing = db.query(HoursLogged.id).filter(
+        HoursLogged.user_id == user.id,
+        HoursLogged.staff_id == staff.id,
+        HoursLogged.date == day,
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail={"code": "already_logged"})
+    shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.staff_id == staff.id,
+            Schedule.date == day,
+            Schedule.status.in_(("published", "confirmed")),
+        )
+        .order_by(Schedule.start_time)
+        .all()
+    )
+    if not shifts:
+        raise HTTPException(status_code=404, detail={"code": "no_plan"})
+    now = now_local(user).replace(tzinfo=None)
+    for s in shifts:
+        end_dt = _shift_end_dt(s.date, s.start_time, s.end_time)
+        if end_dt is None or end_dt > now:
+            raise HTTPException(status_code=409, detail={"code": "not_ended"})
+
+    when = utc_now()
+    created = []
+    for s in shifts:
+        brk = int(s.break_minutes or 0)
+        hrs = _calc_shift_hours(s.start_time, s.end_time, brk)
+        rate = _pick_rate(staff, s.date, s.start_time)
+        row = HoursLogged(
+            user_id=user.id, staff_id=staff.id, date=day,
+            start_time=s.start_time, end_time=s.end_time, break_minutes=brk,
+            total_hours=hrs,
+            rate_applied=rate or None,
+            earned=round(hrs * rate, 2) if rate else None,
+            # The owner's answer, not a measurement — and the clock measured
+            # zero, which is a fact that must survive the answer.
+            entry_method="owner_resolved",
+            clock_hours=0,
+            resolution="adjusted",
+            resolved_by=user.id,
+            resolved_at=when,
+            resolution_note=(note or "Arbejdede som planlagt (ejer)").strip()[:500],
+        )
+        db.add(row)
+        created.append(row)
+    db.flush()
+    audit_service.record(
+        db, user, "staff_hours.resolved_as_planned", "staff_hours", None,
+        after={
+            "staff_id": str(staff.id), "date": day.isoformat(),
+            "shifts": [
+                {"start": r.start_time, "end": r.end_time, "break_minutes": r.break_minutes,
+                 "total_hours": float(r.total_hours)}
+                for r in created
+            ],
+        },
+    )
+    db.commit()
+    total = round(sum(float(r.total_hours or 0) for r in created), 2)
+    return {
+        "staff_id": str(staff.id),
+        "date": day.isoformat(),
+        "action": "as_planned",
+        "rows": len(created),
+        "start_time": created[0].start_time,
+        "end_time": created[-1].end_time,
+        "total_hours": total,
+        "entry_method": "owner_resolved",
+        "resolution": "adjusted",
+    }
 
 
 @router.post("/hours/resolve")
@@ -4706,15 +4837,25 @@ def resolve_hours(
         raise HTTPException(status_code=404, detail="Staff member not found")
 
     action = (data.action or "").strip().lower()
-    if action not in ("confirm", "adjust", "absent", "clock_out"):
+    if action not in ("confirm", "adjust", "absent", "clock_out", "as_planned"):
         raise HTTPException(status_code=400, detail="Unknown action")
+    if action == "as_planned":
+        return _resolve_as_planned(db, user, staff, data.date, data.note)
     if action == "clock_out":
         # A forgotten clock-out: the start was measured, the owner supplies the
         # end. It had no fix path at all — a pencil edit set hours but left
         # end_time empty, so the punch stayed "open", the chip stayed, and the
         # payroll PDF kept refusing the period.
-        if not data.end_time or not re.fullmatch(r"\d{1,2}:\d{2}", data.end_time.strip()):
+        end_str = _valid_hhmm(data.end_time)
+        if end_str is None:
             raise HTTPException(status_code=400, detail="end_time (HH:MM) required")
+        start_in = None
+        if data.start_time is not None and str(data.start_time).strip():
+            start_in = _valid_hhmm(data.start_time)
+            if start_in is None:
+                raise HTTPException(status_code=400, detail="start_time must be HH:MM")
+        if data.break_minutes is not None and not (0 <= int(data.break_minutes) <= _RESOLVE_MAX_BREAK_MINUTES):
+            raise HTTPException(status_code=400, detail={"code": "bad_break", "max": _RESOLVE_MAX_BREAK_MINUTES})
         open_row = db.query(HoursLogged).filter(
             HoursLogged.user_id == user.id,
             HoursLogged.staff_id == staff.id,
@@ -4724,8 +4865,18 @@ def resolve_hours(
         ).first()
         if open_row is None:
             raise HTTPException(status_code=404, detail="No open punch on that day")
-        end_str = data.end_time.strip()
-        gross_h = _calc_shift_hours(open_row.start_time, end_str, 0)
+        before = {
+            "start_time": open_row.start_time, "end_time": None,
+            "break_minutes": int(open_row.break_minutes or 0),
+            "total_hours": float(open_row.total_hours or 0),
+        }
+        # The owner may move the start: a 16:58 punch for a 17:00 shift crossed
+        # the 6-hour pause line by three minutes and paid less than a 5:59 one.
+        measured_start = open_row.start_time
+        start_str = start_in or measured_start
+        gross_h = _calc_shift_hours(start_str, end_str, 0)
+        if gross_h <= 0:
+            raise HTTPException(status_code=400, detail={"code": "zero_length"})
         # A typo (16:30 for a 17:00 start) wraps to 23,5 t and pays it. Past
         # 16 hours the owner has to say so explicitly.
         if gross_h > 16 and not data.confirm_long:
@@ -4733,28 +4884,51 @@ def resolve_hours(
                 "code": "long_shift", "hours": round(gross_h, 2),
                 "message": f"{round(gross_h, 1)} hours — confirm or correct the end time.",
             })
-        # Same DK break as a real clock-out, so an owner-set end pays the same
-        # hours the punch clock would have.
-        if not open_row.break_minutes:
+        if data.break_minutes is not None:
+            # The owner's pause. Bounded: it cannot eat the whole shift.
+            brk = int(data.break_minutes)
+            if brk >= gross_h * 60:
+                raise HTTPException(status_code=400, detail={"code": "break_too_long"})
+            open_row.break_minutes = brk
+        elif not open_row.break_minutes:
+            # Same DK break as a real clock-out, so an owner-set end pays the
+            # same hours the punch clock would have.
             from app.services.schedule_autopilot import suggested_break_minutes
             open_row.break_minutes = suggested_break_minutes(gross_h)
+        open_row.start_time = start_str
         open_row.end_time = end_str
         open_row.total_hours = _calc_shift_hours(open_row.start_time, open_row.end_time, open_row.break_minutes or 0)
         _rate = float(open_row.rate_applied or 0) or _pick_rate(staff, open_row.date, open_row.start_time)
         if _rate:
             open_row.rate_applied = _rate
             open_row.earned = round(float(open_row.total_hours) * _rate, 2)
-        # The end is the owner's, not the clock's — say so in the record.
+        # The end is the owner's, not the clock's — say so in the record. A
+        # moved start says what the clock measured, so the register keeps it.
         open_row.entry_method = "owner_resolved"
         open_row.resolution = "adjusted"
         open_row.resolved_by = user.id
         open_row.resolved_at = utc_now()
-        open_row.resolution_note = (data.note or "Udstempling sat af ejer").strip()[:500]
+        default_note = "Udstempling sat af ejer"
+        if start_str != measured_start:
+            default_note += f" · start rettet fra {measured_start} (stempelur)"
+        open_row.resolution_note = (data.note or default_note).strip()[:500]
+        audit_service.record(
+            db, user, "staff_hours.clock_out_set", "staff_hours", open_row.id,
+            before=before,
+            after={
+                "start_time": open_row.start_time, "end_time": open_row.end_time,
+                "break_minutes": int(open_row.break_minutes or 0),
+                "total_hours": float(open_row.total_hours),
+                "measured_start": measured_start,
+            },
+        )
         db.commit()
         db.refresh(open_row)
         return {
             "id": str(open_row.id), "date": open_row.date.isoformat(),
-            "total_hours": float(open_row.total_hours), "end_time": open_row.end_time,
+            "total_hours": float(open_row.total_hours),
+            "start_time": open_row.start_time, "end_time": open_row.end_time,
+            "break_minutes": int(open_row.break_minutes or 0),
             "entry_method": open_row.entry_method, "resolution": open_row.resolution,
         }
     if action == "adjust" and data.total_hours is None:
@@ -5012,6 +5186,11 @@ class ApproveHoursRequest(BaseModel):
     from_date: date = Field(alias="from")
     to_date: date = Field(alias="to")
     staff_id: uuid.UUID | None = None
+    # "Godkend de klare nu": approve every row that has an end time and leave
+    # the open punches (clocked in, never out) for later, instead of refusing
+    # the whole period. Explicit — the default still refuses, so nothing that
+    # used to be blocked is approved by accident. Ignored by /unapprove.
+    skip_open: bool = False
 
     model_config = {"populate_by_name": True}
 
@@ -5044,28 +5223,40 @@ def approve_hours(
 
     Refused while a shift in it is still open — an hours figure nobody knows
     yet cannot be approved. Rows the owner already answered keep their answer.
-    Approved rows are locked against edits until the approval is undone."""
+    Approved rows are locked against edits until the approval is undone.
+
+    With ``skip_open`` the open punches are left out instead: every row with
+    an end time is approved now, the open ones stay unanswered for later, and
+    the response says how many were skipped so the screen can name them."""
     rows = _approval_rows(db, user, data).all()
     open_rows = [h for h in rows if h.start_time and not h.end_time]
-    if open_rows:
+    if open_rows and not data.skip_open:
         raise HTTPException(status_code=409, detail={"code": "open_punches", "count": len(open_rows)})
+    open_ids = {h.id for h in open_rows}
     now = utc_now()
     ticked = 0
     for h in rows:
+        if h.id in open_ids:
+            continue            # an hours figure nobody knows yet is never final
         if not h.resolution:
             h.resolution = "confirmed"
             h.resolved_by = user.id
             h.resolved_at = now
             h.resolution_note = _PERIOD_APPROVAL_NOTE
             ticked += 1
+    closed = len(rows) - len(open_rows)
     audit_service.record(
         db, user, "staff_hours.approved", "staff_hours", None,
         after={"from": data.from_date.isoformat(), "to": data.to_date.isoformat(),
                "staff_id": str(data.staff_id) if data.staff_id else None,
-               "rows": len(rows), "ticked": ticked},
+               "rows": len(rows), "ticked": ticked,
+               **({"skip_open": True, "skipped_open": len(open_rows)} if data.skip_open else {})},
     )
     db.commit()
-    return {"approved": ticked, "already": len(rows) - ticked, "rows": len(rows)}
+    out = {"approved": ticked, "already": closed - ticked, "rows": len(rows)}
+    if data.skip_open:
+        out["skipped_open"] = len(open_rows)
+    return out
 
 
 @router.post("/hours/unapprove")
@@ -5215,6 +5406,17 @@ def hours_summary(
     sched_map: dict[str, float] = {}
     sched_by_day: dict = {}
     sched_end_by_day: dict = {}
+    # The planned shift behind each day's answer sheet — its start and break
+    # as well as its end. The forgotten-clock-out sheet defaults its pause to
+    # the PLANNED break (the 45-min DK suggestion only when the plan has none),
+    # and "Alle uden stempling: som planlagt" lists the planned times it will
+    # write. Taken from the latest-ending shift, the same one scheduled_end is.
+    sched_plan_by_day: dict = {}
+    # When the day's LAST planned shift ends (owner-local, naive). A shift that
+    # has not ended yet is not a missing clock-in — it is the future. Every
+    # published shift in the rest of the current period used to read
+    # "Ikke stemplet ind" and count toward "N vagter mangler svar".
+    sched_last_end_dt: dict = {}
     try:
         for s in (
             db.query(Schedule)
@@ -5242,6 +5444,18 @@ def hours_summary(
                 s.end_time and str(s.end_time) > str(sched_end_by_day.get((sid, s.date)) or "")
             ):
                 sched_end_by_day[(sid, s.date)] = s.end_time
+                sched_plan_by_day[(sid, s.date)] = {
+                    "start": s.start_time, "end": s.end_time,
+                    "break": int(s.break_minutes or 0),
+                }
+            _end_dt = _shift_end_dt(s.date, s.start_time, s.end_time)
+            _prev_end = sched_last_end_dt.get((sid, s.date), False)
+            if _end_dt is None or _prev_end is None:
+                # Unparseable = "cannot tell whether it ended" — treated as
+                # not ended, per _shift_end_dt's contract.
+                sched_last_end_dt[(sid, s.date)] = None
+            elif _prev_end is False or _end_dt > _prev_end:
+                sched_last_end_dt[(sid, s.date)] = _end_dt
     except Exception as e:
         log.warning("hours_summary: scheduled-hours aggregation failed: %s", e)
         sched_map = {}
@@ -5298,24 +5512,30 @@ def hours_summary(
         actual_by_day = {}
         open_punch_days = set()
 
-    from app.services.tz_utils import _user_cutoff_hour
-    _now_wall = now_local(user)
-    _cut_h = _user_cutoff_hour(user)
+    from app.services.time_registration import open_punch_is_forgotten
+    _clock = _open_punch_clock(user)
+    _now_naive = _clock["now"]
 
     def _open_is_forgotten(day, start_str) -> bool:
-        """Open for over 16 hours of wall-clock time (the strip's rule)."""
+        """Open for over 16 hours of wall-clock time (the strip's rule). ONE
+        definition, shared with the working-time register, so Timer and
+        Tidsregistrering can never disagree about a forgotten clock-out."""
         try:
-            hh, mm = (int(x) for x in str(start_str).split(":")[:2])
-            start = _now_wall.replace(year=day.year, month=day.month, day=day.day,
-                                      hour=hh, minute=mm, second=0, microsecond=0)
-            if hh < _cut_h:
-                start += timedelta(days=1)
-            return (_now_wall - start).total_seconds() > 16 * 3600
+            return open_punch_is_forgotten(day, start_str, _now_naive, _clock["cutoff_hour"])
         except Exception:  # noqa: BLE001 — no usable start: fall back to the calendar
             return day < _today_biz
 
+    def _plan_not_ended(sid, day) -> bool:
+        """Has the day's last planned shift NOT ended yet (owner-local)?"""
+        if (sid, day) not in sched_last_end_dt:
+            return False
+        end_dt = sched_last_end_dt[(sid, day)]
+        if _now_naive is None:
+            return day >= _today_biz
+        return end_dt is None or end_dt > _now_naive
+
     def _classify(scheduled: float, actual: float, has_row: bool, open_punch: bool,
-                  past: bool = False, resolved: bool = False) -> str:
+                  past: bool = False, resolved: bool = False, upcoming: bool = False) -> str:
         """One shift → one state. Order matters; the first match wins."""
         if open_punch:
             # Open on a PAST day is not someone on shift — it's a forgotten
@@ -5323,6 +5543,10 @@ def hours_summary(
             return "forgot_clock_out" if past else "running"
         if resolved:
             return "matched"
+        if scheduled > 0 and not has_row and upcoming:
+            # Planned, and the shift has not ended yet. Not a question for the
+            # owner — nobody can have clocked a shift that has not happened.
+            return "upcoming"
         if scheduled > 0 and not has_row:
             # The clock measured NOTHING. That is all we know. Whether they
             # no-showed or worked and forgot to punch is not knowable here, and
@@ -5352,15 +5576,27 @@ def hours_summary(
             # read as a forgotten clock-out from 06:00 while still on shift.
             past=_open_is_forgotten(day, open_punch_start.get((sid, day))) if _open else day < _today_biz,
             resolved=(sid, day) in resolved_days,
+            upcoming=_plan_not_ended(sid, day),
         )
         bucket = states_by_staff.setdefault(sid, {"states": [], "exceptions": []})
         bucket["states"].append(st)
-        if st not in ("matched", "running"):
+        if st not in ("matched", "running", "upcoming"):
+            plan = sched_plan_by_day.get((sid, day))
             bucket["exceptions"].append({
                 "date": day.isoformat() if hasattr(day, "isoformat") else str(day),
                 "state": st,
-                "scheduled_hours": round(scheduled, 1),
-                "actual_hours": round(actual, 1),
+                # 2 decimals, like every hours figure on this endpoint: the
+                # answer sheet pre-fills "they worked this" with it, and a
+                # 6,03 − 0,75 = 5,28 t shift pre-filled as 5,3 paid 1 minute
+                # more than planned.
+                "scheduled_hours": round(scheduled, 2),
+                "actual_hours": round(actual, 2),
+                # The plan behind the shift (when there is one): the sheet
+                # shows it, defaults the pause to its break, and the
+                # "som planlagt" bulk answer lists these exact times.
+                **({"scheduled_start": plan["start"],
+                    "scheduled_end": plan["end"],
+                    "scheduled_break_minutes": plan["break"]} if plan else {}),
                 **({"start_time": open_punch_start.get((sid, day)),
                     "scheduled_end": sched_end_by_day.get((sid, day))} if st == "forgot_clock_out" else {}),
             })
@@ -5393,6 +5629,12 @@ def hours_summary(
     staff_names: dict[str, str] = {}
     rate_map: dict[str, float | None] = {}
     limit_map: dict[str, float | None] = {}
+    # Is this person on the payroll the Løn tab computes? estimate_period_payroll
+    # (services/payroll_service.py) counts ACTIVE, not-deleted staff only, so a
+    # deactivated barista's hours sit in this table but not in Løn's
+    # "Samlet lønomkostning". The Pr. medarbejder reconciliation line names
+    # them instead of letting the two totals quietly disagree.
+    on_payroll_map: dict[str, bool] = {}
     if staff_ids:
         try:
             for m in db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all():
@@ -5402,6 +5644,9 @@ def hours_summary(
                 limit_map[mid] = (
                     float(m.max_hours_month) if m.max_hours_month is not None else None
                 )
+                # Mirrors the payroll query to the letter: active IS TRUE and
+                # is_deleted IS NOT TRUE (a NULL active is not on it).
+                on_payroll_map[mid] = (m.active is True) and (m.is_deleted is not True)
         except Exception as e:
             log.warning("hours_summary: staff lookup failed: %s", e)
 
@@ -5455,6 +5700,8 @@ def hours_summary(
             "tips": None if _hide_wages else tips,
             "total": None if _hide_wages else round(earned + tips, 2),
             "work_limit": limit_map.get(sid),
+            # Not a wage field — whether Løn counts this person at all.
+            "on_payroll": on_payroll_map.get(sid, True),
             # Per-shift truth. `worst_state` is what the row should SAY; the
             # aggregates above are only what it should show as numbers.
             "worst_state": _worst(sid),
@@ -5706,7 +5953,45 @@ def hours_overview(
         1 for sid, h in per_staff_actual.items()
         if h > 0 and per_staff_gross.get(sid, 0.0) <= 0
     )
-    loaded_est = gross * (1.0 + FERIE_UPLIFT)
+    # ONE COST NUMBER. "Samlet lønomkostning" = bruttoløn + feriepenge + ATP
+    # (skøn), computed by the SAME function the Løn tab's figure comes from
+    # (payroll_service.estimate_period_payroll → totals.employer_total_cost),
+    # so the two tabs cannot disagree. This tile used to be gross × 1,125
+    # "ekskl. ATP" — 49.857 kr. here, 50.046,70 kr. on Løn for one September,
+    # with the per-person rows summing to a third figure.
+    #
+    # Aggregates only — no per-person line of the payroll leaves this
+    # function, and the endpoint stays owner-only (main.py denies it to every
+    # delegated seat and to a curtained shared device).
+    payroll_breakdown = None
+    try:
+        # DK payroll (feriepenge + ATP) is the Løn tab's figure for a DKK venue
+        # only — Løn shows no DK estimate in any other currency, so neither
+        # does this tile.
+        if (user.currency or "DKK").upper() != "DKK":
+            raise LookupError("not a DK payroll")
+        from app.services.payroll_service import estimate_period_payroll
+        _pt = (estimate_period_payroll(db, user.id, from_date, to_date) or {}).get("totals") or {}
+        payroll_breakdown = {
+            "gross": round(float(_pt.get("gross") or 0), 2),
+            "feriepenge": round(float(_pt.get("feriepenge") or 0), 2),
+            "atp": round(float(_pt.get("atp") or 0), 2),
+            "total": round(float(_pt.get("employer_total_cost") or 0), 2),
+        }
+    except Exception:  # noqa: BLE001 — no figure beats a figure Løn would contradict
+        payroll_breakdown = None
+    if payroll_breakdown is not None and payroll_breakdown["total"] <= 0 < gross:
+        # Hours were costed here but nobody on Løn's payroll carries them (all
+        # deactivated): never a confident 0 kr. — the estimate stands.
+        payroll_breakdown = None
+    # The figure every derived number uses — the tile, the labour %, the
+    # narrative's "ca. X kr. i løn" and the department split. The gross × 1,125
+    # estimate survives only as the fallback when the payroll computation
+    # itself could not run, and the response says which one it is.
+    if payroll_breakdown is not None:
+        loaded_est = payroll_breakdown["total"]
+    else:
+        loaded_est = gross * (1.0 + FERIE_UPLIFT)
     pct_loaded = (loaded_est / revenue) if (revenue and has_cost_basis) else None
     pct_gross = (gross / revenue) if (revenue and has_cost_basis) else None
     measured_share = (measured_hours / actual_total) if actual_total > 0 else 0.0
@@ -5809,7 +6094,13 @@ def hours_overview(
             per_staff_hours=per_staff_actual,
             per_staff_gross=per_staff_gross,
             vertical=(getattr(user, "business_type", None) or None),
-            ferie_uplift=FERIE_UPLIFT,
+            # The departments add up to the cost tile: with the payroll figure
+            # behind the tile, the on-cost is ITS feriepenge + ATP share of
+            # gross, not the flat 12,5 % the tile no longer uses.
+            ferie_uplift=(
+                max(0.0, payroll_breakdown["total"] / gross - 1.0)
+                if (payroll_breakdown is not None and gross > 0) else FERIE_UPLIFT
+            ),
         )
     except Exception:
         labor_split = None
@@ -5838,6 +6129,14 @@ def hours_overview(
             "ferie_uplift": FERIE_UPLIFT,
             "loaded_est": round(loaded_est, 2),
             "ferie_is_estimate": True,
+            # What loaded_est IS: "payroll" = Løn's "Samlet lønomkostning"
+            # (bruttoløn + feriepenge + ATP, the same function), "estimate" =
+            # the gross × 1,125 fallback when that computation could not run.
+            "basis": "payroll" if payroll_breakdown is not None else "estimate",
+            # The three parts of that one figure, so the per-person rows
+            # (bruttoløn) can be reconciled to it on screen. Venue aggregates
+            # only — no person's line, no rate.
+            "breakdown": payroll_breakdown,
             "has_basis": has_cost_basis,
             "unpriced_count": unpriced_count,
             "currency": user.currency or "DKK",
