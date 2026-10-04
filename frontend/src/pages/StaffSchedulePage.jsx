@@ -60,7 +60,7 @@ import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 // The 11-hour / 48-hour checks the shift sheet runs BEFORE saving — mirrors
 // of the server's week-load rules, run on the week this page already holds.
-import { preSaveWarnings, minutesToDayTime } from "../utils/shiftRules";
+import { preSaveWarnings, minutesToDayTime, shiftSpan } from "../utils/shiftRules";
 import { roleName } from "../utils/roleNames";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
@@ -1016,7 +1016,7 @@ function ClockGeofenceSettings({ className = "" }) {
         type="button"
         onClick={setHere}
         disabled={busy}
-        className="ml-auto inline-flex items-center justify-center min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+        className="ml-auto inline-flex items-center justify-center min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
       >
         {cfg.has_location ? t("schedGeoReset", "Update location") : t("schedGeoUseHere", "Use my current location")}
       </button>
@@ -1031,13 +1031,13 @@ function ClockGeofenceSettings({ className = "" }) {
           onChange={(e) => { setQuery(e.target.value); setFound(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); resolveQuery(); } }}
           placeholder={t("schedGeoAddrPlaceholder", "…or type the address, or paste a map link")}
-          className="flex-1 min-w-[220px] min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+          className="flex-1 min-w-[220px] min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
         />
         <button
           type="button"
           onClick={resolveQuery}
           disabled={busy || query.trim().length < 4}
-          className="inline-flex items-center justify-center min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+          className="inline-flex items-center justify-center min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
         >
           {t("schedGeoLookUp", "Find")}
         </button>
@@ -1535,6 +1535,38 @@ export default function StaffSchedulePage() {
   // template). The modal stays as the deep-editor for OCCUPIED cells.
   // SAFE BY CONSTRUCTION: the POST omits `status`, so the backend defaults it
   // to 'draft' → a bloomed shift NEVER notifies staff. Only Publish notifies.
+  // The first rule a placement would break — fravær, 11-hour rest, 48 hours,
+  // contract cap — worded for a toast. Shared by one-tap add and drag, the two
+  // writes that skip the sheet and its pre-save warnings.
+  const ruleWarningFor = useCallback(({ staffId, dateIso, start, end, breakMinutes = 0, editingId = null }) => {
+    const member = (staff || []).find((m) => m.id === staffId);
+    if (!member) return null;
+    const abs = absenceFor ? absenceFor(staffId, new Date(`${dateIso}T00:00:00`)) : null;
+    if (abs) {
+      return t("schedShiftInAbsence", "{name}: {kind} this day — registered as off", {
+        name: member.name, kind: absKindLabel(abs.kind, t),
+      });
+    }
+    const breach = preSaveWarnings({ member, weekShifts: shifts, editingId, dateIso, start, end, breakMinutes })[0];
+    if (breach?.kind === "rest") {
+      const at = minutesToDayTime(breach.windowStart);
+      return restRuleText(member.name, breach.restHours, at.dateIso, at.hhmm, t, lang);
+    }
+    if (breach?.kind === "dk48") {
+      return t("shiftWarnDk48", "{name}: {hours} this week — over the 48-hour limit", {
+        name: member.name, hours: formatHours(breach.hours, { lang, decimals: 2 }),
+      });
+    }
+    if (breach?.kind === "cap") {
+      return t("shiftWarnCap", "{name}: {hours} this week — over the contract's {cap}", {
+        name: member.name,
+        hours: formatHours(breach.hours, { lang, decimals: 2 }),
+        cap: formatHours(breach.cap, { lang, decimals: 2 }),
+      });
+    }
+    return null;
+  }, [staff, shifts, absenceFor, t, lang]);
+
   const bloomDraft = useCallback(
     async (staffId, dateObj, memberRole) => {
       // An armed preset wins; else the staffer's most-recent shift; else the
@@ -1567,35 +1599,10 @@ export default function StaffSchedulePage() {
       // The one-tap add skips the sheet, so it must not skip the rules the
       // sheet shows: a tap that gives Ali a 53-hour week says so in the undo
       // toast, right where "Fortryd" is.
-      const member = (staff || []).find((m) => m.id === staffId);
-      const breach = preSaveWarnings({
-        member,
-        weekShifts: shifts,
-        dateIso: payload.date,
-        start: startT,
-        end: endT,
+      const warning = ruleWarningFor({
+        staffId, dateIso: payload.date, start: startT, end: endT,
         breakMinutes: payload.break_minutes || 0,
-      })[0];
-      let warning = null;
-      const absToday = absenceFor ? absenceFor(staffId, dateObj) : null;
-      if (absToday) {
-        warning = t("schedShiftInAbsence", "{name}: {kind} this day — registered as off", {
-          name: member?.name || "", kind: absKindLabel(absToday.kind, t),
-        });
-      } else if (breach?.kind === "rest") {
-        const at = minutesToDayTime(breach.windowStart);
-        warning = restRuleText(member.name, breach.restHours, at.dateIso, at.hhmm, t, lang);
-      } else if (breach?.kind === "dk48") {
-        warning = t("shiftWarnDk48", "{name}: {hours} this week — over the 48-hour limit", {
-          name: member.name, hours: formatHours(breach.hours, { lang, decimals: 2 }),
-        });
-      } else if (breach?.kind === "cap") {
-        warning = t("shiftWarnCap", "{name}: {hours} this week — over the contract's {cap}", {
-          name: member.name,
-          hours: formatHours(breach.hours, { lang, decimals: 2 }),
-          cap: formatHours(breach.cap, { lang, decimals: 2 }),
-        });
-      }
+      });
       try {
         const res = await api.post("/staff/schedules", payload);
         const createdId = res?.data?.id ?? null;
@@ -1618,7 +1625,7 @@ export default function StaffSchedulePage() {
         }
       }
     },
-    [shifts, staff, absenceFor, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
+    [shifts, ruleWarningFor, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, lang, roles]
   );
 
   const undoBloom = useCallback(async () => {
@@ -1670,10 +1677,15 @@ export default function StaffSchedulePage() {
         await api.put(`/staff/schedules/${shift.id}`, payload);
         // A refused drag's reason must not outlive the next good move.
         setError("");
-        setUndoMove({ id: shift.id, prevStaffId, prevDateIso, toDateIso, toName: toMember?.name || null, prevRole: shift.role_on_shift });
+        // A drag skipped the rules entirely: Ali went to 50,5 t in silence.
+        const warning = ruleWarningFor({
+          staffId: toStaffId, dateIso: toDateIso, start: shift.start_time, end: shift.end_time,
+          breakMinutes: shift.break_minutes || 0, editingId: shift.id,
+        });
+        setUndoMove({ id: shift.id, prevStaffId, prevDateIso, toDateIso, toName: toMember?.name || null, prevRole: shift.role_on_shift, warning });
         setTimeout(
           () => setUndoMove((u) => (u && u.id === shift.id ? null : u)),
-          6000
+          warning ? 10000 : 6000
         );
         await fetchShifts();
       } catch (err) {
@@ -1690,7 +1702,7 @@ export default function StaffSchedulePage() {
         setTimeout(() => setMoveRefusal(null), 9000);
       }
     },
-    [branchId, fetchShifts, t, lang, staff, roles]
+    [branchId, fetchShifts, t, lang, staff, roles, ruleWarningFor]
   );
 
   const undoMoveAction = useCallback(async () => {
@@ -2735,7 +2747,7 @@ export default function StaffSchedulePage() {
           hides itself when nothing is pending. This card had no mount point
           anywhere in the app before; the Vagtplan is its natural home since
           the owner manages staff here. */}
-      <SickCallNotificationCard />
+      <SickCallNotificationCard refreshKey={shifts} />
 
       {/* Peer-confirmed shift swaps awaiting the owner's final approve/deny.
           Interrupt-only — hides when none pending. Built + endpoint-backed
@@ -3703,6 +3715,9 @@ export default function StaffSchedulePage() {
                       day: new Date(`${undoMove.toDateIso}T12:00:00`).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "numeric" }),
                     })}
               </>
+            )}
+            {undoMove.warning && (
+              <span className="block text-amber-300 text-[13px] mt-0.5">⚠ {undoMove.warning}</span>
             )}
           </span>
           <button
@@ -7389,7 +7404,7 @@ export function ScheduleGrid({
                       {conflictLabel}
                     </div>
                   )}
-                  <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                  <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums whitespace-nowrap">
                     {formatShiftTime(shift.start_time, shift.end_time, lang)}
                   </div>
                   {/* Line 2 carries everything that is NOT the time: hours, the
@@ -7701,7 +7716,7 @@ export function ScheduleGrid({
                             )}
                           </span>
                         ) : (
-                          <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+                          <span className="text-sm font-bold text-gray-400 dark:text-gray-400 tabular-nums">—</span>
                         )}
                       </div>
                       {/* Predicted demand vs rostered hours — the persistent
@@ -8686,8 +8701,29 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
   // 48-hour week (and a contract cap), from the week already on the page,
   // BEFORE the owner saves. They used to surface only after saving (the strip
   // above the grid) or at publish. Plus a fravær on the chosen day.
+  // The person already works an overlapping shift that day: the save would
+  // be refused, so say THAT — not a 48-hour figure for a shift that can't
+  // exist — and keep the button from pretending otherwise.
+  const sheetOverlap = useMemo(() => {
+    if (!member || !date || sameTimes) return null;
+    const mine = shiftSpan(date, startTime, endTime);
+    if (!mine) return null;
+    const clash = (shifts || []).find((s) =>
+      s && s.id !== existingShift?.id
+      && (s.staff_id === member.id || s.staff_member_id === member.id)
+      && String(s.date).slice(0, 10) === date
+      && (() => {
+        const o = shiftSpan(String(s.date).slice(0, 10), s.start_time, s.end_time);
+        return o && o.start < mine.end && mine.start < o.end;
+      })());
+    return clash
+      ? overlapMessage({ staff_name: member.name, existing_start: clash.start_time, existing_end: clash.end_time }, t, lang)
+      : null;
+  }, [member, date, sameTimes, shifts, existingShift, startTime, endTime, t, lang]);
+
   const ruleLines = useMemo(() => {
     if (!member || !date || sameTimes) return [];
+    if (sheetOverlap) return [sheetOverlap];
     const out = [];
     const abs = absenceFor ? absenceFor(member.id, new Date(`${date}T00:00:00`)) : null;
     if (abs) {
@@ -8720,7 +8756,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
       }
     }
     return out;
-  }, [member, date, sameTimes, absenceFor, shifts, existingShift, startTime, endTime, breakMinutes, t, lang]);
+  }, [member, date, sameTimes, sheetOverlap, absenceFor, shifts, existingShift, startTime, endTime, breakMinutes, t, lang]);
 
   const handleSave = async () => {
     if (submittingRef.current) return;
@@ -8733,6 +8769,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
       return;
     }
     if (sameTimes) return; // the inline hint under the times already says why
+    if (sheetOverlap) return; // Enter must not get past what the button refuses
 
     submittingRef.current = true;
     setSaving(true);
@@ -9138,7 +9175,7 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
               </button>
               <button
                 type="submit"
-                disabled={saving || sameTimes}
+                disabled={saving || sameTimes || !!sheetOverlap}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
               >
                 {saving ? t("shiftSaving", "Saving...") : isEdit ? t("shiftUpdateBtn", "Update Shift") : t("shiftAddTitle", "Add Shift")}

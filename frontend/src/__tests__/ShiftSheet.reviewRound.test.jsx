@@ -223,7 +223,7 @@ describe("the small things that made the sheet lie", () => {
     await mountSheet({ staffId: "st-a", date: TUE, shift: null });
     const seps = Array.from(body().querySelectorAll("span.self-center")).map((s) => s.textContent);
     expect(seps).toEqual([".", "."]);
-    expect(body().textContent).toContain("Vagt: 16.00 – 23.00");
+    expect(body().textContent).toContain("Vagt: 16.00–23.00");
   });
 
   it("drops the inherited 45-minute break when the shift becomes a 4-hour one", async () => {

@@ -3146,7 +3146,7 @@ export const da = {
     shiftDateLabel: "Dato",
     shiftNotesLabel: "Noter (valgfrit)",
     shiftNotesPlaceholder: "f.eks. Oplæring, dækker for Anna...",
-    shiftPreview: "Vagt: {start} – {end} ({hours} netto)",
+    shiftPreview: "Vagt: {start}–{end} ({hours} netto)",
     shiftPreviewBreak: "med {n} min pause",
     shiftSaving: "Gemmer...",
     shiftDeleting: "Sletter...",

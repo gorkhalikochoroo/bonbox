@@ -21,7 +21,7 @@
  *   • Replacement candidates are pre-filtered to active staff under
  *     this owner who aren't already scheduled that day
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarOff, Check } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -40,7 +40,7 @@ function kindLabel(kind, t) {
 }
 
 
-export default function SickCallNotificationCard() {
+export default function SickCallNotificationCard({ refreshKey } = {}) {
   const { t, lang } = useLanguage();
   const [absences, setAbsences] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -69,6 +69,16 @@ export default function SickCallNotificationCard() {
     window.addEventListener("bonbox-data-changed", onChanged);
     return () => window.removeEventListener("bonbox-data-changed", onChanged);
   }, []);
+
+  // The Vagtplan hands its shifts in as refreshKey: moving a sick person's
+  // shift on the grid covers it, and the card kept asking for cover until a
+  // reload. Skip the first run — the mount effect above already fetched.
+  const firstKeyRef = useRef(true);
+  useEffect(() => {
+    if (firstKeyRef.current) { firstKeyRef.current = false; return; }
+    fetchAbsences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   // Hide when nothing's pending — the card is "interrupt-only" UX,
   // never a filler.

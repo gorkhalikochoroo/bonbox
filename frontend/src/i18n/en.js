@@ -3254,7 +3254,7 @@ export const en = {
     shiftDateLabel: "Date",
     shiftNotesLabel: "Notes (optional)",
     shiftNotesPlaceholder: "e.g. Training, covering for Anna...",
-    shiftPreview: "Shift: {start} – {end} ({hours} net)",
+    shiftPreview: "Shift: {start}–{end} ({hours} net)",
     shiftPreviewBreak: "with {n}min break",
     shiftSaving: "Saving...",
     shiftDeleting: "Deleting...",
