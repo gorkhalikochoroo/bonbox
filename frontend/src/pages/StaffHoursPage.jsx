@@ -2,7 +2,7 @@
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { dateLocale, businessTodayIso } from "../utils/dateFormat";
 import api from "../services/api";
@@ -18,6 +18,7 @@ import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
+import { VIEW_RANGES, viewRange, matchViewRange, stepUnit, stepWindow } from "../utils/viewRanges";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -433,6 +434,10 @@ export default function StaffHoursPage() {
       setPeriodFrom(p.from); setPeriodTo(p.to);
       return;
     }
+    // A one-off month steps month by month and a week by 7 — "Sidste måned"
+    // then ← is August, not 31 days before 1. september.
+    const stepped = stepWindow(stepUnit(periodFrom, periodTo), periodFrom, -1);
+    if (stepped) { setPeriodFrom(stepped.from); setPeriodTo(stepped.to); return; }
     setPeriodFrom(addDays(periodFrom, -periodLength));
     setPeriodTo(addDays(periodTo, -periodLength));
   };
@@ -498,6 +503,8 @@ export default function StaffHoursPage() {
       setPeriodFrom(p.from); setPeriodTo(p.to);
       return;
     }
+    const stepped = stepWindow(stepUnit(periodFrom, periodTo), periodFrom, 1);
+    if (stepped) { setPeriodFrom(stepped.from); setPeriodTo(stepped.to); return; }
     setPeriodFrom(addDays(periodFrom, periodLength));
     setPeriodTo(addDays(periodTo, periodLength));
   };
@@ -535,9 +542,22 @@ export default function StaffHoursPage() {
   // touch the saved config (so the recurring frame is preserved).
   const applyCustomRange = (from, to) => {
     if (!from || !to || to < from) return;
-    setFrameMode("custom");
+    // The venue's own current period, picked as a range, IS the frame again —
+    // Previous/Next then snap to it instead of stepping a one-off window.
+    if (currentWindow && from === currentWindow.from && to === currentWindow.to) {
+      setFrameMode("recurring");
+    } else {
+      setFrameMode("custom");
+    }
     setPeriodFrom(from);
     setPeriodTo(to);
+  };
+  // "Denne uge · Sidste uge · Denne måned · Sidste måned": a window to LOOK
+  // at, never a setting (utils/viewRanges.js). Same non-saving path as a
+  // custom range.
+  const applyViewRange = (id) => {
+    const r = viewRange(id, today());
+    applyCustomRange(r.from, r.to);
   };
 
   // Sub-tabs — the page now opens on the ANSWER (Oversigt), not the logging
@@ -594,9 +614,11 @@ export default function StaffHoursPage() {
           isCurrent={showingCurrent}
           onCurrent={goCurrentPeriod}
           periodType={frameMode === "custom" ? "custom_range" : periodType}
+          savedType={periodConfig?.period_type || periodType}
           customStartDay={customStartDay}
           onSelectFrame={selectFrame}
           onCustomRange={applyCustomRange}
+          onViewRange={applyViewRange}
           saveFailed={frameSaveFailed}
         />
       </FadeIn>
@@ -690,6 +712,9 @@ export default function StaffHoursPage() {
               periodFrom={periodFrom}
               periodTo={periodTo}
               onGoLog={() => setSubTab("log")}
+              // Løn's cost breakdown (from the owner-only overview), so the
+              // per-person gross reconciles to "Samlet lønomkostning".
+              costBreakdown={overview?.cost?.basis === "payroll" ? overview.cost.breakdown : null}
             />
           </FadeIn>
           <FadeIn delay={0.15}>
@@ -792,22 +817,24 @@ function fillNarrative(t, currencyCode, line, lang) {
 // start day like the 16th, biweekly) or picks an ad-hoc date range. Recurring
 // frames write the SHARED /staff/pay-period config (so Hours + Payroll extract
 // the same window); the custom range is a local, non-persisted override.
-const FRAME_OPTIONS = [
+// The venue's PAY PERIOD — a saved setting, shared with Løn. Kept apart from
+// the view-only ranges above it: three testers asked for "last week" and
+// tapped "Hver uge (man.–søn.)", which rewrote the venue's pay period for Timer
+// and Løn with nothing but a grey "Gemt" to say so.
+const PAY_FRAMES = [
   { id: "monthly_1st", key: "hovFrameMonth1" },
   { id: "monthly_15th", key: "hovFrameMonth15" },
   { id: "custom", key: "hovFrameCustom" },
   { id: "weekly", key: "hovFrameWeekly" },
   { id: "biweekly", key: "hovFrameBiweekly" },
-  { id: "custom_range", key: "hovFrameCustomRange" },
 ];
 
-function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, onCurrent, periodType, customStartDay, onSelectFrame, onCustomRange, saveFailed = false }) {
+function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, onCurrent, periodType, savedType = null, customStartDay, onSelectFrame, onCustomRange, onViewRange, saveFailed = false }) {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
-  // Which editor sub-panel is open. The two editor chips (custom start-day,
-  // ad-hoc range) don't change the active frame until confirmed, so they need
-  // their own local "which panel is expanded" state — the panels also stay open
-  // when the active periodType prop already is that frame.
+  // Which editor sub-panel is open: the custom start-day of the pay period,
+  // or the one-off date range. Neither changes anything until confirmed.
   const [editor, setEditor] = useState(null); // null | "custom" | "custom_range"
   const [dayDraft, setDayDraft] = useState(customStartDay || 16);
   const [rangeFrom, setRangeFrom] = useState(from || "");
@@ -818,6 +845,46 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
 
   const inputCls =
     "border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none";
+  const chipCls = (selected) =>
+    "min-h-10 sm:min-h-0 px-3 py-1.5 rounded-lg text-[13px] font-medium border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 " +
+    (selected
+      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:border-gray-500");
+  const applyBtnCls =
+    "min-h-10 sm:min-h-0 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed";
+
+  // The quick range the window on screen IS, if any — marked, so the sheet
+  // says what is showing.
+  const activeRange = matchViewRange(from, to, today());
+  const rangeOk = !!rangeFrom && !!rangeTo && rangeTo >= rangeFrom;
+  const applyRange = (e) => {
+    e?.preventDefault?.();
+    if (!rangeOk) return;
+    setEditor(null);
+    onCustomRange(rangeFrom, rangeTo);
+  };
+
+  // A CHANGE to the venue's pay period asks first. Looking is not saving.
+  const changeFrame = async (id, day) => {
+    const label = id === "custom"
+      ? t("hovFrameCustomDay", "Starts on day {d}", { d: day })
+      : t((PAY_FRAMES.find((f) => f.id === id) || {}).key || "", id);
+    const ok = await confirm({
+      title: t("hovFrameConfirmTitle", "Change the pay period for the whole venue?"),
+      message: t("hovFrameConfirmBody", "Hours and Payroll use “{frame}” from now on.", { frame: label }),
+      confirmLabel: t("hovFrameConfirmCta", "Change pay period"),
+    });
+    if (ok !== true) return;
+    setEditor(null);
+    onSelectFrame(id, day);
+  };
+  const pickFrame = (id) => {
+    if (id === "custom") { setEditor(editor === "custom" ? null : "custom"); return; }
+    setEditor(null);
+    // The frame already saved: nothing to change — show its current period.
+    if (id === savedType) { onCurrent?.(); return; }
+    changeFrame(id);
+  };
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
@@ -869,117 +936,129 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
         </Button>
       </div>
 
-      {/* The way back to now. Silent while the current period IS on screen —
-          a button that does nothing is worse than no button — and a plain
-          text control, not a third arrow, so the row keeps its shape on a
-          375px phone. */}
+      {/* The way back to now. Silent while the current period IS on screen.
+          "Denne periode" under "1. sep. – 30. sep." read as "September is the
+          current period" — it now says where it goes. */}
       {!loading && !isCurrent && onCurrent && (
         <div className="px-3 sm:px-4 pb-3 sm:pb-4 -mt-2 flex justify-center">
           <button
             type="button"
             onClick={onCurrent}
-            className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            className="inline-flex items-center justify-center gap-1 min-h-[44px] px-3 rounded-lg text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
-            {t("hovThisPeriod", "This period")}
+            <Icon name="RotateCcw" size={14} aria-hidden="true" />
+            {t("hovToCurrentPeriod", "Back to the current period")}
           </button>
         </div>
       )}
 
-      {/* Frame picker — one tap, no trip to Payroll settings. */}
       {open && (
-        <div className="border-t border-gray-100 dark:border-gray-700 p-3 sm:p-4 space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-            {t("hovFrameHeading", "How is the period framed?")}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {FRAME_OPTIONS.map((opt) => {
-              const selected = periodType === opt.id || editor === opt.id;
-              return (
+        <div className="border-t border-gray-100 dark:border-gray-700 p-3 sm:p-4 space-y-4">
+          {/* 1 · LOOK AT — a window on screen, never saved. */}
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {t("hovRangeHeading", "Show")}
+              </p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                {t("hovRangeNote", "Only changes what you see — not the pay period.")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {VIEW_RANGES.map((r) => (
                 <button
-                  key={opt.id}
+                  key={r.id}
                   type="button"
-                  onClick={() => {
-                    // The two editor chips reveal their sub-panel; a normal
-                    // recurring chip applies immediately and closes any editor.
-                    if (opt.id === "custom" || opt.id === "custom_range") {
-                      setEditor(opt.id);
-                      return;
-                    }
-                    setEditor(null);
-                    onSelectFrame(opt.id);
-                  }}
-                  aria-pressed={selected}
-                  className={
-                    "px-3 py-1.5 rounded-lg text-[13px] font-medium border transition " +
-                    (selected
-                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600")
-                  }
+                  aria-pressed={activeRange === r.id}
+                  onClick={() => { setEditor(null); onViewRange?.(r.id); }}
+                  className={chipCls(activeRange === r.id)}
                 >
-                  {t(opt.key, opt.id)}
+                  {t(r.key, r.fallback)}
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Custom start day — e.g. the 16th → 15th */}
-          {(periodType === "custom" || editor === "custom") && (
-            <div className="flex items-end gap-2">
-              <div>
-                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
-                  {t("hovFrameStartDay", "Starts on day")}
-                </label>
-                <input
-                  type="number" min="1" max="28" value={dayDraft}
-                  onChange={(e) => setDayDraft(e.target.value)}
-                  className={inputCls + " w-20"}
-                />
-              </div>
+              ))}
               <button
                 type="button"
-                onClick={() => { setEditor(null); onSelectFrame("custom", dayDraft); }}
-                className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition"
+                aria-pressed={editor === "custom_range" || (periodType === "custom_range" && !activeRange)}
+                onClick={() => setEditor(editor === "custom_range" ? null : "custom_range")}
+                className={chipCls(editor === "custom_range" || (periodType === "custom_range" && !activeRange))}
               >
-                {t("save", "Save")}
+                {t("hovFrameCustomRange", "Custom dates")}
               </button>
             </div>
-          )}
 
-          {/* Ad-hoc custom date range — a one-off extraction, not saved. */}
-          {(periodType === "custom_range" || editor === "custom_range") && (
-            <div className="flex flex-wrap items-end gap-2">
-              <div>
-                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{t("hovFrameFrom", "From")}</label>
-                <input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{t("hovFrameTo", "To")}</label>
-                <input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className={inputCls} />
-              </div>
-              <button
-                type="button"
-                onClick={() => { setEditor(null); onCustomRange(rangeFrom, rangeTo); }}
-                disabled={!rangeFrom || !rangeTo || rangeTo < rangeFrom}
-                className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {t("hovFrameApply", "Show these dates")}
-              </button>
+            {/* A one-off date range. Enter in either field shows it. */}
+            {editor === "custom_range" && (
+              <form onSubmit={applyRange} className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label htmlFor="hov-range-from" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{t("hovFrameFrom", "From")}</label>
+                  <input id="hov-range-from" type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label htmlFor="hov-range-to" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{t("hovFrameTo", "To")}</label>
+                  <input id="hov-range-to" type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className={inputCls} />
+                </div>
+                <button type="submit" disabled={!rangeOk} className={applyBtnCls}>
+                  {t("hovFrameApply", "Show these dates")}
+                </button>
+              </form>
+            )}
+          </section>
+
+          {/* 2 · THE PAY PERIOD — a saved setting for the whole venue. */}
+          <section className="space-y-2 pt-3 border-t border-gray-100 dark:border-gray-700">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("hovPayFrameHeading", "Pay period (saved setting)")}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {PAY_FRAMES.map((opt) => {
+                const selected = savedType === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => pickFrame(opt.id)}
+                    aria-pressed={selected}
+                    className={chipCls(selected || editor === opt.id)}
+                  >
+                    {t(opt.key, opt.id)}
+                  </button>
+                );
+              })}
             </div>
-          )}
 
-          {/* "Saved — used for Hours and Payroll." is a statement about the
-              SERVER, so it may only appear when the write reached it. When it
-              did not, the frame on screen is a local view and the note says
-              exactly that instead of quietly claiming Løn now agrees. */}
-          {periodType !== "custom_range" && editor !== "custom_range" && (
-            saveFailed ? (
+            {/* Custom start day — e.g. the 16th → 15th. Saving it asks first. */}
+            {editor === "custom" && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); changeFrame("custom", parseInt(dayDraft, 10) || 1); }}
+                className="flex items-end gap-2"
+              >
+                <div>
+                  <label htmlFor="hov-frame-day" className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    {t("hovFrameStartDay", "Starts on day")}
+                  </label>
+                  <input
+                    id="hov-frame-day"
+                    type="number" min="1" max="28" value={dayDraft}
+                    onChange={(e) => setDayDraft(e.target.value)}
+                    className={inputCls + " w-20"}
+                  />
+                </div>
+                <button type="submit" className={applyBtnCls}>
+                  {t("save", "Save")}
+                </button>
+              </form>
+            )}
+
+            {/* "Saved — used for Hours and Payroll." is a statement about the
+                SERVER, so it may only appear when the write reached it. */}
+            {saveFailed ? (
               <p className="text-[11px] text-amber-700 dark:text-amber-400">
                 {t("hovFrameNotSaved", "Not saved — showing here only. Pick the frame again to retry.")}
               </p>
             ) : (
-              <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hovFrameSavedNote", "Saved — used for Hours and Payroll.")}</p>
-            )
-          )}
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">{t("hovFrameSavedNote", "Saved — used for Hours and Payroll.")}</p>
+            )}
+          </section>
         </div>
       )}
     </div>
@@ -1171,9 +1250,14 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   // so a payload that carried no cost at all rendered "~0 kr" — a venue told
   // it paid nothing for a period nobody had actually costed.
   let costValue = cost.loaded_est == null ? "—" : `~${formatOwnerMoney(cost.loaded_est, currency)}`;
-  // "ekskl. ATP": the Løn tab's total includes it, so the two figures for the
-  // same month differed (26.101 vs 26.164) with nothing saying why.
-  let costHelper = `${t("hovTileCostSubAtp", "incl. holiday pay · excl. ATP · estimate")}${soFar}`;
+  // ONE COST NUMBER. With basis "payroll" the server computed this with the
+  // very function behind Løn's "Samlet lønomkostning" (bruttoløn + feriepenge
+  // + ATP), so the two tabs say the same kroner. The gross × 1,125 fallback
+  // (no DK payroll, or it could not run) still says it leaves ATP out.
+  const isPayrollCost = cost.basis === "payroll";
+  let costHelper = `${isPayrollCost
+    ? t("hovTileCostSubTotal", "gross pay + holiday pay + ATP · estimate")
+    : t("hovTileCostSubAtp", "incl. holiday pay · excl. ATP · estimate")}${soFar}`;
   // Someone worked with no wage on file: the figure is short by their pay.
   if (hasCostBasis && cost.unpriced_count > 0) {
     costHelper = t("hovTileCostUnpriced", "excl. {n} without a wage — set their rate", { n: cost.unpriced_count });
@@ -1251,11 +1335,12 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
           onClick={onGoDetails}
           className="w-full flex items-center justify-between gap-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-left text-sm text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/30"
         >
-          <span className="font-medium">
-            {needsAnswer === 1
-              ? t("hovNeedsAnswerOne", "1 shift needs your answer")
-              : t("hovNeedsAnswerN", "{n} shifts need your answer", { n: needsAnswer })}
-          </span>
+          {/* WHAT is wrong, not only that something is: "N vagter mangler
+              dit svar" never said whether a clock-out or a whole shift was
+              missing. */}
+          <span className="font-medium">{answerKindsText(people, t) || (needsAnswer === 1
+            ? t("hovNeedsAnswerOne", "1 shift needs your answer")
+            : t("hovNeedsAnswerN", "{n} shifts need your answer", { n: needsAnswer }))}</span>
           <span aria-hidden="true">→</span>
         </button>
       )}
@@ -1270,7 +1355,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
         />
         <StatCard
           dense
-          label={t("hovTileCost", "Labor cost")}
+          label={isPayrollCost ? t("hovTileCostTotal", "Total labour cost") : t("hovTileCost", "Labor cost")}
           value={costValue}
           helper={costHelper}
         />
@@ -1292,20 +1377,21 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
 
       {/* Who worked how much — the question the hub is opened for. It took a
           second tap, onto "Pr. medarbejder", to see a single name. */}
-      <WhoWorkedCard people={people} currency={currency} onGoDetails={onGoDetails} />
+      <WhoWorkedCard people={people} currency={currency} onGoDetails={onGoDetails} breakdown={isPayrollCost ? cost.breakdown : null} />
 
       {overview.labor_split && <LaborSplitCard split={overview.labor_split} currency={currency} />}
     </div>
   );
 }
 
-function WhoWorkedCard({ people = [], currency, onGoDetails }) {
+function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null }) {
   const { t, lang } = useLanguage();
   const worked = (people || [])
     .filter((p) => Number(p.actual_hours || p.total_hours || 0) > 0)
     .sort((a, b) => Number(b.actual_hours || 0) - Number(a.actual_hours || 0));
   if (!worked.length) return null;
   const shown = worked.slice(0, 6);
+  const showMoney = shown.some((p) => p.earned != null);
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
       <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-700">
@@ -1319,6 +1405,12 @@ function WhoWorkedCard({ people = [], currency, onGoDetails }) {
             <Icon name="ChevronRight" size={14} />
           </button>
         )}
+      </div>
+      {/* The money column says what it is: bruttoløn, before feriepenge and
+          ATP — the line under the list adds those up to the cost tile. */}
+      <div className="px-4 sm:px-5 pt-2 flex items-center justify-end gap-3 text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        <span>{t("hovColHours", "Hours")}</span>
+        {showMoney && <span className="w-24 text-right">{t("shpColGross", "Gross pay")}</span>}
       </div>
       <ul className="divide-y divide-gray-100 dark:divide-gray-700">
         {shown.map((p) => (
@@ -1336,8 +1428,68 @@ function WhoWorkedCard({ people = [], currency, onGoDetails }) {
           </li>
         ))}
       </ul>
+      {showMoney && breakdown && (
+        <CostReconcileLine breakdown={breakdown} people={people} currency={currency} className="px-4 sm:px-5 py-2.5 border-t border-gray-100 dark:border-gray-700" />
+      )}
     </div>
   );
+}
+
+/** "Bruttoløn 44.317,67 kr. + feriepenge 5.539,70 kr. + ATP 189,33 kr. =
+ *  50.046,70 kr." — so the per-person gross adds up to the cost tile and to
+ *  Løn's "Samlet lønomkostning". Testers found three different answers to
+ *  "what did it cost me" on two tabs, none of them explaining the others.
+ *  The figures are the server's own (overview cost.breakdown, from the payroll
+ *  computation Løn uses) — never re-derived here. Anyone whose hours are on
+ *  this screen but not on the payroll (deactivated) is named, so a difference
+ *  between the rows and the line is explained rather than silent. */
+function CostReconcileLine({ breakdown, people = [], currency, className = "" }) {
+  const { t } = useLanguage();
+  if (!breakdown || breakdown.total == null) return null;
+  const m = (v) => formatOwnerMoney(v, currency, { decimals: 2 });
+  const offPayroll = (people || []).filter(
+    (p) => p.on_payroll === false && Number(p.earned || 0) > 0,
+  );
+  return (
+    <div className={`text-[12px] text-gray-600 dark:text-gray-400 tabular-nums ${className}`} data-testid="cost-reconcile">
+      <p>
+        {t("hovCostReconcile", "Gross pay {gross} + holiday pay {ferie} + ATP {atp} = {total}", {
+          gross: m(breakdown.gross), ferie: m(breakdown.feriepenge), atp: m(breakdown.atp), total: m(breakdown.total),
+        })}
+      </p>
+      {offPayroll.length > 0 && (
+        <p className="mt-0.5">
+          {t("hovCostOffPayroll", "Not on the payroll (inactive), so not in the total: {names}", {
+            names: offPayroll.map((p) => p.staff_name).join(", "),
+          })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** "2 glemte udstemplinger · 3 uden stempling" — the parts that are not zero. */
+function answerKindsText(rows, t) {
+  let forgot = 0;
+  let missing = 0;
+  for (const r of rows || []) {
+    for (const e of r.exceptions || []) {
+      if (e.state === "forgot_clock_out") forgot += 1;
+      else if (e.state === "no_clock_in") missing += 1;
+    }
+  }
+  const parts = [];
+  if (forgot > 0) {
+    parts.push(forgot === 1
+      ? t("hovForgotOutOne", "1 forgotten clock-out")
+      : t("hovForgotOutN", "{n} forgotten clock-outs", { n: forgot }));
+  }
+  if (missing > 0) {
+    parts.push(missing === 1
+      ? t("hovNoClockInOne", "1 not clocked in")
+      : t("hovNoClockInN", "{n} not clocked in", { n: missing }));
+  }
+  return parts.join(" · ");
 }
 
 /* Department cost split — reuses the shift-planner's per-vertical role categories
@@ -1504,9 +1656,10 @@ function fmtHours(n, lang) {
 /** Settle one shift. Three things the owner can say, and the system says none
     of them by itself.
 
-    Deliberately NOT here: a "godkend alle" button. Batch navigation is fine;
-    batch decision is not — a single tap that accepts twelve shifts the owner
-    never looked at is exactly the rubber stamp this feature exists to replace.
+    Batch navigation is fine; a batch decision only ever after a confirm that
+    LISTS what it decides ("Alle uden stempling: som planlagt" names every
+    person, day and planned time first) — a single tap that accepts twelve
+    shifts the owner never saw is the rubber stamp this feature replaces.
 */
 /** The first shift worth asking about. Unanswered punches outrank measured
     deviations — only one of them needs a human. */
@@ -1516,82 +1669,157 @@ function firstException(row) {
     || ex.find((e) => e.state === "no_clock_in") || ex[0] || null;
 }
 
-function ResolveSheet({ staffId, staffName, exception, onClose, onResolved, position = null }) {
+// The pause a forgotten clock-out can be given. The planned break joins the
+// list when it is none of these (a 20-minute plan stays 20).
+const PAUSE_CHOICES = [0, 15, 30, 45, 60];
+// After a save, the next person's sheet ignores its buttons this long: a
+// tester's double-tap nearly saved Tina's pay with Tilde's answer.
+const NEXT_SHEET_GUARD_MS = 600;
+
+function hhmmToMin(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "").trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+/** One answered shift, for the "Gemt · Tilde · 16:58–23:00 · 5,28 t" line. */
+function savedDetail(action, data, local, t, lang) {
+  const hrs = (v) => (v != null ? fmtHours(Number(v), lang) : "");
+  if (action === "clock_out" || action === "as_planned") {
+    const st = data?.start_time || local.start;
+    const en = data?.end_time || local.end;
+    return [st && en ? `${st}–${en}` : "", hrs(data?.total_hours ?? local.hours)].filter(Boolean).join(" · ");
+  }
+  if (action === "adjust") return hrs(data?.total_hours ?? local.hours);
+  if (action === "absent") return t("shpSavedAbsent", "did not work");
+  return t("shpSavedConfirmed", "record is correct");
+}
+
+function ResolveSheet({ staffId, staffName, exception, onClose, onResolved, position = null, saved = null }) {
   const { t, lang } = useLanguage();
   const [hours, setHours] = useState(
     exception?.scheduled_hours != null ? String(exception.scheduled_hours) : "",
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-
+  // The measured start, editable: a 16:58 punch for a 17:00 shift crossed
+  // the 6-hour pause line by three minutes and paid less than a 5:59 one.
+  const [startTime, setStartTime] = useState(exception?.start_time || "");
   // Prefilled with the planned end — most forgotten clock-outs ended on time.
   const [endTime, setEndTime] = useState(exception?.scheduled_end || "");
   const [longConfirm, setLongConfirm] = useState(false);
-  // What the chosen end time makes, before saving: start → end, the DK break
-  // the save will deduct (45 min from 6 h, the same rule as the punch clock),
-  // and the paid hours. The deduction used to happen silently.
-  const preview = (() => {
-    const st = exception?.start_time;
-    if (!st || !endTime) return null;
-    const [sh, sm] = st.split(":").map(Number);
-    const [eh, em] = endTime.split(":").map(Number);
-    if (![sh, sm, eh, em].every(Number.isFinite)) return null;
-    let mins = (eh * 60 + em) - (sh * 60 + sm);
-    if (mins <= 0) mins += 24 * 60;
-    const gross = mins / 60;
-    const pause = gross >= 6 ? 45 : 0;
-    return { gross, pause, paid: Math.max(0, gross - pause / 60) };
+  // null = the default pause (the plan's break, else the DK suggestion).
+  const [pauseChoice, setPauseChoice] = useState(null);
+  const firstInputRef = useRef(null);
+  // When this sheet appeared — set on mount, read by the double-tap guard.
+  const armedAt = useRef(0);
+
+  const forgotOut = exception?.state === "forgot_clock_out";
+  const isMissing = exception?.state === "no_clock_in";
+  const hasPlan = !!(exception?.scheduled_start && exception?.scheduled_end);
+
+  // The pause, and where its default came from — said in one line, because
+  // a deduction nobody can see or change is how the sheet lost trust.
+  const plannedBreak = exception?.scheduled_break_minutes != null && Number(exception.scheduled_break_minutes) > 0
+    ? Number(exception.scheduled_break_minutes)
+    : null;
+  const startMin = hhmmToMin(startTime);
+  const endMin = hhmmToMin(endTime);
+  const gross = (() => {
+    if (startMin == null || endMin == null) return null;
+    let mins = endMin - startMin;
+    if (mins < 0) mins += 24 * 60;          // overnight
+    return mins / 60;
   })();
-  // Esc closes, as every other sheet does.
+  const suggested = gross != null && gross >= 6 ? 45 : 0;
+  const pause = pauseChoice != null ? pauseChoice : (plannedBreak != null ? plannedBreak : suggested);
+  const pauseSource = pauseChoice != null ? null : (plannedBreak != null ? "plan" : "rule");
+  const pauseOptions = plannedBreak != null && !PAUSE_CHOICES.includes(plannedBreak)
+    ? [...PAUSE_CHOICES, plannedBreak].sort((a, b) => a - b)
+    : PAUSE_CHOICES;
+  const pauseTooLong = gross != null && gross > 0 && pause >= gross * 60;
+  const paid = gross != null ? Math.max(0, gross - pause / 60) : null;
+  const canSaveOut = !busy && !longConfirm && gross != null && gross > 0 && !pauseTooLong;
+  const startMoved = !!exception?.start_time && startTime !== exception.start_time;
+
+  // Keyboard: the first field has the focus, Enter saves (each answer is a
+  // form), Esc closes. Focus goes back to the opener — the parent does that.
+  useEffect(() => {
+    armedAt.current = Date.now();
+    firstInputRef.current?.focus?.();
+  }, []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && !busy) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, onClose]);
-  const send = async (action, total) => {
+
+  const send = async (action, payload = {}) => {
+    if (busy) return;
+    // The sheet that just replaced a saved one ignores a second tap.
+    if (saved && Date.now() - armedAt.current < NEXT_SHEET_GUARD_MS) return;
     setBusy(true); setErr("");
     try {
-      await api.post("/staff/hours/resolve", {
+      const res = await api.post("/staff/hours/resolve", {
         staff_id: staffId,
         date: exception.date,
         action,
-        ...(total != null ? { total_hours: total } : {}),
-        ...(action === "clock_out" ? { end_time: endTime, confirm_long: longConfirm } : {}),
+        ...payload,
       });
-      // The parent reloads and opens the next unanswered shift, or closes.
-      onResolved();
+      onResolved(savedDetail(action, res?.data, {
+        start: payload.start_time || exception?.scheduled_start,
+        end: payload.end_time || exception?.scheduled_end,
+        hours: payload.total_hours ?? (action === "clock_out" ? paid : exception?.scheduled_hours),
+      }, t, lang));
     } catch (e) {
-      {
-        const d = e?.response?.data?.detail;
-        if (e?.response?.status === 409 && d?.code === "long_shift") {
-          // Over 16 h is usually a typo (16:30 for a 17:00 start wraps to
-          // 23,5 t and pays it). Ask once; the next tap confirms.
-          setLongConfirm(true);
-          setErr(t("shpResolveLongShiftCheck", "That makes {h} hours — check the time.", { h: String(d.hours).replace(".", ",") }));
-          setBusy(false);
-          return;
-        }
+      const d = e?.response?.data?.detail;
+      if (e?.response?.status === 409 && d?.code === "long_shift") {
+        // Over 16 h is usually a typo (16:30 for a 17:00 start wraps to
+        // 23,5 t and pays it). Ask once; the next tap confirms.
+        setLongConfirm(true);
+        setErr(t("shpResolveLongShiftCheck", "That makes {h} hours — check the time.", { h: String(d.hours).replace(".", ",") }));
+        setBusy(false);
+        return;
       }
-      // Surfaced, never swallowed. The old edit path had `catch { /* silent */ }`
-      // so a failed save looked exactly like a successful one — on a pay record.
+      // Surfaced, never swallowed — a failed save must not look like a
+      // successful one on a pay record.
       setErr(houseErrText(e, t("shpResolveFailed", "Could not save. Try again.")));
       setBusy(false);
     }
   };
+  const outPayload = (confirmLong = false) => ({
+    end_time: endTime,
+    ...(startTime ? { start_time: startTime } : {}),
+    break_minutes: pause,
+    confirm_long: confirmLong,
+  });
 
-  const isMissing = exception?.state === "no_clock_in";
-  const forgotOut = exception?.state === "forgot_clock_out";
+  const timeCls = "w-full px-3 py-2 min-h-10 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none focus:ring-2 focus:ring-gray-400";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center">
       <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
       <div
-        role="dialog" aria-modal="true"
-        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-800 rounded-t-2xl sm:rounded-2xl p-5"
+        role="dialog" aria-modal="true" aria-labelledby="resolve-sheet-name"
+        className="relative w-full sm:max-w-sm max-h-[92vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-t-2xl sm:rounded-2xl p-5"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
       >
+        {/* What was just saved, and that THIS is somebody else. The sheet
+            used to swap the next person in under the same button, silently. */}
+        {saved && (
+          <p className="mb-3 -mt-1 flex items-center gap-1.5 text-[13px] text-emerald-700 dark:text-emerald-400 tabular-nums" role="status">
+            <Icon name="CheckCircle2" size={15} className="shrink-0" />
+            <span className="min-w-0">{t("shpSavedLine", "Saved · {name} · {detail}", { name: saved.name, detail: saved.detail })}</span>
+          </p>
+        )}
         <div className="flex items-baseline justify-between gap-3">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{staffName}</h3>
+          <h3 id="resolve-sheet-name" className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {saved && <span className="font-normal text-gray-500 dark:text-gray-400">{t("shpNextLabel", "Next:")} </span>}
+            {staffName}
+          </h3>
           {position && position.n > 1 && (
             <span className="text-[12px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0">
               {t("shpResolvePos", "{i} of {n}", { i: position.i, n: position.n })}
@@ -1600,92 +1828,213 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved, posi
         </div>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           {fmtDateFull(exception.date)} ·{" "}
-          {t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(exception.scheduled_hours, lang))}
+          {hasPlan
+            ? t("shpPlannedTimes", "planned {start}–{end}", { start: exception.scheduled_start, end: exception.scheduled_end })
+            : t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(exception.scheduled_hours, lang))}
         </p>
 
         {forgotOut ? (
-          <div className="mt-3 space-y-3">
+          <form
+            className="mt-3 space-y-3"
+            onSubmit={(e) => { e.preventDefault(); if (canSaveOut) send("clock_out", outPayload()); }}
+          >
             <p className="text-sm text-gray-700 dark:text-gray-300">
               {t("shpResolveForgotBody", "Clocked in at {start} and never out. When did the shift end?", { start: exception.start_time || "—" })}
             </p>
-            <div className="flex items-center gap-2">
-              <label className="sr-only" htmlFor="resolve-end">{t("shpResolveEndLabel", "Clock-out time")}</label>
-              <input
-                id="resolve-end" type="time" value={endTime}
-                // A new time is a new question: the "tap again" confirmation
-                // must not carry over to it (16:30 → 16:45 saved 23 t unasked).
-                onChange={(e) => { setEndTime(e.target.value); setLongConfirm(false); setErr(""); }}
-                className="w-32 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none"
-              />
-              <Button className="flex-1" disabled={busy || !endTime || longConfirm} onClick={() => send("clock_out")}>
-                {t("shpResolveSaveOut", "Save clock-out")}
-              </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="resolve-start" className="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">
+                  {t("shpResolveStartLabel", "Clock-in")}
+                </label>
+                <input
+                  ref={firstInputRef}
+                  id="resolve-start" type="time" value={startTime}
+                  onChange={(e) => { setStartTime(e.target.value); setLongConfirm(false); setErr(""); }}
+                  className={timeCls}
+                />
+              </div>
+              <div>
+                <label htmlFor="resolve-end" className="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">
+                  {t("shpResolveEndLabel", "Clock-out time")}
+                </label>
+                <input
+                  id="resolve-end" type="time" value={endTime}
+                  // A new time is a new question: the "tap again" confirmation
+                  // must not carry over to it (16:30 → 16:45 saved 23 t unasked).
+                  onChange={(e) => { setEndTime(e.target.value); setLongConfirm(false); setErr(""); }}
+                  className={timeCls}
+                />
+              </div>
             </div>
-            {preview && (
-              <p className="text-[13px] text-gray-600 dark:text-gray-300 tabular-nums">
-                {exception.start_time}–{endTime} = {fmtHours(preview.gross, lang)}
-                {preview.pause > 0 && <> − {t("shpResolvePause", "{m} min break", { m: preview.pause })}</>}
-                {" = "}<strong className="text-gray-900 dark:text-gray-100">{fmtHours(preview.paid, lang)}</strong>
+            {startMoved && (
+              <p className="text-[12px] text-gray-500 dark:text-gray-400">
+                {t("shpStartMovedNote", "The clock measured {start} — that stays on the record.", { start: exception.start_time })}
               </p>
             )}
-            {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+
+            <div>
+              <p id="resolve-pause-label" className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">
+                {t("shpPauseLabel", "Break")}
+              </p>
+              <div role="group" aria-labelledby="resolve-pause-label" className="flex flex-wrap gap-1.5">
+                {pauseOptions.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={pause === m}
+                    onClick={() => { setPauseChoice(m); setLongConfirm(false); setErr(""); }}
+                    className={`min-h-10 min-w-[3.25rem] px-2.5 rounded-lg text-[13px] font-medium border tabular-nums transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+                      pause === m
+                        ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                        : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600"
+                    }`}
+                  >
+                    {t("shpPauseMin", "{m} min", { m })}
+                  </button>
+                ))}
+              </div>
+              {pauseSource && (
+                <p className="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
+                  {pauseSource === "plan"
+                    ? t("shpPauseFromPlan", "From the schedule: {m} min break.", { m: plannedBreak })
+                    : t("shpPauseFromRule", "Standard: 45 min break from 6 hours.")}
+                </p>
+              )}
+            </div>
+
+            {gross != null && gross > 0 && (
+              <p className="text-[13px] text-gray-600 dark:text-gray-300 tabular-nums">
+                {startTime}–{endTime} = {fmtHours(gross, lang)}
+                {pause > 0 && <> − {t("shpResolvePause", "{m} min break", { m: pause })}</>}
+                {" = "}<strong className="text-gray-900 dark:text-gray-100">{fmtHours(paid, lang)}</strong>
+              </p>
+            )}
+            {pauseTooLong && (
+              <p className="text-[13px] text-amber-700 dark:text-amber-400">{t("shpPauseTooLong", "The break is as long as the shift.")}</p>
+            )}
+            {err && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{err}</p>}
+            <Button type="submit" className="w-full max-sm:h-10" disabled={!canSaveOut}>
+              {t("shpResolveSaveOut", "Save clock-out")}
+            </Button>
             {longConfirm && (
-              <Button variant="secondary" className="w-full" disabled={busy} onClick={() => send("clock_out")}>
-                {t("shpResolveLongYes", "Yes, {h} is right", { h: preview ? fmtHours(preview.gross, lang) : endTime })}
+              <Button variant="secondary" className="w-full" disabled={busy} onClick={() => send("clock_out", outPayload(true))}>
+                {t("shpResolveLongYes", "Yes, {h} is right", { h: gross != null ? fmtHours(gross, lang) : endTime })}
               </Button>
             )}
-          </div>
-        ) : null}
+          </form>
+        ) : (
+          <>
+            <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
+              {isMissing
+                ? t("shpResolveMissingBody", "The clock recorded nothing for this shift. Only you know what happened.")
+                : t("shpResolveShortBody", "The clock recorded {a} of {s}.")
+                    .replace("{a}", fmtHours(exception.actual_hours, lang))
+                    .replace("{s}", fmtHours(exception.scheduled_hours, lang))}
+            </p>
 
-        <p className={`mt-3 text-sm text-gray-700 dark:text-gray-300 ${forgotOut ? "hidden" : ""}`}>
-          {isMissing
-            ? t("shpResolveMissingBody", "The clock recorded nothing for this shift. Only you know what happened.")
-            : t("shpResolveShortBody", "The clock recorded {a} of {s}.")
-                .replace("{a}", fmtHours(exception.actual_hours, lang))
-                .replace("{s}", fmtHours(exception.scheduled_hours, lang))}
-        </p>
+            {err && <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">{err}</p>}
 
-        {!forgotOut && err && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>}
-
-        <div className={`mt-4 space-y-2 ${forgotOut ? "hidden" : ""}`}>
-          <div className="flex items-center gap-2">
-            <input
-              type="number" step="0.25" min="0" max="24"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
-              aria-label={t("shpResolveHoursLabel", "Hours worked")}
-              className="w-24 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none"
-            />
-            <Button
-              className="flex-1"
-              disabled={busy || !hours}
-              onClick={() => send("adjust", parseFloat(hours))}
-            >
-              {t("shpResolveWorked", "They worked this")}
-            </Button>
-          </div>
-          <Button
-            variant="secondary" className="w-full" disabled={busy}
-            onClick={() => send("absent")}
-          >
-            {t("shpResolveAbsent", "They did not work")}
-          </Button>
-          {!isMissing && (
-            <Button
-              variant="secondary" className="w-full" disabled={busy}
-              onClick={() => send("confirm")}
-            >
-              {t("shpResolveConfirm", "The record is correct")}
-            </Button>
-          )}
-        </div>
+            <div className="mt-4 space-y-2">
+              {/* The plan, as the answer: start, end and break written as
+                  planned — the register keeps the times. */}
+              {isMissing && hasPlan && (
+                <Button className="w-full max-sm:h-10" disabled={busy} onClick={() => send("as_planned")}>
+                  {t("shpResolveAsPlanned", "Worked as planned · {start}–{end}", { start: exception.scheduled_start, end: exception.scheduled_end })}
+                </Button>
+              )}
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => { e.preventDefault(); if (hours && !busy) send("adjust", { total_hours: parseFloat(String(hours).replace(",", ".")) }); }}
+              >
+                <input
+                  ref={firstInputRef}
+                  type="number" step="0.25" min="0" max="24" inputMode="decimal"
+                  value={hours}
+                  onChange={(e) => setHours(e.target.value)}
+                  aria-label={t("shpResolveHoursLabel", "Hours worked")}
+                  className="w-24 px-3 py-2 min-h-10 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none focus:ring-2 focus:ring-gray-400"
+                />
+                <Button
+                  type="submit"
+                  variant={isMissing && hasPlan ? "secondary" : "primary"}
+                  className="flex-1 max-sm:h-10"
+                  disabled={busy || !hours}
+                >
+                  {t("shpResolveWorked", "They worked this")}
+                </Button>
+              </form>
+              <Button
+                variant="secondary" className="w-full max-sm:h-10" disabled={busy}
+                onClick={() => send("absent")}
+              >
+                {t("shpResolveAbsent", "They did not work")}
+              </Button>
+              {!isMissing && (
+                <Button
+                  variant="secondary" className="w-full max-sm:h-10" disabled={busy}
+                  onClick={() => send("confirm")}
+                >
+                  {t("shpResolveConfirm", "The record is correct")}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
 
         <button
+          type="button"
           onClick={onClose}
-          className="mt-3 w-full text-center text-sm text-gray-500 dark:text-gray-400 py-2"
+          className="mt-3 w-full min-h-10 text-center text-sm text-gray-500 dark:text-gray-400 py-2 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
         >
           {t("shpResolveCancel", "Not now")}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** The queue is done — say so, and offer the approval right there. */
+function QueueDoneSheet({ saved = null, range, canApprove, busy, onApprove, onClose }) {
+  const { t } = useLanguage();
+  const btnRef = useRef(null);
+  useEffect(() => { btnRef.current?.focus?.(); }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center">
+      <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
+      <div
+        role="dialog" aria-modal="true" aria-labelledby="queue-done-title"
+        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-800 rounded-t-2xl sm:rounded-2xl p-5"
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+      >
+        {saved && (
+          <p className="mb-3 -mt-1 flex items-center gap-1.5 text-[13px] text-emerald-700 dark:text-emerald-400 tabular-nums" role="status">
+            <Icon name="CheckCircle2" size={15} className="shrink-0" />
+            <span className="min-w-0">{t("shpSavedLine", "Saved · {name} · {detail}", { name: saved.name, detail: saved.detail })}</span>
+          </p>
+        )}
+        <h3 id="queue-done-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          {t("shpQueueDoneTitle", "Every shift is answered")}
+        </h3>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+          {canApprove
+            ? t("shpQueueDoneBody", "Approve {range} now, so the payroll uses these hours.", { range })
+            : t("shpQueueDoneNothing", "Nothing left to approve for {range}.", { range })}
+        </p>
+        <div className="mt-4 space-y-2">
+          {canApprove && (
+            <Button ref={btnRef} className="w-full max-sm:h-10" busy={busy} onClick={onApprove} iconLeft={<Icon name="Check" size={15} />}>
+              {t("shpApprovePeriod", "Approve the period")}
+            </Button>
+          )}
+          <Button ref={canApprove ? undefined : btnRef} variant="secondary" className="w-full max-sm:h-10" onClick={onClose}>
+            {t("close", "Close")}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -1714,98 +2063,185 @@ export function orderForPaying(summary) {
   return list;
 }
 
-// "These hours are final" for the period. The hub promised the owner
-// "godkender timer" and there was no way to: exports used every logged hour and
-// nothing said which ones the owner had looked at. One action for the whole
-// period, refused while shifts still need an answer; undo asks first.
-function ApprovalBar({ rows, from, to, needsAnswer = 0, onChanged }) {
+/** Approving the period — shared by the bar above the table and the sheet
+ *  that says the answer queue is done, so both ask and report the same way. */
+function usePeriodApproval({ from, to, onChanged }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  // A backend without approval sends no counts: say nothing rather than guess.
-  if (!from || !to || !(rows || []).some((r) => r.entries_count != null)) return null;
-  const worked = rows.filter((r) => (r.entries_count || 0) > 0);
-  if (!worked.length) return null;
-  const total = worked.reduce((n, r) => n + (r.entries_count || 0), 0);
-  const approved = worked.reduce((n, r) => n + Math.min(r.approved_count || 0, r.entries_count || 0), 0);
-  const byApproval = worked.reduce((n, r) => n + (r.period_approved_count || 0), 0);
-  const allApproved = approved >= total;
   const range = fmtPeriod(from, to);
 
-  const run = async (path, ok) => {
+  const run = async (path, body, okText) => {
     setBusy(true);
     setNote("");
     try {
-      await api.post(`/staff/hours/${path}`, { from, to });
-      ok && setNote(ok);
+      const res = await api.post(`/staff/hours/${path}`, body);
+      const text = typeof okText === "function" ? okText(res?.data || {}) : okText;
+      if (text) setNote(text);
       onChanged?.();
+      return true;
     } catch (e) {
       const d = e?.response?.data?.detail;
       setNote(d?.code === "open_punches"
         ? t("shpApproveOpenPunches", "{n} shifts were never clocked out — fix them first.", { n: d.count })
         : houseErrText(e, t("shpApproveFailed", "Couldn't save the approval. Try again.")));
+      return false;
     } finally {
       setBusy(false);
     }
   };
-  const approve = async () => {
-    if (!(await confirm({
+
+  const approve = async (pending) => {
+    const ok = await confirm({
       title: t("shpApproveTitle", "Approve the hours for {range}?", { range }),
-      message: t("shpApproveBody", "{n} entries are marked approved and locked. The payroll export uses them. You can undo this.", { n: total - approved }),
+      message: t("shpApproveBody", "{n} entries are marked approved and locked. The payroll export uses them. You can undo this.", { n: pending }),
       confirmLabel: t("shpApproveCta", "Approve"),
-    }))) return;
-    run("approve", t("shpApprovedDone", "Approved — {range}.", { range }));
+    });
+    if (ok !== true) return false;
+    return run("approve", { from, to }, t("shpApprovedDone", "Approved — {range}.", { range }));
   };
+
+  // "Godkend de klare nu": every row with an end time, now; the open
+  // questions wait. Said before, and said after — what was left out.
+  const approveClear = async ({ ready, forgot, missing }) => {
+    const left = [];
+    if (forgot > 0) left.push(forgot === 1 ? t("hovForgotOutOne", "1 forgotten clock-out") : t("hovForgotOutN", "{n} forgotten clock-outs", { n: forgot }));
+    if (missing > 0) left.push(missing === 1 ? t("hovNoClockInOne", "1 not clocked in") : t("hovNoClockInN", "{n} not clocked in", { n: missing }));
+    const leftText = left.join(" · ");
+    const ok = await confirm({
+      title: t("shpApproveClearTitle", "Approve the clear entries for {range}?", { range }),
+      message: t("shpApproveClearBody", "{n} entries are approved and locked now. Waiting for your answer: {left}.", { n: ready, left: leftText }),
+      confirmLabel: t("shpApproveClearCta", "Approve the clear ones"),
+    });
+    if (ok !== true) return false;
+    return run("approve", { from, to, skip_open: true }, (d) => t("shpApprovedClearDone", "Approved {n} · still waiting: {left}", {
+      n: d.approved ?? ready, left: leftText,
+    }));
+  };
+
   const undo = async () => {
-    if (!(await confirm({
+    const ok = await confirm({
       title: t("shpUnapproveTitle", "Undo the approval for {range}?", { range }),
       message: t("shpUnapproveBody", "The hours can be changed again. Shifts you answered one by one keep their answer."),
       confirmLabel: t("shpUnapproveCta", "Undo approval"),
       destructive: true,
-    }))) return;
-    run("unapprove", "");
+    });
+    if (ok !== true) return false;
+    return run("unapprove", { from, to }, "");
   };
 
+  return { busy, note, approve, approveClear, undo, range };
+}
+
+/** The approval counts for a set of rows — one definition for the bar, the
+ *  "clear ones" button and the done-sheet. */
+function approvalCounts(rows) {
+  const worked = (rows || []).filter((r) => (r.entries_count || 0) > 0);
+  const total = worked.reduce((n, r) => n + (r.entries_count || 0), 0);
+  const approved = worked.reduce((n, r) => n + Math.min(r.approved_count || 0, r.entries_count || 0), 0);
+  const byApproval = worked.reduce((n, r) => n + (r.period_approved_count || 0), 0);
+  let forgot = 0;
+  let missing = 0;
+  for (const r of rows || []) {
+    for (const e of r.exceptions || []) {
+      if (e.state === "forgot_clock_out") forgot += 1;
+      else if (e.state === "no_clock_in") missing += 1;
+    }
+  }
+  // A forgotten clock-out IS a row (open), and approving skips it; a shift
+  // never clocked has no row at all.
+  const ready = Math.max(0, total - approved - forgot);
+  return { worked: worked.length, total, approved, byApproval, forgot, missing, ready, allApproved: total > 0 && approved >= total };
+}
+
+// "These hours are final" for the period. One action for the whole period,
+// refused while shifts still need an answer — and that refusal is now a WAY
+// IN: "Svar først på de N vagter" opens the answer sheet on the first one,
+// and the clear entries can be approved now while the questions wait.
+function ApprovalBar({ rows, from, to, needsAnswer = 0, approval, onAnswer, onAnswerAsPlanned, asPlannedCount = 0, bulkBusy = false, bulkNote = "" }) {
+  const { t } = useLanguage();
+  // A backend without approval sends no counts: say nothing rather than guess.
+  if (!from || !to || !(rows || []).some((r) => r.entries_count != null)) return null;
+  const c = approvalCounts(rows);
+  if (!c.worked && !needsAnswer) return null;
+  const { busy, note } = approval;
+  const kinds = answerKindsText(rows, t);
+
   return (
-    <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <p className="text-[13px] text-gray-700 dark:text-gray-300 inline-flex items-center gap-1.5 tabular-nums">
-        {allApproved ? (
-          <>
-            <Icon name="CheckCircle2" size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="font-medium text-gray-900 dark:text-gray-100">{t("shpApprovedAll", "Approved")}</span>
-            <span>· {t("shpApprovedCount", "{a} of {n} entries", { a: approved, n: total })}</span>
-          </>
-        ) : (
-          <span>{t("shpApprovedCount", "{a} of {n} entries", { a: approved, n: total })} {t("shpApprovedSuffix", "approved")}</span>
-        )}
-        {note && <span className="text-gray-600 dark:text-gray-400">· {note}</span>}
-      </p>
-      {allApproved ? (
-        byApproval > 0 && (
-          <Button size="md" variant="ghost" onClick={undo} disabled={busy} className="max-sm:h-10">
-            {t("shpUnapproveCta", "Undo approval")}
-          </Button>
-        )
-      ) : (
-        <div className="flex items-center gap-2">
-          {needsAnswer > 0 && (
-            <span className="text-[12px] text-gray-600 dark:text-gray-400">
-              {t("shpApproveAnswerFirst", "Answer the {n} shifts first", { n: needsAnswer })}
-            </span>
+    <div className="px-3 sm:px-5 py-3 border-b border-gray-200 dark:border-gray-700 space-y-2">
+      {/* Nothing logged yet (only shifts the clock never saw): no counts and
+          no approve — "0 af 0 godkendt" is not a state, the questions are. */}
+      {c.total > 0 && (
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="text-[13px] text-gray-700 dark:text-gray-300 inline-flex flex-wrap items-center gap-1.5 tabular-nums">
+          {c.allApproved && needsAnswer === 0 ? (
+            <>
+              <Icon name="CheckCircle2" size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="font-medium text-gray-900 dark:text-gray-100">{t("shpApprovedAll", "Approved")}</span>
+              <span>· {t("shpApprovedCount", "{a} of {n} entries", { a: c.approved, n: c.total })}</span>
+            </>
+          ) : (
+            <span>{t("shpApprovedCount", "{a} of {n} entries", { a: c.approved, n: c.total })} {t("shpApprovedSuffix", "approved")}</span>
           )}
-          <Button size="md" variant="primary" onClick={approve} disabled={busy || needsAnswer > 0} className="max-sm:h-10"
-            iconLeft={<Icon name="Check" size={15} />}>
-            {t("shpApprovePeriod", "Approve the period")}
-          </Button>
+          {note && <span className="text-gray-600 dark:text-gray-400" role="status">· {note}</span>}
+        </p>
+        {c.allApproved && needsAnswer === 0 ? (
+          c.byApproval > 0 && (
+            <Button size="md" variant="ghost" onClick={approval.undo} disabled={busy} className="max-sm:h-10">
+              {t("shpUnapproveCta", "Undo approval")}
+            </Button>
+          )
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            {needsAnswer > 0 && c.ready > 0 && (
+              <Button size="md" variant="secondary" className="max-sm:h-10"
+                onClick={() => approval.approveClear(c)} disabled={busy}>
+                {t("shpApproveClearCta", "Approve the clear ones")}
+              </Button>
+            )}
+            <Button size="md" variant="primary" onClick={() => approval.approve(c.total - c.approved)}
+              disabled={busy || needsAnswer > 0 || c.total - c.approved <= 0} className="max-sm:h-10"
+              iconLeft={<Icon name="Check" size={15} />}>
+              {t("shpApprovePeriod", "Approve the period")}
+            </Button>
+          </div>
+        )}
+      </div>
+      )}
+      {c.total === 0 && note && (
+        <p className="text-[13px] text-gray-600 dark:text-gray-400" role="status">{note}</p>
+      )}
+      {needsAnswer > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* The reason the approval waits, as the way to clear it. */}
+          <button
+            type="button"
+            onClick={onAnswer}
+            className="inline-flex items-center gap-1 min-h-10 sm:min-h-0 text-[13px] font-medium text-amber-700 dark:text-amber-400 underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
+            {needsAnswer === 1
+              ? t("shpApproveAnswerFirstOne", "Answer the 1 shift first")
+              : t("shpApproveAnswerFirst", "Answer the {n} shifts first", { n: needsAnswer })}
+            {kinds && <span className="font-normal no-underline">({kinds})</span>}
+            <Icon name="ChevronRight" size={14} aria-hidden="true" />
+          </button>
+          {asPlannedCount > 0 && (
+            <Button size="md" variant="ghost" className="max-sm:h-10" onClick={onAnswerAsPlanned} disabled={bulkBusy} busy={bulkBusy}>
+              {t("shpBulkPlannedBtn", "All not clocked in: as planned")}
+            </Button>
+          )}
+          {bulkNote && <span className="text-[13px] text-gray-600 dark:text-gray-400" role="status">{bulkNote}</span>}
         </div>
       )}
     </div>
   );
 }
 
-function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency, onResolved, periodFrom = null, periodTo = null, onGoLog = null }) {
+function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency, onResolved, periodFrom = null, periodTo = null, onGoLog = null, costBreakdown = null }) {
   const { t, lang } = useLanguage();
+  const confirm = useConfirm();
+  const approval = usePeriodApproval({ from: periodFrom, to: periodTo, onChanged: onResolved });
   // ORDER. The server builds these rows from a set union, so they arrived in
   // no order at all — and on a 16-person roster where two people worked, the
   // fourteen zero-hour rows landed wherever, burying the two the owner is
@@ -1819,7 +2255,17 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // Nobody is hidden: a rostered no-show is exactly what the DIFF column is
   // for, and dropping them would hide the shift that needs an answer.
   const rows = useMemo(() => orderForPaying(summary), [summary]);
-  const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
+  // {staffId, staffName, exception} | "done" (the queue is answered)
+  const [resolving, setResolving] = useState(null);
+  // What the last save was — shown at the top of the next sheet so a swap to
+  // the next person is never silent.
+  const [lastSaved, setLastSaved] = useState(null);   // {name, detail}
+  // The walk through the queue: how many it held when it was opened, and how
+  // many of them are answered — so "2 af 5" does not jump when a reload drops
+  // the answered one from the list.
+  const [walk, setWalk] = useState(null);             // {total, done}
+  // Where the sheet was opened from, to give the focus back on close.
+  const openerRef = useRef(null);
   // Every shift that needs the owner's answer, in table order — the sheet
   // walks it ("2 af 5") instead of closing after each one.
   const answerQueue = useMemo(() => rows.flatMap((r) => (r.exceptions || [])
@@ -1827,7 +2273,91 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
     .map((e) => ({ staffId: r.staff_id, staffName: r.staff_name, exception: e }))), [rows]);
   const sameItem = (a, b) => a && b && String(a.staffId) === String(b.staffId)
     && a.exception?.date === b.exception?.date && a.exception?.state === b.exception?.state;
-  const resolvingIdx = resolving ? answerQueue.findIndex((q) => sameItem(q, resolving)) : -1;
+  const resolvingIdx = resolving && resolving !== "done" ? answerQueue.findIndex((q) => sameItem(q, resolving)) : -1;
+  const openSheet = (item) => {
+    if (!item) return;
+    if (typeof document !== "undefined") openerRef.current = document.activeElement;
+    setLastSaved(null);
+    const inQueue = answerQueue.some((q) => sameItem(q, item));
+    setWalk(inQueue ? { total: answerQueue.length, done: 0 } : null);
+    setResolving(item);
+  };
+  // "Svar først på de N vagter" and the amber count: the FIRST unanswered
+  // shift of the period, in table order.
+  const openQueue = () => openSheet(answerQueue[0]);
+  const closeSheet = () => {
+    setResolving(null);
+    setLastSaved(null);
+    setWalk(null);
+    const el = openerRef.current;
+    if (el && typeof el.focus === "function" && document.contains(el)) {
+      setTimeout(() => el.focus(), 0);
+    }
+  };
+  const afterSave = (detail) => {
+    const current = resolving;
+    // The next unanswered shift: after this one first, then any before it.
+    const idx = answerQueue.findIndex((q) => sameItem(q, current));
+    const order = idx >= 0 ? [...answerQueue.slice(idx + 1), ...answerQueue.slice(0, idx)] : [];
+    const next = order.find((q) => !sameItem(q, current)) || null;
+    setLastSaved({ name: current?.staffName, detail });
+    setWalk((w) => (w ? { ...w, done: w.done + 1 } : w));
+    onResolved();
+    if (walk) setResolving(next || "done");
+    else closeSheet();
+  };
+
+  // "Alle uden stempling: som planlagt" — every shift the clock never saw
+  // and that has a published plan, answered as worked-as-planned through the
+  // same resolve path, one request each, after one confirm that lists them.
+  const asPlannedList = answerQueue.filter((q) => q.exception.state === "no_clock_in"
+    && q.exception.scheduled_start && q.exception.scheduled_end);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState("");
+  const answerAllAsPlanned = async () => {
+    const list = asPlannedList;
+    if (!list.length) return;
+    const shown = list.slice(0, 10);
+    const ok = await confirm({
+      title: list.length === 1
+        ? t("shpBulkPlannedTitleOne", "Answer 1 shift as worked as planned?")
+        : t("shpBulkPlannedTitle", "Answer {n} shifts as worked as planned?", { n: list.length }),
+      message: (
+        <>
+          {shown.map((q) => (
+            <span key={`${q.staffId}-${q.exception.date}`} className="block tabular-nums">
+              {q.staffName} · {fmtDate(q.exception.date)} · {q.exception.scheduled_start}–{q.exception.scheduled_end}
+            </span>
+          ))}
+          {list.length > shown.length && (
+            <span className="block">{t("shpBulkPlannedMore", "and {n} more", { n: list.length - shown.length })}</span>
+          )}
+          <span className="block mt-3">
+            {t("shpBulkPlannedBody", "Each is saved with its planned times and break. You can change one afterwards.")}
+          </span>
+        </>
+      ),
+      confirmLabel: t("shpBulkPlannedCta", "Save as planned"),
+    });
+    if (ok !== true) return;
+    setBulkBusy(true);
+    setBulkNote("");
+    let done = 0;
+    let failedN = 0;
+    for (const q of list) {
+      try {
+        await api.post("/staff/hours/resolve", { staff_id: q.staffId, date: q.exception.date, action: "as_planned" });
+        done += 1;
+      } catch {
+        failedN += 1;
+      }
+    }
+    setBulkBusy(false);
+    setBulkNote(failedN > 0
+      ? t("shpBulkPlannedPartial", "{done} saved as planned · {failed} could not be saved — answer them one by one.", { done, failed: failedN })
+      : t("shpBulkPlannedDone", "{n} saved as planned.", { n: done }));
+    onResolved();
+  };
   // ?resolve=<staff_id> (the schedule's "no clock-out" chip) opens that
   // person's answer sheet once the rows are here.
   const [resolveParams, setResolveParams] = useSearchParams();
@@ -1836,7 +2366,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
     if (!resolveId || !rows.length) return;
     const row = rows.find((r) => String(r.staff_id) === resolveId);
     const ex = row && firstException(row);
-    if (ex) setResolving({ staffId: row.staff_id, staffName: row.staff_name, exception: ex });
+    if (ex) openSheet({ staffId: row.staff_id, staffName: row.staff_name, exception: ex });
     const next = new URLSearchParams(resolveParams);
     next.delete("resolve");
     setResolveParams(next, { replace: true });
@@ -2008,15 +2538,21 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               roster becomes a wall the owner stops seeing; a single count stays
               legible. Silent when there is nothing to answer — an all-clear
               badge every day is how a real one gets ignored. */}
+          {/* A BUTTON, not a label: it opens the answer sheet on the first
+              unanswered shift. The chip used to be a span a tap did nothing to. */}
           {needsAnswer > 0 && (
-            <span
-              className="inline-flex items-center gap-1.5 shrink-0 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 text-[12px] font-medium text-amber-700 dark:text-amber-400"
+            <button
+              type="button"
+              onClick={openQueue}
+              disabled={!answerQueue.length}
+              className="inline-flex items-center gap-1.5 shrink-0 min-h-10 sm:min-h-0 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 text-[12px] font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
             >
               <Icon name="AlertTriangle" className="w-3.5 h-3.5" aria-hidden />
               {needsAnswer === 1
                 ? t("shpNeedsAnswerOne", "1 shift needs your answer")
-                : t("shpNeedsAnswer", "{n} shifts need your answer").replace("{n}", String(needsAnswer))}
-            </span>
+                : t("shpNeedsAnswer", "{n} shifts need your answer", { n: needsAnswer })}
+              <Icon name="ChevronRight" size={13} aria-hidden="true" />
+            </button>
           )}
         </div>
       </div>
@@ -2029,7 +2565,15 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
             : t("shpWagesHiddenRole", "Pay is hidden for your role — the owner sees it.")}
         </p>
       )}
-      <ApprovalBar rows={rows} from={periodFrom} to={periodTo} needsAnswer={needsAnswer} onChanged={onResolved} />
+      <ApprovalBar
+        rows={rows} from={periodFrom} to={periodTo} needsAnswer={needsAnswer}
+        approval={approval}
+        onAnswer={openQueue}
+        onAnswerAsPlanned={answerAllAsPlanned}
+        asPlannedCount={asPlannedList.length}
+        bulkBusy={bulkBusy}
+        bulkNote={bulkNote}
+      />
 
       {/* Mobile-friendly columns: name + actual + total survive on phones;
           scheduled / diff / rate / earned / tips hide on < sm so the table
@@ -2039,15 +2583,20 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
+            {/* The name and the total are STICKY: at 768 px with the sidebar
+                open the table is wider than its card, and "I alt" sat
+                off-screen behind a scroll nobody saw. */}
             <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-left text-xs uppercase tracking-wider">
-              <th className="px-3 sm:px-5 py-3 font-medium">{t("navStaff")}</th>
+              <th className="sticky left-0 z-10 bg-gray-50 dark:bg-gray-800 px-3 sm:px-5 py-3 font-medium">{t("navStaff")}</th>
               <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
               <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
               <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("diff")}</th>
               <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("rate")}</th>
-              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("earned")}</th>
+              {/* Bruttoløn, said: the money before feriepenge and ATP. The
+                  line under the table adds those up to the cost total. */}
+              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right whitespace-nowrap">{t("shpColGross", "Gross pay")}</th>
               <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("tips")}</th>
-              <th className="px-3 sm:px-3 py-3 font-medium text-right">{t("total")}</th>
+              <th className="sticky right-0 z-10 bg-gray-50 dark:bg-gray-800 px-3 sm:px-3 py-3 font-medium text-right">{t("total")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -2063,9 +2612,9 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               return (
                 <tr
                   key={row.staff_id || idx}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  className="group hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 >
-                  <td className="px-3 sm:px-5 py-3">
+                  <td className="sticky left-0 z-[1] bg-white dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-800 px-3 sm:px-5 py-3">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-200 flex-shrink-0">
                         {(row.staff_name || "?").charAt(0).toUpperCase()}
@@ -2115,7 +2664,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                         {stateMeta && firstException(row) && (
                           <button
                             type="button"
-                            onClick={() => setResolving({
+                            onClick={() => openSheet({
                               staffId: row.staff_id,
                               staffName: row.staff_name,
                               exception: firstException(row),
@@ -2143,35 +2692,39 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                   <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
                     {fmtHours(row.actual_hours, lang)}
                   </td>
-                  <td className={`hidden sm:table-cell px-3 py-3 text-right font-medium ${
-                    stateMeta ? stateMeta.cls : "text-gray-400 dark:text-gray-500"
-                  }`}>
-                    {/* A word, not a signed number. The number is already in
-                        Scheduled and Actual either side of this cell, and it is
-                        correct there; what it could never carry is WHICH KIND of
-                        deviation this was. */}
-                    {stateMeta ? (
-                      firstException(row) ? (
-                        <button
-                          type="button"
-                          onClick={() => setResolving({
-                            staffId: row.staff_id,
-                            staffName: row.staff_name,
-                            exception: firstException(row),
-                          })}
-                          className="inline-flex items-center gap-1 justify-end underline underline-offset-2 decoration-dotted"
-                        >
-                          {stateMeta.label}
-                          {row.needs_answer_count > 1 && (
-                            <span className="tabular-nums opacity-70">×{row.needs_answer_count}</span>
-                          )}
-                        </button>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 justify-end">
-                          {stateMeta.label}
+                  {/* The NUMBER a manager wants ("+0,5 t"), with the word that
+                      says what kind of deviation it is underneath. Shifts that
+                      need an answer keep the word as the button that opens it. */}
+                  <td className="hidden sm:table-cell px-3 py-3 text-right align-top">
+                    {(() => {
+                      const d = (Number(row.actual_hours) || 0) - (Number(row.scheduled_hours) || 0);
+                      const showNum = row.scheduled_hours != null && Math.abs(d) >= 0.005;
+                      return (
+                        <span className="inline-flex flex-col items-end gap-0.5">
+                          <span className={`font-medium tabular-nums ${showNum ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>
+                            {showNum ? formatHours(d, { lang, sign: true, decimals: 2 }) : "\u2014"}
+                          </span>
+                          {stateMeta && (firstException(row) ? (
+                            <button
+                              type="button"
+                              onClick={() => openSheet({
+                                staffId: row.staff_id,
+                                staffName: row.staff_name,
+                                exception: firstException(row),
+                              })}
+                              className={`inline-flex items-center gap-1 justify-end text-[12px] font-medium underline underline-offset-2 decoration-dotted rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${stateMeta.cls}`}
+                            >
+                              {stateMeta.label}
+                              {row.needs_answer_count > 1 && (
+                                <span className="tabular-nums opacity-70">×{row.needs_answer_count}</span>
+                              )}
+                            </button>
+                          ) : (
+                            <span className={`text-[12px] ${stateMeta.cls}`}>{stateMeta.label}</span>
+                          ))}
                         </span>
-                      )
-                    ) : "\u2014"}
+                      );
+                    })()}
                   </td>
                   {/* The rate read "150 DKK/hr" — an English unit and a raw
                       currency code on a Danish payroll row. The unit now comes
@@ -2204,7 +2757,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                   {/* Total = earned + tips. With earned unknown the sum is
                       unknown too — printing the tips alone under a column
                       headed "I alt" would read as this person's whole pay. */}
-                  <td className="px-3 py-3 text-right font-bold text-gray-900 dark:text-white tabular-nums">
+                  <td className="sticky right-0 z-[1] bg-white dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-800 px-3 py-3 text-right font-bold text-gray-900 dark:text-white tabular-nums">
                     {rateMissing(row) ? (
                       <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
                     ) : (
@@ -2218,7 +2771,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
           {/* Totals row */}
           <tfoot>
             <tr className="bg-gray-50 dark:bg-gray-800 font-semibold text-gray-800 dark:text-white">
-              <td className="px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
+              <td className="sticky left-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {fmtHours(summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0), lang)}
               </td>
@@ -2238,13 +2791,24 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {moneyTotal("tips")}
               </td>
-              <td className="px-3 py-3 text-right tabular-nums text-sm">
+              <td className="sticky right-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 py-3 text-right tabular-nums text-sm">
                 {moneyTotal("total", missingRateCount > 0)}
               </td>
             </tr>
           </tfoot>
         </table>
       </div>
+
+      {/* The rows are bruttoløn; this adds feriepenge and ATP to them, so the
+          names add up to the cost tile and to Løn's total. */}
+      {!wagesHidden && costBreakdown && (
+        <CostReconcileLine
+          breakdown={costBreakdown}
+          people={summary}
+          currency={currency}
+          className="px-3 sm:px-5 py-3 border-t border-gray-200 dark:border-gray-700"
+        />
+      )}
 
       {/* A DASH THAT DOES NOT SAY WHY IS ITS OWN DEAD END. The wage totals
           above go "—" the moment one person on the roster has no rate, which
@@ -2272,22 +2836,31 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
         </div>
       )}
 
-      {resolving && (
+      {resolving && resolving !== "done" && (
         <ResolveSheet
           // A fresh sheet per shift: its hours/end-time state is the shift's own.
           key={`${resolving.staffId}-${resolving.exception?.date}-${resolving.exception?.state}`}
           staffId={resolving.staffId}
           staffName={resolving.staffName}
           exception={resolving.exception}
-          onClose={() => setResolving(null)}
-          position={resolvingIdx >= 0 ? { i: resolvingIdx + 1, n: answerQueue.length } : null}
-          onResolved={() => {
-            const next = resolvingIdx >= 0
-              ? answerQueue.slice(resolvingIdx + 1).find((q) => !sameItem(q, resolving))
-              : null;
-            onResolved();
-            setResolving(next || null);
+          onClose={closeSheet}
+          saved={lastSaved}
+          position={walk && resolvingIdx >= 0 ? { i: Math.min(walk.done + 1, walk.total), n: walk.total } : null}
+          onResolved={afterSave}
+        />
+      )}
+      {resolving === "done" && (
+        <QueueDoneSheet
+          saved={lastSaved}
+          range={approval.range}
+          canApprove={approvalCounts(rows).total > approvalCounts(rows).approved}
+          busy={approval.busy}
+          onApprove={async () => {
+            const c = approvalCounts(rows);
+            const ok = await approval.approve(c.total - c.approved);
+            if (ok) closeSheet();
           }}
+          onClose={closeSheet}
         />
       )}
     </div>

@@ -5,7 +5,7 @@
 // render an upgrade card on a 402).
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { readViewedPeriod } from "../utils/viewedPeriod";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
@@ -85,6 +85,11 @@ const STATUS = {
   ok:   { dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400", key: "tregOk",     fb: "Compliant",           rail: "" },
   warn: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", key: "tregWarn",   fb: "Rest issue",          rail: "border-l-2 border-amber-400 dark:border-amber-500" },
   over: { dot: "bg-red-500",   text: "text-red-700 dark:text-red-400",     key: "tregOver",   fb: "Over weekly cap",     rail: "border-l-2 border-red-500 dark:border-red-500" },
+  // Clocked in and never out (time_registration.open_punch_is_forgotten).
+  // It read "Overholder" beside 0 t: the day's working time is not KNOWN,
+  // which is the one thing this register exists to know. Red — a real
+  // problem, and the same red Timer gives a missing clock-out.
+  open: { dot: "bg-red-500",   text: "text-red-700 dark:text-red-400",     key: "tregOpenPunch", fb: "Missing clock-out", rail: "border-l-2 border-red-500 dark:border-red-500" },
   gap:  { dot: "bg-gray-300",  text: "text-gray-500",                       key: "tregGap",    fb: "No time registered",  rail: "" },
 };
 
@@ -501,7 +506,14 @@ export default function TimeRegistrationPage() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{s.staff_name}</div>
                     <div className={`text-xs ${st.text}`}>
-                      {t(st.key, st.fb)}{s.rest_violation_count > 0 ? ` · ${s.rest_violation_count} ${t("tregRestShort", "rest")}` : ""}
+                      {t(st.key, st.fb)}
+                      {s.open_punch_count > 0 && s.status !== "open"
+                        ? ` · ${t("tregOpenPunch", "Missing clock-out")}`
+                        : ""}
+                      {s.open_punch_count > 0 && s.open_punches?.[0]
+                        ? ` · ${fmtDay(s.open_punches[0].date)} ${s.open_punches[0].start || ""}`.trimEnd()
+                        : ""}
+                      {s.rest_violation_count > 0 ? ` · ${s.rest_violation_count} ${t("tregRestShort", "rest")}` : ""}
                     </div>
                   </div>
                   <div className="text-right shrink-0">
@@ -520,6 +532,21 @@ export default function TimeRegistrationPage() {
                   </div>
                   <Icon name={open ? "ChevronUp" : "ChevronDown"} size={16} className="text-gray-400 shrink-0" />
                 </button>
+                {/* The fix is one tap away: Timer's answer sheet for this
+                    person, on this window. */}
+                {s.open_punch_count > 0 && (
+                  <div className="px-4 pb-3 -mt-1">
+                    <Link
+                      to={`/staff/hours?${new URLSearchParams({ tab: "hours", view: "details", resolve: String(s.staff_id), from, to }).toString()}`}
+                      className="inline-flex items-center gap-1 min-h-10 sm:min-h-0 text-[13px] font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                    >
+                      {s.open_punch_count === 1
+                        ? t("tregFixClockOutOne", "Set the clock-out under Hours")
+                        : t("tregFixClockOutN", "Set the {n} clock-outs under Hours", { n: s.open_punch_count })}
+                      <Icon name="ChevronRight" size={14} aria-hidden="true" />
+                    </Link>
+                  </div>
+                )}
 
                 {open && (
                   <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-3 bg-gray-50/60 dark:bg-gray-900/40">
@@ -545,7 +572,11 @@ export default function TimeRegistrationPage() {
                             <tr key={i} className="border-t border-gray-100/70 dark:border-gray-800/70">
                               <td className="py-1.5">{fmtDay(e.date)}</td>
                               <td className="py-1.5 tabular-nums">{e.start || "—"}</td>
-                              <td className="py-1.5 tabular-nums">{e.end || "—"}</td>
+                              <td className="py-1.5 tabular-nums">
+                                {e.end || ((detail[s.staff_id]?.open_punches || []).some((op) => op.date === e.date && op.start === e.start)
+                                  ? <span className="font-medium text-red-700 dark:text-red-400">{t("tregNoEnd", "missing")}</span>
+                                  : "—")}
+                              </td>
                               <td className="py-1.5 text-right tabular-nums">{formatHours(e.hours, { lang, decimals: 2 })}</td>
                               <td className="py-1.5 text-right">
                                 <span className="text-[10px] uppercase tracking-wide text-gray-400">
