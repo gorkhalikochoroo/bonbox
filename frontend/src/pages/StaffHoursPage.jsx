@@ -770,6 +770,12 @@ export default function StaffHoursPage() {
 // computed server-side from the exact value. Printing "138 kr./t" next to an
 // earned figure derived from 137,50 hands the owner a payroll row they cannot
 // reproduce — right notation, wrong number. Whole rates stay clean; øre survive.
+// Clocked in, never out, nothing else logged: the hours (and so the pay)
+// are not known yet — "—", never a confident 0 t / 0,00 kr. / −6 t.
+function openOnly(row) {
+  return !Number(row?.actual_hours) && row?.worst_state === "forgot_clock_out";
+}
+
 function rateDecimals(rate) {
   const n = typeof rate === "string" ? parseFloat(rate) : rate;
   // Round to the øre first: an average earned/hours of 204.99999… is 205.
@@ -2740,7 +2746,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                     {fmtHours(row.scheduled_hours, lang)}
                   </td>
                   <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
-                    {!Number(row.actual_hours) && row.worst_state === "forgot_clock_out" ? "\u2014" : fmtHours(row.actual_hours, lang)}
+                    {openOnly(row) ? "\u2014" : fmtHours(row.actual_hours, lang)}
                   </td>
                   {/* The NUMBER a manager wants ("+0,5 t"), with the word that
                       says what kind of deviation it is underneath. Shifts that
@@ -2754,7 +2760,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       const unplanned = Number(row.unplanned_hours) || 0;
                       const planned = Number(row.scheduled_hours) || 0;
                       const d = planned > 0 ? onPlan - planned : 0;
-                      const showNum = planned > 0 && Math.abs(d) >= 0.005;
+                      const showNum = planned > 0 && Math.abs(d) >= 0.005 && !openOnly(row);
                       return (
                         <span className="inline-flex flex-col items-end gap-0.5">
                           <span className={`font-medium tabular-nums whitespace-nowrap ${showNum ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>
@@ -2806,7 +2812,9 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       confident 0 kr. back. Earned is not zero there — it is
                       unknown, and this column now says which. */}
                   <td className="hidden lg:table-cell px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
-                    {rateMissing(row) ? (
+                    {openOnly(row) ? (
+                      <span className="text-gray-400 dark:text-gray-500" title={t("shpAwaitingClockOut", "Waiting for the clock-out")}>&mdash;</span>
+                    ) : rateMissing(row) ? (
                       <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
                     ) : (
                       <Amount value={row.earned} currency={currency} decimals={2} />
@@ -2819,7 +2827,9 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       unknown too — printing the tips alone under a column
                       headed "I alt" would read as this person's whole pay. */}
                   <td className="sticky right-0 z-[1] bg-white dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-800 px-3 py-3 text-right font-bold text-gray-900 dark:text-white tabular-nums">
-                    {rateMissing(row) ? (
+                    {openOnly(row) ? (
+                      <span className="text-gray-400 dark:text-gray-500" title={t("shpAwaitingClockOut", "Waiting for the clock-out")}>&mdash;</span>
+                    ) : rateMissing(row) ? (
                       <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
                     ) : (
                       <Amount value={row.total} currency={currency} decimals={2} />
@@ -2843,11 +2853,21 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                 {(() => {
                   const d = summary.reduce((s, r) => {
                     const planned = Number(r.scheduled_hours) || 0;
-                    if (planned <= 0) return s;
+                    if (planned <= 0 || openOnly(r)) return s;
                     const onPlan = r.actual_on_plan_hours != null ? Number(r.actual_on_plan_hours) : (Number(r.actual_hours) || 0);
                     return s + (onPlan - planned);
                   }, 0);
-                  return Math.abs(d) < 0.005 ? "\u2014" : formatHours(d, { lang, sign: true, decimals: 2 });
+                  const unplanned = summary.reduce((s, r) => s + (Number(r.unplanned_hours) || 0), 0);
+                  return (
+                    <span className="inline-flex flex-col items-end gap-0.5">
+                      <span>{Math.abs(d) < 0.005 ? "\u2014" : formatHours(d, { lang, sign: true, decimals: 2 })}</span>
+                      {unplanned >= 0.005 && (
+                        <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
+                          {t("shpUnplannedHours", "{h} without a plan", { h: formatHours(unplanned, { lang, decimals: 2 }) })}
+                        </span>
+                      )}
+                    </span>
+                  );
                 })()}
               </td>
               <td className="hidden lg:table-cell px-3 py-3" />

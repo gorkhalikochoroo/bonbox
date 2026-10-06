@@ -486,3 +486,27 @@ def test_router_404_when_no_staff_hours_logged(db_session, client):
         headers=_auth_headers(owner),
     )
     assert r.status_code == 404
+
+
+def test_router_honours_the_staff_selection(db_session, client):
+    """Medarbejdervalg reaches the lønseddel: only the selected person gets a
+    page (one audit row per page is the witness)."""
+    owner = _make_owner(db_session)
+    _make_profile(db_session, owner)
+    sofie = _make_employee(db_session, owner, name="Sofie Nielsen")
+    mads = _make_employee(db_session, owner, name="Mads Hansen")
+    _add_hours(db_session, owner, sofie, on_date=date(2026, 5, 5))
+    _add_hours(db_session, owner, mads, on_date=date(2026, 5, 6))
+
+    r = client.get(
+        "/api/staff/payroll/loenseddel",
+        params={"period_start": "2026-05-01", "period_end": "2026-05-31", "staff_ids": str(mads.id)},
+        headers=_auth_headers(owner),
+    )
+    assert r.status_code == 200, r.text
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.user_id == owner.id, AuditLog.action == "staff.loenseddel_pdf_generated")
+        .all()
+    )
+    assert [str(x.entity_id) for x in rows] == [str(mads.id)]

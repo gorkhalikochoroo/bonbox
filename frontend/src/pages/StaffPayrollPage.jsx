@@ -104,6 +104,12 @@ function dayLabel(iso, withYear = false) {
     withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" },
   );
 }
+// "26. sep." — one day, in the app's date language.
+function shortDay(iso) {
+  if (!iso) return "";
+  return new Date(`${String(iso).slice(0, 10)}T12:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+}
+
 function periodLabel(start, end, { always = false } = {}) {
   if (!start || !end) return "—";
   const thisYear = new Date().getFullYear();
@@ -476,6 +482,29 @@ export default function StaffPayrollPage() {
     if (total === 0 && needsAnswer === 0) return null;
     return { total, approved, needsAnswer, done: approved >= total && needsAnswer === 0 };
   }, [hoursSummary, selectedIds]);
+  // Shifts clocked in and never out, anywhere in the period. The server
+  // refuses every payroll document over them (_refuse_open_punches: an open
+  // punch is paid as 0 kr.), whoever is selected — so the page says so BEFORE
+  // the owner taps, instead of offering Send/Hent and refusing afterwards.
+  const openPunches = useMemo(() => {
+    const out = [];
+    for (const r of hoursSummary || []) {
+      for (const e of r.exceptions || []) {
+        if (e.state === "forgot_clock_out") out.push({ name: r.staff_name, date: e.date, start: e.start_time });
+      }
+      if (r.worst_state === "running") out.push({ name: r.staff_name, running: true });
+    }
+    return out;
+  }, [hoursSummary]);
+  // Who has an open punch — their breakdown row is "—", not "0 t / 0,00 kr.",
+  // which read as "worked nothing, owed nothing".
+  const openStaffIds = useMemo(() => new Set(
+    (hoursSummary || [])
+      .filter((r) => r.worst_state === "running" || (r.exceptions || []).some((e) => e.state === "forgot_clock_out"))
+      .map((r) => String(r.staff_id)),
+  ), [hoursSummary]);
+  const docsBlocked = exportBlocked || openPunches.length > 0;
+
   // "38 af 41 registreringer godkendt · 3 vagter mangler svar"
   const approvalText = (a) => {
     if (!a) return "";
@@ -497,7 +526,7 @@ export default function StaffPayrollPage() {
 
   /* ─── PDF export ─── */
   const generatePdf = async () => {
-    if (exportBlocked || selectedIds.size === 0) return;
+    if (docsBlocked || selectedIds.size === 0) return;
     setPdfLoading(true);
     setError("");
     try {
@@ -564,7 +593,7 @@ export default function StaffPayrollPage() {
   // Not while the hours are still loading either: the confirm states their
   // approval, and a confirm built before they arrive would silently omit it.
   const canSend =
-    !exportBlocked && !sending && !pdfLoading && selectedIds.size > 0 && profileKnown && !!revisorEmail
+    !docsBlocked && !sending && !pdfLoading && selectedIds.size > 0 && profileKnown && !!revisorEmail
     && !hoursQ.loading;
   // The CSV and the lønseddel are DK documents and owner-only (the server
   // denies both to any staff seat). Shown while the estimate loads — disabled,
@@ -681,13 +710,18 @@ export default function StaffPayrollPage() {
   // second download.
   const [csvLoading, setCsvLoading] = useState(false);
   const [loenLoading, setLoenLoading] = useState(false);
+  // Medarbejdervalg reaches the CSV and lønseddel too, not only the PDF/Send.
+  // Everyone selected → no param, so the server's "everyone" path is unchanged.
+  const selectedParam = selectedIds.size && selectedIds.size < staffList.length
+    ? { staff_ids: Array.from(selectedIds).join(",") }
+    : {};
   const downloadCsv = async () => {
-    if (exportBlocked || csvLoading) return;
+    if (docsBlocked || csvLoading) return;
     setCsvLoading(true);
     setError("");
     try {
       const res = await api.get("/staff/payroll/csv", {
-        params: { period_start: period.period_start, period_end: period.period_end },
+        params: { period_start: period.period_start, period_end: period.period_end, ...selectedParam },
         responseType: "blob",
       });
       const out = await saveFile(res.data, `bonbox_payroll_${period.period_start}_${period.period_end}.csv`, { type: "text/csv;charset=utf-8;" });
@@ -703,12 +737,12 @@ export default function StaffPayrollPage() {
     }
   };
   const downloadLoenseddel = async () => {
-    if (exportBlocked || loenLoading) return;
+    if (docsBlocked || loenLoading) return;
     setLoenLoading(true);
     setError("");
     try {
       const res = await api.get("/staff/payroll/loenseddel", {
-        params: { period_start: period.period_start, period_end: period.period_end },
+        params: { period_start: period.period_start, period_end: period.period_end, ...selectedParam },
         responseType: "blob",
       });
       const out = await saveFile(res.data, `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`, { type: "application/pdf" });
@@ -1255,16 +1289,20 @@ export default function StaffPayrollPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {dkEstimate.per_staff.map((s) => (
-                            <tr key={s.staff_id} className="border-b border-gray-100 dark:border-gray-800">
+                          {dkEstimate.per_staff.map((s) => {
+                            const pending = !Number(s.hours) && openStaffIds.has(String(s.staff_id));
+                            const cell = (v) => (pending ? "—" : v);
+                            return (
+                            <tr key={s.staff_id} className="border-b border-gray-100 dark:border-gray-800" title={pending ? t("shpAwaitingClockOut", "Waiting for the clock-out") : undefined}>
                               <td className="py-1.5 px-2">{s.name}</td>
-                              <td className="py-1.5 px-2 text-right">{formatHours(s.hours, { lang, decimals: 2 })}</td>
-                              <td className="py-1.5 px-2 text-right">{fmtMoney(s.gross, currency)}</td>
-                              <td className="py-1.5 px-2 text-right">{fmtMoney(s.am_bidrag, currency)}</td>
-                              <td className="py-1.5 px-2 text-right">{fmtMoney(s.a_skat, currency)}</td>
-                              <td className="py-1.5 px-2 text-right font-semibold">{fmtMoney(s.net_pay, currency)}</td>
+                              <td className="py-1.5 px-2 text-right">{cell(formatHours(s.hours, { lang, decimals: 2 }))}</td>
+                              <td className="py-1.5 px-2 text-right">{cell(fmtMoney(s.gross, currency))}</td>
+                              <td className="py-1.5 px-2 text-right">{cell(fmtMoney(s.am_bidrag, currency))}</td>
+                              <td className="py-1.5 px-2 text-right">{cell(fmtMoney(s.a_skat, currency))}</td>
+                              <td className="py-1.5 px-2 text-right font-semibold">{cell(fmtMoney(s.net_pay, currency))}</td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1291,6 +1329,22 @@ export default function StaffPayrollPage() {
               period: periodLabel(period.period_start, period.period_end),
             })}
           </p>
+
+          {!exportBlocked && openPunches.length > 0 && (
+            <div role="status" className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/60 dark:bg-amber-900/15 px-3 py-2.5 text-[13px] text-amber-900 dark:text-amber-200">
+              <Icon name="AlertTriangle" size={15} className="shrink-0 mt-0.5" />
+              <span className="min-w-0">
+                {t("payOpenPunchesBlock", "Payroll can't be sent or downloaded yet: {n} shift(s) are still open — {who}.", {
+                  n: openPunches.length,
+                  who: openPunches.slice(0, 4).map((o) => (o.running ? o.name : `${o.name} ${shortDay(o.date)}${o.start ? ` (${o.start}–)` : ""}`)).join(", ")
+                    + (openPunches.length > 4 ? ` +${openPunches.length - 4}` : ""),
+                })}{" "}
+                <Link to={timerHref} className="font-semibold underline underline-offset-2 whitespace-nowrap">
+                  {t("payGoToTimer", "Go to Hours")}
+                </Link>
+              </span>
+            </div>
+          )}
 
           <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-x-4 gap-y-2">
             <Button
@@ -1411,7 +1465,7 @@ export default function StaffPayrollPage() {
                   size="md"
                   className="max-sm:h-10 max-sm:text-[13px]"
                   onClick={generatePdf}
-                  disabled={exportBlocked || pdfLoading || sending || selectedIds.size === 0}
+                  disabled={docsBlocked || pdfLoading || sending || selectedIds.size === 0}
                   busy={pdfLoading}
                   iconLeft={!pdfLoading && <Icon name="Download" size={15} />}
                   aria-label={t("payFileReportGet", "Download payroll report (PDF)")}
@@ -1429,7 +1483,7 @@ export default function StaffPayrollPage() {
                     size="md"
                     className="max-sm:h-10 max-sm:text-[13px]"
                     onClick={downloadCsv}
-                    disabled={exportBlocked || dkLoading || csvLoading}
+                    disabled={docsBlocked || dkLoading || csvLoading}
                     busy={csvLoading}
                     iconLeft={!csvLoading && <Icon name="Download" size={15} />}
                     aria-label={t("payFileCsvGet", "Download spreadsheet for your payroll system (CSV)")}
@@ -1448,7 +1502,7 @@ export default function StaffPayrollPage() {
                     size="md"
                     className="max-sm:h-10 max-sm:text-[13px]"
                     onClick={downloadLoenseddel}
-                    disabled={exportBlocked || dkLoading || loenLoading}
+                    disabled={docsBlocked || dkLoading || loenLoading}
                     busy={loenLoading}
                     iconLeft={!loenLoading && <Icon name="Download" size={15} />}
                     aria-label={t("payFileLoenseddelGet", "Download lønseddel PDF")}

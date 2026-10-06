@@ -6587,10 +6587,20 @@ def estimate_payroll(
     return result
 
 
+
+def _parse_staff_ids(raw: str | None) -> set[str] | None:
+    """"a,b" -> {"a","b"}; None/blank -> None (everyone). Ids not owned by the
+    caller simply match nothing — every query here is already user-scoped."""
+    if not isinstance(raw, str):  # None, or a Query default on a direct call
+        return None
+    ids = {x.strip() for x in raw.split(",") if x.strip()}
+    return ids or None
+
 @router.get("/payroll/csv")
 def export_payroll_csv(
     period_start: date,
     period_end: date,
+    staff_ids: str | None = Query(None, description="Comma-separated staff ids; omit for everyone"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -6658,6 +6668,10 @@ def export_payroll_csv(
     # CLOSED like the estimate above — an empty tips column reads as "no tips",
     # which is the same lie as an empty file.
     per_staff = est.get("per_staff", [])
+    # Medarbejdervalg: the same selection the PDF and Send honour.
+    _only = _parse_staff_ids(staff_ids)
+    if _only is not None:
+        per_staff = [s for s in per_staff if str(s.get("staff_id")) in _only]
     try:
         tip_rows = (
             db.query(
@@ -6675,6 +6689,8 @@ def export_payroll_csv(
             .all()
         )
         tips_by_staff = {str(r.staff_id): float(r.tips_total or 0) for r in tip_rows}
+        if _only is not None:
+            tips_by_staff = {k: v for k, v in tips_by_staff.items() if k in _only}
         # Someone can be owed tips for a period they have no wages in — a pool
         # split by role, a shift logged after the export. They still need a row,
         # or their tips are simply not in the file.
@@ -6811,6 +6827,7 @@ def loenseddel_pdf(
     period_start: date,
     period_end: date,
     request: Request,
+    staff_ids: str | None = Query(None, description="Comma-separated staff ids; omit for everyone"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -6873,6 +6890,9 @@ def loenseddel_pdf(
         .all()
     )
     eligible = [s for s in staff_rows if str(s.id) in has_hours_ids]
+    _only = _parse_staff_ids(staff_ids)
+    if _only is not None:
+        eligible = [s for s in eligible if str(s.id) in _only]
     if not eligible:
         raise HTTPException(404, "No staff with hours logged in this period")
 

@@ -214,3 +214,21 @@ def test_a_draft_tip_pool_is_not_paid_out(env):
     _tipped(s, owner, date(2026, 9, 15), [(ali, 100)], confirmed=True)
     _header, rows = _csv(c)
     assert rows[0][10] == "100,00"
+
+
+def test_the_csv_honours_the_staff_selection(env):
+    """Medarbejdervalg on Løn reached the PDF and Send but not this file:
+    a deselected person's wages AND tips stay out; no selection = everyone."""
+    c, s, owner = env
+    ali = _member(s, owner, "Ali")
+    sara = _member(s, owner, "Sara")
+    _worked(s, owner, ali, 8, date(2026, 9, 10))
+    _worked(s, owner, sara, 6, date(2026, 9, 11))
+    _tipped(s, owner, date(2026, 9, 14), [(ali, 300), (sara, 200)])
+    r = c.get(f"/api/staff/payroll/csv?period_start={START}&period_end={END}&staff_ids={ali.id}")
+    assert r.status_code == 200, r.text
+    rows = [line.split(";") for line in r.content.decode("utf-8-sig").splitlines()[1:]]
+    assert [row[0] for row in rows] == ["Ali"]
+    assert rows[0][10] == "300,00"
+    _header, everyone = _csv(c)
+    assert {row[0] for row in everyone} == {"Ali", "Sara"}
