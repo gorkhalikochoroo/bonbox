@@ -1251,7 +1251,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
       // "of 93,8 t planned" with a Danish unit and an unformatted number.
       ? t("hovTileHoursSub", "{measured}% clocked · of {scheduled} planned")
           .split("{measured}").join(measuredPct)
-          .split("{scheduled}").join(formatHours(hours.scheduled_total, { lang }))
+          .split("{scheduled}").join(formatHours(hours.scheduled_total, { lang, decimals: 2 }))
       : t("hovTileHoursSubNoPlan", "{measured}% clocked").split("{measured}").join(measuredPct);
   const hoursHelper = `${hoursHelperBase}${soFar}`;
 
@@ -1361,7 +1361,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
         <StatCard
           dense
           label={t("hovTileHours", "Hours")}
-          value={formatHours(hours.actual_total, { lang })}
+          value={formatHours(hours.actual_total, { lang, decimals: 2 })}
           helper={hoursHelper}
         />
         <StatCard
@@ -1438,6 +1438,30 @@ function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null })
             </span>
           </li>
         ))}
+        {/* The rest, summed — so the rows add up to the line under them. Six
+            names over an eight-person total read as a sum that didn't add up. */}
+        {worked.length > shown.length && (() => {
+          const rest = worked.slice(shown.length);
+          const restHours = rest.reduce((a, p) => a + Number(p.actual_hours || 0), 0);
+          const restMoney = rest.every((p) => p.earned == null)
+            ? null
+            : rest.reduce((a, p) => a + Number(p.earned || 0), 0);
+          return (
+            <li className="px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3 text-sm tabular-nums">
+              <span className="min-w-0 truncate text-gray-500 dark:text-gray-400">
+                {t("hovWhoWorkedRest", "+{n} more", { n: rest.length })}
+              </span>
+              <span className="shrink-0 flex items-center gap-3">
+                <span className="font-semibold text-gray-700 dark:text-gray-200">{formatHours(restHours, { lang, decimals: 2 })}</span>
+                {showMoney && restMoney != null && (
+                  <span className="w-24 text-right text-gray-500 dark:text-gray-400">
+                    <Amount value={restMoney} currency={currency} decimals={2} />
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })()}
       </ul>
       {showMoney && breakdown && (
         <CostReconcileLine breakdown={breakdown} people={people} currency={currency} className="px-4 sm:px-5 py-2.5 border-t border-gray-100 dark:border-gray-700" />
@@ -1638,9 +1662,9 @@ function resolutionMeta(resolution, t) {
     case "confirmed":
       return { label: t("shpStateConfirmed", "Checked"), icon: "Check" };
     case "adjusted":
-      return { label: t("shpStateAdjusted", "Adjusted by you"), icon: "PencilLine" };
+      return { label: t("shpStateAdjusted", "Adjusted by you"), icon: "Pencil" };
     case "absent":
-      return { label: t("shpStateAbsentMark", "Marked absent"), icon: "MinusCircle" };
+      return { label: t("shpStateAbsentMark", "Marked absent"), icon: "Minus" };
     default:
       return null;     // unanswered — the amber state above already says so
   }
@@ -2683,7 +2707,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                               staffName: row.staff_name,
                               exception: firstException(row),
                             })}
-                            className={`sm:hidden mt-1 inline-flex items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
+                            className={`sm:hidden mt-1 inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
                           >
                             {stateMeta.label}
                             {row.needs_answer_count > 1 && (
@@ -2726,7 +2750,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                                 staffName: row.staff_name,
                                 exception: firstException(row),
                               })}
-                              className={`inline-flex items-center gap-1 justify-end text-[12px] font-medium underline underline-offset-2 decoration-dotted rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${stateMeta.cls}`}
+                              className={`inline-flex items-center gap-1 whitespace-nowrap justify-end text-[12px] font-medium underline underline-offset-2 decoration-dotted rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${stateMeta.cls}`}
                             >
                               {stateMeta.label}
                               {row.needs_answer_count > 1 && (
@@ -2803,7 +2827,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                 {moneyTotal("earned", missingRateCount > 0)}
               </td>
               <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm">
-                {moneyTotal("tips")}
+                {(summary || []).some((r) => Number(r.tips) > 0) ? moneyTotal("tips") : "\u2014"}
               </td>
               <td className="sticky right-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 py-3 text-right tabular-nums text-sm">
                 {moneyTotal("total", missingRateCount > 0)}
@@ -3636,6 +3660,9 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     {(() => {
                       const rm = resolutionMeta(entry.resolution, t);
                       if (!rm) return null;
+                      // The chip already says "Rettet af dig" — saying it twice
+                      // (once in another wording) was noise.
+                      if (entry.entry_method === "owner_resolved" && entry.resolution === "adjusted") return null;
                       return (
                         <>
                           <span className="text-gray-300 dark:text-gray-600">|</span>
@@ -3688,7 +3715,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                         SEE it, so it was only provable by someone with SQL
                         access. Shown only when the two actually disagree;
                         printing "clock said 8, owner said 8" is noise. */}
-                    {entry.clock_hours != null
+                    {entry.clock_hours != null && Number(entry.clock_hours) > 0
                       && Math.abs(Number(entry.clock_hours) - Number(entry.total_hours)) > 0.01 && (
                       <>
                         <span className="text-gray-300 dark:text-gray-600">|</span>

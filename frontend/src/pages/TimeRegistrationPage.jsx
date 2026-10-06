@@ -4,9 +4,9 @@
 // and download the inspection-ready CSV. Starter+ (gated server-side; we
 // render an upgrade card on a 402).
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { readViewedPeriod } from "../utils/viewedPeriod";
+import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
@@ -108,7 +108,7 @@ export default function TimeRegistrationPage() {
   // "Nej" for every staffer.
   // …unless the owner came from Timer or Løn looking at another period: then
   // the register opens on that period's month (utils/viewedPeriod.js).
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [cursor, setCursor] = useState(() => {
     const carried = readViewedPeriod(searchParams);
     return new Date(`${carried ? carried.from : businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`);
@@ -151,6 +151,18 @@ export default function TimeRegistrationPage() {
   }, []);
 
   const { from, to } = periodBounds(mode, cursor, customFrom, customTo);
+
+  // …and the period stepped to HERE goes back to the hub, so Timer and Løn
+  // follow (stepping to September here and tapping Timer showed August). Not
+  // on the first render: that would overwrite a period another tab handed in.
+  const firstPeriodRef = useRef(true);
+  useEffect(() => {
+    if (firstPeriodRef.current) { firstPeriodRef.current = false; return; }
+    const today = new Date(`${businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`);
+    const cur = periodBounds("month", today);
+    writeViewedPeriod(searchParams, setSearchParams, { from, to }, mode === "month" ? cur : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to]);
 
   const saveDefault = async () => {
     setSavingPref(true);

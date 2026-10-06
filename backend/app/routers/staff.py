@@ -5088,7 +5088,9 @@ def update_hours(
     # Write-once capture of the measurement, identical rule to /hours/resolve:
     # an override must never destroy what the clock actually recorded, or a
     # disputed payslip has nothing to appeal to.
-    if entry.clock_hours is None and entry.entry_method == "clock":
+    # An OPEN punch measured nothing yet — its 0 is "never closed", not "0 h
+    # worked"; capturing it printed "Stempluret: 0 t" on the corrected row.
+    if entry.clock_hours is None and entry.entry_method == "clock" and entry.end_time:
         entry.clock_hours = entry.total_hours
 
     rate = data.rate_applied if data.rate_applied else _pick_rate(staff, eff_date, start_time)

@@ -845,7 +845,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
                         on the total alone would read as a different notation
                         from the column it sums. toFixed(1) handed a Danish
                         owner "38.5" where they write "38,5". */}
-                    {totalHours > 0 ? formatHoursNumber(totalHours, lang, 2) : "—"}
+                    {totalHours > 0 ? formatHours(totalHours, { lang, decimals: 2 }) : "—"}
                   </td>
                   {splitMethod === "role" && <td className="hidden sm:table-cell px-3 py-3" />}
                   <td className={`px-2 sm:px-3 py-3 text-right ${shareCol}`}>
