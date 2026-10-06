@@ -5,7 +5,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
-import { stepPayPeriod } from "../utils/payPeriod";
+import { computePayPeriod, stepPayPeriod } from "../utils/payPeriod";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 import { useAuth } from "../hooks/useAuth";
@@ -219,6 +219,18 @@ export default function StaffPayrollPage() {
     return p ? { period_start: p.from, period_end: p.to } : null;
   });
   const period = periodOverride || serverPeriod;
+  // A window carried over from Timer ("Sidste uge") is not necessarily a
+  // lønperiode. Say so under the header — "Lønperiode 28. sep. – 4. okt."
+  // over a saved "Kalendermåned" contradicted itself — and offer the real one.
+  const payWindow = useMemo(() => {
+    if (!period?.period_start || !currentQ.data) return null;
+    try {
+      return computePayPeriod(serverCfg.period_type, serverCfg.custom_start_day, period.period_start);
+    } catch {
+      return null;
+    }
+  }, [period?.period_start, currentQ.data, serverCfg]);
+  const offFrame = !!(payWindow && period && (payWindow.from !== period.period_start || payWindow.to !== period.period_end));
   // …and the window on screen goes back into the URL for the next tab.
   useEffect(() => {
     if (!serverPeriod) return;
@@ -862,7 +874,7 @@ export default function StaffPayrollPage() {
               {t("payrollPrevPeriod", "Previous")}
             </Button>
             <div className="text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">{t("payPeriod")}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{offFrame ? t("payPeriodChosen", "Chosen period") : t("payPeriod")}</p>
               <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 {period ? periodLabel(period.period_start, period.period_end) : "—"}
               </p>
@@ -876,6 +888,18 @@ export default function StaffPayrollPage() {
               {t("next", "Next")}
             </Button>
           </div>
+          {offFrame && (
+            <p className="mt-2 text-center text-xs text-amber-700 dark:text-amber-400 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+              <span>{t("payPeriodOffFrame", "Not a whole pay period.")}</span>
+              <button
+                type="button"
+                onClick={() => setPeriodOverride({ period_start: payWindow.from, period_end: payWindow.to })}
+                className="font-medium underline underline-offset-2 min-h-[40px] sm:min-h-0 text-gray-900 dark:text-gray-100"
+              >
+                {t("payPeriodShowWhole", "Show the pay period {range}", { range: periodLabel(payWindow.from, payWindow.to) })}
+              </button>
+            </p>
+          )}
           {/* DK lønperiode is often mid-month (16.→15., 25.→24.) rather than the
               calendar month — let the owner set it. Staff Hours + payroll totals
               follow automatically (the backend computes from this config). */}
@@ -1100,8 +1124,12 @@ export default function StaffPayrollPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {payrollRows.map(row => (
-                    <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+                  {payrollRows.map(row => {
+                    // Clocked in, never out, nothing else: "0 t · 0,00 kr." would
+                    // read as "worked nothing" — same "—" as Timer and the breakdown.
+                    const pending = !Number(row.hours) && openStaffIds.has(String(row.id));
+                    return (
+                    <tr key={row.id} title={pending ? t("shpAwaitingClockOut", "Waiting for the clock-out") : undefined} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
                       <td className="py-3 px-2">
                         <p className="font-medium text-gray-800 dark:text-white">{row.name}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -1111,10 +1139,10 @@ export default function StaffPayrollPage() {
                         </p>
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
-                        {formatHours(row.hours, { lang, decimals: 2 })}
+                        {pending ? <span className="text-gray-400">—</span> : formatHours(row.hours, { lang, decimals: 2 })}
                       </td>
                       <td className="text-right py-3 px-2 text-gray-700 dark:text-gray-300 tabular-nums">
-                        {fmtMoney(row.base_earned, currency)}
+                        {pending ? <span className="text-gray-400">—</span> : fmtMoney(row.base_earned, currency)}
                       </td>
                       <td className="text-right py-3 px-2 tabular-nums">
                         {row.overtime > 0 ? (
@@ -1135,10 +1163,11 @@ export default function StaffPayrollPage() {
                         )}
                       </td>
                       <td className="text-right py-3 px-2 font-semibold text-gray-800 dark:text-white tabular-nums">
-                        {fmtMoney(row.total, currency)}
+                        {pending ? <span className="font-normal text-gray-400">—</span> : fmtMoney(row.total, currency)}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50">
@@ -1269,10 +1298,12 @@ export default function StaffPayrollPage() {
             {!dkQ.failed && !dkLoading && dkEstimate?.staff_count > 0 && (
               <>
                 {dkEstimate.per_staff?.length > 0 && (
-                  <details className="mt-3">
+                  <details className="mt-3 group">
                     {/* py-3 on a phone: a 16px-tall disclosure is not a target
-                        a thumb can hit. */}
-                    <summary className="cursor-pointer py-3 sm:py-1 text-xs font-medium text-gray-700 dark:text-gray-300 select-none">
+                        a thumb can hit. Lucide chevron, like every other
+                        disclosure — not the browser's ▶. */}
+                    <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-1 py-3 sm:py-1 text-xs font-medium text-gray-700 dark:text-gray-300 select-none">
+                      <Icon name="ChevronRight" size={14} className="shrink-0 transition-transform group-open:rotate-90" />
                       {t("payrollPerEmployeeBreakdown", "Per-employee breakdown ({count})").replace("{count}", dkEstimate.per_staff.length)}
                     </summary>
                     <div className="overflow-x-auto mt-2">
@@ -1404,8 +1435,12 @@ export default function StaffPayrollPage() {
               }`}
               data-testid="pay-approval"
             >
-              <Icon name={approval.done ? "CheckCircle2" : "AlertTriangle"} size={15} className="shrink-0" />
-              <span className="tabular-nums">{approvalText(approval)}</span>
+              {/* Icon and words in one non-wrapping-apart unit: on a phone the
+                  icon sat alone on a line above the text. */}
+              <span className="inline-flex items-start gap-1.5 min-w-0">
+                <Icon name={approval.done ? "CheckCircle2" : "AlertTriangle"} size={15} className="shrink-0 mt-0.5" />
+                <span className="tabular-nums">{approvalText(approval)}</span>
+              </span>
               {!approval.done && (
                 <Link
                   to={timerHref}

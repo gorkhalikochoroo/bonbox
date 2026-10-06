@@ -314,6 +314,12 @@ export default function TimeRegistrationPage() {
   // "No" only because some staff have no time yet — not a breach while open.
   const notYetOnly = periodOpen && measured && totals.all_compliant === false
     && !((totals.with_rest_violations ?? 0) > 0) && !((totals.over_weekly_cap ?? 0) > 0);
+  // A closed period whose only "No" is a missing clock-out: that is a gap to
+  // fill, not a breach — a red "Nej" next to 0 hvileperiode-brud and 0 over 48 t
+  // gave no reason. Say what is missing, in amber.
+  const openPunchTotal = staff.reduce((n, s) => n + (s.open_punch_count || 0), 0);
+  const missingOutOnly = !notYetOnly && measured && totals.all_compliant === false && openPunchTotal > 0
+    && !((totals.with_rest_violations ?? 0) > 0) && !((totals.over_weekly_cap ?? 0) > 0);
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto page-enter space-y-4">
@@ -460,11 +466,16 @@ export default function TimeRegistrationPage() {
             // In a period still running, staff with no time YET are not a
             // breach: on the 1st every staffer read red "Nej".
             measured && totals.all_compliant != null
-              ? (totals.all_compliant ? t("yes", "Yes") : notYetOnly ? t("tregNotYet", "Not yet") : t("no", "No"))
+              ? (totals.all_compliant ? t("yes", "Yes")
+                : notYetOnly ? t("tregNotYet", "Not yet")
+                : missingOutOnly ? t("tregMissingClockOuts", "{n} without clock-out", { n: openPunchTotal })
+                : t("no", "No"))
               : "—"
           }
           accent={
-            measured && totals.all_compliant === false && !notYetOnly
+            missingOutOnly
+              ? "warn"
+              : measured && totals.all_compliant === false && !notYetOnly
               ? "critical"
               : measured && totals.all_compliant === true
                 ? "success"

@@ -954,7 +954,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
 
           {/* Tax reminder */}
           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
-            <strong>{t("stTaxNoteLabel", "Tax note:")}</strong> {t("stTaxNoteBody", "Tips must be reported per local tax law. Share distribution records with your accountant.")}
+            <strong>{t("stTaxNoteLabel", "Tax note:")}</strong> {t("stTaxNoteBody", "Tips are taxable income for the employee and belong in the payroll. Share the split with your accountant.")}
           </div>
         </div>
       )}

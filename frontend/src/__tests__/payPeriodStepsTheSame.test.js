@@ -154,7 +154,7 @@ describe("the Løn tab actually uses the shared stepper", () => {
 
   it("navigatePeriod calls stepPayPeriod", () => {
     expect(PAYROLL).toMatch(/stepPayPeriod\(/);
-    expect(PAYROLL).toMatch(/import \{ stepPayPeriod \} from "\.\.\/utils\/payPeriod"/);
+    expect(PAYROLL).toMatch(/import \{[^}]*\bstepPayPeriod\b[^}]*\} from "\.\.\/utils\/payPeriod"/);
   });
 
   it("it passes the FRAME, not just the dates", () => {

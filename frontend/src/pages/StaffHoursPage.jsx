@@ -2250,6 +2250,14 @@ function ApprovalBar({ rows, from, to, needsAnswer = 0, approval, onAnswer, onAn
           )
         ) : (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Part-approved ("Godkend de klare nu"): those rows are locked, and
+                an edit on one says "undo the approval here" — so undo has to be
+                here too, not only once everything is approved. */}
+            {c.byApproval > 0 && (
+              <Button size="md" variant="ghost" onClick={approval.undo} disabled={busy} className="max-sm:h-10">
+                {t("shpUnapproveCta", "Undo approval")}
+              </Button>
+            )}
             {needsAnswer > 0 && c.ready > 0 && (
               <Button size="md" variant="secondary" className="max-sm:h-10"
                 onClick={() => approval.approveClear(c)} disabled={busy}>
@@ -3695,7 +3703,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                       {badgeLabel}
                     </span>
                   </div>
-                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-0.5 sm:gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     <span>{fmtDateFull(entry.date)}</span>
                     {/* What you already decided about this shift. Until now
                         answering one only made the amber go away, so there was
@@ -3713,7 +3721,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                       if (entry.entry_method === "owner_resolved" && entry.resolution === "adjusted") return null;
                       return (
                         <>
-                          <span className="text-gray-300 dark:text-gray-600">|</span>
+                          <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
                           <span className="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
                             <Icon name={rm.icon} size={11} />
                             {rm.label}
@@ -3725,7 +3733,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                         it read "stemplet · 0 t" with no time and no flag. */}
                     {entry.start_time && !entry.end_time && (
                       <>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
                         <span className="tabular-nums">{`${entry.start_time}\u2013`}</span>
                         <span className="inline-flex items-center gap-1 font-medium text-red-700 dark:text-red-400">
                           <Icon name="AlertTriangle" size={11} />
@@ -3735,25 +3743,25 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     )}
                     {entry.start_time && entry.end_time && (
                       <>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
                         {/* Render the time range with an en-dash. Bug fix:
                             `\u2013` text inside JSX is treated as raw
                             characters, not an escape \u2014 owners were seeing
                             "16:00\u201300:00" verbatim on every hours row.
                             Wrap the escape in a JS expression so it
                             evaluates to U+2013 properly. */}
-                        <span>{`${entry.start_time}\u2013${entry.end_time}`}</span>
+                        <span className="whitespace-nowrap">{`${entry.start_time}\u2013${entry.end_time}`}</span>
                       </>
                     )}
                     {entry.break_minutes > 0 && (
                       <>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
                         <span>{t("shpMinBreak", "{count}min break").replace("{count}", entry.break_minutes)}</span>
                       </>
                     )}
                     {entry.entry_method === "clock" && entry.notes === "Location unverified" && (
                       <>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
                         <span className="text-amber-600 dark:text-amber-400">{t("shpUnverifiedLoc", "Location not verified")}</span>
                       </>
                     )}
@@ -3766,7 +3774,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     {entry.clock_hours != null && Number(entry.clock_hours) > 0
                       && Math.abs(Number(entry.clock_hours) - Number(entry.total_hours)) > 0.01 && (
                       <>
-                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
                         <span className="text-amber-600 dark:text-amber-400">
                           {t("shpClockMeasured", "Clock: {h}").replace(
                             "{h}", fmtHours(Number(entry.clock_hours), lang))}
