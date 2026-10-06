@@ -4,7 +4,8 @@
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { Clock, Users, SlidersHorizontal } from "lucide-react";
 import { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { readViewedPeriod } from "../utils/viewedPeriod";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -342,7 +343,18 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
   // The pool's PERIOD. It was one date, and the hours fetched were that one
   // day's — so a week's jar was split by whoever happened to work on Sunday.
   const todayIso = today();
-  const [period, setPeriod] = useState(() => ({ preset: "last7", ...presetRange("last7", todayIso) }));
+  // The hub's period comes along (utils/viewedPeriod.js): an owner looking
+  // at 1.–30. sep. in Timer landed on "Sidste 7 dage" here. A pool covers at
+  // most TIP_POOL_MAX_DAYS, so a longer carried window falls back to the
+  // usual last 7 days instead of proposing a pool nobody could save.
+  const [searchParams] = useSearchParams();
+  const [period, setPeriod] = useState(() => {
+    const carried = readViewedPeriod(searchParams);
+    if (carried && daysInclusive(carried.from, carried.to) <= TIP_POOL_MAX_DAYS) {
+      return { preset: "custom", from: carried.from, to: carried.to };
+    }
+    return { preset: "last7", ...presetRange("last7", todayIso) };
+  });
   const [totalAmount, setTotalAmount] = useState("");
   const [splitMethod, setSplitMethod] = useState("hours");
   // What the owner typed over the logged figures, by staff_id. Cleared with

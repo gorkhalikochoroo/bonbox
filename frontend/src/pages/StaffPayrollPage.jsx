@@ -1291,7 +1291,7 @@ export default function StaffPayrollPage() {
 
           <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-x-4 gap-y-2">
             <Button
-              variant="accent"
+              variant="primary"
               size="lg"
               className="w-full sm:w-auto shrink-0"
               onClick={sendToAccountant}

@@ -199,6 +199,13 @@ const METHOD_BADGES = {
     // uncoloured — an outline, not a claim.
     chip: "bg-transparent text-gray-500 ring-1 ring-gray-300 dark:text-gray-400 dark:ring-gray-600",
   },
+  owner_resolved: {
+    icon: "Pencil",
+    labelKey: "hovMethodOwnerResolved",
+    // Clocked in, but the end (or the whole shift) was set by the owner. Not
+    // "tastet" — the clock did measure part of it — and not "stemplet" either.
+    chip: "bg-gray-50 text-gray-700 ring-1 ring-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600",
+  },
 };
 // Fallback for an unknown method — never dressed as measured.
 const METHOD_CHIP =
@@ -658,7 +665,11 @@ export default function StaffHoursPage() {
       {subTab === "overview" && (
         <FadeIn delay={0.1}>
           <HoursOverview
-            overview={overview}
+            // While another period loads, the data in hand belongs to the
+            // OLD period — October's "353 t planlagt" sat under "1. sep. –
+            // 30. sep." for 3 s. Show the skeleton then; a refresh of the
+            // same period keeps its figures.
+            overview={overviewQ.loading && !overviewQ.refreshing ? null : overview}
             // The period window is a precondition for this request, so while it
             // resolves the tab is LOADING, not answered-and-empty.
             loading={overviewQ.loading || periodLoading}
@@ -1723,7 +1734,10 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved, posi
 
   // The pause, and where its default came from — said in one line, because
   // a deduction nobody can see or change is how the sheet lost trust.
-  const plannedBreak = exception?.scheduled_break_minutes != null && Number(exception.scheduled_break_minutes) > 0
+  // A planned shift's break is the plan — INCLUDING a planned 0. Treating 0
+  // as "no plan" pre-picked 45 min and paid a 17–23 shift as 5,28 t.
+  const plannedBreak = hasPlan && exception?.scheduled_break_minutes != null
+    && Number.isFinite(Number(exception.scheduled_break_minutes))
     ? Number(exception.scheduled_break_minutes)
     : null;
   const startMin = hhmmToMin(startTime);
@@ -1904,8 +1918,8 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved, posi
 
             {gross != null && gross > 0 && (
               <p className="text-[13px] text-gray-600 dark:text-gray-300 tabular-nums">
-                {startTime}–{endTime} = {fmtHours(gross, lang)}
-                {pause > 0 && <> − {t("shpResolvePause", "{m} min break", { m: pause })}</>}
+                {startTime}–{endTime}
+                {pause > 0 && <> = {fmtHours(gross, lang)} − {t("shpResolvePause", "{m} min break", { m: pause })}</>}
                 {" = "}<strong className="text-gray-900 dark:text-gray-100">{fmtHours(paid, lang)}</strong>
               </p>
             )}
@@ -3590,7 +3604,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
 
           return (
             <AnimatedListItem key={entry.id}>
-              <div className="px-5 py-3 flex items-center gap-3 group">
+              <div className="px-5 py-3 flex flex-wrap items-center gap-3 group">
                 {/* Avatar */}
                 <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
                   {staffName.charAt(0).toUpperCase()}
@@ -3598,8 +3612,10 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
 
                 {/* Main info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-800 dark:text-white text-sm truncate">{staffName}</span>
+                  {/* Wraps instead of truncating: on a phone the name was cut to
+                      "A" / "Te…" and Test Tina, Theo and Tilde looked the same. */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="font-medium text-gray-800 dark:text-white text-sm break-words min-w-0">{staffName}</span>
                     {/* Per-method weight: measured > asserted > assumed. See
                         METHOD_BADGES for why this is weight and not colour. */}
                     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge.chip || METHOD_CHIP}`}>
@@ -3685,10 +3701,13 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                   </div>
                 </div>
 
-                {/* Hours + Earned */}
-                <div className="text-right flex-shrink-0">
+                {/* Hours + Earned. While editing, the editor takes its own
+                    full-width row: inside this non-shrinking column its Gem
+                    and Annuller rendered outside the card on a phone and a
+                    tablet, and a clocked shift could not be corrected there. */}
+                <div className={isEditing ? "basis-full w-full" : "text-right flex-shrink-0"}>
                   {isEditing ? (
-                    <div className="flex flex-wrap items-end justify-end gap-2">
+                    <div className="flex flex-wrap items-end justify-start sm:justify-end gap-2">
                       {editTimes ? (
                         <>
                           {/* Times, not a total: the register keeps in/out. */}

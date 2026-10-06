@@ -5374,6 +5374,7 @@ def hours_summary(
             .join(Tip, Tip.id == TipDistribution.tip_id)
             .filter(
                 Tip.user_id == user.id,
+                Tip.confirmed.is_(True),  # a draft pool can still change — pay counts locked ones
                 Tip.date >= from_date,
                 Tip.date <= to_date,
             )
@@ -6624,6 +6625,7 @@ def export_payroll_csv(
             .join(Tip, Tip.id == TipDistribution.tip_id)
             .filter(
                 Tip.user_id == user.id,
+                Tip.confirmed.is_(True),  # a draft pool can still change — pay counts locked ones
                 Tip.date >= period_start,
                 Tip.date <= period_end,
             )
@@ -6961,6 +6963,7 @@ def _render_payroll_pdf_bytes(body: "PayrollPDFRequest", db: Session, user: User
         .join(Tip, Tip.id == TipDistribution.tip_id)
         .filter(
             Tip.user_id == user.id,
+            Tip.confirmed.is_(True),  # a draft pool can still change — pay counts locked ones
             Tip.date >= body.period_start,
             Tip.date <= body.period_end,
             TipDistribution.staff_id.in_(staff_ids),

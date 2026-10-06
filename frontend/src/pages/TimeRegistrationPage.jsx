@@ -528,7 +528,7 @@ export default function TimeRegistrationPage() {
                         figure Arbejdstidsloven's 48 t/uge cap is measured
                         against, so it should read like the cap it is compared
                         to, not like a duration someone worked. */}
-                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {formatHours(s.weekly_avg_hours, { lang, decimals: 2 })}/{t("tregWk", "wk")}</div>
+                    <div className="text-[11px] text-gray-400">{s.days_registered} {s.days_registered === 1 ? t("tregDay", "day") : t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {formatHours(s.weekly_avg_hours, { lang, decimals: 2 })}/{t("tregWk", "wk")}</div>
                   </div>
                   <Icon name={open ? "ChevronUp" : "ChevronDown"} size={16} className="text-gray-400 shrink-0" />
                 </button>

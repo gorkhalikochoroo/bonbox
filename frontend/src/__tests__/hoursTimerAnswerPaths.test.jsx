@@ -244,8 +244,16 @@ describe("a path to approval", () => {
     }));
   });
 
-  it("without a planned break the pause defaults to the DK rule, said in one line", async () => {
+  it("a planned 0-minute break is the plan — not replaced by the 45-minute rule", async () => {
     const ex = { ...FORGOT, scheduled_break_minutes: 0 };
+    mountPage({ summary: [row({ worst_state: "forgot_clock_out", needs_answer_count: 1, exceptions: [ex] })] });
+    fireEvent.click(await screen.findByRole("button", { name: /shpNeedsAnswerOne/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "shpPauseMin:0" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("without a planned break the pause defaults to the DK rule, said in one line", async () => {
+    const ex = { ...FORGOT, scheduled_break_minutes: null };
     mountPage({ summary: [row({ worst_state: "forgot_clock_out", needs_answer_count: 1, exceptions: [ex] })] });
     fireEvent.click(await screen.findByRole("button", { name: /shpNeedsAnswerOne/ }));
     const dialog = await screen.findByRole("dialog");

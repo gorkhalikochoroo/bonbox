@@ -75,7 +75,7 @@ def _worked(s, owner, m, hours, day):
     s.commit()
 
 
-def _tipped(s, owner, last_day, shares, confirmed=False):
+def _tipped(s, owner, last_day, shares, confirmed=True):
     tip = Tip(id=uuid.uuid4(), user_id=owner.id, date=last_day,
               total_amount=sum(a for _m, a in shares), split_method="hours", confirmed=confirmed)
     s.add(tip); s.flush()
@@ -202,3 +202,15 @@ def test_the_pdf_says_whose_hours_are_approved(env):
     assert "Timer godkendt: Ja" in text
     assert "Timer godkendt for 1 af 2 medarbejdere" in text
     assert "Mangler godkendelse: Ali (1 af 2 godkendt)." in text
+
+
+def test_a_draft_tip_pool_is_not_paid_out(env):
+    """An unconfirmed pool can still be edited or deleted; payroll counts the
+    locked split only — the same rule the staff portal uses."""
+    c, s, owner = env
+    ali = _member(s, owner, "Ali")
+    _worked(s, owner, ali, 8, date(2026, 9, 10))
+    _tipped(s, owner, date(2026, 9, 14), [(ali, 300)], confirmed=False)
+    _tipped(s, owner, date(2026, 9, 15), [(ali, 100)], confirmed=True)
+    _header, rows = _csv(c)
+    assert rows[0][10] == "100,00"

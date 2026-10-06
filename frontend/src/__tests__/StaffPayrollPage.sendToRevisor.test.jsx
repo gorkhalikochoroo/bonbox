@@ -190,7 +190,9 @@ describe("the rest of the tab", () => {
     expect(screen.getByText(/One lønseddel for each employee/)).toBeTruthy();
     expect(screen.getByText(/not for your revisor/)).toBeTruthy();
     // The accent (green) button is Send; the downloads are secondary.
-    expect(sendBtn().className).toMatch(/bg-emerald-600/);
+    // Primary, not green: under the colour doctrine green means done.
+    expect(sendBtn().className).not.toMatch(/emerald/);
+    expect(sendBtn().className).toMatch(/bg-gray-900/);
     expect(screen.getByRole("button", { name: /Download payroll report/ }).className).not.toMatch(/bg-emerald/);
   });
 
