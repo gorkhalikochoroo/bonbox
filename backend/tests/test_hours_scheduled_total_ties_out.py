@@ -232,3 +232,15 @@ def test_a_draft_roster_still_counts_for_neither(client, db):
 
     assert ov["hours"]["scheduled_total"] == 0.0
     assert sum(r["scheduled_hours"] for r in rows) == 0.0
+
+
+def test_on_plan_split_ties_out_to_the_rows(client, db):
+    """The tile's "mod planen" / "uden vagtplan" uses the same split as the
+    table's Forskel: hours on planned days + the rest = everything worked."""
+    _seed(db, staff_count=2)
+    ov, rows = _both(client)
+
+    h = ov["hours"]
+    assert round(h["actual_on_plan"] + h["unplanned"], 2) == h["actual_total"]
+    assert h["actual_on_plan"] == round(sum(r["actual_on_plan_hours"] for r in rows), 2)
+    assert h["unplanned"] == round(sum(r["unplanned_hours"] for r in rows), 2)

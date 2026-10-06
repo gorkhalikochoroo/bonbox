@@ -772,6 +772,15 @@ export default function StaffHoursPage() {
 // reproduce — right notation, wrong number. Whole rates stay clean; øre survive.
 // Clocked in, never out, nothing else logged: the hours (and so the pay)
 // are not known yet — "—", never a confident 0 t / 0,00 kr. / −6 t.
+// Plan against what was worked ON THE PLANNED DAYS; hours on unplanned days
+// apart. One definition for the desktop Forskel cell and the phone sub-line.
+function planDiff(row) {
+  const onPlan = row?.actual_on_plan_hours != null ? Number(row.actual_on_plan_hours) : (Number(row?.actual_hours) || 0);
+  const unplanned = Number(row?.unplanned_hours) || 0;
+  const planned = Number(row?.scheduled_hours) || 0;
+  const d = planned > 0 ? onPlan - planned : 0;
+  return { onPlan, unplanned, planned, d, showNum: planned > 0 && Math.abs(d) >= 0.005 };
+}
 function openOnly(row) {
   return !Number(row?.actual_hours) && row?.worst_state === "forgot_clock_out";
 }
@@ -1260,15 +1269,21 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   const soFar = period.is_complete ? "" : ` · ${t("hovSoFar", "so far")}`;
 
   // Tile 1 — Timer (volume, never colored).
+  // Against the plan: hours on PLANNED days vs the plan, the rest named apart
+  // ("uden vagtplan") — the same split as the table's Forskel. "251 t · af
+  // 183 t planlagt" read as 69 t over plan while the table said −48 t.
+  const onPlanH = hours.actual_on_plan != null ? Number(hours.actual_on_plan) : null;
+  const unplannedH = Number(hours.unplanned) || 0;
+  const planBits = [];
+  if (hours.scheduled_total > 0 && onPlanH != null) {
+    const d = onPlanH - Number(hours.scheduled_total);
+    planBits.push(Math.abs(d) >= 0.005
+      ? t("shpVsPlan", "{d} vs. plan", { d: formatHours(d, { lang, sign: true, decimals: 2 }) })
+      : t("shpOnPlan", "as planned"));
+  }
+  if (unplannedH >= 0.005) planBits.push(t("shpUnplannedHours", "{h} without a plan", { h: formatHours(unplannedH, { lang, decimals: 2 }) }));
   const hoursHelperBase =
-    hours.scheduled_total > 0
-      // The unit comes off the formatter, not out of the sentence: the
-      // catalogue used to carry a literal " t" here, so an English session read
-      // "of 93,8 t planned" with a Danish unit and an unformatted number.
-      ? t("hovTileHoursSub", "{measured}% clocked · of {scheduled} planned")
-          .split("{measured}").join(measuredPct)
-          .split("{scheduled}").join(formatHours(hours.scheduled_total, { lang, decimals: 2 }))
-      : t("hovTileHoursSubNoPlan", "{measured}% clocked").split("{measured}").join(measuredPct);
+    [t("hovTileHoursSubNoPlan", "{measured}% clocked").split("{measured}").join(measuredPct), ...planBits].join(" · ");
   const hoursHelper = `${hoursHelperBase}${soFar}`;
 
   // Tile 2 — Lønudgift. With no configured wage rate gross=0 → show a neutral
@@ -2282,17 +2297,21 @@ function ApprovalBar({ rows, from, to, needsAnswer = 0, approval, onAnswer, onAn
           <button
             type="button"
             onClick={onAnswer}
-            className="inline-flex items-center gap-1 min-h-10 sm:min-h-0 text-[13px] font-medium text-amber-700 dark:text-amber-400 underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+            className="inline-flex items-center gap-1 min-h-10 sm:min-h-0 text-left text-[13px] font-medium text-amber-700 dark:text-amber-400 underline underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           >
-            {needsAnswer === 1
-              ? t("shpApproveAnswerFirstOne", "Answer the 1 shift first")
-              : t("shpApproveAnswerFirst", "Answer the {n} shifts first", { n: needsAnswer })}
-            {kinds && <span className="font-normal no-underline">({kinds})</span>}
-            <Icon name="ChevronRight" size={14} aria-hidden="true" />
+            {/* One text run: as two flex items the sentence and its "(…)" split
+                into two centred columns on a phone. */}
+            <span>
+              {needsAnswer === 1
+                ? t("shpApproveAnswerFirstOne", "Answer the 1 shift first")
+                : t("shpApproveAnswerFirst", "Answer the {n} shifts first", { n: needsAnswer })}
+              {kinds && <span className="font-normal"> ({kinds})</span>}
+            </span>
+            <Icon name="ChevronRight" size={14} aria-hidden="true" className="shrink-0" />
           </button>
           {asPlannedCount > 0 && (
             <Button size="md" variant="ghost" className="max-sm:h-10" onClick={onAnswerAsPlanned} disabled={bulkBusy} busy={bulkBusy}>
-              {t("shpBulkPlannedBtn", "All not clocked in: as planned")}
+              {t("shpBulkPlannedBtn", "Set the unclocked shifts to the plan")}
             </Button>
           )}
           {bulkNote && <span className="text-[13px] text-gray-600 dark:text-gray-400" role="status">{bulkNote}</span>}
@@ -2699,9 +2718,20 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                               `hidden sm:` — so it carries the same state word the
                               desktop cell does. `planlagt` used to be hardcoded
                               Danish sitting in the English UI. */}
-                          {row.scheduled_hours != null
-                            ? t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(row.scheduled_hours, lang))
-                            : ""}
+                          {/* The desktop Forskel, not "56,5 t planlagt" beside
+                              79,41 t: that paired the plan with hours from a
+                              week nobody planned and read as 23 t over. */}
+                          {(() => {
+                            const p = planDiff(row);
+                            const bits = [];
+                            if (p.planned > 0 && !openOnly(row)) {
+                              bits.push(p.showNum
+                                ? t("shpVsPlan", "{d} vs. plan", { d: formatHours(p.d, { lang, sign: true, decimals: 2 }) })
+                                : t("shpOnPlan", "as planned"));
+                            }
+                            if (p.unplanned >= 0.005) bits.push(t("shpUnplannedHours", "{h} without a plan", { h: formatHours(p.unplanned, { lang, decimals: 2 }) }));
+                            return bits.join(" \u00b7 ");
+                          })()}
                           {/* When the row HAS something to resolve the state
                               word moves out of this line and becomes the real
                               button below, so the word is never shown twice. */}
@@ -2764,11 +2794,8 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       // Plan against what was worked ON THE PLANNED DAYS. Hours on
                       // days with no shift planned are not "over plan" — they are
                       // shown apart, grey, as "uden vagtplan".
-                      const onPlan = row.actual_on_plan_hours != null ? Number(row.actual_on_plan_hours) : (Number(row.actual_hours) || 0);
-                      const unplanned = Number(row.unplanned_hours) || 0;
-                      const planned = Number(row.scheduled_hours) || 0;
-                      const d = planned > 0 ? onPlan - planned : 0;
-                      const showNum = planned > 0 && Math.abs(d) >= 0.005 && !openOnly(row);
+                      const { unplanned, d, showNum: anyDiff } = planDiff(row);
+                      const showNum = anyDiff && !openOnly(row);
                       return (
                         <span className="inline-flex flex-col items-end gap-0.5">
                           <span className={`font-medium tabular-nums whitespace-nowrap ${showNum ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>

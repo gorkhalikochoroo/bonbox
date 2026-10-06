@@ -576,11 +576,13 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
           percentage: d.share_pct,
         })),
       });
-      setSuccess(t("stSuccessDistributed", "Tips distributed successfully!"));
+      // A saved split is a DRAFT: Løn and the staff portal count confirmed
+      // pools only. "Drikkepengene blev fordelt!" let the owner think it was paid.
+      setSuccess(t("stSuccessDistributed", "Split saved as a draft — confirm it under History so it reaches payroll."));
       setTimeout(() => {
         setSuccess("");
         onDone();
-      }, 1500);
+      }, 3000);
     } catch (err) {
       setError(errText(err, t("stErrSaveFailed", "Failed to save tip distribution.")));
     } finally {
@@ -698,7 +700,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
       {/* Staff Distribution Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="p-5 sm:p-6 pb-0">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between gap-3 mb-4">
             <h2 className="text-lg font-bold dark:text-white">{t("stStaffDistribution", "Staff Distribution")}</h2>
             {amountOre > 0 && (
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
@@ -953,7 +955,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
           )}
 
           {/* Tax reminder */}
-          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
+          <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-3 text-xs text-gray-600 dark:text-gray-300">
             <strong>{t("stTaxNoteLabel", "Tax note:")}</strong> {t("stTaxNoteBody", "Tips are taxable income for the employee and belong in the payroll. Share the split with your accountant.")}
           </div>
         </div>

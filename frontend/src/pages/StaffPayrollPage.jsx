@@ -604,9 +604,12 @@ export default function StaffPayrollPage() {
   const recipientLabel = revisorName ? `${revisorName} · ${revisorEmail}` : revisorEmail;
   // Not while the hours are still loading either: the confirm states their
   // approval, and a confirm built before they arrive would silently omit it.
+  // Nothing worked and no tips (an empty month): a 0,00 kr. report to the
+  // revisor is not a thing to send.
+  const periodEmpty = !hoursQ.loading && !(Number(totals.hours) > 0) && !(Number(totals.tips) > 0);
   const canSend =
     !docsBlocked && !sending && !pdfLoading && selectedIds.size > 0 && profileKnown && !!revisorEmail
-    && !hoursQ.loading;
+    && !hoursQ.loading && !periodEmpty;
   // The CSV and the lønseddel are DK documents and owner-only (the server
   // denies both to any staff seat). Shown while the estimate loads — disabled,
   // so the list does not jump — and on a failed estimate, disabled with the
@@ -1453,11 +1456,13 @@ export default function StaffPayrollPage() {
             </p>
           )}
 
-          {(exportBlocked || selectedIds.size === 0) && (
+          {(exportBlocked || selectedIds.size === 0 || periodEmpty) && (
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
               {exportBlocked
                 ? t("payrollExportBlocked", "Exports are paused until the figures above have loaded.")
-                : t("payrollSelectToExport", "Select at least one staff member to export")}
+                : selectedIds.size === 0
+                  ? t("payrollSelectToExport", "Select at least one staff member to export")
+                  : t("payPeriodEmptyNoSend", "No hours or tips in this period — nothing to send.")}
             </p>
           )}
           {sendToast && (

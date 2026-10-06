@@ -6162,6 +6162,11 @@ def hours_overview(
             "actual_total": round(actual_total, 2),
             "scheduled_total": round(scheduled_total, 2),
             "diff": round(actual_total - scheduled_total, 2),
+            # Plan vs worked ON THE PLANNED DAYS, and the rest apart — the
+            # tile paired "af 183 t planlagt" with hours that included a week
+            # nobody had planned, and read as 69 t over plan.
+            "actual_on_plan": round(actual_on_plan, 2),
+            "unplanned": round(max(0.0, actual_total - actual_on_plan), 2),
             "measured_hours": round(measured_hours, 2),
             "typed_hours": round(typed_hours, 2),
             "schedule_hours": round(schedule_hours, 2),

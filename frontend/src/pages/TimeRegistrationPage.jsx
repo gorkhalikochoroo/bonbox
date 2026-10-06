@@ -318,6 +318,9 @@ export default function TimeRegistrationPage() {
   // fill, not a breach — a red "Nej" next to 0 hvileperiode-brud and 0 over 48 t
   // gave no reason. Say what is missing, in amber.
   const openPunchTotal = staff.reduce((n, s) => n + (s.open_punch_count || 0), 0);
+  // Nobody registered anything (an empty past month): there is nothing to be
+  // compliant about yet — grey, not a red "Nej" with no next step.
+  const noneRegistered = measured && staff.length > 0 && staff.every((s) => !s.days_registered);
   const missingOutOnly = !notYetOnly && measured && totals.all_compliant === false && openPunchTotal > 0
     && !((totals.with_rest_violations ?? 0) > 0) && !((totals.over_weekly_cap ?? 0) > 0);
 
@@ -458,7 +461,7 @@ export default function TimeRegistrationPage() {
           value={measured ? String(totals.staff_count ?? staff.length) : "—"}
         />
         <StatCard
-          label={t("tregAllOk", "All compliant")}
+          label={t("tregAllOk", "Compliance")}
           value={
             // null from the server means "no employees in this period, so
             // there is nothing to be compliant ABOUT" — a third answer, not a
@@ -467,14 +470,18 @@ export default function TimeRegistrationPage() {
             // breach: on the 1st every staffer read red "Nej".
             measured && totals.all_compliant != null
               ? (totals.all_compliant ? t("yes", "Yes")
+                : noneRegistered ? t("tregNoneRegistered", "No registrations")
                 : notYetOnly ? t("tregNotYet", "Not yet")
                 : missingOutOnly ? t("tregMissingClockOuts", "{n} without clock-out", { n: openPunchTotal })
                 : t("no", "No"))
               : "—"
           }
           accent={
-            missingOutOnly
-              ? "warn"
+            // Same red as the rows' "Mangler udstempling" — one colour for one fact.
+            noneRegistered
+              ? "neutral"
+              : missingOutOnly
+              ? "critical"
               : measured && totals.all_compliant === false && !notYetOnly
               ? "critical"
               : measured && totals.all_compliant === true
@@ -604,7 +611,7 @@ export default function TimeRegistrationPage() {
                                   ? <span className="font-medium text-red-700 dark:text-red-400">{t("tregNoEnd", "missing")}</span>
                                   : "—")}
                               </td>
-                              <td className="py-1.5 text-right tabular-nums">{formatHours(e.hours, { lang, decimals: 2 })}</td>
+                              <td className="py-1.5 text-right tabular-nums">{!e.end && !Number(e.hours) ? "\u2014" : formatHours(e.hours, { lang, decimals: 2 })}</td>
                               <td className="py-1.5 text-right">
                                 <span className="text-[10px] uppercase tracking-wide text-gray-400">
                                   {e.source === "clock" ? t("tregClock", "Clock") : t("tregLogged", "Logged")}
