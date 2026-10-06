@@ -1189,7 +1189,7 @@ export default function StaffPayrollPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                   <DkStat label={t("stfPayrollGrossWages", "Gross wages")} value={dkEstimate.totals.gross} currency={currency} accent="gray" />
                   {/* "AM-bidrag" is a locked DK term — the same label in every language. */}
-                  <DkStat label="AM-bidrag (8%)" value={dkEstimate.totals.am_bidrag} currency={currency} accent="blue" />
+                  <DkStat label={lang === "da" ? "AM-bidrag (8\u00a0%)" : "AM-bidrag (8%)"} value={dkEstimate.totals.am_bidrag} currency={currency} accent="blue" />
                   <DkStat label={t("stfPayrollASkatEst", "A-skat (est. 36%)")} value={dkEstimate.totals.a_skat} currency={currency} accent="blue" />
                   <DkStat label={t("stfPayrollNetToStaff", "Net to staff")} value={dkEstimate.totals.net_pay} currency={currency} accent="green" />
                 </div>

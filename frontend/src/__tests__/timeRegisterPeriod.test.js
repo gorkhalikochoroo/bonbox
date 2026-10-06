@@ -105,7 +105,8 @@ describe("a duration reads the way a person says it", () => {
     // The backend sends total_hours 0 because there were NO rows; the status
     // is "gap" and already says "No time registered". "0 min" beside it would
     // assert somebody worked none, which is a different claim.
-    expect(PAGE).toMatch(/s\.status === "gap" \? "\\u2014"/);
+    // …and so does an open punch with nothing measured yet.
+    expect(PAGE).toMatch(/s\.status === "gap" \|\| \(s\.status === "open" && !Number\(s\.total_hours\)\) \? "\\u2014"/);
   });
 });
 

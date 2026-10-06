@@ -147,7 +147,10 @@ def build_hours_narrative(data: dict) -> tuple[list[dict], str]:
     elif near:
         lines.append(_limit_line("limit_near", "watch", near))
     elif scheduled > 0:
-        diff = actual - scheduled
+        # Hours worked on days with no shift planned are not "over plan" —
+        # compare the plan with what was worked on the days it covered.
+        on_plan = data.get("actual_on_plan")
+        diff = (float(on_plan) if on_plan is not None else actual) - scheduled
         if diff > max(PLAN_OVER_ABS_T, PLAN_OVER_REL * scheduled):
             lines.append({
                 "code": "plan_over",

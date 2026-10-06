@@ -5660,6 +5660,17 @@ def hours_summary(
                 return candidate
         return "matched"
 
+    # Per person: hours worked on days that HAD a planned shift. Forskel
+    # compares the plan with these; hours on days with no plan are reported
+    # apart ("uden vagtplan"), not as "over plan".
+    _on_plan_by_staff: dict = {}
+    try:
+        for (k_sid, k_day), sched_h in sched_by_day.items():
+            if sched_h and sched_h > 0:
+                _on_plan_by_staff[k_sid] = _on_plan_by_staff.get(k_sid, 0.0) + float(actual_by_day.get((k_sid, k_day), 0.0))
+    except Exception:  # noqa: BLE001 — fall back to comparing everything
+        _on_plan_by_staff = {}
+
     # One row per staff who has actual hours, tips, OR a scheduled shift.
     summary = []
     for sid in staff_ids:
@@ -5694,6 +5705,8 @@ def hours_summary(
             # keys the Hours "Period summary" table reads
             "actual_hours": actual,
             "scheduled_hours": scheduled,
+            "actual_on_plan_hours": round(_on_plan_by_staff.get(sid, 0.0), 2) if scheduled > 0 else 0.0,
+            "unplanned_hours": round(max(0.0, actual - (_on_plan_by_staff.get(sid, 0.0) if scheduled > 0 else 0.0)), 2),
             # WAGES. /members already strips base_rate for a member view so a
             # low-privilege seat "can never harvest coworkers' pay" — and then
             # this sibling endpoint handed the same numbers straight back.
@@ -5865,6 +5878,7 @@ def hours_overview(
     # ACTUAL by entry method and would stop tying out if that one moved —
     # nothing decomposes scheduled_total.
     _sched_by_staff: dict[str, float] = {}
+    _sched_days: set = set()
     scheduled_total = 0.0
     try:
         for s in (
@@ -5881,9 +5895,33 @@ def hours_overview(
             _sched_by_staff[sid] = _sched_by_staff.get(sid, 0.0) + _shift_hours(
                 s.start_time, s.end_time, s.break_minutes
             )
+            _sched_days.add((sid, s.date))
         scheduled_total = sum(round(v, 2) for v in _sched_by_staff.values())
     except Exception:
         scheduled_total = 0.0
+
+    # Worked hours on days that HAD a planned shift. "Mere end planlagt"
+    # compared every worked hour with a plan that covered part of the month:
+    # a week typed in before anyone made a vagtplan read as 74 t over plan,
+    # with "tjek om alt er tastet rigtigt" — about hours nobody mistyped.
+    actual_on_plan = actual_total
+    if _sched_days:
+        try:
+            actual_on_plan = 0.0
+            for r in (
+                db.query(HoursLogged.staff_id, HoursLogged.date, func.sum(HoursLogged.total_hours))
+                .filter(
+                    HoursLogged.user_id == user.id,
+                    HoursLogged.date >= from_date,
+                    HoursLogged.date <= to_date,
+                )
+                .group_by(HoursLogged.staff_id, HoursLogged.date)
+                .all()
+            ):
+                if (str(r[0]), r[1]) in _sched_days:
+                    actual_on_plan += float(r[2] or 0)
+        except Exception:  # noqa: BLE001 — fall back to the old comparison
+            actual_on_plan = actual_total
 
     # Names + monthly limits for the flags. Wrapped — a corrupt row never 500s.
     over_limit: list[dict] = []
@@ -6062,6 +6100,8 @@ def hours_overview(
         "pct_covered": pct_covered,
         "actual_total": round(actual_total, 1),
         "scheduled_total": round(scheduled_total, 1),
+        # Like with like: worked hours on the days that had a plan.
+        "actual_on_plan": round(actual_on_plan, 1),
         "gross": round(gross, 2),
         "loaded_est": round(loaded_est, 2),
         "revenue": (round(revenue, 2) if revenue is not None else None),

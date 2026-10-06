@@ -3940,6 +3940,8 @@ export const en = {
     hovWhoWorked: "Who worked",
     hovSeeAllN: "See all {n}",
     hovSeeDetails: "Per staff",
+    shpUnplannedHours: "{h} without a plan",
+    hovNarLaborOkProvisional: "Labour cost is {pct} % — within your target of {target} %, but {n} shifts still need an answer.",
     hovWhoWorkedRest: "+{n} more",
     hovMethodOwnerResolved: "Corrected by you",
     tregDay: "day",

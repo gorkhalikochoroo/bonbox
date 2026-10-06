@@ -184,13 +184,15 @@ const METHOD_BADGES = {
     icon: "FileText",
     labelKey: "hovMethodQuick",
     // Asserted by a person — true as far as anyone typed it.
-    chip: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/25 dark:text-amber-300 dark:ring-amber-900/40",
+    // Neutral: how an hour was entered is not a problem (amber) — colour is
+    // for meaning, and emerald belongs to "approved".
+    chip: "bg-white text-gray-700 ring-1 ring-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600",
   },
   clock: {
     icon: "Clock",
     labelKey: "hovMethodClock",
     // Measured. The only row an owner can hand to Arbejdstilsynet.
-    chip: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-900/40",
+    chip: "bg-gray-100 text-gray-800 ring-1 ring-gray-300 dark:bg-gray-700 dark:text-gray-100 dark:ring-gray-600",
   },
   schedule: {
     icon: "CalendarCheck",
@@ -779,6 +781,7 @@ function rateDecimals(rate) {
 const NAR_KEY = {
   zero: "hovNarZero",
   labor_ok: "hovNarLaborOk",
+  labor_ok_provisional: "hovNarLaborOkProvisional",
   labor_watch: "hovNarLaborWatch",
   labor_over: "hovNarLaborOver",
   labor_no_revenue: "hovNarLaborNoRevenue",
@@ -1080,13 +1083,19 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
 /* ═══════════════════════════════════════════════════════════
    HOURS OVERVIEW — one-glance narrative + 4 hero tiles
    ═══════════════════════════════════════════════════════════ */
-function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) {
+function NarrativeBanner({ lines, severity, currencyCode, inProgress = false, needsAnswer = 0 }) {
   const { t, lang } = useLanguage();
   if (!lines || lines.length === 0) return null;
   const sevMap = { good: "success", watch: "warn", alert: "critical", info: "info" };
   const iconMap = { success: "CheckCircle2", warn: "AlertTriangle", critical: "AlertTriangle", info: "Clock" };
-  const variant = sevMap[severity] || "info";
-  const rendered = lines.map((ln) => fillNarrative(t, currencyCode, ln, lang)).filter(Boolean);
+  // "God kontrol" in green while shifts still wait for an answer is a verdict
+  // on figures that may still move — say it, and drop the green.
+  const provisional = needsAnswer > 0 && (lines || []).some((ln) => ln?.code === "labor_ok");
+  const variant = provisional ? "info" : (sevMap[severity] || "info");
+  const shown = provisional
+    ? lines.map((ln) => (ln?.code === "labor_ok" ? { ...ln, code: "labor_ok_provisional", params: { ...(ln.params || {}), n: needsAnswer } } : ln))
+    : lines;
+  const rendered = shown.map((ln) => fillNarrative(t, currencyCode, ln, lang)).filter(Boolean);
   if (rendered.length === 0) return null;
   const [head, ...rest] = rendered;
   // When the period isn't over, close the banner with a muted honesty note so
@@ -1356,7 +1365,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
           <span aria-hidden="true">→</span>
         </button>
       )}
-      <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} />
+      <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} needsAnswer={needsAnswer} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
@@ -2629,13 +2638,13 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                 off-screen behind a scroll nobody saw. */}
             <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-left text-xs uppercase tracking-wider">
               <th className="sticky left-0 z-10 bg-gray-50 dark:bg-gray-800 px-3 sm:px-5 py-3 font-medium">{t("navStaff")}</th>
-              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
+              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
               <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
-              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right">{t("diff")}</th>
+              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("diff")}</th>
               <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("rate")}</th>
               {/* Bruttoløn, said: the money before feriepenge and ATP. The
                   line under the table adds those up to the cost total. */}
-              <th className="hidden sm:table-cell px-3 py-3 font-medium text-right whitespace-nowrap">{t("shpColGross", "Gross pay")}</th>
+              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right whitespace-nowrap">{t("shpColGross", "Gross pay")}</th>
               <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("tips")}</th>
               <th className="sticky right-0 z-10 bg-gray-50 dark:bg-gray-800 px-3 sm:px-3 py-3 font-medium text-right">{t("total")}</th>
             </tr>
@@ -2670,7 +2679,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                           )}
                         </span>
                         {/* Mobile-only inline reveal of scheduled hours (column hidden < sm). */}
-                        <div className="sm:hidden text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                        <div className="lg:hidden text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
                           {/* This sub-line is the only place the phone can show
                               scheduled-vs-actual — Scheduled and Diff are both
                               `hidden sm:` — so it carries the same state word the
@@ -2690,7 +2699,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                         </div>
                         {/* PHONE-ONLY resolve control.
                             The desktop affordance lives in the Diff cell, which
-                            is `hidden sm:table-cell` — so below 640px the only
+                            is `hidden lg:table-cell` — so below 640px the only
                             caller of setResolving() was display:none, and the
                             amber "{n} shifts need your answer" chip above the
                             table pointed at nothing the owner could tap. The
@@ -2710,7 +2719,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                               staffName: row.staff_name,
                               exception: firstException(row),
                             })}
-                            className={`sm:hidden mt-1 inline-flex flex-wrap items-center gap-x-1 rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
+                            className={`lg:hidden mt-1 inline-flex flex-wrap items-center gap-x-1 rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
                           >
                             {stateMeta.label}
                             {row.needs_answer_count > 1 && (
@@ -2727,24 +2736,35 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       </div>
                     </div>
                   </td>
-                  <td className="hidden sm:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
+                  <td className="hidden lg:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {fmtHours(row.scheduled_hours, lang)}
                   </td>
                   <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
-                    {fmtHours(row.actual_hours, lang)}
+                    {!Number(row.actual_hours) && row.worst_state === "forgot_clock_out" ? "\u2014" : fmtHours(row.actual_hours, lang)}
                   </td>
                   {/* The NUMBER a manager wants ("+0,5 t"), with the word that
                       says what kind of deviation it is underneath. Shifts that
                       need an answer keep the word as the button that opens it. */}
-                  <td className="hidden sm:table-cell px-3 py-3 text-right align-top">
+                  <td className="hidden lg:table-cell px-3 py-3 text-right align-top">
                     {(() => {
-                      const d = (Number(row.actual_hours) || 0) - (Number(row.scheduled_hours) || 0);
-                      const showNum = row.scheduled_hours != null && Math.abs(d) >= 0.005;
+                      // Plan against what was worked ON THE PLANNED DAYS. Hours on
+                      // days with no shift planned are not "over plan" — they are
+                      // shown apart, grey, as "uden vagtplan".
+                      const onPlan = row.actual_on_plan_hours != null ? Number(row.actual_on_plan_hours) : (Number(row.actual_hours) || 0);
+                      const unplanned = Number(row.unplanned_hours) || 0;
+                      const planned = Number(row.scheduled_hours) || 0;
+                      const d = planned > 0 ? onPlan - planned : 0;
+                      const showNum = planned > 0 && Math.abs(d) >= 0.005;
                       return (
                         <span className="inline-flex flex-col items-end gap-0.5">
-                          <span className={`font-medium tabular-nums ${showNum ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>
+                          <span className={`font-medium tabular-nums whitespace-nowrap ${showNum ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>
                             {showNum ? formatHours(d, { lang, sign: true, decimals: 2 }) : "\u2014"}
                           </span>
+                          {unplanned >= 0.005 && (
+                            <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap">
+                              {t("shpUnplannedHours", "{h} without a plan", { h: formatHours(unplanned, { lang, decimals: 2 }) })}
+                            </span>
+                          )}
                           {stateMeta && (firstException(row) ? (
                             <button
                               type="button"
@@ -2785,7 +2805,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       the server costed these hours at 0 and sent a stored,
                       confident 0 kr. back. Earned is not zero there — it is
                       unknown, and this column now says which. */}
-                  <td className="hidden sm:table-cell px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
+                  <td className="hidden lg:table-cell px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
                     {rateMissing(row) ? (
                       <span className="text-gray-400 dark:text-gray-500" title={t("shpEarnedNeedsRate", "No wage rate set for this person")}>&mdash;</span>
                     ) : (
@@ -2813,20 +2833,25 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
           <tfoot>
             <tr className="bg-gray-50 dark:bg-gray-800 font-semibold text-gray-800 dark:text-white">
               <td className="sticky left-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
-              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
+              <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {fmtHours(summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0), lang)}
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {fmtHours(summary.reduce((s, r) => s + (r.actual_hours || 0), 0), lang)}
               </td>
-              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
+              <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {(() => {
-                  const d = summary.reduce((s, r) => s + (r.actual_hours || 0), 0) - summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0);
-                  return d === 0 ? "\u2014" : formatHours(d, { lang, sign: true });
+                  const d = summary.reduce((s, r) => {
+                    const planned = Number(r.scheduled_hours) || 0;
+                    if (planned <= 0) return s;
+                    const onPlan = r.actual_on_plan_hours != null ? Number(r.actual_on_plan_hours) : (Number(r.actual_hours) || 0);
+                    return s + (onPlan - planned);
+                  }, 0);
+                  return Math.abs(d) < 0.005 ? "\u2014" : formatHours(d, { lang, sign: true, decimals: 2 });
                 })()}
               </td>
               <td className="hidden lg:table-cell px-3 py-3" />
-              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
+              <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {moneyTotal("earned", missingRateCount > 0)}
               </td>
               <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">

@@ -155,9 +155,13 @@ export default function TimeRegistrationPage() {
   // …and the period stepped to HERE goes back to the hub, so Timer and Løn
   // follow (stepping to September here and tapping Timer showed August). Not
   // on the first render: that would overwrite a period another tab handed in.
-  const firstPeriodRef = useRef(true);
+  // Compared with the window the register OPENED on, not a first-run flag:
+  // React's dev double-run defeated the flag and wrote a carried week back
+  // as the whole month.
+  const openedOnRef = useRef(null);
+  if (openedOnRef.current === null) openedOnRef.current = { from, to };
   useEffect(() => {
-    if (firstPeriodRef.current) { firstPeriodRef.current = false; return; }
+    if (from === openedOnRef.current.from && to === openedOnRef.current.to) return;
     const today = new Date(`${businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR)}T12:00:00`);
     const cur = periodBounds("month", today);
     writeViewedPeriod(searchParams, setSearchParams, { from, to }, mode === "month" ? cur : null);
@@ -534,7 +538,7 @@ export default function TimeRegistrationPage() {
                           the backend gives 0 because there were no rows, and
                           the status beside this already says so. "0 min" would
                           assert somebody worked none. */}
-                      {s.status === "gap" ? "\u2014" : formatHours(s.total_hours, { lang, decimals: 2 })}
+                      {s.status === "gap" || (s.status === "open" && !Number(s.total_hours)) ? "\u2014" : formatHours(s.total_hours, { lang, decimals: 2 })}
                     </div>
                     {/* The 4-month average stays DECIMAL on purpose: it is the
                         figure Arbejdstidsloven's 48 t/uge cap is measured

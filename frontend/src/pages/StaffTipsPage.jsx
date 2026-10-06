@@ -649,7 +649,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
         </div>
 
         <div className="sm:max-w-sm">
-          <label htmlFor="tip-total-amount" className={labelClass}>{t("stTotalTips", "Total Tips")} ({currency})</label>
+          <label htmlFor="tip-total-amount" className={labelClass}>{t("stTotalTips", "Total Tips")} ({currency === "DKK" ? "kr." : currency})</label>
           <MoneyField
             id="tip-total-amount"
             locale={mLocale}
