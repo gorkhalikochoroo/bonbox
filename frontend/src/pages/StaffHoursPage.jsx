@@ -1276,7 +1276,9 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   const unplannedH = Number(hours.unplanned) || 0;
   const planBits = [];
   if (hours.scheduled_total > 0 && onPlanH != null) {
-    const d = onPlanH - Number(hours.scheduled_total);
+    // Less the plan of people with only an open punch — the table's Forskel
+    // total leaves those rows out ("—"), so the tile does too.
+    const d = onPlanH - (Number(hours.scheduled_total) - (Number(hours.plan_pending) || 0));
     planBits.push(Math.abs(d) >= 0.005
       ? t("shpVsPlan", "{d} vs. plan", { d: formatHours(d, { lang, sign: true, decimals: 2 }) })
       : t("shpOnPlan", "as planned"));

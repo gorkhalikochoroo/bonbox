@@ -5923,6 +5923,36 @@ def hours_overview(
         except Exception:  # noqa: BLE001 — fall back to the old comparison
             actual_on_plan = actual_total
 
+    # Plan held by people who so far have ONLY an open punch (clocked in, never
+    # out): their hours are not known yet. The table leaves them out of its
+    # Forskel total ("—"), so the tile must too, or the two disagree by their
+    # planned shifts.
+    plan_pending = 0.0
+    if _sched_days:
+        try:
+            worked_by_staff: dict[str, float] = {}
+            open_staff: set[str] = set()
+            for r in (
+                db.query(HoursLogged.staff_id, HoursLogged.total_hours, HoursLogged.end_time)
+                .filter(
+                    HoursLogged.user_id == user.id,
+                    HoursLogged.date >= from_date,
+                    HoursLogged.date <= to_date,
+                )
+                .all()
+            ):
+                sid = str(r[0])
+                worked_by_staff[sid] = worked_by_staff.get(sid, 0.0) + float(r[1] or 0)
+                if r[2] is None:
+                    open_staff.add(sid)
+            plan_pending = sum(
+                round(_sched_by_staff.get(sid, 0.0), 2)
+                for sid in open_staff
+                if worked_by_staff.get(sid, 0.0) < 0.005
+            )
+        except Exception:  # noqa: BLE001 — leave the plan whole
+            plan_pending = 0.0
+
     # Names + monthly limits for the flags. Wrapped — a corrupt row never 500s.
     over_limit: list[dict] = []
     near_limit: list[dict] = []
@@ -6167,6 +6197,7 @@ def hours_overview(
             # nobody had planned, and read as 69 t over plan.
             "actual_on_plan": round(actual_on_plan, 2),
             "unplanned": round(max(0.0, actual_total - actual_on_plan), 2),
+            "plan_pending": round(plan_pending, 2),
             "measured_hours": round(measured_hours, 2),
             "typed_hours": round(typed_hours, 2),
             "schedule_hours": round(schedule_hours, 2),

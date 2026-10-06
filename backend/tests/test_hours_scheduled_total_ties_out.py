@@ -244,3 +244,21 @@ def test_on_plan_split_ties_out_to_the_rows(client, db):
     assert round(h["actual_on_plan"] + h["unplanned"], 2) == h["actual_total"]
     assert h["actual_on_plan"] == round(sum(r["actual_on_plan_hours"] for r in rows), 2)
     assert h["unplanned"] == round(sum(r["unplanned_hours"] for r in rows), 2)
+
+
+def test_plan_of_someone_only_clocked_in_is_pending(client, db):
+    """A person whose only row is an open punch has no hours yet: the table's
+    Forskel shows "—" for them, so the tile sets their plan aside too."""
+    from app.models.staff import HoursLogged
+    u = _seed(db, staff_count=2)
+    a, b = db.query(StaffMember).filter(StaffMember.user_id == u.id).order_by(StaffMember.name).all()
+    db.add(HoursLogged(user_id=u.id, staff_id=a.id, date=date(2026, 6, 10), start_time=_START,
+                       end_time=None, break_minutes=0, total_hours=0, rate_applied=150, earned=0,
+                       entry_method="clock"))
+    db.add(HoursLogged(user_id=u.id, staff_id=b.id, date=date(2026, 6, 10), start_time=_START,
+                       end_time=_END, break_minutes=0, total_hours=8, rate_applied=150, earned=1200,
+                       entry_method="clock"))
+    db.commit()
+    ov, rows = _both(client)
+    planned_a = next(r["scheduled_hours"] for r in rows if str(r["staff_id"]) == str(a.id))
+    assert ov["hours"]["plan_pending"] == round(planned_a, 2) > 0
