@@ -68,6 +68,8 @@ const respond = (overrides = {}) => {
     "/staff/payroll/estimate": () => Promise.resolve({ data: ESTIMATE }),
     "/weather/sick-calls": () => Promise.resolve({ data: [] }),
     "/weather/sick-calls/stats": () => Promise.resolve({ data: { this_month: 0, last_month: 0, weather_related: 0 } }),
+    // The revisor's address — "Send til revisor" is disabled without one.
+    "/business": () => Promise.resolve({ data: { accountant_email: "anna@revisor.dk" } }),
     ...overrides,
   };
   get.mockImplementation((url) => (responses[url] || (() => Promise.resolve({ data: [] })))());
@@ -75,7 +77,7 @@ const respond = (overrides = {}) => {
 const fail = () => Promise.reject({ response: { status: 500 } });
 const mount = () => render(<MemoryRouter><StaffPayrollPage /></MemoryRouter>);
 const exportButtons = () => [
-  screen.getByRole("button", { name: /Generate PDF/ }),
+  screen.getByRole("button", { name: /Download payroll report \(PDF\)/ }),
   screen.getByRole("button", { name: /Send to accountant/ }),
 ];
 const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]|\u{FE0F}/u;
@@ -110,22 +112,22 @@ describe("a failed read is never a zero", () => {
     mount();
     await waitFor(() => expect(screen.getByText("Couldn't load the estimate for this pay period.")).toBeTruthy());
     expect(screen.queryByText(/log staff hours first/)).toBeNull();
-    expect(screen.getByRole("button", { name: /Download summary CSV/ }).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: /Lønseddel PDF/ }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: /Download spreadsheet for your payroll system/ }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: /Download lønseddel PDF/ }).disabled).toBe(true);
   });
 
   it("failed pay period: no invented fortnight, nothing to export", async () => {
     respond({ "/staff/pay-period/current": fail });
     mount();
     await waitFor(() => expect(screen.getByText("Couldn't load your pay period.")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: /Generate PDF/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Download payroll report/ })).toBeNull();
     expect(get.mock.calls.some(([url]) => url === "/staff/hours/summary")).toBe(false);
   });
 
   it("when everything loads, the exports are live", async () => {
     mount();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Download summary CSV/ })).toBeTruthy());
-    for (const b of exportButtons()) expect(b.disabled).toBe(false);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Download spreadsheet for your payroll system/ })).toBeTruthy());
+    await waitFor(() => { for (const b of exportButtons()) expect(b.disabled).toBe(false); });
     expect(screen.queryByText(/Exports are paused/)).toBeNull();
   });
 });

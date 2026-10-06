@@ -14,8 +14,18 @@
  *     if (!(await confirm("Delete this?"))) return;
  *
  * API — confirm(opts) where opts is a string (message) or:
- *   { title?, message, confirmLabel?, cancelLabel?, destructive? = false }
+ *   { title?, message, confirmLabel?, cancelLabel?, destructive? = false,
+ *     irreversible? = false, extraLabel? }
  * Resolves true on confirm, false on cancel / Esc / backdrop.
+ *
+ *   • message may be a node as well as a string. It renders inside a <p>, so
+ *     phrasing content only (spans — `block` for a line of its own — not divs).
+ *   • irreversible: the keyboard rule of `destructive` without its red. For an
+ *     action that cannot be called back but deletes nothing — a report mailed
+ *     to the revisor. Focus starts on Cancel and Enter does not confirm.
+ *   • extraLabel: a third, quieter way out ("Go to Hours"). Choosing it
+ *     resolves the string "extra" — so a caller that passes one must test
+ *     `=== true` for the confirm, never truthiness.
  *
  * One <ConfirmProvider> is mounted at the app root (App.jsx), so there is a
  * single dialog instance for the whole app — no per-page modal state.
@@ -86,11 +96,15 @@ export function ConfirmProvider({ children }) {
   // still has to be chosen deliberately: pointer, or Tab then Enter.
   useEffect(() => {
     if (!state) return undefined;
-    const isDestructive = !!state.opts?.destructive;
+    // `irreversible` shares the rule without the red: "Send til revisor" is an
+    // e-mail that leaves the building. Focused on Send, one Enter mailed the
+    // payroll — and painting the button red would call a monthly routine a
+    // danger. Nothing is destroyed; it just cannot be called back.
+    const guarded = !!state.opts?.destructive || !!state.opts?.irreversible;
     // Back to whatever asked, when the answer is in — a keyboard user was
     // left on <body>, at the top of the page.
     const opener = document.activeElement;
-    (isDestructive ? cancelBtnRef : confirmBtnRef).current?.focus();
+    (guarded ? cancelBtnRef : confirmBtnRef).current?.focus();
     // Capture phase + stopPropagation: the confirm owns these keys while it
     // is open. Listening in the bubble phase like everything else, Esc also
     // reached the sheet underneath — "Aflys" then Esc closed the booking's
@@ -100,7 +114,7 @@ export function ConfirmProvider({ children }) {
         e.preventDefault();
         e.stopPropagation();
         settle(false);
-      } else if (e.key === "Enter" && !isDestructive) {
+      } else if (e.key === "Enter" && !guarded) {
         e.preventDefault();
         e.stopPropagation();
         settle(true);
@@ -169,6 +183,18 @@ export function ConfirmProvider({ children }) {
               </div>
 
               <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                {/* The quiet third way out — left on a wide screen, last on a
+                    phone, and never the focused or the Enter answer. */}
+                {o.extraLabel && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    className="w-full sm:w-auto sm:mr-auto"
+                    onClick={() => settle("extra")}
+                  >
+                    {o.extraLabel}
+                  </Button>
+                )}
                 <Button
                   ref={cancelBtnRef}
                   variant="secondary"

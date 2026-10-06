@@ -4,6 +4,7 @@
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { Clock, Users, SlidersHorizontal } from "lucide-react";
 import { useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -14,7 +15,7 @@ import MoneyField from "../components/ui/MoneyField";
 import Chip from "../components/ui/Chip";
 import { localIso, localDaysAgo, dateLocale, businessTodayIso } from "../utils/dateFormat";
 import { formatHours, formatHoursNumber } from "../utils/hours";
-import { FadeIn, StaggerContainer, StaggerItem } from "../components/AnimationKit";
+import { StaggerContainer, StaggerItem } from "../components/AnimationKit";
 import { PageHeader, TabPills, Icon, Button, LoadFailed } from "../components/ui";
 import { errText } from "../utils/errText";
 
@@ -221,13 +222,16 @@ function periodLabel(fromIso, toIso) {
  */
 function buildRoster(members, entries) {
   const hoursBy = new Map();
-  let openPunches = 0;
+  // Every open clock-in, as WHO and WHICH DAY: the warning names them and
+  // links to Timer, where the owner answers it. A bare count ("1 vagt …")
+  // left the owner to go and find whose shift it was.
+  const openPunches = [];
   for (const h of entries || []) {
     const id = String(h.staff_id);
     hoursBy.set(id, (hoursBy.get(id) || 0) + (Number(h.total_hours ?? h.hours) || 0));
     // An open clock-in stores 0 hours — say so, rather than quietly paying
     // that evening as nothing.
-    if (h.entry_method === "clock" && !h.end_time) openPunches += 1;
+    if (h.entry_method === "clock" && !h.end_time) openPunches.push({ staff_id: id, date: h.date });
   }
   const row = (id, m, hours) => ({
     staff_id: id,
@@ -346,7 +350,9 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
   // from what was logged in it.
   const [hoursEdits, setHoursEdits] = useState({});
   const [ratioEdits, setRatioEdits] = useState({});
-  const [showPreview, setShowPreview] = useState(false);
+  // No separate "Preview distribution" step: the table below IS the live
+  // preview (every row, share and øre, updated as the owner types), and the
+  // button repeated it in a second card.
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -463,6 +469,47 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
       amount: oreText(1),
       names: new Intl.ListFormat(lang === "da" ? "da" : "en", { type: "conjunction" }).format(bumpedNames),
     });
+
+  // The open clock-ins, by name. Names come from the roster this page already
+  // loads (include_inactive, so a leaver's shift is still named); the hours
+  // rows carry only staff_id. One person → that person's answer sheet opens on
+  // Timer (?resolve=, the same deep link the schedule's chip uses).
+  const openShifts = roster.openPunches;
+  const openNames = [];
+  if (openShifts.length) {
+    const byId = new Map((members || []).map((m) => [String(m.id), m.name || m.full_name || ""]));
+    const seen = new Set();
+    for (const p of openShifts) {
+      if (seen.has(p.staff_id)) continue;
+      seen.add(p.staff_id);
+      openNames.push(nameOf({ staff_id: p.staff_id, name: byId.get(p.staff_id) }));
+    }
+  }
+  const timerHref = (() => {
+    const q = new URLSearchParams({ tab: "hours", view: "details", from: period.from, to: period.to });
+    if (openNames.length === 1 && openShifts.length) q.set("resolve", openShifts[0].staff_id);
+    return `/staff/hours?${q.toString()}`;
+  })();
+  const openShiftText = openShifts.length === 1
+    ? t("stfTipOpenShiftOne", "A shift for {name} on {date} has no clock-out, so it counts as 0 hours.", {
+      name: openNames[0], date: periodLabel(null, openShifts[0].date),
+    })
+    : t("stfTipOpenShiftMany", "{n} shifts in this period have no clock-out and count as 0 hours: {names}.", {
+      n: openShifts.length,
+      names: new Intl.ListFormat(lang === "da" ? "da" : "en", { type: "conjunction" }).format(openNames),
+    });
+
+  // Below `sm` the table keeps three columns — person, the one column the
+  // owner types in, amount — and the rest moves to a second line under the
+  // name ("39,91 t · 30,2 %"). Five columns were 409 px in a 356 px card on a
+  // 390 px phone and cut BELØB off. A custom split is typed in the share
+  // column, so there the share stays and hours move to the line instead.
+  const hoursCol = splitMethod === "custom" ? "hidden sm:table-cell" : "";
+  const shareCol = splitMethod === "custom" ? "" : "hidden sm:table-cell";
+  const rowFacts = (row) => [
+    round2(row.hours) > 0 ? formatHours(round2(row.hours), { lang, decimals: 2 }) : null,
+    splitMethod === "custom" ? null : pct(row.share_pct, lang),
+  ].filter(Boolean).join(" · ");
 
   const updateStaffHours = (staffId, value) => {
     const h = Math.min(TIP_POOL_MAX_DAYS * 24, Math.max(0, parseFloat(value) || 0));
@@ -590,8 +637,9 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
         </div>
 
         <div className="sm:max-w-sm">
-          <label className={labelClass}>{t("stTotalTips", "Total Tips")} ({currency})</label>
+          <label htmlFor="tip-total-amount" className={labelClass}>{t("stTotalTips", "Total Tips")} ({currency})</label>
           <MoneyField
+            id="tip-total-amount"
             locale={mLocale}
             placeholder="0,00"
             value={totalAmount}
@@ -612,19 +660,18 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
               type="button"
               onClick={() => setSplitMethod(method.id)}
               aria-pressed={splitMethod === method.id}
+              // Selected = the ink edge, light AND dark (the Chip rule). It was
+              // a gray-300 edge on gray-50 — next to the unselected gray-200
+              // on white, the owner could not tell which split was on.
               className={`p-3 rounded-xl border-2 text-left transition-all ${
                 splitMethod === method.id
-                  ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50"
+                  ? "border-gray-900 bg-gray-50 dark:border-gray-100 dark:bg-gray-700/50"
                   : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
               }`}
             >
               <div className="flex items-center gap-2">
                 <method.icon className="w-4 h-4 text-gray-500 dark:text-gray-400" strokeWidth={1.75} aria-hidden="true" />
-                <span className={`text-sm font-semibold ${
-                  splitMethod === method.id
-                    ? "text-gray-700 dark:text-gray-300"
-                    : "dark:text-white"
-                }`}>
+                <span className="text-sm font-semibold text-gray-900 dark:text-white">
                   {t(method.labelKey, method.labelFallback)}
                 </span>
               </div>
@@ -684,91 +731,102 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
         </div>
 
         {rosterReady && staffHours.length > 0 && (
+          // overflow-x-auto stays as the last resort only: at 356 px the
+          // three phone columns fit without it (no fixed widths below sm).
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 py-3">
+                  <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider pl-4 pr-2 sm:px-5 py-3">
                     {t("stColStaff", "Staff")}
                   </th>
-                  <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 w-24">
+                  <th className={`text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 sm:px-3 py-3 sm:w-24 ${hoursCol}`}>
                     {t("stColHours", "Hours")}
                   </th>
                   {splitMethod === "role" && (
-                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 w-20">
+                    <th className="hidden sm:table-cell text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 sm:w-20">
                       {t("stColWeight", "Weight")}
                     </th>
                   )}
-                  <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 w-24">
+                  <th className={`text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 sm:px-3 py-3 sm:w-24 ${shareCol}`}>
                     {t("stColShare", "Share %")}
                   </th>
-                  <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 py-3 w-28">
+                  <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider pl-2 pr-4 sm:px-5 py-3 sm:w-28">
                     {t("stColAmount", "Amount")}
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                {split.rows.map(row => (
-                  <tr key={row.staff_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                    <td className="px-5 py-3">
-                      <div>
-                        <p className="text-sm font-medium dark:text-white">{nameOf(row)}</p>
-                        <p className="text-xs text-gray-400">{roleName(row.role, t)}</p>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.5"
-                        min="0"
-                        max={TIP_POOL_MAX_DAYS * 24}
-                        value={row.hours || ""}
-                        onChange={e => updateStaffHours(row.staff_id, e.target.value)}
-                        aria-label={`${t("stColHours", "Hours")} — ${nameOf(row)}`}
-                        className="w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
-                        placeholder="0"
-                      />
-                    </td>
-                    {splitMethod === "role" && (
-                      <td className="px-3 py-3 text-right">
-                        <span className="text-sm text-gray-600 dark:text-gray-300 tabular-nums">
-                          {formatHoursNumber(getRoleShare(row.role), lang)}x
-                        </span>
+                {split.rows.map(row => {
+                  const facts = rowFacts(row);
+                  return (
+                    <tr key={row.staff_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                      <td className="pl-4 pr-2 sm:px-5 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white break-words">{nameOf(row)}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{roleName(row.role, t)}</p>
+                          {/* Phone only: what the hidden columns said. */}
+                          {facts && (
+                            <p className="sm:hidden text-xs text-gray-500 dark:text-gray-400 tabular-nums" data-testid="tip-row-facts">
+                              {facts}
+                            </p>
+                          )}
+                        </div>
                       </td>
-                    )}
-                    <td className="px-3 py-3 text-right">
-                      {splitMethod === "custom" ? (
+                      <td className={`px-2 sm:px-3 py-3 text-right ${hoursCol}`}>
                         <input
                           type="number"
                           inputMode="decimal"
-                          step="0.01"
+                          step="0.5"
                           min="0"
-                          max="100"
-                          value={ratioOf(row.staff_id)}
-                          onChange={e => updateCustomRatio(row.staff_id, e.target.value)}
-                          aria-label={`${t("stColShare", "Share %")} — ${nameOf(row)}`}
-                          className="w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                          max={TIP_POOL_MAX_DAYS * 24}
+                          value={row.hours || ""}
+                          onChange={e => updateStaffHours(row.staff_id, e.target.value)}
+                          aria-label={`${t("stColHours", "Hours")} — ${nameOf(row)}`}
+                          className="w-[4.5rem] sm:w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right tabular-nums border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                           placeholder="0"
                         />
-                      ) : (
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 tabular-nums">
-                          {pct(row.share_pct, lang)}
-                        </span>
+                      </td>
+                      {splitMethod === "role" && (
+                        <td className="hidden sm:table-cell px-3 py-3 text-right">
+                          <span className="text-sm text-gray-600 dark:text-gray-300 tabular-nums">
+                            {formatHoursNumber(getRoleShare(row.role), lang)}x
+                          </span>
+                        </td>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                        {row.share_ore > 0 ? oreText(row.share_ore) : "—"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      <td className={`px-2 sm:px-3 py-3 text-right ${shareCol}`}>
+                        {splitMethod === "custom" ? (
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            value={ratioOf(row.staff_id)}
+                            onChange={e => updateCustomRatio(row.staff_id, e.target.value)}
+                            aria-label={`${t("stColShare", "Share %")} — ${nameOf(row)}`}
+                            className="w-[4.5rem] sm:w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right tabular-nums border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                            placeholder="0"
+                          />
+                        ) : (
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 tabular-nums">
+                            {pct(row.share_pct, lang)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="pl-2 pr-4 sm:px-5 py-3 text-right whitespace-nowrap">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                          {row.share_ore > 0 ? oreText(row.share_ore) : "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50">
-                  <td className="px-5 py-3 text-sm font-bold dark:text-white">{t("total", "Total")}</td>
-                  <td className="px-3 py-3 text-right text-sm font-semibold dark:text-gray-300 tabular-nums">
+                  <td className="pl-4 pr-2 sm:px-5 py-3 text-sm font-bold text-gray-900 dark:text-white">{t("total", "Total")}</td>
+                  <td className={`px-2 sm:px-3 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-300 tabular-nums ${hoursCol}`}>
                     {/* formatHoursNumber, not formatHours: the unit is
                         already in this column's header, and the cells above
                         are raw number inputs the owner typed — stamping a unit
@@ -777,12 +835,12 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
                         owner "38.5" where they write "38,5". */}
                     {totalHours > 0 ? formatHoursNumber(totalHours, lang, 2) : "—"}
                   </td>
-                  {splitMethod === "role" && <td className="px-3 py-3" />}
-                  <td className="px-3 py-3 text-right">
+                  {splitMethod === "role" && <td className="hidden sm:table-cell px-3 py-3" />}
+                  <td className={`px-2 sm:px-3 py-3 text-right ${shareCol}`}>
                     <span className={`text-sm font-semibold tabular-nums ${
                       splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5
-                        ? "text-red-500"
-                        : "dark:text-gray-300"
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-gray-900 dark:text-gray-300"
                     }`}>
                       {splitMethod === "custom"
                         ? pct(totalCustomPercent, lang)
@@ -790,7 +848,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
                       }
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right text-sm font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+                  <td className="pl-2 pr-4 sm:px-5 py-3 text-right whitespace-nowrap text-sm font-bold text-gray-900 dark:text-gray-100 tabular-nums">
                     {split.distributedOre > 0 ? oreText(split.distributedOre) : "—"}
                   </td>
                 </tr>
@@ -804,12 +862,31 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
           <p className="mx-5 mt-3 mb-1 text-xs text-gray-500 dark:text-gray-400 text-right">{roundingNote}</p>
         )}
 
-        {rosterReady && roster.openPunches > 0 && (
-          <div className="mx-5 my-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-700 dark:text-amber-300">
-            <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />
-            {roster.openPunches === 1
-              ? t("stTipOpenPunchesOne", "1 shift in this period has no clock-out and counts as 0 hours. Fix it under Hours, or type the hours above.")
-              : t("stTipOpenPunches", "{n} shifts in this period have no clock-out and count as 0 hours. Fix them under Hours, or type the hours above.", { n: roster.openPunches })}
+        {/* Amber: it needs the owner. WHOSE shift, and one tap to Timer on
+            this same period, where it is answered. */}
+        {rosterReady && openShifts.length > 0 && (
+          <div
+            data-testid="tip-open-shifts"
+            className="mx-4 sm:mx-5 my-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-800 dark:text-amber-200"
+          >
+            <p>
+              <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />
+              {openShiftText}
+            </p>
+            <div className="flex flex-wrap items-center gap-x-3">
+              <Link
+                to={timerHref}
+                className="inline-flex items-center gap-1 min-h-[40px] font-semibold underline underline-offset-2 decoration-amber-400 hover:text-amber-900 dark:hover:text-amber-100"
+              >
+                {openShifts.length === 1
+                  ? t("stfTipOpenShiftFixOne", "Fix it under Hours")
+                  : t("stfTipOpenShiftFixMany", "Fix them under Hours")}
+                <Icon name="ChevronRight" size={14} />
+              </Link>
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                {t("stfTipOpenShiftOr", "Or type the hours in the table above.")}
+              </span>
+            </div>
           </div>
         )}
 
@@ -828,76 +905,9 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
         <div className="h-2" />
       </div>
 
-      {/* Preview & Submit */}
+      {/* Submit — the table above is the preview. */}
       {amountOre > 0 && (staffHours.length > 0 || loadsFailed) && (
         <div className="space-y-3">
-          {/* Preview Toggle */}
-          {!showPreview && rosterReady && (
-            <button
-              type="button"
-              onClick={() => setShowPreview(true)}
-              className="w-full min-h-[44px] py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition inline-flex items-center justify-center gap-2"
-            >
-              <Icon name="Search" size={16} />
-              {t("stPreviewDistribution", "Preview Distribution")}
-            </button>
-          )}
-
-          {showPreview && rosterReady && (
-            <FadeIn>
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold dark:text-white">{t("stDistributionPreview", "Distribution Preview")}</h2>
-                  <button
-                    type="button"
-                    onClick={() => setShowPreview(false)}
-                    className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 inline-flex items-center justify-end min-h-[44px] min-w-[44px] sm:inline-block sm:min-h-0 sm:min-w-0"
-                  >
-                    {t("close", "Close")}
-                  </button>
-                </div>
-
-                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
-                  <div className="flex justify-between gap-3 text-sm text-gray-500 dark:text-gray-400">
-                    <span>{t("stTipPeriod", "Period")}</span>
-                    <span className="text-gray-900 dark:text-gray-300 text-right">{periodText}</span>
-                  </div>
-                  <div className="flex justify-between gap-3 text-sm text-gray-500 dark:text-gray-400">
-                    <span>{t("stMethod", "Method")}</span>
-                    <span className="text-gray-900 dark:text-gray-300 text-right">
-                      {splitMethodLabel(splitMethod, t)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold pt-2 border-t dark:border-gray-600 dark:text-white">
-                    <span>{t("stTotalTips", "Total Tips")}</span>
-                    <span className="text-gray-900 dark:text-gray-100 tabular-nums">{oreText(amountOre)}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {split.rows.filter(d => d.share_ore > 0).map(d => (
-                    <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
-                      <div>
-                        <p className="text-sm font-medium dark:text-white">{nameOf(d)}</p>
-                        <p className="text-xs text-gray-400">
-                          {round2(d.hours) > 0 ? `${formatHours(round2(d.hours), { lang, decimals: 2 })} · ` : ""}
-                          {pct(d.share_pct, lang)} {t("stShareSuffix", "share")}
-                        </p>
-                      </div>
-                      <span className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums">
-                        {oreText(d.share_ore)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {roundingNote && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center">{roundingNote}</p>
-                )}
-              </div>
-            </FadeIn>
-          )}
-
           {/* Error / Success */}
           {error && (
             <div role="alert" className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
@@ -911,15 +921,19 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
             </div>
           )}
 
-          {/* Submit Button */}
-          <button
-            type="button"
+          {/* The shared primary: gray-900 in light, gray-100 in dark. The
+              hand-rolled bg-gray-900 had no dark pair and vanished into the
+              dark page. */}
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full text-base font-semibold"
             onClick={handleSubmit}
             disabled={!canSave}
-            className="w-full min-h-[44px] py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
+            busy={saving}
           >
             {saving ? t("stDistributing", "Distributing...") : `${t("stDistribute", "Distribute")} ${oreText(amountOre)}`}
-          </button>
+          </Button>
           {loadsFailed && (
             <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
               {t("stTipSaveBlocked", "Saving is paused until your staff and their hours have loaded.")}
@@ -1211,6 +1225,14 @@ function TipHistoryView({ historyQ, currency, t }) {
                           {t("delete", "Delete")}
                         </Button>
                       </div>
+                    )}
+                    {/* What confirming DOES, on the card — it was only said in
+                        the dialog after the tap. True since the staff portal
+                        shows confirmed pools only (routers/staff_portal.py). */}
+                    {isPending && (
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400" data-testid="tip-confirm-hint">
+                        {t("stfTipConfirmHint", "Locks the split and shows it to your staff.")}
+                      </p>
                     )}
 
                     {isConfirmed && (

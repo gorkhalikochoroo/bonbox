@@ -8,7 +8,7 @@ Endpoints:
   GET    /portal/{token}               — validate link, return staff info (incl. email)
   GET    /portal/{token}/schedule      — their shifts (this + next 2 weeks)
   GET    /portal/{token}/hours         — hours logged for current pay period
-  GET    /portal/{token}/tips          — tip distributions for last 30 days
+  GET    /portal/{token}/tips          — confirmed tip shares, last 30 days
   POST   /portal/{token}/verify-pin   — optional PIN verification
   PUT    /portal/{token}/email        — staff updates their own email
   GET    /portal/{token}/notifications — last 30 notification log entries
@@ -1830,7 +1830,15 @@ def portal_delete_availability(
 @router.get("/{token}/tips")
 @limiter.limit("30/minute")
 def get_portal_tips(token: str, request: Request, db: Session = Depends(get_db)):
-    """Return tip distributions for last 30 days."""
+    """Return the staffer's shares of CONFIRMED tip pools, last 30 days.
+
+    Only confirmed pools. A pool the owner has saved but not locked is a draft:
+    it can still be edited or deleted (routers/staff.py update_tip/delete_tip),
+    and the owner's "Bekræft fordeling" is the step that says "this is what you
+    got". Showing drafts here told a staffer an amount that could still change
+    or vanish — and the list AND the 30-day total both read from this one
+    query, so the filter covers both.
+    """
     link, member = _get_staff_from_token(token, db)
 
     since = date.today() - timedelta(days=30)
@@ -1842,6 +1850,7 @@ def get_portal_tips(token: str, request: Request, db: Session = Depends(get_db))
             TipDistribution.staff_id == member.id,
             Tip.user_id == link.user_id,
             Tip.date >= since,
+            Tip.confirmed.is_(True),
         )
         .order_by(Tip.date.desc())
         .all()

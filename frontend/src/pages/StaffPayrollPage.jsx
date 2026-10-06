@@ -6,14 +6,14 @@ import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { saveFile } from "../utils/download";
 import { stepPayPeriod } from "../utils/payPeriod";
-import { useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatHours } from "../utils/hours";
-import { formatDate, localIso, formatDateClear } from "../utils/dateFormat";
+import { localIso, dateLocale } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
@@ -89,10 +89,44 @@ function fmtMoney(n, cur) {
 // QUANTITIES multiplied by a rate, so they keep the decimal form (6,8 t),
 // not the spoken duration form (6 t 48 min).
 
-function periodLabel(start, end) {
-  if (!start || !end) return "—";
-  return `${formatDate(start)} – ${formatDate(end)}`;
+// The window the way Timer prints it — "1. sep. – 30. sep." (StaffHoursPage
+// fmtPeriod) — in the app's date locale. This tab printed "01/09/26 –
+// 30/09/26" one tap away from Timer's "1. sep. – 30. sep." for the same
+// month. The year only when the window is not this year's, or `always` — a
+// file that leaves the building is read without this screen around it.
+const noonOf = (iso) => {
+  const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d, 12);
+};
+function dayLabel(iso, withYear = false) {
+  return noonOf(iso).toLocaleDateString(
+    dateLocale(),
+    withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" },
+  );
 }
+function periodLabel(start, end, { always = false } = {}) {
+  if (!start || !end) return "—";
+  const thisYear = new Date().getFullYear();
+  const a = noonOf(start).getFullYear();
+  const b = noonOf(end).getFullYear();
+  if (!always && a === thisYear && b === thisYear) return `${dayLabel(start)} – ${dayLabel(end)}`;
+  // One year on both ends is said once, at the end: "1. sep. – 30. sep. 2026".
+  return `${dayLabel(start, a !== b)} – ${dayLabel(end, true)}`;
+}
+
+// Another tab of the Hours hub, on the window on screen (utils/viewedPeriod):
+// Timer's Detaljer is where the period is approved and open shifts answered.
+function hubHref(tab, period, extra = {}) {
+  const q = new URLSearchParams({ tab, ...extra });
+  if (period?.period_start && period?.period_end) {
+    q.set("from", period.period_start);
+    q.set("to", period.period_end);
+  }
+  return `/staff/hours?${q.toString()}`;
+}
+// Where the revisor's address is kept: Profile → the #billing section
+// (ProfilePage "Revisor-kontakt"), the same target ConnectionsProgressCard uses.
+const REVISOR_EMAIL_HREF = "/profile#billing";
 
 // `value` is what the API stores (weather_condition); the label is t(labelKey).
 // `icon` is a Lucide name for <Icon>, not an emoji: the list and the select
@@ -244,7 +278,12 @@ export default function StaffPayrollPage() {
   const [sickSuccess, setSickSuccess] = useState("");
 
   // ─── Error ───
-  const [error, setError] = useState("");
+  // { text, action } — `action` names the one place that fixes it ("timer"
+  // for a shift with no clock-out, "profile" for a missing revisor address),
+  // so a refusal is never a dead end. "Ret dem under Timer først" used to
+  // stop there, with no way to get to Timer but finding the tab.
+  const [error, setErrorState] = useState(null);
+  const setError = (text, action = null) => setErrorState(text ? { text, action } : null);
   // The refusal renders below the export buttons — on a phone that was under
   // the bottom bar, so a tap looked like it did nothing. Bring it into view.
   const errorRef = useRef(null);
@@ -253,6 +292,24 @@ export default function StaffPayrollPage() {
       errorRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, [error]);
+  // A shift with no clock-out, named — the same words on every export path.
+  // The send path printed the server's ENGLISH sentence where the PDF beside
+  // it printed this Danish one.
+  const openPunchText = (detail) => (detail.count === 1
+    ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
+    : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
+
+  // ─── Who "Send til revisor" mails ───
+  // Read the way the send endpoint reads it (BusinessProfile.accountant_email,
+  // trimmed and lower-cased — routers/staff.py send_payroll_to_accountant), so
+  // the confirm names the address the server will actually use. The only hint
+  // used to be a hover tooltip, which a phone never shows. Three outcomes like
+  // every read here: a failed profile is never "you have no revisor email".
+  const profileQ = useAsyncData(() => api.get("/business"), []);
+  const revisorEmail = String(profileQ.data?.accountant_email || "").trim().toLowerCase();
+  const revisorName = String(profileQ.data?.accountant_name || "").trim();
+  const profileKnown = !profileQ.loading && !profileQ.failed;
+  const navigate = useNavigate();
 
   // ─── Danish payroll estimate (only relevant for DKK users) ───
   const isDanish = user?.currency === "DKK";
@@ -400,6 +457,41 @@ export default function StaffPayrollPage() {
     );
   }, [payrollRows]);
 
+  /* ─── Are the hours in this report approved? ─── */
+  // Timer's own counts (ApprovalBar in StaffHoursPage, from the same summary
+  // this tab already reads): entries the owner has ticked out of entries
+  // logged, and shifts still waiting for an answer — over the people the
+  // report covers. Null when the server sends no counts, or there is nothing
+  // to count: say nothing rather than guess.
+  const approval = useMemo(() => {
+    const picked = new Set([...selectedIds].map(String));
+    const rows = hoursSummary.filter((h) => picked.has(String(h.staff_id)));
+    if (!rows.some((r) => r.entries_count != null)) return null;
+    const total = rows.reduce((n, r) => n + (r.entries_count || 0), 0);
+    const approved = rows.reduce((n, r) => n + Math.min(r.approved_count || 0, r.entries_count || 0), 0);
+    const needsAnswer = rows.reduce((n, r) => n + (r.needs_answer_count || 0), 0);
+    if (total === 0 && needsAnswer === 0) return null;
+    return { total, approved, needsAnswer, done: approved >= total && needsAnswer === 0 };
+  }, [hoursSummary, selectedIds]);
+  // "38 af 41 registreringer godkendt · 3 vagter mangler svar"
+  const approvalText = (a) => {
+    if (!a) return "";
+    if (a.done) {
+      return a.total === 1
+        ? t("payApprovedAllOne", "The one entry is approved")
+        : t("payApprovedAll", "All {n} entries approved", { n: a.total });
+    }
+    const parts = [];
+    if (a.total > 0) parts.push(t("payApprovedSome", "{a} of {n} entries approved", { a: a.approved, n: a.total }));
+    if (a.needsAnswer > 0) {
+      parts.push(a.needsAnswer === 1
+        ? t("payNeedsAnswerOne", "1 shift needs an answer")
+        : t("payNeedsAnswer", "{n} shifts need an answer", { n: a.needsAnswer }));
+    }
+    return parts.join(" · ");
+  };
+  const timerHref = hubHref("hours", period, { view: "details" });
+
   /* ─── PDF export ─── */
   const generatePdf = async () => {
     if (exportBlocked || selectedIds.size === 0) return;
@@ -443,9 +535,7 @@ export default function StaffPayrollPage() {
       // The open-punch refusal is structured — name the shifts in the
       // owner's language instead of "Could not generate PDF".
       if (detail && typeof detail === "object" && detail.code === "open_punches") {
-        setError(detail.count === 1
-          ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
-          : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
+        setError(openPunchText(detail), "timer");
       } else {
         setError(typeof detail === "string" ? detail : t("payrollPdfFailed", "Could not generate PDF. Please try again."));
       }
@@ -457,8 +547,8 @@ export default function StaffPayrollPage() {
    *
    * Mirrors the daily-close-to-accountant pattern: one button → server
    * renders the PDF and ships it via Resend with the owner set as
-   * reply-to. Falls back gracefully if no accountant_email is set on
-   * Profile (surfaces the helpful 400 detail).
+   * reply-to. With no revisor address on Profile the button is disabled
+   * and says where to set it (see the export card below).
    */
   const [sending, setSending] = useState(false);
   const [sendToast, setSendToast] = useState("");
@@ -466,21 +556,70 @@ export default function StaffPayrollPage() {
   // UpgradeNudge state — shown as a dialog when a Free user tries
   // to send payroll to the accountant (Starter+ gated feature).
   const [upgradeNudge, setUpgradeNudge] = useState(null);
+  // Who it goes to, as one string: "Anna Hansen · anna@revisor.dk".
+  const recipientLabel = revisorName ? `${revisorName} · ${revisorEmail}` : revisorEmail;
+  // Not while the hours are still loading either: the confirm states their
+  // approval, and a confirm built before they arrive would silently omit it.
+  const canSend =
+    !exportBlocked && !sending && !pdfLoading && selectedIds.size > 0 && profileKnown && !!revisorEmail
+    && !hoursQ.loading;
+  // The CSV and the lønseddel are DK documents and owner-only (the server
+  // denies both to any staff seat). Shown while the estimate loads — disabled,
+  // so the list does not jump — and on a failed estimate, disabled with the
+  // reason; hidden only once the estimate says there is nobody to pay.
+  const showDkFiles = isDanish && !isStaffSeat
+    && !(dkEstimate && !dkQ.failed && !dkLoading && dkEstimate.staff_count === 0);
 
   const sendToAccountant = async () => {
-    if (exportBlocked || selectedIds.size === 0) return;
-    // A pay report leaves the building on this tap — say to whom and for
-    // which period first. It sent on one tap with no recipient shown.
-    const ok = await confirm({
+    if (!canSend) return;
+    // A pay report leaves the building on this tap. The confirm used to read
+    // "8 medarbejdere, 1. sep. 26 – 30. sep. 26. Du får en kopi." — not WHO
+    // gets it (a hover tooltip said "angiv adressen under Profil"), not WHAT
+    // is attached, nothing about approval, and Enter on the focused Send
+    // mailed it. Now: recipient, attachment, the approval state of the hours
+    // in it, a way to Timer, and Annuller holds the focus. Unapproved hours
+    // can still go — the owner decides — but never without being told.
+    const staffCount = selectedIds.size === 1
+      ? t("paySendStaffOne", "1 employee")
+      : t("paySendStaff", "{n} employees", { n: selectedIds.size });
+    const toFix = !!approval && !approval.done;
+    const answer = await confirm({
       title: t("payrollSendConfirmTitle", "Send the payroll report to your revisor?"),
-      message: t("payrollSendConfirmBody", "{n} employees, {from} – {to}. You get a copy.", {
-        n: selectedIds.size,
-        from: formatDateClear(period.period_start),
-        to: formatDateClear(period.period_end),
-      }),
+      message: (
+        <>
+          <span className="block text-gray-900 dark:text-gray-100">
+            {t("paySendTo", "To:")} <span className="font-semibold break-all">{recipientLabel}</span>
+          </span>
+          <span className="block">
+            {t("paySendAttached", "Attached: payroll report (PDF), {period} · {staff}", {
+              period: periodLabel(period.period_start, period.period_end, { always: true }),
+              staff: staffCount,
+            })}
+          </span>
+          <span className="block">{t("paySendCopy", "You get a copy.")}</span>
+          {approval && (
+            <span className={`block mt-3 font-medium ${toFix ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-400"}`}>
+              {approvalText(approval)}
+            </span>
+          )}
+          {toFix && (
+            <span className="block">
+              {t("paySendAsIs", "Send now and your revisor gets the hours as they stand.")}
+            </span>
+          )}
+        </>
+      ),
       confirmLabel: t("payrollSendConfirmCta", "Send"),
+      // Annuller has the focus and Enter does not send — without painting a
+      // monthly routine red (hooks/useConfirm).
+      irreversible: true,
+      extraLabel: toFix ? t("payGoToTimer", "Go to Hours") : undefined,
     });
-    if (!ok) return;
+    if (answer === "extra") {
+      navigate(timerHref);
+      return;
+    }
+    if (answer !== true) return;
     setSending(true);
     setError("");
     setSendToast("");
@@ -511,15 +650,74 @@ export default function StaffPayrollPage() {
           benefit: t("nudgePayrollSend", "Email payroll to your bogholder in one tap"),
           iconName: "Send",
         });
+      } else if (detail?.code === "open_punches") {
+        // The server's `message` is English; this is the sentence the PDF
+        // and the lønseddel already show, in the owner's language.
+        setError(openPunchText(detail), "timer");
+      } else if (detail?.code === "no_accountant_email") {
+        // Taken off Profile since this page read it — say so, and read again.
+        setError(t("paySendNoEmail", "Add your revisor's email under Profile to send from here."), "profile");
+        profileQ.reload();
       } else {
-        setError(
-          typeof detail === "string"
-            ? detail
-            : (detail?.message || t("payrollSendFailed", "Couldn't email the payroll. Try downloading the PDF instead."))
-        );
+        // Never the raw server sentence: on this endpoint it is English
+        // ("Couldn't send right now…", "Could not render payroll PDF: …").
+        setError(t("paySendFailed", "The payroll report wasn't sent. Try again, or download the PDF and email it yourself."));
       }
     } finally {
       setSending(false);
+    }
+  };
+
+  /* ─── The two DK payroll files: the CSV and the lønseddel ─── */
+  // A blob request returns its JSON error as a Blob — read it, so an open
+  // punch is named instead of "could not generate".
+  const blobDetail = async (e) => {
+    try { return JSON.parse(await e?.response?.data?.text?.())?.detail ?? null; } catch { return null; }
+  };
+  // A busy flag each, so a second tap while the file is being built is not a
+  // second download.
+  const [csvLoading, setCsvLoading] = useState(false);
+  const [loenLoading, setLoenLoading] = useState(false);
+  const downloadCsv = async () => {
+    if (exportBlocked || csvLoading) return;
+    setCsvLoading(true);
+    setError("");
+    try {
+      const res = await api.get("/staff/payroll/csv", {
+        params: { period_start: period.period_start, period_end: period.period_end },
+        responseType: "blob",
+      });
+      const out = await saveFile(res.data, `bonbox_payroll_${period.period_start}_${period.period_end}.csv`, { type: "text/csv;charset=utf-8;" });
+      if (!out.ok) setError(t("payrollCsvFailed", "Could not generate CSV."));
+    } catch (e) {
+      // Name the open shift, like the lønseddel does — the CSV said only
+      // "Kunne ikke generere CSV."
+      const detail = await blobDetail(e);
+      if (e?.response?.status === 409 && detail?.code === "open_punches") setError(openPunchText(detail), "timer");
+      else setError(t("payrollCsvFailed", "Could not generate CSV."));
+    } finally {
+      setCsvLoading(false);
+    }
+  };
+  const downloadLoenseddel = async () => {
+    if (exportBlocked || loenLoading) return;
+    setLoenLoading(true);
+    setError("");
+    try {
+      const res = await api.get("/staff/payroll/loenseddel", {
+        params: { period_start: period.period_start, period_end: period.period_end },
+        responseType: "blob",
+      });
+      const out = await saveFile(res.data, `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`, { type: "application/pdf" });
+      if (!out.ok) setError(t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
+    } catch (e) {
+      const detail = await blobDetail(e);
+      if (e?.response?.status === 409 && detail?.code === "open_punches") setError(openPunchText(detail), "timer");
+      else setError(e?.response?.status === 404
+        ? t("payrollNoHoursLogged", "No staff hours logged in this period.")
+        : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
+    } finally {
+      setLoenLoading(false);
     }
   };
 
@@ -591,18 +789,19 @@ export default function StaffPayrollPage() {
         subtitle={t("payrollSubtitle", "Generate payroll reports for your revisor")}
       />
 
+      {/* v2: the copy changed, so an owner who closed the old one sees it.
+          "BonBox kører i lønhjælp-tilstand … opsummerings-CSV (DKK,
+          semikolon-separeret til Excel)" — two coined terms and a file
+          format, in the first thing the tab says. */}
       <DismissibleTip
-        id="payroll-intro-v1"
+        id="payroll-intro-v2"
         iconName="Briefcase"
         title={t("payrollTipTitle", "DK payroll, the easy way")}
       >
         <p className="mb-1.5">
-          {fillSlots(
-            t(
-              "stfPayrollTipBody",
-              "BonBox runs {mode} — from the hours you already log, we estimate AM-bidrag (8%), A-skat (~36% after personfradrag), ATP and feriepenge, then generate a clean Lønseddel PDF + a summary CSV (DKK, semicolon-separated for Excel) your revisor can key into DataLøn / Zenegy.",
-            ),
-            { mode: <strong>{t("stfPayrollTipMode", "payroll-helper mode")}</strong> },
+          {t(
+            "payIntroBody",
+            "From the hours you log, BonBox estimates AM-bidrag (8%), A-skat (about 36% after personfradrag), ATP and feriepenge. Send the payroll report to your revisor in one tap — each employee's lønseddel and a spreadsheet for your payroll system are under Export.",
           )}
         </p>
         <p className="text-xs opacity-75">
@@ -934,10 +1133,20 @@ export default function StaffPayrollPage() {
               onClick={() => setPreviewOpen(true)}
               className="w-full text-left text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
-              {t("payrollPreviewSummaryTap", "{count} staff · {hours} · {total} total — tap to see per-staff")
-                .replace("{count}", payrollRows.length)
-                .replace("{hours}", formatHours(totals.hours, { lang, decimals: 2 }))
-                .replace("{total}", fmtMoney(totals.total, currency))}
+              {/* Says what its total IS. "46.657,67 kr. i alt" (wages plus
+                  tips) sat above a "Samlet lønomkostning" of 50.046,70 kr.
+                  (wages plus feriepenge and ATP) with nothing to tell the two
+                  apart; the wages here are the bruttoløn of the line below. */}
+              {t("payPreviewTap", "{count} staff · {hours} · {money} — tap to see per staff", {
+                count: payrollRows.length,
+                hours: formatHours(totals.hours, { lang, decimals: 2 }),
+                money: totals.tips > 0
+                  ? t("payPreviewWagesTips", "wages {wages} + tips {tips}", {
+                    wages: fmtMoney(totals.base_earned + totals.overtime, currency),
+                    tips: fmtMoney(totals.tips, currency),
+                  })
+                  : t("payPreviewWages", "wages {wages}", { wages: fmtMoney(totals.base_earned + totals.overtime, currency) }),
+              })}
             </button>
           )}
         </div>
@@ -982,11 +1191,23 @@ export default function StaffPayrollPage() {
                   <DkStat label={t("stfPayrollNetToStaff", "Net to staff")} value={dkEstimate.totals.net_pay} currency={currency} accent="green" />
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
                   <DkStat label="ATP" value={dkEstimate.totals.atp} currency={currency} small />
                   <DkStat label={t("stfPayrollFeriepenge", "Feriepenge (12.5%)")} value={dkEstimate.totals.feriepenge} currency={currency} small />
                   <DkStat label={t("stfPayrollEmployerCost", "Employer total cost")} value={dkEstimate.totals.employer_total_cost} currency={currency} small accent="dark" />
                 </div>
+                {/* ONE cost, and how it is made. Timer's cost tile shows this
+                    same figure (same /payroll/estimate); the per-person rows
+                    there and the preview here are bruttoløn alone — this line
+                    is why they are lower. */}
+                <p className="mt-2 mb-4 text-xs text-gray-600 dark:text-gray-400 tabular-nums" data-testid="pay-cost-breakdown">
+                  {t("payCostBreakdown", "Gross wages {gross} + feriepenge {ferie} + ATP {atp} = {total}", {
+                    gross: fmtMoney(dkEstimate.totals.gross, currency),
+                    ferie: fmtMoney(dkEstimate.totals.feriepenge, currency),
+                    atp: fmtMoney(dkEstimate.totals.atp, currency),
+                    total: fmtMoney(dkEstimate.totals.employer_total_cost, currency),
+                  })}
+                </p>
 
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-xs text-gray-800 dark:text-gray-200">
                   <div className="font-semibold mb-0.5">{t("skatRemittance")}</div>
@@ -1003,79 +1224,6 @@ export default function StaffPayrollPage() {
                       "stfPayrollEstimateNote",
                       "A-skat varies per employee — typical hovedkort is ~36% after personfradrag, bikort is ~42% (no personfradrag), frikort is 0% until the annual limit. BonBox uses each staff member's trækkort type when set, otherwise defaults to hovedkort. The official A-skat comes from each employee's eSkattekort and your payroll system's eIndkomst submission — use this estimate for planning the 10th-of-month deadline only.",
                     )}
-                  </p>
-                )}
-              </>
-            )}
-
-            {/* The two payroll files. Outside the estimate's own branch so a
-                failed read leaves them visible and DISABLED, with the reason,
-                rather than silently gone. */}
-            {!isStaffSeat && (dkQ.failed || (!dkLoading && dkEstimate?.staff_count > 0)) && (
-              <>
-                <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    disabled={exportBlocked || dkLoading}
-                    onClick={async () => {
-                      try {
-                        const res = await api.get("/staff/payroll/csv", {
-                          params: { period_start: period.period_start, period_end: period.period_end },
-                          responseType: "blob",
-                        });
-                        const out = await saveFile(res.data, `bonbox_payroll_${period.period_start}_${period.period_end}.csv`, { type: "text/csv;charset=utf-8;" });
-                        if (!out.ok) setError(t("payrollCsvFailed", "Could not generate CSV."));
-                      } catch (e) {
-                        // Name the open shift, like the lønseddel does — the
-                        // CSV said only "Kunne ikke generere CSV."
-                        let detail = null;
-                        try { detail = JSON.parse(await e?.response?.data?.text?.())?.detail; } catch { /* not JSON */ }
-                        if (e?.response?.status === 409 && detail?.code === "open_punches") {
-                          setError(detail.count === 1
-                            ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
-                            : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
-                        } else {
-                          setError(t("payrollCsvFailed", "Could not generate CSV."));
-                        }
-                      }
-                    }}
-                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {t("payrollDownloadCsv", "Download summary CSV (for DataLøn / Zenegy)")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={exportBlocked || dkLoading}
-                    onClick={async () => {
-                      try {
-                        const res = await api.get("/staff/payroll/loenseddel", {
-                          params: { period_start: period.period_start, period_end: period.period_end },
-                          responseType: "blob",
-                        });
-                        const out = await saveFile(res.data, `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`, { type: "application/pdf" });
-                        if (!out.ok) setError(t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
-                      } catch (e) {
-                        // A blob request returns its JSON error as a Blob — read it,
-                        // so an open punch is named instead of "could not generate".
-                        let detail = null;
-                        try { detail = JSON.parse(await e?.response?.data?.text?.())?.detail; } catch { /* not JSON */ }
-                        if (e?.response?.status === 409 && detail?.code === "open_punches") {
-                          setError(detail.count === 1
-                            ? t("payrollOpenPunchesOne", "1 shift has no clock-out ({list}). Fix it under Timer first — an open shift would be paid as 0 kr.", { list: detail.list })
-                            : t("payrollOpenPunches", "{n} shifts have no clock-out ({list}). Fix them under Timer first — an open shift would be paid as 0 kr.", { n: detail.count, list: detail.list }));
-                        } else {
-                          setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
-                        }
-                      }
-                    }}
-                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {t("payrollLoenseddelPdf", "Lønseddel PDF (one per employee)")}
-                  </button>
-                </div>
-                {exportBlocked && (
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    {t("payrollExportBlocked", "Exports are paused until the figures above have loaded.")}
                   </p>
                 )}
               </>
@@ -1125,43 +1273,101 @@ export default function StaffPayrollPage() {
         </FadeIn>
       )}
 
-      {/* ─── EXPORT SECTION ─── */}
+      {/* ─── EXPORT — the revisor's path first, then every other file and who it is for ─── */}
+      {/* Four exports sat side by side — "Generér PDF", "Download
+          opsummerings-CSV (til DataLøn / Zenegy)" and "Lønseddel PDF (én pr.
+          medarbejder)" here, "Hent register" one tab over — and nothing said
+          which one the revisor needs. The revisor's path is now first and
+          green; every other file says what it is FOR and who gets it. None
+          was removed. */}
       <FadeIn delay={0.2}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-3">{t("exportLabel")}</h2>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={generatePdf}
-              disabled={exportBlocked || pdfLoading || sending || selectedIds.size === 0}
-              busy={pdfLoading}
-              iconLeft={!pdfLoading && <Icon name="FileText" size={16} />}
-              title={t("downloadPdfTooltip", "Download PDF to your device")}
-            >
-              {pdfLoading ? t("payrollGenerating", "Generating...") : t("generatePdf", "Generate PDF")}
-            </Button>
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("exportLabel", "Export")}</h2>
+          <p className="mt-1 text-[13px] text-gray-600 dark:text-gray-400">
+            {t("paySendLead", "The payroll report (PDF) for {period} — the file your revisor needs.", {
+              period: periodLabel(period.period_start, period.period_end),
+            })}
+          </p>
+
+          <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-x-4 gap-y-2">
             <Button
               variant="accent"
               size="lg"
+              className="w-full sm:w-auto shrink-0"
               onClick={sendToAccountant}
-              disabled={exportBlocked || sending || pdfLoading || selectedIds.size === 0}
+              disabled={!canSend}
               busy={sending}
               iconLeft={!sending && <Icon name="Send" size={16} />}
-              title={t("payrollSendTooltip", "Email this payroll directly to your accountant — set their address on Profile")}
             >
               {sending ? t("payrollSending", "Sending…") : t("payrollSendToAccountant", "Send to accountant")}
             </Button>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {exportBlocked
-                ? t("payrollExportBlocked", "Exports are paused until the figures above have loaded.")
-                : selectedIds.size === 0
-                ? t("payrollSelectToExport", "Select at least one staff member to export")
-                : `${selectedIds.size > 1
-                    ? t("payrollStaffSelectedPlural", "{count} staff members selected", { count: selectedIds.size })
-                    : t("payrollStaffSelectedSingular", "{count} staff member selected", { count: selectedIds.size })} · ${period ? periodLabel(period.period_start, period.period_end) : ""}`}
+            {/* WHO it goes to, on the page — or why it cannot go yet and where
+                that is fixed. The only hint was a hover tooltip a phone never
+                shows. Nothing is said about a profile that did not load. */}
+            <p className="text-[13px] text-gray-600 dark:text-gray-400 min-w-0" data-testid="pay-send-recipient">
+              {profileQ.failed ? (
+                <>
+                  {t("paySendProfileFailed", "Couldn't read your revisor's email.")}{" "}
+                  <button
+                    type="button"
+                    onClick={profileQ.reload}
+                    className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+                  >
+                    {t("retry", "Try again")}
+                  </button>
+                </>
+              ) : !profileKnown ? null : revisorEmail ? (
+                <>
+                  {t("paySendTo", "To:")}{" "}
+                  <span className="font-medium text-gray-900 dark:text-gray-100 break-all">{recipientLabel}</span>
+                  {" · "}
+                  {t("paySendCopyShort", "you get a copy")}
+                </>
+              ) : (
+                fillSlots(t("paySendNeedsEmail", "Add your revisor's email under {profile} to send from here."), {
+                  profile: (
+                    <Link
+                      to={REVISOR_EMAIL_HREF}
+                      className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+                    >
+                      {t("paySendProfileLink", "Profile")}
+                    </Link>
+                  ),
+                })
+              )}
             </p>
           </div>
+
+          {/* Are the hours in this report approved — Timer's own count, on
+              the page before the tap as well as in the confirm. */}
+          {approval && (
+            <p
+              className={`mt-3 text-[13px] flex flex-wrap items-center gap-x-2 gap-y-1 ${
+                approval.done ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-300"
+              }`}
+              data-testid="pay-approval"
+            >
+              <Icon name={approval.done ? "CheckCircle2" : "AlertTriangle"} size={15} className="shrink-0" />
+              <span className="tabular-nums">{approvalText(approval)}</span>
+              {!approval.done && (
+                <Link
+                  to={timerHref}
+                  className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+                >
+                  {t("payGoToTimer", "Go to Hours")}
+                  <Icon name="ChevronRight" size={14} />
+                </Link>
+              )}
+            </p>
+          )}
+
+          {(exportBlocked || selectedIds.size === 0) && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {exportBlocked
+                ? t("payrollExportBlocked", "Exports are paused until the figures above have loaded.")
+                : t("payrollSelectToExport", "Select at least one staff member to export")}
+            </p>
+          )}
           {sendToast && (
             <div className="mt-3">
               <SectionBanner severity="success" title={sendToast} />
@@ -1169,9 +1375,108 @@ export default function StaffPayrollPage() {
           )}
           {error && (
             <div className="mt-3" ref={errorRef}>
-              <SectionBanner severity="critical" title={error} />
+              <SectionBanner severity="critical" title={error.text}>
+                {/* The place that fixes it, one tap away. */}
+                {error.action === "timer" && (
+                  <Link to={timerHref} className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                    {t("payGoToTimer", "Go to Hours")}
+                    <Icon name="ChevronRight" size={14} />
+                  </Link>
+                )}
+                {error.action === "profile" && (
+                  <Link to={REVISOR_EMAIL_HREF} className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                    {t("paySetEmail", "Set your revisor's email")}
+                    <Icon name="ChevronRight" size={14} />
+                  </Link>
+                )}
+              </SectionBanner>
             </div>
           )}
+
+          {/* Every other file — what it is FOR, and who gets it. */}
+          <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-700">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("payOtherFiles", "Other files")}
+            </h3>
+            <ul className="mt-1 divide-y divide-gray-100 dark:divide-gray-700">
+              <ExportRow
+                title={t("payFileReport", "Payroll report (PDF)")}
+                purpose={t("payFileReportFor", "The same report your revisor gets — for your own records, or to email it yourself.")}
+              >
+                <Button
+                  variant="secondary"
+                  size="md"
+                  className="max-sm:h-10 max-sm:text-[13px]"
+                  onClick={generatePdf}
+                  disabled={exportBlocked || pdfLoading || sending || selectedIds.size === 0}
+                  busy={pdfLoading}
+                  iconLeft={!pdfLoading && <Icon name="Download" size={15} />}
+                  aria-label={t("payFileReportGet", "Download payroll report (PDF)")}
+                >
+                  {t("payFileGet", "Download")}
+                </Button>
+              </ExportRow>
+              {showDkFiles && (
+                <ExportRow
+                  title={t("payFileCsv", "Spreadsheet for your payroll system (CSV)")}
+                  purpose={t("payFileCsvFor", "For whoever keys the pay into DataLøn or Zenegy. Opens in Excel.")}
+                >
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="max-sm:h-10 max-sm:text-[13px]"
+                    onClick={downloadCsv}
+                    disabled={exportBlocked || dkLoading || csvLoading}
+                    busy={csvLoading}
+                    iconLeft={!csvLoading && <Icon name="Download" size={15} />}
+                    aria-label={t("payFileCsvGet", "Download spreadsheet for your payroll system (CSV)")}
+                  >
+                    {t("payFileGet", "Download")}
+                  </Button>
+                </ExportRow>
+              )}
+              {showDkFiles && (
+                <ExportRow
+                  title={t("payrollLoenseddelPdf", "Lønseddel PDF (one per employee)")}
+                  purpose={t("payFileLoenseddelFor", "One lønseddel for each employee — to hand to your staff.")}
+                >
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="max-sm:h-10 max-sm:text-[13px]"
+                    onClick={downloadLoenseddel}
+                    disabled={exportBlocked || dkLoading || loenLoading}
+                    busy={loenLoading}
+                    iconLeft={!loenLoading && <Icon name="Download" size={15} />}
+                    aria-label={t("payFileLoenseddelGet", "Download lønseddel PDF")}
+                  >
+                    {t("payFileGet", "Download")}
+                  </Button>
+                </ExportRow>
+              )}
+              {/* "Hent register" lives on Tidsregistrering. It is named here
+                  so the one list of files says what each is for — this is
+                  the one the revisor does NOT need. */}
+              {isDanish && (
+                <ExportRow
+                  title={t("payFileRegister", "Working-time register")}
+                  purpose={fillSlots(
+                    t("payFileRegisterFor", "For Arbejdstilsynet if they inspect — not for your revisor. Download it under {timeReg}."),
+                    {
+                      timeReg: (
+                        <Link
+                          to={hubHref("time", period)}
+                          className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+                        >
+                          {t("staffTimeReg", "Time tracking")}
+                        </Link>
+                      ),
+                    },
+                  )}
+                />
+              )}
+            </ul>
+          </div>
         </div>
       </FadeIn>
 
@@ -1284,7 +1589,7 @@ export default function StaffPayrollPage() {
                       <div>
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{sc.staff_name}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {reasonText} · {formatDate(sc.date)}
+                          {reasonText} · {sc.date ? dayLabel(sc.date, noonOf(sc.date).getFullYear() !== new Date().getFullYear()) : ""}
                         </p>
                       </div>
                     </div>
@@ -1318,6 +1623,21 @@ export default function StaffPayrollPage() {
         />
       )}
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   One file in the export list: what it is, what it is FOR, its button
+   ═══════════════════════════════════════════════════════════ */
+function ExportRow({ title, purpose, children = null }) {
+  return (
+    <li className="py-3 flex items-center gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-gray-900 dark:text-gray-100">{title}</p>
+        <p className="mt-0.5 text-xs leading-snug text-gray-500 dark:text-gray-400">{purpose}</p>
+      </div>
+      {children && <div className="shrink-0">{children}</div>}
+    </li>
   );
 }
 
