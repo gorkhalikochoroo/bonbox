@@ -770,7 +770,8 @@ export default function StaffHoursPage() {
 // reproduce — right notation, wrong number. Whole rates stay clean; øre survive.
 function rateDecimals(rate) {
   const n = typeof rate === "string" ? parseFloat(rate) : rate;
-  return Number.isInteger(n) ? 0 : 2;
+  // Round to the øre first: an average earned/hours of 204.99999… is 205.
+  return Number.isInteger(Math.round(Number(n) * 100) / 100) ? 0 : 2;
 }
 
 // Narrative code → i18n key. The backend rule engine emits codes + params; the
@@ -981,7 +982,7 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
                   key={r.id}
                   type="button"
                   aria-pressed={activeRange === r.id}
-                  onClick={() => { setEditor(null); onViewRange?.(r.id); }}
+                  onClick={() => { setEditor(null); onViewRange?.(r.id); setOpen(false); }}
                   className={chipCls(activeRange === r.id)}
                 >
                   {t(r.key, r.fallback)}
@@ -1401,7 +1402,9 @@ function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null })
     .filter((p) => Number(p.actual_hours || p.total_hours || 0) > 0)
     .sort((a, b) => Number(b.actual_hours || 0) - Number(a.actual_hours || 0));
   if (!worked.length) return null;
-  const shown = worked.slice(0, 6);
+  // Six names, or all of them when only one more would be left over —
+  // "+1 andre" for a single person hides a name to save one row.
+  const shown = worked.length <= 7 ? worked : worked.slice(0, 6);
   const showMoney = shown.some((p) => p.earned != null);
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
@@ -2707,7 +2710,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                               staffName: row.staff_name,
                               exception: firstException(row),
                             })}
-                            className={`sm:hidden mt-1 inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
+                            className={`sm:hidden mt-1 inline-flex flex-wrap items-center gap-x-1 rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
                           >
                             {stateMeta.label}
                             {row.needs_answer_count > 1 && (
@@ -2810,26 +2813,26 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
           <tfoot>
             <tr className="bg-gray-50 dark:bg-gray-800 font-semibold text-gray-800 dark:text-white">
               <td className="sticky left-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
-              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {fmtHours(summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0), lang)}
               </td>
-              <td className="px-3 py-3 text-right tabular-nums text-sm">
+              <td className="px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {fmtHours(summary.reduce((s, r) => s + (r.actual_hours || 0), 0), lang)}
               </td>
-              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {(() => {
                   const d = summary.reduce((s, r) => s + (r.actual_hours || 0), 0) - summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0);
                   return d === 0 ? "\u2014" : formatHours(d, { lang, sign: true });
                 })()}
               </td>
               <td className="hidden lg:table-cell px-3 py-3" />
-              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {moneyTotal("earned", missingRateCount > 0)}
               </td>
-              <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm">
+              <td className="hidden lg:table-cell px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {(summary || []).some((r) => Number(r.tips) > 0) ? moneyTotal("tips") : "\u2014"}
               </td>
-              <td className="sticky right-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 py-3 text-right tabular-nums text-sm">
+              <td className="sticky right-0 z-[1] bg-gray-50 dark:bg-gray-800 px-3 py-3 text-right tabular-nums text-sm whitespace-nowrap">
                 {moneyTotal("total", missingRateCount > 0)}
               </td>
             </tr>
@@ -3798,8 +3801,12 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     </div>
                   ) : (
                     <>
-                      <span className="font-bold text-gray-800 dark:text-white text-sm">
-                        {formatHours(entry.total_hours, { lang, decimals: 2 })}
+                      <span className="font-bold text-gray-800 dark:text-white text-sm whitespace-nowrap">
+                        {/* Still open: nothing measured yet — "—", not a 0 t
+                            that reads like a short shift. */}
+                        {entry.start_time && !entry.end_time
+                          ? "\u2014"
+                          : formatHours(entry.total_hours, { lang, decimals: 2 })}
                       </span>
                       {/* Was "1200 DKK" — ungrouped, raw code — on the audit
                           trail of the same period the tiles price in "kr.". */}

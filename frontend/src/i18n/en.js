@@ -5637,7 +5637,7 @@ export const en = {
     hovNarTrendMore: "{delta} more than last period.",
     hovNarTrendFewer: "{delta} fewer than last period.",
     hovNarTrendFlat: "On par with last period.",
-    hovNarTrustCaveat: "Note: {unclocked} % of the hours are not clocked — the figures are an estimate.",
+    hovNarTrustCaveat: "Note: {unclocked}% of the hours are not clocked — the figures are an estimate.",
     hovNarNoRates: "{hours} logged. Add wage rates to see labor cost and %.",
     hovTileCostNoRates: "set wage rates",
     hovTileLaborPctNoRates: "set wage rates",

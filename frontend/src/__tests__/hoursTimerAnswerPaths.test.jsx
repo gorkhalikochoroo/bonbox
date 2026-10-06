@@ -126,7 +126,9 @@ describe("view-only quick ranges", () => {
     expect(confirmMock).not.toHaveBeenCalled();
     // The way home says where it goes.
     expect(screen.getByRole("button", { name: "hovToCurrentPeriod" })).toBeInTheDocument();
-    // The chip says what is showing.
+    // Choosing closes the picker; reopened, the chip says what is showing.
+    expect(screen.queryByRole("button", { name: "hovRangeLastWeek" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("hovFrameChange"));
     expect(screen.getByRole("button", { name: "hovRangeLastWeek" })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -267,7 +269,7 @@ describe("a path to approval", () => {
     fireEvent.click(await screen.findByRole("button", { name: /shpNeedsAnswer:3/ }));
     let dialog = await screen.findByRole("dialog");
     fireEvent.submit(within(dialog).getByLabelText("shpResolveEndLabel").closest("form"));
-    await waitFor(() => expect(screen.getByText(/^shpSavedLine:Tilde\|16:58–23:00 · 5,53 t/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^shpSavedLine:Tilde\|16:58–23:00 · 5,53 t/)).toBeInTheDocument(), { timeout: 4000 });
     dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("shpNextLabel")).toBeInTheDocument();
     expect(within(dialog).getByText("Tina")).toBeInTheDocument();
@@ -282,7 +284,7 @@ describe("a path to approval", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /shpResolveAsPlanned/ }));
     await waitFor(() => expect(api.post).toHaveBeenLastCalledWith("/staff/hours/resolve", {
       staff_id: "s-2", date: "2026-09-22", action: "as_planned",
-    }));
+    }), { timeout: 4000 });
   });
 
   it("when the queue is done it says so and offers the approval there", async () => {

@@ -236,7 +236,7 @@ def employee_compliance(db: Session, user_id, member: StaffMember,
 
     violations = rest_violations(period_rows)
     weekly_avg = weekly_average(ref_rows, end)
-    total_hours = round(sum(float(r.total_hours or 0) for r in period_rows), 1)
+    total_hours = round(sum(float(r.total_hours or 0) for r in period_rows), 2)
     # A punch with a start and no end. It used to read "Overholder" beside
     # 0 t: the day's working time is not KNOWN, which is the one thing a
     # working-time register exists to know — and the rest check above skips

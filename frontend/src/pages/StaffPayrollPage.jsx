@@ -221,7 +221,10 @@ export default function StaffPayrollPage() {
       periodOverride ? { from: periodOverride.period_start, to: periodOverride.period_end } : null,
       { from: serverPeriod.period_start, to: serverPeriod.period_end },
     );
-  }, [periodOverride, serverPeriod, searchParams, setSearchParams]);
+    // Only when THIS tab's period changes — not on every URL change: a
+    // navigation away (Gå til Timer) must not have its from/to stripped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodOverride, serverPeriod]);
   // Owner-configurable DK lønperiode (calendar month / 15th→14th / custom day):
   // what was last SAVED, and what is being typed into the controls right now.
   const [lastSavedCfg, setLastSavedCfg] = useState(null);
