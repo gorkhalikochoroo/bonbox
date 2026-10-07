@@ -24,6 +24,7 @@ import { capturePhoto } from "../utils/camera";
 import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
+import { useKeyboardLift } from "../hooks/useKeyboardLift";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
@@ -1659,7 +1660,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -2179,6 +2180,36 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 Renders nothing on a solo shift. */}
             {token && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} />}
           </>
+        ) : schedState === "loading" ? (
+          /* Not answered yet — a placeholder, never "no shift". Saying
+             "Ingen kommende vagt" before the first response lands tells
+             someone who works tonight that they don't. */
+          <div className="relative mt-3 space-y-2.5 animate-pulse" data-testid="portal-hero-loading" aria-label={t("portalScheduleLoading", "Loading your schedule…")}>
+            <div className="h-6 w-3/4 rounded-lg bg-white/10" />
+            <div className="h-3.5 w-1/2 rounded bg-white/10" />
+          </div>
+        ) : schedState === "error" ? (
+          /* The schedule call failed and there is nothing last-good to show:
+             say so, and offer the retry right here. */
+          <div className="relative mt-2" data-testid="portal-hero-failed">
+            <div className="flex items-center gap-2 text-[17px] font-bold text-white">
+              <CloudOff className="w-5 h-5 shrink-0 text-amber-300" strokeWidth={2.2} aria-hidden />
+              {t("portalScheduleLoadFailed", "Couldn't load your schedule")}
+            </div>
+            <div className="mt-1.5 text-[13px] text-gray-400">
+              {t("portalScheduleLoadFailedHint", "Check your connection — your shifts are not gone.")}
+            </div>
+            {onRetrySchedule && (
+              <button
+                type="button"
+                onClick={onRetrySchedule}
+                className="mt-3.5 inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-xl bg-white text-gray-900 text-sm font-semibold active:scale-[0.98] transition"
+              >
+                <RefreshCw className="w-4 h-4" strokeWidth={2.4} aria-hidden />
+                {t("tryAgain", "Try again")}
+              </button>
+            )}
+          </div>
         ) : (
           <>
             <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
@@ -2363,7 +2394,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           style={{ marginTop: 13, paddingTop: 11, borderTop: "1px solid #eef2f7" }}
         >
           <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
-            {weekTotals.count === 0
+            {weekTotals.count === 0 && schedState !== "ok"
+              // Not an answer yet (or the call failed): no "no shifts" claim.
+              ? <span aria-hidden className="inline-block h-3 w-24 rounded bg-gray-100 align-middle" />
+              : weekTotals.count === 0
               // "0 min · 0 vagter" read like a broken counter.
               ? t("portalWeekNoShifts", "No shifts this week")
               : <>{fmtHM(weekTotals.hours)} · {weekTotals.count === 1
@@ -3139,6 +3173,39 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             </button>
           )}
         </div>
+        {/* Open clock punches — a STATE, never a number. They used to arrive
+            as entries with total_hours 0 and render "0 timer" with no times,
+            and one of them flipped the headline to "0 worked". The server now
+            keeps them out of every total and every entry and sends them here
+            with the same live/forgotten rule the owner's Timer uses. */}
+        {(data.open_punches || []).length > 0 && (
+          <div className="space-y-1.5 mb-2">
+            {data.open_punches.map((op) => {
+              const forgotten = op.state === "forgotten";
+              return (
+                <div
+                  key={`open-${op.date}-${op.start_time || ""}`}
+                  data-testid="portal-open-punch"
+                  className={`flex items-start gap-2.5 rounded-[16px] px-3.5 py-3 border ${forgotten ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}
+                >
+                  {forgotten
+                    ? <AlertTriangle size={15} strokeWidth={2.4} className="shrink-0 mt-0.5 text-amber-600" aria-hidden />
+                    : <Clock size={15} strokeWidth={2.4} className="shrink-0 mt-0.5 text-emerald-600" aria-hidden />}
+                  <div className="min-w-0">
+                    <div className="text-sm text-gray-700 tabular-nums">
+                      {fmtDate(op.date, lang)}{op.start_time ? ` · ${op.start_time}–` : ""}
+                    </div>
+                    <div className={`text-[12.5px] font-semibold ${forgotten ? "text-amber-800" : "text-emerald-800"}`}>
+                      {forgotten
+                        ? t("portalHoursOpenForgotten", "Clock-out missing — your manager will fix it")
+                        : t("portalHoursOpenLive", "Clocked in since {t}", { t: op.start_time || "—" })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {data.entries.length === 0 ? (
           <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
         ) : (
@@ -4216,8 +4283,10 @@ function NewGroupSheet({ token, onClose, onCreated }) {
             placeholder={t("staffChatGroupNamePlaceholder", "e.g. Kitchen")}
             className="w-full bg-white outline-none placeholder:text-[#94a3b8]"
             style={{
-              padding: "12px 14px", borderRadius: 14, border: "1px solid #e2e8f0",
-              font: "500 13px/1.35 var(--font-text)", color: "#0f172a",
+              padding: "11px 14px", borderRadius: 14, border: "1px solid #e2e8f0",
+              // 16px: under it iOS zooms the page on focus (inline beats the
+              // index.css anti-zoom rule) — same fix as the chat composer.
+              font: "500 16px/1.35 var(--font-text)", color: "#0f172a",
             }}
           />
           <p
@@ -4357,7 +4426,7 @@ function ThreadListView({ token, onOpen, onRead }) {
             placeholder={t("staffChatSearch", "Search people and messages")}
             aria-label={t("staffChatSearch", "Search people and messages")}
             className="flex-1 bg-transparent outline-none placeholder:text-[#94a3b8]"
-            style={{ font: "400 12.5px/1 var(--font-text)", color: "#0f172a" }}
+            style={{ font: "400 16px/1.2 var(--font-text)", color: "#0f172a" }}
           />
         </div>
         <button
@@ -4423,6 +4492,15 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
   const scrollRef = useRef(null);
+  // px the on-screen keyboard covers (web: visual viewport; Scheduler app:
+  // the Keyboard plugin). The composer is position:fixed, and the shell's
+  // Keyboard resize mode is "body", which never moves a fixed bar — so it sat
+  // UNDER the keyboard and the staffer typed blind with Send out of reach.
+  const kb = useKeyboardLift();
+  useEffect(() => {
+    // Keyboard up → keep the newest message in sight above the composer.
+    if (kb > 0 && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [kb]);
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
 
@@ -4575,7 +4653,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       <div
         ref={scrollRef}
         className="flex flex-col overflow-y-auto"
-        style={{ maxHeight: "calc(100vh - 20rem)", gap: 9 }}
+        style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -4675,10 +4753,12 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         )}
       </div>
 
-      {/* Composer — fixed above the bottom nav, notch-aware. */}
+      {/* Composer — fixed above the bottom nav, notch-aware; while the
+          keyboard is up it rides on top of the keyboard instead. */}
       <div
+        data-testid="portal-chat-composer"
         className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
-        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+        style={{ bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
         <div className="max-w-lg mx-auto px-3 pt-2">
           <PendingPhotos picker={picker} />
@@ -4692,9 +4772,15 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               placeholder={t("staffChatPlaceholder", "Write a message…")}
               className="flex-1 resize-none max-h-28 bg-white outline-none placeholder:text-[#94a3b8]"
               style={{
-                minHeight: 42, padding: "12px 15px", borderRadius: 999,
+                // 16px, not 12.5: iOS zooms the page on focus of any field
+                // under 16px — and this inline font beat index.css's
+                // coarse-pointer 16px rule. In the Scheduler app the page then
+                // STAYED zoomed after the keyboard closed, clipping Send and
+                // the tab bar until a force-quit. Padding trimmed so the pill
+                // keeps its 42px height.
+                minHeight: 42, padding: "10px 15px", borderRadius: 999,
                 border: "1px solid #e2e8f0",
-                font: "400 12.5px/1.35 var(--font-text)", color: "#0f172a",
+                font: "400 16px/1.35 var(--font-text)", color: "#0f172a",
               }}
             />
             <button
@@ -4785,6 +4871,35 @@ function PortalError({ message, expected = false }) {
         >
           {t("portalErrorJoin", "Have a join code? Connect here")}
         </a>
+      </div>
+    </div>
+  );
+}
+
+
+/** Opening the portal failed WITHOUT the server saying the link is dead —
+    offline, a timeout, a 5xx while the backend wakes. The saved link is kept;
+    this screen says so and offers the retry (the page also retries by itself
+    on the browser's 'online' event). Never shows axios's raw "Network Error". */
+function PortalOffline({ onRetry, busy = false }) {
+  const { t } = useLanguage();
+  return (
+    <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
+      <div className="text-center max-w-xs">
+        <CloudOff className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+        <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalOfflineTitle", "No connection")}</h1>
+        <p className="text-sm text-gray-500">
+          {t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold active:scale-[0.98] transition disabled:opacity-60"
+        >
+          {busy && <RefreshCw className="w-4 h-4 animate-spin" strokeWidth={2.4} aria-hidden />}
+          {busy ? t("portalOfflineRetrying", "Trying again…") : t("tryAgain", "Try again")}
+        </button>
       </div>
     </div>
   );
@@ -6458,6 +6573,7 @@ function HeroDot() {
 export default function StaffPortalPage() {
   const { token } = useParams();
   const { t, lang, setLang } = useLanguage();
+  const confirmDisconnect = useConfirm();
 
   // The portal is a fixed full-viewport app-shell that owns its OWN safe-area
   // insets (the sticky header pads + caps the notch; the bottom nav pads for
@@ -6492,6 +6608,13 @@ export default function StaffPortalPage() {
 
   // Data for each tab
   const [shifts, setShifts] = useState([]);
+  // Whether `shifts` is an ANSWER yet. [] means three different things —
+  // not fetched yet, fetch failed, really no shifts — and the Schedule hero
+  // used to say "Ingen kommende vagt" for all three: before the first
+  // response landed, and for good when the schedule call failed.
+  // "loading" | "ok" | "error". Once "ok", a later failed refresh keeps "ok"
+  // (the last-good roster stays on screen; the header pill tells its age).
+  const [schedState, setSchedState] = useState("loading");
   // Which department (branch) the portal is showing. Built from the staffer's
   // OWN shifts — `branch_name` already rides on every row — so the list can
   // only ever contain places they actually work. null = all of them.
@@ -6664,10 +6787,17 @@ export default function StaffPortalPage() {
     finally { setPhotoBusy(false); }
   };
 
-  // 1. Validate token on mount
+  // 1. Validate token on mount — and again on "Prøv igen" / the browser coming
+  // back online after a failed open (validateKey bumps).
+  const [validateKey, setValidateKey] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   useEffect(() => {
+    let gone = false;
     portalApi.get(`/portal/${token}`)
       .then((res) => {
+        if (gone) return;
+        setError(null);
+        setRetrying(false);
         setInfo(res.data);
         // No PIN — auto-verify. With a PIN, a still-valid stored proof
         // (validated server-side, returned as pin_ok) also skips the gate.
@@ -6679,26 +6809,32 @@ export default function StaffPortalPage() {
         try { localStorage.setItem("bonbox_portal_token", token); } catch { /* private mode */ }
       })
       .catch((err) => {
-        // A burned, deactivated or expired staff link is the EXPECTED way to
-        // reach this branch, not a fault worth reporting verbatim. The backend
-        // answers it with 404 — "Link not found or inactive", and "Staff member
-        // not found" once the owner has erased the employee. Those are raw
-        // English FastAPI detail strings, and PortalError used to render them
-        // in place of its own copy, which put an English sentence directly
-        // under the Danish heading "Link virker ikke" on the ONE screen a
-        // staffer sees when their link stops working.
+        if (gone) return;
+        // ONLY the server saying "this link is gone" is a dead link. The
+        // backend answers a burned, deactivated, expired or erased link with
+        // 404 (staff_portal.py _get_staff_from_token — one status on purpose,
+        // so it never confirms a token was once real); 410 is accepted too.
         //
-        // So classify here rather than in the view: flag the expected case and
-        // let the screen use the da/en catalogue copy, and keep the server's
-        // own text for statuses we did not anticipate, where it is the only
-        // clue anyone gets. Backend untouched — this is a rendering decision.
-        // No clue at all → an empty text, so PortalError shows its da/en
-        // catalogue body instead of an English "Link not found".
-        setError({
-          expected: err?.response?.status === 404,
-          text: errText(err, ""),
-        });
+        // Everything else — no response at all (offline, a dead radio), a
+        // timeout, a 429, a 5xx while Render wakes — says nothing about the
+        // link. This catch used to treat all of them as dead: it showed
+        // "Link virker ikke" over axios's English "Network Error" with no way
+        // to retry, AND erased the saved link, so the Scheduler app booted to
+        // /join next launch. Join codes burn on use, so the staffer then needed
+        // a new code from their manager to see a schedule nothing was wrong
+        // with. Now a non-answer keeps the link and offers "Prøv igen".
+        const status = err?.response?.status;
+        const dead = status === 404 || status === 410;
         setLoading(false);
+        setRetrying(false);
+        if (!dead) {
+          setError({ transient: true });
+          return;
+        }
+        // The dead-link screen uses the da/en catalogue copy: the server's
+        // detail is raw English ("Link not found or inactive") and tells the
+        // staffer nothing they can act on.
+        setError({ expected: true, text: "" });
         // A dead link must not keep booting an installed app (PWA or the
         // Scheduler shell — both launch to "/") into this error screen:
         // forget it so "/" falls back to the join-code screen.
@@ -6708,7 +6844,18 @@ export default function StaffPortalPage() {
           }
         } catch { /* private mode */ }
       });
-  }, [token]);
+    return () => { gone = true; };
+  }, [token, validateKey]);
+
+  // A failed open retries by itself the moment the phone is back online —
+  // the staffer should not have to know that "Prøv igen" exists.
+  const transientOpen = !!error?.transient;
+  useEffect(() => {
+    if (!transientOpen) return;
+    const onOnline = () => { setRetrying(true); setValidateKey((k) => k + 1); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [transientOpen]);
 
   // 2. Load data once verified
   const loadData = useCallback(() => {
@@ -6752,8 +6899,10 @@ export default function StaffPortalPage() {
         }
         scheduleSigRef.current = nextSig;
         setShifts(nextShifts);
+        setSchedState("ok");
         setLastSynced(new Date());
       } else {
+        setSchedState((st) => (st === "ok" ? "ok" : "error"));
         // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
         // the pill keeps showing the real last-good time (or Offline). Keeping
         // the last-good shifts on screen is right; the caller just has to be
@@ -7133,10 +7282,17 @@ export default function StaffPortalPage() {
     );
   }
 
-  // Error state
-  // `error` is {expected, text} — see the token-validation catch. Still a
-  // plain truthiness gate: an object is always truthy, so the screen shows
-  // exactly when it did before.
+  // Error state — see the token-validation catch. {transient} is "we could
+  // not reach the server" (link kept, retry offered); anything else is the
+  // dead-link screen.
+  if (error?.transient) {
+    return (
+      <PortalOffline
+        busy={retrying}
+        onRetry={() => { setRetrying(true); setValidateKey((k) => k + 1); }}
+      />
+    );
+  }
   if (error) return <PortalError message={error.text} expected={error.expected} />;
 
   // PIN gate
@@ -7655,14 +7811,25 @@ export default function StaffPortalPage() {
                   InstallNotifyCard on the Schedule tab — far better
                   discovery than buried behind the avatar. */}
               {/* Disconnect: forget this schedule on THIS phone (saved token
-                  + PIN proof) and land on the join screen. Recoverable —
-                  re-enter the join code or tap the link again. Matters for
-                  the Scheduler app: a phone that changes workplace needs a
-                  way out, and App Review likes an explicit disconnect. */}
+                  + PIN proof) and land on the join screen. Matters for the
+                  Scheduler app: a phone that changes workplace needs a way
+                  out, and App Review likes an explicit disconnect.
+                  NOT cheap to undo: join codes burn on first use
+                  (staff_portal.py code_used_at), so getting back needs the
+                  link again or a NEW code from the manager — and shift alerts
+                  stop. One mis-tap under "Gem" used to do all of that, so it
+                  asks first (destructive: focus starts on Annuller). */}
               <div className="pt-1 border-t border-[#f1f5f9]">
                 <button
                   type="button"
                   onClick={async () => {
+                    const ok = await confirmDisconnect({
+                      title: t("portalDisconnectTitle", "Disconnect this phone?"),
+                      message: t("portalDisconnectBody", "You will stop getting shift alerts, and to see your schedule again you need your link or a new code from your manager."),
+                      confirmLabel: t("portalDisconnectConfirm", "Disconnect"),
+                      destructive: true,
+                    });
+                    if (ok !== true) return;
                     // Order matters: the unregister call needs the portal
                     // token + PIN proof that are about to be forgotten.
                     await unregisterNativePush(token);
@@ -7672,7 +7839,7 @@ export default function StaffPortalPage() {
                     } catch { /* private mode */ }
                     window.location.href = "/join";
                   }}
-                  className="text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                  className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
                 >
                   {t("portalDisconnect", "Disconnect this phone from the schedule")}
                 </button>
@@ -7736,6 +7903,8 @@ export default function StaffPortalPage() {
             businessType={info?.business_type}
             calendarKey={info?.calendar_key}
             onShiftsChanged={loadData}
+            schedState={schedState}
+            onRetrySchedule={() => { setSchedState((st) => (st === "ok" ? "ok" : "loading")); loadData(); }}
           />
         )}
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm

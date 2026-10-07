@@ -291,6 +291,13 @@ def _calc_hours(start: str, end: str, brk: int) -> float:
         e += 24.0
     return round(max(e - s - brk / 60.0, 0), 2)
 
+def _is_open_punch(h) -> bool:
+    """A clock punch still waiting for its clock-out (live or forgotten).
+    Same shape as the ux_hours_open_clock index: clock rows only — a quick
+    entry with no end time is a recorded amount, not an open punch."""
+    return getattr(h, "entry_method", None) == "clock" and not getattr(h, "end_time", None)
+
+
 def _get_staff_from_token(token: str, db: Session, touch: bool = True):
     """Validate magic link token, return (link, staff_member).
 
@@ -1099,12 +1106,23 @@ def get_portal_hours(
         period_end = today.replace(day=last_day)
 
     # ── Logged actuals (may be empty — most owners never log these) ──
-    hours = db.query(HoursLogged).filter(
+    period_rows = db.query(HoursLogged).filter(
         HoursLogged.staff_id == member.id,
         HoursLogged.user_id == link.user_id,
         HoursLogged.date >= period_start,
         HoursLogged.date <= period_end,
     ).order_by(HoursLogged.date.desc()).all()
+    # An OPEN clock punch (entry_method "clock", end_time NULL, total_hours 0)
+    # is not a worked shift yet. It used to sit in this list: one clock-in
+    # flipped `use_logged` below, so the headline went from the rostered plan
+    # (e.g. 101,5 planned) to "0 worked", the roster rows were replaced by a
+    # single "0 timer" row, and it counted as a shift. A forgotten clock-out
+    # looked like a finished zero-hour shift forever. Open punches are kept
+    # OUT of every total and every entry, and reported separately below so
+    # the row can say what it is. Scoped to clock rows on purpose: an
+    # owner's quick entry can legitimately carry hours with no end time.
+    hours = [h for h in period_rows if not _is_open_punch(h)]
+    open_rows = [h for h in period_rows if _is_open_punch(h)]
 
     logged_hours = sum(float(h.total_hours or 0) for h in hours)
     total_earned = sum(float(h.earned or 0) for h in hours)
@@ -1228,11 +1246,35 @@ def get_portal_hours(
         for r in recent_rows
     ]
 
+    # ── Open punches (in the period) — never a number, always a state ──
+    # "live": clocked in and still plausibly on shift → the row reads
+    # "Stemplet ind siden 16:58". "forgotten": open longer than any real shift
+    # → "Mangler udstempling — din leder retter den". ONE rule decides which,
+    # shared with the owner's Timer exceptions and the working-time register
+    # (time_registration.open_punch_is_forgotten), so the staffer and the
+    # owner can never disagree about whose clock-out is missing.
+    open_punches = []
+    if open_rows:
+        from app.routers.staff import _open_punch_clock
+        from app.services.time_registration import open_punch_is_forgotten
+        _clk = _open_punch_clock(owner_user) if owner_user else {"now": None, "cutoff_hour": 6}
+        for h in open_rows:
+            try:
+                forgotten = open_punch_is_forgotten(h.date, h.start_time, _clk["now"], _clk["cutoff_hour"])
+            except Exception:  # noqa: BLE001 — unusable start: the calendar fallback
+                forgotten = h.date < today
+            open_punches.append({
+                "date": h.date.isoformat(),
+                "start_time": h.start_time,
+                "state": "forgotten" if forgotten else "live",
+            })
+
     return {
         "staff_name": member.name,
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
         "total_hours": round(total_hours, 2),
+        "open_punches": open_punches,
         "total_earned": round(total_earned, 2),
         "max_hours_month": float(member.max_hours_month) if member.max_hours_month else None,
         # New, additive fields — let the UI distinguish rostered vs logged
