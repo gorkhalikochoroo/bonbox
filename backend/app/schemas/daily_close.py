@@ -30,8 +30,10 @@ class DailyCloseCreate(BaseModel):
     tips_total: float | None = None
     tips_staff_count: int | None = None
     cash_counted: float | None = None
-    notes: str | None = None
-    closed_by: str | None = None
+    notes: str | None = Field(None, max_length=4000)
+    # A first name, typed by staff, printed on the kasserapport and put into
+    # the revisor's mail. Bounded — it had no cap at all.
+    closed_by: str | None = Field(None, max_length=80)
     # Z-report photo URL — set when the owner used "Snap report" in the
     # close flow. Backend persists it on DailyClose.receipt_photo so
     # the photo can be re-viewed later. 2000-char cap is well above

@@ -51,15 +51,23 @@ def _secret() -> bytes:
     ).encode("utf-8")
 
 
-def make_unsubscribe_token(user_id: str, topic: str, ttl_days: int = 30) -> str:
+def make_unsubscribe_token(
+    user_id: str, topic: str, ttl_days: int = 30, extra: dict | None = None,
+) -> str:
     """Mint a signed unsubscribe token.
 
     `topic` is the per-email-type opt-out key — today only
     'daily_brief' is wired, but the scheme supports future topics
     (e.g. 'kasserapport_delivery', 'anomaly_alerts') without a model
     or URL change.
+
+    `extra` carries short, signed claims a topic needs — the revisor
+    opt-out binds the token to a fingerprint of the revisor's address
+    ("r"), so it cannot switch off a different recipient. Keys u/t/e are
+    reserved and never overwritten.
     """
     payload = {
+        **{k: v for k, v in (extra or {}).items() if k not in ("u", "t", "e")},
         "u": str(user_id),
         "t": topic,
         "e": int(time.time()) + (ttl_days * 86400),

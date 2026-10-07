@@ -30,10 +30,45 @@ from app.models.daily_close import DailyClose, decode_breakdown
 from app.utils.csv_safe import csv_safe
 
 
-# ─── CSV ──────────────────────────────────────────────────────────────
+# ─── Confirmed vs draft — one predicate, one label ────────────────────
 
-_CSV_COLUMNS = [
-    "date", "branch_id", "status",
+def _is_confirmed(c) -> bool:
+    return (getattr(c, "status", None) or "confirmed") == "confirmed"
+
+
+def status_label(c, danish: bool) -> str:
+    """The Status cell text. The Excel totals formula keys on CONFIRMED_LABEL,
+    so the row writer and the formula read the same constant."""
+    if _is_confirmed(c):
+        return CONFIRMED_LABEL_DA if danish else CONFIRMED_LABEL_EN
+    return DRAFT_LABEL_DA if danish else DRAFT_LABEL_EN
+
+
+CONFIRMED_LABEL_DA = "Låst"
+CONFIRMED_LABEL_EN = "Locked"
+DRAFT_LABEL_DA = "Kladde (ikke medregnet)"
+DRAFT_LABEL_EN = "Draft (not counted)"
+
+
+# ─── CSV ──────────────────────────────────────────────────────────────
+#
+# THE DEFAULT CSV IS FOR A DANISH REVISOR IN DANISH EXCEL. It used to write
+# Python's "15021.00": Danish Excel reads "." as a time/grouping separator, so
+# MOMS became time values and revenue became text — in the one file the panel
+# promised "opens directly in Excel". It also carried English DB field names,
+# branch UUIDs and the photo's storage key, none of which a revisor needs.
+#
+# Now: UTF-8 BOM, ";" delimiter, decimal comma with NO thousands separator
+# ("15021,00" — what Danish Excel parses as a number), Danish headers, a fixed
+# column order (the header row names every column), drafts listed but marked
+# "Kladde (ikke medregnet)" and kept out of the totals row at the bottom.
+#
+# The old machine shape is still available — only behind an explicit
+# `variant="machine"` (`?variant=machine` on the endpoint); the UI never offers
+# it. Its storage key / branch id columns are gone there too.
+
+_MACHINE_CSV_COLUMNS = [
+    "date", "status",
     "revenue_total", "revenue_ex_moms", "moms_total", "moms_mode",
     "payment_total", "cash_expected", "cash_counted", "cash_difference",
     "tips_total", "tips_staff_count", "tips_per_person",
@@ -41,50 +76,266 @@ _CSV_COLUMNS = [
     "payment_breakdown",   # encoded "cash:4200|card:13500"
     "closed_by", "closed_at",
     "unlock_reason", "unlocked_by", "unlocked_at",
-    "notes", "receipt_photo",
+    "notes",
+]
+# Back-compat name for the machine variant's documented column set.
+_CSV_COLUMNS = _MACHINE_CSV_COLUMNS
+
+# Fixed revisor columns, in order. Category columns ("Kategori: Mad" …) follow
+# after these, built-in categories first in the app's order, then the owner's
+# own, then "Kategori: Ikke fordelt".
+_REVISOR_CSV_COLUMNS_DA = [
+    "Dato", "Status", "Afdeling",
+    "Omsætning inkl. moms", "Salgsmoms", "Omsætning ekskl. moms", "Momsopgørelse",
+    "Kontant", "Kort", "MobilePay", "Gavekort", "Bankoverførsel", "Andre betalinger",
+    "Betalinger i alt",
+    "Forventet kontant", "Optalt kontant (uden byttepenge)", "Kassedifference",
+    "Drikkepenge", "Antal medarbejdere", "Drikkepenge pr. medarbejder",
+    "Kilde", "Lukket af", "Låst (dansk tid)", "Historik", "Bemærkninger",
+]
+_REVISOR_CSV_COLUMNS_EN = [
+    "Date", "Status", "Branch",
+    "Revenue incl. VAT", "Salgsmoms", "Revenue excl. VAT", "VAT basis",
+    "Cash", "Card", "MobilePay", "Gavekort", "Bank transfer", "Other payments",
+    "Payments total",
+    "Expected cash", "Counted cash (float taken off)", "Cash difference",
+    "Tips", "Staff count", "Tips per person",
+    "Source", "Closed by", "Locked (local time)", "History", "Notes",
 ]
 
 
 def _opt(v):
-    """Format an optional float as fixed 2-decimal or empty string."""
+    """Machine variant: optional float as fixed 2-decimal dot, or ""."""
     if v is None:
         return ""
     return f"{float(v):.2f}"
 
 
-def closes_to_csv_bytes(closes: list[DailyClose]) -> bytes:
-    """Serialize a list of DailyClose to CSV. UTF-8 BOM + semicolon
-    delimiter so Danish Excel opens it cleanly with Æ/Ø/Å intact."""
+def _dk_num(v) -> str:
+    """Revisor variant: optional amount as Danish Excel reads a NUMBER —
+    decimal comma, no thousands separator ("15021,00", "-180,00")."""
+    if v is None:
+        return ""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if abs(n) < 0.005:
+        n = 0.0
+    return f"{n:.2f}".replace(".", ",")
+
+
+def _en_num(v) -> str:
+    if v is None:
+        return ""
+    try:
+        return f"{float(v):.2f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def to_local(dt, tz=None):
+    """closed_at / unlocked_at are stored as naive UTC. Every artifact prints
+    them in the venue's time (Europe/Copenhagen unless the caller passes the
+    owner's zone) — the app and the e-mail already did; the PDF, Excel and CSV
+    printed raw UTC, two hours and sometimes a calendar day apart."""
+    if dt is None:
+        return None
+    try:
+        from datetime import timezone as _tz
+        from zoneinfo import ZoneInfo
+        zone = tz or ZoneInfo("Europe/Copenhagen")
+        aware = dt if dt.tzinfo else dt.replace(tzinfo=_tz.utc)
+        return aware.astimezone(zone)
+    except Exception:  # noqa: BLE001
+        return dt
+
+
+def dk_datetime(dt, tz=None, *, danish: bool = True) -> str:
+    """'26.09.2026 kl. 01:28' — the one Danish date+time style."""
+    loc = to_local(dt, tz)
+    if loc is None:
+        return ""
+    return loc.strftime("%d.%m.%Y kl. %H:%M") if danish else loc.strftime("%d %b %Y %H:%M")
+
+
+_BUILTIN_CAT_ORDER = [
+    "food", "drinks", "takeaway", "bread_pastry", "groceries", "fresh",
+    "products", "retail_products", "services", "treatments", "parts", "labor",
+    "diagnostics", "towing", "tobacco_lottery", "online_sales", "shipping",
+    "returns", "returns_refunds", "revenue", "other",
+]
+
+
+def _category_amounts(c) -> tuple[dict, float | None]:
+    """{folded_key: amount} for one close, plus the part of its revenue no
+    category carries — the whole revenue when it has no breakdown at all, so
+    the category columns always add back to Omsætning. Keys are folded
+    case-insensitively — 'Food' and 'food' are one category."""
+    raw = decode_breakdown(getattr(c, "revenue_categories", None)) or {}
+    out: dict = {}
+    for k, v in raw.items():
+        key = (k or "").strip()
+        fold = key.lower() if key.lower() in _BUILTIN_CAT_ORDER else key
+        out[fold] = round(out.get(fold, 0.0) + float(v or 0), 2)
+    unsplit = round(float(getattr(c, "revenue_total", 0) or 0) - sum(out.values()), 2)
+    return out, (unsplit if abs(unsplit) >= 0.005 else 0.0)
+
+
+def category_columns(closes) -> list:
+    """The category keys found in a range, in a STABLE order: built-ins in the
+    app's order, then owner-typed names alphabetically."""
+    seen: set = set()
+    for c in closes:
+        seen.update(_category_amounts(c)[0].keys())
+    builtin = [k for k in _BUILTIN_CAT_ORDER if k in seen]
+    custom = sorted((k for k in seen if k not in _BUILTIN_CAT_ORDER), key=str.lower)
+    return builtin + custom
+
+
+def _row_history(c, history: dict | None, tz, danish: bool) -> str:
+    """The close's unlock history: from the audit trail when the router passed
+    it, else from the row's own unlock fields (a close that is unlocked right
+    now still carries them)."""
+    cid = str(getattr(c, "id", "") or "")
+    if history and history.get(cid):
+        return history[cid]
+    reason = getattr(c, "unlock_reason", None)
+    if not reason:
+        return ""
+    who = getattr(c, "unlocked_by", None)
+    when = dk_datetime(getattr(c, "unlocked_at", None), tz, danish=danish)
+    if danish:
+        return f"Låst op {when}" + (f" af {who}" if who else "") + f" — årsag: {reason}"
+    return f"Unlocked {when}" + (f" by {who}" if who else "") + f" — reason: {reason}"
+
+
+def closes_to_csv_bytes(
+    closes: list[DailyClose],
+    *,
+    currency: str = "DKK",
+    variant: str = "revisor",
+    tz=None,
+    history: dict | None = None,
+    branch_names: dict | None = None,
+    sources: dict | None = None,
+) -> bytes:
+    """Serialize closes to CSV (UTF-8 BOM, ";" delimiter).
+
+    `variant="revisor"` (default) — Danish headers and decimal comma for a DKK
+    owner, a totals row over LOCKED closes only, no internal ids.
+    `variant="machine"` — the raw shape for imports, only on explicit request.
+    `history` / `branch_names` / `sources` are optional per-close strings the
+    router derives (unlock history from the audit trail, branch names, the
+    figures' source) keyed by str(close.id) / str(branch_id).
+    """
     buf = io.StringIO()
     buf.write("﻿")
     writer = csv.writer(buf, delimiter=";")
-    writer.writerow(_CSV_COLUMNS)
-    for c in closes:
-        writer.writerow([
+
+    if variant == "machine":
+        writer.writerow(_MACHINE_CSV_COLUMNS)
+        for c in closes:
+            writer.writerow([
+                c.date.isoformat() if c.date else "",
+                csv_safe(getattr(c, "status", "") or ""),
+                _opt(c.revenue_total),
+                _opt(c.revenue_ex_moms),
+                _opt(c.moms_total),
+                csv_safe(getattr(c, "moms_mode", "") or ""),
+                _opt(c.payment_total),
+                _opt(c.cash_expected),
+                _opt(c.cash_counted),
+                _opt(c.cash_difference),
+                _opt(c.tips_total),
+                c.tips_staff_count if c.tips_staff_count is not None else "",
+                _opt(c.tips_per_person),
+                csv_safe(c.revenue_categories or ""),
+                csv_safe(c.payment_categories or ""),
+                csv_safe(c.closed_by or ""),
+                c.closed_at.isoformat() if c.closed_at else "",
+                csv_safe(getattr(c, "unlock_reason", "") or ""),
+                csv_safe(getattr(c, "unlocked_by", "") or ""),
+                (c.unlocked_at.isoformat() if getattr(c, "unlocked_at", None) else ""),
+                csv_safe(c.notes or ""),
+            ])
+        return buf.getvalue().encode("utf-8")
+
+    DA = (currency or "").upper() == "DKK"
+    num = _dk_num if DA else _en_num
+    from app.services.close_category_labels import revenue_category_label
+
+    cats = category_columns(closes)
+    cat_prefix = "Kategori: " if DA else "Category: "
+    header = list(_REVISOR_CSV_COLUMNS_DA if DA else _REVISOR_CSV_COLUMNS_EN)
+    header += [cat_prefix + revenue_category_label(k, danish=DA) for k in cats]
+    header += [cat_prefix + ("Ikke fordelt" if DA else "Not allocated")]
+    writer.writerow(header)
+
+    sorted_closes = sorted(closes, key=lambda c: c.date or date.min)
+    for c in sorted_closes:
+        pay = _bucketed_payments(c)
+        unknown = moms_is_unknown(c)
+        moms = None if unknown else float(c.moms_total or 0)
+        net = _net_of(c)
+        amounts, unsplit = _category_amounts(c)
+        mode = (getattr(c, "moms_mode", None) or "auto").lower()
+        moms_basis = (
+            ("Kan ikke opgøres" if DA else "Cannot be stated") if unknown
+            else (("Indtastet manuelt" if DA else "Entered manually") if mode == "manual"
+                  else ("Beregnet af BonBox" if DA else "Calculated by BonBox"))
+        )
+        cid = str(getattr(c, "id", "") or "")
+        row = [
             c.date.isoformat() if c.date else "",
-            str(c.branch_id) if c.branch_id else "",
-            csv_safe(getattr(c, "status", "") or ""),
-            _opt(c.revenue_total),
-            _opt(c.revenue_ex_moms),
-            _opt(c.moms_total),
-            csv_safe(getattr(c, "moms_mode", "") or ""),
-            _opt(c.payment_total),
-            _opt(c.cash_expected),
-            _opt(c.cash_counted),
-            _opt(c.cash_difference),
-            _opt(c.tips_total),
+            status_label(c, DA),
+            csv_safe((branch_names or {}).get(str(c.branch_id), "") if c.branch_id else ""),
+            num(c.revenue_total),
+            num(moms),
+            num(net),
+            moms_basis,
+            num(pay["cash"] or None), num(pay["card"] or None),
+            num(pay["mobilepay"] or None), num(pay["gift_card"] or None),
+            num(pay["bank_transfer"] or None), num(pay["other"] or None),
+            num(c.payment_total),
+            num(c.cash_expected), num(c.cash_counted), num(c.cash_difference),
+            num(c.tips_total),
             c.tips_staff_count if c.tips_staff_count is not None else "",
-            _opt(c.tips_per_person),
-            csv_safe(c.revenue_categories or ""),
-            csv_safe(c.payment_categories or ""),
+            num(c.tips_per_person),
+            csv_safe((sources or {}).get(cid, "")),
             csv_safe(c.closed_by or ""),
-            c.closed_at.isoformat() if c.closed_at else "",
-            csv_safe(getattr(c, "unlock_reason", "") or ""),
-            csv_safe(getattr(c, "unlocked_by", "") or ""),
-            (c.unlocked_at.isoformat() if getattr(c, "unlocked_at", None) else ""),
+            dk_datetime(c.closed_at, tz, danish=DA) if _is_confirmed(c) else "",
+            csv_safe(_row_history(c, history, tz, DA)),
             csv_safe(c.notes or ""),
-            csv_safe(getattr(c, "receipt_photo", "") or ""),
-        ])
+        ]
+        row += [num(amounts.get(k)) if k in amounts else "" for k in cats]
+        row += [num(unsplit) if unsplit else ""]
+        writer.writerow(row)
+
+    if sorted_closes:
+        t = period_totals(closes)
+        tot_label = (
+            f"I alt — {t['n_confirmed']} låste" if DA
+            else f"Total — {t['n_confirmed']} locked"
+        )
+        if t["n_drafts"]:
+            tot_label += (
+                f" ({t['n_drafts']} {'kladde' if t['n_drafts'] == 1 else 'kladder'} ikke medregnet)"
+                if DA else f" ({t['n_drafts']} draft(s) not counted)"
+            )
+        total_row = [
+            "", tot_label, "",
+            num(t["revenue"]), num(t["moms"]), num(t["net"]), "",
+            num(t["cash"]), num(t["card"]), num(t["mobilepay"]),
+            num(t["gift_card"]), num(t["bank_transfer"]), num(t["other"]),
+            num(t["payment_total"]),
+            num(t["cash_expected"]), num(t["cash_counted"]), num(t["cash_difference"]),
+            num(t["tips"]), "", "",
+            "", "", "", "", "",
+        ]
+        total_row += [num(t["categories"].get(k, 0.0)) for k in cats]
+        total_row += [num(t["unallocated"]) if t["unallocated"] else ""]
+        writer.writerow(total_row)
     return buf.getvalue().encode("utf-8")
 
 
@@ -203,6 +454,77 @@ from app.services.bonbox_pdf_kit import compose_business_address  # noqa: E402,F
 from app.services.kasserapport_claims import moms_is_unknown  # noqa: E402
 
 
+def _net_of(c) -> float | None:
+    """Revenue ex. MOMS for one close, or None when its MOMS cannot be stated
+    (a net built by subtracting an unknown VAT hands the missing figure back)."""
+    if moms_is_unknown(c):
+        return None
+    if getattr(c, "revenue_ex_moms", None) is not None:
+        return float(c.revenue_ex_moms)
+    return float(getattr(c, "revenue_total", 0) or 0) - float(getattr(c, "moms_total", 0) or 0)
+
+
+def period_totals(closes) -> dict:
+    """THE period totals — one source of truth for the range PDF's KPI band and
+    totals row, the Excel Oversigt sheet and totals row, the CSV totals row and
+    the e-mail body that delivers them.
+
+    They used to be summed four times in four places. The Excel totals row was
+    a plain SUM over every row — the draft included — under the label
+    "I alt (bekræftede)", so the attachment disagreed with its own summary
+    sheet, the PDF and the e-mail by a whole day's revenue.
+
+    LOCKED closes only. Drafts are counted (n_drafts) so every artifact can say
+    "N kladder ikke medregnet", but never summed. MOMS and net are None when
+    any locked close's MOMS cannot be stated (the shared predicate)."""
+    confirmed = [c for c in closes if _is_confirmed(c)]
+    drafts = [c for c in closes if not _is_confirmed(c)]
+    moms_unknown = [c for c in confirmed if moms_is_unknown(c)]
+
+    def _sum(vals):
+        return round(sum(float(v) for v in vals if v is not None), 2)
+
+    def g(c, attr):
+        return getattr(c, attr, None)
+
+    buckets = {k: 0.0 for k in _PAY_BUCKETS}
+    buckets["other"] = 0.0
+    for c in confirmed:
+        for k, v in _bucketed_payments(c).items():
+            buckets[k] = round(buckets[k] + v, 2)
+
+    categories: dict = {}
+    unallocated = 0.0
+    for c in confirmed:
+        amounts, unsplit = _category_amounts(c)
+        for k, v in amounts.items():
+            categories[k] = round(categories.get(k, 0.0) + v, 2)
+        unallocated = round(unallocated + unsplit, 2)
+
+    def _opt_sum(attr):
+        vals = [getattr(c, attr, None) for c in confirmed]
+        return _sum(vals) if any(v is not None for v in vals) else None
+
+    return {
+        "confirmed": confirmed,
+        "drafts": drafts,
+        "n_confirmed": len(confirmed),
+        "n_drafts": len(drafts),
+        "moms_unknown_count": len(moms_unknown),
+        "revenue": _sum(g(c, "revenue_total") for c in confirmed),
+        "moms": None if moms_unknown else _sum(g(c, "moms_total") for c in confirmed),
+        "net": None if moms_unknown else _sum(_net_of(c) for c in confirmed),
+        "tips": _sum(g(c, "tips_total") for c in confirmed),
+        "payment_total": _sum(g(c, "payment_total") for c in confirmed),
+        **buckets,
+        "cash_expected": _opt_sum("cash_expected"),
+        "cash_counted": _opt_sum("cash_counted"),
+        "cash_difference": _opt_sum("cash_difference"),
+        "categories": categories,
+        "unallocated": unallocated,
+    }
+
+
 def _fmt_kr(v, currency: str = "DKK") -> str:
     """Render a money value as the PDF's canonical Danish string ("1.850,00
     kr."). Wraps the gold money_dk formatter (same one the PDF/MOMS artifacts
@@ -273,6 +595,7 @@ def build_daily_close_range_pdf(
     db: Session | None = None,
     user_id=None,
     bilagsnummer: str = "",
+    tz=None,
 ) -> bytes:
     """Build a multi-day daily-close PDF report — accountant-grade.
 
@@ -560,17 +883,13 @@ def build_daily_close_range_pdf(
 
         # ─── KPI band (only sums CONFIRMED — drafts excluded so totals are
         #   honest for the accountant) ────────────────────────────────────
-        def _sum(attr):
-            return sum(float(getattr(c, attr, 0) or 0) for c in confirmed)
-
-        total_revenue = _sum("revenue_total")
-        total_moms = _sum("moms_total")
-        total_net = sum(
-            float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
-            else max(float(c.revenue_total or 0) - float(c.moms_total or 0), 0)
-            for c in confirmed
-        )
-        total_tips = _sum("tips_total")
+        # ONE source of truth — the same function the Excel workbook, the CSV
+        # and the e-mail body read, so the four can never disagree.
+        T = period_totals(closes_sorted)
+        total_revenue = T["revenue"]
+        total_moms = T["moms"]
+        total_net = T["net"]
+        total_tips = T["tips"]
 
         # ── MOMS KPI honesty (the SAME predicate as the per-close kasserapport) ──
         # `_sum` coerces a NULL moms_total to 0, so a range containing closes
@@ -586,11 +905,11 @@ def build_daily_close_range_pdf(
         # The same stored row rendered "—" on its own document and a firm figure
         # in the period export. One predicate now answers for both.
         moms_unknown_closes = [c for c in confirmed if moms_is_unknown(c)]
-        moms_total_known = not moms_unknown_closes
+        moms_total_known = total_moms is not None
         # A period net built by subtracting an unknown VAT from revenue is just
         # as unknown — and would sit beside a dashed MOMS in the same band,
         # inviting the reader to reconstruct the missing figure from it.
-        net_total_known = moms_total_known
+        net_total_known = total_net is not None
 
         def _fmt(v):
             # Canonical money formatter — the ONE every BonBox export must use
@@ -743,20 +1062,12 @@ def build_daily_close_range_pdf(
                 status_cell,
             ])
 
-        # Totals (confirmed only)
-        sum_cash = sum(_bucketed_payments(c)["cash"] for c in confirmed)
-        sum_card = sum(_bucketed_payments(c)["card"] for c in confirmed)
-        sum_mp = sum(_bucketed_payments(c)["mobilepay"] for c in confirmed)
-        sum_other = sum(
-            _bucketed_payments(c)["gift_card"]
-            + _bucketed_payments(c)["bank_transfer"]
-            + _bucketed_payments(c)["other"]
-            for c in confirmed
-        )
-        sum_diff = sum(
-            float(c.cash_difference or 0) for c in confirmed
-            if c.cash_difference is not None
-        )
+        # Totals (locked only) — from period_totals, like everything else.
+        sum_cash = T["cash"]
+        sum_card = T["card"]
+        sum_mp = T["mobilepay"]
+        sum_other = round(T["gift_card"] + T["bank_transfer"] + T["other"], 2)
+        sum_diff = T["cash_difference"] or 0.0
 
         table_data.append([
             f"{L['totals']} ({n_conf})", "",
@@ -1018,57 +1329,81 @@ def build_daily_close_range_xlsx(
     profile=None,
     db: Session | None = None,
     user_id=None,
+    tz=None,
+    history: dict | None = None,
+    sources: dict | None = None,
 ) -> bytes:
-    """Build an Excel workbook with two sheets:
+    """Build the revisor's Excel workbook:
 
-      1. "Daily Close" — one row per close, typed columns (date as
-         date, money as number with `# ##0,00` format). Frozen header,
-         auto-widths, totals row using SUM() formulas so the accountant
-         can edit rows and totals recompute live.
-      2. "Summary" — KPI overview + business header.
+      1. "Oversigt" — business header, period, the LOCKED-only totals (from
+         period_totals — the same figures as the PDF and the e-mail), the
+         revenue per category and the payments per method.
+      2. "Kasserapport" — one row per close, typed cells, frozen header. The
+         totals row is a live SUMIFS keyed on the Status column, so drafts stay
+         listed (marked "Kladde (ikke medregnet)") but never enter a total, and
+         the revisor can still edit a row and watch the totals follow.
 
-    Accountants overwhelmingly prefer XLSX over PDF for end-of-period
-    handoff because they can sort/filter/pivot. PDF stays available
-    for the "send a one-pager to the bookkeeper" flow.
+    Money cells use the INVARIANT format code '#,##0.00 "kr."'. An xlsx format
+    code is always read in en-US grammar and localised by Excel: a Danish
+    machine shows "15.021,00 kr.". The previous Danish literal '#.##0,00' was
+    read as "decimal point after the first #", which is how the revisor saw
+    "15021,000 kr." and '####' totals.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
+    from app.services.close_category_labels import revenue_category_label
 
     DA = (currency == "DKK")
+    money_fmt = '#,##0.00" kr."' if DA else f'#,##0.00" {currency}"'
+    totals = period_totals(closes)
+    conf_label = CONFIRMED_LABEL_DA if DA else CONFIRMED_LABEL_EN
+    cats = category_columns(closes)
 
-    # Localized headers — same vocabulary as the PDF for consistency
+    def _d(d):
+        return d.strftime("%d.%m.%Y") if DA else d.isoformat()
+
+    # Localized headers — same vocabulary as the PDF for consistency.
+    # Column 20 (T) is Status; the totals formula keys on it.
     H = (
         ["Dato", "Bilag (salg)", "Bilag (udgift)",
-         "Omsætning", "Salgsmoms 25%", "Netto (uden moms)",
+         "Omsætning", "Salgsmoms", "Netto (uden moms)",
          "Kontant", "Kort", "MobilePay", "Gavekort", "Bank", "Andet",
-         "Betalinger i alt", "Forventet kontant", "Optalt kontant", "Kasse-diff",
+         "Betalinger i alt", "Forventet kontant", "Optalt kontant (uden byttepenge)",
+         "Kassedifference",
          "Drikkepenge", "Antal medarbejdere", "Pr. medarbejder",
-         "Status", "Lukket af", "Lukket dato", "Bemærkninger"]
+         "Status", "Lukket af", "Låst (dansk tid)", "Kilde", "Historik", "Bemærkninger"]
         if DA else
         ["Date", "Sales voucher", "Expense voucher",
-         "Revenue", "Output VAT 25%", "Net (excl. VAT)",
-         "Cash", "Card", "MobilePay", "Gift card", "Bank transfer", "Other",
-         "Payments total", "Expected cash", "Counted cash", "Cash diff",
+         "Revenue", "Salgsmoms", "Net (excl. VAT)",
+         "Cash", "Card", "MobilePay", "Gavekort", "Bank transfer", "Other",
+         "Payments total", "Expected cash", "Counted cash (float taken off)", "Cash diff",
          "Tips", "Staff count", "Per person",
-         "Status", "Closed by", "Closed at", "Notes"]
+         "Status", "Closed by", "Locked (local time)", "Source", "History", "Notes"]
     )
+    STATUS_COL = 20
+    n_fixed = len(H)
+    cat_prefix = "Kategori: " if DA else "Category: "
+    H = H + [cat_prefix + revenue_category_label(k, danish=DA) for k in cats] + [
+        cat_prefix + ("Ikke fordelt" if DA else "Not allocated")]
+    cat_col_start = n_fixed + 1
 
     wb = Workbook()
-
-    # ─── Sheet 1: Summary ─────────────────────────────────────────────
-    s1 = wb.active
-    s1.title = "Oversigt" if DA else "Summary"
-    s1.column_dimensions["A"].width = 28
-    s1.column_dimensions["B"].width = 40
-
     bold = Font(bold=True)
     big = Font(size=14, bold=True)
+    muted = Font(color="6B7280", italic=True)
+
+    # ─── Sheet 1: Oversigt ────────────────────────────────────────────
+    s1 = wb.active
+    s1.title = "Oversigt" if DA else "Summary"
+    s1.column_dimensions["A"].width = 34
+    s1.column_dimensions["B"].width = 22
+    s1.column_dimensions["C"].width = 40
 
     s1["A1"] = business_name or "—"
     s1["A1"].font = big
+    row = 2
     if profile:
-        row = 2
         if getattr(profile, "org_number", None):
             s1.cell(row=row, column=1, value="CVR")
             s1.cell(row=row, column=2, value=str(profile.org_number))
@@ -1079,81 +1414,94 @@ def build_daily_close_range_xlsx(
             s1.cell(row=row, column=2, value=addr_line)
             row += 1
 
-    period_row = 6
+    period_row = max(row + 1, 6)
     s1.cell(row=period_row, column=1, value="Periode" if DA else "Period").font = bold
-    s1.cell(row=period_row, column=2, value=f"{from_date.isoformat()} → {to_date.isoformat()}")
+    s1.cell(row=period_row, column=2, value=f"{_d(from_date)}–{_d(to_date)}")
     s1.cell(row=period_row + 1, column=1, value="Valuta" if DA else "Currency").font = bold
     s1.cell(row=period_row + 1, column=2, value=currency)
-    s1.cell(row=period_row + 2, column=1, value="Antal lukninger" if DA else "Close count").font = bold
-    s1.cell(row=period_row + 2, column=2, value=len(closes))
+    s1.cell(row=period_row + 2, column=1,
+            value="Låste lukninger (medregnet)" if DA else "Locked closes (counted)").font = bold
+    s1.cell(row=period_row + 2, column=2, value=totals["n_confirmed"])
+    s1.cell(row=period_row + 3, column=1,
+            value="Kladder (ikke medregnet)" if DA else "Drafts (not counted)").font = bold
+    s1.cell(row=period_row + 3, column=2, value=totals["n_drafts"])
 
-    confirmed = [c for c in closes if (getattr(c, "status", None) or "confirmed") == "confirmed"]
-
-    total_revenue = sum(float(c.revenue_total or 0) for c in confirmed)
-    total_moms = sum(float(c.moms_total or 0) for c in confirmed)
-    total_net = sum(
-        float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
-        else max(float(c.revenue_total or 0) - float(c.moms_total or 0), 0)
-        for c in confirmed
-    )
-    total_tips = sum(float(c.tips_total or 0) for c in confirmed)
-
-    # DKK money DISPLAY format — aligned to the PDF's "1.070,00 kr." (period
-    # thousands, comma decimal, " kr." suffix). Cells stay NUMERIC (real
-    # numbers the accountant can SUM); only the rendered string changes.
-    #
-    # We write the EXPLICIT Danish literal "#.##0,00" (period group / comma
-    # decimal) rather than the US-grammar "#,##0.00". openpyxl stores the
-    # format code VERBATIM in the sheet XML, and Excel/LibreOffice honour the
-    # literal separators in a stored custom format regardless of the opening
-    # machine's locale — so a US-locale accountant still sees Danish "1.070,00
-    # kr.", matching the PDF. The trailing literal is quoted: " kr." (leading
-    # space inside the quotes). Verified by reloading the saved file (see the
-    # scratchpad harness): cell.number_format round-trips to this exact code.
-    money_fmt = '#.##0,00" kr."' if DA else '#,##0.00" kr."'
     kpi_rows = [
-        ("Omsætning i alt" if DA else "Total revenue", total_revenue),
-        ("Salgsmoms i alt" if DA else "Total output VAT", total_moms),
-        ("Netto (uden moms)" if DA else "Net (excl. VAT)", total_net),
-        ("Drikkepenge i alt" if DA else "Total tips", total_tips),
+        ("Omsætning i alt" if DA else "Total revenue", totals["revenue"]),
+        ("Salgsmoms i alt" if DA else "Total output VAT", totals["moms"]),
+        ("Netto (uden moms)" if DA else "Net (excl. VAT)", totals["net"]),
+        ("Drikkepenge i alt" if DA else "Total tips", totals["tips"]),
     ]
-    k_start = period_row + 4
-    s1.cell(row=k_start, column=1, value="Totaler (kun bekræftede)" if DA else "Totals (confirmed only)").font = bold
-    # Same MOMS honesty as the PDF: `or 0` above coerces a NULL moms_total into
-    # the sum, so a period containing closes whose VAT was never computed
-    # produced a confident, understated headline. A total built over an unknown
-    # is not known — write "—" in the cell instead of a fabricated number, and
-    # say why underneath. (The three other KPI cells stay numeric.)
-    # Same shared predicate as the PDF — `c.moms_total is None` alone let a
-    # close the per-close kasserapport dashes contribute a confident number.
-    moms_unknown_closes = [c for c in confirmed if moms_is_unknown(c)]
-    moms_total_known = not moms_unknown_closes
+    k_start = period_row + 5
+    s1.cell(row=k_start, column=1,
+            value="Totaler (kun låste lukninger)" if DA else "Totals (locked closes only)").font = bold
     for i, (label, val) in enumerate(kpi_rows):
         r = k_start + 1 + i
         s1.cell(row=r, column=1, value=label)
-        # Rows 1 and 2 are Salgsmoms and Netto. A net built by subtracting an
-        # unknown VAT is unknown too, and stating it beside a dashed MOMS hands
-        # the missing figure back by subtraction.
-        if i in (1, 2) and not moms_total_known:
+        if val is None:
+            # A total built over a close whose MOMS cannot be stated is not
+            # known; "—", never a fabricated (understated) number.
             c = s1.cell(row=r, column=2, value="—")
         else:
             c = s1.cell(row=r, column=2, value=val)
             c.number_format = money_fmt
         c.alignment = Alignment(horizontal="right")
-    if not moms_total_known:
-        note_row = k_start + 1 + len(kpi_rows)
+    r = k_start + 1 + len(kpi_rows)
+    if totals["moms"] is None:
         s1.cell(
-            row=note_row, column=1,
+            row=r, column=1,
             value=(
-                "Salgsmoms i alt kan ikke opgøres: {n} bekræftet(e) lukning(er) "
+                "Salgsmoms i alt kan ikke opgøres: {n} låst(e) lukning(er) "
                 "har ingen momsopgørelse."
                 if DA else
-                "Total output VAT cannot be stated: {n} confirmed close(s) have "
+                "Total output VAT cannot be stated: {n} locked close(s) have "
                 "no VAT figure."
-            ).format(n=len(moms_unknown_closes)),
-        )
+            ).format(n=totals["moms_unknown_count"]),
+        ).font = muted
+        r += 1
+    if totals["n_drafts"]:
+        s1.cell(row=r, column=1, value=(
+            f"{totals['n_drafts']} {'kladde' if totals['n_drafts'] == 1 else 'kladder'} i perioden "
+            "står på arket Kasserapport, men er ikke medregnet."
+            if DA else
+            f"{totals['n_drafts']} draft(s) are listed on the detail sheet but not counted."
+        )).font = muted
+        r += 1
 
-    # ─── Sheet 2: Daily Close detail ─────────────────────────────────
+    # Revenue per category — ties to Omsætning i alt (Ikke fordelt carries the rest).
+    r += 1
+    s1.cell(row=r, column=1,
+            value="Omsætning pr. kategori (låste)" if DA else "Revenue per category (locked)").font = bold
+    r += 1
+    for k in cats:
+        if k in totals["categories"]:
+            s1.cell(row=r, column=1, value=revenue_category_label(k, danish=DA))
+            c = s1.cell(row=r, column=2, value=totals["categories"][k])
+            c.number_format = money_fmt
+            r += 1
+    if totals["unallocated"]:
+        s1.cell(row=r, column=1, value="Ikke fordelt på kategori" if DA else "Not allocated")
+        c = s1.cell(row=r, column=2, value=totals["unallocated"])
+        c.number_format = money_fmt
+        r += 1
+
+    # Payments per method — gavekort on its own line.
+    r += 1
+    s1.cell(row=r, column=1,
+            value="Betalinger pr. metode (låste)" if DA else "Payments per method (locked)").font = bold
+    r += 1
+    for key, da_l, en_l in (
+        ("cash", "Kontant", "Cash"), ("card", "Kort", "Card"),
+        ("mobilepay", "MobilePay", "MobilePay"), ("gift_card", "Gavekort", "Gavekort"),
+        ("bank_transfer", "Bankoverførsel", "Bank transfer"), ("other", "Andet", "Other"),
+    ):
+        if totals[key]:
+            s1.cell(row=r, column=1, value=da_l if DA else en_l)
+            c = s1.cell(row=r, column=2, value=totals[key])
+            c.number_format = money_fmt
+            r += 1
+
+    # ─── Sheet 2: Kasserapport detail ─────────────────────────────────
     s2 = wb.create_sheet("Kasserapport" if DA else "Daily Close")
     header_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
     thin = Side(border_style="thin", color="E5E7EB")
@@ -1163,10 +1511,12 @@ def build_daily_close_range_xlsx(
         cell = s2.cell(row=1, column=col_idx, value=label)
         cell.font = bold
         cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="left" if col_idx == 1 else "right", vertical="center")
+        cell.alignment = Alignment(horizontal="left" if col_idx == 1 else "right",
+                                   vertical="center", wrap_text=True)
         cell.border = border
-    s2.freeze_panes = "A2"
+    s2.freeze_panes = "B2"
 
+    money_cols = set(range(4, 18)) | {19} | set(range(cat_col_start, len(H) + 1))
     sorted_closes = sorted(closes, key=lambda c: c.date or date.min)
     for r, c in enumerate(sorted_closes, start=2):
         pay = _bucketed_payments(c)
@@ -1174,18 +1524,12 @@ def build_daily_close_range_xlsx(
         revenue = float(c.revenue_total or 0) if c.revenue_total is not None else None
         # Same predicate as the PDF row builder — a cell must not state a MOMS
         # (or a net derived from it) that the rest of the workbook dashes.
-        row_moms_unknown = moms_is_unknown(c)
-        moms = None if row_moms_unknown else float(c.moms_total or 0)
-        net = (
-            None if row_moms_unknown
-            else float(c.revenue_ex_moms) if c.revenue_ex_moms is not None
-            else (revenue - (moms or 0)) if revenue is not None else None
-        )
+        moms = None if moms_is_unknown(c) else float(c.moms_total or 0)
+        net = _net_of(c)
         # Per-row tie-out note (Bemærkninger) — DRAFTS INCLUDED. When a close's
         # recorded payments don't equal its revenue, APPEND (never overwrite)
         # an explicit "Betalinger (X kr.) ≠ omsætning (Y kr.)" note to whatever
-        # the owner already wrote, mirroring the PDF's "!" row flag. _fmt_kr
-        # renders the same currency string as the PDF (DKK → "1.850,00 kr.").
+        # the owner already wrote, mirroring the PDF's "!" row flag.
         remarks = c.notes or ""
         if not _row_ties_out(c):
             pay_total = _payments_sum(c)
@@ -1196,6 +1540,9 @@ def build_daily_close_range_xlsx(
                 f"Payments ({_fmt_kr(pay_total, currency)}) ≠ revenue ({_fmt_kr(rev, currency)})"
             )
             remarks = f"{remarks} · {mismatch}" if remarks else mismatch
+        local_closed = to_local(c.closed_at, tz) if (c.closed_at and _is_confirmed(c)) else None
+        amounts, unsplit = _category_amounts(c)
+        cid = str(getattr(c, "id", "") or "")
         row_values = [
             c.date, vsales, vexp,
             revenue, moms, net,
@@ -1208,47 +1555,72 @@ def build_daily_close_range_xlsx(
             float(c.tips_total) if c.tips_total is not None else None,
             c.tips_staff_count,
             float(c.tips_per_person) if c.tips_per_person is not None else None,
-            ("Lukket" if DA else "Confirmed") if (getattr(c, "status", None) or "confirmed") == "confirmed"
-                else ("Kladde" if DA else "Draft"),
+            status_label(c, DA),
             c.closed_by or "",
-            c.closed_at.replace(tzinfo=None) if c.closed_at else None,
+            local_closed.replace(tzinfo=None) if local_closed is not None else None,
+            (sources or {}).get(cid, ""),
+            _row_history(c, history, tz, DA),
             remarks,
         ]
+        row_values += [amounts.get(k) for k in cats]
+        row_values += [unsplit or None]
         for col_idx, val in enumerate(row_values, start=1):
             cell = s2.cell(row=r, column=col_idx, value=val)
             cell.border = border
             if col_idx == 1 and val is not None:
-                cell.number_format = "yyyy-mm-dd"
-            elif col_idx >= 4 and col_idx <= 19 and isinstance(val, (int, float)):
-                cell.number_format = money_fmt if col_idx != 18 else "0"  # staff count = integer
+                cell.number_format = "dd.mm.yyyy" if DA else "yyyy-mm-dd"
+            elif col_idx == 18 and isinstance(val, (int, float)):
+                cell.number_format = "0"
+                cell.alignment = Alignment(horizontal="right")
+            elif col_idx in money_cols and isinstance(val, (int, float)):
+                cell.number_format = money_fmt
                 cell.alignment = Alignment(horizontal="right")
             elif col_idx == 22 and val is not None:
-                cell.number_format = "yyyy-mm-dd hh:mm"
+                cell.number_format = "dd.mm.yyyy hh:mm" if DA else "yyyy-mm-dd hh:mm"
 
-    # Totals row with formulas (so the accountant can audit + edit)
+    # Totals row — SUMIFS over the LOCKED rows only, keyed on the Status
+    # column, so it equals Oversigt, the PDF and the e-mail. A live formula,
+    # so the revisor can audit it and edit a row.
     if sorted_closes:
         first = 2
         last = len(sorted_closes) + 1
         totals_row = last + 1
-        s2.cell(row=totals_row, column=1, value=("I alt (bekræftede)" if DA else "Totals (confirmed)")).font = bold
-        # Sum formulas for money columns (4..17)
-        money_cols = list(range(4, 18))  # Revenue..Tips
-        for col_idx in money_cols:
+        s_letter = get_column_letter(STATUS_COL)
+        label = (f"I alt (låste, {totals['n_confirmed']})" if DA
+                 else f"Totals (locked, {totals['n_confirmed']})")
+        s2.cell(row=totals_row, column=1, value=label).font = bold
+        fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
+        sum_cols = list(range(4, 18)) + list(range(cat_col_start, len(H) + 1))
+        for col_idx in range(1, len(H) + 1):
+            s2.cell(row=totals_row, column=col_idx).fill = fill
+        for col_idx in sum_cols:
             letter = get_column_letter(col_idx)
-            cell = s2.cell(row=totals_row, column=col_idx,
-                           value=f"=SUM({letter}{first}:{letter}{last})")
+            if col_idx in (5, 6) and totals["moms"] is None:
+                # Same "—" as Oversigt: a SUMIFS over the known rows would be
+                # an understated period salgsmoms.
+                cell = s2.cell(row=totals_row, column=col_idx, value="—")
+            else:
+                cell = s2.cell(
+                    row=totals_row, column=col_idx,
+                    value=(f'=SUMIFS({letter}{first}:{letter}{last},'
+                           f'${s_letter}${first}:${s_letter}${last},"{conf_label}")'),
+                )
+                cell.number_format = money_fmt
             cell.font = bold
-            cell.number_format = money_fmt
             cell.alignment = Alignment(horizontal="right")
-            cell.fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
-        for col_idx in [1, 2, 3, 18, 19, 20, 21, 22, 23]:
-            cell = s2.cell(row=totals_row, column=col_idx)
-            cell.fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
+        if totals["n_drafts"]:
+            s2.cell(row=totals_row + 1, column=1, value=(
+                f"Kladder står på listen, men indgår ikke i I alt ({totals['n_drafts']})."
+                if DA else f"Drafts are listed but not in the totals ({totals['n_drafts']})."
+            )).font = muted
 
-    # Auto-ish column widths
-    widths = [11, 16, 16, 13, 13, 14, 11, 11, 11, 11, 11, 11, 14, 13, 13, 12, 13, 11, 12, 12, 14, 18, 28]
+    # Column widths — wide enough for "1.234.567,89 kr." so a month over
+    # 1 mio. kr. never shows ####.
+    widths = ([12, 16, 16] + [17] * 14 + [11, 15, 22, 16, 18, 22, 28, 32]
+              + [17] * (len(H) - n_fixed))
     for i, w in enumerate(widths, start=1):
         s2.column_dimensions[get_column_letter(i)].width = w
+    s2.row_dimensions[1].height = 32
 
     out = io.BytesIO()
     wb.save(out)

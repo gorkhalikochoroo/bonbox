@@ -40,6 +40,13 @@ class _Row:
             setattr(self, k, v)
 
 
+def _totals(**kw):
+    """The period_totals shape the period mail body reads."""
+    t = {"n_confirmed": 2, "n_drafts": 0, "revenue": 0.0, "moms": 0.0}
+    t.update(kw)
+    return t
+
+
 def _close_email(**kw):
     return _build_close_email_html(
         business_name="Cafe", dc=_Row(**kw), currency="DKK", closed_by="Manoz",
@@ -68,8 +75,8 @@ def test_lock_email_kassedifference_uses_the_same_formatter():
 
 def test_accountant_email_renders_kr_not_the_iso_code():
     html = _accountant_email_body(
-        business_name="Cafe", from_iso="2026-05-01", to_iso="2026-05-31",
-        n_closes=2, currency="DKK", total_revenue=15000.0, total_moms=3000.0,
+        business_name="Cafe", from_date=date(2026, 5, 1), to_date=date(2026, 5, 31),
+        totals=_totals(revenue=15000.0, moms=3000.0), currency="DKK",
         fmt="pdf", message=None, is_danish=True,
     )
     assert "15.000,00 kr." in html and "3.000,00 kr." in html
@@ -90,8 +97,8 @@ def test_lock_email_dashes_a_moms_the_attached_pdf_cannot_state():
 
 def test_accountant_email_dashes_an_unknown_period_moms_and_says_why():
     html = _accountant_email_body(
-        business_name="Cafe", from_iso="2026-05-01", to_iso="2026-05-31",
-        n_closes=2, currency="DKK", total_revenue=15000.0, total_moms=None,
+        business_name="Cafe", from_date=date(2026, 5, 1), to_date=date(2026, 5, 31),
+        totals=_totals(revenue=15000.0, moms=None), currency="DKK",
         fmt="xlsx", message=None, is_danish=True,
     )
     assert "—" in html

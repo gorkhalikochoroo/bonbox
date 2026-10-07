@@ -601,25 +601,39 @@ def test_send_to_accountant_no_recipient_returns_400(db_session, client):
     assert r.json()["detail"]["code"] == "no_accountant_email"
 
 
-def test_send_to_accountant_uses_body_override_recipient(db_session, client):
-    """When body.accountant_email is supplied, it wins over profile.
-    Useful when the owner wants a one-off send to a different revisor."""
+def test_send_to_accountant_refuses_a_recipient_other_than_the_saved_one(db_session, client):
+    """A body override used to WIN over the saved revisor, which made BonBox a
+    way to mail the filing (and owner-written text) from noreply@bonbox.dk to
+    any address. The recipient is now the saved revisor only: a different
+    address is refused with 422 and nothing is sent; the same address is fine."""
     user = _make_user(db_session, plan="pro")
     _make_profile(db_session, user, accountant_email="default@x.dk")
 
     with patch(
         "app.services.email_service.send_email_with_attachment",
         return_value=(True, None),
-    ):
+    ) as sender:
         r = client.post(
             "/api/tax/filing-pdf/send-to-accountant"
             "?period_start=2026-05-01&period_end=2026-05-31",
             json={"cc_self": False, "accountant_email": "override@x.dk"},
             headers=_auth_headers(user),
         )
+        assert r.status_code == 422
+        assert r.json()["detail"]["code"] == "recipient_not_saved"
+        assert sender.call_count == 0
 
+        r = client.post(
+            "/api/tax/filing-pdf/send-to-accountant"
+            "?period_start=2026-05-01&period_end=2026-05-31",
+            json={"cc_self": False, "accountant_email": "DEFAULT@x.dk"},
+            headers=_auth_headers(user),
+        )
     assert r.status_code == 200
-    assert r.json()["sent_to"] == "override@x.dk"
+    assert r.json()["sent_to"] == "default@x.dk"
+    # Two POSTs here; give the rest of the file its per-IP minute budget back.
+    from app.routers import tax as _tax
+    _tax._limiter.reset()
 
 
 def test_send_to_accountant_email_failure_returns_503(db_session, client):

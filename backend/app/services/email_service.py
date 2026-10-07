@@ -73,8 +73,14 @@ def send_email_with_attachment(
     attachment_mime: str | None = None,
     reply_to: str | None = None,
     cc: Iterable[str] | None = None,
+    from_display: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[bool, str | None]:
     """Send an email with a single binary attachment via Resend.
+
+    `from_display` ('"Mirabelle ApS via BonBox" <noreply@…>') names the café in
+    the revisor's inbox; `headers` carries List-Unsubscribe for a third-party
+    recipient. Both optional.
 
     Returns (ok, error_reason). Used by the Send-to-accountant flow so
     BonBox can email the kasserapport directly to the accountant
@@ -102,7 +108,7 @@ def send_email_with_attachment(
     try:
         b64 = base64.b64encode(attachment_bytes).decode("ascii")
         payload = {
-            "from": FROM_EMAIL,
+            "from": from_display or FROM_EMAIL,
             "to": [to],
             "subject": subject,
             "html": html,
@@ -119,6 +125,10 @@ def send_email_with_attachment(
             cc_list = [x for x in cc if x and "@" in x]
             if cc_list:
                 payload["cc"] = cc_list
+        if headers:
+            payload["headers"] = {
+                k: v for k, v in headers.items() if v is not None and isinstance(v, str)
+            }
         resend.Emails.send(payload)
         return True, None
     except Exception as e:  # noqa: BLE001

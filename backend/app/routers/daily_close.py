@@ -167,6 +167,48 @@ def _to_response(dc: DailyClose) -> dict:
     }
 
 
+def _business_display_name(profile, user) -> str:
+    """The name every revisor-facing artifact prints: the legal company name
+    from the profile, else the signup name. ONE rule — the period exports used
+    one field and the lock mail another, so the same café was named two ways."""
+    return (
+        (getattr(profile, "company_name", None) if profile else None)
+        or getattr(user, "business_name", None)
+        or "BonBox"
+    )
+
+
+def _range_extras(db: Session, user: User, closes) -> dict:
+    """Per-close strings the period exports print beside the figures: the
+    venue's time zone, the unlock/relock history from the audit trail, the
+    source of the figures, and branch names (never ids)."""
+    from app.services.close_history import close_history_lines, source_lines
+    from app.services.tz_utils import _user_zone
+    danish = (user.currency or "DKK") == "DKK"
+    tz = _user_zone(user)
+    branch_names: dict = {}
+    try:
+        ids = {c.branch_id for c in closes if c.branch_id}
+        if ids:
+            for b in db.query(Branch).filter(Branch.user_id == user.id, Branch.id.in_(ids)).all():
+                branch_names[str(b.id)] = b.name
+    except Exception:  # noqa: BLE001
+        branch_names = {}
+    return {
+        "tz": tz,
+        "history": close_history_lines(db, user, closes, danish=danish, tz=tz),
+        "sources": source_lines(closes, danish=danish, currency=user.currency or "DKK"),
+        "branch_names": branch_names,
+    }
+
+
+def _period_filename(business_name: str, f: date, t: date, ext: str) -> str:
+    """'Kasserapporter Mirabelle ApS 2026-09-01–2026-09-30.xlsx' (safe chars)."""
+    from app.services.revisor_mail import safe_name_part
+    span = f.isoformat() if f == t else f"{f.isoformat()}–{t.isoformat()}"
+    return f"Kasserapporter {safe_name_part(business_name)} {span}.{ext}"
+
+
 # ─── Lane A — close-ritual auto-email helpers (Manoj-confirmed) ───
 #
 # When the FoH staff taps "Confirm & Lock" on the daily close, we
@@ -252,7 +294,15 @@ def _build_close_email_html(
     from app.services.kasserapport_claims import moms_is_unknown
     moms = None if moms_is_unknown(dc) else float(dc.moms_total or 0)
     cash_diff = float(dc.cash_difference or 0) if dc.cash_difference is not None else None
-    closer = (closed_by or "").strip() or ("personalet" if is_danish else "staff")
+    # EVERY value a person typed is escaped before it reaches this HTML. The
+    # closer's name is typed by staff and the business name by the owner; both
+    # went into a mail BonBox sends a third party as raw HTML, so a "Lukket af"
+    # of `<a href=…>Åbn bilag her</a><img src=…>` arrived as a live link and a
+    # tracking pixel from noreply@bonbox.dk. The subject is a header: no CR/LF.
+    from app.services.revisor_mail import esc, header_safe
+    subject_biz = header_safe(business_name, 120)
+    business_name = esc(business_name)
+    closer = esc((closed_by or "").strip()) or ("personalet" if is_danish else "staff")
 
     # Currency-derived VAT rate. Safe fallback to 0.25 if the tax
     # service import fails — mirrors the same defensive pattern used
@@ -276,7 +326,7 @@ def _build_close_email_html(
         return money_dk(v, currency)
 
     if is_danish:
-        subject = f"Aftenens kasserapport — {dc.date.isoformat()} — {business_name}"
+        subject = f"Aftenens kasserapport — {dc.date.isoformat()} — {subject_biz}"
         scan_line = (
             "<p style='color:#6b7280;font-size:13px;'>📷 Z-rapport-foto vedhæftet.</p>"
             if has_scan else
@@ -302,7 +352,7 @@ def _build_close_email_html(
         kpi_rev = "Omsætning"
         kpi_moms = f"Salgsmoms ({vat_rate_pct}%)"
     else:
-        subject = f"Tonight's close — {dc.date.isoformat()} — {business_name}"
+        subject = f"Tonight's close — {dc.date.isoformat()} — {subject_biz}"
         scan_line = (
             "<p style='color:#6b7280;font-size:13px;'>📷 Z-report photo attached.</p>"
             if has_scan else
@@ -2568,20 +2618,18 @@ def export_range_pdf(
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user.id,
     ).first()
-    business_name = (
-        (profile.business_name if profile and profile.business_name else None)
-        or getattr(user, "business_name", None)
-        or "Daily Close Report"
-    )
+    business_name = _business_display_name(profile, user)
     currency = user.currency or "DKK"
 
     # Stable per-document voucher number (KR = Kasserapport) — shown in the
     # PDF header + carried into the L7 audit row so the artifact is traceable.
     bilagsnummer = export_bilagsnummer("KR", f, t)
+    from app.services.tz_utils import _user_zone
     pdf_bytes = build_daily_close_range_pdf(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
+        tz=_user_zone(user),
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_pdf",
@@ -2589,12 +2637,13 @@ def export_range_pdf(
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
         ip_address=(client_ip(request) if request else None),
     )
-    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.pdf"
+    from app.services.revisor_mail import content_disposition
+    filename = _period_filename(business_name, f, t, "pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": content_disposition(filename),
             "Cache-Control": "private, no-store",
         },
     )
@@ -2607,13 +2656,15 @@ def export_range_csv(
     from_date: date = Query(None, alias="from"),
     to_date: date = Query(None, alias="to"),
     branch_id: str = Query(None),
+    # "revisor" (default, what the UI offers): Danish headers, decimal comma,
+    # totals row over locked closes. "machine": the raw import shape — only on
+    # explicit request, never the default.
+    variant: str = Query("revisor", pattern="^(revisor|machine)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Multi-day daily-close CSV. UTF-8 + BOM + semicolon delimiter so
-    Danish Excel opens it cleanly with Æ/Ø/Å intact. Encoded breakdown
-    columns ("food:12400|drinks:5800") so the accountant can re-import
-    or pivot in Excel.
+    """Multi-day daily-close CSV for Danish Excel: UTF-8 BOM, ";" delimiter,
+    decimal comma, Danish headers, drafts listed but not summed.
 
     Same plan-cap logic as the PDF endpoint — 402 with upgrade
     context when over-tier."""
@@ -2621,19 +2672,24 @@ def export_range_csv(
     closes = _fetch_range_closes(
         db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
     )
-    csv_bytes = closes_to_csv_bytes(closes)
+    _extras = _range_extras(db, user, closes) if variant == "revisor" else {}
+    csv_bytes = closes_to_csv_bytes(
+        closes, currency=user.currency or "DKK", variant=variant, **_extras,
+    )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_csv",
         bilagsnummer=export_bilagsnummer("KR", f, t),
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
         ip_address=(client_ip(request) if request else None),
     )
-    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.csv"
+    from app.services.revisor_mail import content_disposition
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    filename = _period_filename(_business_display_name(profile, user), f, t, "csv")
     return Response(
         content=csv_bytes,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": content_disposition(filename),
             "Cache-Control": "private, no-store",
         },
     )
@@ -2672,19 +2728,17 @@ def export_range_xlsx(
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user.id,
     ).first()
-    # Same derivation as the PDF endpoint (business_name, not company_name) so
-    # the workbook header matches the PDF exactly for the same account.
-    business_name = (
-        (profile.business_name if profile and profile.business_name else None)
-        or getattr(user, "business_name", None)
-        or "Daily Close Report"
-    )
+    # Same derivation as the PDF endpoint and the mails, so the workbook
+    # header matches every other artifact for the same account.
+    business_name = _business_display_name(profile, user)
     currency = user.currency or "DKK"
 
+    extras = _range_extras(db, user, closes)
     xlsx_bytes = build_daily_close_range_xlsx(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id,
+        tz=extras["tz"], history=extras["history"], sources=extras["sources"],
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_xlsx",
@@ -2692,12 +2746,13 @@ def export_range_xlsx(
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
         ip_address=(client_ip(request) if request else None),
     )
-    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.xlsx"
+    from app.services.revisor_mail import content_disposition
+    filename = _period_filename(business_name, f, t, "xlsx")
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": content_disposition(filename),
             "Cache-Control": "private, no-store",
         },
     )
@@ -2717,78 +2772,112 @@ def export_range_xlsx(
 
 class SendToAccountantRequest(BaseModel):
     fmt: str = Field(default="xlsx", pattern="^(pdf|csv|xlsx)$")
-    # Optional override — if omitted, we use BusinessProfile.accountant_email
+    # Accepted ONLY when it is the revisor address saved on Profile (an old
+    # client may echo it). Any other address is refused: BonBox must not be a
+    # way to mail an arbitrary third party. See services/revisor_mail.py.
     accountant_email: EmailStr | None = None
-    # Free-text message the user wants to include in the email body
+    # Free-text note to the revisor — HTML-escaped before it is rendered.
     message: str | None = Field(default=None, max_length=2000)
     # cc the user's own email so they have a copy for their records
     cc_self: bool = True
 
 
-def _accountant_email_body(*, business_name: str, from_iso: str, to_iso: str,
-                          n_closes: int, currency: str, total_revenue: float,
-                          total_moms: float | None, fmt: str, message: str | None,
-                          is_danish: bool) -> str:
-    """Build the HTML body for the accountant email.
+_DA_MONTHS_FULL = ["januar", "februar", "marts", "april", "maj", "juni", "juli",
+                   "august", "september", "oktober", "november", "december"]
 
-    Danish for DKK currency, English otherwise. Includes the two
-    numbers that matter most for the accountant (revenue + MOMS) so
-    they can verify the attachment lines up before opening it.
+
+def _dk_period(f: date, t: date, danish: bool = True) -> str:
+    """'1.–30. september 2026' / '25. september 2026' / '29. sep.–5. okt. 2026'."""
+    if not danish:
+        if f == t:
+            return f.strftime("%d %B %Y")
+        return f"{f.strftime('%d %b %Y')} – {t.strftime('%d %b %Y')}"
+    if f == t:
+        return f"{f.day}. {_DA_MONTHS_FULL[f.month - 1]} {f.year}"
+    if f.year == t.year and f.month == t.month:
+        return f"{f.day}.–{t.day}. {_DA_MONTHS_FULL[t.month - 1]} {t.year}"
+    if f.year == t.year:
+        return (f"{f.day}. {_DA_MONTHS_FULL[f.month - 1]}–"
+                f"{t.day}. {_DA_MONTHS_FULL[t.month - 1]} {t.year}")
+    return (f"{f.day}. {_DA_MONTHS_FULL[f.month - 1]} {f.year}–"
+            f"{t.day}. {_DA_MONTHS_FULL[t.month - 1]} {t.year}")
+
+
+def _accountant_email_body(*, business_name: str, from_date: date, to_date: date,
+                          totals: dict, currency: str, fmt: str,
+                          message: str | None, is_danish: bool,
+                          attachment_name: str = "", accountant_name: str | None = None,
+                          cvr: str | None = None, unsubscribe_url: str | None = None) -> str:
+    """HTML body for the period mail to the revisor.
+
+    Its figures are `period_totals` — the SAME function the attached PDF, Excel
+    and CSV read — so the body can never again contradict its own attachment
+    (it said 521.983,50 kr. over an Excel whose totals row said 552.036,50 kr.,
+    because that row summed the draft). Drafts are named, not silently dropped.
+    Every value a person typed is escaped.
     """
-    if is_danish:
-        greeting = "Hej,"
-        intro = (
-            f"Vedhæftet finder du kasserapporten for <strong>{business_name}</strong> "
-            f"for perioden <strong>{from_iso} → {to_iso}</strong> "
-            f"({n_closes} lukninger)."
-        )
-        kpi_label_rev = "Omsætning"
-        kpi_label_moms = "Salgsmoms (25%)"
-        footer = (
-            "Filen er sendt direkte fra BonBox. "
-            "Svar på denne mail for at kontakte ejeren."
-        )
-        format_note = {
-            "pdf":  "Format: PDF (én-sides oversigt).",
-            "xlsx": "Format: Excel (sortérbar, filtrérbar — anbefalet til bogføring).",
-            "csv":  "Format: CSV (rå data — kan importeres i e-conomic, Dinero, Billy).",
-        }[fmt]
-    else:
-        greeting = "Hello,"
-        intro = (
-            f"Attached is the daily-close report for <strong>{business_name}</strong> "
-            f"for the period <strong>{from_iso} → {to_iso}</strong> "
-            f"({n_closes} closes)."
-        )
-        kpi_label_rev = "Revenue"
-        kpi_label_moms = "Output VAT (25%)"
-        footer = (
-            "Sent directly from BonBox. "
-            "Reply to this email to reach the owner."
-        )
-        format_note = {
-            "pdf":  "Format: PDF (one-page summary).",
-            "xlsx": "Format: Excel (sortable, filterable — recommended for bookkeeping).",
-            "csv":  "Format: CSV (raw data — can be imported into e-conomic / Dinero / Billy).",
-        }[fmt]
-
-    # Same shared formatter as the attachment — and money_dk renders None as
-    # "—", which is how an unknown period MOMS reaches the revisor here.
     from app.services.bonbox_pdf_kit import money_dk
+    from app.services.revisor_mail import esc, revisor_footer_html
 
     def _fmt(v):
         return money_dk(v, currency)
 
+    try:
+        from app.services.tax_service import _get_vat_rate
+        vat_pct = round(_get_vat_rate(currency or "DKK") * 100)
+    except Exception:  # noqa: BLE001
+        vat_pct = 25
+    biz = esc(business_name)
+    period = esc(_dk_period(from_date, to_date, is_danish))
+    n_conf, n_drafts = totals["n_confirmed"], totals["n_drafts"]
+    total_moms = totals["moms"]
+    att = esc(attachment_name)
+
+    if is_danish:
+        greeting = f"Hej {esc(accountant_name.strip())}," if (accountant_name or "").strip() else "Hej,"
+        closes_word = "låst lukning" if n_conf == 1 else "låste lukninger"
+        intro = (
+            f"Vedhæftet er kasserapporterne for <strong>{biz}</strong> for "
+            f"<strong>{period}</strong> ({n_conf} {closes_word})."
+        )
+        draft_note = (
+            f"{n_drafts} {'kladde' if n_drafts == 1 else 'kladder'} i perioden er ikke "
+            "låst og er ikke medregnet i tallene."
+        ) if n_drafts else ""
+        kpi_label_rev = "Omsætning"
+        kpi_label_moms = f"Salgsmoms ({vat_pct} %)"
+        format_note = {
+            "pdf":  "PDF — oversigt over perioden med én linje pr. dag.",
+            "xlsx": "Excel — én række pr. dag; totalerne tæller kun låste lukninger.",
+            "csv":  "CSV — semikolon og decimalkomma, åbner direkte i dansk Excel.",
+        }[fmt]
+        attached = f"Vedhæftet fil: {att}" if att else ""
+    else:
+        greeting = f"Hello {esc(accountant_name.strip())}," if (accountant_name or "").strip() else "Hello,"
+        intro = (
+            f"Attached are the daily closes for <strong>{biz}</strong> for "
+            f"<strong>{period}</strong> ({n_conf} locked)."
+        )
+        draft_note = (
+            f"{n_drafts} draft(s) in the period are not locked and are not counted."
+        ) if n_drafts else ""
+        kpi_label_rev = "Revenue"
+        kpi_label_moms = f"Salgsmoms ({vat_pct} %)"
+        format_note = {
+            "pdf":  "PDF — period overview, one line per day.",
+            "xlsx": "Excel — one row per day; totals count locked closes only.",
+            "csv":  "CSV — semicolon separated, one row per day.",
+        }[fmt]
+        attached = f"Attached file: {att}" if att else ""
+
     moms_note = ""
     if total_moms is None:
         # The body must not state a period salgsmoms the attachment itself
-        # refuses to state. A sum built over closes with no VAT figure is
-        # understated, and this is the number the revisor carries into a
-        # filing.
+        # refuses to state.
         moms_note = (
             "<p style='color:#b45309;font-size:13px;'>"
             + ("Salgsmoms i alt kan ikke opgøres for perioden — se kolonnen "
-               "Moms i den vedhæftede fil." if is_danish else
+               "Salgsmoms i den vedhæftede fil." if is_danish else
                "Total output VAT cannot be stated for this period — see the "
                "VAT column in the attached file.")
             + "</p>"
@@ -2796,9 +2885,7 @@ def _accountant_email_body(*, business_name: str, from_iso: str, to_iso: str,
 
     user_note_html = ""
     if (message or "").strip():
-        # Escape user-provided text — never let it inject HTML
-        from html import escape
-        safe = escape(message.strip()).replace("\n", "<br>")
+        safe = esc(message.strip()).replace("\n", "<br>")
         user_note_html = (
             "<div style='margin:16px 0;padding:12px;background:#f9fafb;"
             "border-left:3px solid #10b981;color:#374151;font-size:14px;"
@@ -2812,17 +2899,21 @@ def _accountant_email_body(*, business_name: str, from_iso: str, to_iso: str,
         "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
         f"<p>{greeting}</p>"
         f"<p>{intro}</p>"
-        f"{user_note_html}"
+        + (f"<p style='color:#92400e;font-size:13px;'>{draft_note}</p>" if draft_note else "")
+        + f"{user_note_html}"
         "<table style='border-collapse:collapse;margin:16px 0;'>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_rev}</td>"
-        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(total_revenue)}</td></tr>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(totals['revenue'])}</td></tr>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_moms}</td>"
         f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(total_moms)}</td></tr>"
         "</table>"
         f"{moms_note}"
-        f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{format_note}</p>"
-        f"<p style='color:#6b7280;font-size:13px;'>{footer}</p>"
-        "</div>"
+        + (f"<p style='color:#374151;font-size:13px;margin-top:16px;'>{attached}<br>"
+           f"<span style='color:#6b7280;'>{format_note}</span></p>" if attached else
+           f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{format_note}</p>")
+        + revisor_footer_html(business_name=business_name, cvr=cvr,
+                              unsubscribe_url=unsubscribe_url, is_danish=is_danish)
+        + "</div>"
     )
 
 
@@ -2839,17 +2930,19 @@ def send_to_accountant(
 ):
     """Email the daily-close range to the accountant. Starter+ feature.
 
-    Free users hit a structured 402 the frontend uses to render the
-    UpgradeNudge dialog. Free users CAN still download Excel/PDF/CSV
-    and attach via mailto — only the one-tap server-side Resend send
-    is gated. The mailto fallback in the frontend handles them.
+    Free users hit a structured 402; the frontend then downloads the file and
+    opens the owner's own mail app — the honest Free path.
 
-    Layered defense (same shape as scan-report + export endpoints):
-      L1 auth → L2 input bounds → L3 rate limit (5/min) →
-      L4 tenant scope → L5 plan-feature gate → L6 attachment-size cap
+    Layered defense:
+      L1 auth (owner session; member/accountant writes are refused upstream)
+      → L2 input bounds → L3 rate limit (5/min per IP + 20/day per account)
+      → L4 tenant scope → L5 plan-feature gate → L6 recipient = the SAVED
+      revisor address only, opt-out honoured → L7 audit row.
     """
-    # Tier gate (Polish Pass tier reshuffle — Starter+ killer feature)
     from app.services.billing import has_feature, effective_plan
+    from app.services.revisor_mail import (
+        enforce_revisor_daily_cap, header_safe, resolve_revisor_recipient,
+    )
     if not has_feature(user, "direct_accountant_email"):
         raise HTTPException(
             status_code=402,
@@ -2869,95 +2962,63 @@ def send_to_accountant(
         BusinessProfile.user_id == user.id,
     ).first()
 
-    # Pick recipient: body override wins, else profile, else 400
-    recipient = (
-        (body.accountant_email or "").strip().lower()
-        if body.accountant_email else ""
-    ) or (
-        (getattr(profile, "accountant_email", None) or "").strip().lower()
-    )
-    if not recipient:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "no_accountant_email",
-                "message": (
-                    "Set your accountant's email on Profile, or include "
-                    "accountant_email in the request body."
-                ),
-            },
-        )
+    # The saved revisor address, and nothing else.
+    recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    enforce_revisor_daily_cap(db, user)
 
-    # Resolve + fetch closes (reuses the same range-resolution + plan-cap
-    # logic as the export endpoints below)
     f, t = _resolve_range(from_date, to_date, user=user)
     closes = _fetch_range_closes(
         db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
     )
 
-    business_name = (
-        (profile.business_name if profile and profile.business_name else None)
-        or getattr(user, "business_name", None)
-        or "Daily Close Report"
-    )
+    business_name = _business_display_name(profile, user)
     currency = user.currency or "DKK"
     fmt = body.fmt
-    # Same voucher number on the emailed artifact as the downloaded one.
+    is_danish = (currency == "DKK")
     bilagsnummer = export_bilagsnummer("KR", f, t)
+    extras = _range_extras(db, user, closes)
 
-    # Build the attachment bytes per the chosen format
     if fmt == "pdf":
         attachment = build_daily_close_range_pdf(
             closes, from_date=f, to_date=t,
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
+            tz=extras["tz"],
         )
         mime = "application/pdf"
-        ext = "pdf"
     elif fmt == "csv":
-        attachment = closes_to_csv_bytes(closes)
+        attachment = closes_to_csv_bytes(closes, currency=currency, **extras)
         mime = "text/csv; charset=utf-8"
-        ext = "csv"
     else:  # xlsx
         attachment = build_daily_close_range_xlsx(
             closes, from_date=f, to_date=t,
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id,
+            tz=extras["tz"], history=extras["history"], sources=extras["sources"],
         )
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ext = "xlsx"
 
-    filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.{ext}"
+    filename = _period_filename(business_name, f, t, fmt)
 
-    # Subject + body — confirmed-only totals so what the accountant
-    # sees in the email body matches what's in the attachment's totals row.
-    confirmed = [c for c in closes if (getattr(c, "status", None) or "confirmed") == "confirmed"]
-    n_conf = len(confirmed)
-    total_revenue = sum(float(c.revenue_total or 0) for c in confirmed)
-    # ONE predicate, shared with the per-close kasserapport and the attachment
-    # itself — so the email body, the range PDF's KPI band and its totals row
-    # can never disagree about whether the period's salgsmoms is knowable.
-    from app.services.kasserapport_claims import moms_is_unknown
-    total_moms = (
-        None if any(moms_is_unknown(c) for c in confirmed)
-        else sum(float(c.moms_total or 0) for c in confirmed)
+    # ONE source of truth for the body's figures — the same as the attachment.
+    from app.services.daily_close_range_export import period_totals
+    totals = period_totals(closes)
+
+    subject_prefix = "Kasserapporter" if is_danish else "Daily closes"
+    subject = header_safe(
+        f"{subject_prefix} {_dk_period(f, t, is_danish)} — {business_name}", 180,
     )
-    is_danish = (currency == "DKK")
-
-    subject_prefix = "Kasserapport" if is_danish else "Daily Close"
-    subject = f"{subject_prefix} {f.isoformat()} → {t.isoformat()} — {business_name}"
-
     html = _accountant_email_body(
-        business_name=business_name,
-        from_iso=f.isoformat(), to_iso=t.isoformat(),
-        n_closes=n_conf, currency=currency,
-        total_revenue=total_revenue, total_moms=total_moms,
-        fmt=fmt, message=body.message, is_danish=is_danish,
+        business_name=business_name, from_date=f, to_date=t,
+        totals=totals, currency=currency, fmt=fmt,
+        message=body.message, is_danish=is_danish,
+        attachment_name=filename,
+        accountant_name=getattr(profile, "accountant_name", None),
+        cvr=getattr(profile, "org_number", None),
     )
 
-    # Send via Resend with attachment. reply_to is the user's own email
-    # so the accountant can hit Reply and reach the owner directly.
     from app.services.email_service import send_email_with_attachment
+    from app.services.revisor_mail import sender_display
 
     cc = [user.email] if (body.cc_self and user.email) else None
     ok, err = send_email_with_attachment(
@@ -2967,12 +3028,15 @@ def send_to_accountant(
         attachment_mime=mime,
         reply_to=user.email,
         cc=cc,
+        from_display=sender_display(business_name),
     )
 
     if not ok:
-        # 503 so the frontend can fall back to the existing mailto flow
+        # 502 when Resend was ASKED and failed — the outcome is not "nothing
+        # happened", so the frontend must not silently replay or fall back.
+        # 503 only when nothing was attempted (mail not configured).
         raise HTTPException(
-            status_code=503,
+            status_code=503 if err == "email_not_configured" else 502,
             detail={
                 "code": "email_send_failed",
                 "reason": err or "unknown",
@@ -2980,10 +3044,8 @@ def send_to_accountant(
             },
         )
 
-    # Bogføringsloven §10 — record that the period bundle was delivered to a
-    # third party. The accountant relationship is auditable; capture WHO got
-    # WHAT (recipient, range, totals) so disputes / regulator queries can
-    # reconstruct delivery history later.
+    # Bogføringsloven — record that the period bundle was delivered to a
+    # third party: WHO got WHAT (recipient, range, totals).
     audit_service.record(
         db, user=user,
         action="daily_close.send_to_accountant",
@@ -2992,13 +3054,20 @@ def send_to_accountant(
         before=None,
         after={
             "recipient": recipient, "cc_self": bool(cc), "format": fmt,
-            "filename": filename, "n_closes": n_conf,
+            "filename": filename, "n_closes": totals["n_confirmed"],
+            "n_drafts": totals["n_drafts"],
             "from_date": f.isoformat(), "to_date": t.isoformat(),
-            "total_revenue": total_revenue, "total_moms": total_moms,
+            "total_revenue": totals["revenue"], "total_moms": totals["moms"],
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        # The mail already went: a failed audit commit must not turn a
+        # delivered send into a 500 the owner would "retry" into a duplicate.
+        logger.warning("send_to_accountant: audit commit failed after send: %s", e)
+        db.rollback()
 
     return {
         "ok": True,
@@ -3006,7 +3075,8 @@ def send_to_accountant(
         "cc_self": bool(cc),
         "filename": filename,
         "format": fmt,
-        "n_closes": n_conf,
+        "n_closes": totals["n_confirmed"],
+        "n_drafts": totals["n_drafts"],
         "subject": subject,
     }
 

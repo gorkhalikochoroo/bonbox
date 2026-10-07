@@ -7456,7 +7456,7 @@ class PayrollSendToAccountantRequest(BaseModel):
     # Override recipient — defaults to BusinessProfile.accountant_email
     accountant_email: EmailStr | None = None
     # Free-text message (HTML-escaped before render)
-    message: str | None = None
+    message: str | None = Field(None, max_length=2000)
     cc_self: bool = True
 
 
@@ -7504,21 +7504,13 @@ def send_payroll_to_accountant(
     from app.services.email_service import send_email_with_attachment
 
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
-    recipient = (
-        (body.accountant_email or "").strip().lower()
-        if body.accountant_email else ""
-    ) or ((getattr(profile, "accountant_email", None) or "").strip().lower())
-    if not recipient:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "no_accountant_email",
-                "message": (
-                    "Set your accountant's email on Profile, or include "
-                    "accountant_email in the request body."
-                ),
-            },
-        )
+    # The SAVED revisor address only (a body override must equal it), opt-out
+    # honoured, daily ceiling per account — services/revisor_mail.py.
+    from app.services.revisor_mail import (
+        enforce_revisor_daily_cap, esc, header_safe, resolve_revisor_recipient,
+    )
+    recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    enforce_revisor_daily_cap(db, user)
 
     # Reuse the PDF rendering pipeline — exact same bytes the
     # download endpoint produces (audit-friendly: identical files).
@@ -7546,14 +7538,17 @@ def send_payroll_to_accountant(
     )
 
     filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
+    # Owner-typed name: plain in the subject header, escaped in the HTML body.
+    subject_biz = header_safe(biz_name, 120)
+    biz_name_html = esc(biz_name)
     if is_danish:
         subject = (
             f"Lønningsliste {body.period_start.isoformat()} → "
-            f"{body.period_end.isoformat()} — {biz_name}"
+            f"{body.period_end.isoformat()} — {subject_biz}"
         )
         greeting = "Hej,"
         intro = (
-            f"Vedhæftet finder du lønningslisten for <strong>{biz_name}</strong> "
+            f"Vedhæftet finder du lønningslisten for <strong>{biz_name_html}</strong> "
             f"for perioden <strong>{body.period_start.isoformat()} → "
             f"{body.period_end.isoformat()}</strong>."
         )
@@ -7564,11 +7559,11 @@ def send_payroll_to_accountant(
     else:
         subject = (
             f"Payroll {body.period_start.isoformat()} → "
-            f"{body.period_end.isoformat()} — {biz_name}"
+            f"{body.period_end.isoformat()} — {subject_biz}"
         )
         greeting = "Hello,"
         intro = (
-            f"Attached is the payroll report for <strong>{biz_name}</strong> "
+            f"Attached is the payroll report for <strong>{biz_name_html}</strong> "
             f"for the period <strong>{body.period_start.isoformat()} → "
             f"{body.period_end.isoformat()}</strong>."
         )

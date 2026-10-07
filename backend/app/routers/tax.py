@@ -387,24 +387,15 @@ def tax_filing_send_to_accountant(
         BusinessProfile.user_id == user.id,
     ).first()
 
-    # Pick recipient: body override → profile.accountant_email → 400.
-    recipient = (
-        (body.accountant_email or "").strip().lower()
-        if body.accountant_email else ""
-    ) or (
-        (getattr(profile, "accountant_email", None) or "").strip().lower()
+    # The SAVED revisor address only — a body override is accepted only when
+    # it is that same address, an opted-out revisor gets nothing, and the
+    # account has a daily ceiling. (services/revisor_mail.py — the one rule
+    # for every mail BonBox sends a revisor.)
+    from app.services.revisor_mail import (
+        enforce_revisor_daily_cap, resolve_revisor_recipient,
     )
-    if not recipient:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "no_accountant_email",
-                "message": (
-                    "Set your accountant's email on Profile, or include "
-                    "accountant_email in the request body."
-                ),
-            },
-        )
+    recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    enforce_revisor_daily_cap(db, user)
 
     business_name = (
         (getattr(profile, "company_name", None) if profile else None)
@@ -435,10 +426,11 @@ def tax_filing_send_to_accountant(
     filename = f"{bilagsnummer}.pdf"
 
     # Subject + body
+    from app.services.revisor_mail import header_safe
     if is_danish:
-        subject = f"MOMS-angivelse {p_start.isoformat()} → {p_end.isoformat()} — {business_name}"
+        subject = f"MOMS-angivelse {p_start.isoformat()} → {p_end.isoformat()} — {header_safe(business_name, 120)}"
     else:
-        subject = f"VAT return {p_start.isoformat()} → {p_end.isoformat()} — {business_name}"
+        subject = f"VAT return {p_start.isoformat()} → {p_end.isoformat()} — {header_safe(business_name, 120)}"
 
     html = _build_filing_email_body(
         business_name=business_name,
@@ -526,8 +518,11 @@ def _build_filing_email_body(*, business_name: str, from_iso: str,
     Mirrors `_accountant_email_body` in daily_close.py — same look,
     same Danish-for-DKK convention. Includes the three numbers that
     matter most so the revisor can sanity-check the attachment before
-    opening it.
+    opening it. The business name is escaped: it is owner-typed text in
+    a mail to a third party.
     """
+    from app.services.revisor_mail import esc
+    business_name = esc(business_name)
     def _fmt(v):
         if is_danish:
             return (

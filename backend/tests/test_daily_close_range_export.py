@@ -91,9 +91,9 @@ def test_csv_uses_semicolon_delimiter():
 
 
 def test_csv_includes_all_documented_columns():
-    """Pin the column set so a future schema change doesn't silently
-    drop a field from the export."""
-    csv = closes_to_csv_bytes([_make_close()])
+    """Pin the MACHINE variant's column set so a future schema change doesn't
+    silently drop a field from the export. (The default is the revisor CSV.)"""
+    csv = closes_to_csv_bytes([_make_close()], variant="machine")
     header = csv.decode("utf-8-sig").splitlines()[0]
     cols = header.split(";")
     for col in _CSV_COLUMNS:
@@ -109,17 +109,20 @@ def test_csv_handles_empty_range():
 
 
 def test_csv_renders_amounts_with_two_decimals():
-    """Format is fixed-point; bookkeeping software expects exactly 2
-    decimals on currency values."""
+    """Revisor CSV: decimal COMMA, two decimals, no thousands separator — the
+    form Danish Excel reads as a number. The machine variant keeps the dot."""
     csv = closes_to_csv_bytes([_make_close(revenue_total=12345.6)]).decode("utf-8-sig")
-    # Should appear as 12345.60 in some cell
-    assert "12345.60" in csv
+    assert "12345,60" in csv
+    assert "12345.60" not in csv
+    machine = closes_to_csv_bytes([_make_close(revenue_total=12345.6)],
+                                  variant="machine").decode("utf-8-sig")
+    assert "12345.60" in machine
 
 
 def test_csv_includes_encoded_revenue_breakdown():
-    """Revenue + payment breakdowns survive into the CSV in their
-    pipe-delimited encoded form so accountants can pivot in Excel."""
-    csv = closes_to_csv_bytes([_make_close()]).decode("utf-8-sig")
+    """Machine variant: revenue + payment breakdowns survive in their
+    pipe-delimited encoded form for imports."""
+    csv = closes_to_csv_bytes([_make_close()], variant="machine").decode("utf-8-sig")
     assert "food:12400" in csv
     assert "drinks:5800" in csv
     assert "cash:4200" in csv
@@ -151,8 +154,8 @@ def test_csv_handles_null_optional_fields():
             notes=None,
         ),
     ]).decode("utf-8-sig")
-    # Two lines: header + one data row
-    assert len(csv.splitlines()) == 2
+    # Header + one data row + the totals row
+    assert len(csv.splitlines()) == 3
 
 
 def test_csv_one_row_per_close():
@@ -162,8 +165,8 @@ def test_csv_one_row_per_close():
         _make_close(date=date(2026, 5, 3)),
     ]
     csv = closes_to_csv_bytes(closes).decode("utf-8-sig")
-    # 1 header + 3 data rows
-    assert len(csv.splitlines()) == 4
+    # 1 header + 3 data rows + 1 totals row
+    assert len(csv.splitlines()) == 5
 
 
 def test_csv_includes_unlock_audit_fields():
@@ -177,7 +180,10 @@ def test_csv_includes_unlock_audit_fields():
     csv = closes_to_csv_bytes(closes).decode("utf-8-sig")
     assert "Edit cash count after reconcile" in csv
     assert "lars@mirabelle.dk" in csv
-    assert "2026-05-02T09:15:00" in csv
+    # In the venue's time (09:15 UTC → 11:15 Copenhagen summer time).
+    assert "02.05.2026 kl. 11:15" in csv
+    machine = closes_to_csv_bytes(closes, variant="machine").decode("utf-8-sig")
+    assert "2026-05-02T09:15:00" in machine
 
 
 # ─── PDF format ────────────────────────────────────────────────────────
@@ -958,5 +964,5 @@ def test_range_xlsx_row_cells_dash_an_unknown_moms_and_net():
     cells = dict(zip(header, row))
     assert cells["Omsætning"] == 10000
     # Neither the VAT nor a net derived from it may be stated.
-    assert cells["Salgsmoms 25%"] in (None, "—")
+    assert cells["Salgsmoms"] in (None, "—")
     assert cells["Netto (uden moms)"] in (None, "—")
