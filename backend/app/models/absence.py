@@ -52,7 +52,10 @@ class StaffAbsence(Base):
         pending       — staff just called in; owner hasn't acknowledged
         acknowledged  — owner has seen it (notification clicked / dashboard viewed)
         covered       — replacement_staff_id set (someone is taking the shift)
-        cancelled     — staff retracted (rare; e.g. felt better, came in)
+        cancelled     — staff retracted a still-pending row (acknowledged_at
+                        stays NULL), OR the owner declined it (decline_absence
+                        also stamps acknowledged_at; the portal shows that one
+                        to the staffer as "declined" / "Afvist")
 
     Tenant boundary:
         user_id is the OWNER's id (the employer). This is the foreign key

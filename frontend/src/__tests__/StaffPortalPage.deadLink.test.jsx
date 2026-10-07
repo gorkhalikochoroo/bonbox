@@ -14,16 +14,16 @@
  *   codes, so reconnects 404'd. The mixed-language screen was what those people
  *   hit, and the English string tells them nothing they can act on.
  *
- * WHAT CHANGED: the token-validation catch now CLASSIFIES (expected 404 vs
- * anything else) and the view renders catalogue copy for the expected case,
- * keeping the server's own words only where they are the only clue. The
- * backend and the token semantics are untouched.
+ * WHAT CHANGED: the token-validation catch now CLASSIFIES. A 404/410 is the
+ * dead-link screen in catalogue copy (and forgets the saved token); anything
+ * else is "could not reach the server" — the link is kept and a retry is
+ * offered (second describe block). The backend is untouched.
  *
  * These tests mount the REAL page against a rejecting portalApi, so they pin
  * the whole path — axios error → errText → classification → rendered screen —
  * rather than a re-implementation of it.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,10 +41,11 @@ const axiosError = (status, detail) => {
   return err;
 };
 
-const get = vi.fn((url) => {
+const defaultGet = (url) => {
   if (url === `/portal/${TOK}`) return Promise.reject(rejection);
   return Promise.resolve({ data: [] });
-});
+};
+const get = vi.fn(defaultGet);
 
 vi.mock("../services/portalApi", () => ({
   default: { get: (...a) => get(...a), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
@@ -82,6 +83,7 @@ async function mountDeadLink(lang) {
 describe("staff portal — dead or expired link", () => {
   beforeEach(() => {
     localStorage.clear();
+    get.mockImplementation(defaultGet);
     rejection = axiosError(404, SERVER_404_DETAIL);
   });
 
@@ -111,21 +113,100 @@ describe("staff portal — dead or expired link", () => {
     expect(text).not.toContain("Staff member not found");
   });
 
-  it("keeps the server's words for a status we did NOT anticipate", async () => {
-    // The point of classifying rather than blanket-replacing: on an unexpected
-    // failure the server's detail is the only diagnostic anyone gets, so it
-    // must still reach the screen.
-    rejection = axiosError(503, "Scheduled maintenance until 14:00");
-    const text = await mountDeadLink("da");
-    expect(text).toContain("Scheduled maintenance until 14:00");
+  it("a dead link (404) forgets the saved token so the app stops booting into it", async () => {
+    localStorage.setItem("bonbox_portal_token", TOK);
+    await mountDeadLink("da");
+    expect(localStorage.getItem("bonbox_portal_token")).toBeNull();
+  });
+});
+
+/**
+ * NOT a dead link: offline, a timeout, a 429, a 5xx while the backend wakes.
+ *
+ * THE BUG (scheduler round 1, blocking): the validation catch treated every
+ * failure as a dead link — "Link virker ikke" over axios's English
+ * "Network Error", no retry, AND it erased bonbox_portal_token, so the
+ * Scheduler app booted to /join next launch. Join codes burn on use, so the
+ * staffer then needed a new code from their manager for a link that was fine.
+ */
+describe("staff portal — could not reach the server", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("bonbox_portal_token", TOK);
+    get.mockClear();
+    get.mockImplementation(defaultGet);
   });
 
-  it("falls back to catalogue copy when there is no server detail at all", async () => {
-    // Network failure: no response object, so errText lands on err.message.
-    // Whatever that is, the screen must still render a real sentence.
+  async function mountOffline(lang = "da") {
+    localStorage.setItem("lang", lang);
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={[`/portal/${TOK}`]}>
+          <Routes>
+            <Route path="/portal/:token" element={<StaffPortalPage />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+    await waitFor(() => expect(screen.getByRole("heading")).toBeInTheDocument());
+    return document.body.textContent;
+  }
+
+  it.each([
+    ["no response (offline)", () => new Error("Network Error")],
+    ["a 502", () => axiosError(502, "Bad Gateway")],
+    ["a 503 with a server sentence", () => axiosError(503, "Scheduled maintenance until 14:00")],
+    ["a 429", () => axiosError(429, "Too many requests")],
+  ])("%s keeps the saved link and offers a retry", async (_label, make) => {
+    rejection = make();
+    const text = await mountOffline("da");
+    expect(text).toContain("Ingen forbindelse");
+    expect(screen.getByRole("button", { name: "Prøv igen" })).toBeInTheDocument();
+    // Never the dead-link screen, never raw English.
+    expect(text).not.toContain("Link virker ikke");
+    expect(text).not.toContain("Network Error");
+    expect(text).not.toContain("Scheduled maintenance");
+    // The regression itself: the link survives.
+    expect(localStorage.getItem("bonbox_portal_token")).toBe(TOK);
+  });
+
+  it("'Prøv igen' re-validates, and a good answer opens the portal", async () => {
     rejection = new Error("Network Error");
-    const text = await mountDeadLink("da");
-    expect(text).toContain("Link virker ikke");
-    expect(text.trim().length).toBeGreaterThan(0);
+    await mountOffline("da");
+    const calls = get.mock.calls.filter(([u]) => u === `/portal/${TOK}`).length;
+    // Back online: the next validation succeeds.
+    rejection = null;
+    get.mockImplementation((url) => {
+      if (url === `/portal/${TOK}`) {
+        if (rejection) return Promise.reject(rejection);
+        return Promise.resolve({ data: { has_pin: false, staff_name: "Ali", restaurant_name: "Sekuwa" } });
+      }
+      if (url.includes("/notifications")) return Promise.resolve({ data: { notifications: [] } });
+      if (url.includes("/schedule")) return Promise.resolve({ data: { shifts: [] } });
+      return Promise.resolve({ data: [] });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Prøv igen" }));
+    await waitFor(() =>
+      expect(get.mock.calls.filter(([u]) => u === `/portal/${TOK}`).length).toBeGreaterThan(calls),
+    );
+    await waitFor(() => expect(document.body.textContent).not.toContain("Ingen forbindelse"));
+    expect(localStorage.getItem("bonbox_portal_token")).toBe(TOK);
+  });
+
+  it("retries by itself when the browser comes back online", async () => {
+    rejection = new Error("Network Error");
+    await mountOffline("da");
+    const before = get.mock.calls.filter(([u]) => u === `/portal/${TOK}`).length;
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    await waitFor(() =>
+      expect(get.mock.calls.filter(([u]) => u === `/portal/${TOK}`).length).toBeGreaterThan(before),
+    );
+  });
+
+  it("en: speaks English on the same screen", async () => {
+    rejection = new Error("Network Error");
+    const text = await mountOffline("en");
+    expect(text).toContain("No connection");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });

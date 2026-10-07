@@ -16,7 +16,7 @@ import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, C
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatHoursMinutes } from "../utils/hours";
+import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
@@ -24,6 +24,7 @@ import { capturePhoto } from "../utils/camera";
 import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
+import { useKeyboardLift } from "../hooks/useKeyboardLift";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
@@ -76,8 +77,30 @@ function localeFor(lang) {
   return lang || undefined;
 }
 
+// Danish weekday abbreviations in ONE style: three letters and a period,
+// "man. tir. ons. tor. fre. lør. søn." — the house style ("tor. 8. okt.").
+// ICU's da-DK mixes lengths ("tirs.", "tors."), writes "ons. den 7." for
+// weekday+day, and the Kan ikke strip stripped its own copy to "tir": three
+// spellings of one weekday in one app. Other languages keep ICU's.
+const DA_WEEKDAYS = ["man.", "tir.", "ons.", "tor.", "fre.", "lør.", "søn."];
+
+function wdShort(dt, lang) {
+  if (lang === "da") return DA_WEEKDAYS[(dt.getDay() + 6) % 7];
+  return dt.toLocaleDateString(localeFor(lang), { weekday: "short" });
+}
+
+/** "tor. 8." / "Thu 8" — weekday + day of month, for rows under a week. */
+function fmtWeekdayDay(d, lang) {
+  const dt = new Date(d + "T00:00:00");
+  if (lang === "da") return `${wdShort(dt, lang)} ${dt.getDate()}.`;
+  return dt.toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" });
+}
+
 function fmtDate(d, lang) {
   const dt = new Date(d + "T00:00:00");
+  if (lang === "da") {
+    return `${wdShort(dt, lang)} ${dt.getDate()}. ${dt.toLocaleDateString("da-DK", { month: "short" })}`;
+  }
   return dt.toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric", month: "short" });
 }
 
@@ -88,8 +111,7 @@ function fmtShort(d, lang) {
 
 // Monday-first short weekday names in the chosen language (2024-01-01 = a Monday).
 function weekdayNames(lang) {
-  return Array.from({ length: 7 }, (_, i) =>
-    new Date(2024, 0, 1 + i).toLocaleDateString(localeFor(lang), { weekday: "short" }));
+  return Array.from({ length: 7 }, (_, i) => wdShort(new Date(2024, 0, 1 + i), lang));
 }
 
 function toLocalISO(dt) {
@@ -111,6 +133,27 @@ function addDays(dateStr, n) {
   const d = new Date(dateStr + "T12:00:00");
   d.setDate(d.getDate() + n);
   return toLocalISO(d);
+}
+
+// How far the portal's week view can page: this week + 7 more, which is the
+// server's window (get_portal_schedule returns week start + 55 days).
+const PORTAL_WEEKS_AHEAD = 7;
+
+/** Whole weeks from the Monday `fromMonday` to the week containing `iso`.
+    Noon anchors keep a DST change from rounding a week away. */
+function weeksFrom(fromMonday, iso) {
+  const a = new Date(fromMonday + "T12:00:00");
+  const b = new Date(getWeekStart(iso) + "T12:00:00");
+  return Math.round((b - a) / (7 * 86400000));
+}
+
+/** ISO-8601 week number of a YYYY-MM-DD date ("Uge 44"). */
+function isoWeekNumber(iso) {
+  const d = new Date(iso + "T12:00:00");
+  const th = new Date(d);
+  th.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));     // this week's Thursday
+  const jan4 = new Date(th.getFullYear(), 0, 4, 12);
+  return 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
 }
 
 function isToday(dateStr) {
@@ -873,6 +916,12 @@ function PinGate({ onVerified, token, staffName }) {
               {t("portalPinVerifying", "Verifying...")}
             </p>
           )}
+          {/* The way out. A forgotten PIN used to end in a 15-minute lockout
+              with no hint who can help; the owner can reset it (or send a
+              fresh link) from the staff profile. */}
+          <p className="mt-6" style={{ font: "400 12px/1.45 var(--font-text)", color: "rgba(255,255,255,.45)" }}>
+            {t("portalPinForgot", "Forgot your PIN? Ask your manager for a new link.")}
+          </p>
         </div>
       </div>
     </div>
@@ -1278,8 +1327,14 @@ function useClock(token) {
     setErr("");
     try {
       let payload = {};
+      // True when the server will accept this punch but flag it "Location
+      // unverified" (no fix, or a fix too vague to trust — the server's own
+      // 200 m rule). The staffer used to get a plain success and never learn
+      // their manager would see the punch as unverified.
+      let unverified = false;
       if (dir === "in" && st?.geofence_on) {
         const pos = await getPos();
+        unverified = !pos || (pos.accuracy != null && pos.accuracy > 200);
         if (pos) {
           payload = pos;
           // Keep the fix that was actually used for this punch. If the server
@@ -1309,13 +1364,16 @@ function useClock(token) {
         // comes from the language (hours.js), never typed here: this line used
         // to hardcode the Danish "t" on a screen an English or Turkish worker
         // reads too.
-        const dur = formatHoursMinutes(mins / 60, { lang });
+        const dur = formatHours(mins / 60, { lang, decimals: 2 });
         setResult(
           d.discarded
             ? t("portalClockTooShort", "Too short — nothing logged.")
             : t("portalClockLogged", "Logged · {h}", { h: dur }),
         );
         setTimeout(() => setResult(""), 6000);
+      } else if (unverified) {
+        setResult(t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."));
+        setTimeout(() => setResult(""), 10000);
       } else {
         setResult("");
       }
@@ -1659,7 +1717,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1674,9 +1732,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const clockedIn = !!clock.st?.clocked_in;
   const confirmPunch = useConfirm();
 
-  // Local UI state: which week-strip is shown + which day is expanded.
-  const [weekView, setWeekView] = useState("this"); // 'this' | 'next'
+  // Local UI state: which week is shown (0 = this week, 1 = next, …) + which
+  // day is expanded. This was a two-state 'this' | 'next' toggle while the
+  // server already sends 8 weeks (get_portal_schedule: week start + 55 days),
+  // so a staffer rostered three weeks out could see the count of those shifts
+  // and never their times.
+  const [weekOffset, setWeekOffset] = useState(0);
   const [expandedDate, setExpandedDate] = useState(null);
+  const goToWeek = (n) => { setWeekOffset(Math.max(0, n)); setExpandedDate(null); };
+  // An alert about a shift or a published week opens THAT week. `focusDate`
+  // carries a nonce so tapping the same alert twice still lands.
+  useEffect(() => {
+    if (!focusDate?.date) return;
+    const off = weeksFrom(weekStart, focusDate.date);
+    goToWeek(Math.min(PORTAL_WEEKS_AHEAD, Math.max(0, off)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDate?.n]);
   // Which teammate's upcoming shifts are open, keyed "<shiftId>|<mateId>" so
   // the same person expanded on two different days stays independent.
   const [openMate, setOpenMate] = useState(null);
@@ -1709,12 +1780,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Swaps via onNeedChange from the confirm strip).
   const [showSick, setShowSick] = useState(false);
 
-  const nextWeekStart = addDays(weekStart, 7);
-  const laterStart = addDays(weekStart, 14);
+  // The week on screen, and how far forward paging may go: up to the last
+  // week that has a published shift (never past the server's window).
+  const lastShiftDate = shifts.reduce((m, sh) => (sh.date > m ? sh.date : m), "");
+  const maxOffset = lastShiftDate
+    ? Math.min(PORTAL_WEEKS_AHEAD, Math.max(0, weeksFrom(weekStart, lastShiftDate)))
+    : 0;
+  const visibleWeekStart = addDays(weekStart, 7 * weekOffset);
+  const laterStart = addDays(visibleWeekStart, 7);
 
-  // Build all 7 days for current + next week (OFF days included as silent dots).
-  const thisWeek = [];
-  const nextWeek = [];
+  // All 7 days of the visible week (OFF days included as silent dots).
   // `all` carries EVERY shift on the day; `shift` stays as the first one for
   // the strip, which draws one bar per day whatever happens on it. This used
   // to be `shifts.find()`, which kept the first and silently dropped the rest:
@@ -1722,20 +1797,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // total under-counted the hours the staffer is actually working. Splits are
   // normal in this trade, so the bug is common, invisible, and about pay.
   const dayShifts = (d) => shifts.filter((s) => s.date === d);
+  const weekDays = [];
   for (let i = 0; i < 7; i++) {
-    const d = addDays(weekStart, i);
+    const d = addDays(visibleWeekStart, i);
     const all = dayShifts(d);
-    thisWeek.push({ date: d, shift: all[0], all });
-  }
-  for (let i = 0; i < 7; i++) {
-    const d = addDays(nextWeekStart, i);
-    const all = dayShifts(d);
-    nextWeek.push({ date: d, shift: all[0], all });
+    weekDays.push({ date: d, shift: all[0], all });
   }
 
-  // The actual rows beyond next week, not just whether any exist — the strip
-  // below names their dates so a staffer who got an email about a later week
-  // can see it is really rostered. Sorted, because the server orders by id.
+  // The actual rows after the visible week, not just whether any exist — the
+  // strip below names their dates (each one a jump to its week) so a staffer
+  // who got an email about a later week can see it is really rostered.
+  // Sorted, because the server orders by id.
   const laterShifts = shifts
     .filter((s) => s.date >= laterStart)
     .sort((a, b) => a.date.localeCompare(b.date) || String(a.start_time).localeCompare(String(b.start_time)));
@@ -1745,8 +1817,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Next shift (drives the hero, countdown, teammate strip, .ics).
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const nextShift = upcoming[0];
-  const nextShiftRole = nextShift?.role_on_shift
-    ? roleName(nextShift.role_on_shift, t)
+  // A shift's role: the per-shift override, else the staffer's OWN role —
+  // the same fallback the owner's team schedule uses (staff.py:
+  // `shift.role_on_shift or staff.role`). Without it the hero said
+  // "Personale" while the profile sheet said "Køkken" for the same person,
+  // because the override is empty on most shifts. "staff" is the backend's
+  // placeholder for "no role", not a role to print.
+  const effRole = (sh) =>
+    sh?.role_on_shift || (staffRole && staffRole !== "staff" ? staffRole : null);
+  const nextShiftRoleKey = effRole(nextShift);
+  const nextShiftRole = nextShiftRoleKey
+    ? roleName(nextShiftRoleKey, t)
     : t("portalRoleStaff", "Staff");
 
   // Countdown chip. The Date.now() read lives inside the pure helper,
@@ -1796,7 +1877,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     setCalTapped(true);
   };
 
-  const weekDays = weekView === "this" ? thisWeek : nextWeek;
 
 
   // Totals for the week ON SCREEN, not the fixed "this week" — paging to next
@@ -1816,7 +1896,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     return { hours: Math.round(hours * 100) / 100, count: all.length };
 
   }, [weekDays]);
-  const weekLabelStart = weekView === "this" ? weekStart : nextWeekStart;
+  const weekLabelStart = visibleWeekStart;
 
   // The ONE ceremonial beat: hero settles in once per page load. useRef pins
   // the decision for this mount so mid-animation re-renders (clock fetch,
@@ -1858,7 +1938,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // unit inline: a hybrid that read "6t 15m" in Danish (glued, wrong minute
   // word) and "6h 15m" in Turkish, where the catalogue has no key and the unit
   // is "sa"/"dk". hours.js owns both units now.
-  const fmtHM = (h) => formatHoursMinutes(h == null ? null : Number(h), { lang });
+  // ONE hours format per language, the owner app's: "8,5 t" / "8.5 h"
+  // (hours.js formatHours, 2 decimals like a per-shift figure there). This
+  // screen printed "8 t 30 min" while Timer printed "8,5 timer" for the same
+  // shift. Hours-and-minutes stays only on running clocks (countdown,
+  // elapsed), which are read like a clock, not like a quantity.
+  const fmtHM = (h) => formatHours(h == null ? null : Number(h), { lang, decimals: 2 });
   // Gross span = net (paid) + unpaid break — both come from the owner's roster.
   const grossHrs = (s) => (Number(s?.net_hours) || 0) + (Number(s?.break_minutes) || 0) / 60;
 
@@ -1912,7 +1997,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             when there IS a shift: an empty hero has no role to signal. */}
         {nextShift && (
           <span
-            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift.role_on_shift, businessType)}`}
+            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(effRole(nextShift), businessType)}`}
             aria-hidden
           />
         )}
@@ -1971,28 +2056,34 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 Same facts, one line. NET keeps its emphasis because it is the
                 paid number and the one thing here we compute rather than
                 restate. */}
-            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }}>
-              {nextShiftRole && <span>{nextShiftRole}</span>}
-              {nextShift.break_minutes > 0 ? (
-                <>
-                  {nextShiftRole && <HeroDot />}
-                  <span className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>
-                  <HeroDot />
-                  <span className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>
-                  <HeroDot />
-                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
-                    {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
+            {/* Each separator dot travels WITH the fact after it, so a wrap on
+                a narrow phone starts the next line with "· 8,5 t effektiv"
+                instead of leaving a dangling dot after "30 min pause". */}
+            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }} data-testid="portal-hero-meta">
+              {[
+                nextShiftRole ? <span key="r">{nextShiftRole}</span> : null,
+                ...(nextShift.break_minutes > 0
+                  ? [
+                      <span key="g" className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>,
+                      <span key="b" className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>,
+                      <span key="n" className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                        {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
+                      </span>,
+                    ]
+                  // No break → gross == net, so ONE figure, not a redundant pair.
+                  : [
+                      <span key="g" className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                        {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
+                      </span>,
+                    ]),
+              ].filter(Boolean).map((el, i) => (
+                i === 0 ? el : (
+                  <span key={`d${i}`} className="inline-flex items-center" style={{ gap: 7 }}>
+                    <HeroDot />
+                    {el}
                   </span>
-                </>
-              ) : (
-                <>
-                  {nextShiftRole && <HeroDot />}
-                  {/* No break → gross == net, so ONE figure, not a redundant pair. */}
-                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
-                    {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
-                  </span>
-                </>
-              )}
+                )
+              ))}
             </div>
 
             {/* Booked covers for this shift's night — the reason to hold both the
@@ -2013,8 +2104,13 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
                 "booket" is load-bearing — walk-ins never enter the book, so this
                 is guests BOOKED, never guests served. */}
-            {typeof coversByShift?.[nextShift.id] === "number" && (
-              <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400">
+            {/* Covers and venue share ONE wrapping row with a real gap — as
+                two inline-flex siblings they ran together ("0 gæster booket◎
+                Testcafé"). And 0 is not shown: "0 gæster booket" reads as a
+                dead night when it usually means nobody has booked YET. */}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {typeof coversByShift?.[nextShift.id] === "number" && coversByShift[nextShift.id] > 0 && (
+              <div className="inline-flex items-center gap-1.5 text-[12px] text-gray-400" data-testid="portal-hero-covers">
                 <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span className="tabular-nums">
                   {t("portalCoversBooked", "{n} guests booked", { n: coversByShift[nextShift.id] })}
@@ -2033,7 +2129,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   href={venueMapsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
+                  className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
                   title={t("portalVenueDirections", "Get directions")}
                 >
                   {clock.st?.geofence_on ? (
@@ -2048,7 +2144,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   </span>
                 </a>
               ) : (
-                <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+                <div className="flex min-w-0 max-w-full items-center gap-1.5 text-[12px] text-gray-400">
                   {clock.st?.geofence_on ? (
                     <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                   ) : (
@@ -2061,6 +2157,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   </span>
                 </div>
               ))}
+            </div>
 
             {/* Live elapsed timer while clocked in (emerald ping, reused from
                 the old ClockCard). */}
@@ -2179,6 +2276,36 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 Renders nothing on a solo shift. */}
             {token && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} />}
           </>
+        ) : schedState === "loading" ? (
+          /* Not answered yet — a placeholder, never "no shift". Saying
+             "Ingen kommende vagt" before the first response lands tells
+             someone who works tonight that they don't. */
+          <div className="relative mt-3 space-y-2.5 animate-pulse" data-testid="portal-hero-loading" aria-label={t("portalScheduleLoading", "Loading your schedule…")}>
+            <div className="h-6 w-3/4 rounded-lg bg-white/10" />
+            <div className="h-3.5 w-1/2 rounded bg-white/10" />
+          </div>
+        ) : schedState === "error" ? (
+          /* The schedule call failed and there is nothing last-good to show:
+             say so, and offer the retry right here. */
+          <div className="relative mt-2" data-testid="portal-hero-failed">
+            <div className="flex items-center gap-2 text-[17px] font-bold text-white">
+              <CloudOff className="w-5 h-5 shrink-0 text-amber-300" strokeWidth={2.2} aria-hidden />
+              {t("portalScheduleLoadFailed", "Couldn't load your schedule")}
+            </div>
+            <div className="mt-1.5 text-[13px] text-gray-400">
+              {t("portalScheduleLoadFailedHint", "Check your connection — your shifts are not gone.")}
+            </div>
+            {onRetrySchedule && (
+              <button
+                type="button"
+                onClick={onRetrySchedule}
+                className="mt-3.5 inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-xl bg-white text-gray-900 text-sm font-semibold active:scale-[0.98] transition"
+              >
+                <RefreshCw className="w-4 h-4" strokeWidth={2.4} aria-hidden />
+                {t("tryAgain", "Try again")}
+              </button>
+            )}
+          </div>
         ) : (
           <>
             <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
@@ -2257,35 +2384,60 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       >
         {/* v2 week card header: eyebrow over the RANGE at display weight, with
             two chevron buttons rather than a text link. The range is the fact
-            a staffer scans for, so it carries the type weight, not the label. */}
+            a staffer scans for, so it carries the type weight, not the label.
+            Pages week by week up to the last week with a published shift;
+            "I dag" is the one-tap way back once you have paged away. */}
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
-              {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")}
+            <div data-testid="portal-week-label" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+              {weekOffset === 0
+                ? t("portalSecThisWeek", "This week")
+                : weekOffset === 1
+                  ? t("portalSecNextWeek", "Next week")
+                  : t("portalWeekN", "Week {n}", { n: isoWeekNumber(visibleWeekStart) })}
             </div>
             <div className="tabular-nums" style={{ marginTop: 6, font: "700 14.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a" }}>
               {fmtShort(weekLabelStart, lang)} – {fmtShort(addDays(weekLabelStart, 6), lang)}
             </div>
           </div>
-          <div className="flex items-center gap-[5px]">
-            {[["prev", weekView !== "this"], ["next", weekView === "this"]].map(([dir, enabled]) => (
+          {/* 44×44 hit boxes around the 28px visual chevrons (the negative
+              margins keep the visuals where they were). */}
+          <div className="flex items-center" style={{ margin: "-8px -8px -8px 0" }}>
+            {weekOffset > 0 && (
+              <button
+                type="button"
+                onClick={() => goToWeek(0)}
+                aria-label={t("portalBackToThisWeek", "Back to this week")}
+                className="flex items-center justify-center"
+                style={{ minHeight: 44, padding: "0 4px" }}
+              >
+                <span style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid #e8edf3", background: "#f1f5f9", font: "600 11px/1 var(--font-text)", color: "#475569" }}>
+                  {t("portalToday", "Today")}
+                </span>
+              </button>
+            )}
+            {[["prev", weekOffset > 0], ["next", weekOffset < maxOffset]].map(([dir, enabled]) => (
               <button
                 key={dir}
                 type="button"
                 disabled={!enabled}
-                onClick={() => { setWeekView(dir === "next" ? "next" : "this"); setExpandedDate(null); }}
-                aria-label={dir === "next" ? t("portalSecNextWeek", "Next week") : t("portalSecThisWeek", "This week")}
+                onClick={() => goToWeek(weekOffset + (dir === "next" ? 1 : -1))}
+                aria-label={dir === "next" ? t("portalWeekNext", "Next week") : t("portalWeekPrev", "Previous week")}
                 className="flex items-center justify-center"
-                style={{
-                  width: 28, height: 28, borderRadius: 9, border: "1px solid #e8edf3",
-                  background: enabled ? "#f1f5f9" : "#f6f8fb",
-                  color: enabled ? "#475569" : "#cbd5e1",
-                  cursor: enabled ? "pointer" : "default",
-                }}
+                style={{ width: 44, height: 44, cursor: enabled ? "pointer" : "default" }}
               >
-                {dir === "next"
-                  ? <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />
-                  : <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />}
+                <span
+                  className="flex items-center justify-center"
+                  style={{
+                    width: 28, height: 28, borderRadius: 9, border: "1px solid #e8edf3",
+                    background: enabled ? "#f1f5f9" : "#f6f8fb",
+                    color: enabled ? "#475569" : "#cbd5e1",
+                  }}
+                >
+                  {dir === "next"
+                    ? <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />
+                    : <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />}
+                </span>
               </button>
             ))}
           </div>
@@ -2363,9 +2515,15 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           style={{ marginTop: 13, paddingTop: 11, borderTop: "1px solid #eef2f7" }}
         >
           <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
-            {weekTotals.count === 0
-              // "0 min · 0 vagter" read like a broken counter.
-              ? t("portalWeekNoShifts", "No shifts this week")
+            {weekTotals.count === 0 && schedState !== "ok"
+              // Not an answer yet (or the call failed): no "no shifts" claim.
+              ? <span aria-hidden className="inline-block h-3 w-24 rounded bg-gray-100 align-middle" />
+              : weekTotals.count === 0
+              // "0 min · 0 vagter" read like a broken counter. "denne uge"
+              // only when it IS this week — it sat under "NÆSTE UGE" too.
+              ? (weekOffset === 0
+                  ? t("portalWeekNoShifts", "No shifts this week")
+                  : t("portalWeekNoShiftsThat", "No shifts that week"))
               : <>{fmtHM(weekTotals.hours)} · {weekTotals.count === 1
                   ? t("portalWeekShiftCountOne", "{n} shift", { n: weekTotals.count })
                   : t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}</>}
@@ -2432,9 +2590,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: isTodayCell ? "#0f172a" : "#94a3b8" }}>
-                        {new Date(d + "T00:00:00")
-                          .toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })
-                          .toUpperCase()}
+                        {fmtWeekdayDay(d, lang).toUpperCase()}
                         {isTodayCell ? ` · ${t("portalToday", "Today")}` : ""}
                       </span>
                       {all[0]?.role_on_shift && (
@@ -2450,16 +2606,23 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                           {/* Top-aligned: with a "Med Sara, Jonas" line the
                               block grows, and a centred bar drifted below the
                               time it belongs to. */}
-                          <span className={`w-1.5 h-8 mt-0.5 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift, businessType)}`} aria-hidden />
+                          <span className={`w-1.5 h-8 mt-0.5 rounded-full shrink-0 ${roleBarColor(effRole(fs), businessType)}`} aria-hidden />
                           <div className="min-w-0">
                             <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
                               {fs.start_time}–{fs.end_time}
                             </div>
-                            {/* The hours are on the right of the row; printing
-                                them here too said "8h 30m" twice per shift. */}
-                            {fs.role_on_shift && (
-                              <div className="text-[11px] text-gray-500 truncate">
-                                {roleName(fs.role_on_shift, t)}
+                            {/* Role (override, else the staffer's own) and the
+                                unpaid break — the hours on the right are NET,
+                                so without the break "11:00–20:00 · 8,5 t"
+                                does not add up. The hours themselves stay on
+                                the right only (printing them here said them
+                                twice per shift). */}
+                            {(effRole(fs) || fs.break_minutes > 0) && (
+                              <div className="text-[11px] text-gray-500 truncate" data-testid="portal-week-row-meta">
+                                {[
+                                  effRole(fs) ? roleName(effRole(fs), t) : null,
+                                  fs.break_minutes > 0 ? t("portalHoursBreak", "{m} min break", { m: fs.break_minutes }) : null,
+                                ].filter(Boolean).join(" · ")}
                               </div>
                             )}
                             {/* Who you are on with, for EVERY shift — not just
@@ -2538,7 +2701,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                           <div>{t("portalMateNoOther", "{name} has no other shift on the rota.", { name: firstName(open.staff_name) || open.staff_name })}</div>
                                         ) : others.map((x, xi) => (
                                           <div key={`${x.date}-${xi}`} className="tabular-nums">
-                                            {new Date(x.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })}
+                                            {fmtWeekdayDay(x.date, lang)}
                                             {" · "}{x.start_time}–{x.end_time}
                                             {x.role ? ` · ${roleName(x.role, t)}` : ""}
                                           </div>
@@ -2580,34 +2743,41 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           );
         })()}
 
-        {/* Shifts beyond next week.
+        {/* Shifts after the visible week.
             This was the bare words "Coming up" with no dates, no times and no
-            tap target. An owner can publish a rota any distance out — publish
-            has no upper date bound — and the confirm sheet tells them "N shifts
-            are now live on your team's schedule", so staff get an email titled
-            "Schedule updated · Week of 05 Oct", open the app, tap Next week and
-            find nothing. They text the manager, which is the behaviour the app
-            exists to stop. Naming the dates does not extend the two-week view,
-            but it does tell the truth about what is already rostered. */}
-        {weekView === "next" && laterShifts.length > 0 && (
-          <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-2">
+            tap target, and then a 4-row preview ending in an inert "+11 mere":
+            the week view stopped at next week, so those shifts had no screen.
+            Every row now jumps to its week, and "+N mere" to the week of the
+            first one not listed — so every published shift is reachable. */}
+        {weekOffset >= 1 && laterShifts.length > 0 && (
+          <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-2" data-testid="portal-later-shifts">
             <div className="text-[11px] font-medium text-gray-400">
               {(t("portalSecComingUpCount", "Coming up · {n} more shifts") || "")
                 .replace("{n}", String(laterShifts.length))}
             </div>
-            <ul className="mt-1 space-y-0.5">
+            <ul className="mt-0.5">
               {laterShifts.slice(0, 4).map((s) => (
-                <li key={s.id || `${s.date}-${s.start_time}`}
-                    className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
-                  {fmtShort(s.date, lang)} · {s.start_time}–{s.end_time}
+                <li key={s.id || `${s.date}-${s.start_time}`}>
+                  <button
+                    type="button"
+                    onClick={() => goToWeek(weeksFrom(weekStart, s.date))}
+                    className="w-full flex items-center justify-between min-h-[44px] text-left text-[12px] text-gray-600 dark:text-gray-300 tabular-nums active:opacity-60"
+                  >
+                    <span>{fmtDate(s.date, lang)} · {s.start_time}–{s.end_time}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300 shrink-0" strokeWidth={2.4} aria-hidden />
+                  </button>
                 </li>
               ))}
             </ul>
             {laterShifts.length > 4 && (
-              <div className="mt-0.5 text-[11px] text-gray-400">
+              <button
+                type="button"
+                onClick={() => goToWeek(weeksFrom(weekStart, laterShifts[4].date))}
+                className="min-h-[44px] text-[12px] font-semibold text-gray-500 underline underline-offset-2 active:opacity-60"
+              >
                 {(t("portalSecComingUpMore", "+{n} more") || "")
                   .replace("{n}", String(laterShifts.length - 4))}
-              </div>
+              </button>
             )}
           </div>
         )}
@@ -2785,7 +2955,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   );
 }
 
-function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading }) {
+function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading, onRetry }) {
   const { t, lang } = useLanguage();
   const [customOpen, setCustomOpen] = useState(false);
   // The permit cap is monthly. Against a chosen window of any other length the
@@ -2810,6 +2980,24 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       return { key: `${th.getFullYear()}-${String(week).padStart(2, "0")}`, week };
     };
     const buckets = new Map();
+    // A week of the period with no shifts keeps its (0) column — it used to
+    // vanish (W40, W41, W43), which reads as "the chart skipped one" rather
+    // than "you were off that week". But only weeks we KNOW: up to today, or
+    // the last week holding an entry if that is later. A week that has not
+    // happened yet and holds nothing is unknown, not 0 — drawing "0" there is
+    // a computed zero shown as measured.
+    if (data?.period_start && data?.period_end) {
+      const today = toLocalISO(new Date());
+      const lastEntry = (data.entries || []).reduce((m, e) => ((e.date || "") > m ? e.date : m), "");
+      const known = today > lastEntry ? today : lastEntry;
+      const end = known < data.period_end ? known : data.period_end;
+      for (let d = data.period_start; d <= end; d = addDays(d, 7)) {
+        const k = isoWeek(d);
+        if (k) buckets.set(k.key, 0);
+      }
+      const last = end >= data.period_start ? isoWeek(end) : null;
+      if (last) buckets.set(last.key, buckets.get(last.key) || 0);
+    }
     for (const e of data?.entries || []) {
       const k = isoWeek(e.date);
       if (k === null) continue;                                // never bucket a date we cannot read
@@ -2819,14 +3007,19 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     // W52 of one year with W52 of the next, or sort W01 before W52.
     const sorted = [...buckets.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const rows = sorted
-      .slice(-5)                                               // v2 shows five columns
-      .map(([k, n]) => ({ w: `W${k.split("-")[1]}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
+      // Six columns: a calendar month can touch six ISO weeks (Nov 2026 runs
+      // Sun 1 → Mon 30, W44–W49). Five dropped the first week — hours and
+      // all — and flagged the default pay period as "last 5 weeks". Only a
+      // long custom window is a tail now.
+      .slice(-6)
+      // "Uge 40" in Danish, "W40" in English — the label was English always.
+      .map(([k, n]) => ({ k, w: t("portalWeekShort", "W{n}", { n: Number(k.split("-")[1]) }), n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
     rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
     // Flagged, not hidden: with a long custom window these five bars are a tail,
     // not the whole period, so they cannot add up to the headline above them.
     rows.truncated = sorted.length > rows.length;
     return rows;
-  }, [data?.entries]);
+  }, [data?.entries, data?.period_start, data?.period_end, t]);
 
   if (!data) {
     // A failed FIRST fetch also leaves data null. Showing the skeleton then is
@@ -2844,6 +3037,18 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
           <span>
             {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={hoursLoading}
+                data-testid="portal-hours-retry"
+                className="min-h-[44px] disabled:opacity-50"
+                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c", font: "700 12px/1 var(--font-text)" }}
+              >
+                {t("tryAgain", "Try again")}
+              </button>
+            )}
             {range && (
               <button type="button" onClick={() => setRange(null)} style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}>
                 {t("portalHoursBackToDefault", "Back to my pay period")}
@@ -2942,6 +3147,20 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
           <span>
             {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {/* The numbers below are the LAST good fetch — say so. */}
+            {" "}{t("portalHoursStale", "Showing the last numbers we got.")}
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={hoursLoading}
+                data-testid="portal-hours-retry"
+                className="min-h-[44px] disabled:opacity-50"
+                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c", font: "700 12px/1 var(--font-text)" }}
+              >
+                {t("tryAgain", "Try again")}
+              </button>
+            )}
             {range && (
               <button
                 type="button"
@@ -2964,6 +3183,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         className="relative overflow-hidden"
         style={{
           borderRadius: 22, padding: 19,
+          // Last-good numbers under a failed refresh read as such.
+          opacity: hoursError ? 0.6 : 1,
           background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
           boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
         }}
@@ -3003,7 +3224,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
-                {fmtPortalHours(data.total_hours, lang)} / {fmtPortalHours(maxHours, lang)}
+                {fmtPortalHours(data.total_hours, lang)} / {formatHours(maxHours, { lang, decimals: 2 })}
               </div>
             </div>
           ) : soFar > 0 && ahead > 0 ? (
@@ -3017,7 +3238,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   against a cap. This is a SPLIT of the period, so it states the
                   one number the staffer does not already have. */}
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
-                {fmtPortalHours(ahead, lang)} {t("portalHrsShort")}
+                {formatHours(ahead, { lang, decimals: 2 })}
               </div>
             </div>
           ) : delta !== null ? (
@@ -3031,7 +3252,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
                 {delta === 0
                   ? t("portalHoursSameAsLast", "Same")
-                  : `${delta > 0 ? "+" : "−"}${fmtPortalHours(Math.abs(delta), lang)} ${t("portalHrsUnit")}`}
+                  : formatHours(delta, { lang, decimals: 2, sign: true })}
               </div>
             </div>
           ) : nextUp ? (
@@ -3068,12 +3289,12 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
               {weekBars.truncated
                 ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
-                : t("portalHrsShort")}
+                : hoursUnit(lang)}
             </span>
           </div>
           <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
             {weekBars.map((b) => (
-              <div key={b.w} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }}>
+              <div key={b.k} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }} data-testid="portal-week-bar">
                 <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{fmtPortalHours(b.v, lang)}</span>
                 <div
                   style={{
@@ -3139,6 +3360,39 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             </button>
           )}
         </div>
+        {/* Open clock punches — a STATE, never a number. They used to arrive
+            as entries with total_hours 0 and render "0 timer" with no times,
+            and one of them flipped the headline to "0 worked". The server now
+            keeps them out of every total and every entry and sends them here
+            with the same live/forgotten rule the owner's Timer uses. */}
+        {(data.open_punches || []).length > 0 && (
+          <div className="space-y-1.5 mb-2">
+            {data.open_punches.map((op) => {
+              const forgotten = op.state === "forgotten";
+              return (
+                <div
+                  key={`open-${op.date}-${op.start_time || ""}`}
+                  data-testid="portal-open-punch"
+                  className={`flex items-start gap-2.5 rounded-[16px] px-3.5 py-3 border ${forgotten ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}
+                >
+                  {forgotten
+                    ? <AlertTriangle size={15} strokeWidth={2.4} className="shrink-0 mt-0.5 text-amber-600" aria-hidden />
+                    : <Clock size={15} strokeWidth={2.4} className="shrink-0 mt-0.5 text-emerald-600" aria-hidden />}
+                  <div className="min-w-0">
+                    <div className="text-sm text-gray-700 tabular-nums">
+                      {fmtDate(op.date, lang)}{op.start_time ? ` · ${op.start_time}–` : ""}
+                    </div>
+                    <div className={`text-[12.5px] font-semibold ${forgotten ? "text-amber-800" : "text-emerald-800"}`}>
+                      {forgotten
+                        ? t("portalHoursOpenForgotten", "Clock-out missing — your manager will fix it")
+                        : t("portalHoursOpenLive", "Clocked in since {t}", { t: op.start_time || "—" })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {data.entries.length === 0 ? (
           <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
         ) : (
@@ -3180,15 +3434,15 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     <span className="text-sm text-gray-500 flex-1">
                       {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                     </span>
-                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtPortalHours(h.total_hours, lang)} {t("portalHrsShort")}</span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                   </div>
                   {adjusted && (
                     <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
                       <PencilLine size={12} className="shrink-0 mt-0.5" />
                       <span className="tabular-nums">
                         {t("portalHoursAdjusted", "You clocked {clocked} · recorded {recorded}", {
-                          clocked: `${fmtPortalHours(h.clock_hours, lang)} ${t("portalHrsShort")}`,
-                          recorded: `${fmtPortalHours(h.total_hours, lang)} ${t("portalHrsShort")}`,
+                          clocked: formatHours(h.clock_hours, { lang, decimals: 2 }),
+                          recorded: formatHours(h.total_hours, { lang, decimals: 2 }),
                         })}
                       </span>
                     </p>
@@ -3235,8 +3489,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <div>
             <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
               {t("portalHoursRecentlyClocked", "Recently clocked")}
-              <span className="ml-1 font-normal text-gray-400 normal-case tracking-normal">
-                · {t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
+              <span className="font-normal text-gray-400 normal-case tracking-normal">
+                {" · "}{t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
               </span>
             </div>
             <div className="space-y-1.5">
@@ -3245,7 +3499,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   <span className="text-sm text-gray-500">
                     {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                   </span>
-                  <span className="text-sm font-semibold text-gray-900">{fmtPortalHours(h.total_hours, lang)} {t("portalHrsShort")}</span>
+                  <span className="text-sm font-semibold text-gray-900 tabular-nums">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                 </div>
               ))}
             </div>
@@ -3448,9 +3702,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
 function fmtSwapDay(iso, lang) {
   if (!iso) return iso;
   try {
-    return new Date(`${iso}T00:00:00`).toLocaleDateString(localeFor(lang), {
-      weekday: "short", day: "numeric", month: "short",
-    });
+    return fmtDate(iso, lang);
   } catch {
     return iso;
   }
@@ -3906,11 +4158,24 @@ function AlertsTab({ token, onNavigate }) {
     // generic one.
     const subject = n.subject || "";
     const cut = subject.lastIndexOf(" - ");
-    const detail = cut > 0 ? subject.slice(cut + 3) : subject;
     const cancelled = /cancelled/i.test(subject);
 
     let kind = n.event_type;
     if (n.event_type === "shift_changed" && cancelled) kind = "shift_deleted";
+
+    // The detail line is built from DATA (ref_date / ref_start / ref_end from
+    // the server) in the app's language — "ons. 25. nov. · 11:00–20:00",
+    // "Uge 48 · 23. nov. – 29. nov." It used to print the stored subject's
+    // tail, an English display string fixed at send time ("Wed 25 Nov") with
+    // no shift time. A row the server could not read keeps its stored text.
+    let detail = cut > 0 ? subject.slice(cut + 3) : subject;
+    if (n.ref_date) {
+      if (kind === "schedule_published") {
+        detail = `${t("portalWeekN", "Week {n}", { n: isoWeekNumber(n.ref_date) })} · ${fmtShort(n.ref_date, lang)} – ${fmtShort(addDays(n.ref_date, 6), lang)}`;
+      } else {
+        detail = fmtDate(n.ref_date, lang) + (n.ref_start && n.ref_end ? ` · ${n.ref_start}–${n.ref_end}` : "");
+      }
+    }
 
     const META = {
       schedule_published: { Icon: Calendar, tone: "green", title: t("portalEvtSchedulePublished", "Schedule published"), tab: "schedule" },
@@ -3979,7 +4244,8 @@ function AlertsTab({ token, onNavigate }) {
             <button
               key={n.id}
               type="button"
-              onClick={target ? () => onNavigate(target) : undefined}
+              // Opens the week the alert is ABOUT, not just the tab.
+              onClick={target ? () => onNavigate(target, n.ref_date || null) : undefined}
               // A row that goes nowhere must not pretend to be pressable.
               style={{
                 display: "flex", alignItems: "flex-start", gap: 11,
@@ -4216,8 +4482,10 @@ function NewGroupSheet({ token, onClose, onCreated }) {
             placeholder={t("staffChatGroupNamePlaceholder", "e.g. Kitchen")}
             className="w-full bg-white outline-none placeholder:text-[#94a3b8]"
             style={{
-              padding: "12px 14px", borderRadius: 14, border: "1px solid #e2e8f0",
-              font: "500 13px/1.35 var(--font-text)", color: "#0f172a",
+              padding: "11px 14px", borderRadius: 14, border: "1px solid #e2e8f0",
+              // 16px: under it iOS zooms the page on focus (inline beats the
+              // index.css anti-zoom rule) — same fix as the chat composer.
+              font: "500 16px/1.35 var(--font-text)", color: "#0f172a",
             }}
           />
           <p
@@ -4357,7 +4625,7 @@ function ThreadListView({ token, onOpen, onRead }) {
             placeholder={t("staffChatSearch", "Search people and messages")}
             aria-label={t("staffChatSearch", "Search people and messages")}
             className="flex-1 bg-transparent outline-none placeholder:text-[#94a3b8]"
-            style={{ font: "400 12.5px/1 var(--font-text)", color: "#0f172a" }}
+            style={{ font: "400 16px/1.2 var(--font-text)", color: "#0f172a" }}
           />
         </div>
         <button
@@ -4423,6 +4691,15 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
   const scrollRef = useRef(null);
+  // px the on-screen keyboard covers (web: visual viewport; Scheduler app:
+  // the Keyboard plugin). The composer is position:fixed, and the shell's
+  // Keyboard resize mode is "body", which never moves a fixed bar — so it sat
+  // UNDER the keyboard and the staffer typed blind with Send out of reach.
+  const kb = useKeyboardLift();
+  useEffect(() => {
+    // Keyboard up → keep the newest message in sight above the composer.
+    if (kb > 0 && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [kb]);
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
 
@@ -4575,7 +4852,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       <div
         ref={scrollRef}
         className="flex flex-col overflow-y-auto"
-        style={{ maxHeight: "calc(100vh - 20rem)", gap: 9 }}
+        style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -4675,10 +4952,12 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         )}
       </div>
 
-      {/* Composer — fixed above the bottom nav, notch-aware. */}
+      {/* Composer — fixed above the bottom nav, notch-aware; while the
+          keyboard is up it rides on top of the keyboard instead. */}
       <div
+        data-testid="portal-chat-composer"
         className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
-        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+        style={{ bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
         <div className="max-w-lg mx-auto px-3 pt-2">
           <PendingPhotos picker={picker} />
@@ -4692,9 +4971,15 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               placeholder={t("staffChatPlaceholder", "Write a message…")}
               className="flex-1 resize-none max-h-28 bg-white outline-none placeholder:text-[#94a3b8]"
               style={{
-                minHeight: 42, padding: "12px 15px", borderRadius: 999,
+                // 16px, not 12.5: iOS zooms the page on focus of any field
+                // under 16px — and this inline font beat index.css's
+                // coarse-pointer 16px rule. In the Scheduler app the page then
+                // STAYED zoomed after the keyboard closed, clipping Send and
+                // the tab bar until a force-quit. Padding trimmed so the pill
+                // keeps its 42px height.
+                minHeight: 42, padding: "10px 15px", borderRadius: 999,
                 border: "1px solid #e2e8f0",
-                font: "400 12.5px/1.35 var(--font-text)", color: "#0f172a",
+                font: "400 16px/1.35 var(--font-text)", color: "#0f172a",
               }}
             />
             <button
@@ -4791,6 +5076,35 @@ function PortalError({ message, expected = false }) {
 }
 
 
+/** Opening the portal failed WITHOUT the server saying the link is dead —
+    offline, a timeout, a 5xx while the backend wakes. The saved link is kept;
+    this screen says so and offers the retry (the page also retries by itself
+    on the browser's 'online' event). Never shows axios's raw "Network Error". */
+function PortalOffline({ onRetry, busy = false }) {
+  const { t } = useLanguage();
+  return (
+    <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
+      <div className="text-center max-w-xs">
+        <CloudOff className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+        <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalOfflineTitle", "No connection")}</h1>
+        <p className="text-sm text-gray-500">
+          {t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold active:scale-[0.98] transition disabled:opacity-60"
+        >
+          {busy && <RefreshCw className="w-4 h-4 animate-spin" strokeWidth={2.4} aria-hidden />}
+          {busy ? t("portalOfflineRetrying", "Trying again…") : t("tryAgain", "Try again")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Main Portal Page ─────────────────────────────────────────────────────
 
 /** Group per-day absence rows into contiguous same-kind+status ranges, so a
@@ -4830,7 +5144,13 @@ function AbsenceSection({ token, onChanged }) {
     setLoadFailed(false);
     try {
       const res = await portalApi.get(`/portal/${token}/absence`);
-      setRows(res.data?.absence || []);
+      // `status` is the stored value; the owner's decline is the separate
+      // `declined` flag (a new status value would read as "Afventer" in
+      // installed apps that bundle older code). Fold it in here so grouping
+      // and the chip see "declined" → "Afvist".
+      setRows((res.data?.absence || []).map((a) => (
+        a.status === "cancelled" && a.declined ? { ...a, status: "declined" } : a
+      )));
     } catch {
       // Keep whatever was last loaded and say the refresh failed. Clearing to
       // [] rendered "no absence registered" to a staffer who HAS booked
@@ -4861,6 +5181,10 @@ function AbsenceSection({ token, onChanged }) {
     acknowledged: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
     covered: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
     cancelled: { label: t("fravaerStatusCancelled", "Cancelled"), cls: "bg-gray-100 text-gray-500" },
+    // The owner said no. Stored as 'cancelled' like a withdrawal; the portal
+    // API flags it (`declined`, staff_portal._portal_absence_declined) and
+    // load() folds that into this key.
+    declined: { label: t("fravaerStatusDeclined", "Declined"), cls: "bg-rose-50 text-rose-700" },
   };
 
   const fmtRange = (s, e) => {
@@ -4924,9 +5248,10 @@ function AbsenceSection({ token, onChanged }) {
         <div className="space-y-2">
           {groups.map((g) => {
             // A sygemelding is a fact, not an application, so it never wears
-            // the amber "Afventer". Cancelled still shows for both kinds —
-            // that one IS a real state change the staffer made.
-            const st = isNotifyKind(g.kind) && g.status !== "cancelled"
+            // the amber "Afventer". Cancelled / declined still show for both
+            // kinds — those ARE real state changes (the staffer's, or the
+            // manager's).
+            const st = isNotifyKind(g.kind) && g.status !== "cancelled" && g.status !== "declined"
               ? REGISTERED
               : (STATUS[g.status] || STATUS.pending);
             return (
@@ -4968,7 +5293,7 @@ function AbsenceSection({ token, onChanged }) {
           {t("fravaerAdd", "Request time off")}
         </button>
         <p className="text-[12px] text-gray-500 leading-snug mt-2">
-          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved.")}
+          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved or Declined.")}
         </p>
         </div>
       ) : (
@@ -5373,7 +5698,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               }}
             >
               <span style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
-                {d.toLocaleDateString(localeFor(lang), { weekday: "short" }).replace(".", "").slice(0, 3)}
+                {wdShort(d, lang)}
               </span>
               <span
                 className="tabular-nums"
@@ -5575,7 +5900,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   const goNext = () => { const d = new Date(viewYear, viewMonth + 1, 1); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
   const goToday = () => { const d = new Date(); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
   const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth();
-  const fmtWhen = (iso) => new Date(iso + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric", month: "short" });
+  const fmtWhen = (iso) => fmtDate(iso, lang);
 
   if (avail === null) {
     return <div className="text-xs text-gray-500 py-6">{t("portalLoading", "Loading…")}</div>;
@@ -6458,6 +6783,7 @@ function HeroDot() {
 export default function StaffPortalPage() {
   const { token } = useParams();
   const { t, lang, setLang } = useLanguage();
+  const confirmDisconnect = useConfirm();
 
   // The portal is a fixed full-viewport app-shell that owns its OWN safe-area
   // insets (the sticky header pads + caps the notch; the bottom nav pads for
@@ -6492,6 +6818,16 @@ export default function StaffPortalPage() {
 
   // Data for each tab
   const [shifts, setShifts] = useState([]);
+  // Whether `shifts` is an ANSWER yet. [] means three different things —
+  // not fetched yet, fetch failed, really no shifts — and the Schedule hero
+  // used to say "Ingen kommende vagt" for all three: before the first
+  // response landed, and for good when the schedule call failed.
+  // "loading" | "ok" | "error". Once "ok", a later failed refresh keeps "ok"
+  // (the last-good roster stays on screen; the header pill tells its age).
+  const [schedState, setSchedState] = useState("loading");
+  // {date, n}: the week an alert tap should open on Vagtplan. Cleared once the
+  // staffer leaves Vagtplan, so coming back later lands on this week again.
+  const [scheduleFocus, setScheduleFocus] = useState(null);
   // Which department (branch) the portal is showing. Built from the staffer's
   // OWN shifts — `branch_name` already rides on every row — so the list can
   // only ever contain places they actually work. null = all of them.
@@ -6563,6 +6899,14 @@ export default function StaffPortalPage() {
       .catch(() => {});
     return () => { cancel = true; };
   }, [token, pinVerified, info, tab, lastSynced]);
+
+  useEffect(() => {
+    // Any other tab, Alerts included, drops the focus: ScheduleTab remounts
+    // on every return to Vagtplan and would otherwise re-open the old alert's
+    // week each time. An alert tap sets focus + tab in one batch, so it is
+    // never cleared before ScheduleTab reads it.
+    if (tab !== "schedule") setScheduleFocus(null);
+  }, [tab]);
 
   // Opening Alerts IS reading them — otherwise the badge stays lit until the
   // staffer happens to find "Mark all read".
@@ -6664,10 +7008,17 @@ export default function StaffPortalPage() {
     finally { setPhotoBusy(false); }
   };
 
-  // 1. Validate token on mount
+  // 1. Validate token on mount — and again on "Prøv igen" / the browser coming
+  // back online after a failed open (validateKey bumps).
+  const [validateKey, setValidateKey] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   useEffect(() => {
+    let gone = false;
     portalApi.get(`/portal/${token}`)
       .then((res) => {
+        if (gone) return;
+        setError(null);
+        setRetrying(false);
         setInfo(res.data);
         // No PIN — auto-verify. With a PIN, a still-valid stored proof
         // (validated server-side, returned as pin_ok) also skips the gate.
@@ -6679,26 +7030,32 @@ export default function StaffPortalPage() {
         try { localStorage.setItem("bonbox_portal_token", token); } catch { /* private mode */ }
       })
       .catch((err) => {
-        // A burned, deactivated or expired staff link is the EXPECTED way to
-        // reach this branch, not a fault worth reporting verbatim. The backend
-        // answers it with 404 — "Link not found or inactive", and "Staff member
-        // not found" once the owner has erased the employee. Those are raw
-        // English FastAPI detail strings, and PortalError used to render them
-        // in place of its own copy, which put an English sentence directly
-        // under the Danish heading "Link virker ikke" on the ONE screen a
-        // staffer sees when their link stops working.
+        if (gone) return;
+        // ONLY the server saying "this link is gone" is a dead link. The
+        // backend answers a burned, deactivated, expired or erased link with
+        // 404 (staff_portal.py _get_staff_from_token — one status on purpose,
+        // so it never confirms a token was once real); 410 is accepted too.
         //
-        // So classify here rather than in the view: flag the expected case and
-        // let the screen use the da/en catalogue copy, and keep the server's
-        // own text for statuses we did not anticipate, where it is the only
-        // clue anyone gets. Backend untouched — this is a rendering decision.
-        // No clue at all → an empty text, so PortalError shows its da/en
-        // catalogue body instead of an English "Link not found".
-        setError({
-          expected: err?.response?.status === 404,
-          text: errText(err, ""),
-        });
+        // Everything else — no response at all (offline, a dead radio), a
+        // timeout, a 429, a 5xx while Render wakes — says nothing about the
+        // link. This catch used to treat all of them as dead: it showed
+        // "Link virker ikke" over axios's English "Network Error" with no way
+        // to retry, AND erased the saved link, so the Scheduler app booted to
+        // /join next launch. Join codes burn on use, so the staffer then needed
+        // a new code from their manager to see a schedule nothing was wrong
+        // with. Now a non-answer keeps the link and offers "Prøv igen".
+        const status = err?.response?.status;
+        const dead = status === 404 || status === 410;
         setLoading(false);
+        setRetrying(false);
+        if (!dead) {
+          setError({ transient: true });
+          return;
+        }
+        // The dead-link screen uses the da/en catalogue copy: the server's
+        // detail is raw English ("Link not found or inactive") and tells the
+        // staffer nothing they can act on.
+        setError({ expected: true, text: "" });
         // A dead link must not keep booting an installed app (PWA or the
         // Scheduler shell — both launch to "/") into this error screen:
         // forget it so "/" falls back to the join-code screen.
@@ -6708,7 +7065,18 @@ export default function StaffPortalPage() {
           }
         } catch { /* private mode */ }
       });
-  }, [token]);
+    return () => { gone = true; };
+  }, [token, validateKey]);
+
+  // A failed open retries by itself the moment the phone is back online —
+  // the staffer should not have to know that "Prøv igen" exists.
+  const transientOpen = !!error?.transient;
+  useEffect(() => {
+    if (!transientOpen) return;
+    const onOnline = () => { setRetrying(true); setValidateKey((k) => k + 1); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [transientOpen]);
 
   // 2. Load data once verified
   const loadData = useCallback(() => {
@@ -6752,8 +7120,10 @@ export default function StaffPortalPage() {
         }
         scheduleSigRef.current = nextSig;
         setShifts(nextShifts);
+        setSchedState("ok");
         setLastSynced(new Date());
       } else {
+        setSchedState((st) => (st === "ok" ? "ok" : "error"));
         // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
         // the pill keeps showing the real last-good time (or Offline). Keeping
         // the last-good shifts on screen is right; the caller just has to be
@@ -7133,10 +7503,17 @@ export default function StaffPortalPage() {
     );
   }
 
-  // Error state
-  // `error` is {expected, text} — see the token-validation catch. Still a
-  // plain truthiness gate: an object is always truthy, so the screen shows
-  // exactly when it did before.
+  // Error state — see the token-validation catch. {transient} is "we could
+  // not reach the server" (link kept, retry offered); anything else is the
+  // dead-link screen.
+  if (error?.transient) {
+    return (
+      <PortalOffline
+        busy={retrying}
+        onRetry={() => { setRetrying(true); setValidateKey((k) => k + 1); }}
+      />
+    );
+  }
   if (error) return <PortalError message={error.text} expected={error.expected} />;
 
   // PIN gate
@@ -7232,6 +7609,9 @@ export default function StaffPortalPage() {
                     <button
                       type="button"
                       onClick={() => { loadData(); loadHours(); }}
+                      // A word-sized target in a text line: the ::before
+                      // widens the hit area to 44px without moving the line.
+                      className="relative before:absolute before:-inset-x-3 before:-inset-y-3 before:content-['']"
                       style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}
                     >
                       {!isOnline
@@ -7299,7 +7679,9 @@ export default function StaffPortalPage() {
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="relative rounded-full overflow-hidden flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              // overflow-hidden lives on the INNER circle: on the button it clipped
+              // the -inset-2 ::before, so the hit area was the 33px circle.
+              className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
               style={{
                 width: 33, height: 33, flex: "none",
                 background: "linear-gradient(150deg,#1e293b,#0f172a)", color: "#fff",
@@ -7308,11 +7690,13 @@ export default function StaffPortalPage() {
               }}
               title={t("portalEditContact", "Edit profile")}
             >
-              {photoUrl ? (
-                <img src={photoUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-              )}
+              <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                {photoUrl ? (
+                  <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                )}
+              </span>
             </button>
           </div>
         </div>
@@ -7431,7 +7815,7 @@ export default function StaffPortalPage() {
                   type="button"
                   onClick={() => setShowEmailEdit(false)}
                   aria-label={t("close", "Close")}
-                  className="w-8 h-8 -mr-1 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-[0.98] transition"
+                  className="w-11 h-11 -mr-2.5 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-[0.98] transition"
                 >
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
@@ -7655,14 +8039,25 @@ export default function StaffPortalPage() {
                   InstallNotifyCard on the Schedule tab — far better
                   discovery than buried behind the avatar. */}
               {/* Disconnect: forget this schedule on THIS phone (saved token
-                  + PIN proof) and land on the join screen. Recoverable —
-                  re-enter the join code or tap the link again. Matters for
-                  the Scheduler app: a phone that changes workplace needs a
-                  way out, and App Review likes an explicit disconnect. */}
+                  + PIN proof) and land on the join screen. Matters for the
+                  Scheduler app: a phone that changes workplace needs a way
+                  out, and App Review likes an explicit disconnect.
+                  NOT cheap to undo: join codes burn on first use
+                  (staff_portal.py code_used_at), so getting back needs the
+                  link again or a NEW code from the manager — and shift alerts
+                  stop. One mis-tap under "Gem" used to do all of that, so it
+                  asks first (destructive: focus starts on Annuller). */}
               <div className="pt-1 border-t border-[#f1f5f9]">
                 <button
                   type="button"
                   onClick={async () => {
+                    const ok = await confirmDisconnect({
+                      title: t("portalDisconnectTitle", "Disconnect this phone?"),
+                      message: t("portalDisconnectBody", "You will stop getting shift alerts, and to see your schedule again you need your link or a new code from your manager."),
+                      confirmLabel: t("portalDisconnectConfirm", "Disconnect"),
+                      destructive: true,
+                    });
+                    if (ok !== true) return;
                     // Order matters: the unregister call needs the portal
                     // token + PIN proof that are about to be forgotten.
                     await unregisterNativePush(token);
@@ -7672,7 +8067,7 @@ export default function StaffPortalPage() {
                     } catch { /* private mode */ }
                     window.location.href = "/join";
                   }}
-                  className="text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                  className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
                 >
                   {t("portalDisconnect", "Disconnect this phone from the schedule")}
                 </button>
@@ -7736,6 +8131,10 @@ export default function StaffPortalPage() {
             businessType={info?.business_type}
             calendarKey={info?.calendar_key}
             onShiftsChanged={loadData}
+            schedState={schedState}
+            onRetrySchedule={() => { setSchedState((st) => (st === "ok" ? "ok" : "loading")); loadData(); }}
+            staffRole={info?.role}
+            focusDate={scheduleFocus}
           />
         )}
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
@@ -7755,8 +8154,16 @@ export default function StaffPortalPage() {
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
-        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} />}
-        {tab === "alerts" && <AlertsTab token={token} onNavigate={setTab} />}
+        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} onRetry={loadHours} />}
+        {tab === "alerts" && (
+          <AlertsTab
+            token={token}
+            onNavigate={(next, refDate) => {
+              setScheduleFocus(next === "schedule" && refDate ? { date: refDate, n: Date.now() } : null);
+              setTab(next);
+            }}
+          />
+        )}
       </div>
 
       {/* Bottom Navigation */}

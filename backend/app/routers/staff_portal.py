@@ -226,6 +226,84 @@ class PortalNotification(BaseModel):
     subject: str | None = None
     created_at: datetime | None = None
     channel: str
+    # What the alert is ABOUT, as data rather than display text: the shift's
+    # date (or the published week's Monday) and the shift's times. The app
+    # formats them in the reader's language and opens that week on tap.
+    # None when a row carries no date we can read.
+    ref_date: date | None = None
+    ref_start: str | None = None
+    ref_end: str | None = None
+
+
+_EN_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_EN_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# Hours are 1-2 digits: the shift schema (_HHMM_RE) stores "9:00" unpadded,
+# and an anchored 2-digit pattern rejected the WHOLE tail for it — the row
+# then printed the raw "2026-11-25 9:00-17:00" and opened no week.
+_REF_ISO = re.compile(r" - (\d{4}-\d{2}-\d{2})(?: (\d{1,2}:\d{2})-(\d{1,2}:\d{2}))?$")
+
+
+def _pad_hhmm(t: str | None) -> str | None:
+    """"9:00" -> "09:00"; anything else unchanged."""
+    if t and len(t) == 4 and t[1] == ":":
+        return "0" + t
+    return t
+_REF_EN_DAY = re.compile(r" - (Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
+_REF_UGE = re.compile(r" - Uge (\d{1,2})$")
+_REF_WEEK_OF = re.compile(r" - Week of (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})$")
+
+
+def _notification_ref(subject: str | None, created_at: datetime | None):
+    """(ref_date, ref_start, ref_end) for one feed row.
+
+    New rows carry "<verb> - YYYY-MM-DD[ HH:MM-HH:MM]" (notification_service
+    _feed_subject). Rows written before that carry the old display strings —
+    "Shift cancelled - Wed 25 Nov", "Schedule updated - Uge 48",
+    "Schedule updated - Week of 23 Nov 2026" — with no year, so the year is
+    the one (around the row's own created_at) where the date exists AND, for
+    the weekday form, falls on that weekday. Anything else: (None, None, None)
+    and the app shows the stored text as before."""
+    subj = (subject or "").strip()
+    m = _REF_ISO.search(subj)
+    if m:
+        try:
+            return date.fromisoformat(m.group(1)), _pad_hhmm(m.group(2)), _pad_hhmm(m.group(3))
+        except ValueError:
+            return None, None, None
+    anchor = (created_at.date() if isinstance(created_at, datetime) else None) or date.today()
+    years = (anchor.year - 1, anchor.year, anchor.year + 1)
+    m = _REF_EN_DAY.search(subj)
+    if m:
+        wd, day, mon = _EN_DAYS.index(m.group(1)), int(m.group(2)), _EN_MONTHS.index(m.group(3)) + 1
+        cands = []
+        for y in years:
+            try:
+                d = date(y, mon, day)
+            except ValueError:
+                continue
+            if d.weekday() == wd:
+                cands.append(d)
+        if cands:
+            return min(cands, key=lambda d: abs((d - anchor).days)), None, None
+        return None, None, None
+    m = _REF_WEEK_OF.search(subj)
+    if m:
+        try:
+            return date(int(m.group(3)), _EN_MONTHS.index(m.group(2)) + 1, int(m.group(1))), None, None
+        except ValueError:
+            return None, None, None
+    m = _REF_UGE.search(subj)
+    if m:
+        wk = int(m.group(1))
+        cands = []
+        for y in years:
+            try:
+                cands.append(date.fromisocalendar(y, wk, 1))
+            except ValueError:
+                continue
+        if cands:
+            return min(cands, key=lambda d: abs((d - anchor).days)), None, None
+    return None, None, None
 
 class PortalShift(BaseModel):
     date: date
@@ -290,6 +368,13 @@ def _calc_hours(start: str, end: str, brk: int) -> float:
     if e < s:
         e += 24.0
     return round(max(e - s - brk / 60.0, 0), 2)
+
+def _is_open_punch(h) -> bool:
+    """A clock punch still waiting for its clock-out (live or forgotten).
+    Same shape as the ux_hours_open_clock index: clock rows only — a quick
+    entry with no end time is a recorded amount, not an open punch."""
+    return getattr(h, "entry_method", None) == "clock" and not getattr(h, "end_time", None)
+
 
 def _get_staff_from_token(token: str, db: Session, touch: bool = True):
     """Validate magic link token, return (link, staff_member).
@@ -1099,12 +1184,23 @@ def get_portal_hours(
         period_end = today.replace(day=last_day)
 
     # ── Logged actuals (may be empty — most owners never log these) ──
-    hours = db.query(HoursLogged).filter(
+    period_rows = db.query(HoursLogged).filter(
         HoursLogged.staff_id == member.id,
         HoursLogged.user_id == link.user_id,
         HoursLogged.date >= period_start,
         HoursLogged.date <= period_end,
     ).order_by(HoursLogged.date.desc()).all()
+    # An OPEN clock punch (entry_method "clock", end_time NULL, total_hours 0)
+    # is not a worked shift yet. It used to sit in this list: one clock-in
+    # flipped `use_logged` below, so the headline went from the rostered plan
+    # (e.g. 101,5 planned) to "0 worked", the roster rows were replaced by a
+    # single "0 timer" row, and it counted as a shift. A forgotten clock-out
+    # looked like a finished zero-hour shift forever. Open punches are kept
+    # OUT of every total and every entry, and reported separately below so
+    # the row can say what it is. Scoped to clock rows on purpose: an
+    # owner's quick entry can legitimately carry hours with no end time.
+    hours = [h for h in period_rows if not _is_open_punch(h)]
+    open_rows = [h for h in period_rows if _is_open_punch(h)]
 
     logged_hours = sum(float(h.total_hours or 0) for h in hours)
     total_earned = sum(float(h.earned or 0) for h in hours)
@@ -1228,11 +1324,35 @@ def get_portal_hours(
         for r in recent_rows
     ]
 
+    # ── Open punches (in the period) — never a number, always a state ──
+    # "live": clocked in and still plausibly on shift → the row reads
+    # "Stemplet ind siden 16:58". "forgotten": open longer than any real shift
+    # → "Mangler udstempling — din leder retter den". ONE rule decides which,
+    # shared with the owner's Timer exceptions and the working-time register
+    # (time_registration.open_punch_is_forgotten), so the staffer and the
+    # owner can never disagree about whose clock-out is missing.
+    open_punches = []
+    if open_rows:
+        from app.routers.staff import _open_punch_clock
+        from app.services.time_registration import open_punch_is_forgotten
+        _clk = _open_punch_clock(owner_user) if owner_user else {"now": None, "cutoff_hour": 6}
+        for h in open_rows:
+            try:
+                forgotten = open_punch_is_forgotten(h.date, h.start_time, _clk["now"], _clk["cutoff_hour"])
+            except Exception:  # noqa: BLE001 — unusable start: the calendar fallback
+                forgotten = h.date < today
+            open_punches.append({
+                "date": h.date.isoformat(),
+                "start_time": h.start_time,
+                "state": "forgotten" if forgotten else "live",
+            })
+
     return {
         "staff_name": member.name,
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
         "total_hours": round(total_hours, 2),
+        "open_punches": open_punches,
         "total_earned": round(total_earned, 2),
         "max_hours_month": float(member.max_hours_month) if member.max_hours_month else None,
         # New, additive fields — let the UI distinguish rostered vs logged
@@ -2429,18 +2549,20 @@ def get_portal_notifications(token: str, request: Request, db: Session = Depends
         .all()
     )
 
-    return {
-        "notifications": [
-            PortalNotification(
-                id=str(n.id),
-                event_type=n.event_type,
-                subject=n.subject,
-                created_at=n.created_at,
-                channel=n.channel,
-            )
-            for n in notifications
-        ]
-    }
+    out = []
+    for n in notifications:
+        ref_date, ref_start, ref_end = _notification_ref(n.subject, n.created_at)
+        out.append(PortalNotification(
+            id=str(n.id),
+            event_type=n.event_type,
+            subject=n.subject,
+            created_at=n.created_at,
+            channel=n.channel,
+            ref_date=ref_date,
+            ref_start=ref_start,
+            ref_end=ref_end,
+        ))
+    return {"notifications": out}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2646,12 +2768,30 @@ def portal_list_absence(token: str, request: Request, db: Session = Depends(get_
                 "id": str(a.id),
                 "kind": a.kind,
                 "date": a.date.isoformat(),
+                # The STORED value, always — a new enum value here reached
+                # installed Scheduler apps (bundled web code) as unknown and
+                # rendered a declined ferie as amber "Afventer".
                 "status": a.status,
+                "declined": _portal_absence_declined(a),
                 "reason": a.reason,
             }
             for a in rows
         ]
     }
+
+
+def _portal_absence_declined(a) -> bool:
+    """Did the OWNER say no? The owner's decline and the staffer's own
+    withdraw are both stored as 'cancelled' (so every roster filter drops them
+    alike); the owner's decision is the one that also stamps acknowledged_at
+    (staff.decline_absence, which no-ops on an already-withdrawn row) — a
+    withdraw only ever touches pending rows, which never carry it. So
+    'cancelled' + acknowledged = declined, and the app shows "Afvist" instead
+    of the same "Annulleret" as the staffer's own withdrawal. A separate flag,
+    not a new status value: older apps ignore it and keep "Annulleret". Rows
+    declined before acknowledged_at was stamped stay False — nothing recorded
+    who acted on those."""
+    return a.status == "cancelled" and getattr(a, "acknowledged_at", None) is not None
 
 
 class AbsenceWithdrawBody(BaseModel):

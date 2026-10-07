@@ -3287,10 +3287,13 @@ def publish_week(
             else f"Week of {week_start.strftime('%d %b %Y')}"
         )
 
+        _week_start = week_start
+
         def _send_bg():
             bg_db = SessionLocal()
             try:
-                send_shift_notifications(bg_db, user_id, changes, week_label, lang=lang)
+                send_shift_notifications(bg_db, user_id, changes, week_label, lang=lang,
+                                         week_start=_week_start)
             finally:
                 bg_db.close()
 
@@ -8000,7 +8003,16 @@ def decline_absence(
 ):
     """Owner declines a fravær request (e.g. can't grant this ferie week) →
     status 'cancelled'. Tenant-scoped; the record is kept (documented), just
-    marked declined. Acknowledge is the 'godkend' side; this is 'afvis'."""
+    marked declined. Acknowledge is the 'godkend' side; this is 'afvis'.
+
+    WHO said no is recorded in acknowledged_at ("the owner has dealt with
+    it"). A staffer's own withdraw (portal_withdraw_absence) also writes
+    'cancelled', but only ever on a still-pending row, which never has
+    acknowledged_at — so the portal can tell the staffer "Afvist" (the
+    manager said no) apart from "Annulleret" (they took it back themselves).
+    The status VALUE stays 'cancelled' on purpose: every roster filter, the
+    owner grid tint and the approval card already treat it as gone, and a new
+    value would have to be taught to each of them."""
     import uuid as _uuid
     try:
         absence_uuid = _uuid.UUID(absence_id)
@@ -8012,7 +8024,15 @@ def decline_absence(
     ).first()
     if not absence:
         raise HTTPException(status_code=404, detail="Absence not found")
+    if absence.status == "cancelled":
+        # Already gone — the staffer withdrew it (or it was declined before).
+        # A stale approval card must not stamp acknowledged_at onto the
+        # staffer's own withdrawal, or the portal would tell them "Afvist"
+        # for something they took back themselves.
+        return _serialize_absence(absence, db)
     absence.status = "cancelled"
+    if absence.acknowledged_at is None:
+        absence.acknowledged_at = utc_now()
     db.commit()
     db.refresh(absence)
     return _serialize_absence(absence, db)
