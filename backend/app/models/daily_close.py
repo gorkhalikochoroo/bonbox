@@ -65,6 +65,23 @@ class DailyClose(Base):
     # the source document for the close.
     receipt_photo: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Migration 082 — the lasting send status of the lock mail. It lived only
+    # in the lock response and an audit row the owner cannot see, so after a
+    # reload History could not say whether a day ever reached the revisor.
+    #   email_status   sent | partial | send_failed | failed_skipped |
+    #                  skipped_* (see routers/daily_close._fire_close_auto_email)
+    #   email_error    the honest cause (email_not_configured, pdf_build_failed,
+    #                  attachment_too_large, send_error, accountant_opted_out …)
+    #   email_sent_at  when it last reached someone; email_sent_to who
+    #   email_send_key idempotency key of the last explicit resend — one
+    #                  click can never become two mails
+    email_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    email_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    email_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_sent_to: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_send_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

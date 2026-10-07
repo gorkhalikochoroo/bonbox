@@ -303,10 +303,10 @@ def test_the_band_and_its_footer_are_emitted_as_one_block():
     this on its own — whether it strands depends on how much content happens
     to precede it."""
     import inspect
-    from app.routers import daily_close as r
+    from app.services import close_kasserapport_pdf as r
 
-    src = inspect.getsource(r.daily_close_pdf)
-    block = src[src.index("assurance = claims[\"assurance\"]"):src.index("doc.build(story)")]
+    src = inspect.getsource(r.build_close_kasserapport_pdf)
+    block = src[src.index("assurance = claims[\"assurance\"]"):]
     assert "KeepTogether([" in block
     kt = block[block.index("KeepTogether(["):]
     assert "badge_table" in kt.split("]))")[0]

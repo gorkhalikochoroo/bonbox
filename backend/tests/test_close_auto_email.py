@@ -264,16 +264,23 @@ def test_starter_user_lock_triggers_auto_email_with_pdf_only_when_no_scan(
     assert ritual["feature_available"] is True
     assert ritual["has_scan"] is False
     assert ritual["scan_degraded"] is False  # no scan was supposed to be there
-    # Owner + accountant — both in `to`
+    # Owner + accountant both reached
     assert len(ritual["sent_to"]) == 2
     assert "revisor@bonbox.dk" in ritual["sent_to"]
     assert "owner@mirabelle.dk" in ritual["sent_to"]
-    # Exactly one email sent, with the PDF as the sole attachment
-    assert len(sent) == 1
-    sent_payload = sent[0]
-    assert len(sent_payload["attachments"]) == 1
-    assert sent_payload["attachments"][0]["filename"].startswith("kasserapport_")
-    assert sent_payload["attachments"][0]["filename"].endswith(".pdf")
+    assert ritual["accountant_included"] is True
+    # One copy each: the revisor's carries the opt-out (List-Unsubscribe +
+    # footer), the owner's own copy does not.
+    assert len(sent) == 2
+    by_to = {p["to"][0]: p for p in sent}
+    rev, own = by_to["revisor@bonbox.dk"], by_to["owner@mirabelle.dk"]
+    assert "List-Unsubscribe" in rev["headers"]
+    assert "afmelde" in rev["html"]
+    assert "headers" not in own
+    for sent_payload in (rev, own):
+        assert len(sent_payload["attachments"]) == 1
+        assert sent_payload["attachments"][0]["filename"].startswith("Kasserapport ")
+        assert sent_payload["attachments"][0]["filename"].endswith(".pdf")
 
 
 # ─── Layer 3: Starter user with scan attached ──────────────────────────
@@ -307,9 +314,9 @@ def test_starter_user_lock_triggers_auto_email_with_pdf_and_scan(
     assert ritual["email_status"] == "sent"
     assert ritual["has_scan"] is True
     assert ritual["scan_degraded"] is False
-    # Two attachments: PDF + scan
-    assert len(sent) == 1
-    assert len(sent[0]["attachments"]) == 2
+    # Two attachments on each copy: PDF + scan
+    assert len(sent) == 2
+    assert all(len(p["attachments"]) == 2 for p in sent)
     filenames = [a["filename"] for a in sent[0]["attachments"]]
     assert any(f.endswith(".pdf") for f in filenames)
     assert any(f.endswith(".jpg") for f in filenames)
@@ -343,8 +350,8 @@ def test_starter_user_scan_unavailable_sends_pdf_only_with_degraded_flag(
     assert ritual["email_status"] == "sent"
     assert ritual["has_scan"] is False
     assert ritual["scan_degraded"] is True
-    assert len(sent) == 1
-    assert len(sent[0]["attachments"]) == 1  # PDF only
+    assert len(sent) == 2
+    assert all(len(p["attachments"]) == 1 for p in sent)  # PDF only
 
 
 # ─── Layer 5/6: recipient resolution + owner fallback ──────────────────
@@ -437,9 +444,9 @@ def test_user_preference_auto_email_off_skips_send(db_session, client, monkeypat
 
 def test_email_failure_does_not_block_lock(db_session, client, monkeypatch):
     """L9 — Resend raises an exception mid-send → close-confirm STILL
-    succeeds (200), the response carries email_status='queued_retry'
-    so the frontend renders an honest 'Email queued for retry' badge
-    with a manual retry button."""
+    succeeds (200), the response carries email_status='send_failed' (there
+    is no retry job, so nothing may promise one) and the status is persisted
+    on the close so History can offer "Send igen"."""
     def _boom(payload):
         raise RuntimeError("resend api 503")
 
@@ -455,7 +462,8 @@ def test_email_failure_does_not_block_lock(db_session, client, monkeypatch):
     body = r.json()
     assert body["status"] == "confirmed"
     ritual = body["close_ritual"]
-    assert ritual["email_status"] == "queued_retry"
+    assert ritual["email_status"] == "send_failed"
+    assert body["email_status"] == "send_failed"
 
     # L7 — SecurityEvent written so operator can spot Resend outage
     evts = (

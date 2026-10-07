@@ -445,6 +445,17 @@ def tax_filing_send_to_accountant(
     )
 
     from app.services.email_service import send_email_with_attachment
+    from app.services.revisor_mail import (
+        revisor_footer_html, revisor_unsubscribe_headers, revisor_unsubscribe_url,
+        sender_display,
+    )
+    # The revisor is a third party: say why they get this and let them stop.
+    unsub_url = revisor_unsubscribe_url(user.id, recipient)
+    if html.endswith("</div>"):
+        html = html[: -len("</div>")] + revisor_footer_html(
+            business_name=business_name, cvr=getattr(profile, "org_number", None),
+            unsubscribe_url=unsub_url, is_danish=is_danish,
+        ) + "</div>"
 
     cc = [user.email] if (body.cc_self and user.email) else None
     ok, err = send_email_with_attachment(
@@ -454,6 +465,8 @@ def tax_filing_send_to_accountant(
         attachment_mime="application/pdf",
         reply_to=user.email,
         cc=cc,
+        from_display=sender_display(business_name),
+        headers=revisor_unsubscribe_headers(unsub_url),
     )
 
     if not ok:

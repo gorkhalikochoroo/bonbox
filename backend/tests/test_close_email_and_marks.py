@@ -128,9 +128,9 @@ def test_every_mark_the_band_draws_is_a_real_glyph():
 def test_the_renderer_draws_only_the_named_marks():
     """No literal glyph may be reintroduced beside the named constants."""
     import inspect
-    from app.routers import daily_close as m
+    from app.services import close_kasserapport_pdf as m
 
-    src = inspect.getsource(m.daily_close_pdf)
+    src = inspect.getsource(m.build_close_kasserapport_pdf)
     # Strip comments — the prose explains the defect and quotes the glyph.
     code = "\n".join(ln.split("#", 1)[0] for ln in src.splitlines())
     assert "\u26a0" not in code

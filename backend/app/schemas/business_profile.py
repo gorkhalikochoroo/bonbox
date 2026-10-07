@@ -25,6 +25,9 @@ class BusinessProfileCreate(BaseModel):
     email: str | None = None
     accountant_email: str | None = None
     accountant_name: str | None = None
+    # Send the kasserapport to the revisor on every lock? An explicit choice —
+    # a new address saved without it is stored as False (routers/business_profile).
+    accountant_auto_send: bool | None = None
     source: str | None = None
     founded: str | None = None
     day_cutoff_hour: int | None = None  # 0-23; service-day rollover hour. DK default 6 (restaurant convention — 02:00 = yesterday's shift).
@@ -72,6 +75,13 @@ class BusinessProfileResponse(BaseModel):
     email: str | None = None
     accountant_email: str | None = None
     accountant_name: str | None = None
+    # The owner's choice as stored (None = saved before the choice existed),
+    # what a lock will actually do, and whether the revisor opted out — so the
+    # Profile and lock step can say exactly who gets the mail.
+    accountant_auto_send: bool | None = None
+    accountant_auto_send_effective: bool = False
+    accountant_opted_out: bool = False
+    accountant_opted_out_at: datetime | None = None
     source: str | None = None
     founded: str | None = None
     # 0-23. DK default 6 (Danish restaurant convention — service ending

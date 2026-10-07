@@ -367,6 +367,9 @@ async def reverify_profile(
 
 # ─── GET / PUT (existing) ─────────────────────────────────────────────
 
+_ACCOUNTANT_EMAIL_RE = re.compile(r"[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}")
+
+
 @router.get("", response_model=BusinessProfileResponse | None)
 def get_profile(
     db: Session = Depends(get_db),
@@ -427,14 +430,39 @@ def save_profile(
         except (TypeError, ValueError):
             data.target_labor_pct = None
 
+    # ── Revisor address: validated, and never a silent auto-send ──
+    # A typo'd address meant every lock mailed nobody (or a stranger), and
+    # saving any address quietly switched on a mail to the revisor on every
+    # lock. The address is checked here, and a NEW address only mails the
+    # revisor on lock when the owner ticked that choice in the same save.
+    changes = data.model_dump(exclude_unset=True)
+    if "accountant_email" in changes:
+        addr = (changes.get("accountant_email") or "").strip().lower() or None
+        if addr and not _ACCOUNTANT_EMAIL_RE.fullmatch(addr):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "invalid_accountant_email",
+                    "message": "That revisor e-mail address doesn't look right.",
+                },
+            )
+        changes["accountant_email"] = addr
+        prev = ((profile.accountant_email if profile else None) or "").strip().lower()
+        if addr and addr != prev and changes.get("accountant_auto_send") is None:
+            changes["accountant_auto_send"] = False
+        if not addr:
+            changes["accountant_auto_send"] = None
+
     if profile:
-        for field, value in data.model_dump(exclude_unset=True).items():
+        for field, value in changes.items():
             setattr(profile, field, value)
     else:
+        full = data.model_dump()
+        full.update(changes)
         profile = BusinessProfile(
             id=uuid.uuid4(),
             user_id=user.id,
-            **data.model_dump(),
+            **full,
         )
         db.add(profile)
 

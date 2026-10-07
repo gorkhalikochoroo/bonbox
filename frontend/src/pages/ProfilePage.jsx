@@ -53,6 +53,7 @@ import { resetAllTips } from "../components/DismissibleTip";
 import { localIso } from "../utils/dateFormat";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { venueProfile, bookingModeFor } from "../config/venueProfiles";
 import { cutoffHourFor } from "../config/archetypes";
 
@@ -304,9 +305,14 @@ export default function ProfilePage() {
   const [businessProfile, setBusinessProfile] = useState(null);
   // Accountant contact — pre-fills the Daily Close "Send to accountant"
   // export button. Stored on BusinessProfile.
-  const [accountantForm, setAccountantForm] = useState({ accountant_email: "", accountant_name: "" });
+  // accountant_auto_send — the revisor's lock mail is an EXPLICIT choice
+  // now. Saving an address used to switch it on silently.
+  const [accountantForm, setAccountantForm] = useState({ accountant_email: "", accountant_name: "", accountant_auto_send: false });
   const [accountantSaving, setAccountantSaving] = useState(false);
   const [accountantMsg, setAccountantMsg] = useState("");
+  const [accountantErr, setAccountantErr] = useState("");
+  const { hasFeature: hasPlanFeature } = useEntitlements();
+  const autoSendOnPlan = typeof hasPlanFeature === "function" ? hasPlanFeature("close_auto_email") : false;
 
   // Task #49 — Revisor read-only access.  State + handlers now live in
   // <RevisorSection /> on /team (Task #204 P2.8).  ProfilePage keeps
@@ -388,6 +394,9 @@ export default function ProfilePage() {
         setAccountantForm({
           accountant_email: res.data.accountant_email || "",
           accountant_name: res.data.accountant_name || "",
+          // A profile saved before the choice existed (null) keeps what it
+          // did — on — and now SHOWS it ticked.
+          accountant_auto_send: res.data.accountant_auto_send ?? Boolean(res.data.accountant_email),
         });
         setPaymentForm({
           bank_reg_number: res.data.bank_reg_number || "",
@@ -494,19 +503,26 @@ export default function ProfilePage() {
     e?.preventDefault?.();
     setAccountantSaving(true);
     setAccountantMsg("");
+    setAccountantErr("");
     try {
+      const email = accountantForm.accountant_email.trim();
       const payload = {
         company_name: businessProfile?.company_name || "",
-        accountant_email: accountantForm.accountant_email.trim() || null,
+        accountant_email: email || null,
         accountant_name: accountantForm.accountant_name.trim() || null,
+        accountant_auto_send: email ? Boolean(accountantForm.accountant_auto_send) : null,
       };
       const res = await api.put("/business", payload);
       setBusinessProfile(res.data);
+      setAccountantForm((f) => ({ ...f, accountant_auto_send: res.data?.accountant_auto_send ?? false }));
       setAccountantMsg(t("accountantSaved") || "Accountant contact saved");
       setTimeout(() => setAccountantMsg(""), 3000);
-    } catch {
-      setAccountantMsg(t("accountantSaveFailed") || "Could not save — try again");
-      setTimeout(() => setAccountantMsg(""), 4000);
+    } catch (err) {
+      // A typo'd address is caught here, before a lock mails nobody.
+      const code = err?.response?.data?.detail?.code;
+      setAccountantErr(code === "invalid_accountant_email"
+        ? t("accountantEmailInvalid", "That e-mail address doesn't look right — check it before saving.")
+        : (t("accountantSaveFailed") || "Could not save — try again"));
     } finally {
       setAccountantSaving(false);
     }
@@ -1118,6 +1134,7 @@ export default function ProfilePage() {
                     setAccountantForm({
                       accountant_email: profile.accountant_email || "",
                       accountant_name: profile.accountant_name || "",
+                      accountant_auto_send: profile.accountant_auto_send ?? Boolean(profile.accountant_email),
                     });
                   }
                   api.get("/auth/me").then((res) => {
@@ -1318,7 +1335,16 @@ export default function ProfilePage() {
                     <input
                       type="email"
                       value={accountantForm.accountant_email}
-                      onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_email: e.target.value }))}
+                      // A NEW address starts with automatic sending OFF: the
+                      // owner ticks it for this revisor, explicitly.
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setAccountantForm((f) => ({
+                          ...f, accountant_email: v,
+                          accountant_auto_send: v.trim().toLowerCase() === String(businessProfile?.accountant_email || "").toLowerCase()
+                            ? f.accountant_auto_send : false,
+                        }));
+                      }}
                       placeholder="anna@revisor.dk"
                       maxLength={254}
                       className={INPUT_CLASS}
@@ -1326,6 +1352,35 @@ export default function ProfilePage() {
                     />
                   </Field>
                 </div>
+                {/* The revisor's lock mail — an explained, explicit choice:
+                    what is sent, when, to whom, and how they can stop it. */}
+                <label className={`flex items-start gap-3 rounded-xl p-3 border border-gray-200 dark:border-gray-700 ${accountantForm.accountant_email.trim() && autoSendOnPlan ? "cursor-pointer" : "opacity-60"}`}>
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded accent-gray-900 dark:accent-gray-100"
+                    checked={Boolean(accountantForm.accountant_auto_send) && Boolean(accountantForm.accountant_email.trim())}
+                    disabled={!accountantForm.accountant_email.trim() || !autoSendOnPlan}
+                    onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_auto_send: e.target.checked }))}
+                  />
+                  <span className="text-sm text-gray-800 dark:text-gray-100">
+                    <span className="font-medium">{t("accountantAutoSendLabel", "Send the kasserapport to my revisor automatically when a day is locked")}</span>
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {autoSendOnPlan
+                        ? t("accountantAutoSendExplain", "What: the day's kasserapport as a PDF (plus the Z-bon photo if you scanned one). When: the moment the day is locked. To: {email}. You get a copy. Your revisor can unsubscribe with one click, and you'll see it here. Unticked, your revisor only gets what you send with Send.", { email: accountantForm.accountant_email.trim() || "—" })
+                        : t("accountantAutoSendFreeNote", "Automatic sending on lock is on Starter. On your plan you send it yourself from History or the period export.")}
+                    </span>
+                  </span>
+                </label>
+                {businessProfile?.accountant_opted_out && (
+                  <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2" role="status">
+                    <Icon name="BellOff" size={16} className="shrink-0 mt-0.5" />
+                    <span>{t("accountantOptedOutNotice", "{email} unsubscribed from BonBox mail on {date}. BonBox sends them nothing now. Send files from your own mail, or save a different address.", {
+                      email: businessProfile.accountant_email,
+                      date: businessProfile.accountant_opted_out_at ? new Date(`${String(businessProfile.accountant_opted_out_at).replace(/Z?$/, "Z")}`).toLocaleDateString("da-DK") : "—",
+                    })}</span>
+                  </p>
+                )}
+                {accountantErr && <Message tone="error">{accountantErr}</Message>}
                 {accountantMsg && <Message tone="success">{accountantMsg}</Message>}
                 <div className="flex justify-end pt-1">
                   <Button type="submit" variant="primary" busy={accountantSaving}>

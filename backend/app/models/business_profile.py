@@ -84,6 +84,20 @@ class BusinessProfile(Base):
     # exports (kasserapport range PDF). Saved once, used on every send.
     accountant_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     accountant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Migration 082 — the revisor's lock-mail is an EXPLICIT choice.
+    # Saving the address used to switch on a mail to the revisor on every
+    # lock, silently. True = send the kasserapport to the revisor when a day
+    # is locked; False = only when the owner taps Send. NULL = a profile saved
+    # before the choice existed: it keeps the behaviour it had (on) and the
+    # Profile page shows the box ticked, so the choice is visible from now on.
+    # A NEW address saved without the choice is stored as False (router).
+    accountant_auto_send: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # The revisor's own opt-out (one-click link / List-Unsubscribe in the
+    # mail). Bound to the address it came from: saving a different revisor
+    # address is not blocked by the old one's opt-out. While set, BonBox
+    # mails that address nothing at all, and the owner is told why.
+    accountant_opted_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    accountant_opted_out_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Operations
     # day_cutoff_hour — hour of the local day at which the "business day"
     # rolls over. A sale clocked BEFORE this hour belongs to the previous
@@ -253,3 +267,20 @@ class BusinessProfile(Base):
     def business_name(self) -> str:
         """Read-only alias for `company_name` to satisfy legacy callsites."""
         return self.company_name or ""
+
+    @property
+    def accountant_opted_out(self) -> bool:
+        """The saved revisor address asked BonBox to stop mailing it."""
+        addr = (self.accountant_email or "").strip().lower()
+        out = (self.accountant_opted_out_email or "").strip().lower()
+        return bool(self.accountant_opted_out_at) and bool(addr) and addr == out
+
+    @property
+    def accountant_auto_send_effective(self) -> bool:
+        """Does a lock mail the revisor? Needs a saved address, the owner's
+        choice (NULL = the pre-choice behaviour, on) and no opt-out."""
+        if not (self.accountant_email or "").strip():
+            return False
+        if self.accountant_opted_out:
+            return False
+        return self.accountant_auto_send is not False

@@ -2571,6 +2571,21 @@ _migrations = [
     # alembic/versions/028_tip_period.py.
     "ALTER TABLE tips ADD COLUMN IF NOT EXISTS period_start DATE",
     "ALTER TABLE tip_distributions ADD COLUMN IF NOT EXISTS hours NUMERIC(6,2)",
+    # ── Migration 082 (2026-10-07): the revisor send flow remembers ───────
+    # A close's lock-mail status survives the page (History shows "Sendt til
+    # revisor … / Ikke sendt — Send igen"), an explicit resend carries an
+    # idempotency key, the revisor's lock-mail is an explicit owner choice and
+    # the revisor's own opt-out is stored. All nullable, no default, no
+    # backfill — metadata-only ALTERs on Postgres.
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS email_status VARCHAR(32)",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS email_error VARCHAR(64)",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS email_attempt_at TIMESTAMP",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMP",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS email_sent_to TEXT",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS email_send_key VARCHAR(64)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_auto_send BOOLEAN",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_opted_out_at TIMESTAMP",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_opted_out_email VARCHAR(255)",
 ]
 
 
@@ -3191,6 +3206,17 @@ def _run_migrations():
             # Mirror of Migration 081 — a tip pool's period + each share's hours.
             ok += _add("tips", "period_start", "DATE")
             ok += _add("tip_distributions", "hours", "NUMERIC(6,2)")
+            # Mirror of Migration 082 — revisor send status, resend key,
+            # explicit revisor auto-send and the revisor's opt-out.
+            ok += _add("daily_closes", "email_status", "VARCHAR(32)")
+            ok += _add("daily_closes", "email_error", "VARCHAR(64)")
+            ok += _add("daily_closes", "email_attempt_at", "TIMESTAMP")
+            ok += _add("daily_closes", "email_sent_at", "TIMESTAMP")
+            ok += _add("daily_closes", "email_sent_to", "TEXT")
+            ok += _add("daily_closes", "email_send_key", "VARCHAR(64)")
+            ok += _add("business_profiles", "accountant_auto_send", "BOOLEAN")
+            ok += _add("business_profiles", "accountant_opted_out_at", "TIMESTAMP")
+            ok += _add("business_profiles", "accountant_opted_out_email", "VARCHAR(255)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -4989,7 +5015,9 @@ app.add_middleware(
     # "X-Idempotency-Key" (reservations public booking) must be whitelisted, or
     # the browser preflight 400s and the real POST is silently blocked.
     allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token", "X-Idempotency-Key", "Idempotency-Key", "X-BonBox-Pin", "X-BonBox-Device-Pin"],
-    expose_headers=["X-New-Token"],
+    # Content-Disposition: the browser may read the server's file name
+    # ("Kasserapport Mirabelle ApS 2026-09-25.pdf") instead of re-deriving it.
+    expose_headers=["X-New-Token", "Content-Disposition", "X-Document-Id"],
     max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )
 

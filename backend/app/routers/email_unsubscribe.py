@@ -196,6 +196,104 @@ def _topic_label(topic: str) -> str:
 # ─── Routes ────────────────────────────────────────────────────────────
 
 
+# ─── The revisor's opt-out (a THIRD party — not a BonBox user) ───────────
+#
+# The kasserapport mail goes to the owner's revisor. They never signed up for
+# BonBox, so they must be told why they get it and be able to stop it in one
+# click. The token is minted per owner (u) and bound to a fingerprint of the
+# revisor's address (r): it can only switch off the address it was sent to.
+# The opt-out is stored on the owner's BusinessProfile; every send path checks
+# it (services/revisor_mail.py) and the owner sees it in BonBox.
+
+
+def _revisor_business_name(user_id) -> str:
+    db: Session = SessionLocal()
+    try:
+        from app.models.business_profile import BusinessProfile
+        p = db.query(BusinessProfile).filter(BusinessProfile.user_id == user_id).first()
+        u = db.query(User).filter(User.id == user_id).first() if not (p and p.company_name) else None
+        return ((p.company_name if p else "") or (u.business_name if u else "") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        db.close()
+
+
+def _revisor_confirm_page(token: str, biz: str) -> str:
+    import html as _html
+    safe_token = _html.escape(token)
+    b = _html.escape(biz) or "denne virksomhed"
+    return _page(
+        "Afmeld kasserapporter",
+        f"""
+        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+          Afmeld mails fra BonBox om {b}?
+        </h1>
+        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+          Du får kasserapporter, fordi {b} har angivet dig som revisor i BonBox. Afmelder du,
+          sender BonBox ikke flere mails til dig om {b}, og ejeren får besked i BonBox.
+        </p>
+        <form method="POST" action="/api/email/unsubscribe?token={safe_token}" style="margin:0 0 18px 0;">
+          <button type="submit" style="display:inline-block;background:{_PALETTE['danger']};color:#fff;border:0;border-radius:10px;padding:12px 24px;font-size:15px;font-weight:600;cursor:pointer;">
+            Ja, afmeld
+          </button>
+        </form>
+        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+          Unsubscribe from BonBox mail about {b}: press the button above.
+        </p>
+        """,
+    )
+
+
+def _revisor_success_page(biz: str) -> str:
+    import html as _html
+    b = _html.escape(biz) or "denne virksomhed"
+    return _page(
+        "Afmeldt",
+        f"""
+        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+          Du er afmeldt.
+        </h1>
+        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+          BonBox sender ikke flere mails til dig om {b}. Ejeren kan se i BonBox, at du har afmeldt.
+          Vil du have kasserapporterne igen, så skriv direkte til ejeren.
+        </p>
+        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+          You're unsubscribed — BonBox won't mail you about {b} again.
+        </p>
+        """,
+    )
+
+
+def _revisor_opt_out(user_id, fingerprint: str | None, request: Request) -> None:
+    from app.models.business_profile import BusinessProfile
+    from app.services.revisor_mail import address_fingerprint
+    from app.utils.time import utc_now
+    db: Session = SessionLocal()
+    try:
+        p = db.query(BusinessProfile).filter(BusinessProfile.user_id == user_id).first()
+        addr = ((p.accountant_email if p else "") or "").strip().lower()
+        if not p or not addr or not fingerprint or address_fingerprint(addr) != fingerprint:
+            # The address changed since the mail (or it was never this one):
+            # nothing to switch off — that address no longer gets mail anyway.
+            return
+        if p.accountant_opted_out_at and (p.accountant_opted_out_email or "").lower() == addr:
+            return  # already opted out — idempotent
+        p.accountant_opted_out_at = utc_now()
+        p.accountant_opted_out_email = addr
+        owner = db.query(User).filter(User.id == user_id).first()
+        if owner:
+            audit_service.record(
+                db, owner, "accountant.mail_opted_out",
+                entity_type="business_profile", entity_id=p.id,
+                after={"address_fingerprint": fingerprint, "via": "one_click_email"},
+                ip_address=(client_ip(request) if request else None),
+            )
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.get("/unsubscribe", response_class=HTMLResponse)
 def unsubscribe_confirm(
     request: Request,
@@ -208,6 +306,9 @@ def unsubscribe_confirm(
     if not payload:
         return HTMLResponse(content=_expired_page(), status_code=410)
     topic = payload.get("t") or "daily_brief"
+    if topic == "revisor_mail":
+        return HTMLResponse(content=_revisor_confirm_page(
+            token, _revisor_business_name(payload.get("u"))))
     return HTMLResponse(content=_confirm_page(token, _topic_label(topic)))
 
 
@@ -232,6 +333,9 @@ def unsubscribe_action(
 
     topic = payload.get("t") or "daily_brief"
     user_id = payload.get("u")
+    if topic == "revisor_mail":
+        _revisor_opt_out(user_id, payload.get("r"), request)
+        return HTMLResponse(content=_revisor_success_page(_revisor_business_name(user_id)))
     db: Session = SessionLocal()
     try:
         user = db.query(User).filter(User.id == user_id).first()

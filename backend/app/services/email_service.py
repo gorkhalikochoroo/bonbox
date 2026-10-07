@@ -149,9 +149,9 @@ def send_email_with_attachment(
 #   • NEVER raises — the close-confirm path must succeed even when
 #     Resend is down. Returns a result dict with `status` of:
 #         "sent"            — Resend accepted the payload (2xx)
-#         "queued_retry"    — transient failure; an operator can
-#                             re-trigger from admin tooling using the
-#                             metadata in the SecurityEvent row
+#         "send_failed"     — Resend refused/failed; NOTHING retries on
+#                             its own — the owner resends (POST
+#                             /daily-close/{id}/resend-email)
 #         "skipped_no_recipient"
 #         "skipped_feature_locked"
 #         "failed_skipped"  — permanent failure (e.g. API key missing);
@@ -181,8 +181,13 @@ def send_close_notification(
     html: str,
     reply_to: str | None = None,
     cc: Iterable[str] | None = None,
+    headers: dict[str, str] | None = None,
+    from_display: str | None = None,
 ) -> dict[str, Any]:
     """L4 defense — service-layer entitlement check + multi-attachment send.
+
+    `headers` (List-Unsubscribe for the revisor's copy) and `from_display`
+    ('"Mirabelle ApS via BonBox" <noreply@…>') are optional.
 
     Returns a dict the router includes in the lock response so the
     frontend can render an honest status badge:
@@ -277,7 +282,7 @@ def send_close_notification(
     # knows the owner was looped in). cc is reserved for the user's
     # own copy if the caller wants it.
     payload: dict[str, Any] = {
-        "from": FROM_EMAIL,
+        "from": from_display or FROM_EMAIL,
         "to": clean,
         "subject": subject,
         "html": html,
@@ -285,6 +290,10 @@ def send_close_notification(
     }
     if reply_to:
         payload["reply_to"] = reply_to
+    if headers:
+        payload["headers"] = {
+            k: v for k, v in headers.items() if v is not None and isinstance(v, str)
+        }
     if cc:
         cc_clean = [x.strip().lower() for x in cc if x and "@" in x]
         cc_dedup = [c for c in cc_clean if c not in seen]
@@ -300,15 +309,16 @@ def send_close_notification(
             "error": None,
         }
     except Exception as e:  # noqa: BLE001
-        # L8 — Resend hiccup. Return queued_retry so the operator can
-        # see the row in SecurityEvent and (eventually) re-trigger. The
-        # close-confirm path must NEVER raise off this.
+        # L8 — Resend hiccup. "send_failed": nothing retries on its own (there
+        # is no retry job), so the status must not promise one; the owner
+        # resends from the lock card or History. The close-confirm path must
+        # NEVER raise off this.
         logger.warning(
             "send_close_notification: Resend send failed close_id=%s err=%s",
             close_id, e,
         )
         return {
-            "status": "queued_retry",
+            "status": "send_failed",
             "sent_to": list(clean),
             "has_scan": scan_attached,
             "error": f"send_error: {type(e).__name__}",

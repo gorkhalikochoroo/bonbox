@@ -386,3 +386,251 @@ def test_send_to_accountant_has_a_daily_cap_per_account(db_session, client):
     assert r.status_code == 429
     assert r.json()["detail"]["code"] == "revisor_daily_cap"
     assert sender.call_count == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Stage 2 — the send flow
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def mailbox(monkeypatch):
+    """Stub Resend. `mailbox.sent` collects payloads; set `mailbox.fail` to make
+    the next sends raise. Nothing ever leaves the process."""
+    class _Box:
+        sent: list = []
+        fail = False
+
+    box = _Box()
+    box.sent = []
+
+    def _send(payload):
+        if box.fail:
+            raise RuntimeError("resend down")
+        box.sent.append(payload)
+        return {"id": "stub"}
+
+    monkeypatch.setattr("app.services.email_service.resend.Emails.send", _send)
+    monkeypatch.setattr("app.services.email_service.resend.api_key", "test_key")
+    return box
+
+
+@pytest.fixture
+def unsub_db(db_session, monkeypatch):
+    """The public unsubscribe router opens its own SessionLocal."""
+    from sqlalchemy.orm import sessionmaker
+    SL = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    monkeypatch.setattr("app.routers.email_unsubscribe.SessionLocal", SL)
+    return db_session
+
+
+def _lock(client, user, d="2026-09-25", rev=12500.0, **kw):
+    payload = {
+        "date": d, "branch_id": None, "status": "confirmed",
+        "revenue_breakdown": {"food": rev},
+        "payment_breakdown": {"cash": 2500.0, "card": rev - 2500.0},
+        "moms_mode": "auto", "cash_counted": 2525.0,
+        "closed_by": "Lars", "acknowledge_anomaly": True,
+    }
+    payload.update(kw)
+    return client.post("/api/daily-close", json=payload, headers=_auth(user))
+
+
+def _revisor_mails(box, addr="anna@revisor.dk"):
+    return [p for p in box.sent if p["to"] == [addr]]
+
+
+def test_failed_lock_mail_is_persisted_and_resend_is_idempotent(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    mailbox.fail = True
+    r = _lock(client, user)
+    assert r.status_code == 200, r.text
+    close = r.json()
+    assert close["close_ritual"]["email_status"] == "send_failed"
+    cid = close["id"]
+
+    # Persisted: a reload of History still knows it was NOT sent.
+    listed = client.get("/api/daily-close", headers=_auth(user)).json()
+    row = next(x for x in listed if x["id"] == cid)
+    assert row["email_status"] == "send_failed"
+    assert row["email_sent_at"] is None
+
+    # The old retry (re-POST the locked close) is the 409 dead end; the real
+    # resend works on the locked close.
+    mailbox.fail = False
+    r1 = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-0001"}, headers=_auth(user))
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["replayed"] is False
+    assert r1.json()["email_status"] == "sent"
+    assert "anna@revisor.dk" in r1.json()["email_sent_to"]
+    n_after_first = len(mailbox.sent)
+    assert len(_revisor_mails(mailbox)) == 1
+
+    # Same click again (double tap / network retry): no second mail.
+    r2 = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-0001"}, headers=_auth(user))
+    assert r2.status_code == 200
+    assert r2.json()["replayed"] is True
+    assert len(mailbox.sent) == n_after_first
+
+    # A NEW click on an already-sent close must be confirmed first.
+    r3 = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-0002"}, headers=_auth(user))
+    assert r3.status_code == 409
+    assert r3.json()["detail"]["code"] == "already_sent"
+    assert len(mailbox.sent) == n_after_first
+    r4 = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-0003", "force": True}, headers=_auth(user))
+    assert r4.status_code == 200
+    assert len(_revisor_mails(mailbox)) == 2
+
+
+def test_resend_refuses_a_draft(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user, status="draft")
+    cid = r.json()["id"]
+    r = client.post(f"/api/daily-close/{cid}/resend-email",
+                    json={"key": "click-0001"}, headers=_auth(user))
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "not_locked"
+    assert mailbox.sent == []
+
+
+def test_revisor_opt_out_stops_the_next_send_and_the_owner_sees_it(
+        db_session, unsub_db, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user, d="2026-09-24")
+    assert r.json()["close_ritual"]["accountant_included"] is True
+    rev = _revisor_mails(mailbox)[0]
+    # Why they get it, and the one-click opt-out — in the body and the header.
+    assert "har angivet dig som revisor i BonBox" in rev["html"]
+    m = re.search(r"<(https?://[^>]+/api/email/unsubscribe\?token=[^>]+)>",
+                  rev["headers"]["List-Unsubscribe"])
+    assert m and rev["headers"]["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+    token = m.group(1).split("token=", 1)[1]
+    assert token in rev["html"]
+
+    # GET only confirms (link scanners); POST opts out.
+    g = client.get(f"/api/email/unsubscribe?token={token}")
+    assert g.status_code == 200 and "Afmeld" in g.text
+    db_session.expire_all()
+    assert db_session.query(BusinessProfile).first().accountant_opted_out_at is None
+    p = client.post(f"/api/email/unsubscribe?token={token}")
+    assert p.status_code == 200 and "afmeldt" in p.text
+    db_session.expire_all()
+    prof = client.get("/api/business", headers=_auth(user)).json()
+    assert prof["accountant_opted_out"] is True
+    assert prof["accountant_auto_send_effective"] is False
+
+    # The next lock mails the owner only, and says why.
+    before = len(_revisor_mails(mailbox))
+    r = _lock(client, user, d="2026-09-25")
+    ritual = r.json()["close_ritual"]
+    assert ritual["accountant_skip_reason"] == "opted_out"
+    assert ritual["accountant_included"] is False
+    assert len(_revisor_mails(mailbox)) == before
+    owner_copy = [x for x in mailbox.sent if x["to"] == ["owner@mirabelle.dk"]][-1]
+    assert "har afmeldt mails fra BonBox" in owner_copy["html"]
+    # Manual sends refuse too.
+    with patch("app.services.email_service.send_email_with_attachment",
+               return_value=(True, None)) as sender:
+        s = client.post("/api/daily-close/send-to-accountant?from=2026-09-01&to=2026-09-30",
+                        json={"fmt": "pdf"}, headers=_auth(user))
+    assert s.status_code == 409 and s.json()["detail"]["code"] == "accountant_opted_out"
+    assert sender.call_count == 0
+    cid = r.json()["id"]
+    rr = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-0009"}, headers=_auth(user))
+    assert rr.status_code == 409 and rr.json()["detail"]["code"] == "accountant_opted_out"
+
+
+def test_relock_after_unlock_sends_a_marked_correction(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user, rev=12500.0)
+    cid = r.json()["id"]
+    first = _revisor_mails(mailbox)[-1]
+    assert first["subject"] == "Kasserapport fre. 25.09.2026 — Mirabelle ApS"
+
+    u = client.post(f"/api/daily-close/{cid}/unlock",
+                    json={"reason": "Forkert kortbeløb"}, headers=_auth(user))
+    assert u.status_code == 200
+    r = _lock(client, user, rev=13000.0)
+    assert r.status_code == 200, r.text
+    assert r.json()["close_ritual"]["correction"] is True
+    second = _revisor_mails(mailbox)[-1]
+    assert second["subject"] == "Rettet kasserapport fre. 25.09.2026 — Mirabelle ApS"
+    assert "erstatter den, der blev sendt" in second["html"]
+    assert "Forkert kortbeløb" in second["html"]
+    assert "Omsætning 12.500,00 kr. → 13.000,00 kr." in second["html"]
+
+
+def test_send_status_is_persisted_on_the_close(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user)
+    cid = r.json()["id"]
+    got = client.get(f"/api/daily-close/{cid}", headers=_auth(user)).json()
+    assert got["email_status"] == "sent"
+    assert got["email_sent_at"] is not None
+    assert set(got["email_sent_to"]) == {"anna@revisor.dk", "owner@mirabelle.dk"}
+
+
+def test_a_new_revisor_address_does_not_switch_on_auto_send(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user, accountant_email=None)
+    bad = client.put("/api/business", json={"accountant_email": "anna@revisor"},
+                     headers=_auth(user))
+    assert bad.status_code == 422
+    ok = client.put("/api/business", json={"accountant_email": "Anna@Revisor.dk"},
+                    headers=_auth(user))
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["accountant_email"] == "anna@revisor.dk"
+    assert ok.json()["accountant_auto_send"] is False
+    r = _lock(client, user)
+    ritual = r.json()["close_ritual"]
+    assert ritual["accountant_skip_reason"] == "auto_send_off"
+    assert _revisor_mails(mailbox) == []
+    # The owner ticks the explained choice → the next lock mails the revisor.
+    client.put("/api/business", json={"accountant_auto_send": True}, headers=_auth(user))
+    r = _lock(client, user, d="2026-09-26")
+    assert r.json()["close_ritual"]["accountant_included"] is True
+    assert len(_revisor_mails(mailbox)) == 1
+
+
+def test_a_failed_pdf_build_is_named_not_blamed_on_the_environment(
+        db_session, client, mailbox, monkeypatch):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+
+    def _boom(*a, **kw):
+        raise RuntimeError("reportlab exploded")
+    monkeypatch.setattr("app.routers.daily_close._close_attachment", _boom)
+    r = _lock(client, user)
+    ritual = r.json()["close_ritual"]
+    assert ritual["email_status"] == "failed_skipped"
+    assert ritual["email_error"] == "pdf_build_failed"
+    assert r.json()["email_error"] == "pdf_build_failed"
+    assert mailbox.sent == []
+
+
+def test_migration_and_sqlite_mirror_carry_every_new_column():
+    """create_all() hides a missing mirror on a fresh sqlite db, so pin both
+    the Postgres ALTER and the SQLite mirror for every Migration 082 column."""
+    import inspect
+    import app.main as m
+    src = inspect.getsource(m)
+    for table, col in (
+        ("daily_closes", "email_status"), ("daily_closes", "email_error"),
+        ("daily_closes", "email_attempt_at"), ("daily_closes", "email_sent_at"),
+        ("daily_closes", "email_sent_to"), ("daily_closes", "email_send_key"),
+        ("business_profiles", "accountant_auto_send"),
+        ("business_profiles", "accountant_opted_out_at"),
+        ("business_profiles", "accountant_opted_out_email"),
+    ):
+        assert f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} " in src, (table, col)
+        assert f'_add("{table}", "{col}"' in src, ("mirror", table, col)

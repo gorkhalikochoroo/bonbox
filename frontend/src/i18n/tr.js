@@ -5428,7 +5428,7 @@ export const tr = {
   planCapTooltip: "{tier} planı en fazla {days} günü kapsar. Tam yıl için Pro'ya yükselt.",
   planCapTooltipNative: "Planın en fazla {days} günü kapsar.",
   accountantContact: "Revisor iletişimi",
-  accountantContactDesc: "Günlük Kapanış aralık aktarımlarındaki Gönder düğmesini önceden doldurur. İsteğe bağlı.",
+  accountantContactDesc: "Muhasebecinizin e-postası. Revisora gönder düğmesine bastığınızda kullanılır — ve yalnızca aşağıda işaretlerseniz, her gün kilitlendiğinde kasserapport için de.",
   accountantNameLabel: "Revisor adı (isteğe bağlı)",
   accountantEmailLabel: "Revisor e-postası",
   accountantSaved: "Revisor iletişimi kaydedildi",

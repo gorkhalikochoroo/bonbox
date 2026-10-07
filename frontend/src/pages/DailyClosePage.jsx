@@ -50,6 +50,9 @@ import {
   shareCloseSummary,
 } from "../utils/shareClose";
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
+import { closeEmailState, emailErrorKey, newSendKey, resendCloseEmail, sentWhen, filenameFromResponse } from "../utils/closeEmail";
+
+const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
 import { saveFile } from "../utils/download";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
@@ -68,7 +71,7 @@ import { saveFile } from "../utils/download";
 // there is defined only by its 1px border. Converting SOME of them would split
 // the page into two different dark surfaces, and converting all seventeen is a
 // bigger change than a surface pass should make in one go. See the report.
-import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner, Amount, StatCard, LoadFailed } from "../components/ui";
+import { PageHeader, TabPills, Button, Icon, SectionBanner, Amount, StatCard, LoadFailed } from "../components/ui";
 // Three outcomes, not two — the same rule the money primitives already enforce
 // for a missing FIGURE ("—", never a confident 0), applied to a missing LIST.
 // `/daily-close` and `/daily-close/insights` were `.catch(() => {})`, so a
@@ -639,8 +642,17 @@ export default function DailyClosePage() {
   const freshLockIsToday = Boolean(
     lastLockedClose && String(lastLockedClose.date || "").slice(0, 10) === todayIso,
   );
+  // After a reload the lock response is gone, but the send status is
+  // persisted on the close: the card rebuilds its email line from it.
   const lockedBannerClose = (freshLockIsToday ? lastLockedClose : null) || (todaysConfirmedClose
-    ? { ...todaysConfirmedClose, close_ritual: todaysConfirmedClose.close_ritual || {} }
+    ? {
+        ...todaysConfirmedClose,
+        close_ritual: todaysConfirmedClose.close_ritual || {
+          email_status: todaysConfirmedClose.email_status || null,
+          email_error: todaysConfirmedClose.email_error || null,
+          sent_to: todaysConfirmedClose.email_sent_to || [],
+        },
+      }
     : null);
   const isLockedToday = Boolean(lockedBannerClose);
   // …but a past day locked from this page still gets its answer. Hiding it
@@ -832,6 +844,7 @@ export default function DailyClosePage() {
           t={t}
           close={lockedBannerClose}
           currency={currency}
+          profile={bizQ.data}
           businessType={user?.business_type}
           onDismiss={() => {
             setTodayCardDismissed(true);
@@ -846,6 +859,7 @@ export default function DailyClosePage() {
           t={t}
           close={pastLockClose}
           currency={currency}
+          profile={bizQ.data}
           businessType={user?.business_type}
           dateLabel={formatDateClearFull(String(pastLockClose.date || "").slice(0, 10))}
           onDismiss={() => setLastLockedClose(null)}
@@ -962,7 +976,7 @@ export default function DailyClosePage() {
       {/* The wizard reads as a form, not a spreadsheet: number boxes ran
           958px wide on desktop. History keeps the full width. */}
       <div ref={closeWizardRef} className={tab === "close" ? "max-w-2xl" : ""}>
-        {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} branches={branches} isOnline={isOnline}
+        {tab === "close" && <CloseForm businessProfile={bizQ.data} currency={currency} t={t} branchType={branchType} branchId={branchId} branches={branches} isOnline={isOnline}
           manualRequest={manualRequest}
           heroScanFiles={heroScanFiles}
           onHeroConsumed={() => setHeroScanFiles(null)}
@@ -1202,7 +1216,7 @@ const scanMomsKey = (s) => JSON.stringify([
   (s?.merge_info?.incompleteFields || []).includes("moms_total"),
 ]);
 
-function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
+function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -4900,13 +4914,22 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-100 inline-flex items-center gap-1.5">
-                        <Icon name="Mail" size={14} className="text-gray-500 dark:text-gray-400" /> {t("autoEmailToggleLabel", "Email owner + revisor automatically on lock")}
+                        <Icon name="Mail" size={14} className="text-gray-500 dark:text-gray-400" /> {t("autoEmailToggleLabelLock", "Mail the kasserapport when you lock")}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {/* The REAL recipients — it said "owner + revisor" even
+                            when no revisor address existed. */}
+                        {(() => {
+                          const owner = businessProfile?.email || user?.email || "";
+                          const acct = businessProfile?.accountant_email || "";
+                          if (!acct) return t("autoEmailToNoRevisor", "To {owner}. No revisor e-mail is saved — add it on Profile if they should get it too.", { owner });
+                          if (businessProfile?.accountant_opted_out) return t("autoEmailToOptedOut", "To {owner}. Your revisor ({acct}) has unsubscribed from BonBox mail and won't get it.", { owner, acct });
+                          // An older server has no such field and mails a saved revisor on lock.
+                          if (businessProfile?.accountant_auto_send_effective ?? true) return t("autoEmailToBoth", "To {owner} and your revisor {acct}: the kasserapport as a PDF.", { owner, acct });
+                          return t("autoEmailToOwnerOnly", "To {owner}. Your revisor ({acct}) only gets it when you tap Send — you can change that on Profile.", { owner, acct });
+                        })()}
                         {/* The photo only when there is one — a typed close has none. */}
-                        {receiptPhotoUrl
-                          ? t("autoEmailToggleHint", "When you tap Confirm & lock, we send one email with the kasserapport PDF + the scanned Z-bon photo to your owner email and your revisor.")
-                          : t("autoEmailToggleHintNoPhoto", "When you tap Confirm & lock, we send one email with the kasserapport PDF to your owner email and your revisor.")}
+                        {receiptPhotoUrl ? " " + t("autoEmailPhotoToo", "The scanned Z-bon photo is attached too.") : ""}
                       </p>
                     </div>
                   </label>
@@ -4918,7 +4941,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                         {t("autoEmailToggleStarterGate", "Auto-email on lock is on Starter+")}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        {t("autoEmailToggleStarterGateBody", "Free still lets you manually tap Send to revisor after locking. Upgrade to Starter for the no-extra-tap version.")}
+                        {t("autoEmailToggleStarterGateBodyHonest", "On Free you send it yourself: tap PDF on the day in History, or Send to revisor — the file downloads and your own mail opens. Starter mails it the moment you lock.")}
                       </p>
                       {canPurchaseInApp() && (
                         <Link
@@ -5179,7 +5202,142 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
    L9 in the multi-barrier defense: never lie about state. If the email
    couldn't go, the card says so — it doesn't fake a green checkmark.
 */
-function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "" }) {
+/* The lasting "did it reach the revisor?" line — on the lock card and on every
+   History row. It reads the status PERSISTED on the close, so it survives a
+   reload, and it never fakes a "sent". A failed send offers the real resend
+   (POST /daily-close/{id}/resend-email, one idempotency key per click); there
+   is no background retry and nothing here says there is. */
+function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = false }) {
+  const confirm = useConfirm();
+  const [st, setSt] = useState(() => ({
+    status: ritual?.email_status ?? close.email_status ?? null,
+    error: ritual?.email_error ?? close.email_error ?? null,
+    sentTo: close.email_sent_to?.length ? close.email_sent_to : (ritual?.sent_to || []),
+    sentAt: close.email_sent_at ?? null,
+    skip: ritual?.accountant_skip_reason ?? null,
+  }));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  // Kept across a lost response so a second tap replays the SAME key and the
+  // server answers with what happened instead of mailing twice.
+  const keyRef = useRef(null);
+  const { kind, acct } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip, profile });
+  const when = sentWhen(st.sentAt);
+  const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
+
+  const send = async (force = false) => {
+    setBusy(true);
+    setErr("");
+    if (!keyRef.current) keyRef.current = newSendKey();
+    try {
+      const r = await resendCloseEmail(api, close.id, { key: keyRef.current, force });
+      keyRef.current = null;
+      const d = r.data || {};
+      setSt({
+        status: d.email_status ?? d.close_ritual?.email_status ?? null,
+        error: d.email_error ?? d.close_ritual?.email_error ?? null,
+        sentTo: d.email_sent_to || d.close_ritual?.sent_to || [],
+        sentAt: d.email_sent_at ?? null,
+        skip: d.close_ritual?.accountant_skip_reason ?? null,
+      });
+    } catch (e) {
+      const code = e?.response?.data?.detail?.code;
+      const status = e?.response?.status;
+      if (!e?.response) {
+        // We do not know whether it went. Same key on the next tap.
+        setErr(t("dcMailUnknownOutcome", "We couldn't confirm whether it was sent. Check your own inbox (you get a copy) before sending again."));
+        return;
+      }
+      keyRef.current = null;
+      if (status === 409 && code === "already_sent") {
+        const ok = await confirm({
+          title: t("dcMailAlreadyTitle", "Your revisor already has this kasserapport"),
+          message: t("dcMailAlreadyBody", "It was sent {when}. Send it again?", { when: whenText || "—" }),
+          confirmLabel: t("dcMailSendAgain", "Send again"),
+          cancelLabel: t("cancel", "Cancel"),
+        });
+        if (ok) { setBusy(false); return send(true); }
+      } else if (status === 409 && code === "accountant_opted_out") {
+        setSt((s0) => ({ ...s0, skip: "opted_out" }));
+        setErr(t("dcMailOptedOutErr", "Your revisor has unsubscribed from BonBox mail. Download the PDF and send it from your own mail."));
+      } else if (status === 400 && code === "no_accountant_email") {
+        setErr(t("dcMailNoRevisorErr", "No revisor e-mail is saved. Add it on Profile first."));
+      } else if (status === 402) {
+        setErr(t("dcMailFreeErr", "Sending from BonBox is on Starter. Download the PDF and send it from your own mail."));
+      } else {
+        setErr(errText(e, t("dcMailResendFailed", "Couldn't send it. Try again in a moment.")));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (kind === "none") return null;
+  const reason = t(emailErrorKey(st.error), "unknown error");
+  const btn = (label) => (
+    <button type="button" onClick={() => send(false)} disabled={busy}
+      className="text-xs px-2.5 min-h-8 max-sm:min-h-10 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg font-semibold disabled:opacity-50 inline-flex items-center gap-1">
+      <Icon name="Send" size={12} /> {busy ? t("sendingBtn", "Sending…") : label}
+    </button>
+  );
+  const textCls = compact ? "text-[12px]" : "text-sm";
+  let line;
+  if (kind === "revisor") {
+    line = (
+      <span className={`${textCls} text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1`}>
+        <Icon name="CheckCircle2" size={13} /> {whenText
+          ? t("dcMailSentRevisorAt", "Sent to your revisor ({email}) {when}", { email: acct, when: whenText })
+          : t("dcMailSentRevisor", "Sent to your revisor ({email})", { email: acct })}
+      </span>
+    );
+  } else if (kind === "opted_out") {
+    line = (
+      <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-1`}>
+        <Icon name="BellOff" size={13} /> {t("dcMailOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — send it from your own mail.", { email: acct || "—" })}
+      </span>
+    );
+  } else if (kind === "owner_only") {
+    line = (
+      <span className={`${textCls} text-gray-700 dark:text-gray-300 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {acct
+          ? t("dcMailOwnerOnly", "Sent to you {when} — not to your revisor", { when: whenText })
+          : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
+        {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
+          <Link to="/profile" className="text-xs font-semibold underline">{t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
+        )}
+      </span>
+    );
+  } else if (kind === "pref_off") {
+    line = (
+      <span className={`${textCls} text-gray-700 dark:text-gray-300 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="BellOff" size={13} /> {t("dcMailPrefOff", "Not sent — automatic mail on lock is off")}</span>
+        {acct && btn(t("dcMailSendToRevisor", "Send to revisor"))}
+      </span>
+    );
+  } else if (kind === "no_recipient") {
+    line = (
+      <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-1`}>
+        <Icon name="AlertTriangle" size={13} /> {t("dcMailNoRecipientLine", "Not sent — no e-mail address on file.")} <Link to="/profile" className="underline font-semibold">{t("profileLinkLabel", "Profile")}</Link>
+      </span>
+    );
+  } else {
+    // failed
+    line = (
+      <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {t("dcMailNotSent", "Not sent to your revisor — {reason}", { reason })}</span>
+        {acct && btn(t("dcMailSendAgain", "Send again"))}
+      </span>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      {line}
+      {err && <p className="text-xs text-red-600 dark:text-red-400" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null }) {
   const ritual = close.close_ritual || {};
   // The server stores closed_at in UTC without a zone suffix; read bare, the
   // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
@@ -5188,13 +5346,12 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
         .toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })
     : "—";
   const closedBy = close.closed_by || (t("staffShort", "Staff"));
-  const recipients = (ritual.sent_to || []).join(", ");
+  const recipients = (close.email_sent_to?.length ? close.email_sent_to : (ritual.sent_to || [])).join(", ");
 
   // Local dismiss state for bank-drop — POST to backend so the
   // dismissal sticks across reloads/devices.
   const [bankDropDone, setBankDropDone] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-  const [emailStatus, setEmailStatus] = useState(ritual.email_status);
+  const emailStatus = ritual.email_status ?? close.email_status;
 
   const handleBankDropDone = async () => {
     setBankDropDone(true);  // optimistic
@@ -5206,73 +5363,10 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
     }
   };
 
-  const handleRetryEmail = async () => {
-    setRetrying(true);
-    try {
-      // Re-trigger the auto-email by saving the close again with
-      // status=confirmed. Backend's lock handler re-runs the email
-      // pipeline. Cheaper than a dedicated /retry-email endpoint.
-      const resp = await api.post("/daily-close", {
-        date: close.date, branch_id: close.branch_id,
-        status: "confirmed",
-        revenue_breakdown: close.revenue_breakdown,
-        payment_breakdown: close.payment_breakdown,
-        moms_total: close.moms_total, moms_mode: close.moms_mode,
-        cash_counted: close.cash_counted,
-        tips_total: close.tips_total, tips_staff_count: close.tips_staff_count,
-        notes: close.notes, closed_by: close.closed_by,
-      });
-      const newStatus = resp?.data?.close_ritual?.email_status;
-      if (newStatus) setEmailStatus(newStatus);
-    } catch {
-      // Leave status as-is so the retry button stays available
-    } finally {
-      setRetrying(false);
-    }
-  };
-
-  // Build the email status row — honest about every state
+  // The email status row — honest about every state, and the same component
+  // History uses, so the card and the row can never disagree.
   let emailLine = null;
-  if (emailStatus === "sent") {
-    emailLine = (
-      <p className="text-sm text-gray-700 dark:text-gray-200">
-        <Icon name="Mail" size={14} className="inline align-text-bottom mr-1" /> {(t("closeLockedEmailSent", "Sent to {recipients}")).replace("{recipients}", recipients || "—")}
-        {ritual.scan_degraded && (
-          <span className="block text-xs text-amber-600 dark:text-amber-400 mt-1">
-            <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded", "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached. We'll keep the original on file.")}
-          </span>
-        )}
-      </p>
-    );
-  } else if (emailStatus === "queued_retry") {
-    emailLine = (
-      <div className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1.5"><Icon name="Mail" size={14} /> {t("closeLockedEmailQueued", "Email queued for retry — we'll keep trying")}</span>
-        <button onClick={handleRetryEmail} disabled={retrying}
-          className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">
-          {retrying ? "..." : (t("closeLockedEmailRetry", "Retry email now"))}
-        </button>
-      </div>
-    );
-  } else if (emailStatus === "skipped_preference_off") {
-    emailLine = (
-      <p className="text-sm text-gray-600 dark:text-gray-300">
-        <Icon name="BellOff" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedPref", "Auto-email is off in your settings — open Settings to turn it back on")}
-      </p>
-    );
-  } else if (emailStatus === "skipped_no_recipient") {
-    emailLine = (
-      <p className="text-sm text-amber-700 dark:text-amber-300">
-        <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedNoRecipient", "No owner email on file — set one on Profile to enable auto-send")}
-      </p>
-    );
-  } else if (emailStatus === "failed_skipped") {
-    emailLine = (
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailFailed", "Email send is disabled in this environment.")}
-      </p>
-    );
-  } else if (emailStatus === "skipped_feature_locked") {
+  if (emailStatus === "skipped_feature_locked") {
     // App Store compliance (Apple 3.1.1): on native, show a neutral status line
     // with NO upgrade pitch / tier name / CTA. Web keeps the "Upgrade to
     // Starter" conversion nudge below.
@@ -5289,6 +5383,22 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
           <Link to="/subscription" className="inline-block mt-2 text-[12px] font-semibold text-amber-800 dark:text-amber-300 hover:underline">
             {t("pricingUpgradeStarter", "Upgrade to Starter")} →
           </Link>
+        )}
+      </div>
+    );
+  } else if (emailStatus) {
+    emailLine = (
+      <div className="space-y-1">
+        {(emailStatus === "sent" || emailStatus === "partial") && recipients && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            <Icon name="Mail" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSent", "Sent to {recipients}").replace("{recipients}", recipients)}
+          </p>
+        )}
+        <CloseEmailStatus t={t} close={close} ritual={ritual} profile={profile} />
+        {ritual.scan_degraded && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded", "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached. We'll keep the original on file.")}
+          </p>
         )}
       </div>
     );
@@ -5488,9 +5598,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // authoritative gate either way.
   const [exportCapDays, setExportCapDays] = useState(366);
   const [planTier, setPlanTier] = useState("free");
-  // UpgradeNudge state — shown as a dialog when a Free user tries
-  // the gated "Send to accountant" feature. Null = no nudge open.
-  const [upgradeNudge, setUpgradeNudge] = useState(null);
+  // A direct send that did not (or may not have) gone: what happened, and the
+  // owner's choice of what to do next. Never a silent switch to mailto.
+  const [sendIssue, setSendIssue] = useState(null);
   // /billing/me keeps its silent catch ON PURPOSE, and it is the one shape of
   // silence that is honest: every failure leaves exportCapDays at 366, and the
   // whole cap UI — the hint line, the locked presets, the "exceeds your plan"
@@ -5631,100 +5741,24 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   };
 
   /**
-   * One-tap "Send to accountant" for the chosen date range.
+   * "Send to revisor" for the chosen date range.
    *
-   * Fetches the multi-day PDF, then hands it to
-   * sendDailyCloseRangeToAccountant() which:
-   *   • on iPhone/Android: opens the native share sheet with the PDF
-   *     pre-attached → user picks Mail / WhatsApp / AirDrop → done
-   *   • on desktop: downloads the file + opens mailto: with To, Subject
-   *     and Danish-language Body pre-filled → user attaches the file
+   * Starter+: BonBox mails the file to the SAVED revisor address (the owner
+   * confirms recipient, period and format first). Free: the honest path — the
+   * file downloads and the owner's own mail opens; no upgrade wall in front of
+   * a promise the plan does not keep.
    *
-   * Errors during fetch are surfaced through the same exportError
-   * state as the regular PDF/CSV downloads — same UI, same messaging.
+   * A failed direct send NEVER silently switches to mailto any more: the
+   * revisor could get it twice (the server may have sent before the response
+   * was lost). The owner is told what happened and chooses.
    */
-  const sendToAccountant = async () => {
-    setSendingToAccountant(true);
-    setExportError("");
-    setSendStatus("");
-    const fmt = accountantFmt; // honour the user's saved choice
-
-    // ── PRIMARY PATH: server-side direct email via Resend ──
-    // If the user has an accountant_email saved, ship the attachment
-    // straight from BonBox — no mailto dance, no manual attach. The
-    // user's email is set as reply_to so the accountant can hit Reply
-    // and reach them directly.
-    if (businessProfile?.accountant_email) {
-      try {
-        const r = await api.post(
-          `/daily-close/send-to-accountant?from=${activeRange.from}&to=${activeRange.to}`,
-          { fmt, cc_self: true },
-        );
-        if (r.data?.ok) {
-          setSendStatus(
-            (t("sentToAccountantOk", "Sent to")) +
-            ` ${r.data.sent_to}` +
-            (r.data.cc_self ? ` (${t("ccdYou", "you cc'd")})` : "")
-          );
-          setTimeout(() => setSendStatus(""), 6000);
-          setSendingToAccountant(false);
-          return;
-        }
-      } catch (e) {
-        // 503 = email service down (transient or unconfigured).
-        // 400 = no accountant email (shouldn't hit here because we
-        // checked above, but be defensive). Anything else = treat
-        // same as 503 and fall through to the share/mailto fallback.
-        const status = e.response?.status;
-        if (status === 503 || status === 502 || status === 500) {
-          // Fall through to share/mailto silently — the user still
-          // gets a working path.
-          // (We could surface a toast, but the fallback is good UX.)
-        } else if (status === 402) {
-          // 402 — plan-required. Two variants:
-          //   • feature: "direct_accountant_email" → Free user trying
-          //     the new gated feature. Show the UpgradeNudge dialog
-          //     instead of an error toast.
-          //   • else (date-range cap exceeded) → keep the old upgrade
-          //     CTA banner behavior for backwards compatibility.
-          const detail = e.response?.data?.detail;
-          if (detail?.code === "plan_required" &&
-              detail?.feature === "direct_accountant_email") {
-            setUpgradeNudge({
-              tier: detail.required_plan || "starter",
-              benefit: t(
-                "nudgeAccountantSend",
-                "Email your accountant in one tap"
-              ),
-              // WAS: icon: "📤". A Free owner tapping "Send to revisor" met an
-              // emoji in the upgrade dialog — the one moment the product most
-              // needs to look like an accounting tool. UpgradeNudge prefers a
-              // Lucide `iconName` over the legacy emoji prop.
-              iconName: "Send",
-            });
-            setSendingToAccountant(false);
-            return;
-          }
-          // Existing date-range plan-cap path
-          const parsed = await parseExportError(e, t);
-          setExportError(parsed.message);
-          setExportErrorIsCap(parsed.isPlanCap);
-          setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
-          setSendingToAccountant(false);
-          return;
-        }
-        // Otherwise fall through
-      }
-    }
-
-    // ── FALLBACK PATH: download + share/mailto (existing flow) ──
-    // Triggered when no accountant_email is saved, or the direct-email
-    // service is down. User still gets a usable path.
+  const sendViaOwnMail = async (fmt, { freePath = false } = {}) => {
+    setSendIssue(null);
     try {
       const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
       const res = await api.get(url, { responseType: "blob" });
       const blob = new Blob([res.data], { type: _MIME[fmt] || "application/octet-stream" });
-      const filename = `daily-close_${activeRange.from}_to_${activeRange.to}.${fmt}`;
+      const filename = filenameFromResponse(res, `Kasserapporter ${activeRange.from}–${activeRange.to}.${fmt}`);
 
       // Inherit language from user.language (set in Profile) — defaults
       // to Danish since the recipient is typically a DK accountant.
@@ -5732,9 +5766,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
       const result = await sendDailyCloseRangeToAccountant({
         blob, filename,
-        accountantEmail: businessProfile?.accountant_email || "",
+        // Never pre-fill an address that asked BonBox to stop.
+        accountantEmail: businessProfile?.accountant_opted_out ? "" : (businessProfile?.accountant_email || ""),
         accountantName: businessProfile?.accountant_name || "",
-        businessName: user?.business_name || "",
+        businessName: businessProfile?.company_name || user?.business_name || "",
         fromIso: activeRange.from,
         toIso: activeRange.to,
         closeCount: rangeCount,
@@ -5742,8 +5777,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       });
 
       if (result.ok) {
-        // Different toast per channel so the user knows what happened.
-        if (result.channel === "share") {
+        if (freePath) {
+          setSendStatus(t("dcSendFreeOwnMail", "On your plan you send it yourself: the file is downloaded and your mail app is open."));
+        } else if (result.channel === "share") {
           setSendStatus(t("sentViaShare", "Share sheet opened — pick Mail / WhatsApp"));
         } else if (result.channel === "mailto") {
           setSendStatus(
@@ -5754,18 +5790,96 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         } else {
           setSendStatus(t("downloadedFallback", "Downloaded — attach manually to email"));
         }
-        setTimeout(() => setSendStatus(""), 5000);
+        setTimeout(() => setSendStatus(""), 8000);
       } else {
         setExportError(result.reason || t("opsCloseShareFailed", "Could not start the share. Please try the PDF download instead."));
         setTimeout(() => setExportError(""), 5000);
       }
     } catch (e) {
-      // Same parser as downloadRange — preserves the plan-cap CTA
-      // when the user hits the cap via the Send-to-accountant flow.
       const parsed = await parseExportError(e, t);
       setExportError(parsed.message);
       setExportErrorIsCap(parsed.isPlanCap);
       setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
+    }
+  };
+
+  const sendToAccountant = async () => {
+    setExportError("");
+    setSendStatus("");
+    setSendIssue(null);
+    const fmt = accountantFmt; // honour the user's saved choice
+    const acct = businessProfile?.accountant_email;
+    const optedOut = Boolean(businessProfile?.accountant_opted_out);
+
+    if (acct && !optedOut) {
+      // Who, what, which days — before one tap mails a third party.
+      const ok = await confirm({
+        title: t("dcSendConfirmTitle", "Send to your revisor?"),
+        message: t("dcSendConfirmBody", "{format} for {from} – {to} ({n} closes) goes to {email}. You get a copy.", {
+          format: FMT_LABEL[fmt] || fmt, from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
+          n: rangeCount, email: acct,
+        }),
+        confirmLabel: t("sendToAccountantBtn", "Send to revisor"),
+        cancelLabel: t("cancel", "Cancel"),
+      });
+      if (!ok) return;
+      setSendingToAccountant(true);
+      try {
+        const r = await api.post(
+          `/daily-close/send-to-accountant?from=${activeRange.from}&to=${activeRange.to}`,
+          { fmt, cc_self: true },
+          // A send is not replayed by the interceptor: a lost response does
+          // not mean nothing was sent.
+          { _noRetry: true },
+        );
+        if (r.data?.ok) {
+          setSendStatus(
+            (t("sentToAccountantOk", "Sent to")) +
+            ` ${r.data.sent_to}` +
+            (r.data.cc_self ? ` (${t("ccdYou", "you cc'd")})` : "")
+          );
+          setTimeout(() => setSendStatus(""), 8000);
+          return;
+        }
+      } catch (e) {
+        const status = e.response?.status;
+        const detail = e.response?.data?.detail;
+        if (status === 402 && detail?.feature === "direct_accountant_email") {
+          // Free: download + own mail is the plan's path — go straight there.
+          await sendViaOwnMail(fmt, { freePath: true });
+          return;
+        }
+        if (status === 402) {
+          // Date-range plan cap — the existing banner with its upgrade link.
+          const parsed = await parseExportError(e, t);
+          setExportError(parsed.message);
+          setExportErrorIsCap(parsed.isPlanCap);
+          setTimeout(() => { setExportError(""); setExportErrorIsCap(false); }, 8000);
+          return;
+        }
+        let message;
+        if (status === 409 && detail?.code === "accountant_opted_out") {
+          message = t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail.");
+        } else if (status === 429) {
+          message = t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow.");
+        } else if (status === 503 && detail?.reason === "email_not_configured") {
+          message = t("dcSendNotConfigured", "Sending from BonBox isn't set up here, so nothing was sent. Send the file from your own mail.");
+        } else if (!e.response || status >= 500) {
+          message = t("dcSendUnknown", "We couldn't confirm whether it reached {email}. Check your inbox — you get a copy — before sending it another way.", { email: acct });
+        } else {
+          message = errText(e, t("dcSendFailedDirect", "BonBox couldn't send it. Nothing was sent."));
+        }
+        setSendIssue({ message, fmt });
+        return;
+      } finally {
+        setSendingToAccountant(false);
+      }
+    }
+
+    // No revisor saved, or they opted out: download + the owner's own mail.
+    setSendingToAccountant(true);
+    try {
+      await sendViaOwnMail(fmt);
     } finally {
       setSendingToAccountant(false);
     }
@@ -6022,6 +6136,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           t={t}
           close={lastLockedClose}
           currency={currency}
+          profile={businessProfile}
           businessType={user?.business_type}
           onDismiss={onDismissLastLocked}
         />
@@ -6073,7 +6188,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           </h3>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          {t("exportToAccountantDesc", "Pick a date range and download all closes as PDF or CSV. CSV is semicolon-delimited + UTF-8 BOM so Danish Excel opens it cleanly.")}
+          {t("exportToAccountantDesc", "Pick a period. Excel is for your revisor's bookkeeping, PDF is an overview, and the CSV opens in Danish Excel (semicolon, decimal comma). Drafts are listed but never counted.")}
         </p>
 
         {/* Preset buttons — cap-aware. Each preset declares its own
@@ -6253,7 +6368,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
               iconLeft={exportingFmt === "csv" ? null : <Icon name="FileSpreadsheet" size={14} />}
               className="border border-gray-200 dark:border-gray-700"
-              title={t("csvTooltip", "Raw data — for e-conomic / Dinero / Billy imports")}
+              title={t("csvTooltip", "Semicolon + decimal comma — opens in Danish Excel")}
             >
               {exportingFmt === "csv" ? (t("generatingPdfBtn", "Generating…")) : "CSV"}
             </Button>
@@ -6334,6 +6449,36 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           </p>
         )}
 
+        {/* Who a send goes to — on the screen, not in a hover tooltip a
+            phone cannot show. */}
+        {profileKnown && businessProfile?.accountant_email && rangeCount > 0 && (
+          <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+            {businessProfile?.accountant_opted_out
+              ? t("dcSendToLineOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.", { email: businessProfile.accountant_email })
+              : t("dcSendToLine", "Send goes to {email} · {format} · {from} – {to}", {
+                  email: businessProfile.accountant_email,
+                  format: FMT_LABEL[accountantFmt] || accountantFmt,
+                  from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
+                })}
+          </p>
+        )}
+
+        {sendIssue && (
+          <div className="mt-2 px-3 py-2 rounded-lg text-xs bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200" role="alert">
+            <p className="flex items-start gap-2"><Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" /> <span>{sendIssue.message}</span></p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <Button size="sm" variant="secondary" className="border border-amber-300 dark:border-amber-700 max-sm:h-10"
+                onClick={() => sendViaOwnMail(sendIssue.fmt)} iconLeft={<Icon name="Mail" size={13} />}>
+                {t("dcSendViaOwnMail", "Send from my own mail")}
+              </Button>
+              <Button size="sm" variant="secondary" className="border border-gray-200 dark:border-gray-700 max-sm:h-10"
+                onClick={() => setSendIssue(null)}>
+                {t("dismiss", "Dismiss")}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {sendStatus && (
           <p className="mt-2 text-[12px] text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1"><Icon name="CheckCircle2" size={14} /> {sendStatus}</p>
         )}
@@ -6403,6 +6548,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {dc.closed_by && <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">{t("dcClosedBy", "Closed by {name}", { name: dc.closed_by })}</p>}
                 {dc.unlock_reason && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 mt-0.5">{t("dcUnlockedReason", "Unlocked: {reason}", { reason: dc.unlock_reason })}</p>
+                )}
+                {/* Did this day reach the revisor? Persisted on the close, so it
+                    is still true after a reload — "Sendt til revisor 08.10 kl.
+                    07:12" or "Ikke sendt — Send igen". */}
+                {(dc.status || "confirmed") === "confirmed" && (
+                  <div className="mt-1">
+                    <CloseEmailStatus key={`${dc.id}-${dc.email_status || ""}-${dc.email_sent_at || ""}`}
+                      t={t} close={dc} profile={businessProfile} compact />
+                  </div>
                 )}
               </div>
               <div className="text-right shrink-0">
@@ -6650,19 +6804,6 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         </div>
       )}
 
-      {/* Upgrade nudge — shown when a Free user tries the gated
-          "Send to accountant" feature. dialog intent renders a
-          centered modal with the value sentence + price + try CTA. */}
-      {upgradeNudge && (
-        <UpgradeNudge
-          intent="dialog"
-          tier={upgradeNudge.tier}
-          benefit={upgradeNudge.benefit}
-          iconName={upgradeNudge.iconName}
-          ctaLabel={t("nudgeSeePlans", "See plans")}
-          onTry={() => setUpgradeNudge(null)}
-        />
-      )}
     </div>
   );
 }
