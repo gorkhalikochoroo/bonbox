@@ -359,9 +359,16 @@ def test_send_to_accountant_refuses_any_address_but_the_saved_revisor(db_session
             "/api/daily-close/send-to-accountant?from=2026-09-01&to=2026-09-30",
             json={"fmt": "xlsx", "message": "<b>se venligst</b>"}, headers=_auth(user))
         assert r.status_code == 200, r.text
-        assert sender.call_count == 1
-        args, kwargs = sender.call_args
+        # The revisor's message (with their opt-out) and the owner's copy are
+        # SEPARATE: an owner pressing Unsubscribe in their own inbox must not
+        # switch off their revisor.
+        assert sender.call_count == 2
+        (args, kwargs), (oargs, okwargs) = sender.call_args_list
         assert args[0] == "anna@revisor.dk"
+        assert "List-Unsubscribe" in kwargs["headers"]
+        assert oargs[0] == "anders@mirabelle.dk"
+        assert not okwargs.get("headers")
+        assert "afmelde" not in oargs[2] and "Din kopi" in oargs[2]
         assert "<b>se venligst</b>" not in args[2]
         assert "&lt;b&gt;se venligst&lt;/b&gt;" in args[2]
         # Says what is attached, under the business's own name.
@@ -832,3 +839,18 @@ def test_source_meta_and_float_are_saved_from_the_close_form(db_session, client,
     meta = _json.loads(dc.source_meta)
     assert meta == {"kind": "zbon", "scans": 2, "terminal_totals": [5000.0, 7500.0],
                     "corrected": ["pay:card"]}
+
+
+def test_a_failed_send_after_relock_does_not_keep_saying_sent(db_session, client, mailbox):
+    """History must describe THIS version: a re-lock whose mail fails cannot
+    keep showing the earlier version's 'Sendt til revisor'."""
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    cid = _lock(client, user).json()["id"]
+    client.post(f"/api/daily-close/{cid}/unlock", json={"reason": "Ret kort"}, headers=_auth(user))
+    mailbox.fail = True
+    r = _lock(client, user, rev=13000.0)
+    assert r.json()["close_ritual"]["email_status"] == "send_failed"
+    row = client.get(f"/api/daily-close/{cid}", headers=_auth(user)).json()
+    assert row["email_status"] == "send_failed"
+    assert row["email_sent_to"] == [] and row["email_sent_at"] is None

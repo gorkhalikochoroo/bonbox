@@ -444,30 +444,30 @@ def tax_filing_send_to_accountant(
         is_danish=is_danish,
     )
 
-    from app.services.email_service import send_email_with_attachment
     from app.services.revisor_mail import (
-        revisor_footer_html, revisor_unsubscribe_headers, revisor_unsubscribe_url,
-        sender_display,
+        owner_copy_line, revisor_footer_html, revisor_unsubscribe_url,
+        send_file_to_revisor, sender_display,
     )
     # The revisor is a third party: say why they get this and let them stop.
+    # The owner's copy is a separate message without that opt-out.
     unsub_url = revisor_unsubscribe_url(user.id, recipient)
-    if html.endswith("</div>"):
-        html = html[: -len("</div>")] + revisor_footer_html(
-            business_name=business_name, cvr=getattr(profile, "org_number", None),
-            unsubscribe_url=unsub_url, is_danish=is_danish,
-        ) + "</div>"
+    base = html[: -len("</div>")] if html.endswith("</div>") else html
+    html_owner = base + owner_copy_line(recipient, is_danish) + "</div>"
+    html = base + revisor_footer_html(
+        business_name=business_name, cvr=getattr(profile, "org_number", None),
+        unsubscribe_url=unsub_url, is_danish=is_danish,
+    ) + "</div>"
 
-    cc = [user.email] if (body.cc_self and user.email) else None
-    ok, err = send_email_with_attachment(
-        recipient, subject, html,
-        attachment_bytes=pdf_bytes,
-        attachment_filename=filename,
-        attachment_mime="application/pdf",
-        reply_to=user.email,
-        cc=cc,
+    ok, err, owner_copied = send_file_to_revisor(
+        recipient=recipient, subject=subject,
+        html_revisor=html, html_owner=html_owner,
+        owner_email=(user.email if body.cc_self else None),
+        attachment_bytes=pdf_bytes, attachment_filename=filename,
+        attachment_mime="application/pdf", reply_to=user.email,
         from_display=sender_display(business_name),
-        headers=revisor_unsubscribe_headers(unsub_url),
+        unsubscribe_url=unsub_url, is_danish=is_danish,
     )
+    cc = [user.email] if owner_copied else None
 
     if not ok:
         # 503 so the frontend can fall back to a download + mailto flow.

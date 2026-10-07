@@ -1373,6 +1373,14 @@ def create_daily_close(
             existing.source_meta = _meta
         if status == "confirmed":
             existing.closed_at = utc_now()
+            # The send status describes THIS version. A re-lock starts it over —
+            # otherwise History would keep saying "Sendt til revisor" for the
+            # old version while the corrected one may not have gone out. (The
+            # earlier send is kept in `correction` above and in the audit trail.)
+            existing.email_status = None
+            existing.email_error = None
+            existing.email_sent_at = None
+            existing.email_sent_to = None
             # Clear unlock audit when re-confirming
             existing.unlock_reason = None
             existing.unlocked_by = None
@@ -3174,7 +3182,8 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
                           totals: dict, currency: str, fmt: str,
                           message: str | None, is_danish: bool,
                           attachment_name: str = "", accountant_name: str | None = None,
-                          cvr: str | None = None, unsubscribe_url: str | None = None) -> str:
+                          cvr: str | None = None, unsubscribe_url: str | None = None,
+                          owner_copy_to: str | None = None) -> str:
     """HTML body for the period mail to the revisor.
 
     Its figures are `period_totals` — the SAME function the attached PDF, Excel
@@ -3184,7 +3193,7 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
     Every value a person typed is escaped.
     """
     from app.services.bonbox_pdf_kit import money_dk
-    from app.services.revisor_mail import esc, revisor_footer_html
+    from app.services.revisor_mail import esc, owner_copy_line, revisor_footer_html
 
     def _fmt(v):
         return money_dk(v, currency)
@@ -3278,8 +3287,9 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
         + (f"<p style='color:#374151;font-size:13px;margin-top:16px;'>{attached}<br>"
            f"<span style='color:#6b7280;'>{format_note}</span></p>" if attached else
            f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{format_note}</p>")
-        + revisor_footer_html(business_name=business_name, cvr=cvr,
-                              unsubscribe_url=unsubscribe_url, is_danish=is_danish)
+        + (owner_copy_line(owner_copy_to, is_danish) if owner_copy_to else
+           revisor_footer_html(business_name=business_name, cvr=cvr,
+                               unsubscribe_url=unsubscribe_url, is_danish=is_danish))
         + "</div>"
     )
 
@@ -3371,36 +3381,35 @@ def send_to_accountant(
     from app.services.daily_close_range_export import period_totals
     totals = period_totals(closes)
 
-    from app.services.revisor_mail import revisor_unsubscribe_headers, revisor_unsubscribe_url
+    from app.services.revisor_mail import revisor_unsubscribe_url
     unsub_url = revisor_unsubscribe_url(user.id, recipient)
     subject_prefix = "Kasserapporter" if is_danish else "Daily closes"
     subject = header_safe(
         f"{subject_prefix} {_dk_period(f, t, is_danish)} — {business_name}", 180,
     )
-    html = _accountant_email_body(
+    body_args = dict(
         business_name=business_name, from_date=f, to_date=t,
         totals=totals, currency=currency, fmt=fmt,
         message=body.message, is_danish=is_danish,
         attachment_name=filename,
         accountant_name=getattr(profile, "accountant_name", None),
         cvr=getattr(profile, "org_number", None),
-        unsubscribe_url=unsub_url,
     )
+    html = _accountant_email_body(**body_args, unsubscribe_url=unsub_url)
+    html_owner = _accountant_email_body(**body_args, owner_copy_to=recipient)
 
-    from app.services.email_service import send_email_with_attachment
-    from app.services.revisor_mail import sender_display
+    from app.services.revisor_mail import send_file_to_revisor, sender_display
 
-    cc = [user.email] if (body.cc_self and user.email) else None
-    ok, err = send_email_with_attachment(
-        recipient, subject, html,
-        attachment_bytes=attachment,
-        attachment_filename=filename,
-        attachment_mime=mime,
-        reply_to=user.email,
-        cc=cc,
+    ok, err, owner_copied = send_file_to_revisor(
+        recipient=recipient, subject=subject,
+        html_revisor=html, html_owner=html_owner,
+        owner_email=(user.email if body.cc_self else None),
+        attachment_bytes=attachment, attachment_filename=filename,
+        attachment_mime=mime, reply_to=user.email,
         from_display=sender_display(business_name),
-        headers=revisor_unsubscribe_headers(unsub_url),
+        unsubscribe_url=unsub_url, is_danish=is_danish,
     )
+    cc = [user.email] if owner_copied else None
 
     if not ok:
         # 502 when Resend was ASKED and failed — the outcome is not "nothing

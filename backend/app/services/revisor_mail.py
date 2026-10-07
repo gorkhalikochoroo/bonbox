@@ -274,3 +274,63 @@ def content_disposition(filename: str) -> str:
     )
     ascii_name = ascii_name.encode("ascii", "ignore").decode("ascii").replace('"', "")
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+def owner_copy_line(recipient: str, is_danish: bool) -> str:
+    return (
+        "<p style='color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb;"
+        "padding-top:10px;margin-top:18px;'>"
+        + (f"Din kopi — mailen er sendt til din revisor {esc(recipient)}." if is_danish
+           else f"Your copy — this was sent to your accountant {esc(recipient)}.")
+        + "</p>"
+    )
+
+
+def send_file_to_revisor(
+    *,
+    recipient: str,
+    subject: str,
+    html_revisor: str,
+    html_owner: str,
+    owner_email: str | None,
+    attachment_bytes: bytes,
+    attachment_filename: str,
+    attachment_mime: str,
+    reply_to: str | None,
+    from_display: str | None,
+    unsubscribe_url: str | None,
+    is_danish: bool = True,
+) -> tuple[bool, str | None, bool]:
+    """Mail a file to the saved revisor, and the owner's copy SEPARATELY.
+
+    The owner used to be cc'd on the revisor's message — which carries the
+    revisor's one-click opt-out (footer link and List-Unsubscribe header). An
+    owner pressing "Unsubscribe" in their own inbox would have switched off
+    their revisor. Two messages: the revisor's with the opt-out, the owner's
+    without. Returns (ok, error, owner_copied); `ok` is the revisor's send.
+    """
+    from app.services import email_service
+    ok, err = email_service.send_email_with_attachment(
+        recipient, subject, html_revisor,
+        attachment_bytes=attachment_bytes,
+        attachment_filename=attachment_filename,
+        attachment_mime=attachment_mime,
+        reply_to=reply_to,
+        from_display=from_display,
+        headers=revisor_unsubscribe_headers(unsubscribe_url) if unsubscribe_url else None,
+    )
+    owner_copied = False
+    owner = (owner_email or "").strip().lower()
+    if ok and owner and owner != (recipient or "").strip().lower():
+        try:
+            ok2, _err2 = email_service.send_email_with_attachment(
+                owner, header_safe(("Kopi: " if is_danish else "Copy: ") + subject, 200),
+                html_owner,
+                attachment_bytes=attachment_bytes,
+                attachment_filename=attachment_filename,
+                attachment_mime=attachment_mime,
+            )
+            owner_copied = bool(ok2)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("owner copy of revisor mail failed: %s", e)
+    return ok, err, owner_copied

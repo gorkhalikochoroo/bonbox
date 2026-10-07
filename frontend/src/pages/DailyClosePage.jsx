@@ -5304,7 +5304,9 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
     }
   };
 
-  if (kind === "none") return null;
+  // No claim about the revisor before the profile has actually been read —
+  // "ingen revisor-mail gemt" from a profile still loading would be false.
+  if (kind === "none" || profile == null) return null;
   const reason = t(emailErrorKey(st.error), "unknown error");
   const btn = (label) => (
     <button type="button" onClick={() => send(false)} disabled={busy}
@@ -6602,7 +6604,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {(dc.status || "confirmed") === "confirmed" && (
                   <div className="mt-1">
                     <CloseEmailStatus key={`${dc.id}-${dc.email_status || ""}-${dc.email_sent_at || ""}`}
-                      t={t} close={dc} profile={businessProfile} compact />
+                      t={t} close={dc} profile={profileKnown ? businessProfile : null} compact />
                   </div>
                 )}
               </div>
