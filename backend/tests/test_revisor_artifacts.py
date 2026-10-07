@@ -54,6 +54,17 @@ def pdf_text(pdf_bytes: bytes) -> str:
     return "\n".join((p.extract_text() or "") for p in reader.pages)
 
 
+def _changes(html: str) -> list[str]:
+    """The correction's changed figures, one per table row: 'Kort 10.000,00
+    kr. → 4.000,00 kr.' — the mail renders them as Linje | Før | Nu."""
+    out = []
+    for row in re.findall(r"<tr>(.*?)</tr>", html, flags=re.S):
+        cells = [re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, flags=re.S)]
+        if len(cells) == 3 and cells[1].endswith("kr.") and cells[2].endswith("kr."):
+            out.append(f"{cells[0]} {cells[1]} → {cells[2]}")
+    return out
+
+
 def _eval_sumifs(ws, formula: str) -> float:
     """Evaluate the one formula shape the workbook writes:
     =SUMIFS(D2:D9,$T$2:$T$9,"Låst") — sum the column where Status matches."""
@@ -371,7 +382,10 @@ def test_send_to_accountant_refuses_any_address_but_the_saved_revisor(db_session
         (args, kwargs), (oargs, okwargs) = sender.call_args_list
         assert args[0] == "anna@revisor.dk"
         assert "List-Unsubscribe" in kwargs["headers"]
-        assert oargs[0] == "anders@mirabelle.dk"
+        # The owner's copy goes to the SAME owner address the revisor's
+        # Reply-To names: the business e-mail on Profile.
+        assert oargs[0] == "owner@mirabelle.dk"
+        assert kwargs["reply_to"] == "owner@mirabelle.dk"
         assert not okwargs.get("headers")
         assert "afmelde" not in oargs[2] and "Din kopi" in oargs[2]
         assert "<b>se venligst</b>" not in args[2]
@@ -578,7 +592,7 @@ def test_relock_after_unlock_sends_a_marked_correction(db_session, client, mailb
     assert second["subject"] == "Rettet kasserapport fre. 25.09.2026 — Mirabelle ApS"
     assert "erstatter den, der blev sendt" in second["html"]
     assert "Forkert kortbeløb" in second["html"]
-    assert "Omsætning 12.500,00 kr. → 13.000,00 kr." in second["html"]
+    assert "Omsætning 12.500,00 kr. → 13.000,00 kr." in _changes(second["html"])
 
 
 def test_send_status_is_persisted_on_the_close(db_session, client, mailbox):
@@ -741,7 +755,9 @@ def test_single_kasserapport_names_branch_source_tills_and_history(db_session, c
     assert "2 terminaler lagt sammen: 12.000,00 kr. + 16.469,00 kr." in flat
     assert "rettet af ejeren efter scanning: Kort" in flat
     assert "HISTORIK" in flat
-    assert "Låst op 29.09.2026 kl. 09:00 af ejer@mirabelle.dk — årsag: Forkert kortbeløb" in flat
+    # The owner's role, never the login e-mail, on a document a revisor gets.
+    assert "Låst op 29.09.2026 kl. 09:00 af ejeren — årsag: Forkert kortbeløb" in flat
+    assert "ejer@mirabelle.dk" not in flat
     assert "Låst igen 29.09.2026 kl. 09:12" in flat
 
     # …and the same history and source in the Excel and the CSV.
@@ -892,7 +908,7 @@ def test_resend_after_a_failed_relock_is_marked_as_a_correction(db_session, clie
     assert second["subject"].startswith("Rettet kasserapport fre. 25.09.2026")
     assert "erstatter den, der blev sendt" in second["html"]
     assert "Forkert kortbeløb" in second["html"]
-    assert "Omsætning 12.500,00 kr. → 13.000,00 kr." in second["html"]
+    assert "Omsætning 12.500,00 kr. → 13.000,00 kr." in _changes(second["html"])
 
 
 def test_a_revisor_who_never_got_v1_is_not_told_it_is_replaced(db_session, client, mailbox):
@@ -924,7 +940,7 @@ def test_a_revisor_who_never_got_v1_is_not_told_it_is_replaced(db_session, clien
     last = _revisor_mails(mailbox)[-1]
     assert last["subject"].startswith("Rettet kasserapport")
     assert "Drikkepenge manglede" in last["html"]
-    assert "13.000,00 kr. → 13.100,00 kr." in last["html"]
+    assert "Omsætning 13.000,00 kr. → 13.100,00 kr." in _changes(last["html"])
 
 
 def test_a_payments_only_correction_lists_the_moved_lines(db_session, client, mailbox):
@@ -939,9 +955,10 @@ def test_a_payments_only_correction_lists_the_moved_lines(db_session, client, ma
           revenue_breakdown={"food": 7000.0, "drinks": 5500.0})
     html = _revisor_mails(mailbox)[-1]["html"]
     assert "Tallene er de samme" not in html
-    assert "Kort 10.000,00 kr. → 4.000,00 kr." in html
-    assert "MobilePay 0,00 kr. → 6.000,00 kr." in html
-    assert "Mad 8.000,00 kr. → 7.000,00 kr." in html
+    ch = _changes(html)
+    assert "Kort 10.000,00 kr. → 4.000,00 kr." in ch
+    assert "MobilePay 0,00 kr. → 6.000,00 kr." in ch
+    assert "Mad 8.000,00 kr. → 7.000,00 kr." in ch
 
 
 def test_a_correction_without_recorded_lines_never_claims_equality():

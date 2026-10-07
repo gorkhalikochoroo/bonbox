@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     # which kicked owners back to the login screen on second-day open.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     FRONTEND_URL: str = "http://localhost:5173"
+    # Where a mail RECIPIENT's browser reaches this API (opt-out links, the
+    # one-click List-Unsubscribe POST). Deliberately its own setting: the SPA
+    # host serves its own shell at /api/*, so a link built on FRONTEND_URL is
+    # dead. Empty → https://api.bonbox.dk in production, the local API in
+    # development (services/revisor_mail.public_api_base).
+    PUBLIC_API_URL: str = ""
     GOOGLE_VISION_API_KEY: str = ""
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""

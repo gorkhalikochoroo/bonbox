@@ -337,8 +337,12 @@ def close_labels(currency: str) -> dict[str, str]:
                           "tolerancen på ±100 kr.") if DA
                          else ("Cash counted — the difference of {amount} is within "
                                "the ±100 kr. tolerance."),
-        "a_cash_off":    "Kontant optalt — differencen er ikke afstemt." if DA
-                         else "Cash counted — the difference is not reconciled.",
+        # The figure is IN the failing line: it is the one line a revisor
+        # must act on, so it says what is wrong, not only that something is.
+        "a_cash_off":    ("Kontant optalt — kassedifference {amount} er uden for "
+                          "tolerancen på ±100 kr.") if DA
+                         else ("Cash counted — the difference of {amount} is outside "
+                               "the ±100 kr. tolerance."),
         "a_cash_none":   "Kontant IKKE optalt." if DA else "Cash NOT counted.",
         # Information, not a failed check: a day whose payments are recorded
         # and hold no cash has nothing in a drawer to count (a webshop, a
@@ -882,7 +886,9 @@ def build_close_claims(
             checks.append({"ok": True, "text": L["a_cash_tol"].format(amount=signed),
                            "check": "cash"})
         else:
-            checks.append({"ok": False, "text": L["a_cash_off"], "check": "cash"})
+            signed = ("+" if cash_diff > 0 else "") + fmt(cash_diff)
+            checks.append({"ok": False, "text": L["a_cash_off"].format(amount=signed),
+                           "check": "cash"})
 
         if has_bilag:
             checks.append({"ok": True, "text": L["a_bilag_ok"], "check": "bilag"})

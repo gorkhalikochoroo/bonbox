@@ -6,6 +6,11 @@
  *    generated, with the allowed pieces as one-tap buttons — Starter: one per
  *    month; Free: the last 7 days + each day's own kasserapport. Never a dead
  *    end, never only an upgrade wall.
+ * 2. The period send counts LOCKED closes only, names the drafts left out and
+ *    the owner's copy address, and is refused for a drafts-only period.
+ * 3. A period send leaves a lasting record in the panel.
+ * 4. History: an old close says "ikke registreret" with a way to send that one
+ *    day; the unlock dialog says the revisor already holds the locked version.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -148,5 +153,60 @@ describe("the plan's export window, said before anything is generated", () => {
     fireEvent.click(screen.getByRole("button", { name: "rangePresetPrevMonth" }));
     expect(screen.queryByTestId("dc-over-cap")).toBeNull();
     expect(within(document.getElementById("dc-export-panel")).getByRole("button", { name: "Excel" })).not.toBeDisabled();
+  });
+});
+
+describe("the period send to the revisor", () => {
+  it("counts locked closes only, names the draft left out and the copy address", async () => {
+    window.confirm = vi.fn(() => false);
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePreset7d" }));
+    fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    const msg = String(window.confirm.mock.calls[0][0]);
+    expect(msg).toContain("dcSendConfirmBody");
+    expect(msg).toContain("dcSendLockedOne");
+    expect(msg).toContain("dcSendDraftLeftOne");
+    expect(msg).toContain("info@mirabelle.dk");
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("a drafts-only period cannot be sent, and the panel says why", async () => {
+    closes = [close("O2", "2026-10-05", "draft")];
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePreset7d" }));
+    expect(screen.getByRole("button", { name: /sendToAccountantBtn/ })).toBeDisabled();
+    expect(screen.getByText("dcSendNothingLocked")).toBeInTheDocument();
+  });
+
+  it("a period send leaves a lasting record in the panel", async () => {
+    sends = [{ sent_at: "2026-10-02T07:14:00", recipient: "anna@revisor.dk", format: "xlsx",
+      from: "2026-09-01", to: "2026-09-30", n_closes: 26, n_drafts: 1 }];
+    await openHistory();
+    const rec = await screen.findByTestId("dc-recent-sends");
+    expect(rec.textContent).toContain("dcRecentSendLine:");
+    expect(rec.textContent).toContain("Excel|26|anna@revisor.dk");
+  });
+});
+
+describe("History rows", () => {
+  it("an old close says 'ikke registreret' and that one day can be sent", async () => {
+    closes = [close("O1", "2026-10-06", "confirmed", { email_status: null })];
+    await openHistory();
+    expect(await screen.findByText(/dcMailUnrecorded/)).toBeInTheDocument();
+    post.mockResolvedValueOnce({ data: { email_status: "sent", email_sent_to: ["anna@revisor.dk"] } });
+    fireEvent.click(screen.getByRole("button", { name: /dcMailSendToRevisor/ }));
+    await waitFor(() => expect(post.mock.calls.some(([u]) => u === "/daily-close/O1/resend-email")).toBe(true));
+  });
+
+  it("the unlock dialog says the revisor already has the locked version", async () => {
+    closes = [close("O1", "2026-10-06", "confirmed", {
+      email_status: "sent", email_sent_to: ["info@mirabelle.dk", "anna@revisor.dk"],
+      email_sent_at: "2026-10-06T21:12:00",
+    })];
+    await openHistory();
+    fireEvent.click(screen.getAllByRole("button", { name: /dcUnlock$/ })[0]);
+    const note = await screen.findByTestId("dc-unlock-revisor-note");
+    expect(note.textContent).toMatch(/^dcUnlockRevisorHas(Auto)?:anna@revisor\.dk\|/);
   });
 });

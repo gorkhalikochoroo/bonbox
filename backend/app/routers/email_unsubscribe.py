@@ -92,13 +92,16 @@ _PALETTE = {
 }
 
 
-def _page(title: str, body_html: str) -> str:
+def _page(title: str, body_html: str, *, lang: str = "en") -> str:
     """Wrap inner HTML in a clean centered card.  Inline-styled so
     the landing page doesn't need the SPA bundle to look reasonable —
     a recipient on the bus with bad signal still sees a polished
-    confirmation, not a blank white screen waiting on JS."""
+    confirmation, not a blank white screen waiting on JS.
+
+    `lang` is the page's language: the revisor's pages are Danish and say so,
+    so a screen reader reads them in a Danish voice."""
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{lang}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -238,10 +241,11 @@ def _revisor_confirm_page(token: str, biz: str) -> str:
             Ja, afmeld
           </button>
         </form>
-        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
           Unsubscribe from BonBox mail about {b}: press the button above.
         </p>
         """,
+        lang="da",
     )
 
 
@@ -268,10 +272,11 @@ def _revisor_success_page(biz: str, token: str) -> str:
             Fortryd — send mails til mig igen
           </button>
         </form>
-        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
           You're unsubscribed — BonBox won't mail you about {b} again. Changed your mind? Use the button above.
         </p>
         """,
+        lang="da",
     )
 
 
@@ -288,11 +293,51 @@ def _revisor_resubscribed_page(biz: str) -> str:
           BonBox sender igen kasserapporter til dig om {b}, som ejeren har valgt.
           Hver mail har et link, hvis du vil afmelde igen.
         </p>
-        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
           You'll get BonBox mail about {b} again. Every mail has a link to unsubscribe.
         </p>
         """,
+        lang="da",
     )
+
+
+def _revisor_expired_page(biz: str) -> str:
+    """A revisor's link older than its 180 days. It used to land on the Daily
+    Brief's English page ("Unsubscribe links live for 30 days … sign in"),
+    which is the wrong topic, the wrong lifetime and asks a non-user to log
+    in. Danish, about the kasserapport mails, with a way that needs no login."""
+    import html as _html
+    b = _html.escape(biz) or "virksomheden"
+    return _page(
+        "Linket er udløbet",
+        f"""
+        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+          Linket er udløbet.
+        </h1>
+        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+          Afmeldingslinks i mails med kasserapporter virker i 180 dage. Brug linket i en nyere
+          mail fra BonBox om {b} — eller skriv til
+          <a href="mailto:hello@bonbox.dk" style="color:{_PALETTE['brand_dark']};text-decoration:underline;">hello@bonbox.dk</a>,
+          så stopper vi mails til dig om {b}. Du skal ikke logge ind.
+        </p>
+        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+          This link has expired. Use the link in a newer mail from BonBox, or write to hello@bonbox.dk and we will stop them.
+        </p>
+        """,
+        lang="da",
+    )
+
+
+def _expired_for(token: str) -> HTMLResponse:
+    """The expired page for THIS token's topic. The topic is read only from a
+    token whose signature checks out (it may be past its date); a forged or
+    garbled one gets the generic page."""
+    from app.utils.email_unsubscribe_token import parse_unsubscribe_token_unexpired_or_not
+    payload = parse_unsubscribe_token_unexpired_or_not(token)
+    if payload and payload.get("t") == "revisor_mail":
+        return HTMLResponse(content=_revisor_expired_page(_revisor_business_name(payload.get("u"))),
+                            status_code=410)
+    return HTMLResponse(content=_expired_page(), status_code=410)
 
 
 def _revisor_opt_out(user_id, fingerprint: str | None, request: Request, *, undo: bool = False) -> None:
@@ -333,7 +378,7 @@ def unsubscribe_confirm(
     unsubscribe people."""
     payload = parse_unsubscribe_token(token)
     if not payload:
-        return HTMLResponse(content=_expired_page(), status_code=410)
+        return _expired_for(token)
     topic = payload.get("t") or "daily_brief"
     if topic == "revisor_mail":
         return HTMLResponse(content=_revisor_confirm_page(
@@ -359,7 +404,7 @@ def unsubscribe_action(
     """
     payload = parse_unsubscribe_token(token)
     if not payload:
-        return HTMLResponse(content=_expired_page(), status_code=410)
+        return _expired_for(token)
 
     topic = payload.get("t") or "daily_brief"
     user_id = payload.get("u")

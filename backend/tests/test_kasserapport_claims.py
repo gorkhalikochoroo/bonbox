@@ -320,7 +320,9 @@ def test_counted_but_unreconciled_cash_is_distinguished_from_not_counted():
                 has_bilag=True)["assurance"]
     cash = next(c for c in a["checks"] if c["check"] == "cash")
     assert cash["ok"] is False
-    assert cash["text"] == "Kontant optalt — differencen er ikke afstemt."
+    # The failing line names the figure.
+    assert cash["text"] == ("Kontant optalt — kassedifference -200,00 kr. er uden for "
+                            "tolerancen på ±100 kr.")
 
 
 def test_missing_bilagsnumre_is_stated_but_does_not_gate_the_heading():

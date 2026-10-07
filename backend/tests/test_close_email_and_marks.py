@@ -130,7 +130,7 @@ def test_the_renderer_draws_only_the_named_marks():
     import inspect
     from app.services import close_kasserapport_pdf as m
 
-    src = inspect.getsource(m.build_close_kasserapport_pdf)
+    src = inspect.getsource(m.build_close_kasserapport_pdf) + inspect.getsource(m.band_line_markup)
     # Strip comments — the prose explains the defect and quotes the glyph.
     code = "\n".join(ln.split("#", 1)[0] for ln in src.splitlines())
     assert "\u26a0" not in code

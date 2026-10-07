@@ -79,6 +79,28 @@ def make_unsubscribe_token(
     return f"{body}.{sig_b64}"
 
 
+def parse_unsubscribe_token_unexpired_or_not(token: str) -> dict | None:
+    """The payload of a token whose SIGNATURE is valid, expired or not — only
+    for choosing which "link expired" page to show (in the token's own
+    language and topic). Never use it to change state."""
+    if not token or not isinstance(token, str):
+        return None
+    parts = token.split(".", 1)
+    if len(parts) != 2:
+        return None
+    body, sig = parts
+    try:
+        expected = hmac.new(_secret(), body.encode("ascii"), hashlib.sha256).digest()
+        expected_b64 = base64.urlsafe_b64encode(expected).rstrip(b"=").decode("ascii")
+        if not hmac.compare_digest(sig.encode("ascii"), expected_b64.encode("ascii")):
+            return None
+        pad = "=" * (-len(body) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(body + pad))
+    except Exception:  # noqa: BLE001
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def parse_unsubscribe_token(token: str) -> dict | None:
     """Verify + decode a token.  Returns the payload dict on success
     or None on any failure (bad shape, bad signature, expired).

@@ -106,7 +106,11 @@ def test_resolve_range_free_tier_rejects_8_day_span_with_402():
     assert ei.value.detail["cap_days"] == 7
     assert ei.value.detail["plan"] == "free"
     assert "Free" in ei.value.detail["message"]
-    assert "Pro" in ei.value.detail["message"]
+    # The way forward first (the period in parts), then the NEXT tier — a Free
+    # owner was pushed to Pro when Starter covers a month.
+    assert "in parts" in ei.value.detail["message"]
+    assert "Starter" in ei.value.detail["message"]
+    assert ei.value.detail["next_plan"] == "starter"
 
 
 def test_resolve_range_starter_tier_rejects_60_day_span():
@@ -116,6 +120,7 @@ def test_resolve_range_starter_tier_rejects_60_day_span():
         _resolve_range(date(2026, 4, 1), date(2026, 5, 31), user=user)
     assert ei.value.status_code == 402
     assert ei.value.detail["cap_days"] == 31
+    assert ei.value.detail["next_plan"] == "pro"
 
 
 def test_resolve_range_starter_tier_accepts_31_day_span():

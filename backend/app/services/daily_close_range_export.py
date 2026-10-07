@@ -206,7 +206,8 @@ def _row_history(c, history: dict | None, tz, danish: bool) -> str:
     reason = getattr(c, "unlock_reason", None)
     if not reason:
         return ""
-    who = getattr(c, "unlocked_by", None)
+    from app.services.close_history import actor_display
+    who = actor_display(getattr(c, "unlocked_by", None), danish=danish)
     when = dk_datetime(getattr(c, "unlocked_at", None), tz, danish=danish)
     if danish:
         return f"Låst op {when}" + (f" af {who}" if who else "") + f" — årsag: {reason}"
@@ -1429,12 +1430,23 @@ def build_daily_close_range_pdf(
         ]
         if counted_closes:
             story.append(Spacer(1, 6))
-            story.append(Paragraph(
-                f"<font color='#6b7280' name='Helvetica-Bold' size='8'>"
-                f"{L['kasse_title']}</font>",
-                note,
-            ))
+            kasse_lines = []
+            # Only the days with a difference get a line; the rest are counted
+            # in one sentence (30 lines of "= 0,00 kr." buried the two that
+            # mattered).
+            balanced = [c for c in counted_closes
+                        if abs(float(c.cash_difference) if c.cash_difference is not None
+                               else float(c.cash_counted or 0) - float(c.cash_expected or 0)) < 0.005]
+            if balanced:
+                kasse_lines.append(Paragraph(
+                    f"<font color='#6b7280' size='8'>"
+                    + (f"{len(balanced)} {'dag' if len(balanced) == 1 else 'dage'}: optalt = forventet (0,00 kr.)"
+                       if DA else
+                       f"{len(balanced)} {'day' if len(balanced) == 1 else 'days'}: counted = expected (0,00 kr.)")
+                    + "</font>", note))
             for c in counted_closes:
+                if c in balanced:
+                    continue
                 exp = float(c.cash_expected or 0)
                 cnt = float(c.cash_counted or 0)
                 diff = (float(c.cash_difference) if c.cash_difference is not None
@@ -1450,7 +1462,7 @@ def build_daily_close_range_pdf(
                 words = ""
                 if abs(diff) >= 0.005:
                     words = f" ({L['kasse_over'] if diff > 0 else L['kasse_short']})"
-                story.append(Paragraph(
+                kasse_lines.append(Paragraph(
                     f"<font color='#6b7280' size='8'>"
                     f"{_date_short(c.date)} — {L['kasse_cnt']} {_fmt(cnt)} − "
                     f"{L['kasse_exp']} {_fmt(exp)} = "
@@ -1458,6 +1470,14 @@ def build_daily_close_range_pdf(
                     f"{diff_sign}{_fmt(diff)}</font>{words}</font>",
                     note,
                 ))
+            # The heading never stands alone at the foot of a page: it is kept
+            # with its first lines.
+            story.append(KeepTogether([
+                Paragraph(f"<font color='#6b7280' name='Helvetica-Bold' size='8'>"
+                          f"{L['kasse_title']}</font>", note),
+                *kasse_lines[:3],
+            ]))
+            story.extend(kasse_lines[3:])
 
         # ─── Payments ↔ revenue reconciliation (accountant-grade) ────────
         # A kasserapport must TIE OUT: every krone of revenue is collected by
@@ -1621,10 +1641,20 @@ def build_daily_close_range_pdf(
     # y=10mm footer clear of body content. render_with_doc_hash calls
     # _make_story once per pass (fresh flowables each time).
     period_subject = f"{from_date.isoformat()} → {to_date.isoformat()}"
+    # Identity on every page after the first (the first carries the full
+    # header): business, period, Bilagsnr — and "Side x af y" is appended by
+    # the renderer. The id is the period's stable Dokument-id, the same word
+    # the kasserapport uses (it said "Doc-hash" here).
+    running = " · ".join(p for p in (
+        f"{L['title']}er" if DA else f"{L['title']}s",
+        business_name or "",
+        f"{_date_short(from_date)} – {_date_short(to_date)}",
+        f"{L['bilag_label']} {bilagsnummer}" if bilagsnummer else "",
+    ) if p)
     return render_with_doc_hash(
         _make_story,
         pagesize=landscape(A4),
-        left_mm=14, right_mm=12, top_mm=14, bottom_mm=20,
+        left_mm=14, right_mm=12, top_mm=16, bottom_mm=20,
         title=f"{L['title']} — {business_name}",
         author="BonBox",
         subject=period_subject,
@@ -1632,6 +1662,10 @@ def build_daily_close_range_pdf(
         generated_at_str=generated_at_str,
         generator_email=generator_email,
         is_danish=DA,
+        doc_hash=period_document_id(closes_sorted, from_date, to_date),
+        hash_label="Dokument-id" if DA else "Document ID",
+        running_header=running,
+        running_header_page_no=True,
     )
 
 
@@ -1664,6 +1698,7 @@ def build_daily_close_range_xlsx(
     history: dict | None = None,
     sources: dict | None = None,
     branch_names: dict | None = None,
+    bilagsnummer: str = "",
 ) -> bytes:
     """Build the revisor's Excel workbook:
 
@@ -1686,11 +1721,15 @@ def build_daily_close_range_xlsx(
     from openpyxl.utils import get_column_letter
     from app.services.close_category_labels import revenue_category_label
 
+    from app.services.bonbox_pdf_kit import export_bilagsnummer
+    from app.services.close_kasserapport_pdf import generated_local
+
     DA = (currency == "DKK")
     money_fmt = '#,##0.00" kr."' if DA else f'#,##0.00" {currency}"'
     totals = period_totals(closes)
     conf_label = CONFIRMED_LABEL_DA if DA else CONFIRMED_LABEL_EN
     cats = category_columns(closes)
+    bilagsnummer = bilagsnummer or export_bilagsnummer("KRP", from_date, to_date)
 
     def _d(d):
         return d.strftime("%d.%m.%Y") if DA else d.isoformat()
@@ -1763,6 +1802,21 @@ def build_daily_close_range_xlsx(
     s1.cell(row=period_row + 3, column=1,
             value="Kladder (ikke medregnet)" if DA else "Drafts (not counted)").font = bold
     s1.cell(row=period_row + 3, column=2, value=totals["n_drafts"])
+    # The workbook's own identity, as on the period PDF: its bilag number, its
+    # Dokument-id (the same id the PDF of the same period prints), when it was
+    # made (the venue's clock) and the retention duty.
+    ident = [
+        ("Bilagsnr." if DA else "Voucher no.", bilagsnummer),
+        ("Dokument-id" if DA else "Document ID", period_document_id(closes, from_date, to_date)),
+        ("Genereret" if DA else "Generated", generated_local(tz, danish=DA)),
+    ]
+    for i, (k, v) in enumerate(ident):
+        s1.cell(row=period_row + 4 + i, column=1, value=k).font = bold
+        _as_text(s1.cell(row=period_row + 4 + i, column=2, value=v))
+    s1.cell(row=period_row + 4 + len(ident), column=1, value=(
+        "Opbevares i 5 år efter bogføringsloven." if DA
+        else "Keep for 5 years under the Danish Bookkeeping Act.")).font = muted
+    period_row += len(ident) + 1
 
     kpi_rows = [
         ("Omsætning i alt" if DA else "Total revenue", totals["revenue"]),
@@ -1856,6 +1910,7 @@ def build_daily_close_range_xlsx(
 
     money_cols = set(range(4, 18)) | {19} | set(range(cat_col_start, len(H) + 1))
     sorted_closes = sorted(closes, key=lambda c: c.date or date.min)
+    locked_rows: list[list] = []
     # Both voucher ranges for every day in two grouped queries, not two per row.
     voucher_by_date = _voucher_ranges_by_date(db, user_id, [c.date for c in sorted_closes])
     for r, c in enumerate(sorted_closes, start=2):
@@ -1909,6 +1964,8 @@ def build_daily_close_range_xlsx(
         ]
         row_values += [amounts.get(k) for k in cats]
         row_values += [unsplit or None]
+        if _is_confirmed(c):
+            locked_rows.append(row_values)
         for col_idx, val in enumerate(row_values, start=1):
             cell = s2.cell(row=r, column=col_idx, value=val)
             cell.border = border
@@ -1929,6 +1986,7 @@ def build_daily_close_range_xlsx(
     # Totals row — SUMIFS over the LOCKED rows only, keyed on the Status
     # column, so it equals Oversigt, the PDF and the e-mail. A live formula,
     # so the revisor can audit it and edit a row.
+    cached: dict = {}
     if sorted_closes:
         first = 2
         last = len(sorted_closes) + 1
@@ -1953,6 +2011,12 @@ def build_daily_close_range_xlsx(
                            f'${s_letter}${first}:${s_letter}${last},"{conf_label}")'),
                 )
                 cell.number_format = money_fmt
+                # The formula's value, written next to it: a phone preview or
+                # Quick Look shows cached values and never recalculates.
+                cached[f"{letter}{totals_row}"] = round(sum(
+                    float(rv[col_idx - 1]) for rv in locked_rows
+                    if isinstance(rv[col_idx - 1], (int, float)) and not isinstance(rv[col_idx - 1], bool)
+                ), 2)
             cell.font = bold
             cell.alignment = Alignment(horizontal="right")
         if totals["n_drafts"]:
@@ -1969,6 +2033,43 @@ def build_daily_close_range_xlsx(
         s2.column_dimensions[get_column_letter(i)].width = w
     s2.row_dimensions[1].height = 32
 
+    # Print setup: a 30-column sheet prints landscape, fitted to the page
+    # width, with the header row repeated on every page.
+    for ws in (s1, s2):
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    s2.page_setup.orientation = "landscape"
+    s2.page_setup.fitToWidth = 1
+    s2.page_setup.fitToHeight = 0
+    s2.sheet_properties.pageSetUpPr.fitToPage = True
+    s2.print_title_rows = "1:1"
+
     out = io.BytesIO()
     wb.save(out)
-    return out.getvalue()
+    return _with_cached_values(out.getvalue(), wb.sheetnames.index(s2.title) + 1, cached)
+
+
+def _with_cached_values(xlsx: bytes, sheet_no: int, values: dict) -> bytes:
+    """Write each formula cell's value into the saved workbook (openpyxl can
+    only write a formula OR a value). Excel still recalculates on open; a
+    viewer that shows cached values now shows the totals instead of a blank
+    row. Fail-soft: on any surprise the workbook is returned as saved."""
+    import re as _re
+    import zipfile
+    if not values:
+        return xlsx
+    path = f"xl/worksheets/sheet{sheet_no}.xml"
+    try:
+        zin = zipfile.ZipFile(io.BytesIO(xlsx))
+        xml = zin.read(path).decode("utf-8")
+        for ref, v in values.items():
+            xml = _re.sub(
+                rf'(<c r="{ref}"[^>]*><f>[^<]*</f>)<v\s*/>',
+                lambda m: f"{m.group(1)}<v>{v:.2f}</v>", xml, count=1)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = xml.encode("utf-8") if item.filename == path else zin.read(item.filename)
+                zout.writestr(item, data)
+        return buf.getvalue()
+    except Exception:  # noqa: BLE001
+        return xlsx

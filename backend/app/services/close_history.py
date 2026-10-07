@@ -72,14 +72,36 @@ def close_history_events(db, user, closes) -> dict[str, list[dict]]:
     return out
 
 
+_ROLE_WORDS = {
+    "owner": ("ejeren", "the owner"),
+    "manager": ("lederen", "the manager"),
+}
+
+
+def actor_display(by: Any, *, danish: bool = True) -> str | None:
+    """Who unlocked a close, as a document a REVISOR receives may name them:
+    the role ('ejeren') or a person's name — never a login e-mail. Older rows
+    stored the owner's sign-in address; they read 'ejeren' too (an unlock is
+    owner-only). The address itself stays in the audit trail."""
+    s = str(by or "").strip()
+    if not s:
+        return None
+    role = _ROLE_WORDS.get(s.lower())
+    if role:
+        return role[0] if danish else role[1]
+    if "@" in s:
+        return _ROLE_WORDS["owner"][0] if danish else _ROLE_WORDS["owner"][1]
+    return s
+
+
 def format_history(events: list[dict], *, danish: bool = True, tz=None) -> str:
     """One line: 'Låst 25.09.2026 kl. 23:28 · Låst op 29.09.2026 kl. 09:00 af
-    ejer@x.dk — årsag: Forkert kortbeløb · Låst igen 29.09.2026 kl. 09:12'."""
+    ejeren — årsag: Forkert kortbeløb · Låst igen 29.09.2026 kl. 09:12'."""
     parts = []
     for ev in events or []:
         when = dk_datetime(ev.get("at"), tz, danish=danish)
         if ev["kind"] == "unlock":
-            who = ev.get("by")
+            who = actor_display(ev.get("by"), danish=danish)
             reason = ev.get("reason") or "—"
             if danish:
                 parts.append(f"Låst op {when}" + (f" af {who}" if who else "") + f" — årsag: {reason}")

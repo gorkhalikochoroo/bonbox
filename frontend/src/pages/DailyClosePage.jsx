@@ -5254,7 +5254,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    reload, and it never fakes a "sent". A failed send offers the real resend
    (POST /daily-close/{id}/resend-email, one idempotency key per click); there
    is no background retry and nothing here says there is. */
-function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = false, onSent = null }) {
+function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = false, onSent = null, canSend = true }) {
   const confirm = useConfirm();
   const [st, setSt] = useState(() => ({
     status: ritual?.email_status ?? close.email_status ?? null,
@@ -5367,11 +5367,31 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
       </span>
     );
   } else if (kind === "revisor") {
+    // "Afleveret til mailserveren": the mail service accepted it. BonBox
+    // hears nothing about delivery into the revisor's inbox, so the line
+    // never claims more than that.
     line = (
       <span className={`${textCls} text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1`}>
         <Icon name="CheckCircle2" size={13} /> {whenText
-          ? t("dcMailSentRevisorAt", "Sent to your revisor ({email}) {when}", { email: acct, when: whenText })
-          : t("dcMailSentRevisor", "Sent to your revisor ({email})", { email: acct })}
+          ? t("dcMailSentRevisorAt", "Handed to the mail server for your revisor ({email}) {when}", { email: acct, when: whenText })
+          : t("dcMailSentRevisor", "Handed to the mail server for your revisor ({email})", { email: acct })}
+      </span>
+    );
+  } else if (kind === "unrecorded") {
+    // Locked before BonBox kept the send status: it may or may not have
+    // gone — said so, with a way to send this one day now.
+    line = (
+      <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {t("dcMailUnrecorded", "Send to revisor: not recorded")}</span>
+        {acct && canSend && !profile?.accountant_opted_out && btn(t("dcMailSendToRevisor", "Send to revisor"))}
+      </span>
+    );
+  } else if (kind === "failed_owner") {
+    // No revisor saved: the only mail was the owner's own copy, and it failed.
+    line = (
+      <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {t("dcMailOwnerCopyFailed", "Your copy was not sent — {reason}", { reason })}</span>
+        {btn(t("dcMailSendAgain", "Send again"))}
       </span>
     );
   } else if (kind === "opted_out") {
@@ -5747,12 +5767,16 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to).length,
     [data, activeRange],
   );
-  // The LOCKED closes in the range — each has its own kasserapport.
+  // What a send to the revisor actually counts: LOCKED closes. The confirm
+  // said "4 lukninger" where the mail said "3 låste" — and a drafts-only
+  // range could mail the revisor a "0,00 kr." bundle.
   const lockedInRange = useMemo(
     () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to
       && (dc.status || "confirmed") === "confirmed"),
     [data, activeRange],
   );
+  const lockedRangeCount = lockedInRange.length;
+  const draftRangeCount = rangeCount - lockedRangeCount;
 
   // The plan's export window against the chosen range — said BEFORE anything
   // is generated, with the pieces the plan allows as one-tap buttons. The cap
@@ -5764,6 +5788,19 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     [overCap, activeRange, exportCapDays],
   );
   const [pieceBusy, setPieceBusy] = useState(null);
+
+  // The period sends to the revisor — a lasting record (who/when/what) read
+  // back from the server, not an 8-second toast.
+  const [recentSends, setRecentSends] = useState([]);
+  const loadRecentSends = () => {
+    api.get("/daily-close/accountant-sends", { params: { limit: 3 } })
+      .then((r) => setRecentSends(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {
+        // A side record, never a claim: on a failed read the panel simply
+        // shows no "Sidst sendt" line (it does not say "never sent").
+      });
+  };
+  useEffect(() => { loadRecentSends(); }, []);
 
   // ── Smart default + empty-range guidance ─────────────────────────
   // Most owners don't close EVERY day, so a fixed "Last 7 days" default
@@ -5926,7 +5963,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         businessName: businessProfile?.company_name || user?.business_name || "",
         fromIso: activeRange.from,
         toIso: activeRange.to,
-        closeCount: rangeCount,
+        // What the attached file counts: locked closes (drafts are listed,
+        // never summed).
+        closeCount: lockedRangeCount,
         language: lang,
       });
 
@@ -5979,12 +6018,22 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     }
 
     if (acct && !optedOut) {
-      // Who, what, which days — before one tap mails a third party.
+      // Who, what, which days — before one tap mails a third party. LOCKED
+      // closes only (what the mail and the file count), the drafts named as
+      // left out, and the address the owner's copy goes to.
+      const closesTxt = lockedRangeCount === 1
+        ? t("dcSendLockedOne", "1 locked close")
+        : t("dcSendLockedMany", "{n} locked closes", { n: lockedRangeCount });
+      const draftsTxt = draftRangeCount <= 0 ? ""
+        : draftRangeCount === 1
+          ? t("dcSendDraftLeftOne", " · 1 draft is not counted")
+          : t("dcSendDraftLeftMany", " · {n} drafts are not counted", { n: draftRangeCount });
+      const ownerCopy = (businessProfile?.email || user?.email || "").trim() || t("dcYourOwnMail", "your own mail");
       const ok = await confirm({
         title: t("dcSendConfirmTitle", "Send to your revisor?"),
-        message: t("dcSendConfirmBody", "{format} for {from} – {to} ({n} closes) goes to {email}. You get a copy.", {
+        message: t("dcSendConfirmBody", "{format} for {from} – {to} ({closes}{drafts}) goes to {email}. You get a copy at {owner}.", {
           format: FMT_LABEL[fmt] || fmt, from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
-          n: rangeCount, email: acct,
+          closes: closesTxt, drafts: draftsTxt, email: acct, owner: ownerCopy,
         }),
         confirmLabel: t("sendToAccountantBtn", "Send to revisor"),
         cancelLabel: t("cancel", "Cancel"),
@@ -6006,6 +6055,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             (r.data.cc_self ? ` (${t("ccdYou", "you cc'd")})` : "")
           );
           setTimeout(() => setSendStatus(""), 8000);
+          loadRecentSends();
           return;
         }
       } catch (e) {
@@ -6025,7 +6075,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           return;
         }
         let message;
-        if (status === 409 && detail?.code === "accountant_opted_out") {
+        if (status === 422 && detail?.code === "nothing_locked") {
+          message = t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.");
+        } else if (status === 409 && detail?.code === "accountant_opted_out") {
           message = t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail.");
         } else if (status === 429) {
           message = t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow.");
@@ -6524,9 +6576,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             {" – "}
             <strong className="text-gray-700 dark:text-gray-300">{shortRangeDay(activeRange.to)}</strong>
             {"  ·  "}
-            {rangeCount} {rangeCount === 1
-              ? (t("closeSingular", "close"))
-              : (t("closePlural", "closes"))}
+            {/* What the files and the mail count: locked closes, with any
+                drafts named beside them ("26 låste · 1 kladde"). */}
+            {draftRangeCount > 0
+              ? t("dcRangeLockedAndDrafts", "{locked} locked · {drafts} draft(s)", { locked: lockedRangeCount, drafts: draftRangeCount })
+              : <>{rangeCount} {rangeCount === 1
+                  ? (t("closeSingular", "close"))
+                  : (t("closePlural", "closes"))}</>}
           </p>
           <div className="flex flex-wrap gap-2 items-center">
             {/* Download buttons — one per format.
@@ -6589,7 +6645,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               </select>
               <button
                 onClick={sendToAccountant}
-                disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
+                // Only LOCKED closes go to a revisor: a drafts-only period
+                // has nothing to send.
+                disabled={!!exportingFmt || sendingToAccountant || lockedRangeCount === 0 || overCap}
                 className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-gray-700 dark:disabled:text-gray-300 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
                   businessProfile?.accountant_email
@@ -6665,6 +6723,35 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
                   })}
           </p>
+        )}
+
+        {/* Drafts but nothing locked: why Send is greyed out. */}
+        {rangeCount > 0 && lockedRangeCount === 0 && (
+          <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+            {t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.")}
+          </p>
+        )}
+
+        {/* The lasting record of what this panel sent to the revisor. */}
+        {recentSends.length > 0 && (
+          <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400" data-testid="dc-recent-sends">
+            <p className="font-semibold text-gray-600 dark:text-gray-300">{t("dcRecentSendsTitle", "Sent to your revisor from here")}</p>
+            <ul className="mt-0.5 space-y-0.5">
+              {recentSends.map((r, i) => {
+                const w = sentWhen(r.sent_at);
+                return (
+                  <li key={`${r.sent_at}_${i}`}>
+                    {t("dcRecentSendLine", "{from} – {to} · {format} · {n} locked · to {email} · {when}", {
+                      from: shortRangeDay(r.from), to: shortRangeDay(r.to),
+                      format: FMT_LABEL[r.format] || r.format || "—",
+                      n: r.n_closes ?? "—", email: r.recipient || "—",
+                      when: w ? t("dcMailWhen", "{date} at {time}", w) : "—",
+                    })}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
 
         {sendIssue && (
@@ -6760,6 +6847,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   <div className="mt-1">
                     <CloseEmailStatus key={`${dc.id}-${dc.email_status || ""}-${dc.email_sent_at || ""}`}
                       t={t} close={dc} profile={profileKnown ? businessProfile : null} compact
+                      canSend={directSendEntitled === true}
                       onSent={onRefresh} />
                   </div>
                 )}
@@ -6984,6 +7072,24 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
             </p>
+            {/* The revisor already holds the locked version: say so, and that
+                what follows is a marked correction carrying this reason. */}
+            {(() => {
+              const row = (data || []).find((r) => r.id === unlockId);
+              const acct = String(businessProfile?.accountant_email || "").trim().toLowerCase();
+              const got = acct && (row?.email_sent_to || []).map((x) => String(x).toLowerCase()).includes(acct);
+              if (!row || !got) return null;
+              const w = sentWhen(row.email_sent_at);
+              const when = w ? t("dcMailWhen", "{date} at {time}", w) : "";
+              const auto = businessProfile?.accountant_auto_send_effective && directSendEntitled === true;
+              return (
+                <p data-testid="dc-unlock-revisor-note" className="text-[13px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-4">
+                  {auto
+                    ? t("dcUnlockRevisorHasAuto", "Your revisor ({email}) already has the locked version ({when}). When you lock it again, they automatically get a corrected kasserapport — marked \"Rettet\" and with the reason you write here.", { email: acct, when })
+                    : t("dcUnlockRevisorHas", "Your revisor ({email}) already has the locked version ({when}). When you send it again after the correction, it is marked \"Rettet kasserapport\" and carries the reason you write here.", { email: acct, when })}
+                </p>
+              );
+            })()}
             <textarea ref={unlockReasonRef} aria-label={t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
               placeholder={t("dcUnlockReasonPlaceholder", "e.g. Accountant found an error in cash count…")}
               rows={3}

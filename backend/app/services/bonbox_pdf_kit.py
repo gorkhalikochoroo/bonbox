@@ -259,6 +259,7 @@ def render_with_doc_hash(
     doc_hash: str | None = None,
     hash_label: str | None = None,
     running_header: str = "",
+    running_header_page_no: bool = False,
 ) -> bytes:
     """Render a reportlab story with the accountant-grade provenance footer —
     the SINGLE reusable 2-pass renderer that kills the copy-paste hazard.
@@ -291,6 +292,8 @@ def render_with_doc_hash(
 
     `running_header` — a one-line identity drawn at the top of every page
     after the first, so a page 2 is never an unidentifiable sheet.
+    `running_header_page_no` appends "Side x af y" to it (the period export:
+    a loose page names its business, period, bilag number AND its place).
 
     `pagesize[0]` is used for the page width so the footer positions correctly
     for BOTH portrait (A4) and landscape (landscape(A4)) documents.
@@ -343,7 +346,11 @@ def render_with_doc_hash(
         if running_header and page_num > 1:
             canv.setFont("Helvetica", 7.5)
             canv.setFillColor(_c.HexColor("#6b7280"))
-            canv.drawString(left_margin, page_height - 12 * mm, running_header)
+            head = running_header
+            if running_header_page_no:
+                head += (f" · Side {page_num} af {total_pages}" if is_danish
+                         else f" · Page {page_num} of {total_pages}")
+            canv.drawString(left_margin, page_height - 12 * mm, head)
         canv.setFont("Helvetica", 6.8)
         canv.setFillColor(_c.HexColor("#94a3b8"))
         # Right edge of content = page_width − right margin (NOT a hardcoded

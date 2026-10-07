@@ -30,13 +30,19 @@ const FAILED = new Set(["send_failed", "queued_retry", "failed_skipped"]);
 
 /**
  * What to say about one close's lock mail.
- *   kind: "revisor" (reached the revisor) | "owner_only" | "failed" |
- *         "opted_out" | "pref_off" | "no_recipient" | "sending" | "none"
+ *   kind: "revisor" (handed to the mail server for the revisor) | "owner_only" |
+ *         "failed" | "failed_owner" (no revisor saved; the owner's own copy
+ *         failed) | "opted_out" | "pref_off" | "no_recipient" | "sending" |
+ *         "unrecorded" (locked before the send status was kept) | "none"
  */
 export function closeEmailState({ status, sentTo = [], skip = null, profile = null }) {
   const acct = String(profile?.accountant_email || "").trim().toLowerCase();
   const to = (sentTo || []).map((x) => String(x).toLowerCase());
-  if (!status || status === "skipped_feature_locked") return { kind: "none", acct };
+  // Free: BonBox does not send — nothing to say.
+  if (status === "skipped_feature_locked") return { kind: "none", acct };
+  // A close locked before the status was kept: "Ikke registreret", never a
+  // blank that reads like "nothing happened" (it may well have been sent).
+  if (!status) return { kind: "unrecorded", acct };
   if (status === "sending") return { kind: "sending", acct };
   if (acct && to.includes(acct)) return { kind: "revisor", acct };
   if (profile?.accountant_opted_out || skip === "opted_out") return { kind: "opted_out", acct };
@@ -46,7 +52,8 @@ export function closeEmailState({ status, sentTo = [], skip = null, profile = nu
   if (status === "partial" && acct && !to.includes(acct)) return { kind: "failed", acct };
   if (status === "skipped_preference_off") return { kind: "pref_off", acct };
   if (status === "skipped_no_recipient") return { kind: "no_recipient", acct };
-  if (FAILED.has(status)) return { kind: "failed", acct };
+  // With no revisor saved the only mail was the owner's own copy.
+  if (FAILED.has(status)) return { kind: acct ? "failed" : "failed_owner", acct };
   if ((status === "sent" || status === "partial") && to.length) return { kind: "owner_only", acct };
   if (status === "partial") return { kind: "failed", acct };
   return { kind: "none", acct };

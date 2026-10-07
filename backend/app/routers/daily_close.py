@@ -185,6 +185,16 @@ def _business_display_name(profile, user) -> str:
     )
 
 
+def _owner_contact_email(profile, user) -> str:
+    """The ONE owner address for everything a revisor mail implies about the
+    owner: the owner's own copy AND the Reply-To on the revisor's copy. The
+    business e-mail on Profile (the one the lock step names), else the login.
+    The copy went to one address and the revisor's replies to another, which
+    the owner may not read for the business."""
+    addr = ((getattr(profile, "email", None) or "") if profile else "").strip().lower()
+    return addr or (getattr(user, "email", None) or "").strip().lower()
+
+
 def _branch_names(db: Session, user: User, closes) -> dict:
     """{str(branch_id): name} for the branches these closes belong to."""
     branch_names: dict = {}
@@ -316,17 +326,41 @@ def _signed_money(v, currency: str) -> str:
 
 def _cash_diff_words(diff, currency: str, is_danish: bool) -> str:
     """The app's own words: 'Kassen mangler 180,00 kr.' / 'Der er 25,00 kr. for
-    meget i kassen' — so a signed number is never read the wrong way round."""
-    from app.services.bonbox_pdf_kit import money_dk
-    if diff is None:
-        return ""
-    d = float(diff)
-    if abs(d) < 0.005:
-        return "Kassen stemmer" if is_danish else "Cash matches"
-    amt = money_dk(abs(d), currency)
-    if d < 0:
-        return f"Kassen mangler {amt}" if is_danish else f"Cash short by {amt}"
-    return f"Der er {amt} for meget i kassen" if is_danish else f"Cash over by {amt}"
+    meget i kassen' — so a signed number is never read the wrong way round.
+    The kasserapport prints the same words (kasserapport_claims)."""
+    from app.services.kasserapport_claims import cash_diff_words
+    return cash_diff_words(diff, currency)
+
+
+def _changes_table(changes, is_danish: bool) -> str:
+    """What changed in a corrected kasserapport, one line per figure (Linje |
+    Før | Nu, figures right-aligned) — it was one run-on sentence of up to
+    eight "a → b;" pairs, in the one mail where the revisor must compare
+    figures precisely."""
+    from app.services.revisor_mail import esc
+    head = ("Linje", "Før", "Nu") if is_danish else ("Line", "Before", "Now")
+    th = "padding:2px 10px 2px 0;font-weight:600;text-align:{a};"
+    td = "padding:2px 10px 2px 0;text-align:{a};font-variant-numeric:tabular-nums;"
+    rows = "".join(
+        f"<tr><td style='{td.format(a='left')}'>{esc(lbl)}</td>"
+        f"<td style='{td.format(a='right')}'>{esc(old)}</td>"
+        f"<td style='{td.format(a='right')}'>{esc(new)}</td></tr>"
+        for lbl, old, new in changes[:12]
+    )
+    more = ""
+    if len(changes) > 12:
+        more = (f"<tr><td colspan='3' style='padding:2px 0;'>"
+                + (f"… og {len(changes) - 12} linjer mere (se kasserapporten)" if is_danish
+                   else f"… and {len(changes) - 12} more lines (see the kasserapport)")
+                + "</td></tr>")
+    return (
+        ("Ændret:" if is_danish else "Changed:")
+        + "<table style='border-collapse:collapse;margin:4px 0 2px 0;font-size:13px;color:#78350f;'>"
+        f"<tr><td style='{th.format(a='left')}'>{head[0]}</td>"
+        f"<td style='{th.format(a='right')}'>{head[1]}</td>"
+        f"<td style='{th.format(a='right')}'>{head[2]}</td></tr>"
+        f"{rows}{more}</table>"
+    )
 
 
 def _build_close_email_html(
@@ -464,12 +498,7 @@ def _build_close_email_html(
             if reason:
                 lines.append(f"Låst op{(' af ' + who) if who else ''} — årsag: {reason}.")
             if changes:
-                # The money token already ends in "kr." — no second full stop.
-                ch = "Ændret: " + "; ".join(
-                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes[:8])
-                if len(changes) > 8:
-                    ch += f"; og {len(changes) - 8} linjer mere (se kasserapporten)"
-                lines.append(ch if ch.endswith(".") else ch + ".")
+                lines.append(_changes_table(changes, is_danish))
             elif lines_known:
                 lines.append("Tallene er de samme som i den tidligere version.")
             else:
@@ -480,11 +509,7 @@ def _build_close_email_html(
             if reason:
                 lines.append(f"Unlocked{(' by ' + who) if who else ''} — reason: {reason}.")
             if changes:
-                ch = "Changed: " + "; ".join(
-                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes[:8])
-                if len(changes) > 8:
-                    ch += f"; and {len(changes) - 8} more lines (see the kasserapport)"
-                lines.append(ch if ch.endswith(".") else ch + ".")
+                lines.append(_changes_table(changes, is_danish))
             elif lines_known:
                 lines.append("The figures are the same as in the earlier version.")
             else:
@@ -800,11 +825,8 @@ def _fire_close_auto_email(
     tz = _user_zone(user)
 
     # ── Recipients ──
-    owner_email = ""
-    if profile and getattr(profile, "email", None):
-        owner_email = (profile.email or "").strip().lower()
-    if not owner_email:
-        owner_email = (user.email or "").strip().lower()
+    # One owner address for the owner's copy AND the revisor's Reply-To.
+    owner_email = _owner_contact_email(profile, user)
     from app.services.revisor_mail import (
         REVISOR_DAILY_CAP, address_fingerprint, revisor_daily_cap_reached, revisor_opted_out,
         revisor_unsubscribe_headers, revisor_unsubscribe_url,
@@ -906,7 +928,8 @@ def _fire_close_auto_email(
         sends.append(("revisor", send_close_notification(
             user, close_id=dc.id, pdf_bytes=pdf_bytes, scan_image_bytes=scan_bytes,
             pdf_filename=pdf_filename, scan_filename=scan_filename,
-            recipients=[acct], subject=subject, html=html, reply_to=user.email,
+            recipients=[acct], subject=subject, html=html,
+            reply_to=owner_email or user.email,
             headers=revisor_unsubscribe_headers(unsub_url),
             from_display=sender_display(business_name),
         )))
@@ -915,7 +938,9 @@ def _fire_close_auto_email(
         acct_sent = bool(sends and sends[0][1].get("status") == "sent")
         if is_danish:
             revisor_line = {
-                None: (f"Revisoren ({acct}) fik den samme mail." if acct_sent
+                # "Afleveret til mailserveren": the mail service took it; a
+                # delivery into the revisor's inbox is not confirmed to BonBox.
+                None: (f"Den samme mail er afleveret til mailserveren til revisoren ({acct})." if acct_sent
                        else f"Mailen til revisoren ({acct}) blev IKKE sendt — send igen fra Historik."),
                 "not_saved": "Revisoren fik ikke mailen: der er ingen revisor-mail gemt under Profil.",
                 "auto_send_off": "Revisoren fik ikke mailen: automatisk afsendelse til revisor er slået fra under Profil.",
@@ -927,7 +952,7 @@ def _fire_close_auto_email(
             }[skip]
         else:
             revisor_line = {
-                None: (f"Your accountant ({acct}) got the same mail." if acct_sent
+                None: (f"The same mail was handed to the mail server for your accountant ({acct})." if acct_sent
                        else f"The mail to your accountant ({acct}) was NOT sent — resend it from History."),
                 "not_saved": "Your accountant didn't get it: no accountant e-mail is saved on Profile.",
                 "auto_send_off": "Your accountant didn't get it: automatic sending to them is off on Profile.",
@@ -944,7 +969,7 @@ def _fire_close_auto_email(
         sends.append(("owner", send_close_notification(
             user, close_id=dc.id, pdf_bytes=pdf_bytes, scan_image_bytes=scan_bytes,
             pdf_filename=pdf_filename, scan_filename=scan_filename,
-            recipients=[owner_email], subject=subject, html=html, reply_to=user.email,
+            recipients=[owner_email], subject=subject, html=html, reply_to=owner_email,
         )))
 
     # ── Aggregate, honestly ──
@@ -1747,11 +1772,12 @@ def _correction_for(trail: list[tuple], dc: DailyClose, address: str | None,
     unlocks = [t for t in trail if t[1] == "daily_close.unlock" and t[0] < cutoff
                and (since is None or t[0] > since)]
     reasons, who = [], None
+    from app.services.close_history import actor_display
     for t in unlocks:
         r = str(t[2].get("unlock_reason") or "").strip()
         if r and r not in reasons:
             reasons.append(r)
-        who = t[2].get("unlocked_by") or who
+        who = actor_display(t[2].get("unlocked_by"), danish=(currency or "DKK") == "DKK") or who
     changes, lines_known = _figure_changes(before, dc, currency)
     return {
         "prev_sent_at": prev_at,
@@ -1795,18 +1821,34 @@ def _figure_changes(before: dict, dc: DailyClose, currency: str) -> tuple[list[t
 
     lines_known = "payment_breakdown" in before and "revenue_breakdown" in before
     if lines_known:
+        def _folded(d):
+            # 'Food' and 'food' are ONE category (the wizard folds keys when
+            # it reopens a close; the range export already folds them) — the
+            # mail listed "Mad 10.000 → 0" and "Mad 0 → 10.000" for no change.
+            out_d: dict = {}
+            for k, v in (d or {}).items():
+                key = str(k).strip()
+                fold = key.lower()
+                if fold in out_d:
+                    out_d[fold] = (out_d[fold][0], round(out_d[fold][1] + (_r(v) or 0.0), 2))
+                else:
+                    out_d[fold] = (key, _r(v) or 0.0)
+            return out_d
+
         for field, blob_key, label_fn, skip_brand in (
             ("payment_categories", "payment_breakdown", payment_method_label, True),
             ("revenue_categories", "revenue_breakdown", revenue_category_label, False),
         ):
-            old = {str(k): _r(v) or 0.0 for k, v in (before.get(blob_key) or {}).items()}
-            new = {str(k): _r(v) or 0.0 for k, v in decode_breakdown(getattr(dc, field, None)).items()}
-            for k in sorted(set(old) | set(new)):
-                if skip_brand and is_card_brand_key(k):
+            old = _folded(before.get(blob_key))
+            new = _folded(decode_breakdown(getattr(dc, field, None)))
+            for fk in sorted(set(old) | set(new)):
+                key = (new.get(fk) or old.get(fk))[0]
+                if skip_brand and is_card_brand_key(key):
                     continue  # a split of the card line, not money of its own
-                o, n = old.get(k, 0.0), new.get(k, 0.0)
+                o = old.get(fk, (key, 0.0))[1]
+                n = new.get(fk, (key, 0.0))[1]
                 if abs(o - n) > 0.004:
-                    out.append((label_fn(k, danish=da), money_dk(o, currency), money_dk(n, currency)))
+                    out.append((label_fn(key, danish=da), money_dk(o, currency), money_dk(n, currency)))
     return out, lines_known
 
 
@@ -1848,7 +1890,7 @@ def resend_close_email(
     from sqlalchemy import or_
     from app.services.billing import effective_plan
     from app.services.revisor_mail import (
-        enforce_revisor_daily_cap, resolve_revisor_recipient,
+        enforce_revisor_daily_cap, resolve_revisor_recipient, saved_revisor_address,
     )
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
@@ -1875,7 +1917,21 @@ def resend_close_email(
             "message": "Sending from BonBox is on Starter. Download the PDF and send it from your own mail.",
         })
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
-    acct = resolve_revisor_recipient(profile)  # 400 none saved / 409 opted out
+    # With a revisor saved, the send goes to them (409 when they opted out).
+    # With none — an owner-only setup whose lock mail failed — "Send igen"
+    # re-sends the owner's own copy; it used to answer 400 and leave the owner
+    # with "Ikke sendt" and no way forward.
+    if saved_revisor_address(profile):
+        acct = resolve_revisor_recipient(profile)
+        target = acct
+    else:
+        acct = None
+        target = _owner_contact_email(profile, user)
+        if not target:
+            raise HTTPException(status_code=400, detail={
+                "code": "no_recipient",
+                "message": "No e-mail address to send to. Add one on Profile.",
+            })
     now = utc_now()
     in_flight = (dc.email_status == "sending" and dc.email_attempt_at is not None
                  and dc.email_attempt_at > now - _SENDING_STALE)
@@ -1885,14 +1941,17 @@ def resend_close_email(
             "message": "This kasserapport is being sent right now.",
         })
     sent_to_now = [x for x in (dc.email_sent_to or "").split(",") if x]
-    if dc.email_status in ("sent", "partial") and acct in sent_to_now and not body.force:
+    if dc.email_status in ("sent", "partial") and target in sent_to_now and not body.force:
         raise HTTPException(status_code=409, detail={
             "code": "already_sent",
-            "message": "Your revisor already got this kasserapport.",
+            "message": ("Your revisor already got this kasserapport." if acct
+                        else "You already got this kasserapport."),
             "sent_at": dc.email_sent_at.isoformat() if dc.email_sent_at else None,
             "sent_to": sent_to_now,
         })
-    enforce_revisor_daily_cap(db, user)
+    if acct:
+        # The ceiling is on mail to a THIRD party; the owner's own copy is not.
+        enforce_revisor_daily_cap(db, user)
 
     # The claim: key AND in-flight state in one conditional UPDATE, so of two
     # concurrent requests exactly one gets a row back.
@@ -2027,7 +2086,10 @@ def unlock_daily_close(
 
     dc.status = "draft"
     dc.unlock_reason = data.reason.strip()
-    dc.unlocked_by = user.email or str(user.id)
+    # The ROLE, not the login e-mail: this field is printed on the kasserapport,
+    # the Excel/CSV history and the correction mail — documents a revisor
+    # receives. The address stays in the audit row (unlocked_by_email).
+    dc.unlocked_by = (getattr(user, "role", None) or "owner")[:40]
     dc.unlocked_at = utc_now()
     # Bogføringsloven §10 — unlock is a sensitive mutation; capture reason
     # in the immutable audit trail alongside the per-row fields.
@@ -2039,7 +2101,8 @@ def unlock_daily_close(
         before={"status": current_status, "date": dc.date.isoformat() if dc.date else None},
         after={
             "status": "draft", "unlock_reason": data.reason.strip(),
-            "unlocked_by": dc.unlocked_by, "unlocked_at": dc.unlocked_at.isoformat(),
+            "unlocked_by": dc.unlocked_by, "unlocked_by_email": user.email,
+            "unlocked_at": dc.unlocked_at.isoformat(),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
@@ -3319,12 +3382,15 @@ def export_range_pdf(
     # Stable per-document voucher number (KR = Kasserapport) — shown in the
     # PDF header + carried into the L7 audit row so the artifact is traceable.
     bilagsnummer = _range_bilagsnummer(f, t)
-    from app.services.tz_utils import _user_zone
+    # The per-day source and unlock/relock history the Excel and the CSV
+    # carry — the PDF prints them too.
+    extras = _range_extras(db, user, closes)
     pdf_bytes = build_daily_close_range_pdf(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
-        tz=_user_zone(user), branch_names=_branch_names(db, user, closes),
+        tz=extras["tz"], branch_names=extras["branch_names"],
+        history=extras["history"], sources=extras["sources"],
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_pdf",
@@ -3434,7 +3500,7 @@ def export_range_xlsx(
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id,
         tz=extras["tz"], history=extras["history"], sources=extras["sources"],
-        branch_names=extras["branch_names"],
+        branch_names=extras["branch_names"], bilagsnummer=_range_bilagsnummer(f, t),
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_xlsx",
@@ -3696,6 +3762,21 @@ def send_to_accountant(
     currency = user.currency or "DKK"
     fmt = body.fmt
     is_danish = (currency == "DKK")
+
+    # ONE source of truth for the body's figures — the same as the attachment.
+    from app.services.daily_close_range_export import period_totals
+    totals = period_totals(closes)
+    if totals["n_confirmed"] == 0:
+        # An empty or drafts-only period is never mailed to a third party: it
+        # sent the revisor "0 låste lukninger · Omsætning 0,00 kr.".
+        raise HTTPException(status_code=422, detail={
+            "code": "nothing_locked",
+            "n_drafts": totals["n_drafts"],
+            "message": ("Der er ingen låste lukninger i perioden — lås dagene først."
+                        if is_danish else
+                        "There are no locked closes in this period — lock the days first."),
+        })
+
     bilagsnummer = _range_bilagsnummer(f, t)
     extras = _range_extras(db, user, closes)
 
@@ -3705,6 +3786,7 @@ def send_to_accountant(
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
             tz=extras["tz"], branch_names=extras["branch_names"],
+            history=extras["history"], sources=extras["sources"],
         )
         mime = "application/pdf"
     elif fmt == "csv":
@@ -3716,15 +3798,11 @@ def send_to_accountant(
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id,
             tz=extras["tz"], history=extras["history"], sources=extras["sources"],
-            branch_names=extras["branch_names"],
+            branch_names=extras["branch_names"], bilagsnummer=bilagsnummer,
         )
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     filename = _period_filename(business_name, f, t, fmt)
-
-    # ONE source of truth for the body's figures — the same as the attachment.
-    from app.services.daily_close_range_export import period_totals
-    totals = period_totals(closes)
 
     from app.services.revisor_mail import revisor_unsubscribe_url
     unsub_url = revisor_unsubscribe_url(user.id, recipient)
@@ -3745,16 +3823,18 @@ def send_to_accountant(
 
     from app.services.revisor_mail import send_file_to_revisor, sender_display
 
+    # One owner address for the copy AND the revisor's Reply-To.
+    owner_addr = _owner_contact_email(profile, user)
     ok, err, owner_copied = send_file_to_revisor(
         recipient=recipient, subject=subject,
         html_revisor=html, html_owner=html_owner,
-        owner_email=(user.email if body.cc_self else None),
+        owner_email=(owner_addr if body.cc_self else None),
         attachment_bytes=attachment, attachment_filename=filename,
-        attachment_mime=mime, reply_to=user.email,
+        attachment_mime=mime, reply_to=owner_addr or user.email,
         from_display=sender_display(business_name),
         unsubscribe_url=unsub_url, is_danish=is_danish,
     )
-    cc = [user.email] if owner_copied else None
+    cc = [owner_addr] if owner_copied else None
 
     if not ok:
         # 502 when Resend was ASKED and failed — the outcome is not "nothing
@@ -3778,7 +3858,8 @@ def send_to_accountant(
         entity_id=None,  # range-level action, not single-row
         before=None,
         after={
-            "recipient": recipient, "cc_self": bool(cc), "format": fmt,
+            "recipient": recipient, "cc_self": bool(cc), "cc_to": owner_addr if cc else None,
+            "format": fmt,
             "filename": filename, "n_closes": totals["n_confirmed"],
             "n_drafts": totals["n_drafts"],
             "from_date": f.isoformat(), "to_date": t.isoformat(),
@@ -3798,12 +3879,59 @@ def send_to_accountant(
         "ok": True,
         "sent_to": recipient,
         "cc_self": bool(cc),
+        "cc_to": owner_addr if cc else None,
         "filename": filename,
         "format": fmt,
         "n_closes": totals["n_confirmed"],
         "n_drafts": totals["n_drafts"],
         "subject": subject,
     }
+
+
+# ─── GET — the period sends to the revisor (a lasting record) ───
+#
+# A period send left only an 8-second toast: later the owner could not see in
+# BonBox whether September went, when, in which format or to whom. The audit
+# row already holds all of it; this reads the latest ones back (tenant-scoped).
+
+@router.get("/accountant-sends")
+def list_accountant_sends(
+    limit: int = Query(3, ge=1, le=20),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    import json as _json
+    from app.models.audit_log import AuditLog
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "daily_close.send_to_accountant",
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    out = []
+    for r in rows:
+        try:
+            a = _json.loads(r.after_state or "{}") or {}
+        except Exception:  # noqa: BLE001
+            a = {}
+        if not isinstance(a, dict) or not a.get("from_date"):
+            continue
+        out.append({
+            "sent_at": r.created_at,
+            "recipient": a.get("recipient"),
+            "format": a.get("format"),
+            "from": a.get("from_date"),
+            "to": a.get("to_date"),
+            "n_closes": a.get("n_closes"),
+            "n_drafts": a.get("n_drafts"),
+            "filename": a.get("filename"),
+            "cc_to": a.get("cc_to"),
+        })
+    return out
 
 
 # ─── GET — single close ───
@@ -3836,6 +3964,8 @@ def daily_close_pdf(
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
         DailyClose.user_id == user.id,
+        # A deleted close has no kasserapport to hand anyone.
+        DailyClose.is_deleted.isnot(True),
     ).first()
     if not dc:
         raise HTTPException(status_code=404, detail="Daily close not found")
@@ -3848,6 +3978,9 @@ def daily_close_pdf(
         headers={
             "Content-Disposition": content_disposition(out["filename"]),
             "X-Document-Id": out["doc_id"],
+            # A business document: never kept by a shared cache or proxy (the
+            # period exports already said so; this one did not).
+            "Cache-Control": "private, no-store",
         },
     )
 

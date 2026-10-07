@@ -240,20 +240,27 @@ def address_fingerprint(address: str) -> str:
     return hashlib.sha256((address or "").strip().lower().encode("utf-8")).hexdigest()[:16]
 
 
+PROD_API_BASE = "https://api.bonbox.dk"
+DEV_API_BASE = "http://localhost:8000"
+
+
 def public_api_base() -> str:
-    """Where a recipient's inbox reaches the API. Same derivation as the Daily
-    Brief unsubscribe link (PUBLIC_API_URL → AIIA redirect host → FRONTEND_URL)."""
-    try:
-        from app.services.daily_brief_email import _api_base_from_redirect
-        hint = _api_base_from_redirect()
-    except Exception:  # noqa: BLE001
-        hint = None
+    """Where a recipient's inbox reaches the API — chosen deliberately: the
+    PUBLIC_API_URL setting, else the API host for the environment. It used to
+    borrow the bank-connect redirect variable (AIIA_REDIRECT_URI) and fall
+    back to FRONTEND_URL, where /api/email/unsubscribe is the SPA's own shell:
+    every opt-out link and one-click POST would have gone dead the day an
+    unrelated variable was removed, while the footer still promised
+    "afmelde dem her". Never the SPA host."""
     try:
         from app.config import settings
-        fallback = settings.FRONTEND_URL
+        configured = (os.environ.get("PUBLIC_API_URL") or settings.PUBLIC_API_URL or "").strip()
+        env = (settings.ENVIRONMENT or "").lower()
     except Exception:  # noqa: BLE001
-        fallback = ""
-    return (os.environ.get("PUBLIC_API_URL") or hint or fallback or "").rstrip("/")
+        configured, env = (os.environ.get("PUBLIC_API_URL") or "").strip(), ""
+    if configured:
+        return configured.rstrip("/")
+    return PROD_API_BASE if env == "production" else DEV_API_BASE
 
 
 def revisor_unsubscribe_url(user_id: Any, address: str) -> str:
@@ -351,8 +358,11 @@ def owner_copy_line(recipient: str, is_danish: bool) -> str:
     return (
         "<p style='color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb;"
         "padding-top:10px;margin-top:18px;'>"
-        + (f"Din kopi — mailen er sendt til din revisor {esc(recipient)}." if is_danish
-           else f"Your copy — this was sent to your accountant {esc(recipient)}.")
+        # "Afleveret til mailserveren": the mail service accepted it; BonBox
+        # is not told when it reaches the revisor's inbox.
+        + (f"Din kopi — mailen er afleveret til mailserveren til din revisor {esc(recipient)}."
+           if is_danish
+           else f"Your copy — this was handed to the mail server for your accountant {esc(recipient)}.")
         + "</p>"
     )
 

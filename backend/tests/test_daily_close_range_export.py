@@ -179,7 +179,8 @@ def test_csv_includes_unlock_audit_fields():
     )]
     csv = closes_to_csv_bytes(closes).decode("utf-8-sig")
     assert "Edit cash count after reconcile" in csv
-    assert "lars@mirabelle.dk" in csv
+    # Who unlocked it, as a revisor may read it: the role, never a login.
+    assert "af ejeren" in csv and "lars@mirabelle.dk" not in csv
     # In the venue's time (09:15 UTC → 11:15 Copenhagen summer time).
     assert "02.05.2026 kl. 11:15" in csv
     machine = closes_to_csv_bytes(closes, variant="machine").decode("utf-8-sig")

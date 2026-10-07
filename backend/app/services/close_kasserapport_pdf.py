@@ -170,14 +170,12 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     from app.services.bonbox_pdf_kit import money_dk, render_with_doc_hash
     from app.services.close_history import close_history_events, format_history, source_line
     from app.services.kasserapport_claims import (
-        MARK_FAIL,
         MARK_PASS,
         MARK_REVIEW,
         build_close_claims,
     )
     from app.services.tz_utils import _user_zone
     from app.utils.document_hash import get_software_identifier
-    from app.utils.time import utc_now
 
     # Copenhagen-clean palette
     AMBER = colors.HexColor("#b45309")     # "look at this" — never decorative
@@ -490,11 +488,11 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
             rows.append([Paragraph(L["cash_diff"], val_b), Paragraph(signed(diff), diff_style)])
             story.append(_rows_table(rows))
             if diff is not None and abs(diff) >= 0.005:
-                amt = fmt(abs(diff))
-                words = ((f"Kassen mangler {amt}." if diff < 0 else f"Der er {amt} for meget i kassen.")
-                         if DA else (f"Cash short by {amt}." if diff < 0 else f"Cash over by {amt}."))
+                # One full stop: the money token already ends in "kr." — this
+                # printed "Kassen mangler 20,00 kr.." on every short day.
+                from app.services.kasserapport_claims import as_sentence, cash_diff_words
                 story.append(Spacer(1, 1 * mm))
-                story.append(Paragraph(words, foot))
+                story.append(Paragraph(as_sentence(cash_diff_words(diff, currency)), foot))
 
         # ─── Tips ───
         if dc.tips_total:
@@ -555,13 +553,9 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
             badge_color = colors.HexColor("#065f46") if all_ok else colors.HexColor("#92400e")
             badge_bg = colors.HexColor("#d1fae5") if all_ok else colors.HexColor("#fef3c7")
 
-            def _mark(c):
-                if c.get("info"):
-                    return f"<font color='{MUTED.hexval()}' size='8'>· {c['text']}</font>"
-                return (f"<font color='{(OK_GREEN if c['ok'] else AMBER).hexval()}' size='8'>"
-                        f"{MARK_PASS if c['ok'] else MARK_FAIL} {c['text']}</font>")
-
-            body = "<br/>".join(_mark(c) for c in assurance["checks"])
+            body = "<br/>".join(
+                band_line_markup(c, ink=INK.hexval(), ok=OK_GREEN.hexval(), muted=MUTED.hexval())
+                for c in assurance["checks"])
             badge_style = ParagraphStyle("Badge", parent=val, leading=10.5)
             badge_table = Table(
                 [[Paragraph(
@@ -600,10 +594,8 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
             story.append(Paragraph(claims["footer"], foot))
         return story
 
-    try:
-        generated_at_str = utc_now().strftime("%Y-%m-%d %H:%M UTC")
-    except Exception:  # noqa: BLE001
-        generated_at_str = ""
+    # One clock: the venue's, like "Låst … kl. 01:28" on the same page.
+    generated_at_str = generated_local(tz, danish=DA)
     running = (
         f"{claims['title']} · {claims['business_name']} · "
         f"{dc.date.strftime('%d.%m.%Y')} · {L['bilag_no']} {bilagsnummer}"

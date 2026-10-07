@@ -28,9 +28,13 @@ describe("closeEmailState — what History says about one close's lock mail", ()
   it("a send in flight says so", () => {
     expect(closeEmailState({ status: "sending", sentTo: [], profile }).kind).toBe("sending");
   });
-  it("says nothing when it does not know (old closes, Free)", () => {
-    expect(closeEmailState({ status: null, profile }).kind).toBe("none");
+  it("an old close (no status kept) is 'not recorded', not a silent blank; Free says nothing", () => {
+    expect(closeEmailState({ status: null, profile }).kind).toBe("unrecorded");
     expect(closeEmailState({ status: "skipped_feature_locked", profile }).kind).toBe("none");
+  });
+  it("with no revisor saved, a failed send is the owner's own copy — 'failed_owner'", () => {
+    expect(closeEmailState({ status: "send_failed", sentTo: [], profile: {} }).kind).toBe("failed_owner");
+    expect(closeEmailState({ status: "send_failed", sentTo: [], profile }).kind).toBe("failed");
   });
 });
 
