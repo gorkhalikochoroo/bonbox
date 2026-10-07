@@ -84,8 +84,11 @@ _CSV_COLUMNS = _MACHINE_CSV_COLUMNS
 # Fixed revisor columns, in order. Category columns ("Kategori: Mad" …) follow
 # after these, built-in categories first in the app's order, then the owner's
 # own, then "Kategori: Ikke fordelt".
+# "Bilagsnr." is the day's own kasserapport number (KR-…) and "Dokument-id"
+# the id printed on that kasserapport — so every row ties to the voucher the
+# revisor holds. "Bogføring" is the kasserapport's own verdict, word for word.
 _REVISOR_CSV_COLUMNS_DA = [
-    "Dato", "Status", "Afdeling",
+    "Dato", "Bilagsnr.", "Dokument-id", "Status", "Bogføring", "Afdeling",
     "Omsætning inkl. moms", "Salgsmoms", "Omsætning ekskl. moms", "Momsopgørelse",
     "Kontant", "Kort", "MobilePay", "Gavekort", "Bankoverførsel", "Andre betalinger",
     "Betalinger i alt",
@@ -94,7 +97,7 @@ _REVISOR_CSV_COLUMNS_DA = [
     "Kilde", "Lukket af", "Låst (dansk tid)", "Historik", "Bemærkninger",
 ]
 _REVISOR_CSV_COLUMNS_EN = [
-    "Date", "Status", "Branch",
+    "Date", "Voucher no.", "Document ID", "Status", "Bookkeeping", "Branch",
     "Revenue incl. VAT", "Salgsmoms", "Revenue excl. VAT", "VAT basis",
     "Cash", "Card", "MobilePay", "Gavekort", "Bank transfer", "Other payments",
     "Payments total",
@@ -279,21 +282,20 @@ def closes_to_csv_bytes(
         moms = None if unknown else float(c.moms_total or 0)
         net = _net_of(c)
         amounts, unsplit = _category_amounts(c)
-        mode = (getattr(c, "moms_mode", None) or "auto").lower()
-        moms_basis = (
-            ("Kan ikke opgøres" if DA else "Cannot be stated") if unknown
-            else (("Indtastet manuelt" if DA else "Entered manually") if mode == "manual"
-                  else ("Beregnet af BonBox" if DA else "Calculated by BonBox"))
-        )
         cid = str(getattr(c, "id", "") or "")
+        bname = (branch_names or {}).get(str(c.branch_id), "") if c.branch_id else ""
         row = [
             c.date.isoformat() if c.date else "",
+            close_voucher_no(c, branch_names),
+            close_doc_id(c),
             status_label(c, DA),
-            csv_safe((branch_names or {}).get(str(c.branch_id), "") if c.branch_id else ""),
+            csv_safe(readiness_text(c, currency)),
+            csv_safe(bname),
             num(c.revenue_total),
             num(moms),
             num(net),
-            moms_basis,
+            # The same label the day's kasserapport and the lock mail print.
+            moms_basis_text(c, currency),
             num(pay["cash"] or None), num(pay["card"] or None),
             num(pay["mobilepay"] or None), num(pay["gift_card"] or None),
             num(pay["bank_transfer"] or None), num(pay["other"] or None),
@@ -314,17 +316,14 @@ def closes_to_csv_bytes(
 
     if sorted_closes:
         t = period_totals(closes)
-        tot_label = (
-            f"I alt — {t['n_confirmed']} låste" if DA
-            else f"Total — {t['n_confirmed']} locked"
-        )
+        tot_label = totals_label(t["n_confirmed"], DA)
         if t["n_drafts"]:
             tot_label += (
                 f" ({t['n_drafts']} {'kladde' if t['n_drafts'] == 1 else 'kladder'} ikke medregnet)"
                 if DA else f" ({t['n_drafts']} draft(s) not counted)"
             )
         total_row = [
-            "", tot_label, "",
+            "", "", "", tot_label, "", "",
             num(t["revenue"]), num(t["moms"]), num(t["net"]), "",
             num(t["cash"]), num(t["card"]), num(t["mobilepay"]),
             num(t["gift_card"]), num(t["bank_transfer"]), num(t["other"]),
@@ -337,6 +336,92 @@ def closes_to_csv_bytes(
         total_row += [num(t["unallocated"]) if t["unallocated"] else ""]
         writer.writerow(total_row)
     return buf.getvalue().encode("utf-8")
+
+
+# ─── Per-day identity, MOMS label and verdict — shared by all three ───
+
+def close_voucher_no(c, branch_names: dict | None = None) -> str:
+    """The day's own kasserapport bilag number (KR-YYYYMMDD[-branch]) — the
+    number its kasserapport prints, computed the same way (branch name from
+    the same lookup)."""
+    from app.services.close_kasserapport_pdf import close_bilagsnummer
+    if getattr(c, "date", None) is None:
+        return ""
+    bname = ((branch_names or {}).get(str(c.branch_id))
+             if getattr(c, "branch_id", None) else None)
+    return close_bilagsnummer(c, bname)
+
+
+def close_doc_id(c) -> str:
+    """The Dokument-id printed on that day's kasserapport (this version)."""
+    from app.services.close_kasserapport_pdf import close_document_id
+    try:
+        return close_document_id(c)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def period_document_id(closes, from_date: date, to_date: date) -> str:
+    """A stable 16-hex id for a period export: the period plus the Dokument-id
+    of every close it lists. The same closes in the same state give the same
+    id on every download and in the mail — a hash of the bytes changed with
+    the generation time printed in the footer."""
+    import hashlib
+    ids = sorted(f"{c.date.isoformat() if c.date else ''}:{close_doc_id(c)}" for c in closes)
+    raw = "|".join([from_date.isoformat(), to_date.isoformat(), *ids]).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def moms_basis_text(c, currency: str = "DKK") -> str:
+    """The Momsopgørelse cell: the day's MOMS label (kasserapport_claims.
+    moms_label), or that it cannot be stated."""
+    from app.services.kasserapport_claims import moms_label
+    DA = (currency or "").upper() == "DKK"
+    if moms_is_unknown(c):
+        return "Salgsmoms kan ikke opgøres" if DA else "Output VAT cannot be stated"
+    return moms_label(c, currency)
+
+
+def readiness_text(c, currency: str = "DKK") -> str:
+    from app.services.kasserapport_claims import readiness_text as _rt
+    try:
+        return _rt(c, currency)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def totals_label(n: int, danish: bool) -> str:
+    """'I alt — 26 låste dage' (it read 'I alt (låste) (26)')."""
+    if danish:
+        return f"I alt — {n} {'låst dag' if n == 1 else 'låste dage'}"
+    return f"Total — {n} locked {'day' if n == 1 else 'days'}"
+
+
+def period_readiness(closes, currency: str = "DKK") -> dict:
+    """{"n_locked", "ready": [closes], "review": [closes]} — each LOCKED close
+    judged by its own kasserapport's rule (close_readiness). The period PDF
+    badge and the period mail read this, so neither can disagree with the
+    day's own document."""
+    from app.services.kasserapport_claims import close_readiness
+    ready, review = [], []
+    for c in sorted(closes, key=lambda c: c.date or date.min):
+        if not _is_confirmed(c):
+            continue
+        try:
+            ok = bool(close_readiness(c, currency)["ready"])
+        except Exception:  # noqa: BLE001
+            ok = False
+        (ready if ok else review).append(c)
+    return {"n_locked": len(ready) + len(review), "ready": ready, "review": review}
+
+
+def all_standard_auto(closes, currency: str = "DKK") -> bool:
+    """True when every listed close's MOMS label is the plain standard one —
+    BonBox-calculated at the standard rate. Only then may a period column or
+    total say "Salgsmoms (25 %)" and the footer cite the statutory basis."""
+    from app.services.kasserapport_claims import moms_label, standard_moms_label
+    std = standard_moms_label(currency)
+    return all(moms_label(c, currency) == std for c in closes if not moms_is_unknown(c))
 
 
 # ─── Helpers shared by PDF + XLSX ─────────────────────────────────────
@@ -658,6 +743,8 @@ def build_daily_close_range_pdf(
     bilagsnummer: str = "",
     tz=None,
     branch_names: dict | None = None,
+    history: dict | None = None,
+    sources: dict | None = None,
 ) -> bytes:
     """Build a multi-day daily-close PDF report — accountant-grade.
 
@@ -676,12 +763,13 @@ def build_daily_close_range_pdf(
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import (
-        Paragraph, Spacer, Table, TableStyle, HRFlowable,
+        Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether,
     )
 
     from app.services.bonbox_pdf_kit import escape_pdf_text, money_dk, render_with_doc_hash
+    from app.services.close_kasserapport_pdf import generated_local
+    from app.services.kasserapport_claims import moms_label, standard_moms_label
     from app.utils.document_hash import get_software_identifier
-    from app.utils.time import utc_now
 
     DA = (currency == "DKK")
 
@@ -712,7 +800,9 @@ def build_daily_close_range_pdf(
         "h_date":      "Dato" if DA else "Date",
         "h_bilag":     "Bilag" if DA else "Voucher",
         "h_rev":       "Omsætning" if DA else "Revenue",
-        "h_moms":      "Moms 25%" if DA else "VAT 25%",
+        # The column header follows the ONE label rule: "Salgsmoms (25 %)"
+        # only while every row IS a BonBox-calculated standard-rate figure.
+        "h_moms":      standard_moms_label(currency),
         "h_net":       "Netto" if DA else "Net",
         "h_cash":      "Kontant" if DA else "Cash",
         "h_card":      "Kort" if DA else "Card",
@@ -733,8 +823,13 @@ def build_daily_close_range_pdf(
             if DA else
             "payments do not match revenue"
         ),
-        # Totals row
-        "totals":      "I alt (låste)" if DA else "Totals (locked)",
+        "relocked":    "genlåst" if DA else "relocked",
+        "src_title":   ("Kilde, salgsmoms og historik pr. dag" if DA
+                        else "Source, VAT and history per day"),
+        "src_summary": "Kilde" if DA else "Source",
+        "src_days":    "dage" if DA else "days",
+        "src_day":     "dag" if DA else "day",
+        "src_none":    "ikke registreret" if DA else "not recorded",
         "draft_excl":  "Kladder ikke medregnet" if DA else "Drafts not summed",
         # Readiness — the SAME rule as each close's own kasserapport
         # (kasserapport_claims), read the right way round.
@@ -742,10 +837,14 @@ def build_daily_close_range_pdf(
         "review":      "skal gennemgås" if DA else "need review",
         "of":          "af" if DA else "of",
         "ready_rule":  ("klar = salgsmoms opgjort, kontant optalt inden for ±100 kr., "
-                        "linjer og betalinger stemmer — samme regel som på hver kasserapport"
+                        "betalinger stemmer, og linjerne modsiger ikke totalen; omsætning "
+                        "uden kategori er en note ved én momssats, men holder dagen tilbage "
+                        "ved blandet momssats — samme regel som på hver kasserapport"
                         if DA else
-                        "ready = VAT stated, cash counted within ±100 kr., lines and "
-                        "payments agree — the same rule as each kasserapport"),
+                        "ready = VAT stated, cash counted within ±100 kr., payments agree "
+                        "and no line contradicts the total; revenue without a category is "
+                        "a note at one VAT rate and needs review at mixed rates — the same "
+                        "rule as each kasserapport"),
         # Kasseafstemning: optalt − forventet = difference (the app's sign)
         "kasse_title":  "Kasseafstemning" if DA else "Cash reconciliation",
         "kasse_over":   "for meget i kassen" if DA else "over",
@@ -794,7 +893,7 @@ def build_daily_close_range_pdf(
         # Generic MOMS header — used instead of "Moms 25%" whenever any included
         # row's VAT is not the standard rate, so the column heading can never
         # describe a number it doesn't fit.
-        "h_moms_generic": "Moms" if DA else "VAT",
+        "h_moms_generic": "Salgsmoms" if DA else "Output VAT",
         # Quiet totals note: the payment columns legitimately exclude closes that
         # recorded revenue with no method split (see _row_ties_out). Without this
         # line a reader adds the columns, finds a gap, and has no explanation.
@@ -836,12 +935,19 @@ def build_daily_close_range_pdf(
             return d.strftime("%d %b %Y") if d else ""
 
     # ─── Provenance footer inputs (computed ONCE, before rendering) ──────
-    # All fail-soft: footer derivation must never break the PDF.
+    # All fail-soft: footer derivation must never break the PDF. One clock:
+    # the venue's, like every lock time in the table.
     software_id = get_software_identifier()
-    try:
-        generated_at_str = utc_now().strftime("%Y-%m-%d %H:%M UTC")
-    except Exception:  # noqa: BLE001 — clock/strftime should never crash the PDF
-        generated_at_str = ""
+    generated_at_str = generated_local(tz, danish=DA)
+
+    # Per-day facts the table and the source block print — derived once, out
+    # of the two-pass story builder, with no query of their own.
+    row_label = {id(c): moms_label(c, currency) for c in closes_sorted}
+    std_label = standard_moms_label(currency)
+    vno = {id(c): close_voucher_no(c, branch_names) for c in closes_sorted}
+    dids = {id(c): close_doc_id(c) for c in closes_sorted}
+    readiness = period_readiness(closes_sorted, currency)
+    ready_ids = {id(c) for c in readiness["ready"]}
     # No login e-mail on a document that goes to a third party (the revisor
     # does not need the owner's sign-in address; the business is named above).
     generator_email = ""
@@ -1045,19 +1151,12 @@ def build_daily_close_range_pdf(
         # 26.791,06 kr where 25% is 27.033,37 kr — 242 kr off, yet only 0,28
         # percentage points, so any sane rate tolerance passed it. Kroner scale
         # correctly at both ends.
-        MOMS_KR_TOL = 1.00  # absorbs øre rounding, catches any real difference
-
-        def _is_standard_rate(c) -> bool:
-            if (getattr(c, "moms_mode", None) or "").lower() == "manual":
-                return False
-            gross = float(getattr(c, "revenue_total", 0) or 0)
-            moms = float(getattr(c, "moms_total", 0) or 0)
-            if gross <= 0:
-                return True  # nothing to contradict the heading
-            expected = gross / 5.0  # 25% VAT inclusive → VAT is a fifth of gross
-            return abs(moms - expected) <= MOMS_KR_TOL
-
-        all_standard_rate = all(_is_standard_rate(c) for c in closes_sorted)
+        # One label rule (kasserapport_claims.moms_label): the header keeps
+        # "(25 %)" only while every row IS a BonBox-calculated standard-rate
+        # figure; otherwise it is plain "Salgsmoms" and each row that is not
+        # carries its own source/rate under the amount — the same words its
+        # kasserapport and the lock mail use.
+        all_standard_rate = all_standard_auto(closes_sorted, currency)
         moms_heading = L["h_moms"] if all_standard_rate else L["h_moms_generic"]
 
         # Confirmed closes that booked revenue with NO payment split at all.
@@ -1073,20 +1172,38 @@ def build_daily_close_range_pdf(
             float(getattr(c, "revenue_total", 0) or 0) for c in revenue_only_confirmed
         )
 
+        # Every cell is a Paragraph in ONE style per column kind, so no row's
+        # date prints larger than another's and a long header wraps inside its
+        # column instead of running into the next.
+        head_style = ParagraphStyle("Head", parent=styles["Normal"], fontSize=7.5,
+                                    textColor=MUTED, fontName="Helvetica-Bold",
+                                    leading=9, alignment=2)
+        head_left = ParagraphStyle("HeadL", parent=head_style, alignment=0)
+        head_center = ParagraphStyle("HeadC", parent=head_style, alignment=1)
+        cell_left = ParagraphStyle("CellL", parent=styles["Normal"], fontSize=8,
+                                   textColor=INK, fontName="Helvetica", leading=9.5)
+        cell_right = ParagraphStyle("CellR", parent=cell_left, alignment=2)
+        tot_left = ParagraphStyle("TotL", parent=cell_left, fontName="Helvetica-Bold",
+                                  textColor=EMERALD)
+        tot_right = ParagraphStyle("TotR", parent=tot_left, alignment=2)
+
+        def _H(txt, st=head_style):
+            return Paragraph(txt, st)
+
         table_data = [[
-            L["h_date"], L["h_bilag"], L["h_rev"], moms_heading, L["h_net"],
-            L["h_cash"], L["h_card"], L["h_mobilepay"], L["h_gift"], L["h_other"],
-            L["h_diff"], L["h_status"],
+            _H(L["h_date"], head_left), _H(L["h_bilag"], head_left),
+            _H(L["h_rev"]), _H(escape_pdf_text(moms_heading)), _H(L["h_net"]),
+            _H(L["h_cash"]), _H(L["h_card"]), _H(L["h_mobilepay"]), _H(L["h_gift"]),
+            _H(L["h_other"]), _H(L["h_diff"]), _H(L["h_status"], head_center),
         ]]
-        # One readiness rule: a close is "klar til bogføring" here exactly when
-        # its own kasserapport says so (build_close_claims) — the lock mail and
-        # the period export used to give the same day opposite verdicts.
-        from app.services.kasserapport_claims import build_close_claims
-        ready_by_id: dict = {}
 
         # Track whether ANY row (drafts included) failed its per-row tie-out so
         # we can emit the footnote that explains the inline "!" marker.
         any_row_flagged = False
+        hist = history or {}
+
+        def _small(txt):
+            return f"<br/><font size='6' color='#6b7280'>{txt}</font>"
 
         for c in closes_sorted:
             pay = _bucketed_payments(c)
@@ -1115,50 +1232,55 @@ def build_daily_close_range_pdf(
             # day's collected payments.
             gift_amt = pay["gift_card"]
             other_amt = pay["bank_transfer"] + pay["other"]
-            if status == "confirmed":
-                try:
-                    _a = build_close_claims(c, currency=currency,
-                                            has_bilag=bool(vsales or _vexp))["assurance"]
-                    ready_by_id[id(c)] = bool(_a and _a["all_ok"])
-                except Exception:  # noqa: BLE001
-                    ready_by_id[id(c)] = False
             # Per-row tie-out flag — DRAFTS INCLUDED. A row whose recorded
             # payments do not equal its revenue carries an amber "!" next to its
             # status badge (typographic marker, no emoji — matches the badge
             # marks elsewhere). The kasserapport never shows a non-tying row,
             # even a Kladde, without saying so.
             status_label = L["locked"] if status == "confirmed" else L["draft"]
+            status_txt = status_label
             if not _row_ties_out(c):
                 any_row_flagged = True
-                status_cell = Paragraph(
-                    f"<font name='Helvetica-Bold' color='{AMBER.hexval()}'>!</font>"
-                    f" {status_label}",
-                    status_style,
-                )
-            else:
-                status_cell = status_label
+                status_txt = (f"<font name='Helvetica-Bold' color='{AMBER.hexval()}'>!</font>"
+                              f" {status_label}")
+            # A day that was unlocked and locked again says so on its row, as
+            # the Excel and the CSV do (the details are in the block below).
+            if hist.get(str(getattr(c, "id", "") or "")):
+                status_txt += _small(L["relocked"])
+            status_cell = Paragraph(status_txt, status_style)
             # Two branches on the same day are two rows: name the branch under
             # the date (the CSV and Excel carry an Afdeling column), or the
             # revisor sees a duplicate and drops one.
             _bname = ((branch_names or {}).get(str(c.branch_id), "")
                       if getattr(c, "branch_id", None) else "")
-            date_cell = (
-                Paragraph(f"{_date_short(c.date)}<br/><font size='6' color='#6b7280'>"
-                          f"{escape_pdf_text(_bname)}</font>", bilag_style)
-                if _bname else _date_short(c.date)
-            )
+            date_cell = Paragraph(
+                escape_pdf_text(_date_short(c.date)) + (_small(escape_pdf_text(_bname)) if _bname else ""),
+                cell_left)
+            # Bilag: the day's own kasserapport number and its Dokument-id —
+            # the voucher a revisor matches the row to — then any S-vouchers.
+            bilag_txt = (f"{escape_pdf_text(vno[id(c)])}"
+                         + _small(f"id {escape_pdf_text(dids[id(c)])}")
+                         + (_small(escape_pdf_text(vsales)) if vsales else ""))
+            # The MOMS cell: when this row's label is not the column's, its
+            # own source/rate goes under the amount ("fra Z-bon, svarer til
+            # 16,7 %").
+            moms_txt = _fmt(moms) if moms is not None else "—"
+            lbl = row_label[id(c)]
+            if moms is not None and lbl != std_label and "(" in lbl:
+                moms_txt += _small(escape_pdf_text(
+                    lbl[lbl.index("(") + 1:].rstrip(")")).replace(" %", "&nbsp;%"))
             table_data.append([
                 date_cell,
-                Paragraph(vsales, bilag_style) if vsales else "—",
-                _fmt(revenue),
-                _fmt(moms) if moms is not None else "—",
-                _fmt(net) if net is not None else "—",
-                _fmt(pay["cash"]) if pay["cash"] else "—",
-                _fmt(pay["card"]) if pay["card"] else "—",
-                _fmt(pay["mobilepay"]) if pay["mobilepay"] else "—",
-                _fmt(gift_amt) if gift_amt else "—",
-                _fmt(other_amt) if other_amt else "—",
-                cash_diff_str or "—",
+                Paragraph(bilag_txt, bilag_style),
+                Paragraph(_fmt(revenue), cell_right),
+                Paragraph(moms_txt, cell_right),
+                Paragraph(_fmt(net) if net is not None else "—", cell_right),
+                Paragraph(_fmt(pay["cash"]) if pay["cash"] else "—", cell_right),
+                Paragraph(_fmt(pay["card"]) if pay["card"] else "—", cell_right),
+                Paragraph(_fmt(pay["mobilepay"]) if pay["mobilepay"] else "—", cell_right),
+                Paragraph(_fmt(gift_amt) if gift_amt else "—", cell_right),
+                Paragraph(_fmt(other_amt) if other_amt else "—", cell_right),
+                Paragraph(cash_diff_str or "—", cell_right),
                 status_cell,
             ])
 
@@ -1170,49 +1292,60 @@ def build_daily_close_range_pdf(
         sum_other = round(T["bank_transfer"] + T["other"], 2)
         sum_diff = T["cash_difference"] or 0.0
 
+        def _tot(v):
+            return Paragraph(v, tot_right)
+
         table_data.append([
-            f"{L['totals']} ({n_conf})", "",
-            _fmt(total_revenue),
+            # "I alt — 26 låste dage", across the Dato and Bilag columns.
+            Paragraph(totals_label(n_conf, DA), tot_left), "",
+            _tot(_fmt(total_revenue)),
             # The KPI band four inches above this row already renders "—" for
             # exactly this quantity. Printing a confident (and understated)
             # figure here made the document contradict itself about the single
             # number a revisor carries into a MOMS filing.
-            _fmt(total_moms) if moms_total_known else "—",
-            _fmt(total_net) if net_total_known else "—",
-            _fmt(sum_cash) if sum_cash else "—",
-            _fmt(sum_card) if sum_card else "—",
-            _fmt(sum_mp) if sum_mp else "—",
-            _fmt(sum_gift) if sum_gift else "—",
-            _fmt(sum_other) if sum_other else "—",
-            (("+" if sum_diff > 0.004 else "") + _fmt(sum_diff))
-            if any(c.cash_difference is not None for c in confirmed) else "—",
+            _tot(_fmt(total_moms) if moms_total_known else "—"),
+            _tot(_fmt(total_net) if net_total_known else "—"),
+            _tot(_fmt(sum_cash) if sum_cash else "—"),
+            _tot(_fmt(sum_card) if sum_card else "—"),
+            _tot(_fmt(sum_mp) if sum_mp else "—"),
+            _tot(_fmt(sum_gift) if sum_gift else "—"),
+            _tot(_fmt(sum_other) if sum_other else "—"),
+            _tot((("+" if sum_diff > 0.004 else "") + _fmt(sum_diff))
+                 if any(c.cash_difference is not None for c in confirmed) else "—"),
             "",
         ])
 
-        col_widths = [23*mm, 24*mm, 25*mm, 22*mm, 24*mm, 22*mm, 23*mm, 22*mm, 21*mm, 20*mm, 22*mm, 22*mm]
+        # 270 mm: a Bilag column wide enough for "KR-20260925-VES3F2A" and its
+        # Dokument-id, money columns for "521.983,50 kr." in bold.
+        col_widths = [20*mm, 30*mm, 24*mm, 24*mm, 24*mm, 22*mm, 22*mm, 20*mm, 20*mm, 20*mm, 22*mm, 22*mm]
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 8),
-            ("FONTSIZE", (0, 1), (-1, -1), 8.5),
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
-            ("ALIGN", (2, 0), (10, -1), "RIGHT"),
-            ("ALIGN", (11, 0), (11, -1), "CENTER"),
-            ("ALIGN", (1, 0), (1, -1), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-            ("TOPPADDING", (0, 0), (-1, 0), 6),
-            ("BOTTOMPADDING", (0, 1), (-1, -2), 5),
-            ("TOPPADDING", (0, 1), (-1, -2), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+            ("TOPPADDING", (0, 0), (-1, 0), 5),
+            ("BOTTOMPADDING", (0, 1), (-1, -2), 4),
+            ("TOPPADDING", (0, 1), (-1, -2), 4),
             ("LINEBELOW", (0, 0), (-1, 0), 0.5, DIVIDER),
             ("LINEBELOW", (0, 1), (-1, -2), 0.25, DIVIDER),
             ("LINEABOVE", (0, -1), (-1, -1), 1, EMERALD),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
             ("BACKGROUND", (0, -1), (-1, -1), EMERALD_BG),
-            ("TEXTCOLOR", (0, -1), (-1, -1), EMERALD),
+            ("SPAN", (0, -1), (1, -1)),
         ]))
         story.append(table)
+
+        # The generic header needs its key: an amount with no note under it
+        # is BonBox's own standard-rate figure.
+        if not all_standard_rate:
+            story.append(Spacer(1, 3))
+            story.append(Paragraph(
+                f"<font color='#6b7280' size='7.5'>"
+                + (f"Salgsmoms uden note under beløbet = {escape_pdf_text(std_label)}, beregnet af BonBox."
+                   if DA else
+                   f"Output VAT with no note under the amount = {escape_pdf_text(std_label)}, calculated by BonBox.")
+                + "</font>", note))
 
         # ─── Per-row tie-out footnote (if any row was flagged) ───────────
         # Explains the amber "!" marker carried by any row — drafts included —
@@ -1372,14 +1505,56 @@ def build_daily_close_range_pdf(
                     note,
                 ))
 
+        # ─── Kilde, salgsmoms og historik pr. dag ────────────────────────
+        # What the Excel and the CSV carry per row, on the PDF too: one
+        # summary of where the figures came from, then each day that needs a
+        # word — a MOMS that is not BonBox's standard figure, a corrected
+        # scan, tills added together, an unlock and relock.
+        src_map = sources or {}
+        counts: dict = {}
+        notable = []
+        for c in closes_sorted:
+            cid = str(getattr(c, "id", "") or "")
+            src = (src_map.get(cid) or "").strip()
+            kind = src.split(" · ")[0] if src else L["src_none"]
+            counts[kind] = counts.get(kind, 0) + 1
+            parts = []
+            if row_label[id(c)] != std_label and not moms_is_unknown(c):
+                parts.append(row_label[id(c)])
+            if " · " in src:
+                parts.append(src)
+            if hist.get(cid):
+                parts.append(hist[cid])
+            if parts:
+                _bn = ((branch_names or {}).get(str(c.branch_id), "")
+                       if getattr(c, "branch_id", None) else "")
+                who = _date_short(c.date) + (f" ({_bn})" if _bn else "")
+                notable.append(f"{escape_pdf_text(who)}: " + escape_pdf_text(" · ".join(parts)))
+        if sources is not None or notable:
+            summary = " · ".join(
+                f"{escape_pdf_text(k)} {n} {L['src_day'] if n == 1 else L['src_days']}"
+                for k, n in counts.items())
+            block = [
+                Paragraph(f"<font color='#6b7280' name='Helvetica-Bold' size='8'>"
+                          f"{L['src_title']}</font>", note),
+            ]
+            if sources is not None:
+                block.append(Paragraph(
+                    f"<font color='#374151' size='8'>{L['src_summary']}: {summary}</font>", note))
+            for line in notable:
+                block.append(Paragraph(f"<font color='#374151' size='8'>{line}</font>", note))
+            story.append(Spacer(1, 6))
+            story.append(KeepTogether(block[:3]))
+            story.extend(block[3:])
+
         # ─── Readiness badge ─────────────────────────────────────────────
         # A close counts as "ready for booking" only when ALL three hold:
         # MOMS computed, cash drawer within ±100 (or not counted), AND
         # payments reconcile to revenue. The third condition is the honesty
         # fix — previously a close with a payment/revenue mismatch could still
         # claim "klar til bogføring".
-        ready_count = sum(1 for c in confirmed if ready_by_id.get(id(c)))
-        review = [c for c in confirmed if not ready_by_id.get(id(c))]
+        ready_count = sum(1 for c in confirmed if id(c) in ready_ids)
+        review = [c for c in confirmed if id(c) not in ready_ids]
         all_ready = (ready_count == n_conf and n_conf > 0)
         badge_color = EMERALD if all_ready else AMBER
         badge_bg = EMERALD_BG if all_ready else AMBER_BG
@@ -1522,23 +1697,26 @@ def build_daily_close_range_xlsx(
 
     # Localized headers — same vocabulary as the PDF for consistency.
     # Column 20 (T) is Status; the totals formula keys on it.
+    # B/C: the day's own kasserapport bilag number (KR-…) and the Dokument-id
+    # printed on it — the voucher a revisor matches the row to. The sales /
+    # expense voucher ranges keep their own columns at the end.
     H = (
-        ["Dato", "Bilag (salg)", "Bilag (udgift)",
+        ["Dato", "Bilagsnr.", "Dokument-id",
          "Omsætning", "Salgsmoms", "Netto (uden moms)",
          "Kontant", "Kort", "MobilePay", "Gavekort", "Bank", "Andet",
          "Betalinger i alt", "Forventet kontant", "Optalt kontant (uden byttepenge)",
          "Kassedifference",
          "Drikkepenge", "Antal medarbejdere", "Pr. medarbejder",
          "Status", "Lukket af", "Låst (dansk tid)", "Kilde", "Historik", "Bemærkninger",
-         "Afdeling"]
+         "Afdeling", "Momsopgørelse", "Bogføring", "Salgsbilag", "Udgiftsbilag"]
         if DA else
-        ["Date", "Sales voucher", "Expense voucher",
+        ["Date", "Voucher no.", "Document ID",
          "Revenue", "Salgsmoms", "Net (excl. VAT)",
          "Cash", "Card", "MobilePay", "Gavekort", "Bank transfer", "Other",
          "Payments total", "Expected cash", "Counted cash (float taken off)", "Cash diff",
          "Tips", "Staff count", "Per person",
          "Status", "Closed by", "Locked (local time)", "Source", "History", "Notes",
-         "Branch"]
+         "Branch", "VAT basis", "Bookkeeping", "Sales voucher", "Expense voucher"]
     )
     STATUS_COL = 20
     n_fixed = len(H)
@@ -1706,7 +1884,7 @@ def build_daily_close_range_xlsx(
         amounts, unsplit = _category_amounts(c)
         cid = str(getattr(c, "id", "") or "")
         row_values = [
-            c.date, vsales, vexp,
+            c.date, close_voucher_no(c, branch_names), close_doc_id(c),
             revenue, moms, net,
             pay["cash"] or None, pay["card"] or None, pay["mobilepay"] or None,
             pay["gift_card"] or None, pay["bank_transfer"] or None, pay["other"] or None,
@@ -1724,6 +1902,10 @@ def build_daily_close_range_xlsx(
             _row_history(c, history, tz, DA),
             remarks,
             ((branch_names or {}).get(str(c.branch_id), "") if getattr(c, "branch_id", None) else ""),
+            # The same MOMS label and verdict as the day's own kasserapport.
+            moms_basis_text(c, currency),
+            readiness_text(c, currency),
+            vsales, vexp,
         ]
         row_values += [amounts.get(k) for k in cats]
         row_values += [unsplit or None]
@@ -1752,8 +1934,7 @@ def build_daily_close_range_xlsx(
         last = len(sorted_closes) + 1
         totals_row = last + 1
         s_letter = get_column_letter(STATUS_COL)
-        label = (f"I alt (låste, {totals['n_confirmed']})" if DA
-                 else f"Totals (locked, {totals['n_confirmed']})")
+        label = totals_label(totals["n_confirmed"], DA)
         s2.cell(row=totals_row, column=1, value=label).font = bold
         fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
         sum_cols = list(range(4, 18)) + list(range(cat_col_start, len(H) + 1))
@@ -1782,8 +1963,8 @@ def build_daily_close_range_xlsx(
 
     # Column widths — wide enough for "1.234.567,89 kr." so a month over
     # 1 mio. kr. never shows ####.
-    widths = ([12, 16, 16] + [17] * 14 + [11, 15, 22, 16, 18, 22, 28, 32, 18]
-              + [17] * (len(H) - n_fixed))
+    widths = ([12, 22, 19] + [17] * 14 + [11, 15, 22, 16, 18, 22, 28, 32, 18]
+              + [30, 44, 18, 18] + [17] * (len(H) - n_fixed))
     for i, w in enumerate(widths, start=1):
         s2.column_dimensions[get_column_letter(i)].width = w
     s2.row_dimensions[1].height = 32

@@ -904,8 +904,9 @@ def test_range_row_netto_is_dashed_when_that_rows_moms_is_unknown():
     # Column order: Dato | Bilag | Omsætning | Moms | Netto | …
     known = cells.index("1. maj 2026")
     unknown = cells.index("2. maj 2026")
-    assert cells[known + 2:known + 5] == ["10.000,00 kr.", "2.000,00 kr.", "8.000,00 kr."]
-    assert cells[unknown + 2:unknown + 5] == ["10.000,00 kr.", "—", "—"]
+    # Dato | Bilag (KR-number, then its Dokument-id) | Omsætning | Moms | Netto
+    assert cells[known + 3:known + 6] == ["10.000,00 kr.", "2.000,00 kr.", "8.000,00 kr."]
+    assert cells[unknown + 3:unknown + 6] == ["10.000,00 kr.", "—", "—"]
 
 
 def test_range_moms_unknown_uses_the_same_predicate_as_the_kasserapport():
@@ -925,7 +926,7 @@ def test_range_moms_unknown_uses_the_same_predicate_as_the_kasserapport():
     # it does not print the stored 0,00 as if it were a calculated salgsmoms.
     cells = [ln.strip() for ln in txt.splitlines() if ln.strip()]
     row = cells.index("2. maj 2026")
-    assert cells[row + 2:row + 5] == ["5.000,00 kr.", "—", "—"]
+    assert cells[row + 3:row + 6] == ["5.000,00 kr.", "—", "—"]
 
 
 def test_range_xlsx_totals_do_not_state_a_dashed_moms_or_net():

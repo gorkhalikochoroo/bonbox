@@ -130,6 +130,14 @@ def close_labels(currency: str) -> dict[str, str]:
         "moms_excl":     "Omsætning (ekskl. moms)" if DA else "Revenue (excl. VAT)",
         "moms_manual":   "Moms angivet manuelt af kasseansvarlig." if DA
                          else "VAT entered manually by closer.",
+        "moms_zbon":     "Salgsmoms aflæst fra Z-bon." if DA
+                         else "Output VAT read off the Z-report.",
+        "moms_typed":    "Salgsmoms indtastet af kasseansvarlig." if DA
+                         else "Output VAT entered by the closer.",
+        "moms_other_rate": (" Den svarer til {eff} af omsætningen ekskl. moms, ikke "
+                            "standardsatsen {rate}.") if DA
+                           else (" It is {eff} of revenue excl. VAT, not the standard "
+                                 "rate {rate}."),
         "payments":      "BETALINGSMETODER" if DA else "PAYMENT METHODS",
         "total_pay":     "Betalinger i alt" if DA else "Total payments",
         "cash":          "KASSEBEHOLDNING" if DA else "CASH DRAWER",
@@ -230,6 +238,24 @@ def close_labels(currency: str) -> dict[str, str]:
             "allocated to any category. The stated total is the day's full "
             "revenue and is the basis for the VAT figures below."
         ),
+        "unsplit_note": (
+            "Omsætningen er ikke fordelt på kategorier. Omsætning i alt er dagens "
+            "samlede omsætning og er grundlaget for momsopgørelsen nedenfor."
+        ) if DA else (
+            "The revenue is not allocated to categories. The stated total is the "
+            "day's full revenue and is the basis for the VAT figures below."
+        ),
+        "unallocated_mixed_note": (
+            "Beløbet ovenfor er ikke fordelt på en kategori, og dagens salgsmoms er "
+            "ikke standardsatsen — så det kan ikke ses, hvilken del af omsætningen "
+            "der har hvilken momssats. Fordel omsætningen på kategorier, eller "
+            "kontrollér salgsmomsen mod Z-bonnen."
+        ) if DA else (
+            "The amount above is not allocated to a category, and the day's output "
+            "VAT is not the standard rate — so it cannot be seen which part of the "
+            "revenue carries which rate. Allocate the revenue, or check the VAT "
+            "against the Z-report."
+        ),
         # ── Payment methods — same tie-out rule as the revenue lines ──
         "pay_lines_sum":  "Linjer i alt" if DA else "Lines total",
         "pay_discrepancy": "Difference (i alt − linjer)" if DA
@@ -279,6 +305,28 @@ def close_labels(currency: str) -> dict[str, str]:
                          else "Output VAT calculated by BonBox from revenue.",
         "a_moms_manual": "Salgsmoms indtastet manuelt af kasseansvarlig." if DA
                          else "Output VAT entered manually by the closer.",
+        # A figure the owner typed or read off the Z-bon is named by its
+        # source, with the rate it actually works out to — never "25 %" over
+        # a number that is not 25 % of the base.
+        "a_moms_zbon_std":  ("Salgsmoms aflæst fra Z-bon — svarer til {rate} af "
+                             "omsætningen ekskl. moms.") if DA
+                            else ("Output VAT read off the Z-report — {rate} of revenue "
+                                  "excl. VAT."),
+        "a_moms_typed_std": ("Salgsmoms indtastet af kasseansvarlig — svarer til {rate} "
+                             "af omsætningen ekskl. moms.") if DA
+                            else ("Output VAT entered by the closer — {rate} of revenue "
+                                  "excl. VAT."),
+        "a_moms_zbon_other":  ("Salgsmoms aflæst fra Z-bon — svarer til {eff} af "
+                               "omsætningen ekskl. moms, ikke {rate}.") if DA
+                              else ("Output VAT read off the Z-report — {eff} of revenue "
+                                    "excl. VAT, not {rate}."),
+        "a_moms_typed_other": ("Salgsmoms indtastet af kasseansvarlig — svarer til {eff} "
+                               "af omsætningen ekskl. moms, ikke {rate}.") if DA
+                              else ("Output VAT entered by the closer — {eff} of revenue "
+                                    "excl. VAT, not {rate}."),
+        "a_moms_auto_other":  ("Salgsmoms svarer til {eff} af omsætningen ekskl. moms, "
+                               "ikke {rate}.") if DA
+                              else ("Output VAT is {eff} of revenue excl. VAT, not {rate}."),
         "a_moms_no":     "Salgsmoms ikke opgjort." if DA
                          else "Output VAT not calculated.",
         "a_cash_ok":     "Kontant optalt og afstemt." if DA
@@ -322,13 +370,24 @@ def close_labels(currency: str) -> dict[str, str]:
                          else "Revenue lines agree with the stated total.",
         "a_lines_off":   "Omsætningslinjer stemmer IKKE med Omsætning i alt." if DA
                          else "Revenue lines do NOT agree with the stated total.",
-        # Not an error — but not a pass either. A revisor needs to know that
-        # part of the day's revenue carries no category, because they are the
-        # one who has to book it somewhere.
-        "a_lines_partial": ("Omsætningsopdeling ufuldstændig — {amount} er ikke "
-                            "fordelt på en kategori.") if DA
-                           else ("Revenue breakdown incomplete — {amount} is not "
-                                 "allocated to any category."),
+        # ONE rule for revenue without a category, whether part of the day is
+        # unsplit or all of it (a total-only Z-bon). On a single-rate day the
+        # MOMS is taken from Omsætning i alt, so the unsplit amount is a NOTE
+        # the revisor reads — it never gates the heading. On a mixed-rate day
+        # (the MOMS is not the standard rate of the base) the unsplit part is
+        # exactly where the other rate could be, so the MOMS cannot be
+        # verified and the day is GENNEMGÅS. The verdict used to depend on how
+        # much the owner typed: a partial split failed, no split at all passed.
+        "a_lines_unsplit": ("Ikke fordelt på kategori: {amount} — salgsmomsen er "
+                            "opgjort af Omsætning i alt (én momssats).") if DA
+                           else ("Not allocated to a category: {amount} — output VAT "
+                                 "is calculated on the stated total (one VAT rate)."),
+        "a_lines_mixed":   ("Ikke fordelt på kategori: {amount} — salgsmomsen {rate}, "
+                            "så dagen har mere end én momssats, og momsen kan ikke "
+                            "efterprøves uden kategorier.") if DA
+                           else ("Not allocated to a category: {amount} — output VAT "
+                                 "{rate}, so the day has more than one VAT rate and "
+                                 "the VAT cannot be verified without categories."),
         "a_pay_ok":      "Betalingslinjer stemmer med Betalinger i alt." if DA
                          else "Payment lines agree with the stated total.",
         "a_pay_off":     "Betalingslinjer stemmer IKKE med Betalinger i alt." if DA
@@ -442,6 +501,155 @@ def moms_unknown_key(dc: Any, balance: RevenueBalance | None = None) -> str | No
 def moms_is_unknown(dc: Any) -> bool:
     """True when this close's salgsmoms cannot honestly be stated."""
     return moms_unknown_key(dc) is not None
+
+
+# ── ONE MOMS-rate rule — every artifact that names a VAT rate reads it ──────
+#
+# "Salgsmoms (25 %)" was printed over any figure: a manual 2.500 on 15.000 kr.
+# (20 % of the base) carried the 25 % label on the kasserapport and in the lock
+# mail, while the period PDF quietly dropped the rate for the same day. One
+# predicate now says whether a close's MOMS IS the standard rate of its base,
+# and one label function words it — by its source when a person typed it or
+# read it off the Z-bon, with the rate it actually works out to when that is
+# not the standard rate. Compared in KRONER (a rate tolerance loose enough for
+# øre rounding on a small day swallows a real 242 kr. deviation on a big one).
+
+MOMS_RATE_KR_TOL = 1.00
+
+
+def vat_rate_for(currency: str) -> float:
+    """The statutory rate for the owner's currency (DKK → 0,25)."""
+    try:
+        from app.services.tax_service import _get_vat_rate
+        return float(_get_vat_rate(currency or "DKK"))
+    except Exception:  # noqa: BLE001
+        return 0.25
+
+
+def moms_source(dc: Any) -> str:
+    """'auto' (BonBox calculated it), 'zbon' (read off the Z-bon) or 'typed'."""
+    if (getattr(dc, "moms_mode", None) or "auto").lower() != "manual":
+        return "auto"
+    raw = getattr(dc, "source_meta", None)
+    kind = None
+    if raw:
+        try:
+            import json as _json
+            meta = raw if isinstance(raw, dict) else _json.loads(raw)
+            kind = meta.get("kind") if isinstance(meta, dict) else None
+        except Exception:  # noqa: BLE001
+            kind = None
+    if kind == "zbon" or (kind is None and getattr(dc, "receipt_photo", None)):
+        return "zbon"
+    return "typed"
+
+
+def moms_rate_info(dc: Any, currency: str = "DKK",
+                   balance: RevenueBalance | None = None) -> dict:
+    """How this close's MOMS stands against the statutory rate.
+
+    {"known": bool, "standard": bool | None, "mixed": bool,
+     "effective_pct": float | None, "rate_pct": float}
+
+    ``standard`` — the stored MOMS is the standard rate of the stored base
+    (net × rate, within 1 kr.). For a BonBox-calculated figure on a net-price
+    account the base is the revenue itself (rate × revenue) — that is the same
+    rate, computed the other way round. ``mixed`` — known and NOT the standard
+    rate: part of the day carries another rate (momsfri sales, a scanned Z-bon
+    with two rates), so an unsplit part of the revenue cannot be verified.
+    """
+    rate = vat_rate_for(currency)
+    out = {"known": False, "standard": None, "mixed": False,
+           "effective_pct": None, "rate_pct": round(rate * 100, 1)}
+    if moms_unknown_key(dc, balance) is not None:
+        return out
+    moms = _f(getattr(dc, "moms_total", None)) or 0.0
+    rev = _f(getattr(dc, "revenue_total", None)) or 0.0
+    ex = _f(getattr(dc, "revenue_ex_moms", None))
+    if ex is None:
+        ex = rev - moms
+    out["known"] = True
+    if abs(ex) > 0.005:
+        out["effective_pct"] = round(moms / ex * 100.0, 1)
+    if abs(rev) <= TIE_TOL and abs(moms) <= TIE_TOL:
+        out["standard"] = True
+        return out
+    standard = abs(moms - ex * rate) <= MOMS_RATE_KR_TOL
+    if not standard and moms_source(dc) == "auto":
+        standard = abs(moms - rev * rate) <= MOMS_RATE_KR_TOL
+    out["standard"] = standard
+    out["mixed"] = not standard
+    return out
+
+
+def pct_text(pct: float | None, danish: bool = True) -> str:
+    """'25 %' / '16,7 %' — whole numbers without a decimal."""
+    if pct is None:
+        return ""
+    v = round(float(pct), 1)
+    s = f"{v:.0f}" if abs(v - round(v)) < 0.05 else f"{v:.1f}"
+    return (s.replace(".", ",") if danish else s) + " %"
+
+
+def moms_label(dc: Any, currency: str = "DKK", info: dict | None = None) -> str:
+    """THE label for this close's salgsmoms — the kasserapport, the lock mail,
+    the period PDF, the Excel and the CSV print exactly this for the same day.
+
+      BonBox-calculated, standard rate   → "Salgsmoms (25 %)"
+      read off the Z-bon / typed, 25 %   → "Salgsmoms (fra Z-bon)" / "(indtastet)"
+      not the standard rate              → "Salgsmoms (fra Z-bon, svarer til 16,7 %)"
+      cannot be stated                   → "Salgsmoms"
+    """
+    DA = (currency or "").upper() == "DKK"
+    info = info or moms_rate_info(dc, currency)
+    base = "Salgsmoms" if DA else "Output VAT"
+    if not info["known"]:
+        return base
+    src = moms_source(dc)
+    parts = []
+    if src == "zbon":
+        parts.append("fra Z-bon" if DA else "from the Z-report")
+    elif src == "typed":
+        parts.append("indtastet" if DA else "entered")
+    if info["standard"]:
+        if src == "auto":
+            parts.append(pct_text(info["rate_pct"], DA))
+    elif info["effective_pct"] is not None:
+        parts.append(("svarer til " if DA else "equals ") + pct_text(info["effective_pct"], DA))
+    return f"{base} ({', '.join(parts)})" if parts else base
+
+
+def standard_moms_label(currency: str = "DKK") -> str:
+    """The label of a BonBox-calculated standard-rate day ('Salgsmoms (25 %)')."""
+    DA = (currency or "").upper() == "DKK"
+    return f"{'Salgsmoms' if DA else 'Output VAT'} ({pct_text(vat_rate_for(currency) * 100, DA)})"
+
+
+# ── The cash difference in words — one sentence, one full stop ──────────────
+
+def cash_diff_words(diff: Any, currency: str = "DKK") -> str:
+    """'Kassen mangler 180,00 kr.' / 'Der er 25,00 kr. for meget i kassen' /
+    'Kassen stemmer' — the app's own words. No sentence-final punctuation is
+    added here: a money token already ends in 'kr.', and 'kr..' was printed on
+    every short day and in every copy mailed to the revisor."""
+    DA = (currency or "").upper() == "DKK"
+    d = _f(diff)
+    if d is None:
+        return ""
+    if abs(d) < 0.005:
+        return "Kassen stemmer" if DA else "Cash matches"
+    amt = money_dk(abs(d), currency)
+    if d < 0:
+        return f"Kassen mangler {amt}" if DA else f"Cash short by {amt}"
+    return f"Der er {amt} for meget i kassen" if DA else f"Cash over by {amt}"
+
+
+def as_sentence(text: str) -> str:
+    """End `text` with exactly one full stop."""
+    t = (text or "").rstrip()
+    if not t:
+        return ""
+    return t if t.endswith(".") else t + "."
 
 
 def local_dt(dt: Any, tz: Any = None):
@@ -591,6 +799,20 @@ def build_close_claims(
 
     unknown_key = moms_unknown_key(dc, bal)
     moms_unknown_reason = L[unknown_key] if unknown_key else None
+    rate_info = moms_rate_info(dc, currency, bal)
+    src = moms_source(dc)
+    rate_txt = pct_text(rate_info["rate_pct"], DA)
+    eff_txt = pct_text(rate_info["effective_pct"], DA)
+
+    # Revenue no category carries — part of the day (a partial split) or all
+    # of it (a total-only Z-bon). The SAME fact in both cases, so the SAME
+    # line and the same verdict (see a_lines_unsplit / a_lines_mixed).
+    if bal.contradicts:
+        unallocated = None
+    elif bal.has_lines:
+        unallocated = discrepancy if bal.partial_split else None
+    else:
+        unallocated = revenue_total if abs(revenue_total) > TIE_TOL else None
 
     if moms_unknown_reason:
         moms_block = {
@@ -618,10 +840,15 @@ def build_close_claims(
 
         if moms_unknown_reason:
             checks.append({"ok": False, "text": L["a_moms_no"], "check": "moms"})
-        elif moms_mode == "manual":
-            # Computed by a person, not by BonBox. True, and said as such — a
-            # manually keyed figure is not one this software can vouch for.
-            checks.append({"ok": True, "text": L["a_moms_manual"], "check": "moms"})
+        elif src in ("zbon", "typed"):
+            # Computed by a person (or read off the bon), not by BonBox — said
+            # as such, with the rate the figure actually works out to.
+            key = f"a_moms_{src}_{'std' if rate_info['standard'] else 'other'}"
+            checks.append({"ok": True, "check": "moms",
+                           "text": L[key].format(rate=rate_txt, eff=eff_txt or "—")})
+        elif rate_info["standard"] is False and eff_txt:
+            checks.append({"ok": True, "check": "moms",
+                           "text": L["a_moms_auto_other"].format(rate=rate_txt, eff=eff_txt)})
         else:
             checks.append({"ok": True, "text": L["a_moms_auto"], "check": "moms"})
 
@@ -667,21 +894,32 @@ def build_close_claims(
                          else L["a_bilag_none"]),
             })
 
-        # Only when there ARE lines. A close with no revenue breakdown at all
-        # used to report "✓ Omsætningslinjer stemmer med Omsætning i alt" —
-        # a pass for a check with nothing to check, in a band whose entire
-        # purpose is showing the revisor which checks actually ran.
-        if bal.has_lines:
-            if ties_out:
-                checks.append({"ok": True, "text": L["a_lines_ok"], "check": "lines"})
-            elif bal.partial_split:
+        # The lines check. "✓ Omsætningslinjer stemmer" only when there ARE
+        # lines and they tie out — never a pass for a check with nothing to
+        # check. Revenue without a category, whether part of the day or all
+        # of it, follows ONE rule: a note on a single-rate day, a failure on
+        # a mixed-rate day (its MOMS cannot be verified). Lines that
+        # contradict the total always fail.
+        if bal.contradicts:
+            checks.append({"ok": False, "text": L["a_lines_off"], "check": "lines"})
+        elif unallocated is not None:
+            if rate_info["mixed"]:
+                rate_words = (
+                    (f"svarer til {eff_txt}, ikke {rate_txt}" if DA
+                     else f"is {eff_txt}, not {rate_txt}") if eff_txt
+                    else (f"er ikke {rate_txt}" if DA else f"is not {rate_txt}")
+                )
                 checks.append({
-                    "ok": False,
-                    "text": L["a_lines_partial"].format(amount=fmt(discrepancy)),
-                    "check": "lines",
+                    "ok": False, "check": "lines",
+                    "text": L["a_lines_mixed"].format(amount=fmt(unallocated), rate=rate_words),
                 })
             else:
-                checks.append({"ok": False, "text": L["a_lines_off"], "check": "lines"})
+                checks.append({
+                    "ok": True, "info": True, "check": "lines",
+                    "text": L["a_lines_unsplit"].format(amount=fmt(unallocated)),
+                })
+        elif bal.has_lines and ties_out:
+            checks.append({"ok": True, "text": L["a_lines_ok"], "check": "lines"})
 
         if method_items:
             checks.append({
@@ -720,6 +958,9 @@ def build_close_claims(
             "heading": L["ready"] if all_ok else L["review"],
             "all_ok": all_ok,
             "checks": checks,
+            # The failing lines in order — what every other artifact (Excel,
+            # CSV, the mail) prints after "Gennemgås", word for word.
+            "failing": [c["text"] for c in checks if not c["ok"] and not c.get("info")],
             # Reported even when it does not gate the heading — "ok" / "off" /
             # "not_recorded". A caller (or a founder deciding whether a
             # revenue-only close may be certified book-ready) can see the third
@@ -785,11 +1026,30 @@ def build_close_claims(
         ),
         "discrepancy_note": (
             None if ties_out
-            else (L["unallocated_note"] if bal.partial_split else L["discrepancy_note"])
+            else ((L["unallocated_mixed_note"] if rate_info["mixed"] else L["unallocated_note"])
+                  if bal.partial_split else L["discrepancy_note"])
         ),
+        # Muted for a note, amber when it gates: a contradiction, or revenue
+        # without a category on a mixed-rate day.
         "discrepancy_tone": (
-            None if ties_out else ("muted" if bal.partial_split else "amber")
+            None if ties_out
+            else ("amber" if (bal.contradicts or rate_info["mixed"]) else "muted")
         ),
+        # A total-only close (no lines at all) shows the same "Ikke fordelt på
+        # kategori" line the partial split shows — the OMSÆTNING block used to
+        # vanish, so the two looked like different kinds of day.
+        "unsplit_total": (
+            fmt(unallocated) if (unallocated is not None and not bal.has_lines) else None
+        ),
+        "unsplit_note": (
+            (L["unallocated_mixed_note"] if rate_info["mixed"] else L["unsplit_note"])
+            if (unallocated is not None and not bal.has_lines) else None
+        ),
+        "unsplit_tone": (
+            ("amber" if rate_info["mixed"] else "muted")
+            if (unallocated is not None and not bal.has_lines) else None
+        ),
+        "unallocated_value": unallocated,
         "total_revenue": fmt(revenue_total),
         "payment_lines": payment_lines,
         "payment_ties_out": payment_ties_out,
@@ -809,6 +1069,11 @@ def build_close_claims(
         "total_payment": fmt(payment_total),
         "moms": moms_block,
         "moms_unknown_reason": moms_unknown_reason,
+        # The ONE label rule (moms_label) — never "25 %" over a figure that is
+        # not 25 % of the base.
+        "moms_label": moms_label(dc, currency, rate_info),
+        "moms_rate": rate_info,
+        "moms_source": src,
         # Stated, but with its basis named. Not a warning — the figure is
         # sound; the reader is simply told the lines above do not itemise all
         # of what it was computed on.
@@ -817,8 +1082,12 @@ def build_close_claims(
             if (bal.partial_split and not moms_unknown_reason) else None
         ),
         "moms_manual_note": (
-            L["moms_manual"] if (moms_mode == "manual" and not moms_unknown_reason)
-            else None
+            (L["moms_zbon"] if src == "zbon" else L["moms_typed"])
+            + (L["moms_other_rate"].format(eff=eff_txt, rate=rate_txt)
+               if (rate_info["mixed"] and eff_txt) else "")
+            if (src != "auto" and not moms_unknown_reason)
+            else (L["moms_other_rate"].format(eff=eff_txt, rate=rate_txt).strip()
+                  if (rate_info["mixed"] and eff_txt and not moms_unknown_reason) else None)
         ),
         "assurance": assurance,
         "locked_at_local": locked_local,
@@ -830,3 +1099,35 @@ def build_close_claims(
             else f"kasserapport_kladde_{iso}.pdf"
         ),
     }
+
+
+# ── One readiness verdict for every artifact ─────────────────────────────────
+
+def close_readiness(dc: Any, currency: str = "DKK", *, has_bilag: bool = False) -> dict:
+    """The kasserapport's own verdict for `dc`, for the artifacts that print
+    it without drawing the band — the period PDF badge, the Excel and CSV
+    "Bogføring" column and the lock mail. Derived by build_close_claims, so a
+    day can never read KLAR in one place and GENNEMGÅS in another.
+
+    {"locked": bool, "ready": bool | None, "heading": str | None,
+     "failing": [str]} — ready/heading are None for a draft (no verdict)."""
+    c = build_close_claims(dc, currency=currency, has_bilag=has_bilag)
+    a = c["assurance"]
+    if not a:
+        return {"locked": False, "ready": None, "heading": None, "failing": []}
+    return {"locked": True, "ready": bool(a["all_ok"]), "heading": a["heading"],
+            "failing": list(a.get("failing") or [])}
+
+
+def readiness_text(dc: Any, currency: str = "DKK", *, verdict: dict | None = None) -> str:
+    """'Klar til bogføring' / 'Gennemgås: Kontant optalt — …' / '' (a draft)
+    — the cell the Excel and the CSV print, in the band's own words."""
+    DA = (currency or "").upper() == "DKK"
+    v = verdict or close_readiness(dc, currency)
+    if not v["locked"]:
+        return ""
+    if v["ready"]:
+        return "Klar til bogføring" if DA else "Ready for bookkeeping"
+    reasons = "; ".join(t.rstrip(".") for t in v["failing"])
+    lead = "Gennemgås" if DA else "Needs review"
+    return f"{lead}: {reasons}" if reasons else lead

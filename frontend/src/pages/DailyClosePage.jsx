@@ -57,6 +57,7 @@ import {
 
 const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
 import { saveFile } from "../utils/download";
+import { exportPieces, previousQuarter, spanDays } from "../utils/exportPieces";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
@@ -165,7 +166,9 @@ async function parseExportError(err, t = englishOnly) {
 
   if (status === 402 && inner && typeof inner === "object" && inner.code === "plan_cap_exceeded") {
     return {
-      message: inner.message || t("planCapTooltipNative", "Your plan exports up to {days} days.", { days: inner.cap_days || "?" }),
+      // The owner's language, and the way forward — the server's English
+      // "Upgrade to Pro…" reached the Danish UI word for word.
+      message: t("dcRangeOverCapShort", "Your plan exports up to {cap} days at a time — get the period in parts.", { cap: inner.cap_days || "?" }),
       isPlanCap: true,
       capDays: inner.cap_days,
       planTier: inner.plan,
@@ -5632,8 +5635,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     d.setDate(d.getDate() - n);
     return _localIso(d);
   };
-  const [rangePreset, setRangePreset] = useState("7d"); // 7d | 14d | 1m | 3m | custom
-  const [customFrom, setCustomFrom] = useState(isoDaysAgo(7));
+  const [rangePreset, setRangePreset] = useState("7d"); // 7d | 14d | 1m | prev | prevq | 3m | custom
+  // A 7-day span (today and the six before it) — the old default was 8 days,
+  // already over the Free window the moment "Brugerdefineret" was tapped.
+  const [customFrom, setCustomFrom] = useState(isoDaysAgo(6));
   const [customTo, setCustomTo] = useState(todayIso());
   const [exportingFmt, setExportingFmt] = useState(null); // 'pdf' | 'csv' | 'xlsx' | null
   // Accountant-send format chooser. Persisted so the user doesn't
@@ -5716,6 +5721,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     if (rangePreset === "14d") return { from: isoDaysAgo(13), to };
     if (rangePreset === "1m") return { from: isoDaysAgo(29), to };
     if (rangePreset === "3m") return { from: isoDaysAgo(89), to };
+    if (rangePreset === "prevq") {
+      // The calendar quarter before this one — the MOMS period.
+      return previousQuarter(to);
+    }
     if (rangePreset === "prev") {
       // The calendar month before this one — what a revisor books.
       const [y, m] = to.split("-").map(Number);
@@ -5738,6 +5747,23 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to).length,
     [data, activeRange],
   );
+  // The LOCKED closes in the range — each has its own kasserapport.
+  const lockedInRange = useMemo(
+    () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to
+      && (dc.status || "confirmed") === "confirmed"),
+    [data, activeRange],
+  );
+
+  // The plan's export window against the chosen range — said BEFORE anything
+  // is generated, with the pieces the plan allows as one-tap buttons. The cap
+  // UI stays silent until /billing/me has answered (exportCapDays < 366).
+  const rangeSpan = spanDays(activeRange.from, activeRange.to);
+  const overCap = exportCapDays < 366 && rangeSpan > exportCapDays;
+  const pieces = useMemo(
+    () => (overCap ? exportPieces(activeRange.from, activeRange.to, exportCapDays) : { kind: "fits", pieces: [] }),
+    [overCap, activeRange, exportCapDays],
+  );
+  const [pieceBusy, setPieceBusy] = useState(null);
 
   // ── Smart default + empty-range guidance ─────────────────────────
   // Most owners don't close EVERY day, so a fixed "Last 7 days" default
@@ -5804,11 +5830,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   };
 
-  const downloadRange = async (fmt) => {
+  const downloadRange = async (fmt, range = activeRange) => {
     setExportingFmt(fmt);
     setExportError("");
     try {
-      const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
+      const url = `/daily-close/export.${fmt}?from=${range.from}&to=${range.to}`;
       const res = await api.get(url, { responseType: "blob" });
       const blob = new Blob([res.data], { type: _MIME[fmt] || "application/octet-stream" });
       // Through the one delivery helper: this block revoked the blob URL in the
@@ -5816,7 +5842,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // file on Safari and an ignored click on Firefox. A not-ok outcome is the
       // only signal the owner gets, so it reaches the same banner as a 402.
       // The server's name: "Kasserapporter <firma> <fra>–<til>.xlsx".
-      const out = await saveFile(blob, filenameFromResponse(res, `Kasserapporter ${activeRange.from}–${activeRange.to}.${fmt}`), {
+      const out = await saveFile(blob, filenameFromResponse(res, `Kasserapporter ${range.from}–${range.to}.${fmt}`), {
         type: _MIME[fmt] || "application/octet-stream",
       });
       if (!out.ok) setExportError(t("dcExportFailed"));
@@ -5833,6 +5859,39 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     } finally {
       setExportingFmt(null);
     }
+  };
+
+  // One piece of an over-window period, in the format chosen for the revisor.
+  const downloadPiece = async (piece) => {
+    setPieceBusy(`${piece.from}_${piece.to}`);
+    try {
+      await downloadRange(accountantFmt, piece);
+    } finally {
+      setPieceBusy(null);
+    }
+  };
+  // One day's own kasserapport (the single-close PDF) — on every plan.
+  const downloadDayPdf = async (dc) => {
+    setPieceBusy(`day_${dc.id}`);
+    setExportError("");
+    try {
+      const res = await api.get(`/daily-close/${dc.id}/pdf`, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const out = await saveFile(blob, filenameFromResponse(res, `Kasserapport ${dc.date}.pdf`), { type: "application/pdf" });
+      if (!out.ok) setExportError(t("dcExportFailed"));
+    } catch (e) {
+      const parsed = await parseExportError(e, t);
+      setExportError(parsed.message);
+    } finally {
+      setPieceBusy(null);
+    }
+  };
+  const pieceLabel = (piece) => {
+    if (piece.wholeMonth) {
+      const month = new Date(`${piece.from}T12:00:00`).toLocaleDateString(dateLocale(), { month: "long" });
+      return t("dcPieceMonth", "Get {month}", { month });
+    }
+    return t("dcPieceRange", "Get {from} – {to}", { from: shortRangeDay(piece.from), to: shortRangeDay(piece.to) });
   };
 
   /**
@@ -6309,51 +6368,35 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           {t("exportToAccountantDesc", "Pick a period. Excel is for your revisor's bookkeeping, PDF is an overview, and the CSV opens in Danish Excel (semicolon, decimal comma). Drafts are listed but never counted.")}
         </p>
 
-        {/* Preset buttons — cap-aware. Each preset declares its own
-            day count; if it exceeds the user's tier cap, it renders
-            disabled with a lock icon + upgrade tooltip. Backend re-checks
-            (defense in depth) and returns 402 if anyone bypasses. */}
+        {/* Preset buttons. None is locked: a period longer than the plan's
+            export window is still the owner's to choose — the panel then says
+            so before anything is generated and offers the pieces the plan
+            allows (see the over-window notice below). The backend still
+            enforces the window (402) whatever the client does. */}
         <div className="flex flex-wrap gap-2 mb-3">
           {[
-            { id: "7d",     label: t("rangePreset7d", "Last 7 days"),   days: 7 },
-            { id: "14d",    label: t("rangePreset14d", "Last 14 days"),  days: 14 },
-            { id: "1m",     label: t("rangePreset1m", "Last 1 month"),  days: 31 },
-            { id: "prev",   label: t("rangePresetPrevMonth", "Last month"), days: 31 },
-            { id: "3m",     label: t("rangePreset3m", "Last 3 months"), days: 90 },
-            { id: "custom", label: t("rangePresetCustom", "Custom"),     days: 0 },
+            { id: "7d",     label: t("rangePreset7d", "Last 7 days") },
+            { id: "14d",    label: t("rangePreset14d", "Last 14 days") },
+            { id: "1m",     label: t("rangePreset1m", "Last 1 month") },
+            { id: "prev",   label: t("rangePresetPrevMonth", "Last month") },
+            { id: "prevq",  label: t("rangePresetPrevQuarter", "Last quarter") },
+            { id: "3m",     label: t("rangePreset3m", "Last 3 months") },
+            { id: "custom", label: t("rangePresetCustom", "Custom") },
           ].map(p => {
-            // Custom is always allowed at the button level — the
-            // date pickers themselves enforce the cap (max attribute
-            // + range validation on submit).
-            const locked = p.days > 0 && p.days > exportCapDays;
             const isActive = rangePreset === p.id;
             return (
               <button
                 key={p.id}
-                onClick={() => { if (!locked) { userPickedRange.current = true; setRangePreset(p.id); } }}
-                disabled={locked}
-                title={locked
-                  // App Store compliance (Apple 3.1.1): native tooltip drops
-                  // the "Upgrade to Pro" pitch — factual cap only.
-                  ? (isNativeApp()
-                      ? (t("planCapTooltipNative", "Your plan exports up to {days} days."))
-                          .replace("{days}", String(exportCapDays))
-                      : (t("planCapTooltip", "{tier} plan exports up to {days} days. Upgrade to Pro for full year."))
-                          .replace("{tier}", planTier === "free" ? "Free" : planTier)
-                          .replace("{days}", String(exportCapDays)))
-                  : ""}
+                onClick={() => { userPickedRange.current = true; setRangePreset(p.id); }}
                 aria-pressed={isActive}
                 // The app's selected state in both themes: in dark the chosen
                 // range was the DARKEST button and read as the unselected one.
                 className={`px-3 min-h-10 sm:min-h-8 rounded-lg text-[13px] sm:text-xs font-semibold border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 ${
-                  locked
-                    ? "bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed"
-                    : isActive
-                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-gray-300"
+                  isActive
+                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                    : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-gray-300"
                 }`}
               >
-                {locked && <Icon name="Lock" size={12} className="inline align-text-bottom mr-1" />}
                 {p.label}
               </button>
             );
@@ -6388,9 +6431,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         )}
 
         {/* Custom range pickers — shown only when preset === 'custom'.
-            The "From" min is computed from the user's tier cap so they
-            literally can't pick a date earlier than allowed. "To" is
-            today. Backend re-validates (defense in depth). */}
+            Any past day can start a range: the plan's window limits how many
+            days ONE export spans, not how far back it may start (the picker
+            used to grey out everything before "today minus the window", so a
+            Starter owner could not pick July at all). A range longer than the
+            window gets the pieces notice below. */}
         {rangePreset === "custom" && (
           <div>
             <div className="flex flex-wrap items-end gap-3 mb-3">
@@ -6399,7 +6444,6 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 <input
                   type="date"
                   value={customFrom}
-                  min={isoDaysAgo(exportCapDays - 1)}
                   max={customTo}
                   onChange={(e) => setCustomFrom(e.target.value)}
                   className="block mt-1 px-3 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
@@ -6417,22 +6461,58 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 />
               </label>
             </div>
-            {/* Custom-range cap hint — shown only if the user's
-                custom span exceeds their cap. Useful when they
-                manually picked dates further apart than allowed. */}
-            {(() => {
-              const span = Math.floor(
-                (new Date(customTo).getTime() - new Date(customFrom).getTime()) / 86400000
-              ) + 1;
-              if (span > exportCapDays) {
-                return (
-                  <p className="mb-2 text-[11px] text-amber-700 dark:text-amber-400">
-                    <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("dcRangeExceedsCap", "This range is {span} days — your plan caps at {cap}. The export will be rejected by the server.", { span, cap: exportCapDays })} {canPurchaseInApp() && (<Link to="/subscription" className="underline font-semibold">{t("dcUpgradeQuestion", "Upgrade?")}</Link>)}
-                  </p>
-                );
-              }
-              return null;
-            })()}
+          </div>
+        )}
+
+        {/* Longer than the plan's export window: said plainly, BEFORE anything
+            is generated, with the allowed pieces as one-tap buttons — never a
+            dead end and never only an upgrade wall. */}
+        {overCap && (
+          <div data-testid="dc-over-cap" className="mb-3 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[12px] text-amber-800 dark:text-amber-200" role="status">
+            <p className="flex items-start gap-2">
+              <Icon name="Info" size={14} className="shrink-0 mt-0.5" />
+              <span>
+                {pieces.kind === "months"
+                  ? t("dcRangeOverCapMonths", "This period is {span} days. Your plan exports up to {cap} days at a time — get it month by month as {format}:", {
+                      span: rangeSpan, cap: exportCapDays, format: FMT_LABEL[accountantFmt] || accountantFmt })
+                  : t("dcRangeOverCapTail", "This period is {span} days. Your plan exports up to {cap} days at a time — get the last {cap} days as {format}, or each day's own kasserapport (PDF):", {
+                      span: rangeSpan, cap: exportCapDays, format: FMT_LABEL[accountantFmt] || accountantFmt })}
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {pieces.pieces.map((piece) => (
+                <Button key={`${piece.from}_${piece.to}`} size="sm" variant="secondary"
+                  className="border border-amber-300 dark:border-amber-700 max-sm:h-10"
+                  busy={pieceBusy === `${piece.from}_${piece.to}`}
+                  disabled={!!pieceBusy || !!exportingFmt}
+                  onClick={() => downloadPiece(piece)}
+                  iconLeft={<Icon name="Download" size={13} />}>
+                  {pieces.kind === "tail"
+                    ? t("dcPieceLastDays", "Last {n} days ({from} – {to})", { n: exportCapDays, from: shortRangeDay(piece.from), to: shortRangeDay(piece.to) })
+                    : pieceLabel(piece)}
+                </Button>
+              ))}
+            </div>
+            {pieces.kind === "tail" && lockedInRange.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2" aria-label={t("dcPieceDaysLabel", "Each day's kasserapport")}>
+                {[...lockedInRange].sort((a, b) => (a.date < b.date ? -1 : 1)).map((dc) => (
+                  <button key={dc.id} type="button" onClick={() => downloadDayPdf(dc)}
+                    disabled={!!pieceBusy}
+                    className="px-2 min-h-8 max-sm:min-h-10 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 text-[12px] font-medium text-gray-800 dark:text-gray-100 disabled:opacity-50">
+                    {t("dcPieceDay", "Kasserapport {date}", { date: shortRangeDay(dc.date) })}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!isNativeApp() && canPurchaseInApp() && (
+              <p className="mt-2">
+                <Link to="/subscription" className="underline font-semibold hover:no-underline">
+                  {exportCapDays < 31
+                    ? t("dcRangeOverCapUpgradeStarter", "The whole period in one file: Starter →")
+                    : t("dcRangeOverCapUpgradePro", "The whole period in one file: Pro →")}
+                </Link>
+              </p>
+            )}
           </div>
         )}
 
@@ -6461,7 +6541,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               variant="primary"
               onClick={() => downloadRange("xlsx")}
               busy={exportingFmt === "xlsx"}
-              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
               iconLeft={exportingFmt === "xlsx" ? null : <Icon name="BarChart3" size={14} />}
               title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
             >
@@ -6472,7 +6552,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               variant="secondary"
               onClick={() => downloadRange("pdf")}
               busy={exportingFmt === "pdf"}
-              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
               iconLeft={exportingFmt === "pdf" ? null : <Icon name="FileText" size={14} />}
               className="border border-gray-200 dark:border-gray-700"
               title={t("pdfTooltip", "One-pager — easy to read, not editable")}
@@ -6484,7 +6564,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               variant="secondary"
               onClick={() => downloadRange("csv")}
               busy={exportingFmt === "csv"}
-              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+              disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
               iconLeft={exportingFmt === "csv" ? null : <Icon name="FileSpreadsheet" size={14} />}
               className="border border-gray-200 dark:border-gray-700"
               title={t("csvTooltip", "Semicolon + decimal comma — opens in Danish Excel")}
@@ -6509,7 +6589,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               </select>
               <button
                 onClick={sendToAccountant}
-                disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
+                disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
                 className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-gray-700 dark:disabled:text-gray-300 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
                   businessProfile?.accountant_email

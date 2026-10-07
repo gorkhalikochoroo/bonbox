@@ -276,7 +276,10 @@ def test_manual_moms_is_stated_but_attributed_to_the_closer():
     assert c["moms"]["vat"] == "2.000,00 kr."
     assert c["moms_manual_note"] is not None
     moms_check = next(x for x in c["assurance"]["checks"] if x["check"] == "moms")
-    assert moms_check["text"] == "Salgsmoms indtastet manuelt af kasseansvarlig."
+    # Named by its source, with the rate it actually works out to.
+    assert moms_check["text"] == ("Salgsmoms indtastet af kasseansvarlig — svarer til 25 % "
+                                  "af omsætningen ekskl. moms.")
+    assert c["moms_label"] == "Salgsmoms (indtastet)"
 
 
 def test_manual_mode_zero_vat_is_allowed():
@@ -674,12 +677,14 @@ def test_an_incomplete_split_is_not_called_a_discrepancy():
 
 
 def test_an_incomplete_split_is_still_reported_in_the_band():
-    """Not an error, but not a pass either — a revisor has to book the
-    unallocated amount somewhere."""
+    """Reported — a revisor has to book the unallocated amount somewhere — but
+    as a NOTE on a single-rate day: the MOMS is taken from Omsætning i alt, so
+    nothing about the day is in doubt. (It used to fail the day, while the same
+    Z-bon with no split at all passed.)"""
     a = _claims(_partial_ocr_close(), has_bilag=True)["assurance"]
     lines = next(c for c in a["checks"] if c["check"] == "lines")
-    assert lines["ok"] is False
-    assert "17.028,18 kr." in lines["text"]
+    assert lines["ok"] is True and lines.get("info") is True
+    assert lines["text"].startswith("Ikke fordelt på kategori: 17.028,18 kr.")
 
 
 def test_lines_that_CONTRADICT_the_total_still_dash_the_moms():
@@ -711,8 +716,12 @@ def test_a_close_with_no_categories_makes_no_tie_out_claim():
     a = _claims(_good_close(revenue_categories=None, revenue_total=17030.0,
                             moms_total=3406.0, revenue_ex_moms=13624.0),
                 has_bilag=True)["assurance"]
-    assert "lines" not in {c["check"] for c in a["checks"]}
     assert not any("Omsætningslinjer" in c["text"] for c in a["checks"])
+    # What it does say is the same note a partial split gets — information,
+    # never a pass for a check that did not run.
+    lines = next(c for c in a["checks"] if c["check"] == "lines")
+    assert lines.get("info") is True
+    assert lines["text"].startswith("Ikke fordelt på kategori: 17.030,00 kr.")
 
 
 def test_a_close_with_no_categories_can_still_be_ready():

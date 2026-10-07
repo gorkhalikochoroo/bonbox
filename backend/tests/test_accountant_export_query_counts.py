@@ -378,9 +378,11 @@ def test_period_xlsx_cells_are_identical_to_the_per_day_path(env, deterministic,
         old = _xlsx_cells(rx.build_daily_close_range_xlsx(closes, **kw))
     assert new == old
 
-    # And the Bilag (salg) / Bilag (udgift) columns hold the hand-computed labels.
+    # And the Salgsbilag / Udgiftsbilag columns hold the hand-computed labels.
     detail = new["Kasserapport"]
-    by_row = [(row[1][0] or "", row[2][0] or "") for row in detail[1:1 + len(closes)]]
+    hdr = [c[0] for c in detail[0]]
+    si, ei = hdr.index("Salgsbilag"), hdr.index("Udgiftsbilag")
+    by_row = [(row[si][0] or "", row[ei][0] or "") for row in detail[1:1 + len(closes)]]
     want = [expected[c.date] for c in sorted(closes, key=lambda c: c.date)]
     assert by_row == want
     assert any("→" in s for s, _ in by_row) and any(e for _, e in by_row)

@@ -125,7 +125,7 @@ def test_xlsx_totals_row_excludes_drafts_and_equals_oversigt_pdf_and_mail():
     statuses = [ws.cell(row=r, column=20).value for r in range(2, 5)]
     assert statuses == ["Låst", "Låst", "Kladde (ikke medregnet)"]
     totals_row = 5
-    assert ws.cell(row=totals_row, column=1).value.startswith("I alt (låste")
+    assert ws.cell(row=totals_row, column=1).value == "I alt — 2 låste dage"
     rev_formula = ws.cell(row=totals_row, column=4).value
     moms_formula = ws.cell(row=totals_row, column=5).value
     assert "SUMIFS" in rev_formula and "SUMIFS" in moms_formula
@@ -187,7 +187,9 @@ def test_default_csv_parses_with_semicolon_and_decimal_comma():
     rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig")), delimiter=";"))
     header = rows[0]
     # Danish headers, no raw DB field names, no internal ids / storage keys.
-    assert header[:4] == ["Dato", "Status", "Afdeling", "Omsætning inkl. moms"]
+    # Each row starts with the day's own kasserapport bilag number and id.
+    assert header[:7] == ["Dato", "Bilagsnr.", "Dokument-id", "Status", "Bogføring",
+                          "Afdeling", "Omsætning inkl. moms"]
     for raw_name in ("revenue_total", "branch_id", "receipt_photo", "moms_total"):
         assert raw_name not in header
     money_cols = [i for i, h in enumerate(header) if h in (
@@ -198,13 +200,16 @@ def test_default_csv_parses_with_semicolon_and_decimal_comma():
             cell = row[i]
             assert cell == "" or re.fullmatch(r"-?\d+,\d{2}", cell), (header[i], cell)
             assert not re.fullmatch(r"-?\d+\.\d{2}", cell)
+    col = {h: i for i, h in enumerate(header)}
     body = {r[0]: r for r in rows[1:-1]}
-    assert body["2026-09-26"][1] == "Kladde (ikke medregnet)"
+    assert body["2026-09-26"][col["Status"]] == "Kladde (ikke medregnet)"
+    assert body["2026-09-25"][col["Bilagsnr."]] == "KR-20260925"
     # Totals row: locked closes only, parses back to the period total.
     total = rows[-1]
-    assert total[1].startswith("I alt — 2 låste") and "1 kladde ikke medregnet" in total[1]
-    assert float(total[3].replace(",", ".")) == 3500.0
-    assert float(total[4].replace(",", ".")) == 700.0
+    assert total[col["Status"]].startswith("I alt — 2 låste dage")
+    assert "1 kladde ikke medregnet" in total[col["Status"]]
+    assert float(total[col["Omsætning inkl. moms"]].replace(",", ".")) == 3500.0
+    assert float(total[col["Salgsmoms"]].replace(",", ".")) == 700.0
     # Same figure as every other artifact.
     assert period_totals(_sep_period())["revenue"] == 3500.0
 
@@ -683,7 +688,8 @@ def test_single_kasserapport_carries_identity_traceability_and_fits_one_page(db_
     # Identity + traceability
     assert "Mirabelle ApS" in txt and "CVR 39842851" in txt
     assert "Fredag 25. september 2026" in txt
-    assert "Bilagsnr. KR-20260925-20260925" in txt
+    # One day, one date in the number (it read KR-20260925-20260925).
+    assert "Bilagsnr. KR-20260925\n" in txt or "Bilagsnr. KR-20260925 " in txt
     assert f"Dokument-id: {out['doc_id']}" in txt
     assert "Side 1 af 1" in txt
     assert "Opbevares i 5 år efter bogføringsloven." in txt
@@ -790,7 +796,8 @@ def test_lock_mail_attaches_the_same_kasserapport_as_history(db_session, client,
     for heading in ("KLAR TIL BOGFØRING", "GENNEMGÅS"):
         assert (heading in mailed_txt) == (heading in hist_txt)
     assert mailed["filename"] == "Kasserapport Mirabelle ApS 2026-09-24.pdf"
-    assert "Vedhæftet: Kasserapport Mirabelle ApS 2026-09-24.pdf (PDF)" in _revisor_mails(mailbox)[-1]["html"]
+    assert (f"Vedhæftet: Kasserapport Mirabelle ApS 2026-09-24.pdf (PDF, bilagsnr. KR-20260924, "
+            f"dokument-id {doc_id})") in _revisor_mails(mailbox)[-1]["html"]
 
 
 def test_range_pdf_uses_the_kasserapport_readiness_rule_and_reads_right_way_round():
@@ -1061,7 +1068,8 @@ def test_two_branches_on_one_day_are_two_documents(db_session, client, mailbox):
     texts = [" ".join(pdf_text(base64.b64decode(m["attachments"][0]["content"])).split())
              for m in mails]
     bilag = {re.search(r"Bilagsnr\. (KR-[0-9A-Z-]+)", t).group(1) for t in texts}
-    assert len(bilag) == 2 and all(b.startswith("KR-20260904-20260904-") for b in bilag)
+    assert len(bilag) == 2 and all(b.startswith("KR-20260904-") for b in bilag)
+    assert {b[12:15] for b in bilag} == {"VES", "NOE"}
 
     closes = db_session.query(DailyClose).all()
     extras = _range_extras(db_session, user, closes)

@@ -1,0 +1,152 @@
+/**
+ * Revisor artifacts, round 3 — the History export panel.
+ *
+ * 1. Export window honesty (plan limits unchanged): a "Forrige kvartal" preset;
+ *    a range longer than the plan's window is said plainly BEFORE anything is
+ *    generated, with the allowed pieces as one-tap buttons — Starter: one per
+ *    month; Free: the last 7 days + each day's own kasserapport. Never a dead
+ *    end, never only an upgrade wall.
+ */
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const get = vi.fn();
+const post = vi.fn();
+let entitled = true;
+let cap = 31;
+let closes = [];
+let sends = [];
+let profile = {};
+vi.mock("../services/api", () => ({
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+}));
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant", email: "login@x.dk" }, refreshUser: vi.fn() }),
+}));
+vi.mock("../hooks/useLanguage", () => ({
+  useLanguage: () => ({
+    t: (k, fallbackOrVars, maybeVars) => {
+      const vars = typeof fallbackOrVars === "object" ? fallbackOrVars : maybeVars;
+      return vars ? `${k}:${Object.values(vars).join("|")}` : k;
+    },
+    lang: "da",
+    setLang: () => {},
+    LANGUAGES: [],
+  }),
+}));
+vi.mock("../hooks/useEntitlements", () => ({
+  useEntitlements: () => ({
+    hasFeature: (k) => (k === "direct_accountant_email" ? entitled : true),
+    minPlanForFeature: () => null,
+    isReady: true,
+  }),
+}));
+vi.mock("../components/BranchSelector", () => ({
+  useBranch: () => ({ branchId: null, branchType: "restaurant", hasMultiBranch: false }),
+}));
+vi.mock("../components/LiveKpisToday", () => ({ default: () => null }));
+vi.mock("../components/SmartScanModal", () => ({ default: () => null }));
+vi.mock("../utils/resizeImage", () => ({ resizeImageIfLarge: async (f) => f }));
+vi.mock("../utils/download", () => ({ saveFile: vi.fn(async () => ({ ok: true })) }));
+vi.mock("../utils/shareDailyCloseRange", () => ({
+  sendDailyCloseRangeToAccountant: () => Promise.resolve({ ok: true, channel: "mailto" }),
+}));
+
+const DailyClosePage = (await import("../pages/DailyClosePage")).default;
+
+const close = (id, date, status = "confirmed", extra = {}) => ({
+  id, date, status, revenue_total: 1000, revenue_breakdown: { food: 1000 },
+  payment_breakdown: { card: 1000 }, payment_total: 1000, moms_total: 200,
+  revenue_ex_moms: 800, closed_by: "Lars", email_sent_to: [], ...extra,
+});
+
+const realConfirm = window.confirm;
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-07T12:00:00"));
+  window.scrollTo = () => {};
+  localStorage.clear();
+  get.mockReset();
+  post.mockReset();
+  entitled = true;
+  cap = 31;
+  sends = [];
+  profile = { accountant_email: "anna@revisor.dk", company_name: "Mirabelle ApS", email: "info@mirabelle.dk" };
+  closes = [
+    close("S1", "2026-09-10"), close("S2", "2026-09-12"), close("S3", "2026-09-14", "draft"),
+    close("O1", "2026-10-06"), close("O2", "2026-10-05", "draft"),
+  ];
+  window.URL.createObjectURL = () => "blob:http://localhost/x";
+  window.URL.revokeObjectURL = () => {};
+  get.mockImplementation((url) => {
+    if (url === "/daily-close") return Promise.resolve({ data: closes });
+    if (url === "/business") return Promise.resolve({ data: profile });
+    if (url === "/billing/me") return Promise.resolve({ data: { plan: cap < 31 ? "free" : "starter", caps: { daily_close_export_days: cap } } });
+    if (url === "/daily-close/accountant-sends") return Promise.resolve({ data: sends });
+    if (String(url).startsWith("/daily-close/export.") || String(url).endsWith("/pdf")) {
+      return Promise.resolve({ data: new Blob(["x"]), headers: {} });
+    }
+    return Promise.resolve({ data: [] });
+  });
+  post.mockResolvedValue({ data: { ok: true, sent_to: "anna@revisor.dk" } });
+});
+afterEach(() => {
+  vi.useRealTimers();
+  window.confirm = realConfirm;
+});
+
+const openHistory = async () => {
+  render(<MemoryRouter initialEntries={["/daily-close"]}><DailyClosePage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("tab", { name: "historyTab" }));
+  await screen.findByRole("button", { name: /sendToAccountantBtn/ });
+};
+const exportCalls = () => get.mock.calls.map(([u]) => String(u)).filter((u) => u.startsWith("/daily-close/export."));
+
+describe("the plan's export window, said before anything is generated", () => {
+  it("Starter: Forrige kvartal is offered month by month, one tap each", async () => {
+    cap = 31;
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePresetPrevQuarter" }));
+    const notice = await screen.findByTestId("dc-over-cap");
+    // 1 Jul – 30 Sep: 92 days against a 31-day window, said in plain words.
+    expect(notice.textContent).toContain("dcRangeOverCapMonths:92|31|Excel");
+    const pieces = within(notice).getAllByRole("button", { name: /^dcPieceMonth:/ });
+    expect(pieces).toHaveLength(3);
+    // The whole-period buttons cannot produce a 402 dead end.
+    const panel = within(document.getElementById("dc-export-panel"));
+    for (const name of ["Excel", "PDF", "CSV"]) {
+      expect(panel.getByRole("button", { name })).toBeDisabled();
+    }
+    expect(screen.getByRole("button", { name: /sendToAccountantBtn/ })).toBeDisabled();
+    expect(exportCalls()).toEqual([]);  // nothing generated yet
+    fireEvent.click(pieces[1]);
+    await waitFor(() => expect(exportCalls()).toEqual(["/daily-close/export.xlsx?from=2026-08-01&to=2026-08-31"]));
+  });
+
+  it("Free: a month is offered as the last 7 days plus each day's own kasserapport", async () => {
+    cap = 7;
+    entitled = false;
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePresetPrevMonth" }));
+    const notice = await screen.findByTestId("dc-over-cap");
+    expect(notice.textContent).toContain("dcRangeOverCapTail:30|7|Excel");
+    const last7 = within(notice).getByRole("button", { name: /^dcPieceLastDays:7\|/ });
+    // Each LOCKED day of September has its own one-tap kasserapport (not the draft).
+    const days = within(notice).getAllByRole("button", { name: /^dcPieceDay:/ });
+    expect(days).toHaveLength(2);
+    fireEvent.click(last7);
+    await waitFor(() => expect(exportCalls()).toEqual(["/daily-close/export.xlsx?from=2026-09-24&to=2026-09-30"]));
+    fireEvent.click(days[0]);
+    await waitFor(() => expect(get.mock.calls.some(([u]) => u === "/daily-close/S1/pdf")).toBe(true));
+  });
+
+  it("a range inside the window gets no notice and exports as one file", async () => {
+    cap = 31;
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePresetPrevMonth" }));
+    expect(screen.queryByTestId("dc-over-cap")).toBeNull();
+    expect(within(document.getElementById("dc-export-panel")).getByRole("button", { name: "Excel" })).not.toBeDisabled();
+  });
+});

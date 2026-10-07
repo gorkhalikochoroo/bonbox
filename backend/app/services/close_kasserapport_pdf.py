@@ -31,7 +31,7 @@ import json
 from sqlalchemy import func
 
 from app.models.business_profile import BusinessProfile
-from app.services.bonbox_pdf_kit import escape_pdf_text, export_bilagsnummer
+from app.services.bonbox_pdf_kit import escape_pdf_text
 
 
 def close_filename(business_name: str, d, *, locked: bool = True,
@@ -63,13 +63,45 @@ def branch_code(branch_name: str | None, branch_id) -> str:
 
 
 def close_bilagsnummer(dc, branch_name: str | None = None) -> str:
-    """The single kasserapport's bilag number: KR-YYYYMMDD-YYYYMMDD, plus the
-    branch code when the close belongs to a branch — two branches locking the
-    same day used to share one number."""
-    base = export_bilagsnummer("KR", dc.date, dc.date)
+    """The single kasserapport's bilag number: KR-YYYYMMDD, plus the branch
+    code when the close belongs to a branch — two branches locking the same
+    day used to share one number. One day, so the date is printed once (it
+    read 'KR-20260925-20260925-…'), short enough for the period exports'
+    Bilag column, where every row now carries it."""
+    base = f"KR-{dc.date.strftime('%Y%m%d')}"
     if getattr(dc, "branch_id", None):
         return f"{base}-{branch_code(branch_name, dc.branch_id)}"
     return base
+
+
+def generated_local(tz=None, *, danish: bool = True) -> str:
+    """'07.10.2026 kl. 23:19' — the generation time on the SAME clock as the
+    lock time beside it (the footer said '… 21:19 UTC' next to a local lock
+    time)."""
+    try:
+        from app.services.kasserapport_claims import local_dt
+        from app.utils.time import utc_now
+        loc = local_dt(utc_now(), tz)
+        return loc.strftime("%d.%m.%Y kl. %H:%M") if danish else loc.strftime("%d %b %Y %H:%M")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def band_line_markup(check: dict, *, ink: str = "#171717", ok: str = "#065f46",
+                     muted: str = "#6b7280") -> str:
+    """One line of the readiness band. A FAILING line is the one a revisor
+    must act on, so it is the darkest on the page — ink, bold, with the ×
+    mark — and survives black-and-white print; colour is only a second cue.
+    It used to be amber at 8 pt, the faintest line in a grayscale print.
+    Passing lines are regular weight; information is a muted '·'."""
+    from app.services.kasserapport_claims import MARK_FAIL, MARK_PASS
+    text = check["text"]
+    if check.get("info"):
+        return f"<font color='{muted}' size='8'>· {text}</font>"
+    if check["ok"]:
+        return f"<font color='{ok}' size='8'>{MARK_PASS} {text}</font>"
+    return (f"<font name='Helvetica-Bold' color='{ink}' size='8.5'>"
+            f"{MARK_FAIL} {text}</font>")
 
 
 def close_document_id(dc) -> str:
@@ -339,6 +371,20 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
         # ─── Revenue ───
         # Either the page adds up, or the page says that it does not — in its
         # own voice. Derivation lives in kasserapport_claims.
+        if not claims["revenue_lines"] and claims["unsplit_total"]:
+            # A total-only Z-bon: the same "Ikke fordelt på kategori" line a
+            # partial split shows, so the two read as the same kind of day.
+            _tone = AMBER if claims["unsplit_tone"] == "amber" else MUTED
+            story.append(Paragraph(L["revenue"], section_title))
+            story.append(_rows_table([
+                [Paragraph(f"<font color='{_tone.hexval()}'>{L['unallocated']}</font>", val),
+                 Paragraph(f"<font color='{_tone.hexval()}'>{claims['unsplit_total']}</font>", val_r)],
+                [Paragraph(L["total_revenue"], val_b), Paragraph(claims["total_revenue"], val_br)],
+            ]))
+            if claims["unsplit_note"]:
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(
+                    f"<font color='{_tone.hexval()}'>{claims['unsplit_note']}</font>", foot))
         if claims["revenue_lines"]:
             story.append(Paragraph(L["revenue"], section_title))
             rows = []
@@ -376,7 +422,10 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
             story.append(Paragraph(L["moms_title"], section_title))
             story.append(_rows_table([
                 [Paragraph(L["moms_incl"], val), Paragraph(claims["moms"]["incl"], val_r)],
-                [Paragraph(L["moms_vat"], val), Paragraph(claims["moms"]["vat"], val_r)],
+                # The one label rule: "(25 %)" only over a figure that IS 25 %
+                # of the base; a typed or scanned figure is named by its source.
+                [Paragraph(escape_pdf_text(claims["moms_label"]), val),
+                 Paragraph(claims["moms"]["vat"], val_r)],
                 [Paragraph(L["moms_excl"], val_b), Paragraph(claims["moms"]["excl"], val_br)],
             ]))
             if claims["moms_unknown_reason"]:

@@ -347,6 +347,8 @@ def _build_close_email_html(
     revisor_line: str | None = None,
     tz=None,
     branch: str | None = None,
+    bilagsnummer: str | None = None,
+    doc_id: str | None = None,
 ) -> tuple[str, str]:
     """Build (subject, html) for the lock mail — one copy per audience.
 
@@ -365,7 +367,7 @@ def _build_close_email_html(
     escaped; the subject is CR/LF-safe.
     """
     from app.services.bonbox_pdf_kit import money_dk
-    from app.services.kasserapport_claims import moms_is_unknown
+    from app.services.kasserapport_claims import close_readiness, moms_is_unknown, moms_label
     from app.services.revisor_mail import esc, revisor_footer_html
     from app.services.daily_close_range_export import dk_datetime
 
@@ -376,13 +378,13 @@ def _build_close_email_html(
     biz_plain = business_name
     biz = esc(business_name)
     closer = esc((closed_by or "").strip()) or ("personalet" if is_danish else "staff")
-
+    # The attached kasserapport's own label and verdict — never "25 %" over a
+    # figure that is not 25 %, never KLAR here and GENNEMGÅS on the PDF.
+    kpi_moms_label = esc(moms_label(dc, currency))
     try:
-        from app.services.tax_service import _get_vat_rate
-        vat_rate = _get_vat_rate(currency or "DKK")
+        verdict = close_readiness(dc, currency)
     except Exception:  # noqa: BLE001
-        vat_rate = 0.25
-    vat_rate_pct = round(vat_rate * 100)
+        verdict = {"locked": False, "ready": None, "heading": None, "failing": []}
 
     def _fmt(v):
         return money_dk(v, currency)
@@ -405,12 +407,20 @@ def _build_close_email_html(
             greeting = "Hej,"
         intro = (
             f"Kasserapporten for <strong>{biz_branch}</strong> for {esc(day_long)} er låst "
-            f"af {closer} {locked_when}."
+            f"af {closer} den {locked_when}."
         )
-        kpi_rev, kpi_moms, kpi_cash = "Omsætning", f"Salgsmoms ({vat_rate_pct} %)", "Kassedifference"
+        kpi_rev, kpi_moms, kpi_cash = "Omsætning", kpi_moms_label, "Kassedifference"
+        ident = ", ".join(x for x in (
+            f"bilagsnr. {esc(bilagsnummer)}" if bilagsnummer else "",
+            f"dokument-id {esc(doc_id)}" if doc_id else "",
+        ) if x)
         attached = (
-            f"Vedhæftet: {att} (PDF)" + (" og Z-bon-foto." if has_scan else ".")
+            f"Vedhæftet: {att} (PDF{', ' + ident if ident else ''})"
+            + (" og Z-bon-foto." if has_scan else ".")
         ) if att else ""
+        status_label = "Status"
+        ready_txt = "Klar til bogføring"
+        review_txt = "Gennemgås"
         scan_note = ("Z-bon-fotoet kunne ikke hentes lige nu — kun PDF'en er vedhæftet."
                      if scan_degraded else "")
         owner_footer = "Sendt automatisk fra BonBox, da dagen blev låst."
@@ -421,12 +431,20 @@ def _build_close_email_html(
             greeting = "Hello,"
         intro = (
             f"The kasserapport for <strong>{biz_branch}</strong> for {esc(day_long)} was locked "
-            f"by {closer} {locked_when}."
+            f"by {closer} on {locked_when}."
         )
-        kpi_rev, kpi_moms, kpi_cash = "Revenue", f"Salgsmoms ({vat_rate_pct} %)", "Cash difference"
+        kpi_rev, kpi_moms, kpi_cash = "Revenue", kpi_moms_label, "Cash difference"
+        ident = ", ".join(x for x in (
+            f"voucher no. {esc(bilagsnummer)}" if bilagsnummer else "",
+            f"document ID {esc(doc_id)}" if doc_id else "",
+        ) if x)
         attached = (
-            f"Attached: {att} (PDF)" + (" and the Z-report photo." if has_scan else ".")
+            f"Attached: {att} (PDF{', ' + ident if ident else ''})"
+            + (" and the Z-report photo." if has_scan else ".")
         ) if att else ""
+        status_label = "Status"
+        ready_txt = "Ready for bookkeeping"
+        review_txt = "Needs review"
         scan_note = ("The Z-report photo couldn't be fetched right now — only the PDF is attached."
                      if scan_degraded else "")
         owner_footer = "Sent automatically from BonBox when the day was locked."
@@ -479,12 +497,30 @@ def _build_close_email_html(
 
     cash_line = ""
     if cash_diff is not None:
+        # Two columns only — the words go on their own line under the figure
+        # (the first two rows used to end in an empty third cell).
         cash_line = (
             f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_cash}</td>"
-            f"<td style='padding:4px 0;text-align:right;'>{_signed_money(cash_diff, currency)}</td>"
-            f"<td style='padding:4px 0 4px 12px;color:#6b7280;font-size:13px;'>"
+            f"<td style='padding:4px 0;text-align:right;'>{_signed_money(cash_diff, currency)}</td></tr>"
+            f"<tr><td colspan='2' style='padding:0 0 4px 0;color:#6b7280;font-size:13px;'>"
             f"{esc(_cash_diff_words(cash_diff, currency, is_danish))}</td></tr>"
         )
+    status_html = ""
+    if verdict.get("locked"):
+        if verdict.get("ready"):
+            status_html = (
+                f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{status_label}</td>"
+                f"<td style='padding:4px 0;text-align:right;color:#065f46;font-weight:600;'>{ready_txt}</td></tr>"
+            )
+        else:
+            reasons = "".join(
+                f"<li>{esc(r)}</li>" for r in (verdict.get("failing") or []))
+            status_html = (
+                f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{status_label}</td>"
+                f"<td style='padding:4px 0;text-align:right;color:#92400e;font-weight:600;'>{review_txt}</td></tr>"
+                + (f"<tr><td colspan='2' style='padding:0 0 4px 0;color:#92400e;font-size:13px;'>"
+                   f"<ul style='margin:2px 0 0 18px;padding:0;'>{reasons}</ul></td></tr>" if reasons else "")
+            )
 
     if is_revisor:
         footer = revisor_footer_html(business_name=biz_plain, cvr=cvr,
@@ -504,10 +540,11 @@ def _build_close_email_html(
         f"{correction_html}"
         "<table style='border-collapse:collapse;margin:16px 0;'>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_rev}</td>"
-        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(rev)}</td><td></td></tr>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(rev)}</td></tr>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_moms}</td>"
-        f"<td style='padding:4px 0;text-align:right;'>{_fmt(moms)}</td><td></td></tr>"
+        f"<td style='padding:4px 0;text-align:right;'>{_fmt(moms)}</td></tr>"
         f"{cash_line}"
+        f"{status_html}"
         "</table>"
         + (f"<p style='color:#374151;font-size:13px;'>{attached}</p>" if attached else "")
         + (f"<p style='color:#b45309;font-size:13px;'>{scan_note}</p>" if scan_note else "")
@@ -829,7 +866,7 @@ def _fire_close_auto_email(
     scan_degraded = bool(scan_supposed_to_attach and receipt_url and not scan_bytes)
     result["scan_degraded"] = scan_degraded
 
-    from app.services.close_kasserapport_pdf import _branch_name
+    from app.services.close_kasserapport_pdf import _branch_name, close_bilagsnummer
     branch = _branch_name(db, user, dc)
     trail = _close_audit_trail(db, user, dc)
     acct_correction = _correction_for(trail, dc, acct, currency) if include_acct else None
@@ -841,6 +878,7 @@ def _fire_close_auto_email(
         closed_by=dc.closed_by, has_scan=bool(scan_bytes),
         scan_degraded=scan_degraded, is_danish=is_danish,
         attachment_name=pdf_filename, tz=tz, branch=branch,
+        bilagsnummer=close_bilagsnummer(dc, branch), doc_id=doc_id,
     )
 
     from app.services.email_service import send_close_notification
@@ -3207,17 +3245,23 @@ def _resolve_range(
         cap = get_cap(user, "daily_close_export_days")
         if cap > 0 and span > cap:
             tier_label = _PLAN_LABELS.get(plan, plan.title())
+            # The plan limits are unchanged (a pricing decision). What changed
+            # is that the refusal says how to get the period anyway — in
+            # pieces the plan allows — and names the NEXT tier, not always Pro
+            # (a Free owner was pushed to Pro when Starter covers a month).
+            next_tier = "Starter" if cap < 31 else "Pro"
             raise HTTPException(
                 status_code=402,  # Payment Required — distinct from 422
                 detail={
                     "code": "plan_cap_exceeded",
                     "message": (
-                        f"{tier_label} plan exports up to {cap} days. "
-                        f"Upgrade to Pro to export the full year."
+                        f"{tier_label} plan exports up to {cap} days at a time — "
+                        f"export the period in parts, or upgrade to {next_tier}."
                     ),
                     "cap_days": cap,
                     "requested_days": span,
                     "plan": plan,
+                    "next_plan": next_tier.lower(),
                 },
             )
 
@@ -3475,16 +3519,23 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
     def _fmt(v):
         return money_dk(v, currency)
 
-    try:
-        from app.services.tax_service import _get_vat_rate
-        vat_pct = round(_get_vat_rate(currency or "DKK") * 100)
-    except Exception:  # noqa: BLE001
-        vat_pct = 25
+    from app.services.daily_close_range_export import all_standard_auto, period_readiness
+    from app.services.kasserapport_claims import standard_moms_label
     biz = esc(business_name)
     period = esc(_dk_period(from_date, to_date, is_danish))
     n_conf, n_drafts = totals["n_confirmed"], totals["n_drafts"]
     total_moms = totals["moms"]
     att = esc(attachment_name)
+    confirmed = totals.get("confirmed") or []
+    # The attachment's own rules: "(25 %)" only when every locked day is a
+    # BonBox standard-rate figure, and each day's verdict from its kasserapport.
+    moms_lbl = (standard_moms_label(currency) if all_standard_auto(confirmed, currency)
+                else ("Salgsmoms" if is_danish else "Output VAT"))
+    ready = period_readiness(confirmed, currency)
+    _MM = ["jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec."]
+
+    def _short(d):
+        return f"{d.day}. {_MM[d.month - 1]}" if is_danish else d.strftime("%d %b")
 
     if is_danish:
         greeting = f"Hej {esc(accountant_name.strip())}," if (accountant_name or "").strip() else "Hej,"
@@ -3498,7 +3549,14 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
             "låst og er ikke medregnet i tallene."
         ) if n_drafts else ""
         kpi_label_rev = "Omsætning"
-        kpi_label_moms = f"Salgsmoms ({vat_pct} %)"
+        kpi_label_moms = esc(moms_lbl)
+        ready_line = (
+            f"{len(ready['ready'])} af {ready['n_locked']} klar til bogføring"
+            + (f" · {len(ready['review'])} skal gennemgås: "
+               + ", ".join(_short(c.date) for c in ready["review"][:8])
+               + (" …" if len(ready["review"]) > 8 else "")
+               if ready["review"] else "")
+        ) if ready["n_locked"] else ""
         format_note = {
             "pdf":  "PDF — oversigt over perioden med én linje pr. dag.",
             "xlsx": "Excel — én række pr. dag; totalerne tæller kun låste lukninger.",
@@ -3515,7 +3573,14 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
             f"{n_drafts} draft(s) in the period are not locked and are not counted."
         ) if n_drafts else ""
         kpi_label_rev = "Revenue"
-        kpi_label_moms = f"Salgsmoms ({vat_pct} %)"
+        kpi_label_moms = esc(moms_lbl)
+        ready_line = (
+            f"{len(ready['ready'])} of {ready['n_locked']} ready for bookkeeping"
+            + (f" · {len(ready['review'])} need review: "
+               + ", ".join(_short(c.date) for c in ready["review"][:8])
+               + (" …" if len(ready["review"]) > 8 else "")
+               if ready["review"] else "")
+        ) if ready["n_locked"] else ""
         format_note = {
             "pdf":  "PDF — period overview, one line per day.",
             "xlsx": "Excel — one row per day; totals count locked closes only.",
@@ -3560,7 +3625,9 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_moms}</td>"
         f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(total_moms)}</td></tr>"
         "</table>"
-        f"{moms_note}"
+        + (f"<p style='color:{'#065f46' if not ready['review'] else '#92400e'};font-size:13px;'>"
+           f"{esc(ready_line)}</p>" if ready_line else "")
+        + f"{moms_note}"
         + (f"<p style='color:#374151;font-size:13px;margin-top:16px;'>{attached}<br>"
            f"<span style='color:#6b7280;'>{format_note}</span></p>" if attached else
            f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{format_note}</p>")
