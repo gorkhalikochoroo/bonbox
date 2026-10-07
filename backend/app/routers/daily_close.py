@@ -422,8 +422,10 @@ def _build_close_email_html(
             if reason:
                 lines.append(f"Låst op{(' af ' + who) if who else ''} — årsag: {reason}.")
             if changes:
-                lines.append("Ændret: " + "; ".join(
-                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes) + ".")
+                # The money token already ends in "kr." — no second full stop.
+                ch = "Ændret: " + "; ".join(
+                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes)
+                lines.append(ch if ch.endswith(".") else ch + ".")
             else:
                 lines.append("Tallene er de samme som i den tidligere version.")
         else:
@@ -431,8 +433,9 @@ def _build_close_email_html(
             if reason:
                 lines.append(f"Unlocked{(' by ' + who) if who else ''} — reason: {reason}.")
             if changes:
-                lines.append("Changed: " + "; ".join(
-                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes) + ".")
+                ch = "Changed: " + "; ".join(
+                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes)
+                lines.append(ch if ch.endswith(".") else ch + ".")
             else:
                 lines.append("The figures are the same as in the earlier version.")
         correction_html = (
