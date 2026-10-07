@@ -196,7 +196,7 @@ describe("daily close — tonight's lock card and a past day's each close themse
     await toReview();
     fireEvent.click(screen.getByText("confirmAndLock"));
 
-    const pastTitle = await screen.findByText(/^dcPastDayLockedTitle:/);
+    const pastTitle = await screen.findByText(/^dcPastDayLockedTitle(Amount)?:/);
     const tonightTitle = screen.getByText(/^closeLockedTitle:/);
     const cardOf = (el) => {
       let n = el;
@@ -206,7 +206,7 @@ describe("daily close — tonight's lock card and a past day's each close themse
     fireEvent.click(cardOf(tonightTitle).querySelector('button[aria-label="dismiss"]'));
     await waitFor(() => expect(screen.queryByText(/^closeLockedTitle:/)).toBeNull());
     expect(pastTitle.isConnected).toBe(true);
-    expect(screen.getByText(/^dcPastDayLockedTitle:/)).toBeInTheDocument();
+    expect(screen.getByText(/^dcPastDayLockedTitle(Amount)?:/)).toBeInTheDocument();
   });
 });
 

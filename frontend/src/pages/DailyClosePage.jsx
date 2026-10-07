@@ -386,6 +386,9 @@ export default function DailyClosePage() {
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("close"); // close | history | insights
+  // The close "Åbn Historik" was tapped for: History opens on it, expanded,
+  // instead of at the top with that day 1.000px down and collapsed.
+  const [historyFocusId, setHistoryFocusId] = useState(null);
   const isPhone = useIsPhone();
   // Scan-first close (#close-funnel) — the one-tap front door. It opens the
   // camera and hands the photo to the wizard's own Z-bon scan. It used to
@@ -685,7 +688,9 @@ export default function DailyClosePage() {
   return (
     // Native date pickers and selects drew light chrome in dark mode — this
     // page only, so no other screen's controls change underneath it.
-    <PageShell width="default" className="dark:[color-scheme:dark]">
+    // Dark: the whispered "kr." measured 2.5:1 on the gray-700/50 cards —
+    // lifted to gray-400 on this page only (Amount marks its token).
+    <PageShell width="default" className="dark:[color-scheme:dark] dark:[&_[data-amount-token]]:text-gray-400">
       <PageHeader
         // No eyebrow. It said "RAPPORTER" — the group this page has not been
         // in since the C5 nav diet moved it onto the core spine (navManifest
@@ -927,10 +932,13 @@ export default function DailyClosePage() {
         </div>
       )}
 
+      {/* 40px tap targets on a tablet: the X ("Skjul tip") was 28px, the
+          tabs 32px. Daily close only — the shared components are untouched. */}
       <DismissibleTip
         id="daily-close-intro-v1"
         iconName="ClipboardList"
         title={t("whatIsDailyClose")}
+        className="[&>button]:size-10 [&>button]:top-2 [&>button]:right-2"
       >
         <p>{t("dailyCloseTipBody")}</p>
       </DismissibleTip>
@@ -946,6 +954,7 @@ export default function DailyClosePage() {
         activeId={tab}
         onChange={setTab}
         ariaLabel={t("dcTabsAriaLabel", "Daily close view")}
+        className="*:min-h-10"
       />
 
       {/* The wizard reads as a form, not a spreadsheet: number boxes ran
@@ -982,7 +991,7 @@ export default function DailyClosePage() {
           existingCloses={history}
           onDraftSaved={fetchHistory}
           onContinueDraft={(dc) => setEditDraft(dc)}
-          onShowHistory={() => setTab("history")}
+          onShowHistory={(id) => { setHistoryFocusId(id || null); setTab("history"); }}
           onEditingChange={setFormEditingDate} />}
         {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
           // The three outcomes, handed down whole. A child that only receives
@@ -994,6 +1003,8 @@ export default function DailyClosePage() {
           // too, otherwise the same banner shows twice. The History
           // tab keeps showing the in-list per-close summary as before.
           lastLockedClose={null}
+          focusCloseId={historyFocusId}
+          onFocusConsumed={() => setHistoryFocusId(null)}
           onDismissLastLocked={() => setLastLockedClose(null)}
           onEdit={(dc) => { setEditDraft(dc); setTab("close"); }} />}
         {tab === "insights" && <InsightsView data={insights} currency={currency} t={t}
@@ -1080,7 +1091,11 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
   // no unit of their own (the old ones said "{today} kr").
   const today = formatOwnerMoney(a.today_total || 0, currency, { decimals: oreDecimals(a.today_total) });
   const avg = formatOwnerMoney(a.baseline_avg || 0, currency, { decimals: oreDecimals(a.baseline_avg) });
-  const msgKey = a.reason === "high" ? "closeAnomalyHighMoney" : "closeAnomalyLowMoney";
+  // A dated close says "Totalen for 1. aug. 2026" — not "Dagens total" for
+  // a day that is not today.
+  const msgKey = dateLabel
+    ? (a.reason === "high" ? "dcAnomalyHighOnDate" : "dcAnomalyLowOnDate")
+    : (a.reason === "high" ? "closeAnomalyHighMoney" : "closeAnomalyLowMoney");
   const boxRef = useRef(null);
   const cancelRef = useRef(null);
   useDialogFocus(boxRef, cancelRef, () => { if (!saving) onCancel(); });
@@ -1102,7 +1117,7 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
                 {t("dcAnomalyForDate", "Kasserapport for {date}", { date: dateLabel })}
               </p>
             )}
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300 tabular-nums">{t(msgKey, { today, pct, avg })}</p>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300 tabular-nums">{t(msgKey, dateLabel ? { date: dateLabel, today, pct, avg } : { today, pct, avg })}</p>
             <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t("closeAnomalyHint")}</p>
             {extraNote && <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{extraNote}</p>}
             {error && (
@@ -1139,12 +1154,12 @@ function shortRangeDay(iso) {
 // The part of the saved total that no category line carries — a Z-bon read
 // as a total (or one line), or a total corrected below its lines. Without it
 // the review's rows did not add up to the total it was about to lock.
-function UnsplitLine({ amount, show, currency, t }) {
+function UnsplitLine({ amount, show, currency, t, decimals = LEDGER_DECIMALS }) {
   if (!show || Math.abs(amount) < 0.005) return null;
   return (
     <div className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-500 dark:text-gray-400 tabular-nums">
       <span>{amount > 0 ? t("dcUnsplitRevenue", "Not split by category") : t("dcCorrectedDown", "Corrected down by hand")}</span>
-      <span><Amount value={amount} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+      <span><Amount value={amount} currency={currency} decimals={decimals} /></span>
     </div>
   );
 }
@@ -1189,6 +1204,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
+  const askConfirm = useConfirm();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
@@ -1366,6 +1382,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // re-dating a correction filed it under a new day and left the original
   // behind.
   const [editingDate, setEditingDate] = useState(null);
+  // A saved draft opened (a ?date= link, Rediger, Fortsæt): the form says it
+  // is that kladde — it opened prefilled with nothing saying whose numbers.
+  const [editingDraft, setEditingDraft] = useState(false);
   // The branch the close is FILED under. Normally the one picked at the top
   // of the page; a close opened from History (Rediger / Fortsæt) or replaced
   // from the "already a draft" banner keeps its own. With "All branches"
@@ -1525,6 +1544,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
       setBusinessDate(d);
       setEditingDate(d);
     }
+    setEditingDraft((dc.status || "confirmed") === "draft");
     setFileBranchOverride(dc.branch_id || null);
     // Saved amounts come back as numbers; the boxes take the owner's own
     // notation, grouped ("1.234,50"), not the API's "1234.5".
@@ -2368,6 +2388,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // Whole kroner at a glance — but a figure with øre shows them, or the step
   // says −50 while the review and the kasserapport say −50,25.
   const oreIfAny = (v) => (Number.isFinite(v) && Math.abs(v - Math.round(v)) > 0.004 ? LEDGER_DECIMALS : GLANCE_DECIMALS);
+  // One precision for figures shown as a pair: øre on all of them when any
+  // has øre — "17.130 kr." sat over "Ikke fordelt 17.130,00 kr.".
+  const pairDecimals = (...vs) => (vs.some((v) => oreIfAny(v) === LEDGER_DECIMALS) ? LEDGER_DECIMALS : GLANCE_DECIMALS);
   // The cash difference in words, so its sign can't be read the wrong way.
   const cashDirection = (diff, decimals = oreIfAny(diff)) => {
     if (Math.abs(diff) < 0.005) return t("dcCashMatches", "The drawer matches");
@@ -3147,7 +3170,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             <div className="mt-3 flex flex-wrap gap-2">
               {existingLocked ? (
 <>
-                <Button size="md" variant="secondary" onClick={() => onShowHistory?.()}>{t("dcOpenHistory", "Open History")}</Button>
+                <Button size="md" variant="secondary" onClick={() => onShowHistory?.(existingForDate?.id)}>{t("dcOpenHistory", "Open History")}</Button>
                 {showScanUI && (
                   <Button size="md" variant="secondary" onClick={() => {
                     setScanMode("skipped"); setStep(1);
@@ -3181,6 +3204,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
           currency={currency}
           anomaly={anomalyCheck}
           saving={saving}
+          // A past day's double-check names the day it locks.
+          dateLabel={businessDate !== businessTodayIso(cutoffHour) ? formatDateClearFull(businessDate) : ""}
           onCancel={() => setAnomalyCheck(null)}
           onConfirm={() => handleSubmit({ acknowledgeAnomaly: true })}
         />
@@ -3272,10 +3297,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   unselected state was white-on-emerald at ~1.3:1. */}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <span className="text-[12px] text-gray-500 dark:text-gray-400">{t("receiptAmountsAre", "Receipt amounts are:")}</span>
-                <Chip size="sm" selected={scanMomsMode === "with-moms"} onClick={() => setScanMomsMode("with-moms")}>
+                <Chip size="sm" className="min-h-10" selected={scanMomsMode === "with-moms"} onClick={() => setScanMomsMode("with-moms")}>
                   {t("withVatGross", "with {vat} (gross)", { vat: vatName })}
                 </Chip>
-                <Chip size="sm" selected={scanMomsMode === "without-moms"} onClick={() => setScanMomsMode("without-moms")}>
+                <Chip size="sm" className="min-h-10" selected={scanMomsMode === "without-moms"} onClick={() => setScanMomsMode("without-moms")}>
                   {t("withoutVatNet", "without {vat} (net)", { vat: vatName })}
                 </Chip>
               </div>
@@ -3725,7 +3750,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     {/* Icons and badges keep their size; the label gives way. In the
                         fixed-width column a "missing" row squeezed its icons to 0px. */}
                     <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
-                      {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
+                      {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
                       <Icon name={c.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, c)}</span>
                       {typeof val === "number" && val !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                       {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
@@ -3901,7 +3926,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     {/* Icons and badges keep their size; the label gives way. In the
                         fixed-width column a "missing" row squeezed its icons to 0px. */}
                     <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
-                      {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
+                      {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
                       <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, m)}</span>
                       {typeof val === "number" && val !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                     </span>
@@ -3956,7 +3981,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 {/* Most Z-bons carry no tips line, so an unread one is not
                     "missing" — it is simply not on the receipt. */}
                 <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
-                  {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
+                  {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
                   <Icon name="Coins" size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{t("tipsLabel", "Tips")}</span>
                   {typeof scanResult.tips === "number" && scanResult.tips !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                 </span>
@@ -4047,7 +4072,24 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   + {t("addAnotherPhoto", "Add another page or terminal")}
                 </button>
               )}
-              <button onClick={() => { applyScanResult(null); setScanPhotos([]); setReceiptPhotoUrl(null); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); appliedPrefillRef.current = null; setScanMode("idle"); }}
+              <button onClick={async () => {
+                // A figure the owner typed on the card is a string (a read is
+                // a number): one tap threw those corrections away unasked.
+                const typed = (v) => typeof v === "string" && v.trim() !== "";
+                const corrected = scanResult && (scanResult.revenue_total_text != null || typed(scanResult.tips)
+                  || [...Object.values(scanResult.revenue || {}), ...Object.values(scanResult.payments || {})].some(typed));
+                if (corrected) {
+                  const ok = await askConfirm({
+                    title: t("dcScanStartOverTitle", "Start over?"),
+                    message: t("dcScanStartOverBody", "The photo and your corrections on the card will be gone."),
+                    confirmLabel: t("startOver", "Start over"),
+                    cancelLabel: t("cancel", "Cancel"),
+                    destructive: true,
+                  });
+                  if (!ok) return;
+                }
+                applyScanResult(null); setScanPhotos([]); setReceiptPhotoUrl(null); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); appliedPrefillRef.current = null; setScanMode("idle");
+              }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
               </button>
@@ -4066,10 +4108,16 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             disabled={Boolean(editingDate)}
             max={businessTodayIso(cutoffHour)}
             onChange={e => { if (e.target.value) { dateChosenRef.current = true; setBusinessDate(e.target.value); } }}
-            className="px-3 py-1.5 max-sm:h-11 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
+            className="px-3 py-1.5 min-h-10 max-sm:h-11 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== businessTodayIso(cutoffHour) && (
             <span className="text-[11px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
               {t("pastDate")}
+            </span>
+          )}
+          {editingDate && editingDraft && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 bg-gray-100 dark:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-full font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
+              {t("dcEditingSavedDraft", "Draft · you're continuing the saved draft")}
             </span>
           )}
           {businessDate !== businessTodayIso(cutoffHour) && !editingDate && (
@@ -4373,12 +4421,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               <Amount
                 value={revenueKnown ? savedRevenue : null}
                 currency={currency}
-                decimals={oreIfAny(savedRevenue)}
+                decimals={pairDecimals(savedRevenue, unsplitRevenue)}
                 size="kpi"
                 className="text-gray-900 dark:text-white"
               />
             </div>
-            <UnsplitLine amount={unsplitRevenue} show={revenueKnown} currency={currency} t={t} />
+            <UnsplitLine amount={unsplitRevenue} show={revenueKnown} currency={currency} t={t} decimals={pairDecimals(savedRevenue, unsplitRevenue)} />
           </div>
         )}
 
@@ -4399,7 +4447,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 <Amount
                   value={hasPaymentEntry ? paymentTotal : null}
                   currency={currency}
-                  decimals={oreIfAny(paymentTotal)}
+                  decimals={pairDecimals(paymentTotal, savedRevenue)}
                   size="kpi"
                   className="text-gray-900 dark:text-white"
                 />
@@ -4409,7 +4457,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 {/* The total that will be SAVED — the verdict below compares
                     against it, so the line it explains must show it too. */}
                 <span className="text-[13px] text-gray-600 dark:text-gray-300">
-                  <Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={oreIfAny(savedRevenue)} />
+                  <Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={pairDecimals(paymentTotal, savedRevenue)} />
                 </span>
               </div>
               {/* Same verdict object the review card renders, so the two
@@ -4429,8 +4477,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   {tieOut.state === "balanced"
                     ? <><Icon name="CheckCircle2" size={14} className="inline align-text-bottom mr-1" />{t("balanced", "Balanced!")}</>
                     : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{tieOut.diff > 0
-                      ? t("dcPayBelowRevenue", "Payments are {amount} below revenue", { amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: oreIfAny(tieOut.diff) }) })
-                      : t("dcPayAboveRevenue", "Payments are {amount} above revenue", { amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: oreIfAny(tieOut.diff) }) })}</>}
+                      ? t("dcPayBelowRevenue", "Payments are {amount} below revenue", { amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: pairDecimals(paymentTotal, savedRevenue, tieOut.diff) }) })
+                      : t("dcPayAboveRevenue", "Payments are {amount} above revenue", { amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: pairDecimals(paymentTotal, savedRevenue, tieOut.diff) }) })}</>}
                 </div>
               )}
             </div>
@@ -4459,7 +4507,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700/50 px-4 py-3 space-y-1.5 tabular-nums">
               <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
                 <span>{t("dcCashTakings", "Cash from today's sales")}</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-100"><Amount value={cashCountReadable ? cashCountedVal : null} currency={currency} decimals={oreIfAny(cashCountedVal)} /></span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100"><Amount value={cashCountReadable ? cashCountedVal : null} currency={currency} decimals={pairDecimals(cashCountedVal, cashExpected)} /></span>
               </div>
               <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
                 <span>
@@ -4467,7 +4515,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     ? t("expectedFromRegister", "Expected (from register)")
                     : t("expectedFromEntry", "Expected (from your entry)")}
                 </span>
-                <span><Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={oreIfAny(cashExpected)} /></span>
+                <span><Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={pairDecimals(cashCountedVal, cashExpected)} /></span>
               </div>
               {cashExpectedFromRegister && (
                 <p className="text-[12px] text-gray-500 dark:text-gray-400">
@@ -4489,7 +4537,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     : "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300"
               }`}>
                 <p className="text-[12px] font-medium">{t("dcCashDiffLabel", "Cash difference")}</p>
-                <p className="font-semibold text-[16px] tabular-nums">{cashDirection(cashDiff)}</p>
+                <p className="font-semibold text-[16px] tabular-nums">{cashDirection(cashDiff, pairDecimals(cashCountedVal, cashExpected, cashDiff))}</p>
                 {Math.abs(cashDiff) > 100 && <p className="text-[13px] font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThanAmount", "Off by more than {amount} — double-check your count", { amount: formatOwnerMoney(100, currency, { decimals: GLANCE_DECIMALS }) })}</p>}
               </div>
             )}
@@ -4514,7 +4562,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             </div>
             <div>
               <label htmlFor="dc-staff-count" className={labelClass}><Icon name="Users" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("staffCountLabel", "Staff Count")}</label>
-              <input id="dc-staff-count" type="number" inputMode="numeric" placeholder={t("staffCountPrompt")} className={inputClass}
+              <input id="dc-staff-count" type="number" inputMode="numeric" placeholder={businessDate !== businessTodayIso(cutoffHour) ? t("dcStaffCountPromptPast", "How many staff that day?") : t("staffCountPrompt")} className={inputClass}
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
             </div>
             {tipsPP !== null && (
@@ -4579,10 +4627,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       the product's single selected-state treatment with every
                       other pick-one row and is a real aria-pressed button. */}
                   <div className="flex gap-1.5">
-                    <Chip size="sm" selected={momsMode === "auto"} onClick={() => setMomsMode("auto")}>
+                    <Chip size="sm" className="min-h-10" selected={momsMode === "auto"} onClick={() => setMomsMode("auto")}>
                       {t("autoLabel")}
                     </Chip>
-                    <Chip size="sm" selected={momsMode === "manual"} onClick={() => setMomsMode("manual")}>
+                    <Chip size="sm" className="min-h-10" selected={momsMode === "manual"} onClick={() => setMomsMode("manual")}>
                       {t("fromReceipt")}
                     </Chip>
                   </div>
@@ -5222,7 +5270,16 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 pr-9">
               <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {dateLabel
                 // "Tonight's" is only true of tonight: a back-filled day is named.
-                ? t("dcPastDayLockedTitle", "The kasserapport for {date} is locked · {time} by {who}", { date: dateLabel, time: closedAt, who: closedBy })
+                // …with the figure it was locked at: a back-filled day has no
+                // other trace of its amount on this card.
+                ? (Number.isFinite(Number(close.revenue_total)) && close.revenue_total != null
+                  ? t("dcPastDayLockedTitleAmount", "The kasserapport for {date} is locked at {amount} · {time} by {who}", {
+                      date: dateLabel,
+                      amount: formatOwnerMoney(Number(close.revenue_total), currency, { decimals: oreDecimals(close.revenue_total) }),
+                      time: closedAt,
+                      who: closedBy,
+                    })
+                  : t("dcPastDayLockedTitle", "The kasserapport for {date} is locked · {time} by {who}", { date: dateLabel, time: closedAt, who: closedBy }))
                 : t(closeTitleKeyFor(businessType), "Tonight's kasserapport is locked · {time} by {who}", { time: closedAt, who: closedBy })}
             </p>
             {emailLine}
@@ -5274,7 +5331,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
 function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked,
-  loading = false, failed = false, isOnline = true }) {
+  loading = false, failed = false, isOnline = true, focusCloseId = null, onFocusConsumed }) {
   const { user } = useAuth();
   const confirm = useConfirm();
   const [downloading, setDownloading] = useState(null);
@@ -5287,6 +5344,21 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   const [openId, setOpenId] = useState(null);
   // Ten at a time: 30+ cards made History a 14.000px scroll on a phone.
   const [shownCount, setShownCount] = useState(10);
+  // Opened for one close (the locked day's "Åbn Historik"): show it, open
+  // its details and bring it into view — once.
+  useEffect(() => {
+    if (!focusCloseId || !data?.length) return;
+    const idx = data.findIndex((dc) => dc.id === focusCloseId);
+    onFocusConsumed?.();
+    if (idx < 0) return;
+    if (idx >= shownCount) setShownCount(idx + 1);
+    setOpenId(focusCloseId);
+    requestAnimationFrame(() => {
+      const el = [...document.querySelectorAll("[data-close-id]")].find((n) => n.dataset.closeId === String(focusCloseId));
+      el?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCloseId, data]);
   const [unlockReason, setUnlockReason] = useState("");
   const unlockReasonRef = useRef(null);
   const [unlocking, setUnlocking] = useState(false);
@@ -6252,8 +6324,19 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           ? Math.round(((dc.revenue_total - prev.revenue_total) / prev.revenue_total) * 100) : null;
         const tipsChange = prev && prev.tips_total > 0 && dc.tips_total > 0
           ? Math.round(((dc.tips_total - prev.tips_total) / prev.tips_total) * 100) : null;
+        const isOpen = openId === dc.id;
+        // The part of the total no category carries (a second till read as
+        // a total only) — the chips summed to 17.530 under a 22.030 headline.
+        const revLinesSum = Object.values(rev).reduce((a, v) => a + (Number(v) || 0), 0);
+        const unsplit = Object.keys(rev).length && Number(dc.revenue_total) > 0
+          ? Math.round((Number(dc.revenue_total) - revLinesSum) * 100) / 100 : 0;
+        // One precision per card: øre on every figure when any has øre (or
+        // while the ledger, which is at øre, is open) — "4.567 kr." sat
+        // beside "12.345,50 kr.", and "28.469 kr." over "28.469,00 kr.".
+        const cardDec = isOpen || [dc.revenue_total, ...Object.values(rev), ...Object.values(pay), dc.cash_difference, dc.tips_total, unsplit]
+          .some((v) => v != null && oreDecimals(v) === LEDGER_DECIMALS) ? LEDGER_DECIMALS : GLANCE_DECIMALS;
         return (
-          <div key={dc.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+          <div key={dc.id} data-close-id={dc.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-20">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -6282,7 +6365,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     reserved for the money MOMENT (a lock, a send); a revenue
                     figure is a fact, and colouring facts is what made this page
                     read as nine palettes. */}
-                <Amount value={dc.revenue_total} currency={currency} decimals={oreDecimals(dc.revenue_total)} size="kpi" className="text-gray-900 dark:text-white" />
+                <Amount value={dc.revenue_total} currency={currency} decimals={cardDec} size="kpi" className="text-gray-900 dark:text-white" />
                 {/* A direction word, not a raw percentage — "↑ 2219 %" against a
                     test close of 734 kr. meant nothing. Within ±5 % it's
                     stable; beyond 4× either way the days aren't comparable. */}
@@ -6305,22 +6388,27 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <div className="flex flex-wrap gap-2 mt-3">
               {Object.entries(rev).map(([k, v]) => (
                 <span key={k} className="px-2 py-1 bg-gray-100 dark:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-lg text-[11px] font-medium tabular-nums">
-                  {chipLabel(CAT_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={oreDecimals(v)} />
+                  {chipLabel(CAT_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={cardDec} />
                 </span>
               ))}
+              {Math.abs(unsplit) >= 0.005 && (
+                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-lg text-[11px] font-medium tabular-nums">
+                  {unsplit > 0 ? t("dcUnsplitRevenue", "Not split by category") : t("dcCorrectedDown", "Corrected down by hand")}: <Amount value={unsplit} currency={currency} decimals={cardDec} />
+                </span>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2 mt-2">
               {Object.entries(pay).map(([k, v]) => (
                 <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-medium tabular-nums border border-gray-200 dark:border-gray-700">
-                  {chipLabel(PAY_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={oreDecimals(v)} />
+                  {chipLabel(PAY_LABEL, k, t)}: <Amount value={v} currency={currency} decimals={cardDec} />
                 </span>
               ))}
             </div>
 
             {/* The close as it was saved, read-only — the kasserapport's own
                 lines, at ledger precision. */}
-            {openId === dc.id && (
+            {isOpen && (
               <dl className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-1 text-[13px] tabular-nums text-gray-700 dark:text-gray-300">
                 {[
                   [t("revenueMedMoms", "Revenue (incl. MOMS)"), dc.revenue_total],
@@ -6330,7 +6418,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   [t("dcCashExpectedLabel", "Cash expected"), dc.cash_expected],
                   [t("dcCashTakingsCounted", "Counted (float taken off)"), dc.cash_counted],
                   [t("dcCashDiffLabel", "Cash difference"), dc.cash_difference, true],
-                  [t("tipsLabel", "Tips"), dc.tips_total > 0 ? dc.tips_total : null],
+                  [dc.tips_staff_count
+                    ? `${t("tipsLabel", "Tips")} (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})`
+                    : t("tipsLabel", "Tips"), dc.tips_total > 0 ? dc.tips_total : null],
                 ].filter(([, v]) => v != null).map(([label, v, sign]) => (
                   <div key={label} className="flex justify-between gap-3">
                     <dt>{label}</dt>
@@ -6349,13 +6439,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             {/* Bottom row */}
             <div className="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex gap-4 flex-wrap text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
-                {dc.cash_difference !== null && (
+                {/* The open ledger above already lists both — not twice. */}
+                {!isOpen && dc.cash_difference !== null && (
                   <span className={dc.cash_difference < -100 ? "text-red-600 dark:text-red-400 font-semibold" : ""}>
-                    {t("dcCashDiffLabel", "Cash difference")}: <Amount value={dc.cash_difference} currency={currency} decimals={oreDecimals(dc.cash_difference)} sign />
+                    {t("dcCashDiffLabel", "Cash difference")}: <Amount value={dc.cash_difference} currency={currency} decimals={cardDec} sign />
                   </span>
                 )}
-                {dc.tips_total > 0 && (
-                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={oreDecimals(dc.tips_total)} />{dc.tips_staff_count ? ` (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})` : ""}
+                {!isOpen && dc.tips_total > 0 && (
+                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={cardDec} />{dc.tips_staff_count ? ` (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})` : ""}
                     {/* A direction word in gray, like the revenue line — a raw
                         red "↓13%" read as money lost. */}
                     {tipsChange !== null && Math.abs(tipsChange) >= 5 && tipsChange <= 300 && tipsChange >= -75 && (

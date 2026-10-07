@@ -96,8 +96,9 @@ describe("daily close — locking a past day", () => {
     }
     fireEvent.click(await screen.findByText("confirmAndLock"));
 
-    const title = await screen.findByText(/^dcPastDayLockedTitle:/);
-    // Named by its date (full year), with the time and who.
+    const title = await screen.findByText(/^dcPastDayLockedTitleAmount:/);
+    // Named by its date (full year), with the amount, the time and who.
+    expect(title.textContent).toContain("1.234,50 kr.");
     const [y, , d] = past.split("-");
     expect(title.textContent).toMatch(new RegExp(`:${parseInt(d, 10)}\\.? `));
     expect(title.textContent).toContain(y);

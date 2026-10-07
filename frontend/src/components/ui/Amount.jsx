@@ -79,7 +79,10 @@ export default function Amount({ value, decimals = 0, sign = false, size, curren
         //
         // `length:` is the type hint — without it Tailwind can't tell an
         // arbitrary max() from a colour and emits no utility.
-        <span className="text-[length:max(11px,0.62em)] font-medium text-gray-400 dark:text-gray-500 ml-0.5">
+        // data-amount-token: a hook for a page that sits on a darker card
+        // than this whisper was tuned for (Daily close lifts it in dark).
+        // No styling of its own — every other page is unchanged.
+        <span data-amount-token="" className="text-[length:max(11px,0.62em)] font-medium text-gray-400 dark:text-gray-500 ml-0.5">
           {token}
         </span>
       )}
