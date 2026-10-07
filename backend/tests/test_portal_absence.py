@@ -189,3 +189,39 @@ def test_portal_withdraw_validation(client, db):
     assert empty.status_code == 422
     nope = client.post("/api/portal/__nope__/absence/withdraw", json={"ids": [str(uuid.uuid4())]})
     assert nope.status_code == 404
+
+
+def test_owner_decline_reads_declined_but_own_withdraw_reads_cancelled(client, db):
+    """Scheduler round 1 (C4): the owner's "Afvis" and the staffer's own
+    "Fortryd" both stored status 'cancelled', so the portal showed the same
+    grey "Annulleret" for both and the staffer could not tell their manager
+    said no. The owner's decision now stamps acknowledged_at, and the portal
+    maps cancelled+acknowledged to "declined". The STORED value stays
+    'cancelled', so the owner side and every roster filter are untouched."""
+    from app.services.auth import get_current_user
+    u, a, _b = _seed(db)
+    ferie = TODAY + timedelta(days=40)
+    mine = TODAY + timedelta(days=50)
+    client.post("/api/portal/tokA/absence", json={"kind": "ferie", "date_from": _iso(ferie)})
+    client.post("/api/portal/tokA/absence", json={"kind": "ferie", "date_from": _iso(mine)})
+    by_date = {x["date"]: x for x in client.get("/api/portal/tokA/absence").json()["absence"]}
+
+    # Owner declines the first …
+    app.dependency_overrides[get_current_user] = lambda: u
+    try:
+        r = client.post(f"/api/staff/absences/{by_date[_iso(ferie)]['id']}/decline")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "cancelled"          # owner contract unchanged
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    # … the staffer withdraws the second themselves.
+    w = client.post("/api/portal/tokA/absence/withdraw", json={"ids": [by_date[_iso(mine)]["id"]]})
+    assert w.json()["withdrawn"] == 1
+
+    after = {x["date"]: x["status"] for x in client.get("/api/portal/tokA/absence").json()["absence"]}
+    assert after[_iso(ferie)] == "declined"     # "Afvist" — the manager said no
+    assert after[_iso(mine)] == "cancelled"     # "Annulleret" — they took it back
+
+    # Stored value is still 'cancelled' for both, so nothing else moves.
+    stored = {r.date.isoformat(): r.status for r in db.query(StaffAbsence).all()}
+    assert stored[_iso(ferie)] == "cancelled" and stored[_iso(mine)] == "cancelled"

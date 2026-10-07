@@ -93,7 +93,7 @@ def notified(monkeypatch, engine_and_session):
         calls.append({"staff_id": str(staff_id), "change": change.change_type,
                       "kind": kind, "new_start": change.new_start})
 
-    def _fake_week(bg_db, user_id, changes, week_label, lang="en"):
+    def _fake_week(bg_db, user_id, changes, week_label, lang="en", week_start=None):
         calls.append({"week": week_label, "changed": sorted(changes)})
 
     monkeypatch.setattr(staff_router, "send_single_shift_notification", _fake)

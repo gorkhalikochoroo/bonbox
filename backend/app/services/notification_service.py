@@ -298,16 +298,43 @@ def detect_shift_changes(
 # ── Email builder ─────────────────────────────────────────────────────────
 
 
-def _format_date_nice(date_str: str) -> str:
-    """Format 'YYYY-MM-DD' -> 'Mon 14 Apr'."""
+def _format_date_nice(date_str, lang: str = "en") -> str:
+    """Format 'YYYY-MM-DD' (or a date) -> 'Mon 14 Apr' / Danish 'man. 14. apr.'.
+
+    English stays the default, so every existing caller reads exactly as
+    before. Danish follows the app's own date style (da-DK short weekday and
+    month, "tor. 8. okt.") — the push body around it is Danish, and it read
+    "Din vagtplan for Wed 25 Nov er opdateret"."""
     from datetime import date as date_cls
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    if (lang or "en").lower() == "da":
+        days = ["man.", "tir.", "ons.", "tor.", "fre.", "lør.", "søn."]
+        months = ["jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec."]
+    else:
+        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     try:
-        d = date_cls.fromisoformat(date_str)
+        d = date_str if isinstance(date_str, date_cls) else date_cls.fromisoformat(str(date_str))
+        if (lang or "en").lower() == "da":
+            return f"{days[d.weekday()]} {d.day}. {months[d.month - 1]}"
         return f"{days[d.weekday()]} {d.day} {months[d.month - 1]}"
     except Exception:
         return date_str
+
+
+def _feed_subject(prefix: str, day, start: str | None = None, end: str | None = None) -> str:
+    """The in-app feed row's subject: "<English verb> - <ISO date>[ HH:MM-HH:MM]".
+
+    It used to store a DISPLAY string ("Shift cancelled - Wed 25 Nov"):
+    English, fixed at write time, no shift time — and the portal printed that
+    tail verbatim, so a Danish staffer read "Vagt aflyst · Wed 25 Nov". The
+    row now carries the facts in a machine-readable tail; the portal API
+    parses it into ref_date / ref_start / ref_end and the app formats them in
+    the reader's language ("ons. 25. nov. · 11:00–20:00"). The English verb
+    prefix stays: the portal's title (and its "cancelled" check) reads it.
+    The email itself keeps its human subject — only the feed row changes."""
+    iso = day.isoformat() if hasattr(day, "isoformat") else str(day)
+    times = f" {start}-{end}" if start and end else ""
+    return f"{prefix} - {iso}{times}"
 
 
 # The shift email, in the two languages this product ships.
@@ -361,7 +388,7 @@ def build_shift_email_html(
     # Build change rows
     change_rows = ""
     for c in sorted(changes, key=lambda x: x.date):
-        date_nice = _format_date_nice(c.date)
+        date_nice = _format_date_nice(c.date, lang)
         if c.change_type == "added":
             badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#16a34a20;color:#16a34a;font-size:11px;font-weight:600">{C["new"]}</span>'
             detail = f"{c.new_start} - {c.new_end}"
@@ -441,6 +468,7 @@ def send_shift_notifications(
     changes_by_staff: dict[str, list[ShiftChange]],
     week_label: str,
     lang: str = "en",
+    week_start=None,
 ):
     """
     For each staff with changes, look up their email and send a notification.
@@ -531,6 +559,12 @@ def send_shift_notifications(
             portal_url = f"https://www.bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
 
             subject = f"Schedule updated - {week_label}"
+            # The feed row names the published week by its Monday, so the
+            # portal can open THAT week when the alert is tapped. Without a
+            # week_start (older callers) it keeps the human label.
+            feed_subject = (
+                _feed_subject("Schedule updated", week_start) if week_start else subject
+            )
 
             # ── Email channel — only when the staff has an address ────────
             # When emailed, the NotificationLog row carries channel="email"
@@ -566,7 +600,7 @@ def send_shift_notifications(
                 staff_id=staff_uuid,
                 channel=channel,
                 event_type="schedule_published",
-                subject=subject,
+                subject=feed_subject,
                 body=body,
                 status=status,
                 error_message=error_message,
@@ -655,8 +689,16 @@ def send_single_shift_notification(
     ).first()
     portal_url = f"https://www.bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
 
-    week_label = _format_date_nice(change.date)
-    subject = f"Shift {'cancelled' if change.change_type == 'removed' else 'updated'} - {week_label}"
+    # The email subject keeps its old shape (English, as before); the email
+    # body and the push body take the date in the venue's language.
+    week_label = _format_date_nice(change.date, lang)
+    verb = "Shift cancelled" if change.change_type == "removed" else "Shift updated"
+    subject = f"{verb} - {_format_date_nice(change.date)}"
+    if change.change_type == "removed":
+        _st, _en = change.old_start, change.old_end
+    else:
+        _st, _en = change.new_start or change.old_start, change.new_end or change.old_end
+    feed_subject = _feed_subject(verb, change.date, _st, _en)
 
     blocked = _notify_blocked_by_test_guard(member)
 
@@ -693,7 +735,7 @@ def send_single_shift_notification(
         staff_id=staff_id,
         channel=channel,
         event_type=event_type,
-        subject=subject,
+        subject=feed_subject,
         body=body,
         status=status,
         error_message=error_message,

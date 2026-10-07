@@ -114,6 +114,27 @@ function addDays(dateStr, n) {
   return toLocalISO(d);
 }
 
+// How far the portal's week view can page: this week + 7 more, which is the
+// server's window (get_portal_schedule returns week start + 55 days).
+const PORTAL_WEEKS_AHEAD = 7;
+
+/** Whole weeks from the Monday `fromMonday` to the week containing `iso`.
+    Noon anchors keep a DST change from rounding a week away. */
+function weeksFrom(fromMonday, iso) {
+  const a = new Date(fromMonday + "T12:00:00");
+  const b = new Date(getWeekStart(iso) + "T12:00:00");
+  return Math.round((b - a) / (7 * 86400000));
+}
+
+/** ISO-8601 week number of a YYYY-MM-DD date ("Uge 44"). */
+function isoWeekNumber(iso) {
+  const d = new Date(iso + "T12:00:00");
+  const th = new Date(d);
+  th.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));     // this week's Thursday
+  const jan4 = new Date(th.getFullYear(), 0, 4, 12);
+  return 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+}
+
 function isToday(dateStr) {
   return dateStr === toLocalISO(new Date());
 }
@@ -1660,7 +1681,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1675,9 +1696,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const clockedIn = !!clock.st?.clocked_in;
   const confirmPunch = useConfirm();
 
-  // Local UI state: which week-strip is shown + which day is expanded.
-  const [weekView, setWeekView] = useState("this"); // 'this' | 'next'
+  // Local UI state: which week is shown (0 = this week, 1 = next, …) + which
+  // day is expanded. This was a two-state 'this' | 'next' toggle while the
+  // server already sends 8 weeks (get_portal_schedule: week start + 55 days),
+  // so a staffer rostered three weeks out could see the count of those shifts
+  // and never their times.
+  const [weekOffset, setWeekOffset] = useState(0);
   const [expandedDate, setExpandedDate] = useState(null);
+  const goToWeek = (n) => { setWeekOffset(Math.max(0, n)); setExpandedDate(null); };
+  // An alert about a shift or a published week opens THAT week. `focusDate`
+  // carries a nonce so tapping the same alert twice still lands.
+  useEffect(() => {
+    if (!focusDate?.date) return;
+    const off = weeksFrom(weekStart, focusDate.date);
+    goToWeek(Math.min(PORTAL_WEEKS_AHEAD, Math.max(0, off)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDate?.n]);
   // Which teammate's upcoming shifts are open, keyed "<shiftId>|<mateId>" so
   // the same person expanded on two different days stays independent.
   const [openMate, setOpenMate] = useState(null);
@@ -1710,12 +1744,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Swaps via onNeedChange from the confirm strip).
   const [showSick, setShowSick] = useState(false);
 
-  const nextWeekStart = addDays(weekStart, 7);
-  const laterStart = addDays(weekStart, 14);
+  // The week on screen, and how far forward paging may go: up to the last
+  // week that has a published shift (never past the server's window).
+  const lastShiftDate = shifts.reduce((m, sh) => (sh.date > m ? sh.date : m), "");
+  const maxOffset = lastShiftDate
+    ? Math.min(PORTAL_WEEKS_AHEAD, Math.max(0, weeksFrom(weekStart, lastShiftDate)))
+    : 0;
+  const visibleWeekStart = addDays(weekStart, 7 * weekOffset);
+  const laterStart = addDays(visibleWeekStart, 7);
 
-  // Build all 7 days for current + next week (OFF days included as silent dots).
-  const thisWeek = [];
-  const nextWeek = [];
+  // All 7 days of the visible week (OFF days included as silent dots).
   // `all` carries EVERY shift on the day; `shift` stays as the first one for
   // the strip, which draws one bar per day whatever happens on it. This used
   // to be `shifts.find()`, which kept the first and silently dropped the rest:
@@ -1723,20 +1761,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // total under-counted the hours the staffer is actually working. Splits are
   // normal in this trade, so the bug is common, invisible, and about pay.
   const dayShifts = (d) => shifts.filter((s) => s.date === d);
+  const weekDays = [];
   for (let i = 0; i < 7; i++) {
-    const d = addDays(weekStart, i);
+    const d = addDays(visibleWeekStart, i);
     const all = dayShifts(d);
-    thisWeek.push({ date: d, shift: all[0], all });
-  }
-  for (let i = 0; i < 7; i++) {
-    const d = addDays(nextWeekStart, i);
-    const all = dayShifts(d);
-    nextWeek.push({ date: d, shift: all[0], all });
+    weekDays.push({ date: d, shift: all[0], all });
   }
 
-  // The actual rows beyond next week, not just whether any exist — the strip
-  // below names their dates so a staffer who got an email about a later week
-  // can see it is really rostered. Sorted, because the server orders by id.
+  // The actual rows after the visible week, not just whether any exist — the
+  // strip below names their dates (each one a jump to its week) so a staffer
+  // who got an email about a later week can see it is really rostered.
+  // Sorted, because the server orders by id.
   const laterShifts = shifts
     .filter((s) => s.date >= laterStart)
     .sort((a, b) => a.date.localeCompare(b.date) || String(a.start_time).localeCompare(String(b.start_time)));
@@ -1746,8 +1781,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Next shift (drives the hero, countdown, teammate strip, .ics).
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const nextShift = upcoming[0];
-  const nextShiftRole = nextShift?.role_on_shift
-    ? roleName(nextShift.role_on_shift, t)
+  // A shift's role: the per-shift override, else the staffer's OWN role —
+  // the same fallback the owner's team schedule uses (staff.py:
+  // `shift.role_on_shift or staff.role`). Without it the hero said
+  // "Personale" while the profile sheet said "Køkken" for the same person,
+  // because the override is empty on most shifts. "staff" is the backend's
+  // placeholder for "no role", not a role to print.
+  const effRole = (sh) =>
+    sh?.role_on_shift || (staffRole && staffRole !== "staff" ? staffRole : null);
+  const nextShiftRoleKey = effRole(nextShift);
+  const nextShiftRole = nextShiftRoleKey
+    ? roleName(nextShiftRoleKey, t)
     : t("portalRoleStaff", "Staff");
 
   // Countdown chip. The Date.now() read lives inside the pure helper,
@@ -1797,7 +1841,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     setCalTapped(true);
   };
 
-  const weekDays = weekView === "this" ? thisWeek : nextWeek;
 
 
   // Totals for the week ON SCREEN, not the fixed "this week" — paging to next
@@ -1817,7 +1860,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     return { hours: Math.round(hours * 100) / 100, count: all.length };
 
   }, [weekDays]);
-  const weekLabelStart = weekView === "this" ? weekStart : nextWeekStart;
+  const weekLabelStart = visibleWeekStart;
 
   // The ONE ceremonial beat: hero settles in once per page load. useRef pins
   // the decision for this mount so mid-animation re-renders (clock fetch,
@@ -1913,7 +1956,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             when there IS a shift: an empty hero has no role to signal. */}
         {nextShift && (
           <span
-            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift.role_on_shift, businessType)}`}
+            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(effRole(nextShift), businessType)}`}
             aria-hidden
           />
         )}
@@ -2288,35 +2331,60 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       >
         {/* v2 week card header: eyebrow over the RANGE at display weight, with
             two chevron buttons rather than a text link. The range is the fact
-            a staffer scans for, so it carries the type weight, not the label. */}
+            a staffer scans for, so it carries the type weight, not the label.
+            Pages week by week up to the last week with a published shift;
+            "I dag" is the one-tap way back once you have paged away. */}
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
-              {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")}
+            <div data-testid="portal-week-label" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+              {weekOffset === 0
+                ? t("portalSecThisWeek", "This week")
+                : weekOffset === 1
+                  ? t("portalSecNextWeek", "Next week")
+                  : t("portalWeekN", "Week {n}", { n: isoWeekNumber(visibleWeekStart) })}
             </div>
             <div className="tabular-nums" style={{ marginTop: 6, font: "700 14.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a" }}>
               {fmtShort(weekLabelStart, lang)} – {fmtShort(addDays(weekLabelStart, 6), lang)}
             </div>
           </div>
-          <div className="flex items-center gap-[5px]">
-            {[["prev", weekView !== "this"], ["next", weekView === "this"]].map(([dir, enabled]) => (
+          {/* 44×44 hit boxes around the 28px visual chevrons (the negative
+              margins keep the visuals where they were). */}
+          <div className="flex items-center" style={{ margin: "-8px -8px -8px 0" }}>
+            {weekOffset > 0 && (
+              <button
+                type="button"
+                onClick={() => goToWeek(0)}
+                aria-label={t("portalBackToThisWeek", "Back to this week")}
+                className="flex items-center justify-center"
+                style={{ minHeight: 44, padding: "0 4px" }}
+              >
+                <span style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid #e8edf3", background: "#f1f5f9", font: "600 11px/1 var(--font-text)", color: "#475569" }}>
+                  {t("portalToday", "Today")}
+                </span>
+              </button>
+            )}
+            {[["prev", weekOffset > 0], ["next", weekOffset < maxOffset]].map(([dir, enabled]) => (
               <button
                 key={dir}
                 type="button"
                 disabled={!enabled}
-                onClick={() => { setWeekView(dir === "next" ? "next" : "this"); setExpandedDate(null); }}
-                aria-label={dir === "next" ? t("portalSecNextWeek", "Next week") : t("portalSecThisWeek", "This week")}
+                onClick={() => goToWeek(weekOffset + (dir === "next" ? 1 : -1))}
+                aria-label={dir === "next" ? t("portalWeekNext", "Next week") : t("portalWeekPrev", "Previous week")}
                 className="flex items-center justify-center"
-                style={{
-                  width: 28, height: 28, borderRadius: 9, border: "1px solid #e8edf3",
-                  background: enabled ? "#f1f5f9" : "#f6f8fb",
-                  color: enabled ? "#475569" : "#cbd5e1",
-                  cursor: enabled ? "pointer" : "default",
-                }}
+                style={{ width: 44, height: 44, cursor: enabled ? "pointer" : "default" }}
               >
-                {dir === "next"
-                  ? <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />
-                  : <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />}
+                <span
+                  className="flex items-center justify-center"
+                  style={{
+                    width: 28, height: 28, borderRadius: 9, border: "1px solid #e8edf3",
+                    background: enabled ? "#f1f5f9" : "#f6f8fb",
+                    color: enabled ? "#475569" : "#cbd5e1",
+                  }}
+                >
+                  {dir === "next"
+                    ? <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />
+                    : <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />}
+                </span>
               </button>
             ))}
           </div>
@@ -2398,8 +2466,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               // Not an answer yet (or the call failed): no "no shifts" claim.
               ? <span aria-hidden className="inline-block h-3 w-24 rounded bg-gray-100 align-middle" />
               : weekTotals.count === 0
-              // "0 min · 0 vagter" read like a broken counter.
-              ? t("portalWeekNoShifts", "No shifts this week")
+              // "0 min · 0 vagter" read like a broken counter. "denne uge"
+              // only when it IS this week — it sat under "NÆSTE UGE" too.
+              ? (weekOffset === 0
+                  ? t("portalWeekNoShifts", "No shifts this week")
+                  : t("portalWeekNoShiftsThat", "No shifts that week"))
               : <>{fmtHM(weekTotals.hours)} · {weekTotals.count === 1
                   ? t("portalWeekShiftCountOne", "{n} shift", { n: weekTotals.count })
                   : t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}</>}
@@ -2484,16 +2555,23 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                           {/* Top-aligned: with a "Med Sara, Jonas" line the
                               block grows, and a centred bar drifted below the
                               time it belongs to. */}
-                          <span className={`w-1.5 h-8 mt-0.5 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift, businessType)}`} aria-hidden />
+                          <span className={`w-1.5 h-8 mt-0.5 rounded-full shrink-0 ${roleBarColor(effRole(fs), businessType)}`} aria-hidden />
                           <div className="min-w-0">
                             <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
                               {fs.start_time}–{fs.end_time}
                             </div>
-                            {/* The hours are on the right of the row; printing
-                                them here too said "8h 30m" twice per shift. */}
-                            {fs.role_on_shift && (
-                              <div className="text-[11px] text-gray-500 truncate">
-                                {roleName(fs.role_on_shift, t)}
+                            {/* Role (override, else the staffer's own) and the
+                                unpaid break — the hours on the right are NET,
+                                so without the break "11:00–20:00 · 8,5 t"
+                                does not add up. The hours themselves stay on
+                                the right only (printing them here said them
+                                twice per shift). */}
+                            {(effRole(fs) || fs.break_minutes > 0) && (
+                              <div className="text-[11px] text-gray-500 truncate" data-testid="portal-week-row-meta">
+                                {[
+                                  effRole(fs) ? roleName(effRole(fs), t) : null,
+                                  fs.break_minutes > 0 ? t("portalHoursBreak", "{m} min break", { m: fs.break_minutes }) : null,
+                                ].filter(Boolean).join(" · ")}
                               </div>
                             )}
                             {/* Who you are on with, for EVERY shift — not just
@@ -2614,34 +2692,41 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           );
         })()}
 
-        {/* Shifts beyond next week.
+        {/* Shifts after the visible week.
             This was the bare words "Coming up" with no dates, no times and no
-            tap target. An owner can publish a rota any distance out — publish
-            has no upper date bound — and the confirm sheet tells them "N shifts
-            are now live on your team's schedule", so staff get an email titled
-            "Schedule updated · Week of 05 Oct", open the app, tap Next week and
-            find nothing. They text the manager, which is the behaviour the app
-            exists to stop. Naming the dates does not extend the two-week view,
-            but it does tell the truth about what is already rostered. */}
-        {weekView === "next" && laterShifts.length > 0 && (
-          <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-2">
+            tap target, and then a 4-row preview ending in an inert "+11 mere":
+            the week view stopped at next week, so those shifts had no screen.
+            Every row now jumps to its week, and "+N mere" to the week of the
+            first one not listed — so every published shift is reachable. */}
+        {weekOffset >= 1 && laterShifts.length > 0 && (
+          <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-2" data-testid="portal-later-shifts">
             <div className="text-[11px] font-medium text-gray-400">
               {(t("portalSecComingUpCount", "Coming up · {n} more shifts") || "")
                 .replace("{n}", String(laterShifts.length))}
             </div>
-            <ul className="mt-1 space-y-0.5">
+            <ul className="mt-0.5">
               {laterShifts.slice(0, 4).map((s) => (
-                <li key={s.id || `${s.date}-${s.start_time}`}
-                    className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
-                  {fmtShort(s.date, lang)} · {s.start_time}–{s.end_time}
+                <li key={s.id || `${s.date}-${s.start_time}`}>
+                  <button
+                    type="button"
+                    onClick={() => goToWeek(weeksFrom(weekStart, s.date))}
+                    className="w-full flex items-center justify-between min-h-[44px] text-left text-[12px] text-gray-600 dark:text-gray-300 tabular-nums active:opacity-60"
+                  >
+                    <span>{fmtDate(s.date, lang)} · {s.start_time}–{s.end_time}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300 shrink-0" strokeWidth={2.4} aria-hidden />
+                  </button>
                 </li>
               ))}
             </ul>
             {laterShifts.length > 4 && (
-              <div className="mt-0.5 text-[11px] text-gray-400">
+              <button
+                type="button"
+                onClick={() => goToWeek(weeksFrom(weekStart, laterShifts[4].date))}
+                className="min-h-[44px] text-[12px] font-semibold text-gray-500 underline underline-offset-2 active:opacity-60"
+              >
                 {(t("portalSecComingUpMore", "+{n} more") || "")
                   .replace("{n}", String(laterShifts.length - 4))}
-              </div>
+              </button>
             )}
           </div>
         )}
@@ -3973,11 +4058,24 @@ function AlertsTab({ token, onNavigate }) {
     // generic one.
     const subject = n.subject || "";
     const cut = subject.lastIndexOf(" - ");
-    const detail = cut > 0 ? subject.slice(cut + 3) : subject;
     const cancelled = /cancelled/i.test(subject);
 
     let kind = n.event_type;
     if (n.event_type === "shift_changed" && cancelled) kind = "shift_deleted";
+
+    // The detail line is built from DATA (ref_date / ref_start / ref_end from
+    // the server) in the app's language — "ons. 25. nov. · 11:00–20:00",
+    // "Uge 48 · 23. nov. – 29. nov." It used to print the stored subject's
+    // tail, an English display string fixed at send time ("Wed 25 Nov") with
+    // no shift time. A row the server could not read keeps its stored text.
+    let detail = cut > 0 ? subject.slice(cut + 3) : subject;
+    if (n.ref_date) {
+      if (kind === "schedule_published") {
+        detail = `${t("portalWeekN", "Week {n}", { n: isoWeekNumber(n.ref_date) })} · ${fmtShort(n.ref_date, lang)} – ${fmtShort(addDays(n.ref_date, 6), lang)}`;
+      } else {
+        detail = fmtDate(n.ref_date, lang) + (n.ref_start && n.ref_end ? ` · ${n.ref_start}–${n.ref_end}` : "");
+      }
+    }
 
     const META = {
       schedule_published: { Icon: Calendar, tone: "green", title: t("portalEvtSchedulePublished", "Schedule published"), tab: "schedule" },
@@ -4046,7 +4144,8 @@ function AlertsTab({ token, onNavigate }) {
             <button
               key={n.id}
               type="button"
-              onClick={target ? () => onNavigate(target) : undefined}
+              // Opens the week the alert is ABOUT, not just the tab.
+              onClick={target ? () => onNavigate(target, n.ref_date || null) : undefined}
               // A row that goes nowhere must not pretend to be pressable.
               style={{
                 display: "flex", alignItems: "flex-start", gap: 11,
@@ -4976,6 +5075,9 @@ function AbsenceSection({ token, onChanged }) {
     acknowledged: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
     covered: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
     cancelled: { label: t("fravaerStatusCancelled", "Cancelled"), cls: "bg-gray-100 text-gray-500" },
+    // The owner said no. Stored as 'cancelled' like a withdrawal; the portal
+    // API tells the two apart (staff_portal._portal_absence_status).
+    declined: { label: t("fravaerStatusDeclined", "Declined"), cls: "bg-rose-50 text-rose-700" },
   };
 
   const fmtRange = (s, e) => {
@@ -5039,9 +5141,10 @@ function AbsenceSection({ token, onChanged }) {
         <div className="space-y-2">
           {groups.map((g) => {
             // A sygemelding is a fact, not an application, so it never wears
-            // the amber "Afventer". Cancelled still shows for both kinds —
-            // that one IS a real state change the staffer made.
-            const st = isNotifyKind(g.kind) && g.status !== "cancelled"
+            // the amber "Afventer". Cancelled / declined still show for both
+            // kinds — those ARE real state changes (the staffer's, or the
+            // manager's).
+            const st = isNotifyKind(g.kind) && g.status !== "cancelled" && g.status !== "declined"
               ? REGISTERED
               : (STATUS[g.status] || STATUS.pending);
             return (
@@ -5083,7 +5186,7 @@ function AbsenceSection({ token, onChanged }) {
           {t("fravaerAdd", "Request time off")}
         </button>
         <p className="text-[12px] text-gray-500 leading-snug mt-2">
-          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved.")}
+          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved or Declined.")}
         </p>
         </div>
       ) : (
@@ -5583,7 +5686,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     const rank = (s) => (s === "acknowledged" || s === "covered") ? 2 : 1;
     const m = {};
     (absence || []).forEach((a) => {
-      if (a.status === "cancelled") return;
+      if (a.status === "cancelled" || a.status === "declined") return;
       const prev = m[a.date];
       if (!prev || rank(a.status) >= rank(prev.status)) m[a.date] = { status: a.status, kind: a.kind };
     });
@@ -5594,7 +5697,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     () => Object.entries(oneOffByDate).map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date)),
     [oneOffByDate],
   );
-  const hasAbsence = (absence || []).some((a) => a.status !== "cancelled");
+  const hasAbsence = (absence || []).some((a) => a.status !== "cancelled" && a.status !== "declined");
 
   const withSaving = (iso, on) => setSavingSet((s) => { const n = new Set(s); on ? n.add(iso) : n.delete(iso); return n; });
 
@@ -6615,6 +6718,9 @@ export default function StaffPortalPage() {
   // "loading" | "ok" | "error". Once "ok", a later failed refresh keeps "ok"
   // (the last-good roster stays on screen; the header pill tells its age).
   const [schedState, setSchedState] = useState("loading");
+  // {date, n}: the week an alert tap should open on Vagtplan. Cleared once the
+  // staffer leaves Vagtplan, so coming back later lands on this week again.
+  const [scheduleFocus, setScheduleFocus] = useState(null);
   // Which department (branch) the portal is showing. Built from the staffer's
   // OWN shifts — `branch_name` already rides on every row — so the list can
   // only ever contain places they actually work. null = all of them.
@@ -6686,6 +6792,10 @@ export default function StaffPortalPage() {
       .catch(() => {});
     return () => { cancel = true; };
   }, [token, pinVerified, info, tab, lastSynced]);
+
+  useEffect(() => {
+    if (tab !== "schedule" && tab !== "alerts") setScheduleFocus(null);
+  }, [tab]);
 
   // Opening Alerts IS reading them — otherwise the badge stays lit until the
   // staffer happens to find "Mark all read".
@@ -7905,6 +8015,8 @@ export default function StaffPortalPage() {
             onShiftsChanged={loadData}
             schedState={schedState}
             onRetrySchedule={() => { setSchedState((st) => (st === "ok" ? "ok" : "loading")); loadData(); }}
+            staffRole={info?.role}
+            focusDate={scheduleFocus}
           />
         )}
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
@@ -7925,7 +8037,15 @@ export default function StaffPortalPage() {
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} />}
-        {tab === "alerts" && <AlertsTab token={token} onNavigate={setTab} />}
+        {tab === "alerts" && (
+          <AlertsTab
+            token={token}
+            onNavigate={(next, refDate) => {
+              setScheduleFocus(next === "schedule" && refDate ? { date: refDate, n: Date.now() } : null);
+              setTab(next);
+            }}
+          />
+        )}
       </div>
 
       {/* Bottom Navigation */}

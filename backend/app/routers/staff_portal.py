@@ -226,6 +226,74 @@ class PortalNotification(BaseModel):
     subject: str | None = None
     created_at: datetime | None = None
     channel: str
+    # What the alert is ABOUT, as data rather than display text: the shift's
+    # date (or the published week's Monday) and the shift's times. The app
+    # formats them in the reader's language and opens that week on tap.
+    # None when a row carries no date we can read.
+    ref_date: date | None = None
+    ref_start: str | None = None
+    ref_end: str | None = None
+
+
+_EN_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_EN_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_REF_ISO = re.compile(r" - (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2})-(\d{2}:\d{2}))?$")
+_REF_EN_DAY = re.compile(r" - (Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
+_REF_UGE = re.compile(r" - Uge (\d{1,2})$")
+_REF_WEEK_OF = re.compile(r" - Week of (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})$")
+
+
+def _notification_ref(subject: str | None, created_at: datetime | None):
+    """(ref_date, ref_start, ref_end) for one feed row.
+
+    New rows carry "<verb> - YYYY-MM-DD[ HH:MM-HH:MM]" (notification_service
+    _feed_subject). Rows written before that carry the old display strings —
+    "Shift cancelled - Wed 25 Nov", "Schedule updated - Uge 48",
+    "Schedule updated - Week of 23 Nov 2026" — with no year, so the year is
+    the one (around the row's own created_at) where the date exists AND, for
+    the weekday form, falls on that weekday. Anything else: (None, None, None)
+    and the app shows the stored text as before."""
+    subj = (subject or "").strip()
+    m = _REF_ISO.search(subj)
+    if m:
+        try:
+            return date.fromisoformat(m.group(1)), m.group(2), m.group(3)
+        except ValueError:
+            return None, None, None
+    anchor = (created_at.date() if isinstance(created_at, datetime) else None) or date.today()
+    years = (anchor.year - 1, anchor.year, anchor.year + 1)
+    m = _REF_EN_DAY.search(subj)
+    if m:
+        wd, day, mon = _EN_DAYS.index(m.group(1)), int(m.group(2)), _EN_MONTHS.index(m.group(3)) + 1
+        cands = []
+        for y in years:
+            try:
+                d = date(y, mon, day)
+            except ValueError:
+                continue
+            if d.weekday() == wd:
+                cands.append(d)
+        if cands:
+            return min(cands, key=lambda d: abs((d - anchor).days)), None, None
+        return None, None, None
+    m = _REF_WEEK_OF.search(subj)
+    if m:
+        try:
+            return date(int(m.group(3)), _EN_MONTHS.index(m.group(2)) + 1, int(m.group(1))), None, None
+        except ValueError:
+            return None, None, None
+    m = _REF_UGE.search(subj)
+    if m:
+        wk = int(m.group(1))
+        cands = []
+        for y in years:
+            try:
+                cands.append(date.fromisocalendar(y, wk, 1))
+            except ValueError:
+                continue
+        if cands:
+            return min(cands, key=lambda d: abs((d - anchor).days)), None, None
+    return None, None, None
 
 class PortalShift(BaseModel):
     date: date
@@ -2471,18 +2539,20 @@ def get_portal_notifications(token: str, request: Request, db: Session = Depends
         .all()
     )
 
-    return {
-        "notifications": [
-            PortalNotification(
-                id=str(n.id),
-                event_type=n.event_type,
-                subject=n.subject,
-                created_at=n.created_at,
-                channel=n.channel,
-            )
-            for n in notifications
-        ]
-    }
+    out = []
+    for n in notifications:
+        ref_date, ref_start, ref_end = _notification_ref(n.subject, n.created_at)
+        out.append(PortalNotification(
+            id=str(n.id),
+            event_type=n.event_type,
+            subject=n.subject,
+            created_at=n.created_at,
+            channel=n.channel,
+            ref_date=ref_date,
+            ref_start=ref_start,
+            ref_end=ref_end,
+        ))
+    return {"notifications": out}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2688,12 +2758,27 @@ def portal_list_absence(token: str, request: Request, db: Session = Depends(get_
                 "id": str(a.id),
                 "kind": a.kind,
                 "date": a.date.isoformat(),
-                "status": a.status,
+                "status": _portal_absence_status(a),
                 "reason": a.reason,
             }
             for a in rows
         ]
     }
+
+
+def _portal_absence_status(a) -> str:
+    """The status as the STAFFER needs to read it. The owner's decline and the
+    staffer's own withdraw are both stored as 'cancelled' (so every roster
+    filter drops them alike); the owner's decision is the one that also
+    stamps acknowledged_at (staff.decline_absence) — a withdraw only ever
+    touches pending rows, which never carry it. So 'cancelled' + acknowledged
+    = "declined" ("Afvist"), and the staffer can see their manager said no
+    instead of the same "Annulleret" as their own withdrawal. Rows declined
+    before acknowledged_at was stamped stay "cancelled" — nothing recorded
+    who acted on those."""
+    if a.status == "cancelled" and getattr(a, "acknowledged_at", None) is not None:
+        return "declined"
+    return a.status
 
 
 class AbsenceWithdrawBody(BaseModel):

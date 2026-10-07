@@ -95,9 +95,9 @@ def sent(monkeypatch, engine_and_session):
     # empty `calls` list — "no notification was sent" — which reads like a
     # product bug rather than a stale double. Keep this in step with
     # services/notification_service.send_shift_notifications.
-    def _fake(bg_db, user_id, changes, week_label, lang="en"):
+    def _fake(bg_db, user_id, changes, week_label, lang="en", week_start=None):
         calls.append({"user_id": str(user_id), "changes": dict(changes),
-                      "week_label": week_label, "lang": lang})
+                      "week_label": week_label, "lang": lang, "week_start": week_start})
 
     monkeypatch.setattr(staff_router, "send_shift_notifications", _fake)
     _, SessionLocal = engine_and_session
