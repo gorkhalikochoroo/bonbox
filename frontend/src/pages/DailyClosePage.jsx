@@ -34,6 +34,8 @@ import {
   headlineTotal,
   mergeScans,
   needsTerminalChoice,
+  closeSaveTotal,
+  overBonNow,
   scanBonTotal,
   scanSaveTotal,
   MERGE_FILL,
@@ -1823,6 +1825,11 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     heroHandledRef.current = heroScanFiles;
     onHeroConsumed?.();
     if (editingDate) return;
+    // In the wizard the card's scan is behind the form — a Mad corrected on
+    // Trin 1 lives only in the form until "← Scan Z-bon" folds it in. A photo
+    // from the hero went straight in, so the sum (and "Brug disse tal")
+    // dropped that correction. Fold it in first, once for all the files.
+    if (scanMode === "skipped" && scanResultRef.current) applyScanResult(foldFormIntoScan(scanResultRef.current));
     (async () => { for (const f of heroScanFiles.files) await handleFileSelect(f); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heroScanFiles]);
@@ -2112,9 +2119,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
       // the old figure, and manual mode pinned it (16.450 saved with 16.540's
       // MOMS). Auto recomputes from the corrected total. Nor when the lines
       // on the card add up past the bon's total — that is what gets saved.
-      const willSave = scanResult.revenue_total_text && Number(scanResult.revenue_total) > 0
-        ? Number(scanResult.revenue_total)
-        : Math.max(headlineTotal(scanResult, mLocale) || 0, Object.values(newRev).reduce((a, v) => a + readMoney0(v), 0));
+      const willSave = closeSaveTotal(scanResult, Object.values(newRev).reduce((a, v) => a + readMoney0(v), 0), mLocale);
       if (!mergeIncomplete.includes("moms_total") && scanMomsFits(scanResult, willSave)) {
         nextManual = asBox(scanResult.moms_total);
         setMomsMode("manual");
@@ -2342,12 +2347,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // Mirrors the server exactly: the owner's typed total, else the larger of
   // the category sum and the scanned total. A partly read Z-bon (Mad 10.000,
   // total 17.030) saved 17.030 while MOMS and the day check ran on 10.000.
-  const savedRevenue = useMemo(() => {
-    const owner = Number(scanResult?.revenue_total);
-    if (scanResult?.revenue_total_text && owner > 0) return owner;
-    const scanned = scanResult ? (headlineTotal(scanResult, mLocale) || 0) : 0;
-    return scanned > revenueTotal ? scanned : revenueTotal;
-  }, [scanResult, revenueTotal, mLocale]);
+  // A sum's categories raised past their bons count on top of the bons'
+  // totals — and come back out when they are lowered (closeSaveTotal).
+  const savedRevenue = useMemo(
+    () => closeSaveTotal(scanResult, revenueTotal, mLocale),
+    [scanResult, revenueTotal, mLocale],
+  );
   // A total read off the Z-bon IS revenue, split by category or not: a
   // total-only read said "can't be checked" while it locked 17.030.
   const revenueKnown = hasRevenueEntry || savedRevenue > 0;
@@ -2405,10 +2410,18 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // Scan lines that already add up to the total are complete: an empty
   // category was 0 that night, not "missing".
   const scanTotalNow = scanResult ? (headlineTotal(scanResult, mLocale) || 0) : 0;
-  const scanLinesAddUp = (bucket, lines) => scanTotalNow > 0
-    && Math.abs(lines.reduce((a, c) => a + readMoney0(bucket?.[c.key]), 0) - scanTotalNow) < 1;
+  // The total the scan card SAVES (its total box shows it): a typed total, or
+  // the larger of the printed total and the card's lines (closeSaveTotal).
+  const cardSaveTotal = !scanResult ? 0
+    : closeSaveTotal(scanResult, Object.values(scanResult.revenue || {}).reduce((a, v) => a + readMoney0(v), 0), mLocale);
+  const scanLinesAddUp = (bucket, lines, total = scanTotalNow) => total > 0
+    && Math.abs(lines.reduce((a, c) => a + readMoney0(bucket?.[c.key]), 0) - total) < 1;
+  // The categories against the printed total (lines that add up to it ARE
+  // the split); the payments against the total the box shows and the day
+  // saves — they passed as complete at 17.030 beside a box reading 17.530.
   const scanRevComplete = scanLinesAddUp(scanResult?.revenue, defaultRevCats);
-  const scanPayComplete = scanLinesAddUp(scanResult?.payments, defaultPayMethods);
+  const scanPayTotal = cardSaveTotal > 0 ? cardSaveTotal : scanTotalNow;
+  const scanPayComplete = scanLinesAddUp(scanResult?.payments, defaultPayMethods, scanPayTotal);
   const scanPaySum = defaultPayMethods.reduce((a, m) => a + readMoney0(scanResult?.payments?.[m.key]), 0);
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
     && Number.isFinite(readMoney(tipsTotal))
@@ -2654,8 +2667,13 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     // Sending it always (instead of only-when-empty) is what makes the
     // "skip — total saves correctly either way" banner promise true.
     const ocrTotal = scanResult?.revenue_total;
+    // A summed day's categories raised past their bons ride on top of the
+    // bons' totals (overBonNow) — the server's max(breakdown, override) then
+    // saves what the review shows, and lowering them again takes it back out.
     const revenue_total_override = ocrTotal && ocrTotal > 0
-      ? Number(ocrTotal)
+      ? (scanResult?.revenue_total_text
+        ? Number(ocrTotal)
+        : Math.round((Number(ocrTotal) + overBonNow(scanResult, revenueTotal)) * 100) / 100)
       : null;
     // Only override when the user actually scanned with the toggle —
     // otherwise leave null and let the user's account-level
@@ -3048,10 +3066,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
    * review and the save used 3.290. Back on the card after applying, it is
    * the form's own MOMS (a reopened draft's typed figure, say).
    */
-  const cardSaveTotal = !scanResult ? 0
-    : scanResult.revenue_total_text && Number(scanResult.revenue_total) > 0 ? Number(scanResult.revenue_total)
-      : Math.max(headlineTotal(scanResult, mLocale) || 0,
-        Object.values(scanResult.revenue || {}).reduce((a, v) => a + readMoney0(v), 0));
+  // (cardSaveTotal — the total the card saves — is worked out above, beside
+  // the payments check that compares against it.)
   // The Z-bon's printed total beside the one saved, when they differ — in
   // either direction (a category raised past it, or a total typed over it).
   // Not while the typed box is unreadable: that is a red field, not a figure.
@@ -3098,11 +3114,13 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
    * A plain function, not a nested component: a component declared inside
    * CloseForm would remount (and lose focus/animation) on every render.
    */
-  const renderMergeSummary = ({ withUndo = false } = {}) => {
+  const renderMergeSummary = ({ withUndo = false, nowTotal = null } = {}) => {
     if (scanResult?.merge_info?.mode !== MERGE_SUM) return null;
     const info = scanResult.merge_info;
     const mergedTillSum = Math.round((info.terminalTotals || []).reduce((a, v) => a + (Number(v) || 0), 0) * 100) / 100;
-    const nowTotal = headlineTotal(scanResult, mLocale);
+    // What THIS surface saves (the card's total, or the form's): the bons'
+    // printed sum would read as a correction nobody made.
+    const typedTotal = Boolean(scanResult.revenue_total_text);
     return (
       <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm space-y-1">
         <div className="flex items-center justify-between gap-3">
@@ -3130,9 +3148,14 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
         </div>
         {nowTotal != null && Math.abs(nowTotal - mergedTillSum) >= 0.01 && (
           <p className="text-xs text-gray-600 dark:text-gray-300">
-            {t("dcMergeCorrectedTo", "You corrected the total to {amount}", {
-              amount: formatOwnerMoney(nowTotal, currency, { decimals: oreIfAny(nowTotal) }),
-            })}
+            {typedTotal
+              ? t("dcMergeCorrectedTo", "You corrected the total to {amount}", {
+                  amount: formatOwnerMoney(nowTotal, currency, { decimals: oreIfAny(nowTotal) }),
+                })
+              // A category changed since the sum, not the total.
+              : t("dcMergeNowSaves", "With your corrections the day saves {amount}", {
+                  amount: formatOwnerMoney(nowTotal, currency, { decimals: oreIfAny(nowTotal) }),
+                })}
           </p>
         )}
         {/* Honest about what could NOT be added, BY NAME. "Terminal 2's MOMS
@@ -3399,7 +3422,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               );
             })()}
 
-            {!pendingScan && renderMergeSummary({ withUndo: true })}
+            {!pendingScan && renderMergeSummary({ withUndo: true, nowTotal: cardSaveTotal > 0 ? cardSaveTotal : null })}
             {/* "Same terminal" replaced the figures — as undoable as a sum. */}
             {!pendingScan && mergeUndo && scanResult?.merge_info?.mode === MERGE_REPLACE && (
               <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3">
@@ -3910,12 +3933,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               {/* ONE line for a short payments column. Every unread method
                   used to wear an amber "missing" — Faktura and MobilePay on a
                   card-and-cash night — when only the shortfall is known. */}
-              {!scanPayComplete && scanPaySum > 0 && scanTotalNow > 0 && (
+              {!scanPayComplete && scanPaySum > 0 && scanPayTotal > 0 && (
                 <p className="text-[12px] text-gray-600 dark:text-gray-300">
                   <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" />
                   {t("dcScanPayShort", "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.", {
                     sum: formatOwnerMoney(scanPaySum, currency, { decimals: GLANCE_DECIMALS }),
-                    diff: formatOwnerMoney(Math.abs(scanTotalNow - scanPaySum), currency, { decimals: GLANCE_DECIMALS }),
+                    diff: formatOwnerMoney(Math.abs(scanPayTotal - scanPaySum), currency, { decimals: GLANCE_DECIMALS }),
                   })}
                 </p>
               )}
@@ -4076,12 +4099,20 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 // A figure the owner typed on the card is a string (a read is
                 // a number): one tap threw those corrections away unasked.
                 const typed = (v) => typeof v === "string" && v.trim() !== "";
-                const corrected = scanResult && (scanResult.revenue_total_text != null || typed(scanResult.tips)
+                // A sum turns every figure back into a number, so a Mad
+                // corrected before "another till" no longer looks typed — and
+                // two photos plus their sum are more than one read brings back.
+                const severalPhotos = scanResult?.merge_info?.mode === MERGE_SUM || scanPhotos.length > 1;
+                const corrected = scanResult && (severalPhotos || scanResult.revenue_total_text != null || typed(scanResult.tips)
                   || [...Object.values(scanResult.revenue || {}), ...Object.values(scanResult.payments || {})].some(typed));
                 if (corrected) {
                   const ok = await askConfirm({
                     title: t("dcScanStartOverTitle", "Start over?"),
-                    message: t("dcScanStartOverBody", "The photo and your corrections on the card will be gone."),
+                    message: severalPhotos
+                      ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
+                          count: Math.max(scanPhotos.length, scanResult?.merge_info?.scans || 0, 2),
+                        })
+                      : t("dcScanStartOverBody", "The photo and your corrections on the card will be gone."),
                     confirmLabel: t("startOver", "Start over"),
                     cancelLabel: t("cancel", "Cancel"),
                     destructive: true,
@@ -4252,7 +4283,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
         {/* The headline figure is a SUM of two tills — said on every step,
             including the one where it locks. See renderMergeSummary. */}
         {scanResult?.merge_info?.mode === MERGE_SUM && (
-          <div className="mb-3">{renderMergeSummary()}</div>
+          <div className="mb-3">{renderMergeSummary({ nowTotal: revenueKnown ? savedRevenue : null })}</div>
         )}
 
         {/* Night shift indicator — this one genuinely compares against the
@@ -5022,11 +5053,16 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               // A total the owner typed is saved exactly; only an OCR figure
               // competes with the breakdown via max().
               const ownerSet = Boolean(scanResult?.revenue_total_text) && ocrTotal > 0;
-              const willSave = ownerSet ? ocrTotal : (ocrTotal > revenueTotal ? ocrTotal : revenueTotal);
-              const usingOverride = ocrTotal > 0 && (ownerSet ? ocrTotal !== revenueTotal : ocrTotal > revenueTotal);
+              // A summed day's categories raised past their bons, on top of
+              // the bons' totals — the same rule as the payload's override.
+              const overBon = !ownerSet && ocrTotal > 0 ? overBonNow(scanResult, revenueTotal) : 0;
+              const overrideTotal = Math.round((ocrTotal + overBon) * 100) / 100;
+              const willSave = ownerSet ? ocrTotal : (overrideTotal > revenueTotal ? overrideTotal : revenueTotal);
+              const usingOverride = ocrTotal > 0 && (ownerSet ? ocrTotal !== revenueTotal : overrideTotal > revenueTotal);
               // The other direction had no note: categories raised past the
               // bon's total are what is saved, and "Gemmer total" said nothing.
-              const bonTotal = scanBonTotal(scanResult, mLocale) ?? (ocrTotal > 0 ? ocrTotal : null);
+              // No bon known (a reopened draft's saved total) is no "Z-bon".
+              const bonTotal = scanBonTotal(scanResult, mLocale);
               const splitOverBon = !ownerSet && ocrTotal > 0 && bonTotal != null && revenueTotal - Math.max(ocrTotal, bonTotal) >= 0.005;
               // A summed total that moved off the bons (a till's corrected
               // category) is not "from the receipt".
@@ -5090,6 +5126,15 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                         {ownerSet
                           // The owner typed this total — "from the receipt" was untrue.
                           ? t("dcSavesYourTotal", "(your corrected total — the categories add up to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })
+                          // A sum the tills' corrected categories moved off
+                          // the bons: the bons' figure, the amount and which
+                          // way, then the split — three figures that add up.
+                          : overBon > 0
+                            ? t("dcSavesBonsPlusCorrected", "(Z-reports: {bon} + {over} corrected in the categories; split: {sum})", {
+                                bon: formatOwnerMoney(ocrTotal, currency, { decimals: LEDGER_DECIMALS }),
+                                over: formatOwnerMoney(overBon, currency, { decimals: LEDGER_DECIMALS }),
+                                sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }),
+                              })
                           : bonMoved
                             ? t("dcSavesBonAndSplit", "(Z-report: {bon} — your breakdown sums to {sum})", {
                                 bon: formatOwnerMoney(bonTotal, currency, { decimals: LEDGER_DECIMALS }),

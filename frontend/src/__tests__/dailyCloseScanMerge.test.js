@@ -20,6 +20,7 @@ import {
   MERGE_FILL,
   MERGE_REPLACE,
   MERGE_SUM,
+  closeSaveTotal,
   scanBonTotal,
   scanSaveTotal,
 } from "../utils/dailyCloseScanMerge";
@@ -353,7 +354,10 @@ describe("a category corrected past the bon's total, then a second till", () => 
 
   it("the sum keeps the correction: 17.530 + 5.000 = 22.530", () => {
     const merged = mergeScans(till1, till2, MERGE_SUM, "da-DK");
-    expect(merged.revenue_total).toBe(22530);
+    // The bons' printed totals, with the +500 kept apart so it can go again.
+    expect(merged.revenue_total).toBe(22030);
+    expect(merged.merge_info.overBon).toBe(500);
+    expect(scanSaveTotal(merged, "da-DK")).toBe(22530);
     expect(merged.merge_info.terminalTotals).toEqual([17530, 5000]);
     // What the bons printed stays known — the summed MOMS belongs to it.
     expect(merged.bon_total).toBe(22030);
@@ -378,6 +382,84 @@ describe("a category corrected past the bon's total, then a second till", () => 
     const draft = { revenue_total: 17030, revenue: { food: "10.000" }, from_draft: true };
     expect(scanBonTotal(draft, "da-DK")).toBeNull();
     const merged = mergeScans(draft, till2, MERGE_SUM, "da-DK");
-    expect(merged.bon_total).toBeUndefined();
+    expect(merged.bon_total).toBeNull();
+    expect(scanBonTotal(merged, "da-DK")).toBeNull();
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Round 12 review: the sum wrote each till's max(bon, lines) into
+ * revenue_total, so it became a floor — Mad set back to 9.000 after the sum
+ * still saved 22.530 / MOMS 4.506. The raised part now rides on top of the
+ * bons' totals and comes back out when the lines go down; raising the lines
+ * first fills what no category carried yet, as on a single till.
+ * ─────────────────────────────────────────────────────────────────────────── */
+describe("a summed day follows its categories after the sum", () => {
+  const till1 = {
+    revenue: { food: "9.500", drinks: 6030, takeaway: 2000 },
+    revenue_total: 17030, moms_total: 3406, payments: { card: 17030 },
+  };
+  const till2 = { revenue: {}, revenue_total: 5000, moms_total: 1000, payments: { card: 5000 } };
+  const merged = mergeScans(till1, till2, MERGE_SUM, "da-DK");
+
+  it("correct, sum, then un-correct: back to the bons' 22.030", () => {
+    expect(closeSaveTotal(merged, 17530, "da-DK")).toBe(22530);
+    expect(closeSaveTotal(merged, 17030, "da-DK")).toBe(22030);
+    // Lowered further: the bons' total is the floor (Ikke fordelt grows).
+    expect(closeSaveTotal(merged, 16930, "da-DK")).toBe(22030);
+  });
+
+  it("a typo summed in and fixed afterwards saves the fixed figure", () => {
+    const typo = mergeScans({ ...till1, revenue: { ...till1.revenue, food: "95.000" } }, till2, MERGE_SUM, "da-DK");
+    expect(scanSaveTotal(typo, "da-DK")).toBe(108030);
+    expect(closeSaveTotal(typo, 17530, "da-DK")).toBe(22530);
+  });
+
+  it("two total-only tills split by hand afterwards are not counted twice", () => {
+    const totalsOnly = mergeScans(
+      { revenue: {}, revenue_total: 17030 }, { revenue: {}, revenue_total: 5000 }, MERGE_SUM, "da-DK");
+    expect(totalsOnly.merge_info.overBon).toBeUndefined();
+    expect(closeSaveTotal(totalsOnly, 10000, "da-DK")).toBe(22030);
+    expect(closeSaveTotal(totalsOnly, 22530, "da-DK")).toBe(22530);
+  });
+
+  it("a third till carries the first sum's correction", () => {
+    const three = mergeScans(merged, { revenue: {}, revenue_total: 3000 }, MERGE_SUM, "da-DK");
+    expect(three.revenue_total).toBe(25030);
+    expect(scanSaveTotal(three, "da-DK")).toBe(25530);
+    expect(three.merge_info.terminalTotals).toEqual([17530, 5000, 3000]);
+  });
+
+  it("'same till', then a corrected category, then a second till: the line adds up to what is saved", () => {
+    const replaced = mergeScans({ revenue: { food: 1 }, revenue_total: 100 },
+      { revenue: { food: 9000, drinks: 6030, takeaway: 2000 }, revenue_total: 17030 }, MERGE_REPLACE, "da-DK");
+    expect(replaced.merge_info.terminalTotals).toEqual([17030]);
+    const corrected = { ...replaced, revenue: { ...replaced.revenue, food: "9.500" } };
+    const summed = mergeScans(corrected, till2, MERGE_SUM, "da-DK");
+    expect(summed.merge_info.terminalTotals).toEqual([17530, 5000]);
+    expect(scanSaveTotal(summed, "da-DK")).toBe(22530);
+  });
+
+  it("a total typed on one till stays a typed sum", () => {
+    const typed = { revenue: { food: 9500 }, revenue_total: 9000, revenue_total_text: "9.000", bon_total: 9200 };
+    const sum = mergeScans(typed, till2, MERGE_SUM, "da-DK");
+    expect(sum.revenue_total).toBe(14000);
+    expect(sum.revenue_total_text).toBe("14.000");
+    expect(sum.merge_info.overBon).toBeUndefined();
+    expect(closeSaveTotal(sum, 1, "da-DK")).toBe(14000);
+  });
+});
+
+describe("a reopened draft that gets a page", () => {
+  it("keeps its saved total out of the 'Z-bon' figure after a FILL", () => {
+    const draft = { revenue_total: 17030, from_draft: true };
+    const filled = mergeScans(draft, { revenue: { food: 18000 } }, MERGE_FILL, "da-DK");
+    expect(filled.from_draft).toBeUndefined();
+    expect(scanBonTotal(filled, "da-DK")).toBeNull();
+  });
+
+  it("a page that prints its own total is a Z-bon figure again", () => {
+    const filled = mergeScans({ revenue_total: 17030, from_draft: true }, { revenue_total: 18000 }, MERGE_FILL, "da-DK");
+    expect(scanBonTotal(filled, "da-DK")).toBe(18000);
   });
 });

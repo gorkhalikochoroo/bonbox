@@ -112,7 +112,50 @@ export function scanSaveTotal(scan, locale = "da-DK") {
   const head = headlineTotal(scan, locale);
   if (head == null) return null;
   if (scan.revenue_total_text != null) return head;
-  return Math.max(head, lineSum(scan.revenue, locale));
+  const lines = lineSum(scan.revenue, locale);
+  const over = overBonNow(scan, lines);
+  return over > 0 ? Math.max(lines, Math.round((head + over) * 100) / 100) : Math.max(head, lines);
+}
+
+/**
+ * The part of a summed day that its tills' categories carried past their own
+ * Z-bon totals (a Mad raised by hand from 9.000 to 9.500 on a 17.030 bon) —
+ * as it stands with the merged lines now adding up to `lines`.
+ *
+ * Once two tills are one card, nobody can tell which till a line belongs to,
+ * so the per-till "larger of bon and lines" cannot be redone. Writing each
+ * till's figure into revenue_total at the sum made it a floor: setting Mad
+ * back to 9.000 still saved 22.530 and MOMS 4.506. The sum now keeps the
+ * bons' printed totals in revenue_total and the excess here, with the lines
+ * it was measured against: lowering the categories takes the excess back out
+ * (down to the bons' totals), and raising them first fills what no category
+ * carried yet ("Ikke fordelt") — the single-till rule, on the summed card.
+ * Zero for anything that is not a sum with a raised category.
+ */
+export function overBonNow(scan, lines) {
+  const info = scan?.merge_info;
+  const over = Number(info?.overBon) || 0;
+  if (!scan || info?.mode !== MERGE_SUM || !(over > 0) || scan.revenue_total_text) return 0;
+  const n = Number.isFinite(lines) ? lines : 0;
+  const lowered = Math.max(0, (Number(info.linesAtSum) || 0) - n);
+  return Math.max(0, Math.round((over - lowered) * 100) / 100);
+}
+
+/**
+ * The total a close saves when its category lines add up to `lines` — the
+ * card, the form, the review and the payload read this one rule (the server
+ * saves max(breakdown, override), so the override is this figure). A total
+ * the owner typed is saved as typed; otherwise the larger of the scan's total
+ * and the lines, with a sum's raised categories (overBonNow) on top of the
+ * bons' totals.
+ */
+export function closeSaveTotal(scan, lines, locale = "da-DK") {
+  const n = Number.isFinite(lines) ? lines : 0;
+  if (scan?.revenue_total_text && Number(scan.revenue_total) > 0) return Number(scan.revenue_total);
+  const head = scan ? (headlineTotal(scan, locale) || 0) : 0;
+  const over = overBonNow(scan, n);
+  if (over > 0) return Math.max(n, Math.round((head + over) * 100) / 100);
+  return head > n ? head : n;
 }
 
 /**
@@ -125,6 +168,9 @@ export function scanSaveTotal(scan, locale = "da-DK") {
 export function scanBonTotal(scan, locale = "da-DK") {
   if (!scan || typeof scan !== "object") return null;
   if (scan.bon_total != null) return toNum(scan.bon_total, locale);
+  // Known to be unknown: a reopened draft merged with a page or a till keeps
+  // a total nobody read off a bon (mergeScans writes the null).
+  if (Object.prototype.hasOwnProperty.call(scan, "bon_total")) return null;
   if (scan.revenue_total_text != null || scan.from_draft) return null;
   return headlineTotal(scan, locale);
 }
@@ -232,13 +278,24 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
   merged.revenue = sumBucket("revenue");
   merged.payments = sumBucket("payments");
 
-  // Each till's revenue is what ITS card saves (scanSaveTotal), not its
-  // printed total: a category corrected past the bon's total is part of the
-  // day. A box nobody can read stays unreadable (null), never a guess.
+  // A total the owner typed is the figure, so a sum with one adds what each
+  // card saves (scanSaveTotal) and stays a typed total. Otherwise the printed
+  // totals are added and each till's categories raised past its bon are kept
+  // apart (merge_info.overBon, below) — added in, but taken back out when the
+  // owner lowers the categories again. A box nobody can read stays
+  // unreadable (null), never a guess.
+  const typedTotal = existing.revenue_total_text != null || incoming.revenue_total_text != null;
   const tillTotal = (scan) => {
     const printed = toNum(scan.revenue_total, locale);
-    return printed == null ? null : (scanSaveTotal(scan, locale) ?? printed);
+    if (printed == null || !typedTotal) return printed;
+    return scanSaveTotal(scan, locale) ?? printed;
   };
+  const overOf = (scan) => {
+    const printed = toNum(scan.revenue_total, locale);
+    const save = scanSaveTotal(scan, locale);
+    return printed == null || save == null ? 0 : Math.max(0, Math.round((save - printed) * 100) / 100);
+  };
+  const overBon = typedTotal ? 0 : Math.round((overOf(existing) + overOf(incoming)) * 100) / 100;
   for (const field of ["revenue_total", "moms_total", "tips", "cash_counted_total"]) {
     const av = field === "revenue_total" ? tillTotal(existing) : toNum(existing[field], locale);
     const bv = field === "revenue_total" ? tillTotal(incoming) : toNum(incoming[field], locale);
@@ -264,9 +321,12 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
   // What the Z-bons printed, added up — the figure the summed MOMS belongs
   // to. When a till saves more (or less) than its bon, the saved total moves
   // off it and the MOMS is worked out again instead of summed.
+  // Not known for either one (a reopened draft's saved total, a typed one
+  // with no bon behind it) is not known for the sum: null, not absent —
+  // absent let the summed total pass for a Z-bon figure.
   const bonB = scanBonTotal(incoming, locale);
   if (bonA != null && bonB != null) merged.bon_total = Math.round((bonA + bonB) * 100) / 100;
-  else delete merged.bon_total;
+  else merged.bon_total = null;
 
   // Per-terminal documents: keep the first terminal's, say so when the second
   // one also had data we are not folding in.
@@ -288,15 +348,22 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
 
   const prevInfo = existing.merge_info || {};
   // Per till, the figure its card said it would save — so the line reads
-  // "17.530 + 5.000 = 22.530", the sum that is saved.
-  const prevTotals = Array.isArray(prevInfo.terminalTotals) && prevInfo.terminalTotals.length
+  // "17.530 + 5.000 = 22.530", the sum that is saved. An earlier sum's
+  // per-till figures only while they still add up to what that card saves
+  // now: a "same till" photo wrote [17.030], and a Mad raised to 9.500 after
+  // it made the line read 17.030 + 5.000 under a saved 22.530.
+  const existingSave = scanSaveTotal(existing, locale);
+  const prevTotals = prevInfo.mode === MERGE_SUM && Array.isArray(prevInfo.terminalTotals)
+    && prevInfo.terminalTotals.length && existingSave != null
+    && Math.abs(prevInfo.terminalTotals.reduce((a, v) => a + (Number(v) || 0), 0) - existingSave) < 0.005
     ? prevInfo.terminalTotals
-    : [scanSaveTotal(existing, locale)].filter((v) => v != null);
+    : [existingSave].filter((v) => v != null);
   merged.merge_info = {
     mode: MERGE_SUM,
     scans: (prevInfo.scans || 1) + 1,
     terminalTotals: [...prevTotals, scanSaveTotal(incoming, locale)].filter((v) => v != null),
     incompleteFields: Array.from(new Set([...(prevInfo.incompleteFields || []), ...incomplete])),
+    ...(overBon > 0 ? { overBon, linesAtSum: lineSum(merged.revenue, locale) } : {}),
   };
 
   const base = confidenceFor(merged);
@@ -318,9 +385,13 @@ export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-D
   const existingBon = scanBonTotal(existing, locale);
   // A photo went into it, so it is a read again: the reopened draft's
   // "not read" mark hid that photo's confidence and its missing lines.
-  if (existing.from_draft) {
+  const wasDraft = Boolean(existing.from_draft);
+  if (wasDraft) {
     existing = { ...existing };
     delete existing.from_draft;
+    // …but its total is still the saved one, not a bon's: say so, or the
+    // card and the review called it "Z-bon: 17.030" once a page went in.
+    existing.bon_total = null;
   }
   if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale, existingBon);
 

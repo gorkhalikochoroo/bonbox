@@ -103,7 +103,8 @@ const expectSummedSave = async (container) => {
   await screen.findByText("confirmAndLock");
   expect(container.textContent).toContain("22.530,00");
   expect(container.textContent).toContain("4.506,00");
-  expect(container.textContent).toContain("dcSavesBonAndSplit:22.030,00 kr.|17.530,00 kr.");
+  // The bons' figure, the +500 and which way, then the split — they add up.
+  expect(container.textContent).toContain("dcSavesBonsPlusCorrected:22.030,00 kr.|500,00 kr.|17.530,00 kr.");
   const payload = await lockedPayload();
   expect(payload.revenue_breakdown).toMatchObject({ food: 9500, drinks: 6000, takeaway: 2030 });
   expect(payload.revenue_total_override).toBe(22530);
@@ -172,5 +173,86 @@ describe("daily close — the scan card says the total it saves (MUST 2)", () =>
     // Typed back to the bon's figure: nothing differs, nothing is said.
     fireEvent.change(container.querySelector("#scan-total"), { target: { value: "17.030" } });
     expect(container.textContent).not.toContain("dcScanBonVsSaved");
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Review fixes on the above: the sum wrote each till's max(bon, lines) into
+ * revenue_total, so a correction undone after the sum still saved 22.530.
+ * ─────────────────────────────────────────────────────────────────────────── */
+const tapNext = () => {
+  const btn = screen.getAllByRole("button").find((b) => /^next\s/.test(b.textContent));
+  if (btn) fireEvent.click(btn);
+  return !!btn;
+};
+
+describe("daily close — a summed day follows its categories after the sum", () => {
+  it("correct, sum, then set Mad back on Trin 1: the payload goes back to 22.030 / 4.406", async () => {
+    scans = [TILL1, TILL2];
+    const { container } = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
+    shoot(container);
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    fireEvent.change(cardBox(container, "9.000"), { target: { value: "9.500" } });
+    await addSecondTillAndSum(container);
+    fireEvent.click(screen.getByText("continueStepByStep"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")?.value).toBe("9.500"));
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "9.000" } });
+    // The merge line says the day moved since the sum — not "you corrected the total".
+    expect(container.textContent).toContain("dcMergeNowSaves:22.030 kr.");
+    expect(container.textContent).not.toContain("dcMergeCorrectedTo");
+    for (let i = 0; i < 8 && !screen.queryByText("confirmAndLock"); i++) tapNext();
+    await screen.findByText("confirmAndLock");
+    expect(container.textContent).not.toContain("dcSavesBonsPlusCorrected");
+    const payload = await lockedPayload();
+    expect(payload.revenue_breakdown).toMatchObject({ food: 9000, drinks: 6000, takeaway: 2030 });
+    expect(payload.revenue_total_override).toBe(22030);
+    expect(payload.moms_total).toBe(4406);
+  });
+
+  it("Start forfra after a sum asks, even though the sum turned the correction into a number", async () => {
+    scans = [TILL1, TILL2];
+    const realConfirm = window.confirm;
+    window.confirm = vi.fn(() => false);
+    try {
+      const { container } = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
+      shoot(container);
+      await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+      fireEvent.change(cardBox(container, "9.000"), { target: { value: "9.500" } });
+      await addSecondTillAndSum(container);
+      fireEvent.click(screen.getByText("startOver"));
+      await waitFor(() => expect(window.confirm).toHaveBeenCalledTimes(1));
+      expect(screen.getByText("scanResults")).toBeInTheDocument();
+      expect(container.querySelector("#scan-total").value).toBe("22.530");
+    } finally {
+      window.confirm = realConfirm;
+    }
+  });
+
+  it("the card's payments check uses the total its box shows", async () => {
+    scans = [{ ...TILL1, revenue: { food: 9000, drinks: 6030, takeaway: 2000 } }];
+    const { container } = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
+    shoot(container);
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(container.textContent).not.toContain("dcScanPayShort");
+    fireEvent.change(cardBox(container, "6.030"), { target: { value: "6.130" } });
+    expect(container.querySelector("#scan-total").value).toBe("17.130");
+    expect(container.textContent).toContain("dcScanPayShort:17.030 kr.|100 kr.");
+  });
+
+  it("a till shot from the page's camera while on Trin 1 sums with the Trin-1 correction", async () => {
+    scans = [TILL1, TILL2];
+    // History could not be read: the page's own camera stays up over the wizard.
+    get.mockImplementation((url) => (url === "/daily-close" ? Promise.reject(new Error("offline")) : Promise.resolve({ data: [] })));
+    const { container } = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
+    await waitFor(() => expect(container.querySelectorAll('input[type="file"]').length).toBe(2));
+    const [hero, card] = container.querySelectorAll('input[type="file"]');
+    fireEvent.change(card, { target: { files: [new File(["x"], "kasse.jpg", { type: "image/jpeg" })] } });
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("continueStepByStep"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")?.value).toBe("9.000"));
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "9.500" } });
+    fireEvent.change(hero, { target: { files: [new File(["x"], "kasse2.jpg", { type: "image/jpeg" })] } });
+    await waitFor(() => expect(screen.getByText("scanSecondTotalTitle")).toBeInTheDocument());
+    expect(screen.getByText("scanSecondTotalBody:5.000 kr.|17.530 kr.")).toBeInTheDocument();
   });
 });
