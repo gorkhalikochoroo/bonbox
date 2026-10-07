@@ -163,7 +163,9 @@ describe("Alerts — the detail is data, in the reader's language, and opens its
     // The header bell (aria-label navAlerts = "Nyt").
     await waitFor(() => expect(document.body.textContent).toContain("16:00–22:00"));
     fireEvent.click(screen.getByRole("button", { name: "Nyt" }));
-    const dateLabel = new Date(target + "T00:00:00").toLocaleDateString("da-DK", { weekday: "short", day: "numeric", month: "short" });
+    // House style: "ons. 25. nov." (three-letter weekday + period).
+    const t0 = new Date(target + "T00:00:00");
+    const dateLabel = `${["man.", "tir.", "ons.", "tor.", "fre.", "lør.", "søn."][(t0.getDay() + 6) % 7]} ${t0.getDate()}. ${t0.toLocaleDateString("da-DK", { month: "short" })}`;
     const row = (await screen.findByText(`${dateLabel} · 11:00–20:00`)).closest("button");
     expect(document.body.textContent).toContain(`Uge ${isoWeek(wk(3))} · `);
     // The English display string never reaches a Danish screen.

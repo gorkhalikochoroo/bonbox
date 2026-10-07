@@ -16,7 +16,7 @@ import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, C
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatHoursMinutes } from "../utils/hours";
+import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
@@ -77,8 +77,30 @@ function localeFor(lang) {
   return lang || undefined;
 }
 
+// Danish weekday abbreviations in ONE style: three letters and a period,
+// "man. tir. ons. tor. fre. lør. søn." — the house style ("tor. 8. okt.").
+// ICU's da-DK mixes lengths ("tirs.", "tors."), writes "ons. den 7." for
+// weekday+day, and the Kan ikke strip stripped its own copy to "tir": three
+// spellings of one weekday in one app. Other languages keep ICU's.
+const DA_WEEKDAYS = ["man.", "tir.", "ons.", "tor.", "fre.", "lør.", "søn."];
+
+function wdShort(dt, lang) {
+  if (lang === "da") return DA_WEEKDAYS[(dt.getDay() + 6) % 7];
+  return dt.toLocaleDateString(localeFor(lang), { weekday: "short" });
+}
+
+/** "tor. 8." / "Thu 8" — weekday + day of month, for rows under a week. */
+function fmtWeekdayDay(d, lang) {
+  const dt = new Date(d + "T00:00:00");
+  if (lang === "da") return `${wdShort(dt, lang)} ${dt.getDate()}.`;
+  return dt.toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" });
+}
+
 function fmtDate(d, lang) {
   const dt = new Date(d + "T00:00:00");
+  if (lang === "da") {
+    return `${wdShort(dt, lang)} ${dt.getDate()}. ${dt.toLocaleDateString("da-DK", { month: "short" })}`;
+  }
   return dt.toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric", month: "short" });
 }
 
@@ -89,8 +111,7 @@ function fmtShort(d, lang) {
 
 // Monday-first short weekday names in the chosen language (2024-01-01 = a Monday).
 function weekdayNames(lang) {
-  return Array.from({ length: 7 }, (_, i) =>
-    new Date(2024, 0, 1 + i).toLocaleDateString(localeFor(lang), { weekday: "short" }));
+  return Array.from({ length: 7 }, (_, i) => wdShort(new Date(2024, 0, 1 + i), lang));
 }
 
 function toLocalISO(dt) {
@@ -895,6 +916,12 @@ function PinGate({ onVerified, token, staffName }) {
               {t("portalPinVerifying", "Verifying...")}
             </p>
           )}
+          {/* The way out. A forgotten PIN used to end in a 15-minute lockout
+              with no hint who can help; the owner can reset it (or send a
+              fresh link) from the staff profile. */}
+          <p className="mt-6" style={{ font: "400 12px/1.45 var(--font-text)", color: "rgba(255,255,255,.45)" }}>
+            {t("portalPinForgot", "Forgot your PIN? Ask your manager for a new link.")}
+          </p>
         </div>
       </div>
     </div>
@@ -1300,8 +1327,14 @@ function useClock(token) {
     setErr("");
     try {
       let payload = {};
+      // True when the server will accept this punch but flag it "Location
+      // unverified" (no fix, or a fix too vague to trust — the server's own
+      // 200 m rule). The staffer used to get a plain success and never learn
+      // their manager would see the punch as unverified.
+      let unverified = false;
       if (dir === "in" && st?.geofence_on) {
         const pos = await getPos();
+        unverified = !pos || (pos.accuracy != null && pos.accuracy > 200);
         if (pos) {
           payload = pos;
           // Keep the fix that was actually used for this punch. If the server
@@ -1331,13 +1364,16 @@ function useClock(token) {
         // comes from the language (hours.js), never typed here: this line used
         // to hardcode the Danish "t" on a screen an English or Turkish worker
         // reads too.
-        const dur = formatHoursMinutes(mins / 60, { lang });
+        const dur = formatHours(mins / 60, { lang, decimals: 2 });
         setResult(
           d.discarded
             ? t("portalClockTooShort", "Too short — nothing logged.")
             : t("portalClockLogged", "Logged · {h}", { h: dur }),
         );
         setTimeout(() => setResult(""), 6000);
+      } else if (unverified) {
+        setResult(t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."));
+        setTimeout(() => setResult(""), 10000);
       } else {
         setResult("");
       }
@@ -1902,7 +1938,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // unit inline: a hybrid that read "6t 15m" in Danish (glued, wrong minute
   // word) and "6h 15m" in Turkish, where the catalogue has no key and the unit
   // is "sa"/"dk". hours.js owns both units now.
-  const fmtHM = (h) => formatHoursMinutes(h == null ? null : Number(h), { lang });
+  // ONE hours format per language, the owner app's: "8,5 t" / "8.5 h"
+  // (hours.js formatHours, 2 decimals like a per-shift figure there). This
+  // screen printed "8 t 30 min" while Timer printed "8,5 timer" for the same
+  // shift. Hours-and-minutes stays only on running clocks (countdown,
+  // elapsed), which are read like a clock, not like a quantity.
+  const fmtHM = (h) => formatHours(h == null ? null : Number(h), { lang, decimals: 2 });
   // Gross span = net (paid) + unpaid break — both come from the owner's roster.
   const grossHrs = (s) => (Number(s?.net_hours) || 0) + (Number(s?.break_minutes) || 0) / 60;
 
@@ -2015,28 +2056,34 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 Same facts, one line. NET keeps its emphasis because it is the
                 paid number and the one thing here we compute rather than
                 restate. */}
-            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }}>
-              {nextShiftRole && <span>{nextShiftRole}</span>}
-              {nextShift.break_minutes > 0 ? (
-                <>
-                  {nextShiftRole && <HeroDot />}
-                  <span className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>
-                  <HeroDot />
-                  <span className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>
-                  <HeroDot />
-                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
-                    {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
+            {/* Each separator dot travels WITH the fact after it, so a wrap on
+                a narrow phone starts the next line with "· 8,5 t effektiv"
+                instead of leaving a dangling dot after "30 min pause". */}
+            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }} data-testid="portal-hero-meta">
+              {[
+                nextShiftRole ? <span key="r">{nextShiftRole}</span> : null,
+                ...(nextShift.break_minutes > 0
+                  ? [
+                      <span key="g" className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>,
+                      <span key="b" className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>,
+                      <span key="n" className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                        {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
+                      </span>,
+                    ]
+                  // No break → gross == net, so ONE figure, not a redundant pair.
+                  : [
+                      <span key="g" className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                        {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
+                      </span>,
+                    ]),
+              ].filter(Boolean).map((el, i) => (
+                i === 0 ? el : (
+                  <span key={`d${i}`} className="inline-flex items-center" style={{ gap: 7 }}>
+                    <HeroDot />
+                    {el}
                   </span>
-                </>
-              ) : (
-                <>
-                  {nextShiftRole && <HeroDot />}
-                  {/* No break → gross == net, so ONE figure, not a redundant pair. */}
-                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
-                    {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
-                  </span>
-                </>
-              )}
+                )
+              ))}
             </div>
 
             {/* Booked covers for this shift's night — the reason to hold both the
@@ -2057,8 +2104,13 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
                 "booket" is load-bearing — walk-ins never enter the book, so this
                 is guests BOOKED, never guests served. */}
-            {typeof coversByShift?.[nextShift.id] === "number" && (
-              <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400">
+            {/* Covers and venue share ONE wrapping row with a real gap — as
+                two inline-flex siblings they ran together ("0 gæster booket◎
+                Testcafé"). And 0 is not shown: "0 gæster booket" reads as a
+                dead night when it usually means nobody has booked YET. */}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {typeof coversByShift?.[nextShift.id] === "number" && coversByShift[nextShift.id] > 0 && (
+              <div className="inline-flex items-center gap-1.5 text-[12px] text-gray-400" data-testid="portal-hero-covers">
                 <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span className="tabular-nums">
                   {t("portalCoversBooked", "{n} guests booked", { n: coversByShift[nextShift.id] })}
@@ -2077,7 +2129,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   href={venueMapsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
+                  className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
                   title={t("portalVenueDirections", "Get directions")}
                 >
                   {clock.st?.geofence_on ? (
@@ -2092,7 +2144,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   </span>
                 </a>
               ) : (
-                <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+                <div className="flex min-w-0 max-w-full items-center gap-1.5 text-[12px] text-gray-400">
                   {clock.st?.geofence_on ? (
                     <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                   ) : (
@@ -2105,6 +2157,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   </span>
                 </div>
               ))}
+            </div>
 
             {/* Live elapsed timer while clocked in (emerald ping, reused from
                 the old ClockCard). */}
@@ -2537,9 +2590,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: isTodayCell ? "#0f172a" : "#94a3b8" }}>
-                        {new Date(d + "T00:00:00")
-                          .toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })
-                          .toUpperCase()}
+                        {fmtWeekdayDay(d, lang).toUpperCase()}
                         {isTodayCell ? ` · ${t("portalToday", "Today")}` : ""}
                       </span>
                       {all[0]?.role_on_shift && (
@@ -2650,7 +2701,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                           <div>{t("portalMateNoOther", "{name} has no other shift on the rota.", { name: firstName(open.staff_name) || open.staff_name })}</div>
                                         ) : others.map((x, xi) => (
                                           <div key={`${x.date}-${xi}`} className="tabular-nums">
-                                            {new Date(x.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })}
+                                            {fmtWeekdayDay(x.date, lang)}
                                             {" · "}{x.start_time}–{x.end_time}
                                             {x.role ? ` · ${roleName(x.role, t)}` : ""}
                                           </div>
@@ -2904,7 +2955,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   );
 }
 
-function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading }) {
+function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading, onRetry }) {
   const { t, lang } = useLanguage();
   const [customOpen, setCustomOpen] = useState(false);
   // The permit cap is monthly. Against a chosen window of any other length the
@@ -2929,6 +2980,17 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       return { key: `${th.getFullYear()}-${String(week).padStart(2, "0")}`, week };
     };
     const buckets = new Map();
+    // EVERY week of the period gets a column, worked or not. A week with no
+    // shifts used to vanish (W40, W41, W43), which reads as "the chart
+    // skipped one" rather than "you were off that week".
+    if (data?.period_start && data?.period_end) {
+      for (let d = data.period_start; d <= data.period_end; d = addDays(d, 7)) {
+        const k = isoWeek(d);
+        if (k) buckets.set(k.key, 0);
+      }
+      const last = isoWeek(data.period_end);
+      if (last) buckets.set(last.key, buckets.get(last.key) || 0);
+    }
     for (const e of data?.entries || []) {
       const k = isoWeek(e.date);
       if (k === null) continue;                                // never bucket a date we cannot read
@@ -2939,13 +3001,14 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     const sorted = [...buckets.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const rows = sorted
       .slice(-5)                                               // v2 shows five columns
-      .map(([k, n]) => ({ w: `W${k.split("-")[1]}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
+      // "Uge 40" in Danish, "W40" in English — the label was English always.
+      .map(([k, n]) => ({ k, w: t("portalWeekShort", "W{n}", { n: Number(k.split("-")[1]) }), n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
     rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
     // Flagged, not hidden: with a long custom window these five bars are a tail,
     // not the whole period, so they cannot add up to the headline above them.
     rows.truncated = sorted.length > rows.length;
     return rows;
-  }, [data?.entries]);
+  }, [data?.entries, data?.period_start, data?.period_end, t]);
 
   if (!data) {
     // A failed FIRST fetch also leaves data null. Showing the skeleton then is
@@ -2963,6 +3026,18 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
           <span>
             {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={hoursLoading}
+                data-testid="portal-hours-retry"
+                className="min-h-[44px] disabled:opacity-50"
+                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c", font: "700 12px/1 var(--font-text)" }}
+              >
+                {t("tryAgain", "Try again")}
+              </button>
+            )}
             {range && (
               <button type="button" onClick={() => setRange(null)} style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}>
                 {t("portalHoursBackToDefault", "Back to my pay period")}
@@ -3061,6 +3136,20 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
           <span>
             {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {/* The numbers below are the LAST good fetch — say so. */}
+            {" "}{t("portalHoursStale", "Showing the last numbers we got.")}
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={hoursLoading}
+                data-testid="portal-hours-retry"
+                className="min-h-[44px] disabled:opacity-50"
+                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c", font: "700 12px/1 var(--font-text)" }}
+              >
+                {t("tryAgain", "Try again")}
+              </button>
+            )}
             {range && (
               <button
                 type="button"
@@ -3083,6 +3172,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         className="relative overflow-hidden"
         style={{
           borderRadius: 22, padding: 19,
+          // Last-good numbers under a failed refresh read as such.
+          opacity: hoursError ? 0.6 : 1,
           background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
           boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
         }}
@@ -3122,7 +3213,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
-                {fmtPortalHours(data.total_hours, lang)} / {fmtPortalHours(maxHours, lang)}
+                {fmtPortalHours(data.total_hours, lang)} / {formatHours(maxHours, { lang, decimals: 2 })}
               </div>
             </div>
           ) : soFar > 0 && ahead > 0 ? (
@@ -3136,7 +3227,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   against a cap. This is a SPLIT of the period, so it states the
                   one number the staffer does not already have. */}
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
-                {fmtPortalHours(ahead, lang)} {t("portalHrsShort")}
+                {formatHours(ahead, { lang, decimals: 2 })}
               </div>
             </div>
           ) : delta !== null ? (
@@ -3150,7 +3241,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
                 {delta === 0
                   ? t("portalHoursSameAsLast", "Same")
-                  : `${delta > 0 ? "+" : "−"}${fmtPortalHours(Math.abs(delta), lang)} ${t("portalHrsUnit")}`}
+                  : formatHours(delta, { lang, decimals: 2, sign: true })}
               </div>
             </div>
           ) : nextUp ? (
@@ -3187,12 +3278,12 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
               {weekBars.truncated
                 ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
-                : t("portalHrsShort")}
+                : hoursUnit(lang)}
             </span>
           </div>
           <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
             {weekBars.map((b) => (
-              <div key={b.w} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }}>
+              <div key={b.k} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }} data-testid="portal-week-bar">
                 <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{fmtPortalHours(b.v, lang)}</span>
                 <div
                   style={{
@@ -3332,15 +3423,15 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     <span className="text-sm text-gray-500 flex-1">
                       {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                     </span>
-                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtPortalHours(h.total_hours, lang)} {t("portalHrsShort")}</span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                   </div>
                   {adjusted && (
                     <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
                       <PencilLine size={12} className="shrink-0 mt-0.5" />
                       <span className="tabular-nums">
                         {t("portalHoursAdjusted", "You clocked {clocked} · recorded {recorded}", {
-                          clocked: `${fmtPortalHours(h.clock_hours, lang)} ${t("portalHrsShort")}`,
-                          recorded: `${fmtPortalHours(h.total_hours, lang)} ${t("portalHrsShort")}`,
+                          clocked: formatHours(h.clock_hours, { lang, decimals: 2 }),
+                          recorded: formatHours(h.total_hours, { lang, decimals: 2 }),
                         })}
                       </span>
                     </p>
@@ -3387,8 +3478,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <div>
             <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
               {t("portalHoursRecentlyClocked", "Recently clocked")}
-              <span className="ml-1 font-normal text-gray-400 normal-case tracking-normal">
-                · {t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
+              <span className="font-normal text-gray-400 normal-case tracking-normal">
+                {" · "}{t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
               </span>
             </div>
             <div className="space-y-1.5">
@@ -3397,7 +3488,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   <span className="text-sm text-gray-500">
                     {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                   </span>
-                  <span className="text-sm font-semibold text-gray-900">{fmtPortalHours(h.total_hours, lang)} {t("portalHrsShort")}</span>
+                  <span className="text-sm font-semibold text-gray-900 tabular-nums">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                 </div>
               ))}
             </div>
@@ -3600,9 +3691,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
 function fmtSwapDay(iso, lang) {
   if (!iso) return iso;
   try {
-    return new Date(`${iso}T00:00:00`).toLocaleDateString(localeFor(lang), {
-      weekday: "short", day: "numeric", month: "short",
-    });
+    return fmtDate(iso, lang);
   } catch {
     return iso;
   }
@@ -5591,7 +5680,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               }}
             >
               <span style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
-                {d.toLocaleDateString(localeFor(lang), { weekday: "short" }).replace(".", "").slice(0, 3)}
+                {wdShort(d, lang)}
               </span>
               <span
                 className="tabular-nums"
@@ -5793,7 +5882,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   const goNext = () => { const d = new Date(viewYear, viewMonth + 1, 1); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
   const goToday = () => { const d = new Date(); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
   const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth();
-  const fmtWhen = (iso) => new Date(iso + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric", month: "short" });
+  const fmtWhen = (iso) => fmtDate(iso, lang);
 
   if (avail === null) {
     return <div className="text-xs text-gray-500 py-6">{t("portalLoading", "Loading…")}</div>;
@@ -7498,6 +7587,9 @@ export default function StaffPortalPage() {
                     <button
                       type="button"
                       onClick={() => { loadData(); loadHours(); }}
+                      // A word-sized target in a text line: the ::before
+                      // widens the hit area to 44px without moving the line.
+                      className="relative before:absolute before:-inset-x-3 before:-inset-y-3 before:content-['']"
                       style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}
                     >
                       {!isOnline
@@ -7565,7 +7657,9 @@ export default function StaffPortalPage() {
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="relative rounded-full overflow-hidden flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              // overflow-hidden lives on the INNER circle: on the button it clipped
+              // the -inset-2 ::before, so the hit area was the 33px circle.
+              className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
               style={{
                 width: 33, height: 33, flex: "none",
                 background: "linear-gradient(150deg,#1e293b,#0f172a)", color: "#fff",
@@ -7574,11 +7668,13 @@ export default function StaffPortalPage() {
               }}
               title={t("portalEditContact", "Edit profile")}
             >
-              {photoUrl ? (
-                <img src={photoUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-              )}
+              <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                {photoUrl ? (
+                  <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                )}
+              </span>
             </button>
           </div>
         </div>
@@ -7697,7 +7793,7 @@ export default function StaffPortalPage() {
                   type="button"
                   onClick={() => setShowEmailEdit(false)}
                   aria-label={t("close", "Close")}
-                  className="w-8 h-8 -mr-1 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-[0.98] transition"
+                  className="w-11 h-11 -mr-2.5 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-[0.98] transition"
                 >
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
@@ -8036,7 +8132,7 @@ export default function StaffPortalPage() {
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
-        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} />}
+        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} onRetry={loadHours} />}
         {tab === "alerts" && (
           <AlertsTab
             token={token}
