@@ -3029,6 +3029,20 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     : scanResult.revenue_total_text && Number(scanResult.revenue_total) > 0 ? Number(scanResult.revenue_total)
       : Math.max(headlineTotal(scanResult, mLocale) || 0,
         Object.values(scanResult.revenue || {}).reduce((a, v) => a + readMoney0(v), 0));
+  // The Z-bon's printed total beside the one saved, when they differ — in
+  // either direction (a category raised past it, or a total typed over it).
+  // Not while the typed box is unreadable: that is a red field, not a figure.
+  const cardBonGap = (() => {
+    if (!scanResult) return null;
+    if (scanResult.revenue_total_text && isMoneyRejected(scanResult.revenue_total_text, mLocale)) return null;
+    const bon = scanBonTotal(scanResult, mLocale);
+    if (!(bon > 0) || !(cardSaveTotal > 0)) return null;
+    const diff = Math.round(Math.abs(cardSaveTotal - bon) * 100) / 100;
+    if (diff < 0.005) return null;
+    // One precision for the pair: øre on both when either has them.
+    const decimals = [bon, cardSaveTotal].some((v) => oreIfAny(v) === LEDGER_DECIMALS) ? LEDGER_DECIMALS : GLANCE_DECIMALS;
+    return { bon, diff, decimals };
+  })();
   const cardMomsApplied = Boolean(scanResult) && Boolean(appliedMoms) && appliedMoms.key === scanMomsKey(scanResult);
   const cardMoms = (() => {
     const bon = Number(scanResult?.moms_total);
@@ -3756,17 +3770,21 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   owner typed in the categories. Now the owner fixes the total
                   itself. Kept as typed (like the category boxes) and read by
                   the strict parser; an unreadable entry blocks the save. */}
-              {(scanResult.revenue_total || scanResult.revenue_total_text != null) && (
+              {(scanResult.revenue_total || scanResult.revenue_total_text != null) && (<>
                 <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-600">
                   <label htmlFor="scan-total" className="text-[14px] font-semibold text-gray-900 dark:text-white">
                     {t("totalRevenue")}
                   </label>
+                  {/* The total this card SAVES. Categories raised past the
+                      bon's total are saved, so the box follows them — it
+                      kept "17.030" beside a MOMS and a note for 17.130. The
+                      bon's own figure is said on the line below. */}
                   <MoneyField
                     id="scan-total"
                     locale={mLocale}
                     wrapperClassName="w-40 shrink-0"
                     className={`${inputClass} font-semibold`}
-                    value={scanResult.revenue_total_text ?? asBox(scanResult.revenue_total)}
+                    value={scanResult.revenue_total_text ?? asBox(cardSaveTotal > 0 ? cardSaveTotal : scanResult.revenue_total)}
                     onChange={(e) => {
                       const v = e.target.value;
                       const n = readMoney(v);
@@ -3784,7 +3802,26 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     }}
                   />
                 </div>
-              )}
+                {cardBonGap && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400 tabular-nums">
+                    <span className="font-semibold">
+                      {t("dcScanBonVsSaved", "Z-report: {bon} · you save {saved}.", {
+                        bon: formatOwnerMoney(cardBonGap.bon, currency, { decimals: cardBonGap.decimals }),
+                        saved: formatOwnerMoney(cardSaveTotal, currency, { decimals: cardBonGap.decimals }),
+                      })}
+                    </span>{" "}
+                    {scanResult.revenue_total_text
+                      ? t("dcScanBonVsSavedTyped", "You corrected the total yourself.")
+                      : scanResult.merge_info?.mode === MERGE_SUM
+                        ? t("dcScanTillsOverBon", "The tills' categories add up to {diff} more than their Z-report totals.", {
+                            diff: formatOwnerMoney(cardBonGap.diff, currency, { decimals: cardBonGap.decimals }),
+                          })
+                        : t("dcScanLinesOverBon", "The categories add up to {diff} more than the Z-report's total. If the Z-report is right, fix a category.", {
+                            diff: formatOwnerMoney(cardBonGap.diff, currency, { decimals: cardBonGap.decimals }),
+                          })}
+                  </p>
+                )}
+              </>)}
             </div>
 
             {/* MOMS section.
@@ -4939,6 +4976,13 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               const ownerSet = Boolean(scanResult?.revenue_total_text) && ocrTotal > 0;
               const willSave = ownerSet ? ocrTotal : (ocrTotal > revenueTotal ? ocrTotal : revenueTotal);
               const usingOverride = ocrTotal > 0 && (ownerSet ? ocrTotal !== revenueTotal : ocrTotal > revenueTotal);
+              // The other direction had no note: categories raised past the
+              // bon's total are what is saved, and "Gemmer total" said nothing.
+              const bonTotal = scanBonTotal(scanResult, mLocale) ?? (ocrTotal > 0 ? ocrTotal : null);
+              const splitOverBon = !ownerSet && ocrTotal > 0 && bonTotal != null && revenueTotal - Math.max(ocrTotal, bonTotal) >= 0.005;
+              // A summed total that moved off the bons (a till's corrected
+              // category) is not "from the receipt".
+              const bonMoved = !ownerSet && bonTotal != null && Math.abs(bonTotal - ocrTotal) >= 0.005;
               return (
                 <div className="flex flex-col items-end gap-1">
                   {/* moneyRejected: one of the amount boxes holds text that is
@@ -4998,7 +5042,20 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                         {ownerSet
                           // The owner typed this total — "from the receipt" was untrue.
                           ? t("dcSavesYourTotal", "(your corrected total — the categories add up to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })
-                          : t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
+                          : bonMoved
+                            ? t("dcSavesBonAndSplit", "(Z-report: {bon} — your breakdown sums to {sum})", {
+                                bon: formatOwnerMoney(bonTotal, currency, { decimals: LEDGER_DECIMALS }),
+                                sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }),
+                              })
+                            : t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
+                      </span>
+                    )}
+                    {splitOverBon && (
+                      <span className="ml-1 text-amber-700 dark:text-amber-400">
+                        {t("dcSavesSplitOverBon", "(your breakdown is {diff} above the Z-report's {bon})", {
+                          diff: formatOwnerMoney(revenueTotal - bonTotal, currency, { decimals: LEDGER_DECIMALS }),
+                          bon: formatOwnerMoney(bonTotal, currency, { decimals: LEDGER_DECIMALS }),
+                        })}
                       </span>
                     )}
                   </p>
