@@ -6,7 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency, formatOwnerMoney, getTaxConfig, getVatTerms, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, getTaxConfig, getVatTerms, isMoneyRejected, moneyInputText, moneyLocale, parseMoneyInput } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
@@ -1096,8 +1096,21 @@ function useIsPhone() {
 
 // What an edited close looks like, field by field — compared before an
 // autosave so opening "Rediger" is not a save, and any real change is.
+// The money maps compare by content, not key order: applying the scan card
+// again rebuilt them in the template's order, which read as an edit.
+const sortedFilled = (m) => Object.entries(m || {})
+  .filter(([, v]) => String(v ?? "").trim() !== "")
+  .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 const editSignature = (o) => JSON.stringify([
-  o.rev, o.pay, o.cash, o.tips, o.staff, o.by, o.notes, o.momsMode, o.momsManual,
+  sortedFilled(o.rev), sortedFilled(o.pay), o.cash, o.tips, o.staff, o.by, o.notes, o.momsMode, o.momsManual,
+]);
+
+// What a scan's MOMS was read against. A scan's MOMS goes into the form once
+// per figure: a new photo or a corrected total puts it in again, while going
+// back to the card and "Brug disse tal" again leaves the form's MOMS alone.
+const scanMomsKey = (s) => JSON.stringify([
+  s?.moms_total ?? null, s?.revenue_total ?? null, s?.revenue_total_text ?? null,
+  (s?.merge_info?.incompleteFields || []).includes("moms_total"),
 ]);
 
 function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
@@ -1123,11 +1136,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // contributes nothing AND turns red AND blocks the save below, so nothing
   // can be written on the strength of a figure this skipped.
   const readMoney0 = (v) => { const n = readMoney(v); return Number.isFinite(n) ? n : 0; };
-  // A figure back into the owner's own notation ("2350,5", not "2350.5").
-  const toMoneyInput = (n) => {
-    const txt = Number.isInteger(n) ? String(n) : n.toFixed(2);
-    return mLocale === "da-DK" ? txt.replace(".", ",") : txt;
-  };
+  // A figure back into the owner's own notation, grouped as they read it
+  // ("2.350,50", not "2350.5" — a reopened close showed "12345,50").
+  const toMoneyInput = (n) => moneyInputText(n, mLocale);
+  // A box value from a scan or the server: a number is written in the owner's
+  // notation, anything typed is kept exactly as typed.
+  const asBox = (v) => (typeof v === "number" ? toMoneyInput(v) : String(v ?? ""));
   // Drawer − float = the takings the close saves. An unreadable drawer box is
   // passed through as typed, so the form's own money check flags it.
   const takingsFrom = (drawer, float) => {
@@ -1249,7 +1263,11 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // the day's takings back. The float is remembered on this device.
   const [drawerCount, setDrawerCount] = useState("");
   const [cashFloat, setCashFloat] = useState(() => {
-    try { return localStorage.getItem(CASH_FLOAT_KEY) ?? "1000"; } catch { return "1000"; }
+    let v = "1000";
+    try { v = localStorage.getItem(CASH_FLOAT_KEY) ?? "1000"; } catch { /* private mode */ }
+    // Grouped like every other figure ("1.000"); a box it can't read stays as typed.
+    const n = parseMoneyInput(v, mLocale);
+    return Number.isFinite(n) ? toMoneyInput(n) : v;
   });
   // Register-derived expected cash (POS `kontant`/`cash` total for the
   // business day, from the /daily-close/prefill suggested_prefill block).
@@ -1362,6 +1380,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // Persisted on the close row as receipt_photo so the owner can re-view
   // the source document later (Bogføringsloven §10 retention).
   const [receiptPhotoUrl, setReceiptPhotoUrl] = useState(null);
+  // The scan MOMS the form last took ({ key: scanMomsKey, manual }), so a
+  // second "Brug disse tal" keeps the MOMS the form already has. And the
+  // Z-bon's one-off extras (drawer count, clerk notes), applied once per scan:
+  // every re-apply appended the clerk notes again and reset a typed count.
+  const [appliedMoms, setAppliedMoms] = useState(null);
+  const appliedPrefillRef = useRef(null);
 
   // ─── POS terminal auto-detect — Commit 3 owner-confirm state ───────
   //
@@ -1426,12 +1450,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     }
     setFileBranchOverride(dc.branch_id || null);
     // Saved amounts come back as numbers; the boxes take the owner's own
-    // notation ("1234,50"), not the API's "1234.5".
+    // notation, grouped ("1.234,50"), not the API's "1234.5".
     const asInput = (v) => {
       const n = Number(v);
-      if (!Number.isFinite(n)) return String(v ?? "");
-      const txt = Number.isInteger(n) ? String(n) : n.toFixed(2);
-      return mLocale === "da-DK" ? txt.replace(".", ",") : txt;
+      return Number.isFinite(n) ? toMoneyInput(n) : String(v ?? "");
     };
     // Every saved key comes back as a field. A custom category ("Catering")
     // that isn't in the venue's default list was loaded into state but had no
@@ -1467,19 +1489,29 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     }
     // A saved total above its category sum was a scanned or corrected total;
     // carry it back as the owner's figure, or the next save reverts it.
+    // The saved close is the only "scan" there is now — a photo read before
+    // it (abandoned, or for another day) must not come back behind
+    // "← Scan Z-bon" with its own numbers.
     const catSum = Object.values(dc.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+    let draftScan = null;
     if (Math.abs(Number(dc.revenue_total) - catSum) > 0.005 && Number(dc.revenue_total) > 0) {
       // Only a total BELOW its lines must have been typed by the owner (a
       // read total is never under the lines it carries). One above them is
       // what the Z-bon said — it came back labelled "din rettede total" and
       // was saved as the owner's own figure next time.
       const ownerSet = Number(dc.revenue_total) < catSum;
-      setScanResult((prev) => ({
-        ...(prev || {}),
+      draftScan = {
         revenue_total: Number(dc.revenue_total),
         ...(ownerSet ? { revenue_total_text: asInput(dc.revenue_total) } : {}),
-      }));
+        // Not read off a photo in this session: the card must not call these
+        // figures a read ("0/8 felter fundet", "Vi kunne ikke aflæse…").
+        from_draft: true,
+      };
     }
+    applyScanResult(draftScan);
+    setScanPhotos([]);
+    applyPendingScans([]);
+    setMergeUndo(null);
     // Every field takes the SAVED value, empty included: a field the close
     // never had kept whatever this form held before, and the next save
     // filed it under the edited day.
@@ -1498,6 +1530,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     setDrawerCount(drawerFrom(loaded.cash, cashFloat));
     setMomsMode(loaded.momsMode);
     setMomsManual(loaded.momsManual);
+    // The saved MOMS is the form's: going back to the card and applying it
+    // again dropped a typed MOMS to Auto.
+    setAppliedMoms({ key: scanMomsKey(draftScan), manual: loaded.momsManual, owner: false });
+    appliedPrefillRef.current = null;
     // Autosave waits for a real change: opening "Rediger" re-saved the close
     // within two seconds, before the owner had touched anything. Every field
     // counts as a change — a note, a staff count or the MOMS alone was never
@@ -1906,26 +1942,48 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     };
   }, [scanResult, terminalsForConfirm]);
 
+  // The form's figures, written back into the scan card. A figure the scanner
+  // read and nobody changed stays the scanner's number (and keeps "aflæst");
+  // anything typed comes over as typed; a box the owner emptied stays empty.
+  const foldFormIntoScan = (scan) => {
+    const fold = (read, form) => {
+      const out = {};
+      Object.entries(form || {}).forEach(([k, v]) => {
+        if (String(v ?? "").trim() === "") return;
+        const r = read?.[k];
+        out[k] = typeof r === "number" && Math.abs(readMoney(v) - r) < 0.005 ? r : v;
+      });
+      return out;
+    };
+    const tipsRead = typeof scan.tips === "number" && Math.abs(readMoney(tipsTotal) - scan.tips) < 0.005;
+    return {
+      ...scan,
+      revenue: fold(scan.revenue, revAmounts),
+      payments: fold(scan.payments, payAmounts),
+      ...(config.hasTips ? { tips: String(tipsTotal).trim() === "" ? null : (tipsRead ? scan.tips : tipsTotal) } : {}),
+    };
+  };
+
   const applyScanValues = (jumpToReview = false) => {
     if (!scanResult) return;
     const r = scanResult.revenue || {};
     const p = scanResult.payments || {};
     // Fill revenue — match against current template cats + any extras from OCR
     const newRev = {};
-    revCats.forEach(c => { if (r[c.key]) newRev[c.key] = String(r[c.key]); });
-    Object.entries(r).forEach(([k, v]) => { if (v && !newRev[k]) newRev[k] = String(v); });
+    revCats.forEach(c => { if (r[c.key]) newRev[c.key] = asBox(r[c.key]); });
+    Object.entries(r).forEach(([k, v]) => { if (v && !newRev[k]) newRev[k] = asBox(v); });
     // The scan's figures replace the previous scan's outright: merging kept a
     // first photo's Drikkevarer/Kontant/MobilePay under a re-scan that read
     // only Mad and Kort (22.060 paid against a 17.030 Z-bon).
     setRevAmounts(newRev);
     // Fill payments — match against current template methods + extras
     const newPay = {};
-    payMethods.forEach(m => { if (p[m.key]) newPay[m.key] = String(p[m.key]); });
-    Object.entries(p).forEach(([k, v]) => { if (v && !newPay[k]) newPay[k] = String(v); });
+    payMethods.forEach(m => { if (p[m.key]) newPay[m.key] = asBox(p[m.key]); });
+    Object.entries(p).forEach(([k, v]) => { if (v && !newPay[k]) newPay[k] = asBox(v); });
     setPayAmounts(newPay);
     // Fill tips (only for types that have tips). Z-reports often show
     // tips as negative (paid out) — keep the sign for accountant clarity.
-    if (config.hasTips && scanResult.tips) setTipsTotal(String(scanResult.tips));
+    if (config.hasTips && scanResult.tips) setTipsTotal(asBox(scanResult.tips));
     // If OCR detected MOMS, switch to manual mode with the scanned value —
     // UNLESS that number covers only one of the tills we just summed.
     //
@@ -1939,19 +1997,31 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     // revenue instead, which is right for a standard-rate day and, when it
     // isn't, is a number the owner can see and override.
     const mergeIncomplete = scanResult.merge_info?.incompleteFields || [];
-    // Not when the owner corrected the total: that scanned MOMS belongs to
-    // the old figure, and manual mode pinned it (16.450 saved with 16.540's
-    // MOMS). Auto recomputes from the corrected total.
-    if (scanResult.moms_total && !mergeIncomplete.includes("moms_total") && !scanResult.revenue_total_text) {
-      setMomsMode("manual");
-      setMomsManual(String(scanResult.moms_total));
-    } else {
-      // This scan carries no MOMS of its own (none read, one till of two, or
-      // a corrected total): an EARLIER scan's MOMS must not stay behind. It
-      // was saved "fra bon" 3.406 against a re-scanned, corrected 16.500.
-      setMomsMode("auto");
-      setMomsManual("");
+    // Once per figure (scanMomsKey). Back on the card and "Brug disse tal"
+    // again is the same figure: the form keeps the MOMS it has — a reopened
+    // draft's typed MOMS was dropped to Auto. A MOMS the owner typed since
+    // the last apply is theirs and stays even when the figure moves.
+    const momsKey = scanMomsKey(scanResult);
+    const ownerTypedMoms = Boolean(appliedMoms) && momsMode === "manual"
+      && (appliedMoms.owner || momsManual !== appliedMoms.manual);
+    let nextManual = momsMode === "manual" ? momsManual : "";
+    if (!appliedMoms || (appliedMoms.key !== momsKey && !ownerTypedMoms)) {
+      // Not when the owner corrected the total: that scanned MOMS belongs to
+      // the old figure, and manual mode pinned it (16.450 saved with 16.540's
+      // MOMS). Auto recomputes from the corrected total.
+      if (scanResult.moms_total && !mergeIncomplete.includes("moms_total") && !scanResult.revenue_total_text) {
+        nextManual = asBox(scanResult.moms_total);
+        setMomsMode("manual");
+      } else {
+        // This scan carries no MOMS of its own (none read, one till of two, or
+        // a corrected total): an EARLIER scan's MOMS must not stay behind. It
+        // was saved "fra bon" 3.406 against a re-scanned, corrected 16.500.
+        nextManual = "";
+        setMomsMode("auto");
+      }
+      setMomsManual(nextManual);
     }
+    setAppliedMoms({ key: momsKey, manual: nextManual, owner: ownerTypedMoms });
     // ── Z-report specialized prefill (Part D) ───────────────────────
     // When the backend ran the kasserapport-specialized extractor it
     // returns a `prefill` block with cash-drawer counts, per-clerk
@@ -1959,7 +2029,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     // cash-drawer step and drop the clerk summary into notes so the
     // owner spots schedule mismatches before locking the close.
     const pf = scanResult.prefill;
-    if (pf) {
+    if (pf && appliedPrefillRef.current !== pf) {
+      appliedPrefillRef.current = pf;
       // Step 3 — Cash drawer counted total (from denomination math)
       if (pf.cash_drawer?.counted_total != null) {
         // A denomination count of the drawer — float included.
@@ -2478,7 +2549,15 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
 
   // Draft auto-save — fires on step change (silent, no loading state)
   const [draftSaved, setDraftSaved] = useState(false);
+  // A save is waiting or on its way: the step slot says "Gemmer…" until the
+  // server has answered, so "Gemt" only ever means saved.
+  const [draftSaving, setDraftSaving] = useState(false);
   const autoSaveRef = useRef(null);
+  // The save the 2 s debounce is holding. Leaving the form (another tab,
+  // another page, the phone locked) CANCELLED it, so an edit made just before
+  // leaving never reached the server. Leaving now sends it instead.
+  const pendingSaveRef = useRef(null);
+  const savesInFlightRef = useRef(0);
   const editBaselineRef = useRef(null);
   // "The server told us this exact row is locked." NOT a guess from page state.
   //
@@ -2530,25 +2609,36 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   const existingBlocks = Boolean(existingForDate) && (existingLocked || overwriteKey !== rowKey);
 
   useEffect(() => {
+    // Nothing to save — and nothing a flush on leaving may send either.
+    const nothingToSave = () => {
+      pendingSaveRef.current = null;
+      if (!savesInFlightRef.current) setDraftSaving(false);
+    };
     // Stop re-asking to overwrite a signed kasserapport. The 409 below is the
     // real barrier; this only stops the timer knocking every two seconds after
     // the server has already said no for this row.
-    if (lockedRowRejected || existingBlocks) return;
+    if (lockedRowRejected || existingBlocks) return nothingToSave();
     // Only auto-save if user has entered some data and is past scan UI
     // On the total that will be SAVED: a Z-bon read as a total only was
     // never autosaved, because its categories summed to zero.
-    if (scanMode !== "skipped" || savedRevenue === 0) return;
+    if (scanMode !== "skipped" || savedRevenue === 0) return nothingToSave();
     // An edit that hasn't changed anything yet is not a save.
     if (editBaselineRef.current && editBaselineRef.current === editSignature({
       rev: revAmounts, pay: payAmounts, cash: cashCounted, tips: tipsTotal,
       staff: staffCount, by: closedBy, notes, momsMode, momsManual,
-    })) return;
+    })) return nothingToSave();
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
     const savingKey = rowKey;
-    autoSaveRef.current = setTimeout(async () => {
+    // `keepalive` when the page itself is going away (pagehide / hidden): a
+    // plain request can die with the page, a keepalive fetch is finished by
+    // the browser.
+    const run = async ({ keepalive = false } = {}) => {
+      pendingSaveRef.current = null;
+      savesInFlightRef.current += 1;
       try {
-        await api.post("/daily-close", buildPayload("draft"));
+        await api.post("/daily-close", buildPayload("draft"),
+          keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
         setOwnDraftKey(savingKey);
         onDraftSaved?.();
         setDraftSaved(true);
@@ -2558,17 +2648,50 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
         // connection) — but a 409 is not a transient error, it is the lock
         // saying this row is final.
         if (err?.response?.status === 409) setLockedRowRejected(true);
+      } finally {
+        savesInFlightRef.current -= 1;
+        // A newer edit may already be waiting behind this one.
+        if (!pendingSaveRef.current && !savesInFlightRef.current) setDraftSaving(false);
       }
-    }, 2000);
+    };
+    pendingSaveRef.current = run;
+    setDraftSaving(true);
+    autoSaveRef.current = setTimeout(run, 2000);
     return () => clearTimeout(autoSaveRef.current);
   // closedBy / notes / staff / MOMS typed on the review step were never
   // autosaved — "Kladde gemt" and then lost on the next open.
   }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue]);
 
+  // Leaving sends the waiting save instead of dropping it: the form unmounts on
+  // every tab switch and route change, and a phone can be locked or the tab
+  // closed with the 2 s debounce still running.
+  useEffect(() => {
+    const flush = (opts) => {
+      const run = pendingSaveRef.current;
+      if (!run) return;
+      clearTimeout(autoSaveRef.current);
+      run(opts);
+    };
+    const onHide = () => flush({ keepalive: true });
+    const onVisibility = () => { if (document.visibilityState === "hidden") onHide(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onHide);
+      flush();
+    };
+  }, []);
+
   // Final submit — locks the close (with offline queue fallback).
   // opts.acknowledgeAnomaly=true is passed by the "Yes, lock it" button
   // in the close_sanity double-check dialog to skip the guard and commit.
   const handleSubmit = async (opts = {}) => {
+    // The lock carries every field itself. A draft still waiting would be
+    // flushed when the form closes after the lock — a stale draft POSTed over
+    // the confirmed row.
+    clearTimeout(autoSaveRef.current);
+    pendingSaveRef.current = null;
     setSaving(true);
     setError("");
     setErrorDetail("");
@@ -2667,18 +2790,26 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
 
   const showScanUI = scanMode === "idle" || scanMode === "scanning" || scanMode === "result";
 
-  // Count how many fields OCR detected
+  // Count how many fields OCR detected — what the SCANNER read (its figures
+  // are numbers; a box the owner typed holds a string). The total and the
+  // MOMS count too: a read of total, MOMS and Kort said "1/8 felter".
   const scanFieldsDetected = useMemo(() => {
     if (!scanResult) return 0;
+    const read = (v) => typeof v === "number" && v !== 0;
     let count = 0;
     const r = scanResult.revenue || {};
     const p = scanResult.payments || {};
-    defaultRevCats.forEach(c => { if (r[c.key]) count++; });
-    defaultPayMethods.forEach(m => { if (p[m.key]) count++; });
-    if (config.hasTips && scanResult.tips) count++;
+    defaultRevCats.forEach(c => { if (read(r[c.key])) count++; });
+    defaultPayMethods.forEach(m => { if (read(p[m.key])) count++; });
+    if (config.hasTips && read(scanResult.tips)) count++;
+    if (read(scanResult.revenue_total) && !scanResult.revenue_total_text) count++;
+    if (read(scanResult.moms_total)) count++;
     return count;
   }, [scanResult, defaultRevCats, defaultPayMethods]);
-  const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0);
+  const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0) + 2;
+  // A card rebuilt from a reopened draft carries no read at all — no
+  // confidence, no "missing", no "we couldn't read the split".
+  const cardIsRead = Boolean(scanResult) && !scanResult.from_draft;
 
   /**
    * Owner-facing names for the lines a sum could NOT add up.
@@ -2725,6 +2856,15 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     || scanResult?.revenue_total_text)
     ? null
     : scanResult?.moms_total;
+  // The MOMS the card shows is the MOMS "Brug disse tal" leaves in the form.
+  // Back on the card after applying, that is the form's own MOMS (a reopened
+  // draft's typed figure, say) — not a second figure next to the review's.
+  const cardMomsApplied = Boolean(scanResult) && Boolean(appliedMoms) && appliedMoms.key === scanMomsKey(scanResult);
+  const cardMoms = cardMomsApplied && momsMode === "manual"
+    ? { value: readMoney0(momsManual), read: Boolean(scanMomsTrusted) && Math.abs(readMoney0(momsManual) - Number(scanMomsTrusted)) < 0.005 }
+    : scanMomsTrusted
+      ? { value: Number(scanMomsTrusted), read: true }
+      : { value: vatRate > 0 ? Math.round(((scanResult?.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0, read: false };
 
   /**
    * "These numbers are a SUM of two tills" — rendered on the scan card AND on
@@ -3302,6 +3442,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   were two different hues for the same instruction ("check
                   this"), and yellow-700 on yellow-100 is the weakest pair of
                   the three. One warn colour, one critical colour. */}
+              {cardIsRead && (
               <span className={`text-[12px] font-medium px-3 py-1 rounded-full ${
                 // Few fields read is "check this" (amber), not money lost (red).
                 scanFieldsDetected >= 5 ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
@@ -3319,6 +3460,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   total: scanFieldsTotal,
                 })}
               </span>
+              )}
             </div>
 
             {/* Detection-gap banner — fires when the total is detected
@@ -3331,7 +3473,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               const hasTotal = (scanResult.revenue_total || 0) > 0;
               // Lines that add up to the total ARE the split: an empty
               // Takeaway was 0 that night, not something to ask for.
-              if (!hasTotal || scanRevComplete) return null;
+              if (!hasTotal || scanRevComplete || !cardIsRead) return null;
               const detected = defaultRevCats
                 .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
                 .filter(r => r.val != null && r.val !== 0 && r.val !== "");
@@ -3366,7 +3508,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               </h3>
               {defaultRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
-                const isEmpty = !val && !scanRevComplete;
+                const isEmpty = !val && !scanRevComplete && cardIsRead;
                 return (
                   <div key={c.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
                     {/* Icons and badges keep their size; the label gives way. In the
@@ -3374,7 +3516,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
                       <Icon name={c.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, c)}</span>
-                      {val && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                      {typeof val === "number" && val !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                       {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Controlled now, and the RAW string is what we keep. The
@@ -3392,7 +3534,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       // wrapper has to carry the growth or the box collapses.
                       wrapperClassName="flex-1 min-w-0"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
-                      value={val ?? ""}
+                      value={asBox(val)}
                       placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => {
                         setScanResult(prev => ({
@@ -3427,7 +3569,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     locale={mLocale}
                     wrapperClassName="w-40 shrink-0"
                     className={`${inputClass} font-semibold`}
-                    value={scanResult.revenue_total_text ?? String(scanResult.revenue_total)}
+                    value={scanResult.revenue_total_text ?? asBox(scanResult.revenue_total)}
                     onChange={(e) => {
                       const v = e.target.value;
                       const n = readMoney(v);
@@ -3456,7 +3598,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     After a sum whose second Z-bon had no readable MOMS line it
                     would be a one-till figure badged as the day's MOMS, sitting
                     under a two-till total. Same guard as applyScanValues. */}
-                {scanMomsTrusted && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                {cardMoms.read && <span className="text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
               </h3>
               <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 tabular-nums">
                 <span>{t("totalMoms")}</span>
@@ -3467,7 +3609,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     give one row on the card a different glyph spacing from the
                     row above it. Same formatter either way. */}
                 <span className="font-semibold text-gray-900 dark:text-gray-100">
-                  {formatOwnerMoney(scanMomsTrusted || (vatRate > 0 ? Math.round(((scanResult.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0), currency, { decimals: GLANCE_DECIMALS })}
+                  {formatOwnerMoney(cardMoms.value, currency, { decimals: oreIfAny(cardMoms.value) })}
                 </span>
               </div>
               {defaultRevCats.map(c => {
@@ -3513,7 +3655,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
                       <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, m)}</span>
-                      {val && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                      {typeof val === "number" && val !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
                     <MoneyField
@@ -3522,7 +3664,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       // wrapper has to carry the growth or the box collapses.
                       wrapperClassName="flex-1 min-w-0"
                       className={inputClass}
-                      value={val ?? ""}
+                      value={asBox(val)}
                       placeholder=""
                       onChange={e => {
                         setScanResult(prev => ({
@@ -3568,14 +3710,14 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
                   {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-300 dark:text-gray-600 shrink-0">—</span>}
                   <Icon name="Coins" size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{t("tipsLabel", "Tips")}</span>
-                  {scanResult.tips && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                  {typeof scanResult.tips === "number" && scanResult.tips !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                 </span>
                 {/* Raw string kept, same reason as the revenue field above. */}
                 <MoneyField
                   locale={mLocale}
                   wrapperClassName="flex-1 min-w-0"
                   className={inputClass}
-                  value={scanResult.tips ?? ""}
+                  value={asBox(scanResult.tips)}
                   placeholder={!scanResult.tips ? t("dcNotOnReceipt", "not on the receipt") : ""}
                   onChange={e => {
                     setScanResult(prev => ({ ...prev, tips: e.target.value }));
@@ -3657,7 +3799,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   + {t("addAnotherPhoto", "Add another page or terminal")}
                 </button>
               )}
-              <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setScanMode("idle"); }}
+              <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); appliedPrefillRef.current = null; setScanMode("idle"); }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
               </button>
@@ -3853,9 +3995,13 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               banner above the step that pushed every field down ~44px and
               pulled them back 3s later — a tap meant for Catering typed
               1.500 into "Add category". */}
-          <span aria-live="polite" title={draftSaved ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
+          {/* "Gemmer…" while a save is waiting or on its way; "Gemt" only once
+              the server has it. */}
+          <span aria-live="polite" title={draftSaved && !draftSaving ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
             className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0 min-w-[3.75rem] text-right">
-            {draftSaved
+            {draftSaving
+              ? t("savingEllipsis", "Saving…")
+              : draftSaved
               ? <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400"><Icon name="Check" size={13} />{t("dcDraftSavedShort", "Saved")}</span>
               : `${step}/${totalSteps}`}
           </span>
@@ -4495,7 +4641,15 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             // Back to the scan card WITH the scan, to correct it — it threw the
             // read Z-bon and its photo away without asking.
             <Button variant="ghost" size="lg" onClick={() => {
-              if (scanResult) { setScanMode("result"); return; }
+              if (scanResult) {
+                // The card shows what the form holds NOW. It showed the scan
+                // as first read — a reopened draft's card was empty — and
+                // "Brug disse tal" then copied that over the typed categories
+                // and payments, and autosaved the loss.
+                applyScanResult(foldFormIntoScan(scanResult));
+                setScanMode("result");
+                return;
+              }
               setScanMode("idle"); setScanPhotos([]);
             }}>
               ← {t("scanZReportBack", "Scan Z-report")}

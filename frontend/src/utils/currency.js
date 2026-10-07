@@ -705,6 +705,21 @@ export function toMoneyInput(n, currencyCode) {
   return moneyLocale(currencyCode) === "da-DK" ? s.replace(".", ",") : s;
 }
 
+/**
+ * The same, grouped the way the owner reads it — "12.345,50", not "12345,50"
+ * — for a figure written back into a box (a reopened close, a scan). `locale`
+ * is a MONEY locale from moneyLocale(); parseMoneyInput reads the grouped
+ * shape back in that locale.
+ */
+export function moneyInputText(n, locale = "da-DK") {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "";
+  const d = Math.abs(v - Math.round(v)) < 0.005 ? 0 : 2;
+  return v.toLocaleString(locale === "en-US" ? "en-US" : "da-DK", {
+    minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: true,
+  });
+}
+
 export function moneyLocale(currencyCode) {
   return _DOT_DECIMAL_CURRENCY.test(String(currencyCode || "DKK").toUpperCase())
     ? "en-US"

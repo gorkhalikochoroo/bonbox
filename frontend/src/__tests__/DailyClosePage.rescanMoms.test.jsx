@@ -114,7 +114,7 @@ describe("daily close — MOMS after going back to the scan", () => {
     await waitFor(() => expect(screen.getByText("startOver")).toBeInTheDocument());
     fireEvent.click(screen.getByText("startOver"));
     shoot(container);
-    await waitFor(() => expect(container.querySelector("#scan-total")?.value).toBe("12000"));
+    await waitFor(() => expect(container.querySelector("#scan-total")?.value).toBe("12.000"));
     fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
 
     const payload = await lockedPayload();

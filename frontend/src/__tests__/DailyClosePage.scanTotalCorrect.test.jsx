@@ -78,7 +78,7 @@ describe("daily close — a misread scanned total", () => {
 
     const total = container.querySelector("#scan-total");
     expect(total).not.toBeNull();
-    expect(total.value).toBe("17300");
+    expect(total.value).toBe("17.300");
     fireEvent.change(total, { target: { value: "17.030" } });
     expect(total.value).toBe("17.030");
 

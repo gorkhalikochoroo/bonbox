@@ -89,7 +89,7 @@ describe("daily close — the chosen day already has a draft", () => {
     const { container } = renderPage();
     fireEvent.click(await screen.findByText("dcContinueDraft"));
 
-    await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("12000"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("12.000"));
     expect(screen.queryByText("dcDayHasDraft")).not.toBeInTheDocument();
   });
 

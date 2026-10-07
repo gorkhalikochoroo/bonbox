@@ -90,7 +90,7 @@ const tapNext = () => {
 // The day's draft is offered on the wizard's first screen, before any scan.
 const continueDraft = async (container) => {
   fireEvent.click(await screen.findByText("dcContinueDraft"));
-  await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("12000"));
+  await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("12.000"));
 };
 const toReview = async (container) => {
   for (let i = 0; i < 6 && !container.querySelector("#dc-notes"); i++) {
@@ -168,7 +168,7 @@ describe("daily close — a saved total above its category lines", () => {
     closes = [{ ...BASE, revenue_total: 17030, revenue_breakdown: { food: 10000 }, payment_breakdown: { card: 17030 } }];
     const { container } = renderPage();
     fireEvent.click(await screen.findByText("dcContinueDraft"));
-    await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("10000"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("10.000"));
     expect(screen.getByText("dcUnsplitRevenue")).toBeInTheDocument();
   });
 });
@@ -185,7 +185,7 @@ describe("daily close — the cash count", () => {
       await new Promise((r) => setTimeout(r, 0));
     }
     await waitFor(() => expect(container.querySelector("#cash-counted")).not.toBeNull());
-    expect(container.querySelector("#cash-float").value).toBe("1000");
+    expect(container.querySelector("#cash-float").value).toBe("1.000");
     fireEvent.change(container.querySelector("#cash-counted"), { target: { value: "5500" } });
     await waitFor(() => expect(closePosts().some(([, b]) => b.cash_counted === 4500)).toBe(true), { timeout: 3500 });
   });
