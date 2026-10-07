@@ -12,6 +12,15 @@ import { useGuestSurface } from "../lib/guestSurface";
  * Saves only when the account's value differs, once per language — no request
  * on an ordinary page load. Renders nothing.
  */
+function onStaffPage() {
+  try {
+    const p = window.location.pathname;
+    return p === "/join" || p.startsWith("/join/") || p.startsWith("/s/");
+  } catch {
+    return false;
+  }
+}
+
 export default function AccountLanguageSync() {
   const { user } = useAuth();
   const { lang } = useLanguage();
@@ -22,6 +31,11 @@ export default function AccountLanguageSync() {
   const onGuestPage = useGuestSurface();
 
   useEffect(() => {
+    // Same on the staff pages (/join, /s/<token>): their DA/EN switch is the
+    // STAFFER's choice, made on whatever device is at hand — the owner's
+    // phone, the café iPad. Not a guest surface (that would also drop the
+    // cookie banner), so the path decides.
+    if (onStaffPage()) return;
     if (onGuestPage || !user || !lang || user.ui_language === lang || sent.current === lang) return;
     sent.current = lang;
     api.patch("/auth/profile", { ui_language: lang }).catch(() => {

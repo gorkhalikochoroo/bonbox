@@ -35,6 +35,9 @@ Multi-layer defense (each function pinned by tests):
        • Both shifts must be in the future (date >= today)
        • from_staff != to_staff (no self-swap)
        • from_shift != to_shift (no swapping with itself)
+       • Nobody ends up on two shifts at once — BOTH people are checked
+         as they would be after the trade, at propose AND again at
+         accept (ShiftSwapOverlap → 409)
        • Reason / owner_note bounded to 500 chars; control chars
          scrubbed (defense in depth — these eventually appear in
          email/push payloads)
@@ -81,6 +84,121 @@ MAX_REASON_LEN = 500
 class ShiftSwapError(ValueError):
     """Service-layer rejection. Routers map these to 4xx responses;
     they're never raised on a happy path."""
+
+
+class ShiftSwapOverlap(ShiftSwapError):
+    """The trade would put someone on two shifts at once.
+
+    `who` is relative to the CALLER — "self" (the person asking) or
+    "colleague" (the other party) — so the portal can say which of them
+    is double-booked in the staffer's own language. Routers answer 409.
+    Nothing about the colleague's roster beyond "they already work then"
+    is revealed: no time, no other shift."""
+
+    def __init__(self, message: str, *, who: str):
+        super().__init__(message)
+        self.who = who
+
+
+class ShiftSwapStale(ShiftSwapError):
+    """One of the two shifts moved between propose and accept, so the
+    request was declined on the spot. Its own type so the portal can say so
+    in the staffer's language — the row turns 'declined' under their thumb,
+    and without a reason that reads as if the app declined it for them."""
+
+
+# Every shift on the roster counts, drafts included — the same rule as the
+# owner's add-shift guard (_find_overlapping_shift) and claim_giveaway's
+# Guard 1. A draft is not visible in the portal, but the owner's next
+# Publish turns it into a real shift with no overlap check, so a swap that
+# ignored it double-booked someone one tap later. The 409 still says only
+# "already has a shift then" — no time, no status.
+
+
+def _abs_span(sched: Schedule) -> tuple[int, int]:
+    """Minutes on one absolute timeline (date ordinal × 1440), overnight-aware
+    via _spans — so a 22:00–02:00 shift collides with a 01:00 start next day."""
+    s, e = _spans(sched)
+    base = sched.date.toordinal() * 24 * 60
+    return base + s, base + e
+
+
+def _lock_staff(db: Session, *staff_ids: uuid.UUID) -> None:
+    """Row-lock these StaffMember rows (SELECT … FOR UPDATE, ascending id)
+    until the transaction ends, so a roster read-check-write for them is not
+    interleaved with another. A no-op on SQLite, which serialises writers."""
+    ids = sorted({sid for sid in staff_ids if sid is not None}, key=str)
+    if not ids:
+        return
+    db.query(StaffMember.id).filter(StaffMember.id.in_(ids)).order_by(
+        StaffMember.id
+    ).with_for_update().all()
+
+
+def _double_booked(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    staff_id: uuid.UUID,
+    incoming: Schedule,
+    leaving_id: uuid.UUID,
+) -> bool:
+    """Would `staff_id` work two shifts at once after taking `incoming` and
+    handing over `leaving_id`? Looks at the day before and after too, so an
+    overnight shift on either side counts. Back-to-back (end == start) is
+    allowed, same strict-< rule as claim_giveaway's overlap guard."""
+    from datetime import timedelta
+
+    rows = db.query(Schedule).filter(
+        Schedule.user_id == owner_id,
+        Schedule.staff_id == staff_id,
+        Schedule.date >= incoming.date - timedelta(days=1),
+        Schedule.date <= incoming.date + timedelta(days=1),
+        Schedule.id != leaving_id,
+        Schedule.id != incoming.id,
+    ).all()
+    a0, a1 = _abs_span(incoming)
+    if a1 <= a0:
+        return False
+    for other in rows:
+        b0, b1 = _abs_span(other)
+        if a0 < b1 and b0 < a1:
+            return True
+    return False
+
+
+def _refuse_double_booking(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    caller_staff_id: uuid.UUID,
+    from_staff_id: uuid.UUID,
+    from_sched: Schedule,
+    to_staff_id: uuid.UUID,
+    to_sched: Schedule,
+) -> None:
+    """Check BOTH people as they would be after the trade. The proposer takes
+    to_sched and gives up from_sched; the colleague takes from_sched and gives
+    up to_sched. Raises ShiftSwapOverlap naming who, relative to the caller."""
+    def _who(staff_id):
+        return "self" if staff_id == caller_staff_id else "colleague"
+
+    if _double_booked(
+        db, owner_id=owner_id, staff_id=from_staff_id,
+        incoming=to_sched, leaving_id=from_sched.id,
+    ):
+        raise ShiftSwapOverlap(
+            "This swap would put the person giving up the shift on two "
+            "shifts at the same time.", who=_who(from_staff_id),
+        )
+    if _double_booked(
+        db, owner_id=owner_id, staff_id=to_staff_id,
+        incoming=from_sched, leaving_id=to_sched.id,
+    ):
+        raise ShiftSwapOverlap(
+            "This swap would put the person taking the shift on two "
+            "shifts at the same time.", who=_who(to_staff_id),
+        )
 
 
 def _scrub(text: Optional[str]) -> Optional[str]:
@@ -169,6 +287,15 @@ def propose_swap(
     if from_sched.date < today or to_sched.date < today:
         raise ShiftSwapError("Can't swap a shift that's already in the past.")
 
+    # L3: neither person may end up on two shifts at once. An accept executes
+    # the trade on the spot (no owner step), so this is the only check
+    # standing between a picker mistake and a silent double booking.
+    _refuse_double_booking(
+        db, owner_id=owner_id, caller_staff_id=from_staff_id,
+        from_staff_id=from_staff_id, from_sched=from_sched,
+        to_staff_id=to_staff_id, to_sched=to_sched,
+    )
+
     # L4: idempotency. If there's already a pending swap from this
     # staff with this exact (from_shift, to_staff, to_shift) tuple,
     # return it instead of creating a duplicate.
@@ -252,7 +379,16 @@ def respond_to_swap(
     that future owner path. Idempotent + tenant-safe (re-accepting a
     `done`/terminal swap raises; the flip re-validates ownership).
     """
-    swap = db.query(ShiftSwapRequest).filter(ShiftSwapRequest.id == swap_id).first()
+    # FOR UPDATE: a second accept of the SAME request (a double tap, or the
+    # portal's automatic retry while the first is still running) waits here
+    # and then reads 'done', instead of passing the status check too.
+    swap = (
+        db.query(ShiftSwapRequest)
+        .filter(ShiftSwapRequest.id == swap_id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
     if not swap:
         raise ShiftSwapError("Swap request not found.")
     # L2: only the to_staff can respond.
@@ -276,6 +412,13 @@ def respond_to_swap(
         return swap
 
     # accept=True → execute the swap atomically.
+    # Lock both people before reading their rosters. The double-booking check
+    # below is read-then-write: without the lock, two accepts touching the
+    # same person (two incoming swaps for overlapping shifts, or an accept
+    # racing a colleague's give-away claim) could both pass it before either
+    # commits. claim_giveaway takes the same lock on its claimer; ascending
+    # id order on both paths, after the swap row, so they cannot deadlock.
+    _lock_staff(db, swap.from_staff_id, swap.to_staff_id)
     swap.responded_at = now
 
     # L5: re-validate BOTH shifts still belong to their pre-swap staff
@@ -297,10 +440,25 @@ def respond_to_swap(
         # the proposer knows to re-offer against the current schedule.
         swap.status = "declined"
         db.commit()
-        raise ShiftSwapError(
+        raise ShiftSwapStale(
             "One of the shifts has changed since this swap was proposed; "
             "ask the other person to re-offer."
         )
+
+    # Rosters move between propose and accept (the owner adds a shift, a
+    # give-away is claimed), so the double-booking check runs again here,
+    # right before the flip. Refused WITHOUT touching the request: nobody
+    # declined it, and if the clash goes away it can still be accepted —
+    # the responder can also decline it themselves.
+    try:
+        _refuse_double_booking(
+            db, owner_id=swap.user_id, caller_staff_id=responder_staff_id,
+            from_staff_id=swap.from_staff_id, from_sched=from_sched,
+            to_staff_id=swap.to_staff_id, to_sched=to_sched,
+        )
+    except ShiftSwapOverlap:
+        db.rollback()   # drop the buffered responded_at — no write on refusal
+        raise
 
     # Atomic flip — SQLAlchemy buffers both; the single commit below is
     # the atomic boundary. Either both reassign or neither.
@@ -581,16 +739,27 @@ def claim_giveaway(
     )
     from datetime import timedelta
 
-    swap = db.query(ShiftSwapRequest).filter(
-        ShiftSwapRequest.id == swap_id,
-        ShiftSwapRequest.user_id == owner_id,
-    ).first()
+    # FOR UPDATE on the give-away first (two colleagues tapping "Tag vagten"
+    # at once: the second waits, then reads 'done'), then the claimer — the
+    # same lock respond_to_swap takes, so an accept and a claim that would
+    # hand one person two overlapping shifts run one after the other.
+    swap = (
+        db.query(ShiftSwapRequest)
+        .filter(
+            ShiftSwapRequest.id == swap_id,
+            ShiftSwapRequest.user_id == owner_id,
+        )
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
     if not swap or swap.to_shift_id is not None:
         raise ShiftSwapError("Give-away not found.")
     if swap.status != "proposed":
         raise ShiftSwapError("This shift has already been taken.")
     if swap.from_staff_id == claimer_staff_id:
         raise ShiftSwapError("You can't take your own shift — withdraw it instead.")
+    _lock_staff(db, claimer_staff_id)
 
     claimer = db.query(StaffMember).filter(
         StaffMember.id == claimer_staff_id,

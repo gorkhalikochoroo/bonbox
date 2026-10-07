@@ -152,15 +152,18 @@ describe("staff portal — could not reach the server", () => {
     return document.body.textContent;
   }
 
+  // Round 2: a server that ANSWERS with trouble is not "your connection" —
+  // the phone is online, so that screen says the server is not answering.
   it.each([
-    ["no response (offline)", () => new Error("Network Error")],
-    ["a 502", () => axiosError(502, "Bad Gateway")],
-    ["a 503 with a server sentence", () => axiosError(503, "Scheduled maintenance until 14:00")],
-    ["a 429", () => axiosError(429, "Too many requests")],
-  ])("%s keeps the saved link and offers a retry", async (_label, make) => {
+    ["no response (offline)", () => new Error("Network Error"), "Ingen forbindelse"],
+    ["a 502", () => axiosError(502, "Bad Gateway"), "Serveren svarer ikke"],
+    ["a 503 with a server sentence", () => axiosError(503, "Scheduled maintenance until 14:00"), "Serveren svarer ikke"],
+    ["a 429", () => axiosError(429, "Too many requests"), "Serveren svarer ikke"],
+  ])("%s keeps the saved link and offers a retry", async (_label, make, heading) => {
     rejection = make();
     const text = await mountOffline("da");
-    expect(text).toContain("Ingen forbindelse");
+    expect(text).toContain(heading);
+    if (heading !== "Ingen forbindelse") expect(text).not.toContain("Ingen forbindelse");
     expect(screen.getByRole("button", { name: "Prøv igen" })).toBeInTheDocument();
     // Never the dead-link screen, never raw English.
     expect(text).not.toContain("Link virker ikke");

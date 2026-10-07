@@ -9,10 +9,11 @@ import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
+import { swapDoubleBooks } from "../utils/swapClash";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
@@ -25,6 +26,9 @@ import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-re
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { useKeyboardLift } from "../hooks/useKeyboardLift";
+import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
+import { usePortalStream } from "../hooks/usePortalStream";
+import { App as CapApp } from "@capacitor/app";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
@@ -413,28 +417,49 @@ function HolidaySection({ token }) {
   const fmt = (n) => Number(n).toLocaleString(lang === "da" ? "da-DK" : "en-GB", {
     minimumFractionDigits: 1, maximumFractionDigits: 1,
   });
+  // The honesty line under it still says what this counts and from when.
+  const nothingYet = !(Number(h.earned) > 0) && !(Number(h.taken) > 0);
+  // `partial` = the ferieår began before BonBox knew this staffer, so what we
+  // hold is a floor. A bold 0,0 there (ferie taken ≥ what BonBox saw earned)
+  // would read as "you have no holiday left" — the one thing it cannot claim.
+  const noBalanceToShow = !!h.partial && !(Number(h.remaining) > 0);
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
       <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
         {t("portalHolidaySection", "Holiday")}
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-          {/* `partial` means the ferieår began before we knew this staffer, so
-              what we hold is a floor. A bare 0,0 at 22px bold would read as a
-              statement about their entitlement — the one thing it is not. */}
-          {h.partial && !h.remaining ? "–" : fmt(h.remaining)}
-        </span>
-        <span className="text-[12px] text-gray-500">
-          {t("portalHolidayUnit", "days")}
-        </span>
-      </div>
-      <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
-        {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
-          earned: fmt(h.earned), taken: fmt(h.taken),
-        })}
-      </div>
+      {nothingYet ? (
+        // Nothing earned or taken while BonBox has known them: say that in
+        // words — as what BonBox has RECORDED, never as what they have earned
+        // (someone who joined mid-year may have years at the café). A bare "–"
+        // above "0,0 optjent · 0,0 afholdt" read as a broken value.
+        <div data-testid="holiday-empty" className="text-[15px] font-bold text-gray-900 leading-snug">
+          {t("portalHolidayNoneYet", "No holiday days recorded in BonBox yet")}
+        </div>
+      ) : (
+        <>
+          {noBalanceToShow ? (
+            <div data-testid="holiday-no-balance" className="text-[15px] font-bold text-gray-900 leading-snug">
+              {t("portalHolidayBalanceOnPayslip", "Your balance is on your payslip")}
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-2">
+              <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+                {fmt(h.remaining)}
+              </span>
+              <span className="text-[12px] text-gray-500">
+                {t("portalHolidayUnit", "days")}
+              </span>
+            </div>
+          )}
+          <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
+            {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
+              earned: fmt(h.earned), taken: fmt(h.taken),
+            })}
+          </div>
+        </>
+      )}
       {/* The honesty line. Without it the number reads as a legal balance. */}
       <div className="mt-1 text-[10px] text-gray-400">
         {t("portalHolidaySince", "Counted from {date} — what BonBox has recorded, not your full entitlement. Your payslip is the authority.", {
@@ -1027,7 +1052,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   }
 
   return (
-    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
         <button
@@ -1332,8 +1357,10 @@ function useClock(token) {
       // 200 m rule). The staffer used to get a plain success and never learn
       // their manager would see the punch as unverified.
       let unverified = false;
+      let noFix = false;   // no position at all — usually location switched off
       if (dir === "in" && st?.geofence_on) {
         const pos = await getPos();
+        noFix = !pos;
         unverified = !pos || (pos.accuracy != null && pos.accuracy > 200);
         if (pos) {
           payload = pos;
@@ -1372,8 +1399,18 @@ function useClock(token) {
         );
         setTimeout(() => setResult(""), 6000);
       } else if (unverified) {
-        setResult(t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."));
-        setTimeout(() => setResult(""), 10000);
+        // Say how to fix it, not only that it happened: with no position at
+        // all, location is almost always switched off for the app / site.
+        const fix = noFix
+          ? (isNativeApp()
+            ? t("portalClockNoLocationFixNative", "To fix it: Settings → BonBox Scheduler → Location → While Using the App.")
+            : t("portalClockNoLocationFixWeb", "To fix it: allow location for this site in your browser — your next punch is then confirmed."))
+          : "";
+        setResult([
+          t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."),
+          fix,
+        ].filter(Boolean).join(" "));
+        setTimeout(() => setResult(""), noFix ? 20000 : 10000);
       } else {
         setResult("");
       }
@@ -3271,9 +3308,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       </div>
 
       {/* v2 by-week chart. Bars are proportional to the period's own maximum,
-          and the tallest is green — so the shape answers "which week was
-          heaviest" before any number is read. Silent when a period has one
-          week: a single full-height bar compares nothing. */}
+          and the tallest is in the portal's ink — so the shape answers "which
+          week was heaviest" before any number is read. Not green: green means
+          confirmed / done everywhere else in the app, and "most hours" is not
+          a status. Silent when a period has one week: a single full-height
+          bar compares nothing. */}
       {weekBars.length > 1 && (
         <div
           className="bg-white"
@@ -3301,9 +3340,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     width: "100%", borderRadius: 7,
                     height: Math.max(3, Math.round((b.n / weekBars.max) * 74)),
                     background: b.n === weekBars.max
-                      ? "linear-gradient(180deg,#22c55e,#15803d)"
+                      ? "linear-gradient(180deg,#334155,#0f172a)"
                       : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
-                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(22,163,74,.8)" : "none",
+                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(15,23,42,.7)" : "none",
                     transition: "height .5s cubic-bezier(.22,.9,.24,1)",
                   }}
                 />
@@ -3699,6 +3738,20 @@ function SwapTab({ token, ownShifts, onChanged }) {
 /* Swap shifts arrive as ISO dates ("2026-06-05") — render them the way the
    rest of the portal speaks ("Fri 5 Jun" / "fre. 5. jun."), locale-aware. */
 
+/** The swap endpoints answer a trade that would double-book someone with
+    409 {code: "swap_overlap", who: "self" | "colleague"} — `who` relative to
+    the person asking. Say it in their language; anything else goes through
+    errText as before. */
+function swapErrText(err, t, fallback) {
+  const d = err?.response?.data?.detail;
+  if (err?.response?.status === 409 && d && d.code === "swap_overlap") {
+    return d.who === "colleague"
+      ? t("portalSwapClashColleague", "Your colleague already works at that time that day — this swap would put them on two shifts at once.")
+      : t("portalSwapClashSelf", "You already work at that time that day — this swap would put you on two shifts at once.");
+  }
+  return errText(err, fallback);
+}
+
 function fmtSwapDay(iso, lang) {
   if (!iso) return iso;
   try {
@@ -3711,15 +3764,40 @@ function fmtSwapDay(iso, lang) {
 function SwapRow({ swap, token, onChanged }) {
   const { t, lang } = useLanguage();
   const [busy, setBusy] = useState(false);
+  // { text, sticky } — sticky survives the re-read turning the row terminal.
+  const [rowErr, setRowErr] = useState(null);
 
   const respond = async (accept) => {
     setBusy(true);
+    setRowErr(null);
     try {
       await portalApi.post(
         `/portal/${token}/swap-requests/${swap.id}/respond`,
         { accept },
       );
       onChanged();
+    } catch (err) {
+      // A refusal used to vanish: the button just stopped spinning. Now the
+      // staffer reads why (e.g. the trade would double-book them) and the
+      // request stays open, so Decline is still right there.
+      haptic.warning();
+      const d = err?.response?.data?.detail;
+      const overlap = err?.response?.status === 409 && d?.code === "swap_overlap";
+      // The server declined it itself: a shift moved since it was offered.
+      const stale = d?.code === "swap_stale";
+      setRowErr({
+        text: overlap
+          ? swapErrText(err, t, "")
+          : stale
+            ? t("portalSwapStale", "The shifts have changed since this swap was offered — ask your colleague to offer it again.")
+            : t("portalSwapRespondFailed", "Couldn't answer the swap. Try again."),
+        sticky: stale,
+      });
+      // Anything but the overlap refusal may have changed the row on the
+      // server — the request was declined (stale), or an automatic retry hit
+      // "already done" because the first try DID go through. Re-read it, so
+      // the row shows what is true instead of Accept/Decline plus an error.
+      if (!overlap) onChanged();
     } finally {
       setBusy(false);
     }
@@ -3816,19 +3894,26 @@ function SwapRow({ swap, token, onChanged }) {
       )}
 
       {/* Actions */}
+      {/* Once the re-read shows the swap settled (done, declined, withdrawn),
+          a generic "couldn't answer" is no longer true — the pill says it. */}
+      {rowErr && (rowErr.sticky || swap.status === "proposed") && (
+        <div role="alert" className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[12px] px-2.5 py-1.5 leading-snug">
+          {rowErr.text}
+        </div>
+      )}
       {swap.status === "proposed" && swap.direction === "incoming" && (
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={() => respond(true)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
+            className="min-h-[44px] text-[13px] font-semibold px-4 rounded-[12px] bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
           >
             {t("portalSwapAccept", "Accept")}
           </button>
           <button
             onClick={() => respond(false)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+            className="min-h-[44px] text-[13px] font-semibold px-4 rounded-[12px] bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
           >
             {t("portalSwapDecline", "Decline")}
           </button>
@@ -3902,7 +3987,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
   };
 
   return (
-    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5">
           <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
@@ -3978,9 +4063,18 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   // Don't let staff pick THEIR OWN shift as the to_shift — that'd be a
   // self-swap. Server rejects but UI catches it earlier.
   const ownStaffId = teamShifts.find((s) => s.shift_id === fromShiftId)?.staff_id;
-  const candidateTeamShifts = teamShifts.filter(
+  const fromShift = upcomingOwn.find((s) => s.id === fromShiftId) || null;
+  const teammateShifts = teamShifts.filter(
     (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId,
   );
+  // Never offer a trade that would put either of you on two shifts at once —
+  // an accept executes it immediately. The server refuses it too (409); this
+  // just keeps the impossible option off the list. The count says why the
+  // list is shorter than the team schedule.
+  const candidateTeamShifts = teammateShifts.filter(
+    (s) => !swapDoubleBooks({ fromShift, toShift: s, ownShifts, teamShifts }),
+  );
+  const hiddenForOverlap = fromShift ? teammateShifts.length - candidateTeamShifts.length : 0;
 
   const submit = async () => {
     if (!fromShiftId || !toShiftId) return;
@@ -3997,14 +4091,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       });
       onProposed?.();
     } catch (err) {
-      setError(errText(err, t("portalSwapProposeFailed", "Couldn't propose. Try again.")));
+      setError(swapErrText(err, t, t("portalSwapProposeFailed", "Couldn't propose. Try again.")));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
         <button
@@ -4051,6 +4145,12 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
               </option>
             ))}
           </select>
+          {hiddenForOverlap > 0 && (
+            <p data-testid="swap-hidden-overlap" className="mt-1.5 text-[11px] text-gray-500 leading-snug">
+              {t("portalSwapHiddenOverlap", "{n} hidden — they would put you or your colleague on two shifts at once.")
+                .split("{n}").join(String(hiddenForOverlap))}
+            </p>
+          )}
         </div>
       )}
 
@@ -4448,7 +4548,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center">
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE}>
       <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
       <div
         role="dialog"
@@ -4956,6 +5056,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           keyboard is up it rides on top of the keyboard instead. */}
       <div
         data-testid="portal-chat-composer"
+        data-kb-skip=""
         className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
         style={{ bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
@@ -5044,10 +5145,11 @@ function LoadingSkeleton() {
 // written for them in their own language and showing FastAPI's English.
 function PortalError({ message, expected = false }) {
   const { t } = useLanguage();
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
-        <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+        <Link2Off className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
         {/* Catalogue copy wins for the expected dead/expired link — it exists
             in real en+da and it tells the staffer what to DO ("ask your manager
@@ -5063,12 +5165,13 @@ function PortalError({ message, expected = false }) {
             "link not working" screen for a dead/expired portal token, and the
             full document load is what discards that token and the portal's
             in-memory state. A soft navigation would carry the dead session
-            into /join. */}
+            into /join. Styled as the real button it is, with /join's verb. */}
         <a
           href="/join"
-          className="inline-block mt-4 text-sm font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900"
+          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold active:scale-[0.98] transition"
         >
-          {t("portalErrorJoin", "Have a join code? Connect here")}
+          <KeyRound className="w-4 h-4" strokeWidth={2.2} aria-hidden />
+          {t("portalErrorJoinCta", "Connect with a code")}
         </a>
       </div>
     </div>
@@ -5076,19 +5179,62 @@ function PortalError({ message, expected = false }) {
 }
 
 
-/** Opening the portal failed WITHOUT the server saying the link is dead —
-    offline, a timeout, a 5xx while the backend wakes. The saved link is kept;
-    this screen says so and offers the retry (the page also retries by itself
-    on the browser's 'online' event). Never shows axios's raw "Network Error". */
-function PortalOffline({ onRetry, busy = false }) {
+/** The staff screens before a portal has loaded (opening, offline, dead link)
+    carry the staff app's own tab / app-switcher title, not the owner app's
+    marketing <title> from index.html. Restored on unmount. */
+function useStaffDocTitle(title) {
+  useEffect(() => {
+    const prev = document.title;
+    document.title = title;
+    return () => { document.title = prev; };
+  }, [title]);
+}
+
+
+/** Opening the portal. The retry interceptor can spend ~20 s on a cold
+    server; a bare spinner that long reads as frozen, so after a few seconds
+    it says what it is doing. (Offline fails at once — see portalApi.) */
+function PortalOpening() {
   const { t } = useLanguage();
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(id);
+  }, []);
+  return (
+    <div className="min-h-screen bg-[#f5f7fb] flex flex-col items-center justify-center p-6">
+      <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" aria-hidden />
+      <p role="status" className="mt-4 text-center text-[13px] text-gray-600 max-w-xs min-h-[1.25rem]">
+        {slow ? t("portalOpeningSlow", "Connecting to BonBox… this can take up to 20 seconds.") : ""}
+      </p>
+    </div>
+  );
+}
+
+
+/** Opening the portal failed WITHOUT the server saying the link is dead.
+    kind "offline": no answer at all (the phone's connection). kind "server":
+    BonBox answered with trouble (5xx while it wakes, 429) — the phone IS
+    online, so this must not blame it. Either way the saved link is kept, a
+    retry runs by itself, and "Prøv igen" is there. Never shows axios's raw
+    "Network Error". */
+function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
+  const { t } = useLanguage();
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  const server = kind === "server";
+  const Icon = server ? ServerCrash : CloudOff;
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
-      <div className="text-center max-w-xs">
-        <CloudOff className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-        <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalOfflineTitle", "No connection")}</h1>
+      <div className="text-center max-w-xs" data-kind={kind}>
+        <Icon className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+        <h1 className="text-xl font-bold text-gray-900 mb-2">
+          {server ? t("portalServerDownTitle", "The server isn't answering") : t("portalOfflineTitle", "No connection")}
+        </h1>
         <p className="text-sm text-gray-500">
-          {t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
+          {server
+            ? t("portalServerDownBody", "It's not your phone — it's on our side. Your link is saved, and we'll try again by ourselves in a moment.")
+            : t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
         </p>
         <button
           type="button"
@@ -5128,10 +5274,54 @@ function groupAbsence(rows) {
  * range; the owner sees + approves. Tracking only, no pay. Lives inside the
  * "Kan ikke" tab (the staffer's "when I'm off" home) so it's not an 8th nav tab.
  */
+/** A date field that fits its grid cell on iOS WebKit. The native control has
+    an intrinsic minimum width, so two of them side by side ran into each other
+    and past the card edge; min-width 0 + border-box + no native appearance
+    lets the cell decide. An empty iOS date input shows nothing at all, so the
+    placeholder says what tapping it does — on iOS ONLY: Chrome (Android, the
+    SMS-link web portal) and Firefox always draw their own "dd.mm.åååå", and
+    the hint would be printed on top of it. */
+function DateField({ label, value, onChange, min, max, testId }) {
+  const { t } = useLanguage();
+  const showHint = !value && typeof window !== "undefined" && window.__BONBOX_IS_IOS === true;
+  return (
+    <label className="block min-w-0">
+      <span className="text-[10px] text-gray-500 mb-1 block">{label}</span>
+      <span className="relative block min-w-0">
+        <input
+          type="date"
+          value={value}
+          min={min}
+          max={max}
+          onChange={(e) => onChange(e.target.value)}
+          data-testid={testId}
+          className="block w-full min-h-[44px] px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 text-left outline-none focus:border-gray-900/30"
+          style={{ minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
+        />
+        {showHint && (
+          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-gray-400">
+            {t("portalPickDate", "Pick a date")}
+          </span>
+        )}
+      </span>
+    </label>
+  );
+}
+
 function AbsenceSection({ token, onChanged }) {
   const { t, lang } = useLanguage();
   const [rows, setRows] = useState(null);
   const [adding, setAdding] = useState(false);
+  // The form opens at the bottom of a long tab, under the bottom nav — bring
+  // it into view so Ferie/Andet, the dates AND Send are on screen.
+  const formRef = useRef(null);
+  useEffect(() => {
+    if (!adding) return;
+    const id = setTimeout(() => {
+      formRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    }, 30);
+    return () => clearTimeout(id);
+  }, [adding]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [kind, setKind] = useState("ferie");
@@ -5270,7 +5460,7 @@ function AbsenceSection({ token, onChanged }) {
                   <button
                     type="button"
                     onClick={() => withdraw(g)}
-                    className="shrink-0 text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                    className="shrink-0 min-h-[44px] px-3 rounded-[12px] border border-[#e2e8f0] bg-white text-[12px] font-semibold text-gray-700 hover:bg-gray-50 active:scale-[0.98] transition inline-flex items-center"
                   >
                     {isNotifyKind(g.kind)
                       ? t("fravaerUndo", "Undo")
@@ -5297,7 +5487,14 @@ function AbsenceSection({ token, onChanged }) {
         </p>
         </div>
       ) : (
-        <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
+        <div
+          ref={formRef}
+          data-kb-block=""
+          data-testid="fravaer-form"
+          className="rounded-xl bg-white border border-gray-200 p-4 space-y-4"
+          // Clear the sticky header and the fixed bottom nav when scrolled to.
+          style={{ scrollMarginTop: 96, scrollMarginBottom: "calc(6rem + env(safe-area-inset-bottom))" }}
+        >
           <div className="grid grid-cols-2 gap-1.5">
             {/* Sygdom deliberately absent: this form's banner promises manager
                 approval, and that is a lie for a sick day. Sick lives on the
@@ -5316,16 +5513,8 @@ function AbsenceSection({ token, onChanged }) {
             ))}
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerFrom", "From")}</label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
-                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900/30" />
-            </div>
-            <div>
-              <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerTo", "To (optional)")}</label>
-              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)}
-                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900/30" />
-            </div>
+            <DateField label={t("fravaerFrom", "From")} value={from} onChange={setFrom} testId="fravaer-from" />
+            <DateField label={t("fravaerTo", "To (optional)")} value={to} min={from || undefined} onChange={setTo} testId="fravaer-to" />
           </div>
           <input
             type="text" value={reason} maxLength={80} onChange={(e) => setReason(e.target.value)}
@@ -6435,9 +6624,7 @@ function ShiftReminderRow({ token }) {
                 border: `1px solid ${minutes === m ? "transparent" : "#e8edf3"}`,
               }}
             >
-              {m < 60
-                ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
-                : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+              {fmtLead(m, t)}
             </button>
           ))}
         </div>
@@ -6726,9 +6913,7 @@ function StaffPushOptIn({ token }) {
                     border: `1px solid ${reminder === m ? "transparent" : "#e8edf3"}`,
                   }}
                 >
-                  {m < 60
-                    ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
-                    : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+                  {fmtLead(m, t)}
                 </button>
               ))}
             </div>
@@ -6797,6 +6982,11 @@ export default function StaffPortalPage() {
     document.body.classList.add("portal-shell");
     return () => document.body.classList.remove("portal-shell");
   }, []);
+  // Native keyboard height (0 on the web and while it is down). The shell ends
+  // at the keyboard's top edge instead of behind it, the profile sheets ride
+  // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
+  // scrolled into what is left. See hooks/useKeyboardReveal.js.
+  const kbShell = useKeyboardReveal();
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours) and
     // any deep link open the right tab.
@@ -6926,7 +7116,7 @@ export default function StaffPortalPage() {
   // liveConnected — true while the SSE stream (Phase 2) is open. Drives the
   // "Live" pill and backs the foreground poll off from 20s → 60s (the stream
   // covers instant schedule pushes; the poll then only keeps hours fresh).
-  const [liveConnected, setLiveConnected] = useState(false);
+  // Declared below, after loadData (hooks/usePortalStream).
 
   // Email & phone editing
   const [showEmailEdit, setShowEmailEdit] = useState(false);
@@ -7049,7 +7239,10 @@ export default function StaffPortalPage() {
         setLoading(false);
         setRetrying(false);
         if (!dead) {
-          setError({ transient: true });
+          // "server" when BonBox answered with trouble (5xx while it wakes, a
+          // 429) — the phone is online, so "you're offline" would be wrong and
+          // the 'online' event that retries an offline open never fires.
+          setError({ transient: true, kind: err?.response ? "server" : "offline" });
           return;
         }
         // The dead-link screen uses the da/en catalogue copy: the server's
@@ -7077,6 +7270,33 @@ export default function StaffPortalPage() {
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [transientOpen]);
+  // …and on a timer, because neither failure is guaranteed an 'online' event:
+  // a server in trouble leaves the phone online, and the iOS web view can
+  // miss the event after a suspend. Each failed try sets a fresh `error`, so
+  // this re-arms itself; a server that is down is asked every 15 s, an
+  // offline phone every 30 s — only while the screen is in front.
+  // A timer that fires while the screen is hidden must not be dropped: no
+  // new `error` would ever re-arm it, and the screen kept promising a retry
+  // that never came. Coming back to the screen (tab, app switch, native
+  // resume) asks again at once instead.
+  useEffect(() => {
+    if (!error?.transient) return undefined;
+    const retry = () => { setRetrying(true); setValidateKey((k) => k + 1); };
+    const id = setTimeout(() => {
+      if (document.visibilityState === "visible") retry();
+    }, error.kind === "server" ? 15000 : 30000);
+    const onVisible = () => { if (document.visibilityState === "visible") retry(); };
+    document.addEventListener("visibilitychange", onVisible);
+    let resumeSub = null;
+    if (isNativeApp()) {
+      try { resumeSub = CapApp.addListener("resume", retry); } catch { /* plugin missing — visibilitychange covers it */ }
+    }
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      Promise.resolve(resumeSub).then((l) => l?.remove?.()).catch(() => {});
+    };
+  }, [error]);
 
   // 2. Load data once verified
   const loadData = useCallback(() => {
@@ -7122,6 +7342,12 @@ export default function StaffPortalPage() {
         setShifts(nextShifts);
         setSchedState("ok");
         setLastSynced(new Date());
+        // An answer from the server IS being online. navigator.onLine and its
+        // events are only a hint — inside the iOS web view an 'offline' that
+        // fired while the phone slept may never be followed by 'online', and
+        // the header said "Offline" for hours over a schedule that kept
+        // refreshing. The pill now follows what actually happened.
+        setIsOnline(true);
       } else {
         setSchedState((st) => (st === "ok" ? "ok" : "error"));
         // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
@@ -7337,12 +7563,29 @@ export default function StaffPortalPage() {
     };
   }, [pinVerified, info, tab, token]);
 
+  // 2e. Realtime stream (Phase 2) — instant push the moment the owner
+  // publishes: on a "schedule_published" nudge we refetch immediately
+  // (loadData diffs + toasts as usual). The 20s/60s poll below is the
+  // fallback, so the stream is pure speed, never a correctness dependency.
+  // usePortalStream reopens a stream the browser gave up on (an error status
+  // while the server restarts, the 429 stream cap) with backoff, and starts a
+  // fresh one whenever the staffer comes back to the app — the "Offline/no
+  // Live until relaunch" report after hours idle.
+  const onStreamPublished = useCallback(() => { loadData(); loadHours(); }, [loadData, loadHours]);
+  const liveConnected = usePortalStream({
+    enabled: Boolean(pinVerified && info),
+    url: token ? `${portalApi.defaults?.baseURL || ""}/portal/${token}/stream` : null,
+    onPublished: onStreamPublished,
+  });
+
   // 2b. Refetch triggers — keep the schedule fresh without any realtime deps.
   // All gated on pinVerified && info, all cleaned up on unmount.
   //   • visibilitychange → refetch when the tab/app becomes visible again
   //     (the "came back after hours away" case — the biggest freshness win).
   //   • online → refetch the moment connectivity returns; track isOnline so
   //     the pill can show the truth.
+  //   • native 'resume' → the same as visibilitychange, in case the web view
+  //     does not report it after a long suspend.
   //   • setInterval(~20s) → background poll, but ONLY while the tab is
   //     visible (respects the 30/min API rate-limit; 20s ≈ 3/min).
   useEffect(() => {
@@ -7353,7 +7596,11 @@ export default function StaffPortalPage() {
     const refreshAll = () => { loadData(); loadHours(); };
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") refreshAll();
+      if (document.visibilityState !== "visible") return;
+      // Re-read the hint on the way back in; the refetch then settles it
+      // (a schedule answer sets isOnline true — see loadData).
+      if (typeof navigator !== "undefined" && navigator.onLine !== false) setIsOnline(true);
+      refreshAll();
     };
     const onOnline = () => {
       setIsOnline(true);
@@ -7364,6 +7611,10 @@ export default function StaffPortalPage() {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    let resumeSub = null;
+    if (isNativeApp()) {
+      try { resumeSub = CapApp.addListener("resume", onVisible); } catch { /* plugin missing */ }
+    }
 
     const pollId = setInterval(() => {
       if (document.visibilityState === "visible") refreshAll();
@@ -7373,39 +7624,10 @@ export default function StaffPortalPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      Promise.resolve(resumeSub).then((l) => l?.remove?.()).catch(() => {});
       clearInterval(pollId);
     };
   }, [pinVerified, info, loadData, loadHours, liveConnected]);
-
-  // 2e. Realtime stream (Phase 2) — instant push the moment the owner
-  // publishes. Opens a Server-Sent Events connection to the portal stream; on
-  // a "schedule_published" nudge we refetch immediately (loadData diffs +
-  // toasts as usual). The browser's EventSource auto-reconnects on drop, and
-  // the 20s/60s poll above is the fallback — so the stream is pure speed, never
-  // a correctness dependency. liveConnected drives the "Live" pill + poll backoff.
-  useEffect(() => {
-    if (!(pinVerified && info)) return;
-    if (typeof window === "undefined" || typeof window.EventSource === "undefined") return;
-
-    const base = portalApi.defaults.baseURL || "";
-    let es;
-    try {
-      es = new EventSource(`${base}/portal/${token}/stream`);
-    } catch {
-      return; // EventSource unavailable → poll-only, harmless no-op
-    }
-
-    const onPublished = () => { loadData(); loadHours(); };
-    es.onopen = () => setLiveConnected(true);
-    es.onerror = () => setLiveConnected(false); // browser keeps auto-reconnecting
-    es.addEventListener("schedule_published", onPublished);
-
-    return () => {
-      setLiveConnected(false);
-      try { es.removeEventListener("schedule_published", onPublished); } catch { /* noop */ }
-      try { es.close(); } catch { /* noop */ }
-    };
-  }, [pinVerified, info, token, loadData, loadHours]);
 
   // 2c. Freshness ticker — re-render the pill every 15s so "Synced" decays to
   // "Synced HH:MM" as data ages, independent of any fetch.
@@ -7495,13 +7717,7 @@ export default function StaffPortalPage() {
   }, [token, info, lang, t]);
 
   // Loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
+  if (loading) return <PortalOpening />;
 
   // Error state — see the token-validation catch. {transient} is "we could
   // not reach the server" (link kept, retry offered); anything else is the
@@ -7509,6 +7725,7 @@ export default function StaffPortalPage() {
   if (error?.transient) {
     return (
       <PortalOffline
+        kind={error.kind}
         busy={retrying}
         onRetry={() => { setRetrying(true); setValidateKey((k) => k + 1); }}
       />
@@ -7567,7 +7784,10 @@ export default function StaffPortalPage() {
     // and makes the sticky header + fixed bottom nav feel loose. The nav and
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
-    <div className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24">
+    <div
+      className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24"
+      style={kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : undefined}
+    >
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
@@ -7801,7 +8021,7 @@ export default function StaffPortalPage() {
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
         {showEmailEdit && createPortal((
-          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
             <button
               type="button"
               aria-label={t("close", "Close")}
