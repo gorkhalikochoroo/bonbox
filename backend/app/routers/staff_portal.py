@@ -3396,7 +3396,9 @@ def portal_respond_to_swap(
     swap's to_staff_id != the token's staff (same shape as not-found —
     no enumeration)."""
     import uuid as _uuid
-    from app.services.shift_swap_service import respond_to_swap, ShiftSwapError, ShiftSwapOverlap
+    from app.services.shift_swap_service import (
+        respond_to_swap, ShiftSwapError, ShiftSwapOverlap, ShiftSwapStale,
+    )
 
     _link, member = _get_staff_from_token(token, db)
     try:
@@ -3409,6 +3411,11 @@ def portal_respond_to_swap(
         )
     except ShiftSwapOverlap as e:
         raise HTTPException(status_code=409, detail=_swap_overlap_detail(e))
+    except ShiftSwapStale as e:
+        # The service declined the request itself (a shift moved). `code`
+        # lets the portal say so in Danish; `message` is the English fallback
+        # an older bundle shows through errText.
+        raise HTTPException(status_code=422, detail={"code": "swap_stale", "message": str(e)})
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

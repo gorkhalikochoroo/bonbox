@@ -419,6 +419,10 @@ function HolidaySection({ token }) {
   });
   // The honesty line under it still says what this counts and from when.
   const nothingYet = !(Number(h.earned) > 0) && !(Number(h.taken) > 0);
+  // `partial` = the ferieår began before BonBox knew this staffer, so what we
+  // hold is a floor. A bold 0,0 there (ferie taken ≥ what BonBox saw earned)
+  // would read as "you have no holiday left" — the one thing it cannot claim.
+  const noBalanceToShow = !!h.partial && !(Number(h.remaining) > 0);
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
@@ -427,21 +431,28 @@ function HolidaySection({ token }) {
       </div>
       {nothingYet ? (
         // Nothing earned or taken while BonBox has known them: say that in
-        // words. A bare "–" above "0,0 optjent · 0,0 afholdt" read as a broken
-        // value, and a big 0,0 would read as a verdict on their entitlement.
+        // words — as what BonBox has RECORDED, never as what they have earned
+        // (someone who joined mid-year may have years at the café). A bare "–"
+        // above "0,0 optjent · 0,0 afholdt" read as a broken value.
         <div data-testid="holiday-empty" className="text-[15px] font-bold text-gray-900 leading-snug">
-          {t("portalHolidayNoneYet", "No holiday days earned yet")}
+          {t("portalHolidayNoneYet", "No holiday days recorded in BonBox yet")}
         </div>
       ) : (
         <>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-              {fmt(h.remaining)}
-            </span>
-            <span className="text-[12px] text-gray-500">
-              {t("portalHolidayUnit", "days")}
-            </span>
-          </div>
+          {noBalanceToShow ? (
+            <div data-testid="holiday-no-balance" className="text-[15px] font-bold text-gray-900 leading-snug">
+              {t("portalHolidayBalanceOnPayslip", "Your balance is on your payslip")}
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-2">
+              <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+                {fmt(h.remaining)}
+              </span>
+              <span className="text-[12px] text-gray-500">
+                {t("portalHolidayUnit", "days")}
+              </span>
+            </div>
+          )}
           <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
             {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
               earned: fmt(h.earned), taken: fmt(h.taken),
@@ -3753,11 +3764,12 @@ function fmtSwapDay(iso, lang) {
 function SwapRow({ swap, token, onChanged }) {
   const { t, lang } = useLanguage();
   const [busy, setBusy] = useState(false);
-  const [rowErr, setRowErr] = useState("");
+  // { text, sticky } — sticky survives the re-read turning the row terminal.
+  const [rowErr, setRowErr] = useState(null);
 
   const respond = async (accept) => {
     setBusy(true);
-    setRowErr("");
+    setRowErr(null);
     try {
       await portalApi.post(
         `/portal/${token}/swap-requests/${swap.id}/respond`,
@@ -3769,7 +3781,23 @@ function SwapRow({ swap, token, onChanged }) {
       // staffer reads why (e.g. the trade would double-book them) and the
       // request stays open, so Decline is still right there.
       haptic.warning();
-      setRowErr(swapErrText(err, t, t("portalSwapRespondFailed", "Couldn't answer the swap. Try again.")));
+      const d = err?.response?.data?.detail;
+      const overlap = err?.response?.status === 409 && d?.code === "swap_overlap";
+      // The server declined it itself: a shift moved since it was offered.
+      const stale = d?.code === "swap_stale";
+      setRowErr({
+        text: overlap
+          ? swapErrText(err, t, "")
+          : stale
+            ? t("portalSwapStale", "The shifts have changed since this swap was offered — ask your colleague to offer it again.")
+            : t("portalSwapRespondFailed", "Couldn't answer the swap. Try again."),
+        sticky: stale,
+      });
+      // Anything but the overlap refusal may have changed the row on the
+      // server — the request was declined (stale), or an automatic retry hit
+      // "already done" because the first try DID go through. Re-read it, so
+      // the row shows what is true instead of Accept/Decline plus an error.
+      if (!overlap) onChanged();
     } finally {
       setBusy(false);
     }
@@ -3866,9 +3894,11 @@ function SwapRow({ swap, token, onChanged }) {
       )}
 
       {/* Actions */}
-      {rowErr && (
+      {/* Once the re-read shows the swap settled (done, declined, withdrawn),
+          a generic "couldn't answer" is no longer true — the pill says it. */}
+      {rowErr && (rowErr.sticky || swap.status === "proposed") && (
         <div role="alert" className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[12px] px-2.5 py-1.5 leading-snug">
-          {rowErr}
+          {rowErr.text}
         </div>
       )}
       {swap.status === "proposed" && swap.direction === "incoming" && (
@@ -5248,9 +5278,12 @@ function groupAbsence(rows) {
     an intrinsic minimum width, so two of them side by side ran into each other
     and past the card edge; min-width 0 + border-box + no native appearance
     lets the cell decide. An empty iOS date input shows nothing at all, so the
-    placeholder says what tapping it does. */
+    placeholder says what tapping it does — on iOS ONLY: Chrome (Android, the
+    SMS-link web portal) and Firefox always draw their own "dd.mm.åååå", and
+    the hint would be printed on top of it. */
 function DateField({ label, value, onChange, min, max, testId }) {
   const { t } = useLanguage();
+  const showHint = !value && typeof window !== "undefined" && window.__BONBOX_IS_IOS === true;
   return (
     <label className="block min-w-0">
       <span className="text-[10px] text-gray-500 mb-1 block">{label}</span>
@@ -5265,7 +5298,7 @@ function DateField({ label, value, onChange, min, max, testId }) {
           className="block w-full min-h-[44px] px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 text-left outline-none focus:border-gray-900/30"
           style={{ minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
         />
-        {!value && (
+        {showHint && (
           <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-gray-400">
             {t("portalPickDate", "Pick a date")}
           </span>
@@ -7242,14 +7275,27 @@ export default function StaffPortalPage() {
   // miss the event after a suspend. Each failed try sets a fresh `error`, so
   // this re-arms itself; a server that is down is asked every 15 s, an
   // offline phone every 30 s — only while the screen is in front.
+  // A timer that fires while the screen is hidden must not be dropped: no
+  // new `error` would ever re-arm it, and the screen kept promising a retry
+  // that never came. Coming back to the screen (tab, app switch, native
+  // resume) asks again at once instead.
   useEffect(() => {
     if (!error?.transient) return undefined;
+    const retry = () => { setRetrying(true); setValidateKey((k) => k + 1); };
     const id = setTimeout(() => {
-      if (document.visibilityState !== "visible") return;
-      setRetrying(true);
-      setValidateKey((k) => k + 1);
+      if (document.visibilityState === "visible") retry();
     }, error.kind === "server" ? 15000 : 30000);
-    return () => clearTimeout(id);
+    const onVisible = () => { if (document.visibilityState === "visible") retry(); };
+    document.addEventListener("visibilitychange", onVisible);
+    let resumeSub = null;
+    if (isNativeApp()) {
+      try { resumeSub = CapApp.addListener("resume", retry); } catch { /* plugin missing — visibilitychange covers it */ }
+    }
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      Promise.resolve(resumeSub).then((l) => l?.remove?.()).catch(() => {});
+    };
   }, [error]);
 
   // 2. Load data once verified

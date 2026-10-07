@@ -63,3 +63,34 @@ describe("AccountLanguageSync", () => {
     expect(h.patch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AccountLanguageSync on the staff pages", () => {
+  // A staffer tapping EN on /join or /s/<token> on a device where the owner
+  // is logged in must not switch the OWNER's account language — and with it
+  // every push and brief the owner gets.
+  for (const path of ["/join", "/s/tok123", "/s/cafe/tok123"]) {
+    it(`sends nothing on ${path}`, () => {
+      window.history.pushState({}, "", path);
+      try {
+        h.user = { id: "u1", ui_language: "da" };
+        h.lang = "en";
+        render(<AccountLanguageSync />);
+        expect(h.patch).not.toHaveBeenCalled();
+      } finally {
+        window.history.pushState({}, "", "/");
+      }
+    });
+  }
+
+  it("still saves on an owner page", () => {
+    window.history.pushState({}, "", "/dashboard");
+    try {
+      h.user = { id: "u1", ui_language: "da" };
+      h.lang = "en";
+      render(<AccountLanguageSync />);
+      expect(h.patch).toHaveBeenCalledWith("/auth/profile", { ui_language: "en" });
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+});

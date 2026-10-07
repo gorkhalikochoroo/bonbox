@@ -12,9 +12,15 @@ guard. Locks:
   • accept re-checks right before the flip (rosters move in between) and
     refuses WITHOUT touching the request or either schedule;
   • the shift you hand over never counts against you; back-to-back is fine;
-    overnight shifts count across midnight; a draft never blocks;
+    overnight shifts count across midnight; a draft counts too (the owner's
+    next Publish makes it real with no overlap check);
   • the portal answers 409 {code: "swap_overlap", who} — who is relative to
-    the caller, and nothing about the colleague's times is returned.
+    the caller, and nothing about the colleague's times is returned;
+  • an accept whose shifts moved answers 422 {code: "swap_stale"} (the
+    request is declined on the spot — the portal says why);
+  • accept and give-away claim lock the people involved BEFORE reading their
+    rosters, so two concurrent trades cannot both pass the check (Postgres;
+    SQLite serialises writers, so the order of operations is what is pinned).
 
 Run:
   cd backend && python3 -m pytest tests/test_shift_swap_overlap.py -x -q
@@ -35,8 +41,11 @@ from app.models.shift_swap import ShiftSwapRequest
 from app.models.staff import Schedule, StaffLink, StaffMember
 from app.models.user import User
 from app.services.auth import hash_password
+import app.services.shift_swap_service as svc
 from app.services.shift_swap_service import (
     ShiftSwapOverlap,
+    claim_giveaway,
+    offer_giveaway,
     propose_swap,
     respond_to_swap,
 )
@@ -186,13 +195,18 @@ def test_an_overnight_shift_counts_across_midnight(db, cafe):
         _propose(db, owner, ali, ali_fri, jonas, jonas_early)
 
 
-def test_a_draft_the_staffer_cannot_see_never_blocks(db, cafe):
+def test_a_draft_blocks_too_publish_would_make_it_real(db, cafe):
+    """The owner has drafted Ali for Wed 11:00–20:00. Publish has no overlap
+    check, so a swap that ignored the draft double-booked him one tap later —
+    the owner's add-shift guard and the give-away claim already count it."""
     owner, ali, jonas = cafe
     _shift(db, owner, ali, WED, "11:00", "20:00", status="draft")
     ali_fri = _shift(db, owner, ali, FRI, "15:00", "23:00")
     jonas_wed = _shift(db, owner, jonas, WED, "11:30", "15:00")
 
-    assert _propose(db, owner, ali, ali_fri, jonas, jonas_wed).status == "proposed"
+    with pytest.raises(ShiftSwapOverlap) as exc:
+        _propose(db, owner, ali, ali_fri, jonas, jonas_wed)
+    assert exc.value.who == "self"
 
 
 # ─── accept ────────────────────────────────────────────────────────────
@@ -266,3 +280,80 @@ def test_portal_accept_answers_409_relative_to_the_responder(client, db, cafe):
     assert r.json()["detail"]["who"] == "colleague"
     db.expire_all()
     assert db.query(ShiftSwapRequest).filter_by(id=swap.id).one().status == "proposed"
+
+
+def test_portal_accept_of_a_moved_shift_says_stale_and_declines(client, db, cafe):
+    """The owner moved Ali's Friday to someone else after the offer. The
+    request is declined on the spot; the 422 carries a code so the portal can
+    say why in Danish instead of showing the English sentence."""
+    owner, ali, jonas = cafe
+    ali_fri = _shift(db, owner, ali, FRI, "15:00", "23:00")
+    jonas_wed = _shift(db, owner, jonas, WED, "11:30", "15:00")
+    swap = _propose(db, owner, ali, ali_fri, jonas, jonas_wed)
+    anna = StaffMember(id=uuid.uuid4(), user_id=owner.id, name="Anna K.", role="kitchen", active=True)
+    db.add(anna); db.commit()
+    ali_fri.staff_id = anna.id
+    db.commit()
+
+    r = client.post(f"/api/portal/tokJonas/swap-requests/{swap.id}/respond", json={"accept": True})
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert detail["code"] == "swap_stale"
+    assert set(detail) == {"code", "message"}
+    db.expire_all()
+    assert db.query(ShiftSwapRequest).filter_by(id=swap.id).one().status == "declined"
+
+
+def _record(monkeypatch):
+    """Record lock + roster-check calls, in order, around the real ones."""
+    calls = []
+    real_lock, real_check = svc._lock_staff, svc._double_booked
+
+    def lock(d, *ids):
+        calls.append(("lock", {i for i in ids if i is not None}))
+        return real_lock(d, *ids)
+
+    def check(d, **kw):
+        calls.append(("check", kw["staff_id"]))
+        return real_check(d, **kw)
+
+    monkeypatch.setattr(svc, "_lock_staff", lock)
+    monkeypatch.setattr(svc, "_double_booked", check)
+    return calls
+
+
+def test_accept_locks_both_people_before_reading_their_rosters(db, cafe, monkeypatch):
+    owner, ali, jonas = cafe
+    ali_fri = _shift(db, owner, ali, FRI, "15:00", "23:00")
+    jonas_wed = _shift(db, owner, jonas, WED, "11:30", "15:00")
+    swap = _propose(db, owner, ali, ali_fri, jonas, jonas_wed)
+
+    calls = _record(monkeypatch)
+    assert respond_to_swap(db, swap_id=swap.id, responder_staff_id=jonas.id, accept=True).status == "done"
+    assert calls[0] == ("lock", {ali.id, jonas.id})
+    checks = [c for c in calls[1:] if c[0] == "check"]
+    assert {c[1] for c in checks} == {ali.id, jonas.id}
+    assert all(c[0] == "check" for c in calls[1:])
+
+
+def test_claim_locks_the_claimer_before_reading_their_roster(db, cafe, monkeypatch):
+    owner, ali, jonas = cafe
+    jonas_wed = _shift(db, owner, jonas, WED, "11:30", "15:00")
+    ga = offer_giveaway(db, owner_id=owner.id, from_staff_id=jonas.id, from_shift_id=jonas_wed.id)
+
+    calls = _record(monkeypatch)
+    queried = []
+    real_query = db.query
+
+    def spy_query(*ents, **kw):
+        if ents and ents[0] is Schedule and calls:
+            queried.append("schedule-after-lock")
+        elif ents and ents[0] is Schedule:
+            queried.append("schedule-before-lock")
+        return real_query(*ents, **kw)
+
+    monkeypatch.setattr(db, "query", spy_query)
+    done = claim_giveaway(db, owner_id=owner.id, swap_id=ga.id, claimer_staff_id=ali.id)
+    assert done.status == "done"
+    assert calls[0] == ("lock", {ali.id})
+    assert "schedule-before-lock" not in queried

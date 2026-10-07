@@ -178,6 +178,62 @@ describe("Accepting a swap that would double-book you", () => {
   });
 });
 
+describe("Answering a swap the server already settled", () => {
+  const incoming = (status) => ({
+    id: "sw1", status, direction: "incoming",
+    from_staff_name: "Jonas B.", to_staff_name: "Ali R.",
+    from_shift_id: "jonas-thu", from_shift_date: THU, from_shift_time: "16:00–22:00",
+    to_shift_id: "ali-fri", to_shift_date: FRI, to_shift_time: "15:00–23:00",
+  });
+
+  it("a moved shift (422 swap_stale) is said in Danish and the row is re-read as declined", async () => {
+    let status = "proposed";
+    swapsImpl = () => ok([incoming(status)]);
+    postImpl = () => {
+      status = "declined";   // the server declined it on the spot
+      return reject(422, { detail: { code: "swap_stale", message: "One of the shifts has changed since this swap was proposed; ask the other person to re-offer." } });
+    };
+    await mount("da");
+    navTo("Bytte");
+    const accept = await screen.findByRole("button", { name: "Accepter" });
+    await act(async () => { fireEvent.click(accept); });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Vagterne er ændret siden byttet blev tilbudt — bed din kollega om at tilbyde det igen.");
+    expect(document.body.textContent).not.toContain("One of the shifts");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Accepter" })).toBeNull());
+    expect(screen.getByText("Afvist")).toBeInTheDocument();
+  });
+
+  it("an automatic retry that hits 'already done' shows the swap as done, not as failed", async () => {
+    // The first accept committed but its answer was lost; the retry got 422.
+    let status = "proposed";
+    swapsImpl = () => ok([incoming(status)]);
+    postImpl = () => {
+      status = "done";
+      return reject(422, { detail: "This swap is already done; can't change it." });
+    };
+    await mount("da");
+    navTo("Bytte");
+    const accept = await screen.findByRole("button", { name: "Accepter" });
+    await act(async () => { fireEvent.click(accept); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Accepter" })).toBeNull());
+    expect(screen.getByText("Byttet")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("already done");
+  });
+
+  it("a failure that settled nothing says so in Danish and keeps the buttons", async () => {
+    swapsImpl = () => ok([incoming("proposed")]);
+    postImpl = () => reject(500, { detail: "Internal Server Error" });
+    await mount("da");
+    navTo("Bytte");
+    const accept = await screen.findByRole("button", { name: "Accepter" });
+    await act(async () => { fireEvent.click(accept); });
+    expect((await screen.findByRole("alert")).textContent).toBe("Kunne ikke svare på byttet. Prøv igen.");
+    expect(screen.getByRole("button", { name: "Afvis" })).not.toBeDisabled();
+  });
+});
+
 describe("Header pill — 'Offline' recovers without relaunching the app", () => {
   it("a stale 'offline' is cleared by the next schedule answer", async () => {
     await mount("da");
@@ -245,6 +301,56 @@ describe("Opening a link while the server is in trouble", () => {
   });
 });
 
+describe("Opening a link while the server is in trouble — the screen was hidden", () => {
+  it("a retry due while hidden is not dropped: coming back asks again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const vis = Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState");
+    let state = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    try {
+      let opens = 0;
+      const base = get.getMockImplementation();
+      get.mockImplementation((url) => {
+        if (url === `/portal/${TOK}`) {
+          opens += 1;
+          if (opens === 1) return reject(503, { detail: "Server is starting up" });
+        }
+        return base(url);
+      });
+      localStorage.setItem("lang", "da");
+      render(
+        <LanguageProvider>
+          <ConfirmProvider>
+            <MemoryRouter initialEntries={[`/portal/${TOK}`]}>
+              <Routes>
+                <Route path="/portal/:token" element={<StaffPortalPage />} />
+              </Routes>
+            </MemoryRouter>
+          </ConfirmProvider>
+        </LanguageProvider>,
+      );
+      expect(await screen.findByText("Serveren svarer ikke")).toBeInTheDocument();
+
+      // The staffer switches app; the 15 s timer fires while hidden.
+      state = "hidden";
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      await act(async () => { vi.advanceTimersByTime(20000); });
+      expect(opens).toBe(1);
+
+      // Back in front: it asks again at once — no manual "Prøv igen".
+      state = "visible";
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
+      expect(opens).toBe(2);
+      get.mockImplementation(base);
+    } finally {
+      delete document.visibilityState;
+      if (vis) Object.defineProperty(Document.prototype, "visibilityState", vis);
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Dead link", () => {
   it("offers a real 44px button with /join's verb, and the staff title", async () => {
     const base = get.getMockImplementation();
@@ -290,8 +396,20 @@ describe("Polish", () => {
     extraGet["/holiday"] = () => ok({ earned: 0, taken: 0, remaining: 0, partial: true, since: inDays(-30) });
     await mount("da");
     await openProfile();
-    expect((await screen.findByTestId("holiday-empty")).textContent).toBe("Ingen feriedage optjent endnu");
+    // What BonBox RECORDED — never "you have earned none": someone added
+    // mid-year may have worked at the café for years.
+    expect((await screen.findByTestId("holiday-empty")).textContent).toBe("Ingen feriedage registreret i BonBox endnu");
     expect(document.body.textContent).not.toContain("0,0 optjent");
+  });
+
+  it("holiday: a partial year with ferie taken ≥ earned never shows a bold 0,0 dage", async () => {
+    // Added in October, 4,2 days seen accruing, a 5-day ferie recorded here.
+    extraGet["/holiday"] = () => ok({ earned: 4.2, taken: 5, remaining: 0, partial: true, since: inDays(-90) });
+    await mount("da");
+    await openProfile();
+    expect((await screen.findByTestId("holiday-no-balance")).textContent).toBe("Din saldo står på din lønseddel");
+    expect(document.body.textContent).toContain("4,2 optjent · 5,0 afholdt");
+    expect(document.body.textContent).not.toMatch(/0,0\s*dage/);
   });
 
   it("holiday: a real balance still shows the number", async () => {
@@ -324,10 +442,27 @@ describe("Polish", () => {
         expect(input.style.minWidth).toMatch(/^0(px)?$/);
         expect(input.style.boxSizing).toBe("border-box");
       }
+      // Not iOS: Chrome/Firefox draw their own dd.mm.åååå — no hint on top.
+      expect(within(form).queryAllByText("Vælg dato")).toHaveLength(0);
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("Fravær: the 'Vælg dato' hint shows only on iOS, where an empty date input is blank", async () => {
+    window.__BONBOX_IS_IOS = true;
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vi.fn();
+    try {
+      await mount("da");
+      navTo("Kan ikke");
+      fireEvent.click(await screen.findByRole("button", { name: /Anmod om fri/ }));
+      const form = await screen.findByTestId("fravaer-form");
       expect(within(form).getAllByText("Vælg dato")).toHaveLength(2);
       fireEvent.change(screen.getByTestId("fravaer-from"), { target: { value: inDays(30) } });
       expect(within(form).getAllByText("Vælg dato")).toHaveLength(1);
     } finally {
+      delete window.__BONBOX_IS_IOS;
       Element.prototype.scrollIntoView = orig;
     }
   });
