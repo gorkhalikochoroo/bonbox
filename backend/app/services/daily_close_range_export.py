@@ -538,9 +538,11 @@ def _fmt_kr(v, currency: str = "DKK") -> str:
 def _voucher_ranges(db: Session, user_id, dt: date) -> tuple[str, str]:
     """Return (sales_label, expense_label) bilagsnummer range for a day.
 
-    Empty strings if no vouchers were recorded for that date. Used in
-    both PDF and XLSX so the accountant can cross-check each row
-    against the underlying voucher numbers."""
+    Empty strings if no vouchers were recorded for that date. The PDF and
+    XLSX print these so the accountant can cross-check each row against the
+    underlying voucher numbers — but they fetch them for the whole period at
+    once with `_voucher_ranges_by_date`. This one-day form is the reference
+    the period form is tested against (same filter, same labels)."""
     if db is None or dt is None:
         return ("", "")
     try:
@@ -569,17 +571,76 @@ def _voucher_ranges(db: Session, user_id, dt: date) -> tuple[str, str]:
     except Exception:
         return ("", "")
 
-    def _fmt(prefix, lo, hi, year):
-        if lo is None:
-            return ""
-        if lo == hi:
-            return f"{prefix}-{year}-{lo:04d}"
-        return f"{prefix}-{year}-{lo:04d} → {prefix}-{year}-{hi:04d}"
-
     return (
-        _fmt("S", smin, smax, dt.year),
-        _fmt("E", emin, emax, dt.year),
+        _voucher_label("S", smin, smax, dt.year),
+        _voucher_label("E", emin, emax, dt.year),
     )
+
+
+def _voucher_label(prefix, lo, hi, year) -> str:
+    """"S-2026-0002" for one voucher, "S-2026-0002 → S-2026-0004" for a range,
+    "" for none — the one formatter both voucher-range paths print with."""
+    if lo is None:
+        return ""
+    if lo == hi:
+        return f"{prefix}-{year}-{lo:04d}"
+    return f"{prefix}-{year}-{lo:04d} → {prefix}-{year}-{hi:04d}"
+
+
+def _voucher_ranges_by_date(
+    db: Session | None, user_id, dates, *, expenses: bool = True,
+) -> dict:
+    """{date: (sales_label, expense_label)} for every date in `dates` — the
+    same labels `_voucher_ranges` gives one day at a time, from ONE grouped
+    query per table instead of two queries per day.
+
+    The period PDF and Excel used to call `_voucher_ranges` once per close,
+    and the PDF did it inside the story builder, which the two-pass render
+    runs twice: a month cost ~110 round trips and grew with every day in the
+    range. The filter is the per-day one with `date == d` widened to
+    `date IN (the closes' dates)`, grouped by date, so every day gets exactly
+    the min/max it got before. Dates with no vouchers are present with "".
+
+    `expenses=False` skips the expense query for a caller that never prints
+    it (the PDF shows only the sales range). Fail-soft like the per-day form:
+    on a query error every day reads "" rather than breaking the export."""
+    days = {d for d in (dates or ()) if d is not None}
+    if db is None or not days:
+        return {}
+    try:
+        from app.models.sale import Sale
+        from app.models.expense import Expense
+
+        def _grouped(model) -> dict:
+            rows = (
+                db.query(
+                    model.date,
+                    func.min(model.voucher_number),
+                    func.max(model.voucher_number),
+                )
+                .filter(
+                    model.user_id == user_id,
+                    model.date.in_(sorted(days)),
+                    model.voucher_number.is_not(None),
+                    model.is_deleted.isnot(True),
+                )
+                .group_by(model.date)
+                .all()
+            )
+            return {d: (lo, hi) for d, lo, hi in rows}
+
+        sales = _grouped(Sale)
+        exps = _grouped(Expense) if expenses else {}
+    except Exception:
+        return {d: ("", "") for d in days}
+
+    return {
+        d: (
+            _voucher_label("S", *sales.get(d, (None, None)), d.year),
+            _voucher_label("E", *exps.get(d, (None, None)), d.year),
+        )
+        for d in days
+    }
 
 
 # ─── PDF ──────────────────────────────────────────────────────────────
@@ -756,6 +817,13 @@ def build_daily_close_range_pdf(
 
     # Sort ascending so the report reads chronologically.
     closes_sorted = sorted(closes, key=lambda c: c.date or date.min)
+
+    # Bilag (sales voucher range) per day, fetched ONCE here — outside
+    # _make_story, which the two-pass render runs twice — with one grouped
+    # query, so the query count no longer grows with the days in the range.
+    voucher_by_date = _voucher_ranges_by_date(
+        db, user_id, [c.date for c in closes_sorted], expenses=False,
+    )
 
     # Danish-style date for header period
     if DA:
@@ -1022,7 +1090,7 @@ def build_daily_close_range_pdf(
 
         for c in closes_sorted:
             pay = _bucketed_payments(c)
-            vsales, _vexp = _voucher_ranges(db, user_id, c.date)
+            vsales, _vexp = voucher_by_date.get(c.date, ("", ""))
             revenue = float(c.revenue_total or 0)
             # Same predicate as the KPI band and the per-close kasserapport, so
             # a row cannot state a MOMS the page above it refuses to state.
@@ -1610,9 +1678,11 @@ def build_daily_close_range_xlsx(
 
     money_cols = set(range(4, 18)) | {19} | set(range(cat_col_start, len(H) + 1))
     sorted_closes = sorted(closes, key=lambda c: c.date or date.min)
+    # Both voucher ranges for every day in two grouped queries, not two per row.
+    voucher_by_date = _voucher_ranges_by_date(db, user_id, [c.date for c in sorted_closes])
     for r, c in enumerate(sorted_closes, start=2):
         pay = _bucketed_payments(c)
-        vsales, vexp = _voucher_ranges(db, user_id, c.date)
+        vsales, vexp = voucher_by_date.get(c.date, ("", ""))
         revenue = float(c.revenue_total or 0) if c.revenue_total is not None else None
         # Same predicate as the PDF row builder — a cell must not state a MOMS
         # (or a net derived from it) that the rest of the workbook dashes.

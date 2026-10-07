@@ -98,3 +98,49 @@ def record(
             "audit.record FAILED action=%s entity=%s:%s user=%s err=%s",
             action, entity_type, entity_id, user, e,
         )
+
+
+def record_many(
+    db: Session,
+    user: User | UUID,
+    rows: list[dict],
+    *,
+    ip_address: str | None = None,
+    actor_id: UUID | None = None,
+    actor_type: str = "user",
+) -> None:
+    """Insert several audit rows with ONE flush — `record` in a loop is a
+    round trip per row (the lønseddel wrote one per employee: 24 staff, 24
+    INSERTs). Still one row per entity; nothing is merged.
+
+    Each dict in `rows` carries `record`'s per-row arguments: `action`,
+    `entity_type`, and optionally `entity_id`, `before`, `after`. The shared
+    ones (tenant, actor, ip) are given once. Same contract as `record`: the
+    caller commits, and a failure is logged, never raised.
+    """
+    if not rows:
+        return
+    try:
+        user_id = user.id if hasattr(user, "id") else user
+        if actor_id is None and actor_type == "user":
+            actor_id = user_id
+        db.add_all([
+            AuditLog(
+                user_id=user_id,
+                actor_id=actor_id,
+                actor_type=actor_type,
+                ip_address=ip_address,
+                action=r["action"],
+                entity_type=r["entity_type"],
+                entity_id=r.get("entity_id"),
+                before_state=_serialize(r.get("before")),
+                after_state=_serialize(r.get("after")),
+            )
+            for r in rows
+        ])
+        db.flush()
+    except Exception as e:
+        logger.exception(
+            "audit.record_many FAILED actions=%s rows=%d user=%s err=%s",
+            sorted({r.get("action") for r in rows}), len(rows), user, e,
+        )

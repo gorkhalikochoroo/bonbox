@@ -766,9 +766,10 @@ def test_long_voucher_range_wraps_instead_of_overlapping_the_amount():
     from pypdf import PdfReader
 
     row = _close(dt.date(2026, 5, 24), 5000.0, 1000.0, "cash:5000")
+    # The PDF fetches the whole period's ranges at once (one grouped query).
     with patch(
-        "app.services.daily_close_range_export._voucher_ranges",
-        return_value=("S-2026-0002 → S-2026-0004", ""),
+        "app.services.daily_close_range_export._voucher_ranges_by_date",
+        return_value={dt.date(2026, 5, 24): ("S-2026-0002 → S-2026-0004", "")},
     ):
         pdf = build_daily_close_range_pdf(
             [row], from_date=dt.date(2026, 5, 24), to_date=dt.date(2026, 5, 24))

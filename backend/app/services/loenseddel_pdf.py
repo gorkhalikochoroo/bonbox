@@ -209,6 +209,8 @@ def fetch_loenseddel_data(
     employee: StaffMember,
     period_start: date,
     period_end: date,
+    *,
+    hours_rows: list | None = None,
 ) -> dict:
     """Gather the data behind one lønseddel — single source of truth.
 
@@ -220,18 +222,23 @@ def fetch_loenseddel_data(
 
     Returns a dict with `lines` (per HoursLogged row), `totals` (the
     summary), and `deductions` (from calc_employee_period).
+
+    `hours_rows` — the employee's rows for the period, already fetched by
+    `_hours_by_staff` (the multi-employee PDF loads everyone's in one query).
+    None = fetch them here, the same query for one employee.
     """
-    hours_rows = (
-        db.query(HoursLogged)
-        .filter(
-            HoursLogged.user_id == owner.id,
-            HoursLogged.staff_id == employee.id,
-            HoursLogged.date >= period_start,
-            HoursLogged.date <= period_end,
+    if hours_rows is None:
+        hours_rows = (
+            db.query(HoursLogged)
+            .filter(
+                HoursLogged.user_id == owner.id,
+                HoursLogged.staff_id == employee.id,
+                HoursLogged.date >= period_start,
+                HoursLogged.date <= period_end,
+            )
+            .order_by(HoursLogged.date.asc(), HoursLogged.start_time.asc())
+            .all()
         )
-        .order_by(HoursLogged.date.asc(), HoursLogged.start_time.asc())
-        .all()
-    )
 
     # BARRIER 2 (the router pre-checks every employee at once so the owner sees
     # them all in one message; this one guarantees no other caller can route
@@ -288,6 +295,38 @@ def fetch_loenseddel_data(
         "tax_card_type": tax_card_type or "hovedkort",
         "base_rate": base_rate,
     }
+
+
+def _hours_by_staff(
+    db: Session,
+    owner: User,
+    employees: list[StaffMember],
+    period_start: date,
+    period_end: date,
+) -> dict[str, list]:
+    """{str(staff_id): [HoursLogged, ...]} for every employee in the period,
+    from one IN query. Same tenant + date filter and the same ORDER BY as the
+    per-employee query in `fetch_loenseddel_data`; the rows are split per
+    employee in that order, so each list holds that employee's rows sorted
+    exactly as the per-employee query sorts them."""
+    ids = [e.id for e in employees]
+    out: dict[str, list] = {str(i): [] for i in ids}
+    if not ids:
+        return out
+    rows = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.user_id == owner.id,
+            HoursLogged.staff_id.in_(ids),
+            HoursLogged.date >= period_start,
+            HoursLogged.date <= period_end,
+        )
+        .order_by(HoursLogged.date.asc(), HoursLogged.start_time.asc())
+        .all()
+    )
+    for h in rows:
+        out.setdefault(str(h.staff_id), []).append(h)
+    return out
 
 
 def build_loenseddel_pdf(
@@ -352,8 +391,17 @@ def build_loenseddel_pdf_multi(
       one audit row per employee.
     """
     per_employee_data: list[dict] = []
+    # Everyone's hours in ONE query, not one per employee (24 staff = 24
+    # round trips before). Each employee still gets exactly their own rows, in
+    # the same order, and still passes the same barriers one by one.
+    hours_by_staff = _hours_by_staff(db, owner, employees, period_start, period_end)
     for emp in employees:
-        data = fetch_loenseddel_data(db, owner, emp, period_start, period_end)
+        data = fetch_loenseddel_data(
+            db, owner, emp, period_start, period_end,
+            # Every requested employee is a key ([] when they have no rows);
+            # a missing key (None) falls back to the per-employee query.
+            hours_rows=hours_by_staff.get(str(emp.id)),
+        )
         bilagsnummer = make_bilagsnummer(emp.id, period_start, period_end)
         per_employee_data.append({
             "employee": emp,

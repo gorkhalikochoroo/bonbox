@@ -6992,24 +6992,29 @@ def loenseddel_pdf(
     # employee rendered so a revisor can later see exactly which staff
     # member's lønseddel went out. The doc_hash on EACH row is the
     # combined-PDF hash (the artifact the user actually downloads), so
-    # later tamper-checks can verify against any of them.
-    for entry in summary["per_employee"]:
-        audit_service.record(
-            db,
-            user=user,
-            action="staff.loenseddel_pdf_generated",
-            entity_type="staff_member",
-            entity_id=entry["employee_id"],
-            after={
-                "period_start": summary["period_start"],
-                "period_end": summary["period_end"],
-                "total_hours": entry["total_hours"],
-                "total_gross": entry["total_gross"],
-                "doc_hash": summary["doc_hash"],
-                "bilagsnummer": entry["bilagsnummer"],
-            },
-            ip_address=ip_address,
-        )
+    # later tamper-checks can verify against any of them. Written with one
+    # flush (record_many), not a round trip per employee.
+    audit_service.record_many(
+        db,
+        user=user,
+        rows=[
+            {
+                "action": "staff.loenseddel_pdf_generated",
+                "entity_type": "staff_member",
+                "entity_id": entry["employee_id"],
+                "after": {
+                    "period_start": summary["period_start"],
+                    "period_end": summary["period_end"],
+                    "total_hours": entry["total_hours"],
+                    "total_gross": entry["total_gross"],
+                    "doc_hash": summary["doc_hash"],
+                    "bilagsnummer": entry["bilagsnummer"],
+                },
+            }
+            for entry in summary["per_employee"]
+        ],
+        ip_address=ip_address,
+    )
     db.commit()
 
     filename = f"bonbox_loenseddel_{period_start}_{period_end}.pdf"
