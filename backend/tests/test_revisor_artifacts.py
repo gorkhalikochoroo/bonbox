@@ -854,3 +854,318 @@ def test_a_failed_send_after_relock_does_not_keep_saying_sent(db_session, client
     row = client.get(f"/api/daily-close/{cid}", headers=_auth(user)).json()
     assert row["email_status"] == "send_failed"
     assert row["email_sent_to"] == [] and row["email_sent_at"] is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Review fixes — correction marking from the send history, the lock mail
+# inside the cap, CSRF on the opt-out, every opt-out remembered, branches,
+# formula-safe Excel, no stale till list, a float that cannot 422 a lock
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _unlock(client, user, cid, reason="Forkert kortbeløb"):
+    r = client.post(f"/api/daily-close/{cid}/unlock", json={"reason": reason}, headers=_auth(user))
+    assert r.status_code == 200, r.text
+
+
+def test_resend_after_a_failed_relock_is_marked_as_a_correction(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    cid = _lock(client, user, rev=12500.0).json()["id"]
+    assert _revisor_mails(mailbox)[-1]["subject"] == "Kasserapport fre. 25.09.2026 — Mirabelle ApS"
+    _unlock(client, user, cid)
+    mailbox.fail = True
+    r = _lock(client, user, rev=13000.0)
+    assert r.json()["close_ritual"]["email_status"] == "send_failed"
+    mailbox.fail = False
+    rr = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-r001"}, headers=_auth(user))
+    assert rr.status_code == 200, rr.text
+    second = _revisor_mails(mailbox)[-1]
+    assert second["subject"].startswith("Rettet kasserapport fre. 25.09.2026")
+    assert "erstatter den, der blev sendt" in second["html"]
+    assert "Forkert kortbeløb" in second["html"]
+    assert "Omsætning 12.500,00 kr. → 13.000,00 kr." in second["html"]
+
+
+def test_a_revisor_who_never_got_v1_is_not_told_it_is_replaced(db_session, client, mailbox):
+    """auto-send off: only the owner got v1. After unlock/relock the revisor's
+    FIRST mail is plain; the owner's own copy is the one marked 'Rettet'. Then a
+    second correction reaches the revisor marked, after their first copy."""
+    user = _make_user(db_session)
+    _make_profile(db_session, user, accountant_auto_send=False)
+    cid = _lock(client, user, rev=12500.0).json()["id"]
+    assert _revisor_mails(mailbox) == []
+    _unlock(client, user, cid)
+    client.put("/api/business", json={"accountant_auto_send": True}, headers=_auth(user))
+    _lock(client, user, rev=13000.0)
+    rev = _revisor_mails(mailbox)
+    assert len(rev) == 1
+    assert rev[0]["subject"] == "Kasserapport fre. 25.09.2026 — Mirabelle ApS"
+    assert "erstatter" not in rev[0]["html"]
+    owner = [p for p in mailbox.sent if p["to"] == ["owner@mirabelle.dk"]][-1]
+    assert "Rettet kasserapport" in owner["subject"] and "erstatter" in owner["html"]
+
+    # Auto-send off again; the revisor now holds v2. v3 goes out by hand.
+    client.put("/api/business", json={"accountant_auto_send": False}, headers=_auth(user))
+    _unlock(client, user, cid, reason="Drikkepenge manglede")
+    r = _lock(client, user, rev=13100.0)
+    assert r.json()["close_ritual"]["accountant_skip_reason"] == "auto_send_off"
+    rr = client.post(f"/api/daily-close/{cid}/resend-email",
+                     json={"key": "click-r002"}, headers=_auth(user))
+    assert rr.status_code == 200, rr.text
+    last = _revisor_mails(mailbox)[-1]
+    assert last["subject"].startswith("Rettet kasserapport")
+    assert "Drikkepenge manglede" in last["html"]
+    assert "13.000,00 kr. → 13.100,00 kr." in last["html"]
+
+
+def test_a_payments_only_correction_lists_the_moved_lines(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    cid = _lock(client, user, rev=12500.0,
+                payment_breakdown={"cash": 2500.0, "card": 10000.0},
+                revenue_breakdown={"food": 8000.0, "drinks": 4500.0}).json()["id"]
+    _unlock(client, user, cid, reason="Kort var MobilePay")
+    _lock(client, user, rev=12500.0,
+          payment_breakdown={"cash": 2500.0, "card": 4000.0, "mobilepay": 6000.0},
+          revenue_breakdown={"food": 7000.0, "drinks": 5500.0})
+    html = _revisor_mails(mailbox)[-1]["html"]
+    assert "Tallene er de samme" not in html
+    assert "Kort 10.000,00 kr. → 4.000,00 kr." in html
+    assert "MobilePay 0,00 kr. → 6.000,00 kr." in html
+    assert "Mad 8.000,00 kr. → 7.000,00 kr." in html
+
+
+def test_a_correction_without_recorded_lines_never_claims_equality():
+    from app.routers.daily_close import _build_close_email_html
+    dc = _close(date(2026, 9, 25), 12500.0, 2500.0)
+    _s, html = _build_close_email_html(
+        business_name="Mirabelle ApS", dc=dc, currency="DKK", closed_by="Lars",
+        has_scan=False, scan_degraded=False, is_danish=True, audience="revisor",
+        correction={"prev_sent_at": datetime(2026, 9, 25, 21, 0), "unlock_reason": "x",
+                    "changes": [], "lines_known": False})
+    assert "Tallene er de samme" not in html
+    assert "Omsætning, salgsmoms og kassedifference er uændrede" in html
+
+
+def test_the_lock_mail_counts_towards_the_daily_revisor_cap(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    for _ in range(20):
+        db_session.add(AuditLog(
+            user_id=user.id, action="daily_close.revisor_lock_mail",
+            entity_type="daily_close", created_at=utc_now() - timedelta(hours=1)))
+    db_session.commit()
+    r = _lock(client, user)
+    ritual = r.json()["close_ritual"]
+    assert ritual["accountant_skip_reason"] == "daily_cap"
+    assert ritual["accountant_included"] is False
+    assert _revisor_mails(mailbox) == []
+    owner = [p for p in mailbox.sent if p["to"] == ["owner@mirabelle.dk"]][-1]
+    assert "loftet er nået" in owner["html"]
+
+
+def test_each_lock_mail_to_the_revisor_is_counted(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    cid = _lock(client, user).json()["id"]
+    for i in range(3):
+        _unlock(client, user, cid, reason=f"runde {i}")
+        _lock(client, user, rev=12500.0 + i)
+    n = db_session.query(AuditLog).filter(
+        AuditLog.user_id == user.id, AuditLog.action == "daily_close.revisor_lock_mail").count()
+    assert n == 4 == len(_revisor_mails(mailbox))
+
+
+def test_revisor_opt_out_works_for_a_signed_in_reader_on_the_api_host(
+        db_session, unsub_db, client, mailbox):
+    """The confirm page's form POSTs to api.bonbox.dk with the BonBox session
+    cookie and no CSRF header — it must not 403."""
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    _lock(client, user)
+    token = re.search(r"token=([^>\s'\"]+)",
+                      _revisor_mails(mailbox)[0]["headers"]["List-Unsubscribe"]).group(1)
+    signed_in = TestClient(app, base_url="https://api.bonbox.dk")
+    signed_in.cookies.set("bonbox_session", "some-session")
+    r = signed_in.post(f"/api/email/unsubscribe?token={token}")
+    assert r.status_code == 200, r.text
+    assert "afmeldt" in r.text
+    db_session.expire_all()
+    assert db_session.query(BusinessProfile).first().accountant_opted_out_at is not None
+
+
+def test_every_opt_out_is_remembered_and_the_revisor_can_undo_it(
+        db_session, unsub_db, client, mailbox):
+    from app.services.revisor_mail import REVISOR_TOPIC, address_fingerprint, revisor_opted_out
+    from app.utils.email_unsubscribe_token import make_unsubscribe_token
+    user = _make_user(db_session)
+    _make_profile(db_session, user, accountant_email="a@revisor.dk")
+
+    def tok(addr):
+        return make_unsubscribe_token(str(user.id), REVISOR_TOPIC, ttl_days=30,
+                                      extra={"r": address_fingerprint(addr)})
+
+    assert client.post(f"/api/email/unsubscribe?token={tok('a@revisor.dk')}").status_code == 200
+    client.put("/api/business", json={"accountant_email": "b@revisor.dk"}, headers=_auth(user))
+    assert client.post(f"/api/email/unsubscribe?token={tok('b@revisor.dk')}").status_code == 200
+    client.put("/api/business", json={"accountant_email": "a@revisor.dk", "accountant_auto_send": True},
+               headers=_auth(user))
+    db_session.expire_all()
+    prof = db_session.query(BusinessProfile).first()
+    assert revisor_opted_out(prof, "a@revisor.dk") and revisor_opted_out(prof, "b@revisor.dk")
+    assert "a@revisor.dk" not in (prof.accountant_opted_out_email or "")  # hashes, not addresses
+    r = _lock(client, user)
+    assert r.json()["close_ritual"]["accountant_skip_reason"] == "opted_out"
+    assert _revisor_mails(mailbox, "a@revisor.dk") == []
+
+    # An opt-out for an address that is no longer the saved one is still kept.
+    assert client.post(f"/api/email/unsubscribe?token={tok('c@revisor.dk')}").status_code == 200
+    db_session.expire_all()
+    assert revisor_opted_out(db_session.query(BusinessProfile).first(), "c@revisor.dk")
+
+    # The success page offers the revisor's own undo, and it works.
+    page = client.post(f"/api/email/unsubscribe?token={tok('a@revisor.dk')}").text
+    assert "undo=1" in page and "Fortryd" in page
+    u = client.post(f"/api/email/unsubscribe?token={tok('a@revisor.dk')}&undo=1")
+    assert u.status_code == 200 and "Du får mails igen" in u.text
+    db_session.expire_all()
+    prof = db_session.query(BusinessProfile).first()
+    assert not revisor_opted_out(prof, "a@revisor.dk")
+    assert revisor_opted_out(prof, "b@revisor.dk")
+    _lock(client, user, d="2026-09-26")
+    assert len(_revisor_mails(mailbox, "a@revisor.dk")) == 1
+
+
+def test_two_branches_on_one_day_are_two_documents(db_session, client, mailbox):
+    from openpyxl import load_workbook
+    from app.models.branch import Branch
+    from app.routers.daily_close import _range_extras
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    ves = Branch(id=uuid.uuid4(), user_id=user.id, name="Vesterbro")
+    nor = Branch(id=uuid.uuid4(), user_id=user.id, name="Nørrebro")
+    db_session.add_all([ves, nor]); db_session.commit()
+    _lock(client, user, d="2026-09-04", branch_id=str(ves.id))
+    _lock(client, user, d="2026-09-04", branch_id=str(nor.id), rev=9000.0)
+    mails = _revisor_mails(mailbox)
+    assert len(mails) == 2
+    subjects = {m["subject"] for m in mails}
+    assert subjects == {"Kasserapport fre. 04.09.2026 — Mirabelle ApS · Vesterbro",
+                        "Kasserapport fre. 04.09.2026 — Mirabelle ApS · Nørrebro"}
+    names = {m["attachments"][0]["filename"] for m in mails}
+    assert names == {"Kasserapport Mirabelle ApS Vesterbro 2026-09-04.pdf",
+                     "Kasserapport Mirabelle ApS Nørrebro 2026-09-04.pdf"}
+    import base64
+    texts = [" ".join(pdf_text(base64.b64decode(m["attachments"][0]["content"])).split())
+             for m in mails]
+    bilag = {re.search(r"Bilagsnr\. (KR-[0-9A-Z-]+)", t).group(1) for t in texts}
+    assert len(bilag) == 2 and all(b.startswith("KR-20260904-20260904-") for b in bilag)
+
+    closes = db_session.query(DailyClose).all()
+    extras = _range_extras(db_session, user, closes)
+    wb = load_workbook(io.BytesIO(build_daily_close_range_xlsx(
+        closes, from_date=date(2026, 9, 4), to_date=date(2026, 9, 4),
+        business_name="Mirabelle ApS", currency="DKK", **{
+            k: extras[k] for k in ("tz", "history", "sources", "branch_names")})))
+    ws = wb["Kasserapport"]
+    hdr = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+    col = hdr.index("Afdeling") + 1
+    assert {ws.cell(row=2, column=col).value, ws.cell(row=3, column=col).value} == {"Vesterbro", "Nørrebro"}
+    ptxt = pdf_text(build_daily_close_range_pdf(
+        closes, from_date=date(2026, 9, 4), to_date=date(2026, 9, 4),
+        business_name="Mirabelle ApS", currency="DKK", branch_names=extras["branch_names"]))
+    assert "Vesterbro" in ptxt and "Nørrebro" in ptxt
+
+    # A period export never shares a number with a single kasserapport.
+    r = client.get("/api/daily-close/export.pdf?from=2026-09-04&to=2026-09-04", headers=_auth(user))
+    assert r.status_code == 200
+    assert "KRP-20260904-20260904" in pdf_text(r.content)
+
+
+def test_excel_free_text_cells_are_text_never_formulas():
+    from openpyxl import load_workbook
+    c = _close(date(2026, 9, 25), 1000.0, 200.0,
+               closed_by='=HYPERLINK("https://x.example","Lars")', notes="=1+1")
+    wb = load_workbook(io.BytesIO(build_daily_close_range_xlsx(
+        [c], from_date=date(2026, 9, 1), to_date=date(2026, 9, 30),
+        business_name="=WEBSERVICE(\"https://x.example\")", currency="DKK")))
+    ws = wb["Kasserapport"]
+    hdr = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+    lukket = ws.cell(row=2, column=hdr.index("Lukket af") + 1)
+    notes = ws.cell(row=2, column=hdr.index("Bemærkninger") + 1)
+    assert lukket.data_type == "s" and lukket.value.startswith("=HYPERLINK")
+    assert notes.data_type == "s" and notes.value == "=1+1"
+    assert wb["Oversigt"]["A1"].data_type == "s"
+    # Our own totals formulas stay formulas.
+    assert ws.cell(row=3, column=4).data_type == "f"
+
+
+def test_an_edit_after_unlock_drops_the_stale_till_list(db_session, client, mailbox):
+    from app.services.close_kasserapport_pdf import build_close_kasserapport_pdf
+    user = _make_user(db_session)
+    prof = _make_profile(db_session, user)
+    cid = _lock(client, user, rev=12500.0, source_meta={
+        "kind": "zbon", "scans": 2, "terminal_totals": [5000.0, 7500.0], "corrected": ["pay:card"],
+    }).json()["id"]
+    _unlock(client, user, cid)
+    _lock(client, user, rev=13000.0, source_meta=None)
+    dc = db_session.query(DailyClose).filter(DailyClose.id == uuid.UUID(cid)).first()
+    db_session.refresh(dc)
+    flat = " ".join(pdf_text(build_close_kasserapport_pdf(db_session, user, dc, profile=prof)["pdf"]).split())
+    assert "Z-bon (scannet)" in flat
+    assert "rettet af ejeren efter oplåsning" in flat
+    assert "5.000,00 kr. + 7.500,00 kr." not in flat
+
+
+def test_an_out_of_range_float_never_blocks_the_lock(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user, cash_float=-500)
+    assert r.status_code == 200, r.text
+    assert r.json().get("cash_float") in (None, 0)
+    r = _lock(client, user, d="2026-09-26", cash_float=5_000_000)
+    assert r.status_code == 200, r.text
+    r = _lock(client, user, d="2026-09-27", cash_float=1000)
+    assert r.status_code == 200
+    dc = db_session.query(DailyClose).filter(DailyClose.date == date(2026, 9, 27)).first()
+    assert float(dc.cash_float) == 1000.0
+
+
+def test_a_send_in_flight_blocks_a_second_one(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    mailbox.fail = True
+    cid = _lock(client, user).json()["id"]
+    mailbox.fail = False
+    dc = db_session.query(DailyClose).filter(DailyClose.id == uuid.UUID(cid)).first()
+    dc.email_status = "sending"; dc.email_attempt_at = utc_now(); dc.email_send_key = "other-tab-key"
+    db_session.commit()
+    r = client.post(f"/api/daily-close/{cid}/resend-email", json={"key": "click-x001"}, headers=_auth(user))
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "in_progress"
+    assert _revisor_mails(mailbox) == []
+    # A claim left by a crashed worker goes stale and can be taken over.
+    dc.email_attempt_at = utc_now() - timedelta(minutes=10)
+    db_session.commit()
+    r = client.post(f"/api/daily-close/{cid}/resend-email", json={"key": "click-x002"}, headers=_auth(user))
+    assert r.status_code == 200, r.text
+    assert r.json()["email_status"] == "sent"
+    assert len(_revisor_mails(mailbox)) == 1
+
+
+def test_a_card_only_day_without_a_cash_count_is_book_ready():
+    from app.services.kasserapport_claims import build_close_claims
+    c = _close(date(2026, 9, 25), 12500.0, 2500.0, pay={"card": 12500.0},
+               cash_expected=None, cash_counted=None, cash_difference=None)
+    a = build_close_claims(c, currency="DKK", has_bilag=False, bilagsnummer="KR-1")["assurance"]
+    assert a["all_ok"] is True
+    assert any("Ingen kontantsalg" in x["text"] for x in a["checks"])
+    txt = pdf_text(build_daily_close_range_pdf(
+        [c], from_date=date(2026, 9, 25), to_date=date(2026, 9, 25),
+        business_name="Webshop", currency="DKK"))
+    assert "1 af 1 klar til bogføring" in txt
+    # A cash day that was not counted is still flagged.
+    c2 = _close(date(2026, 9, 25), 12500.0, 2500.0, pay={"cash": 2500.0, "card": 10000.0},
+                cash_counted=None, cash_difference=None)
+    assert build_close_claims(c2, currency="DKK")["assurance"]["all_ok"] is False

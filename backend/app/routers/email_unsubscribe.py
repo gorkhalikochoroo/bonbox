@@ -245,9 +245,14 @@ def _revisor_confirm_page(token: str, biz: str) -> str:
     )
 
 
-def _revisor_success_page(biz: str) -> str:
+def _revisor_success_page(biz: str, token: str) -> str:
     import html as _html
     b = _html.escape(biz) or "denne virksomhed"
+    safe_token = _html.escape(token)
+    # The undo is the revisor's own, behind the same signed link: the owner
+    # cannot switch a revisor's mail back on (that consent is not theirs),
+    # and this page used to send the revisor to the owner for something the
+    # owner had no way to do.
     return _page(
         "Afmeldt",
         f"""
@@ -256,35 +261,59 @@ def _revisor_success_page(biz: str) -> str:
         </h1>
         <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
           BonBox sender ikke flere mails til dig om {b}. Ejeren kan se i BonBox, at du har afmeldt.
-          Vil du have kasserapporterne igen, så skriv direkte til ejeren.
+          Var det en fejl, eller vil du have kasserapporterne igen, kan du fortryde her.
         </p>
+        <form method="POST" action="/api/email/unsubscribe?token={safe_token}&amp;undo=1" style="margin:0 0 18px 0;">
+          <button type="submit" style="display:inline-block;background:#fff;color:{_PALETTE['brand_dark']};border:1px solid {_PALETTE['brand_dark']};border-radius:10px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;">
+            Fortryd — send mails til mig igen
+          </button>
+        </form>
         <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
-          You're unsubscribed — BonBox won't mail you about {b} again.
+          You're unsubscribed — BonBox won't mail you about {b} again. Changed your mind? Use the button above.
         </p>
         """,
     )
 
 
-def _revisor_opt_out(user_id, fingerprint: str | None, request: Request) -> None:
+def _revisor_resubscribed_page(biz: str) -> str:
+    import html as _html
+    b = _html.escape(biz) or "denne virksomhed"
+    return _page(
+        "Tilmeldt igen",
+        f"""
+        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+          Du får mails igen.
+        </h1>
+        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+          BonBox sender igen kasserapporter til dig om {b}, som ejeren har valgt.
+          Hver mail har et link, hvis du vil afmelde igen.
+        </p>
+        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+          You'll get BonBox mail about {b} again. Every mail has a link to unsubscribe.
+        </p>
+        """,
+    )
+
+
+def _revisor_opt_out(user_id, fingerprint: str | None, request: Request, *, undo: bool = False) -> None:
+    """Record (or, with `undo`, withdraw) the opt-out of the address the token
+    was minted for. Recorded even when the owner has since saved another
+    address: switching back must not restart mail to someone who said stop."""
     from app.models.business_profile import BusinessProfile
-    from app.services.revisor_mail import address_fingerprint
-    from app.utils.time import utc_now
+    from app.services.revisor_mail import record_opt_out, remove_opt_out
     db: Session = SessionLocal()
     try:
         p = db.query(BusinessProfile).filter(BusinessProfile.user_id == user_id).first()
-        addr = ((p.accountant_email if p else "") or "").strip().lower()
-        if not p or not addr or not fingerprint or address_fingerprint(addr) != fingerprint:
-            # The address changed since the mail (or it was never this one):
-            # nothing to switch off — that address no longer gets mail anyway.
+        if not p or not fingerprint:
             return
-        if p.accountant_opted_out_at and (p.accountant_opted_out_email or "").lower() == addr:
-            return  # already opted out — idempotent
-        p.accountant_opted_out_at = utc_now()
-        p.accountant_opted_out_email = addr
+        changed = remove_opt_out(p, fingerprint) if undo else record_opt_out(p, fingerprint)
+        if not changed:
+            return  # idempotent
         owner = db.query(User).filter(User.id == user_id).first()
         if owner:
             audit_service.record(
-                db, owner, "accountant.mail_opted_out",
+                db, owner,
+                "accountant.mail_resubscribed" if undo else "accountant.mail_opted_out",
                 entity_type="business_profile", entity_id=p.id,
                 after={"address_fingerprint": fingerprint, "via": "one_click_email"},
                 ip_address=(client_ip(request) if request else None),
@@ -316,6 +345,7 @@ def unsubscribe_confirm(
 def unsubscribe_action(
     request: Request,
     token: str = Query(...),
+    undo: int = Query(0),
 ):
     """Actually unsubscribe.  Hit by:
       1. Our own confirmation page's submit button
@@ -334,8 +364,12 @@ def unsubscribe_action(
     topic = payload.get("t") or "daily_brief"
     user_id = payload.get("u")
     if topic == "revisor_mail":
+        biz = _revisor_business_name(user_id)
+        if undo:
+            _revisor_opt_out(user_id, payload.get("r"), request, undo=True)
+            return HTMLResponse(content=_revisor_resubscribed_page(biz))
         _revisor_opt_out(user_id, payload.get("r"), request)
-        return HTMLResponse(content=_revisor_success_page(_revisor_business_name(user_id)))
+        return HTMLResponse(content=_revisor_success_page(biz, token))
     db: Session = SessionLocal()
     try:
         user = db.query(User).filter(User.id == user_id).first()

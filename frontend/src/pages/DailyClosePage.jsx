@@ -50,7 +50,10 @@ import {
   shareCloseSummary,
 } from "../utils/shareClose";
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
-import { closeEmailState, emailErrorKey, newSendKey, resendCloseEmail, sentWhen, filenameFromResponse } from "../utils/closeEmail";
+import {
+  closeEmailState, emailErrorKey, newSendKey, resendCloseEmail, sentWhen, filenameFromResponse,
+  announceCloseEmail, CLOSE_EMAIL_EVENT,
+} from "../utils/closeEmail";
 
 const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
 import { saveFile } from "../utils/download";
@@ -846,6 +849,7 @@ export default function DailyClosePage() {
           currency={currency}
           profile={bizQ.data}
           businessType={user?.business_type}
+          onEmailSent={fetchHistory}
           onDismiss={() => {
             setTodayCardDismissed(true);
             if (freshLockIsToday) setLastLockedClose(null);
@@ -862,6 +866,7 @@ export default function DailyClosePage() {
           profile={bizQ.data}
           businessType={user?.business_type}
           dateLabel={formatDateClearFull(String(pastLockClose.date || "").slice(0, 10))}
+          onEmailSent={fetchHistory}
           onDismiss={() => setLastLockedClose(null)}
         />
       )}
@@ -2756,7 +2761,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       cash_counted: countedNum,
       // The byttepenge taken off the drawer count — so the kasserapport can
       // show "Optalt (uden byttepenge)" the way this screen does.
-      cash_float: countedNum != null && Number.isFinite(readMoney0(cashFloat)) ? readMoney0(cashFloat) : null,
+      // Informational only (printed on the kasserapport). Out of range — a
+      // stray "-500" or a mistyped huge float — is not sent at all, so it can
+      // never fail the lock.
+      cash_float: (() => {
+        if (countedNum == null) return null;
+        const f = readMoney0(cashFloat);
+        return Number.isFinite(f) && f >= 0 && f <= 1_000_000 ? f : null;
+      })(),
       source_meta,
       closed_by: closedBy || null,
       notes: notesWithExtras,
@@ -5239,7 +5251,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    reload, and it never fakes a "sent". A failed send offers the real resend
    (POST /daily-close/{id}/resend-email, one idempotency key per click); there
    is no background retry and nothing here says there is. */
-function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = false }) {
+function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = false, onSent = null }) {
   const confirm = useConfirm();
   const [st, setSt] = useState(() => ({
     status: ritual?.email_status ?? close.email_status ?? null,
@@ -5256,6 +5268,18 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
   const { kind, acct } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip, profile });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
+  // The lock card and the History row render the same close, each with its
+  // own state: a send from one is announced so the other never disagrees.
+  useEffect(() => {
+    const on = (ev) => {
+      const d = ev?.detail;
+      if (!d || d.id !== close.id) return;
+      setSt({ status: d.status ?? null, error: d.error ?? null, sentTo: d.sentTo || [],
+        sentAt: d.sentAt ?? null, skip: d.skip ?? null });
+    };
+    window.addEventListener(CLOSE_EMAIL_EVENT, on);
+    return () => window.removeEventListener(CLOSE_EMAIL_EVENT, on);
+  }, [close.id]);
 
   const send = async (force = false) => {
     setBusy(true);
@@ -5265,13 +5289,17 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
       const r = await resendCloseEmail(api, close.id, { key: keyRef.current, force });
       keyRef.current = null;
       const d = r.data || {};
-      setSt({
+      const next = {
         status: d.email_status ?? d.close_ritual?.email_status ?? null,
         error: d.email_error ?? d.close_ritual?.email_error ?? null,
         sentTo: d.email_sent_to || d.close_ritual?.sent_to || [],
         sentAt: d.email_sent_at ?? null,
         skip: d.close_ritual?.accountant_skip_reason ?? null,
-      });
+      };
+      setSt(next);
+      announceCloseEmail(close.id, next);
+      // The persisted status changed — let the page re-read History.
+      onSent?.();
     } catch (e) {
       const code = e?.response?.data?.detail?.code;
       const status = e?.response?.status;
@@ -5282,9 +5310,14 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
       }
       keyRef.current = null;
       if (status === 409 && code === "already_sent") {
+        // The server knows when (this instance may be showing an old state).
+        const sw = sentWhen(e.response.data.detail?.sent_at);
+        const sentText = sw ? t("dcMailWhen", "{date} at {time}", sw) : whenText;
         const ok = await confirm({
           title: t("dcMailAlreadyTitle", "Your revisor already has this kasserapport"),
-          message: t("dcMailAlreadyBody", "It was sent {when}. Send it again?", { when: whenText || "—" }),
+          message: sentText
+            ? t("dcMailAlreadyBody", "It was sent {when}. Send it again?", { when: sentText })
+            : t("dcMailAlreadyBodyNoWhen", "It has already been sent. Send it again?"),
           confirmLabel: t("dcMailSendAgain", "Send again"),
           cancelLabel: t("cancel", "Cancel"),
         });
@@ -5292,6 +5325,10 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
       } else if (status === 409 && code === "accountant_opted_out") {
         setSt((s0) => ({ ...s0, skip: "opted_out" }));
         setErr(t("dcMailOptedOutErr", "Your revisor has unsubscribed from BonBox mail. Download the PDF and send it from your own mail."));
+      } else if (status === 409 && code === "in_progress") {
+        setErr(t("dcMailInProgress", "It is being sent right now (from another tab or button). Wait a moment — it will not go twice."));
+      } else if (status === 429) {
+        setErr(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."));
       } else if (status === 400 && code === "no_accountant_email") {
         setErr(t("dcMailNoRevisorErr", "No revisor e-mail is saved. Add it on Profile first."));
       } else if (status === 402) {
@@ -5316,7 +5353,17 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
   );
   const textCls = compact ? "text-[12px]" : "text-sm";
   let line;
-  if (kind === "revisor") {
+  if (kind === "sending") {
+    // A send in flight elsewhere (another tab). The button stays: if that
+    // send died, the server lets a new one take over; while it is live the
+    // server answers in_progress — never a second mail, never a dead end.
+    line = (
+      <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="Loader" size={13} className="animate-spin" /> {t("dcMailSending", "Sending to your revisor…")}</span>
+        {acct && btn(t("dcMailSendAgain", "Send again"))}
+      </span>
+    );
+  } else if (kind === "revisor") {
     line = (
       <span className={`${textCls} text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1`}>
         <Icon name="CheckCircle2" size={13} /> {whenText
@@ -5371,7 +5418,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
   );
 }
 
-function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null }) {
+function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null, onEmailSent = null }) {
   const ritual = close.close_ritual || {};
   // The server stores closed_at in UTC without a zone suffix; read bare, the
   // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
@@ -5428,7 +5475,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
             <Icon name="Mail" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSent", "Sent to {recipients}").replace("{recipients}", recipients)}
           </p>
         )}
-        <CloseEmailStatus t={t} close={close} ritual={ritual} profile={profile} />
+        <CloseEmailStatus t={t} close={close} ritual={ritual} profile={profile} onSent={onEmailSent} />
         {ritual.scan_degraded && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded", "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached. We'll keep the original on file.")}
@@ -5523,6 +5570,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   loading = false, failed = false, isOnline = true, focusCloseId = null, onFocusConsumed }) {
   const { user } = useAuth();
   const confirm = useConfirm();
+  // Tri-state: null while /billing/me is loading. Only a KNOWN "no" changes
+  // the send path — a Free owner is never promised a BonBox send.
+  const { hasFeature: hasEntitlement, isReady: entitlementsReady } = useEntitlements();
+  const directSendEntitled = entitlementsReady ? hasEntitlement("direct_accountant_email") : null;
   const [downloading, setDownloading] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [sharing, setSharing] = useState(null);
@@ -5855,6 +5906,19 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     const acct = businessProfile?.accountant_email;
     const optedOut = Boolean(businessProfile?.accountant_opted_out);
 
+    if (acct && !optedOut && directSendEntitled === false) {
+      // Free: BonBox does not send. No "goes to {email}. You get a copy."
+      // confirm in front of a path that then downloads and opens the owner's
+      // own mail — straight to the plan's honest path.
+      setSendingToAccountant(true);
+      try {
+        await sendViaOwnMail(fmt, { freePath: true });
+      } finally {
+        setSendingToAccountant(false);
+      }
+      return;
+    }
+
     if (acct && !optedOut) {
       // Who, what, which days — before one tap mails a third party.
       const ok = await confirm({
@@ -5908,6 +5972,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           message = t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow.");
         } else if (status === 503 && detail?.reason === "email_not_configured") {
           message = t("dcSendNotConfigured", "Sending from BonBox isn't set up here, so nothing was sent. Send the file from your own mail.");
+        } else if (status === 502 && detail?.code === "email_send_failed") {
+          // The mail service answered with an error. The owner's copy is only
+          // sent after the revisor's send succeeds, so no copy is coming —
+          // telling them to wait for one sent them looking for nothing.
+          message = t("dcSendProviderFailed", "The mail service reported an error, so it most likely did not reach {email} — and no copy was sent to you. Send the file from your own mail, or try again in a moment.", { email: acct });
         } else if (!e.response || status >= 500) {
           message = t("dcSendUnknown", "We couldn't confirm whether it reached {email}. Check your inbox — you get a copy — before sending it another way.", { email: acct });
         } else {
@@ -6187,6 +6256,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           profile={businessProfile}
           businessType={user?.business_type}
           onDismiss={onDismissLastLocked}
+          onEmailSent={onRefresh}
         />
       )}
 
@@ -6504,11 +6574,16 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
             {businessProfile?.accountant_opted_out
               ? t("dcSendToLineOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.", { email: businessProfile.accountant_email })
-              : t("dcSendToLine", "Send goes to {email} · {format} · {from} – {to}", {
-                  email: businessProfile.accountant_email,
-                  format: FMT_LABEL[accountantFmt] || accountantFmt,
-                  from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
-                })}
+              : directSendEntitled === false
+                ? t("dcSendToLineOwnMail", "Send downloads the {format} and opens your own mail to {email} — you send it yourself.", {
+                    email: businessProfile.accountant_email,
+                    format: FMT_LABEL[accountantFmt] || accountantFmt,
+                  })
+                : t("dcSendToLine", "Send goes to {email} · {format} · {from} – {to}", {
+                    email: businessProfile.accountant_email,
+                    format: FMT_LABEL[accountantFmt] || accountantFmt,
+                    from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
+                  })}
           </p>
         )}
 
@@ -6604,7 +6679,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {(dc.status || "confirmed") === "confirmed" && (
                   <div className="mt-1">
                     <CloseEmailStatus key={`${dc.id}-${dc.email_status || ""}-${dc.email_sent_at || ""}`}
-                      t={t} close={dc} profile={profileKnown ? businessProfile : null} compact />
+                      t={t} close={dc} profile={profileKnown ? businessProfile : null} compact
+                      onSent={onRefresh} />
                   </div>
                 )}
               </div>

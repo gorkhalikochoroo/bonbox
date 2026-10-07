@@ -609,6 +609,14 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       } else if (e?.response?.status === 400 && e?.response?.data?.detail?.code === "no_accountant_email") {
         setError(t("filingPdfNeedsAccountantEmail"));
         setTimeout(() => setError(""), 6000);
+      } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "accountant_opted_out") {
+        // Never the server's English sentence to a Danish owner, and no
+        // retry that can never work: the PDF button beside this downloads it.
+        setError(t("filingPdfOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. Download the PDF and send it from your own mail."));
+        setTimeout(() => setError(""), 10000);
+      } else if (e?.response?.status === 429) {
+        setError(t("filingPdfDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Download the PDF and send it from your own mail, or try tomorrow."));
+        setTimeout(() => setError(""), 10000);
       } else {
         setError(
           e?.response?.data?.detail?.message || t("filingPdfSendFailed"),

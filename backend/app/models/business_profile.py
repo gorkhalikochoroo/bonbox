@@ -96,6 +96,9 @@ class BusinessProfile(Base):
     # mail). Bound to the address it came from: saving a different revisor
     # address is not blocked by the old one's opt-out. While set, BonBox
     # mails that address nothing at all, and the owner is told why.
+    # `accountant_opted_out_email` holds EVERY opted-out address, as a comma
+    # list of address fingerprints (services/revisor_mail.py) — one slot let a
+    # second opt-out restart mail to the first. `_at` is the latest opt-out.
     accountant_opted_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     accountant_opted_out_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Operations
@@ -271,9 +274,8 @@ class BusinessProfile(Base):
     @property
     def accountant_opted_out(self) -> bool:
         """The saved revisor address asked BonBox to stop mailing it."""
-        addr = (self.accountant_email or "").strip().lower()
-        out = (self.accountant_opted_out_email or "").strip().lower()
-        return bool(self.accountant_opted_out_at) and bool(addr) and addr == out
+        from app.services.revisor_mail import revisor_opted_out
+        return revisor_opted_out(self)
 
     @property
     def accountant_auto_send_effective(self) -> bool:

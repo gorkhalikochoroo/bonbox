@@ -28,7 +28,10 @@ Multi-layer defense:
   L6 audit trail   — every grant create/revoke + every accountant login
                      + every switch_client writes an audit_logs row
 """
-from __future__ import annotations
+# NO `from __future__ import annotations` here: /invite carries a slowapi
+# limiter, and with PEP 563 string annotations FastAPI resolves the body model
+# through the limiter wrapper's globals and silently demotes it to a query
+# param (every call 422s). All annotations below are concrete imports.
 
 import logging
 import secrets
@@ -36,11 +39,13 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from slowapi import Limiter
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.models.accountant_grant import AccountantGrant
+from app.models.business_profile import BusinessProfile
 from app.models.user import User
 from app.schemas.accountant_grant import (
     AccountantClientResponse,
@@ -60,10 +65,14 @@ from app.services.auth import (
     verify_password,
 )
 from app.utils import login_guard
+from app.utils.client_ip import client_ip
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+# The invite mails a third party from noreply@bonbox.dk — per-IP minute limit
+# on top of the per-account daily revisor cap (services/revisor_mail.py).
+_limiter = Limiter(key_func=client_ip)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
@@ -153,7 +162,14 @@ def _invite_email_html(owner_name: str, accept_url: str, is_danish: bool) -> str
     """Magic-link email body. DK locale → Danish copy; otherwise English.
     Mirrors the visual style of the existing send-to-accountant email
     template in daily_close.py.
+
+    `owner_name` is the owner's typed business name (up to 200 characters,
+    which could be HTML or a link) going to a third party under the BonBox
+    sender — escaped, like every other revisor template.
     """
+    from app.services.revisor_mail import esc
+    owner_name = esc(owner_name)
+    accept_url = esc(accept_url)
     if is_danish:
         return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
@@ -230,6 +246,7 @@ def _clear_accountant_client_cookie(response: Response, request: Request | None)
 
 
 @router.post("/invite", response_model=AccountantGrantResponse, status_code=status.HTTP_201_CREATED)
+@_limiter.limit("10/minute")
 def invite_accountant(
     body: AccountantInviteRequest,
     request: Request,
@@ -247,6 +264,24 @@ def invite_accountant(
 
     email = body.email.strip().lower()
     name = (body.name or "").strip() or None
+
+    # Mail to a third party: the per-account daily ceiling every revisor send
+    # shares (429), and never to an address that asked BonBox to stop — the
+    # opt-out page promised "BonBox sender ikke flere mails til dig".
+    from app.services.revisor_mail import enforce_revisor_daily_cap, revisor_opted_out
+    _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    if revisor_opted_out(_profile, email):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "accountant_opted_out",
+                "message": (
+                    "This revisor has asked BonBox to stop sending them mail, "
+                    "so BonBox won't send the invite."
+                ),
+            },
+        )
+    enforce_revisor_daily_cap(db, user)
 
     # Look up the accountant user by email if one exists — they may
     # already have a BonBox account (different owner's revisor or a
@@ -357,12 +392,14 @@ def invite_accountant(
     # Send invite email — best-effort, never block the API response
     try:
         from app.services.email_service import send_email
+        from app.services.revisor_mail import header_safe
         owner_name = user.business_name or user.email
         is_danish = (user.currency or "DKK").upper() == "DKK"
+        subject_name = header_safe(owner_name, 120)
         subject = (
-            f"{owner_name} har inviteret dig som revisor på BonBox"
+            f"{subject_name} har inviteret dig som revisor på BonBox"
             if is_danish
-            else f"{owner_name} has invited you as their accountant on BonBox"
+            else f"{subject_name} has invited you as their accountant on BonBox"
         )
         send_email(
             to_email=email,

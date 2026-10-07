@@ -185,14 +185,8 @@ def _business_display_name(profile, user) -> str:
     )
 
 
-def _range_extras(db: Session, user: User, closes) -> dict:
-    """Per-close strings the period exports print beside the figures: the
-    venue's time zone, the unlock/relock history from the audit trail, the
-    source of the figures, and branch names (never ids)."""
-    from app.services.close_history import close_history_lines, source_lines
-    from app.services.tz_utils import _user_zone
-    danish = (user.currency or "DKK") == "DKK"
-    tz = _user_zone(user)
+def _branch_names(db: Session, user: User, closes) -> dict:
+    """{str(branch_id): name} for the branches these closes belong to."""
     branch_names: dict = {}
     try:
         ids = {c.branch_id for c in closes if c.branch_id}
@@ -201,12 +195,31 @@ def _range_extras(db: Session, user: User, closes) -> dict:
                 branch_names[str(b.id)] = b.name
     except Exception:  # noqa: BLE001
         branch_names = {}
+    return branch_names
+
+
+def _range_extras(db: Session, user: User, closes) -> dict:
+    """Per-close strings the period exports print beside the figures: the
+    venue's time zone, the unlock/relock history from the audit trail, the
+    source of the figures, and branch names (never ids)."""
+    from app.services.close_history import close_history_lines, source_lines
+    from app.services.tz_utils import _user_zone
+    danish = (user.currency or "DKK") == "DKK"
+    tz = _user_zone(user)
+    branch_names = _branch_names(db, user, closes)
     return {
         "tz": tz,
         "history": close_history_lines(db, user, closes, danish=danish, tz=tz),
         "sources": source_lines(closes, danish=danish, currency=user.currency or "DKK"),
         "branch_names": branch_names,
     }
+
+
+def _range_bilagsnummer(f: date, t: date) -> str:
+    """The period export's own voucher number — KRP (kasserapport, periode).
+    It shared 'KR-' with the single kasserapport, so a one-day period export
+    and that day's kasserapport carried the same number for two documents."""
+    return export_bilagsnummer("KRP", f, t)
 
 
 def _period_filename(business_name: str, f: date, t: date, ext: str) -> str:
@@ -275,14 +288,18 @@ _DA_WEEKDAY = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "s
 
 
 def _close_subject(dc: DailyClose, business_name: str, *, is_danish: bool,
-                   correction: bool = False) -> str:
+                   correction: bool = False, branch: str | None = None) -> str:
     """'Kasserapport fre. 25.09.2026 — Mirabelle ApS' (or 'Rettet kasserapport …').
 
     No 'Aftenens'/'Dagens': a day back-filled three days later is not tonight's,
-    and the subject used to say one thing while the body said another."""
+    and the subject used to say one thing while the body said another. Two
+    branches locking the same day get two different subjects ('… — Mirabelle
+    ApS · Vesterbro'): identical ones read as a duplicate to drop."""
     from app.services.revisor_mail import header_safe
     d = dc.date
     biz = header_safe(business_name, 120)
+    if branch:
+        biz = f"{biz} · {header_safe(branch, 60)}"
     if is_danish:
         lead = "Rettet kasserapport" if correction else "Kasserapport"
         return f"{lead} {_DA_WEEKDAY_SHORT[d.weekday()]} {d.strftime('%d.%m.%Y')} — {biz}"
@@ -329,6 +346,7 @@ def _build_close_email_html(
     correction: dict | None = None,
     revisor_line: str | None = None,
     tz=None,
+    branch: str | None = None,
 ) -> tuple[str, str]:
     """Build (subject, html) for the lock mail — one copy per audience.
 
@@ -369,7 +387,9 @@ def _build_close_email_html(
     def _fmt(v):
         return money_dk(v, currency)
 
-    subject = _close_subject(dc, biz_plain, is_danish=is_danish, correction=bool(correction))
+    subject = _close_subject(dc, biz_plain, is_danish=is_danish, correction=bool(correction),
+                             branch=branch)
+    biz_branch = f"{biz} ({esc(branch)})" if branch else biz
     locked_when = esc(dk_datetime(dc.closed_at, tz, danish=is_danish)) or "—"
     d = dc.date
     day_long = (f"{_DA_WEEKDAY[d.weekday()]} {d.day}. "
@@ -384,7 +404,7 @@ def _build_close_email_html(
         else:
             greeting = "Hej,"
         intro = (
-            f"Kasserapporten for <strong>{biz}</strong> for {esc(day_long)} er låst "
+            f"Kasserapporten for <strong>{biz_branch}</strong> for {esc(day_long)} er låst "
             f"af {closer} {locked_when}."
         )
         kpi_rev, kpi_moms, kpi_cash = "Omsætning", f"Salgsmoms ({vat_rate_pct} %)", "Kassedifference"
@@ -400,7 +420,7 @@ def _build_close_email_html(
         else:
             greeting = "Hello,"
         intro = (
-            f"The kasserapport for <strong>{biz}</strong> for {esc(day_long)} was locked "
+            f"The kasserapport for <strong>{biz_branch}</strong> for {esc(day_long)} was locked "
             f"by {closer} {locked_when}."
         )
         kpi_rev, kpi_moms, kpi_cash = "Revenue", f"Salgsmoms ({vat_rate_pct} %)", "Cash difference"
@@ -417,6 +437,10 @@ def _build_close_email_html(
         reason = esc(correction.get("unlock_reason") or "")
         who = esc(correction.get("unlocked_by") or "")
         changes = correction.get("changes") or []
+        # Equality is only asserted when every line was compared. A version
+        # locked before the lines were recorded in the audit trail can only be
+        # compared on its headline figures — and then that is all it says.
+        lines_known = bool(correction.get("lines_known"))
         if is_danish:
             lines = [f"<strong>Rettet version.</strong> Denne kasserapport erstatter den, der blev sendt {prev}."]
             if reason:
@@ -424,20 +448,30 @@ def _build_close_email_html(
             if changes:
                 # The money token already ends in "kr." — no second full stop.
                 ch = "Ændret: " + "; ".join(
-                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes)
+                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes[:8])
+                if len(changes) > 8:
+                    ch += f"; og {len(changes) - 8} linjer mere (se kasserapporten)"
                 lines.append(ch if ch.endswith(".") else ch + ".")
-            else:
+            elif lines_known:
                 lines.append("Tallene er de samme som i den tidligere version.")
+            else:
+                lines.append("Omsætning, salgsmoms og kassedifference er uændrede — "
+                             "se den vedhæftede kasserapport for fordelingen.")
         else:
             lines = [f"<strong>Corrected version.</strong> This kasserapport replaces the one sent {prev}."]
             if reason:
                 lines.append(f"Unlocked{(' by ' + who) if who else ''} — reason: {reason}.")
             if changes:
                 ch = "Changed: " + "; ".join(
-                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes)
+                    f"{esc(lbl)} {esc(old)} → {esc(new)}" for lbl, old, new in changes[:8])
+                if len(changes) > 8:
+                    ch += f"; and {len(changes) - 8} more lines (see the kasserapport)"
                 lines.append(ch if ch.endswith(".") else ch + ".")
-            else:
+            elif lines_known:
                 lines.append("The figures are the same as in the earlier version.")
+            else:
+                lines.append("Revenue, salgsmoms and the cash difference are unchanged — "
+                             "see the attached kasserapport for the split.")
         correction_html = (
             "<div style='margin:12px 0;padding:10px 12px;border-left:3px solid #b45309;"
             "background:#fffbeb;color:#78350f;font-size:13px;'>" + "<br>".join(lines) + "</div>"
@@ -642,7 +676,6 @@ def _fire_close_auto_email(
     user: User,
     dc: DailyClose,
     *,
-    correction: dict | None = None,
     explicit: bool = False,
 ) -> dict:
     """Send the lock mail — one copy to the owner, one to the revisor — and
@@ -659,8 +692,8 @@ def _fire_close_auto_email(
             "accountant_email": str | None,
             "accountant_included": bool,     # did the revisor get THIS mail?
             "accountant_skip_reason": None | "not_saved" | "auto_send_off" |
-                                      "opted_out" | "same_as_owner",
-            "correction": bool,
+                                      "opted_out" | "same_as_owner" | "daily_cap",
+            "correction": bool,              # marked "Rettet kasserapport"
             "has_scan", "scan_degraded", "pdf_hash", "push_status",
             "bank_drop", "upgrade_hint",
         }
@@ -672,6 +705,11 @@ def _fire_close_auto_email(
     `explicit=True` is the owner's own "Send igen" — it ignores the automatic
     switches (the owner just asked) but still honours the tier, the saved
     address and the revisor's opt-out. NEVER raises into the lock flow.
+
+    Correction marking is decided HERE, per recipient, from the audit trail
+    (_correction_for): a recipient who already received an earlier version of
+    this close gets "Rettet kasserapport … erstatter …" — on the re-lock's own
+    mail AND on any later resend, and never a recipient who got nothing before.
     """
     result: dict[str, Any] = {
         "feature_available": False,
@@ -682,7 +720,7 @@ def _fire_close_auto_email(
         "accountant_email": None,
         "accountant_included": False,
         "accountant_skip_reason": None,
-        "correction": bool(correction),
+        "correction": False,
         "has_scan": False,
         "scan_degraded": False,
         "pdf_hash": None,
@@ -731,7 +769,8 @@ def _fire_close_auto_email(
     if not owner_email:
         owner_email = (user.email or "").strip().lower()
     from app.services.revisor_mail import (
-        revisor_opted_out, revisor_unsubscribe_headers, revisor_unsubscribe_url,
+        REVISOR_DAILY_CAP, address_fingerprint, revisor_daily_cap_reached, revisor_opted_out,
+        revisor_unsubscribe_headers, revisor_unsubscribe_url,
         saved_revisor_address, sender_display,
     )
     acct = saved_revisor_address(profile)
@@ -744,6 +783,12 @@ def _fire_close_auto_email(
         skip = "same_as_owner"
     elif not explicit and not getattr(profile, "accountant_auto_send_effective", True):
         skip = "auto_send_off"
+    elif not explicit and revisor_daily_cap_reached(db, user):
+        # The lock mail counts towards the per-account ceiling on mail to a
+        # third party, like every other revisor send. At the cap the revisor
+        # copy is skipped — the lock itself never fails — and the owner is
+        # told why. (An explicit resend is capped by its own route: 429.)
+        skip = "daily_cap"
     else:
         skip = None
     result["accountant_skip_reason"] = skip
@@ -784,11 +829,18 @@ def _fire_close_auto_email(
     scan_degraded = bool(scan_supposed_to_attach and receipt_url and not scan_bytes)
     result["scan_degraded"] = scan_degraded
 
+    from app.services.close_kasserapport_pdf import _branch_name
+    branch = _branch_name(db, user, dc)
+    trail = _close_audit_trail(db, user, dc)
+    acct_correction = _correction_for(trail, dc, acct, currency) if include_acct else None
+    owner_correction = _correction_for(trail, dc, owner_email, currency) if owner_email else None
+    result["correction"] = bool(acct_correction or owner_correction)
+
     common = dict(
         business_name=business_name, dc=dc, currency=currency,
         closed_by=dc.closed_by, has_scan=bool(scan_bytes),
         scan_degraded=scan_degraded, is_danish=is_danish,
-        attachment_name=pdf_filename, correction=correction, tz=tz,
+        attachment_name=pdf_filename, tz=tz, branch=branch,
     )
 
     from app.services.email_service import send_close_notification
@@ -799,10 +851,20 @@ def _fire_close_auto_email(
     if include_acct:
         unsub_url = revisor_unsubscribe_url(user.id, acct)
         subject, html = _build_close_email_html(
-            **common, audience="revisor",
+            **common, audience="revisor", correction=acct_correction,
             accountant_name=getattr(profile, "accountant_name", None),
             cvr=getattr(profile, "org_number", None), unsubscribe_url=unsub_url,
         )
+        if not explicit:
+            # Counted towards the daily cap (REVISOR_SEND_ACTIONS). An explicit
+            # resend is counted by its own daily_close.resend_email row.
+            audit_service.record(
+                db, user=user, action="daily_close.revisor_lock_mail",
+                entity_type="daily_close", entity_id=dc.id,
+                after={"recipient_fingerprint": address_fingerprint(acct),
+                       "correction": bool(acct_correction)},
+                ip_address=getattr(request.client, "host", None) if request.client else None,
+            )
         sends.append(("revisor", send_close_notification(
             user, close_id=dc.id, pdf_bytes=pdf_bytes, scan_image_bytes=scan_bytes,
             pdf_filename=pdf_filename, scan_filename=scan_filename,
@@ -821,6 +883,9 @@ def _fire_close_auto_email(
                 "auto_send_off": "Revisoren fik ikke mailen: automatisk afsendelse til revisor er slået fra under Profil.",
                 "opted_out": f"Revisoren ({acct}) har afmeldt mails fra BonBox og fik ikke denne.",
                 "same_as_owner": None,
+                "daily_cap": (f"Revisoren ({acct}) fik ikke mailen: BonBox sender højst "
+                              f"{REVISOR_DAILY_CAP} mails om dagen til revisoren, og loftet er nået. "
+                              "Send den fra Historik i morgen, eller fra din egen mail."),
             }[skip]
         else:
             revisor_line = {
@@ -830,9 +895,13 @@ def _fire_close_auto_email(
                 "auto_send_off": "Your accountant didn't get it: automatic sending to them is off on Profile.",
                 "opted_out": f"Your accountant ({acct}) unsubscribed from BonBox mail and didn't get this.",
                 "same_as_owner": None,
+                "daily_cap": (f"Your accountant ({acct}) didn't get it: BonBox sends them at most "
+                              f"{REVISOR_DAILY_CAP} mails a day and that limit is reached. "
+                              "Send it from History tomorrow, or from your own mail."),
             }[skip]
         subject, html = _build_close_email_html(
             **common, audience="owner", revisor_line=revisor_line,
+            correction=owner_correction,
         )
         sends.append(("owner", send_close_notification(
             user, close_id=dc.id, pdf_bytes=pdf_bytes, scan_image_bytes=scan_bytes,
@@ -877,7 +946,7 @@ def _fire_close_auto_email(
             "email_error": result["email_error"],
             "sent_to": sent_to,
             "scan_degraded": scan_degraded,
-            "correction": bool(correction),
+            "correction": bool(acct_correction),
             "explicit": explicit,
             "accountant_skip_reason": skip,
         },
@@ -1024,6 +1093,83 @@ def _clean_source_meta(meta) -> str | None:
     if corr:
         out["corrected"] = corr
     return _json.dumps(out)
+
+
+def _clean_cash_float(v) -> float | None:
+    """The float (byttepenge) is informational — printed on the kasserapport,
+    never part of a figure. A stray "-500" or a mistyped huge value is dropped
+    here rather than 422-ing the lock (an offline-queued lock would be
+    dead-lettered over a number nothing is computed from)."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f < 0 or f > 1_000_000:  # NaN or out of range
+        return None
+    return round(f, 2)
+
+
+def _lock_lines(data) -> dict:
+    """The lines a lock audit row records, so a later correction mail can say
+    which payment method or category moved (not only the headline figures)."""
+    def _clean(d):
+        out = {}
+        for k, v in (d or {}).items():
+            try:
+                out[str(k)[:40]] = round(float(v), 2)
+            except (TypeError, ValueError):
+                continue
+        return out
+    return {
+        "revenue_breakdown": _clean(getattr(data, "revenue_breakdown", None)),
+        "payment_breakdown": _clean(getattr(data, "payment_breakdown", None)),
+        "cash_counted": getattr(data, "cash_counted", None),
+    }
+
+
+def _source_after_unlock_edit(existing, data, revenue_total, moms_total) -> str | None:
+    """The source description for a reopened (unlocked) close that the owner
+    edits by hand, or None to leave it as it is.
+
+    Only when the client sent no new source (a rescan replaces it) and the
+    figures actually changed. Keeps the kind, adds edited_after_unlock, and
+    drops a till list that no longer adds up to the revenue."""
+    import json as _json
+    if not getattr(existing, "unlock_reason", None) or data.source_meta is not None:
+        return None
+    raw = getattr(existing, "source_meta", None)
+    if not raw:
+        return None
+    try:
+        meta = _json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(meta, dict) or meta.get("kind") not in ("zbon", "typed"):
+        return None
+
+    def _n(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+
+    def _bd(d):
+        return {str(k): _n(v) for k, v in (d or {}).items() if _n(v)}
+
+    changed = (
+        _n(existing.revenue_total) != _n(revenue_total)
+        or _n(existing.moms_total) != _n(moms_total)
+        or _n(existing.cash_counted) != _n(data.cash_counted)
+        or _bd(decode_breakdown(existing.payment_categories)) != _bd(data.payment_breakdown)
+        or _bd(decode_breakdown(existing.revenue_categories)) != _bd(data.revenue_breakdown)
+    )
+    if not changed:
+        return None
+    meta["edited_after_unlock"] = True
+    tt = [x for x in (meta.get("terminal_totals") or []) if isinstance(x, (int, float))]
+    if tt and abs(sum(tt) - float(revenue_total or 0)) > 0.5:
+        meta.pop("terminal_totals", None)
+    return _json.dumps(meta)
 
 
 def _capture_extraction_correction(db, user, *, status, final_values):
@@ -1302,7 +1448,6 @@ def create_daily_close(
                 },
             }
 
-    correction = None
     if existing:
         # Block edits to confirmed (locked) entries — must unlock first.
         #
@@ -1331,20 +1476,15 @@ def create_daily_close(
                 status_code=409,
                 detail="This daily close is locked. Unlock it first to make changes."
             )
-        # A RE-LOCK after an unlock, when an earlier version already reached
-        # someone: capture what the revisor was sent and why it was reopened
-        # BEFORE the row is overwritten, so the new mail can say "Rettet
-        # kasserapport — erstatter mailen af …, årsag …, ændret …" instead of
-        # arriving with the same subject and the revisor booking the day twice.
-        if (status == "confirmed" and getattr(existing, "email_sent_at", None)
-                and getattr(existing, "unlock_reason", None)):
-            correction = {
-                "prev_sent_at": existing.email_sent_at,
-                "unlock_reason": existing.unlock_reason,
-                "unlocked_by": existing.unlocked_by,
-                "unlocked_at": existing.unlocked_at,
-                "before": _last_locked_figures(db, user, existing),
-            }
+        # A RE-LOCK after an unlock is marked "Rettet kasserapport" by
+        # _fire_close_auto_email, per recipient, from the audit trail — not
+        # from this row, whose send status the re-lock resets below.
+        #
+        # The figures' source after an unlock: the client sends no new source
+        # when the owner edits a reopened close by hand, and the old one ("Z-bon
+        # · 2 terminaler lagt sammen: 5.000 + 7.500") then sat beside a
+        # corrected total it no longer adds up to.
+        _src_after_unlock = _source_after_unlock_edit(existing, data, revenue_total, moms_total)
         # Update existing
         existing.revenue_categories = encode_breakdown(data.revenue_breakdown)
         existing.revenue_total = revenue_total
@@ -1369,17 +1509,21 @@ def create_daily_close(
             existing.receipt_photo = data.receipt_photo
         # Same rule for the float and the figures' source: an older client
         # that does not send them must not wipe what is stored.
-        if data.cash_float is not None:
-            existing.cash_float = data.cash_float
+        _float = _clean_cash_float(data.cash_float)
+        if _float is not None:
+            existing.cash_float = _float
         _meta = _clean_source_meta(data.source_meta)
         if _meta is not None:
             existing.source_meta = _meta
+        elif _src_after_unlock is not None:
+            existing.source_meta = _src_after_unlock
         if status == "confirmed":
             existing.closed_at = utc_now()
             # The send status describes THIS version. A re-lock starts it over —
             # otherwise History would keep saying "Sendt til revisor" for the
             # old version while the corrected one may not have gone out. (The
-            # earlier send is kept in `correction` above and in the audit trail.)
+            # earlier sends stay in the audit trail, which is what marks the
+            # next mail as a correction.)
             existing.email_status = None
             existing.email_error = None
             existing.email_sent_at = None
@@ -1401,6 +1545,9 @@ def create_daily_close(
                 "status": status, "revenue_total": revenue_total,
                 "payment_total": payment_total, "moms_total": moms_total,
                 "cash_difference": cash_difference, "closed_by": data.closed_by,
+                # The lines too: a later correction mail compares every line,
+                # not only the headline figures (_figure_changes).
+                **_lock_lines(data),
             },
             ip_address=getattr(request.client, "host", None) if request.client else None,
         )
@@ -1423,13 +1570,7 @@ def create_daily_close(
         # raises into this path.
         if status == "confirmed":
             _invalidate_daily_brief_cache(db, user)
-            if correction is not None:
-                correction["changes"] = _figure_changes(
-                    correction.get("before") or {}, existing, user.currency or "DKK",
-                )
-            response["close_ritual"] = _fire_close_auto_email(
-                db, request, user, existing, correction=correction,
-            )
+            response["close_ritual"] = _fire_close_auto_email(db, request, user, existing)
             response.update({k: v for k, v in _to_response(existing).items()
                              if k.startswith("email_")})
         return response
@@ -1457,7 +1598,7 @@ def create_daily_close(
         closed_by=data.closed_by,
         closed_at=utc_now() if status == "confirmed" else None,
         receipt_photo=data.receipt_photo,
-        cash_float=data.cash_float,
+        cash_float=_clean_cash_float(data.cash_float),
         source_meta=_clean_source_meta(data.source_meta),
     )
     db.add(dc)
@@ -1474,6 +1615,7 @@ def create_daily_close(
             "revenue_total": revenue_total, "payment_total": payment_total,
             "moms_total": moms_total, "cash_difference": cash_difference,
             "closed_by": data.closed_by, "branch_id": data.branch_id,
+            **(_lock_lines(data) if status == "confirmed" else {}),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
@@ -1499,48 +1641,135 @@ def create_daily_close(
     return response
 
 
-def _last_locked_figures(db: Session, user: User, dc: DailyClose) -> dict:
-    """The figures the close carried at its LAST lock — from the append-only
-    audit row (the row itself has since been edited as a draft)."""
+# ─── "Did this address already get a version of this close?" ───
+#
+# Derived from the APPEND-ONLY audit trail, never from email_sent_at (which a
+# re-lock resets and which the owner's copy alone also sets). A lock mail, a
+# resend and an old pre-082 lock mail all leave a close.auto_emailed row whose
+# `sent_to` lists who actually received it. A delivery to an address BEFORE the
+# latest daily_close.lock row is a delivery of an EARLIER version — so the next
+# mail to that address, whether the re-lock's own or a later "Send igen", is
+# marked "Rettet kasserapport … erstatter den, der blev sendt …".
+
+_DELIVERY_ACTIONS = ("close.auto_emailed", "daily_close.resend_email")
+_HISTORY_ACTIONS = _DELIVERY_ACTIONS + ("daily_close.lock", "daily_close.unlock")
+
+
+def _close_audit_trail(db: Session, user: User, dc: DailyClose) -> list[tuple]:
+    """[(created_at, action, after_dict)] for this close, oldest first."""
     import json as _json
     try:
         from app.models.audit_log import AuditLog
-        row = (
+        rows = (
             db.query(AuditLog)
             .filter(
                 AuditLog.user_id == user.id,
                 AuditLog.entity_type == "daily_close",
                 AuditLog.entity_id == dc.id,
-                AuditLog.action == "daily_close.lock",
+                AuditLog.action.in_(_HISTORY_ACTIONS),
             )
-            .order_by(AuditLog.created_at.desc())
-            .first()
+            .order_by(AuditLog.created_at.asc())
+            .all()
         )
-        return _json.loads(row.after_state or "{}") if row else {}
     except Exception:  # noqa: BLE001
-        return {}
-
-
-def _figure_changes(before: dict, dc: DailyClose, currency: str) -> list[tuple[str, str, str]]:
-    """[(label, old, new)] for the headline figures that changed between the
-    version the revisor was sent and the re-locked one."""
-    from app.services.bonbox_pdf_kit import money_dk
-    da = (currency or "DKK") == "DKK"
+        return []
     out = []
+    for r in rows:
+        try:
+            after = _json.loads(r.after_state or "{}") or {}
+        except Exception:  # noqa: BLE001
+            after = {}
+        out.append((r.created_at, r.action, after if isinstance(after, dict) else {}))
+    return out
+
+
+def _correction_for(trail: list[tuple], dc: DailyClose, address: str | None,
+                    currency: str) -> dict | None:
+    """The correction block for the next mail to `address`, or None when that
+    address never received an earlier version of this close."""
+    addr = (address or "").strip().lower()
+    if not addr:
+        return None
+    locks = [t for t in trail if t[1] == "daily_close.lock"]
+    if not locks:
+        return None
+    cutoff = locks[-1][0]
+    delivered = [
+        t for t in trail
+        if t[1] in _DELIVERY_ACTIONS and t[0] < cutoff
+        and addr in [str(x).strip().lower() for x in (t[2].get("sent_to") or [])]
+    ]
+    if not delivered:
+        return None
+    prev_at = delivered[-1][0]
+    # The version that address holds = the last lock before its last delivery.
+    held = [t for t in locks if t[0] <= prev_at]
+    before = held[-1][2] if held else {}
+    since = held[-1][0] if held else None
+    unlocks = [t for t in trail if t[1] == "daily_close.unlock" and t[0] < cutoff
+               and (since is None or t[0] > since)]
+    reasons, who = [], None
+    for t in unlocks:
+        r = str(t[2].get("unlock_reason") or "").strip()
+        if r and r not in reasons:
+            reasons.append(r)
+        who = t[2].get("unlocked_by") or who
+    changes, lines_known = _figure_changes(before, dc, currency)
+    return {
+        "prev_sent_at": prev_at,
+        "unlock_reason": "; ".join(reasons[-3:]),
+        "unlocked_by": who,
+        "changes": changes,
+        "lines_known": lines_known,
+    }
+
+
+def _figure_changes(before: dict, dc: DailyClose, currency: str) -> tuple[list[tuple[str, str, str]], bool]:
+    """([(label, old, new)], lines_known) between the version an address was
+    sent and the current one: the headline figures, the counted cash, and —
+    when the earlier lock recorded them — every payment-method and category
+    line. A payments-only correction (6.000 kr. card → MobilePay) is what the
+    revisor reconciles against settlements; it must never read "unchanged"."""
+    from app.services.bonbox_pdf_kit import money_dk
+    from app.services.close_category_labels import (
+        is_card_brand_key, payment_method_label, revenue_category_label,
+    )
+    da = (currency or "DKK") == "DKK"
+    out: list[tuple[str, str, str]] = []
+
+    def _r(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+
     for key, label_da, label_en in (
         ("revenue_total", "Omsætning", "Revenue"),
         ("moms_total", "Salgsmoms", "Salgsmoms"),
+        ("cash_counted", "Optalt kontant", "Counted cash"),
         ("cash_difference", "Kassedifference", "Cash difference"),
     ):
         if key not in before:
             continue
-        old = before.get(key)
-        new = getattr(dc, key, None)
-        o = None if old is None else round(float(old), 2)
-        n = None if new is None else round(float(new), 2)
+        o, n = _r(before.get(key)), _r(getattr(dc, key, None))
         if o != n:
             out.append((label_da if da else label_en, money_dk(o, currency), money_dk(n, currency)))
-    return out
+
+    lines_known = "payment_breakdown" in before and "revenue_breakdown" in before
+    if lines_known:
+        for field, blob_key, label_fn, skip_brand in (
+            ("payment_categories", "payment_breakdown", payment_method_label, True),
+            ("revenue_categories", "revenue_breakdown", revenue_category_label, False),
+        ):
+            old = {str(k): _r(v) or 0.0 for k, v in (before.get(blob_key) or {}).items()}
+            new = {str(k): _r(v) or 0.0 for k, v in decode_breakdown(getattr(dc, field, None)).items()}
+            for k in sorted(set(old) | set(new)):
+                if skip_brand and is_card_brand_key(k):
+                    continue  # a split of the card line, not money of its own
+                o, n = old.get(k, 0.0), new.get(k, 0.0)
+                if abs(o - n) > 0.004:
+                    out.append((label_fn(k, danish=da), money_dk(o, currency), money_dk(n, currency)))
+    return out, lines_known
 
 
 # ─── POST — resend the lock mail for a LOCKED close ───
@@ -1551,10 +1780,17 @@ def _figure_changes(before: dict, dc: DailyClose, currency: str) -> list[tuple[s
 #   • owner session only (member/accountant writes are refused upstream) and
 #     tenant-scoped; 5/min per IP + the 20/day revisor ceiling per account;
 #   • only for a LOCKED close; the revisor must be saved and not opted out;
-#   • idempotent: the client sends one key per click. The key is claimed with
-#     a conditional UPDATE before anything is sent, so a double tap, a network
-#     retry or two tabs can never become two mails;
+#   • idempotent: the client sends one key per click, and a replay of that
+#     key answers with what happened the first time;
+#   • one send in flight per close: the send is claimed with ONE conditional
+#     UPDATE (email_status → 'sending') before anything is mailed. A second
+#     request — another key from the card and the History row, or a second
+#     tab — finds 'sending' and gets 409 in_progress instead of a second mail.
+#     A claim older than _SENDING_STALE (a crashed worker) can be taken over;
 #   • a close the revisor already got needs force=true (the page asks first).
+
+
+_SENDING_STALE = timedelta(minutes=3)
 
 
 class ResendEmailBody(BaseModel):
@@ -1602,6 +1838,14 @@ def resend_close_email(
         })
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
     acct = resolve_revisor_recipient(profile)  # 400 none saved / 409 opted out
+    now = utc_now()
+    in_flight = (dc.email_status == "sending" and dc.email_attempt_at is not None
+                 and dc.email_attempt_at > now - _SENDING_STALE)
+    if in_flight:
+        raise HTTPException(status_code=409, detail={
+            "code": "in_progress",
+            "message": "This kasserapport is being sent right now.",
+        })
     sent_to_now = [x for x in (dc.email_sent_to or "").split(",") if x]
     if dc.email_status in ("sent", "partial") and acct in sent_to_now and not body.force:
         raise HTTPException(status_code=409, detail={
@@ -1612,20 +1856,49 @@ def resend_close_email(
         })
     enforce_revisor_daily_cap(db, user)
 
+    # The claim: key AND in-flight state in one conditional UPDATE, so of two
+    # concurrent requests exactly one gets a row back.
+    prev_status = dc.email_status
     claimed = (
         db.query(DailyClose)
         .filter(
             DailyClose.id == dc.id,
             or_(DailyClose.email_send_key.is_(None), DailyClose.email_send_key != body.key),
+            or_(
+                DailyClose.email_status.is_(None),
+                DailyClose.email_status != "sending",
+                DailyClose.email_attempt_at.is_(None),
+                DailyClose.email_attempt_at <= now - _SENDING_STALE,
+            ),
         )
-        .update({DailyClose.email_send_key: body.key}, synchronize_session=False)
+        .update({
+            DailyClose.email_send_key: body.key,
+            DailyClose.email_status: "sending",
+            DailyClose.email_attempt_at: now,
+        }, synchronize_session=False)
     )
     db.commit()
     db.refresh(dc)
     if not claimed:
-        return {"replayed": True, "close_ritual": _ritual_from_row(dc), **_to_response(dc)}
+        if dc.email_send_key == body.key and dc.email_status != "sending":
+            return {"replayed": True, "close_ritual": _ritual_from_row(dc), **_to_response(dc)}
+        raise HTTPException(status_code=409, detail={
+            "code": "in_progress",
+            "message": "This kasserapport is being sent right now.",
+        })
 
-    ritual = _fire_close_auto_email(db, request, user, dc, explicit=True)
+    try:
+        ritual = _fire_close_auto_email(db, request, user, dc, explicit=True)
+    finally:
+        # Never leave a close stuck on 'sending' (the helper persists the real
+        # outcome; this only catches a path that did not).
+        try:
+            db.refresh(dc)
+            if dc.email_status == "sending":
+                dc.email_status = prev_status if prev_status != "sending" else None
+                db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
     audit_service.record(
         db, user=user,
         action="daily_close.resend_email",
@@ -3001,13 +3274,13 @@ def export_range_pdf(
 
     # Stable per-document voucher number (KR = Kasserapport) — shown in the
     # PDF header + carried into the L7 audit row so the artifact is traceable.
-    bilagsnummer = export_bilagsnummer("KR", f, t)
+    bilagsnummer = _range_bilagsnummer(f, t)
     from app.services.tz_utils import _user_zone
     pdf_bytes = build_daily_close_range_pdf(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
-        tz=_user_zone(user),
+        tz=_user_zone(user), branch_names=_branch_names(db, user, closes),
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_pdf",
@@ -3056,7 +3329,7 @@ def export_range_csv(
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_csv",
-        bilagsnummer=export_bilagsnummer("KR", f, t),
+        bilagsnummer=_range_bilagsnummer(f, t),
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
         ip_address=(client_ip(request) if request else None),
     )
@@ -3117,10 +3390,11 @@ def export_range_xlsx(
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id,
         tz=extras["tz"], history=extras["history"], sources=extras["sources"],
+        branch_names=extras["branch_names"],
     )
     write_export_audit_row(
         db, user, doc_type="daily_close_range_xlsx",
-        bilagsnummer=export_bilagsnummer("KR", f, t),
+        bilagsnummer=_range_bilagsnummer(f, t),
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
         ip_address=(client_ip(request) if request else None),
     )
@@ -3355,7 +3629,7 @@ def send_to_accountant(
     currency = user.currency or "DKK"
     fmt = body.fmt
     is_danish = (currency == "DKK")
-    bilagsnummer = export_bilagsnummer("KR", f, t)
+    bilagsnummer = _range_bilagsnummer(f, t)
     extras = _range_extras(db, user, closes)
 
     if fmt == "pdf":
@@ -3363,7 +3637,7 @@ def send_to_accountant(
             closes, from_date=f, to_date=t,
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
-            tz=extras["tz"],
+            tz=extras["tz"], branch_names=extras["branch_names"],
         )
         mime = "application/pdf"
     elif fmt == "csv":
@@ -3375,6 +3649,7 @@ def send_to_accountant(
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id,
             tz=extras["tz"], history=extras["history"], sources=extras["sources"],
+            branch_names=extras["branch_names"],
         )
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 

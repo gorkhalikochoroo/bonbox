@@ -49,7 +49,9 @@ class DailyCloseCreate(BaseModel):
     # The byttepenge the form took off the drawer count (counted = drawer −
     # float). Printed on the kasserapport so "Optalt (uden byttepenge)" can be
     # checked. None = not sent (older clients) — the row keeps what it had.
-    cash_float: float | None = Field(None, ge=0, le=1_000_000)
+    # No bounds here on purpose: an out-of-range float is dropped by the router
+    # (_clean_cash_float). An informational number must never 422 a lock.
+    cash_float: float | None = None
     # Where the figures came from — see DailyClose.source_meta. A small dict;
     # the router keeps only the known keys and bounds them.
     source_meta: dict | None = None

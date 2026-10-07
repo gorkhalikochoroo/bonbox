@@ -596,6 +596,7 @@ def build_daily_close_range_pdf(
     user_id=None,
     bilagsnummer: str = "",
     tz=None,
+    branch_names: dict | None = None,
 ) -> bytes:
     """Build a multi-day daily-close PDF report — accountant-grade.
 
@@ -1068,8 +1069,18 @@ def build_daily_close_range_pdf(
                 )
             else:
                 status_cell = status_label
+            # Two branches on the same day are two rows: name the branch under
+            # the date (the CSV and Excel carry an Afdeling column), or the
+            # revisor sees a duplicate and drops one.
+            _bname = ((branch_names or {}).get(str(c.branch_id), "")
+                      if getattr(c, "branch_id", None) else "")
+            date_cell = (
+                Paragraph(f"{_date_short(c.date)}<br/><font size='6' color='#6b7280'>"
+                          f"{escape_pdf_text(_bname)}</font>", bilag_style)
+                if _bname else _date_short(c.date)
+            )
             table_data.append([
-                _date_short(c.date),
+                date_cell,
                 Paragraph(vsales, bilag_style) if vsales else "—",
                 _fmt(revenue),
                 _fmt(moms) if moms is not None else "—",
@@ -1383,6 +1394,19 @@ def build_daily_close_range_pdf(
 
 # ─── XLSX ─────────────────────────────────────────────────────────────
 
+
+def _as_text(cell):
+    """Store a person-typed value as TEXT. openpyxl writes any string that
+    starts with "=" as a live formula, so a "Lukket af" of
+    '=HYPERLINK("https://…","Lars")' reached the revisor's Excel as a working
+    link (or WEBSERVICE call). The CSV path neutralises these with csv_safe;
+    here the cell type is forced instead, so the text is shown exactly as
+    typed and never evaluated."""
+    if isinstance(cell.value, str) and cell.value.startswith("="):
+        cell.data_type = "s"
+    return cell
+
+
 def build_daily_close_range_xlsx(
     closes: list[DailyClose],
     *,
@@ -1396,6 +1420,7 @@ def build_daily_close_range_xlsx(
     tz=None,
     history: dict | None = None,
     sources: dict | None = None,
+    branch_names: dict | None = None,
 ) -> bytes:
     """Build the revisor's Excel workbook:
 
@@ -1436,14 +1461,16 @@ def build_daily_close_range_xlsx(
          "Betalinger i alt", "Forventet kontant", "Optalt kontant (uden byttepenge)",
          "Kassedifference",
          "Drikkepenge", "Antal medarbejdere", "Pr. medarbejder",
-         "Status", "Lukket af", "Låst (dansk tid)", "Kilde", "Historik", "Bemærkninger"]
+         "Status", "Lukket af", "Låst (dansk tid)", "Kilde", "Historik", "Bemærkninger",
+         "Afdeling"]
         if DA else
         ["Date", "Sales voucher", "Expense voucher",
          "Revenue", "Salgsmoms", "Net (excl. VAT)",
          "Cash", "Card", "MobilePay", "Gavekort", "Bank transfer", "Other",
          "Payments total", "Expected cash", "Counted cash (float taken off)", "Cash diff",
          "Tips", "Staff count", "Per person",
-         "Status", "Closed by", "Locked (local time)", "Source", "History", "Notes"]
+         "Status", "Closed by", "Locked (local time)", "Source", "History", "Notes",
+         "Branch"]
     )
     STATUS_COL = 20
     n_fixed = len(H)
@@ -1465,6 +1492,7 @@ def build_daily_close_range_xlsx(
     s1.column_dimensions["C"].width = 40
 
     s1["A1"] = business_name or "—"
+    _as_text(s1["A1"])
     s1["A1"].font = big
     row = 2
     if profile:
@@ -1475,7 +1503,7 @@ def build_daily_close_range_xlsx(
         addr_line = compose_business_address(profile)
         if addr_line:
             s1.cell(row=row, column=1, value="Adresse" if DA else "Address")
-            s1.cell(row=row, column=2, value=addr_line)
+            _as_text(s1.cell(row=row, column=2, value=addr_line))
             row += 1
 
     period_row = max(row + 1, 6)
@@ -1539,7 +1567,7 @@ def build_daily_close_range_xlsx(
     r += 1
     for k in cats:
         if k in totals["categories"]:
-            s1.cell(row=r, column=1, value=revenue_category_label(k, danish=DA))
+            _as_text(s1.cell(row=r, column=1, value=revenue_category_label(k, danish=DA)))
             c = s1.cell(row=r, column=2, value=totals["categories"][k])
             c.number_format = money_fmt
             r += 1
@@ -1625,12 +1653,16 @@ def build_daily_close_range_xlsx(
             (sources or {}).get(cid, ""),
             _row_history(c, history, tz, DA),
             remarks,
+            ((branch_names or {}).get(str(c.branch_id), "") if getattr(c, "branch_id", None) else ""),
         ]
         row_values += [amounts.get(k) for k in cats]
         row_values += [unsplit or None]
         for col_idx, val in enumerate(row_values, start=1):
             cell = s2.cell(row=r, column=col_idx, value=val)
             cell.border = border
+            if isinstance(val, str):
+                # Lukket af, notes, source, history, branch: typed by people.
+                _as_text(cell)
             if col_idx == 1 and val is not None:
                 cell.number_format = "dd.mm.yyyy" if DA else "yyyy-mm-dd"
             elif col_idx == 18 and isinstance(val, (int, float)):
@@ -1680,7 +1712,7 @@ def build_daily_close_range_xlsx(
 
     # Column widths — wide enough for "1.234.567,89 kr." so a month over
     # 1 mio. kr. never shows ####.
-    widths = ([12, 16, 16] + [17] * 14 + [11, 15, 22, 16, 18, 22, 28, 32]
+    widths = ([12, 16, 16] + [17] * 14 + [11, 15, 22, 16, 18, 22, 28, 32, 18]
               + [17] * (len(H) - n_fixed))
     for i, w in enumerate(widths, start=1):
         s2.column_dimensions[get_column_letter(i)].width = w

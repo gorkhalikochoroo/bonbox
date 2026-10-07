@@ -3975,6 +3975,12 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Stripe webhook is signed; CSRF would just block legitimate Stripe POSTs.
     # The handler verifies Stripe-Signature inside, no cookie is involved.
     "/api/billing/stripe/webhook",
+    # One-click unsubscribe (Daily Brief + the revisor's opt-out). The signed
+    # HMAC token in the URL is the only authentication and no cookie state is
+    # read — but the confirm page's own form POSTs to api.bonbox.dk, so a
+    # reader who is ALSO signed in to BonBox (a revisor using the accountant
+    # login) carried the session cookie, no X-CSRF-Token, and got a 403.
+    "/api/email/unsubscribe",
 })
 
 

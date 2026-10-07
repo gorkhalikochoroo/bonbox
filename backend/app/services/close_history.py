@@ -127,10 +127,19 @@ def source_line(dc: Any, *, danish: bool = True, currency: str = "DKK") -> str:
         if getattr(dc, "receipt_photo", None):
             return "Z-bon-foto gemt" if danish else "Z-report photo on file"
         return ""
+    edited = bool(meta.get("edited_after_unlock"))
+    edited_txt = ("rettet af ejeren efter oplåsning" if danish
+                  else "corrected by the owner after unlocking")
     if kind == "typed":
-        return "Indtastet af kasseansvarlig" if danish else "Typed in by the closer"
+        typed = "Indtastet af kasseansvarlig" if danish else "Typed in by the closer"
+        return f"{typed} · {edited_txt}" if edited else typed
     parts = ["Z-bon (scannet)" if danish else "Z-report (scanned)"]
     totals = [t for t in (meta.get("terminal_totals") or []) if isinstance(t, (int, float))]
+    # A till list is only printed while it still adds up to the stated revenue:
+    # "5.000 + 7.500" beside a corrected 13.000 contradicts the page.
+    rev = getattr(dc, "revenue_total", None)
+    if totals and rev is not None and abs(sum(totals) - float(rev)) > 0.5:
+        totals = []
     if len(totals) >= 2:
         amounts = " + ".join(money_dk(t, currency) for t in totals)
         parts.append(
@@ -153,6 +162,8 @@ def source_line(dc: Any, *, danish: bool = True, currency: str = "DKK") -> str:
             ("rettet af ejeren efter scanning: " if danish else "corrected by the owner after the scan: ")
             + ", ".join(labels)
         )
+    if edited:
+        parts.append(edited_txt)
     return " · ".join(parts)
 
 

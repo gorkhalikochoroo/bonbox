@@ -8,8 +8,11 @@
  * endpoint — never the old re-POST of a locked close (a 409 dead end).
  */
 
-/** One key per click. The server claims it before sending, so a double tap,
- *  a network retry or a second tab can never become two mails. */
+/** One key per click. A replay of the same key (double tap, network retry)
+ *  answers with the first outcome; and the server claims the send itself
+ *  (status "sending") before mailing, so a second request with ANOTHER key —
+ *  the card and the History row, or a second tab — gets 409 in_progress
+ *  instead of becoming a second mail. */
 export function newSendKey() {
   try {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID().replace(/[^A-Za-z0-9-]/g, "");
@@ -28,14 +31,19 @@ const FAILED = new Set(["send_failed", "queued_retry", "failed_skipped"]);
 /**
  * What to say about one close's lock mail.
  *   kind: "revisor" (reached the revisor) | "owner_only" | "failed" |
- *         "opted_out" | "pref_off" | "no_recipient" | "none"
+ *         "opted_out" | "pref_off" | "no_recipient" | "sending" | "none"
  */
 export function closeEmailState({ status, sentTo = [], skip = null, profile = null }) {
   const acct = String(profile?.accountant_email || "").trim().toLowerCase();
   const to = (sentTo || []).map((x) => String(x).toLowerCase());
   if (!status || status === "skipped_feature_locked") return { kind: "none", acct };
+  if (status === "sending") return { kind: "sending", acct };
   if (acct && to.includes(acct)) return { kind: "revisor", acct };
   if (profile?.accountant_opted_out || skip === "opted_out") return { kind: "opted_out", acct };
+  // "partial" = one of the two mails failed. When the revisor is not among
+  // those who got it, the revisor's send FAILED (the owner's copy went) —
+  // never the same line as a deliberate owner-only send.
+  if (status === "partial" && acct && !to.includes(acct)) return { kind: "failed", acct };
   if (status === "skipped_preference_off") return { kind: "pref_off", acct };
   if (status === "skipped_no_recipient") return { kind: "no_recipient", acct };
   if (FAILED.has(status)) return { kind: "failed", acct };
@@ -81,4 +89,14 @@ export function filenameFromResponse(res, fallback) {
   }
   const plain = /filename="?([^";]+)"?/i.exec(h);
   return plain ? plain[1].trim() : fallback;
+}
+
+/** Every CloseEmailStatus on the page (the lock card and the History row
+ *  show the same close) hears about a send made by any of them. */
+export const CLOSE_EMAIL_EVENT = "bonbox-close-email";
+
+export function announceCloseEmail(closeId, state) {
+  try {
+    window.dispatchEvent(new CustomEvent(CLOSE_EMAIL_EVENT, { detail: { id: closeId, ...state } }));
+  } catch { /* no window (tests) */ }
 }

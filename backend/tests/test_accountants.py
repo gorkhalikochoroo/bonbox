@@ -97,6 +97,9 @@ def client(engine_and_session, monkeypatch):
     monkeypatch.setattr(
         "app.services.email_service.send_email", _fake_send_email
     )
+    # /invite carries a per-IP minute limiter; every test starts fresh.
+    from app.routers import accountants as _acc
+    _acc._limiter.reset()
 
     yield TestClient(app)
     app.dependency_overrides.clear()
@@ -762,3 +765,50 @@ def test_existing_revisor_accepts_with_their_own_password(client, db):
     assert grant.accountant_user_id == revisor.id
     assert verify_password("revisorpw123", revisor.password_hash)  # unchanged
 
+
+
+
+# ─── The invite is mail to a third party: escaped, capped, opt-out honoured ──
+
+def test_invite_mail_escapes_the_owner_typed_business_name(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    owner.business_name = "<b>Evil</b> <a href='https://x.example'>Klik</a>\r\nBcc: x@y.dk"
+    db.commit()
+    _override_user(owner)
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        "app.services.email_service.send_email",
+        lambda to_email, subject, html, **kw: sent.append(
+            {"to": to_email, "subject": subject, "html": html}) or True,
+    )
+    res = client.post("/api/accountants/invite", json={"email": "revisor@example.dk"})
+    assert res.status_code == 201, res.text
+    html = sent[0]["html"]
+    assert "<b>Evil</b>" not in html and "&lt;b&gt;Evil&lt;/b&gt;" in html
+    assert "<a href='https://x.example'>" not in html
+    assert "\r" not in sent[0]["subject"] and "\n" not in sent[0]["subject"]
+
+
+def test_invite_is_refused_for_an_opted_out_revisor_and_counted_in_the_cap(client, db, monkeypatch):
+    from app.models.business_profile import BusinessProfile
+    from app.services.revisor_mail import address_fingerprint
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    db.add(BusinessProfile(user_id=owner.id, company_name="Bon Bakery",
+                           accountant_email="anna@revisor.dk",
+                           accountant_opted_out_at=utc_now(),
+                           accountant_opted_out_email=address_fingerprint("anna@revisor.dk")))
+    db.commit()
+    sent: list = []
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda *a, **kw: sent.append(a) or True)
+    res = client.post("/api/accountants/invite", json={"email": "Anna@Revisor.dk"})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "accountant_opted_out"
+    assert sent == []
+    for _ in range(20):
+        db.add(AuditLog(user_id=owner.id, action="accountant.invited",
+                        entity_type="accountant_grant", created_at=utc_now() - timedelta(hours=1)))
+    db.commit()
+    res = client.post("/api/accountants/invite", json={"email": "other@revisor.dk"})
+    assert res.status_code == 429 and res.json()["detail"]["code"] == "revisor_daily_cap"
+    assert sent == []

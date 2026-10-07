@@ -38,8 +38,14 @@ logger = logging.getLogger(__name__)
 REVISOR_SEND_ACTIONS = (
     "daily_close.send_to_accountant",
     "daily_close.resend_email",
+    # The automatic lock mail's revisor copy. It used to be outside the cap
+    # (audited only as close.auto_emailed), so an unlock → relock loop mailed
+    # any saved address without limit.
+    "daily_close.revisor_lock_mail",
     "tax.filing_sent_to_accountant",
     "payroll.send_to_accountant",
+    # The accountant-login invite is mail to a third party too.
+    "accountant.invited",
 )
 
 # Generous for a real owner (a month of resends is a handful), small enough
@@ -65,15 +71,65 @@ def saved_revisor_address(profile: Any) -> str:
     return ((getattr(profile, "accountant_email", None) or "") if profile else "").strip().lower()
 
 
+# Every address that opted out is remembered — one at/email pair forgot
+# revisor A the moment revisor B opted out, and A got mail again when the owner
+# switched back. `accountant_opted_out_email` holds a comma list of address
+# FINGERPRINTS (the token only carries the fingerprint, and a list of hashes
+# says less about third parties than a list of addresses). A legacy value that
+# still holds a plain address is read as that address's fingerprint.
+_OPT_OUT_MAX = 14  # 14 × 17 chars fits the VARCHAR(255) column
+
+
+def opted_out_fingerprints(profile: Any) -> list[str]:
+    raw = (getattr(profile, "accountant_opted_out_email", None) or "") if profile else ""
+    out: list[str] = []
+    for part in str(raw).split(","):
+        p = part.strip().lower()
+        if not p:
+            continue
+        fp = address_fingerprint(p) if "@" in p else p
+        if fp not in out:
+            out.append(fp)
+    return out
+
+
 def revisor_opted_out(profile: Any, address: str | None = None) -> bool:
     """True when the revisor at `address` (default: the saved one) asked
     BonBox to stop. The opt-out is bound to the address it came from, so an
-    owner who saves a NEW revisor address is not blocked by the old one."""
-    if not profile or not getattr(profile, "accountant_opted_out_at", None):
+    owner who saves a NEW revisor address is not blocked by the old one — and
+    switching back to an address that opted out is."""
+    if not profile:
         return False
     addr = (address or saved_revisor_address(profile)).strip().lower()
-    out = (getattr(profile, "accountant_opted_out_email", None) or "").strip().lower()
-    return bool(addr) and addr == out
+    if not addr:
+        return False
+    return address_fingerprint(addr) in opted_out_fingerprints(profile)
+
+
+def record_opt_out(profile: Any, fingerprint: str) -> bool:
+    """Add a fingerprint to the opt-out set. False when it was already there."""
+    from app.utils.time import utc_now
+    fps = opted_out_fingerprints(profile)
+    fp = (fingerprint or "").strip().lower()
+    if not fp or fp in fps:
+        return False
+    fps.append(fp)
+    profile.accountant_opted_out_email = ",".join(fps[-_OPT_OUT_MAX:])
+    profile.accountant_opted_out_at = utc_now()
+    return True
+
+
+def remove_opt_out(profile: Any, fingerprint: str) -> bool:
+    """The revisor's own undo. False when that fingerprint was not opted out."""
+    fps = opted_out_fingerprints(profile)
+    fp = (fingerprint or "").strip().lower()
+    if fp not in fps:
+        return False
+    fps.remove(fp)
+    profile.accountant_opted_out_email = ",".join(fps) or None
+    if not fps:
+        profile.accountant_opted_out_at = None
+    return True
 
 
 def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
@@ -123,16 +179,14 @@ def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
     return saved
 
 
-def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None:
-    """429 when this account already sent `cap` revisor mails in 24 hours.
-    Counted from audit_logs (the repo's usage counter). Fail-open on a DB
-    error: the per-IP limiter still applies and a send must not be blocked
-    by a counting hiccup."""
+def revisor_daily_count(db, user) -> int | None:
+    """Revisor mails this account sent in the last 24 hours, from audit_logs
+    (the repo's usage counter). None when the count itself failed."""
     try:
         from app.models.audit_log import AuditLog
         from app.utils.time import utc_now
         since = utc_now() - timedelta(hours=24)
-        n = (
+        return (
             db.query(AuditLog)
             .filter(
                 AuditLog.user_id == user.id,
@@ -143,6 +197,23 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("revisor daily cap count failed: %s", e)
+        return None
+
+
+def revisor_daily_cap_reached(db, user, *, cap: int = REVISOR_DAILY_CAP) -> bool:
+    """The non-raising check, for the automatic lock mail: at the cap the
+    revisor copy is skipped (and the owner told why) — the lock itself must
+    never fail. Fail-open on a counting error, like the raising variant."""
+    n = revisor_daily_count(db, user)
+    return n is not None and n >= cap
+
+
+def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None:
+    """429 when this account already sent `cap` revisor mails in 24 hours.
+    Fail-open on a DB error: the per-IP limiter still applies and a send must
+    not be blocked by a counting hiccup."""
+    n = revisor_daily_count(db, user)
+    if n is None:
         return
     if n >= cap:
         raise HTTPException(

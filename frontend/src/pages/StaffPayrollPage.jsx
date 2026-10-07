@@ -705,6 +705,12 @@ export default function StaffPayrollPage() {
         // Taken off Profile since this page read it — say so, and read again.
         setError(t("paySendNoEmail", "Add your revisor's email under Profile to send from here."), "profile");
         profileQ.reload();
+      } else if (err?.response?.status === 409 && detail?.code === "accountant_opted_out") {
+        // A retry can never work: the revisor stopped BonBox mail. The file
+        // still exists — offer it, in the owner's language.
+        setError(t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail."), "download");
+      } else if (err?.response?.status === 429 && detail?.code === "revisor_daily_cap") {
+        setError(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."), "download");
       } else {
         // Never the raw server sentence: on this endpoint it is English
         // ("Couldn't send right now…", "Could not render payroll PDF: …").
@@ -1498,6 +1504,13 @@ export default function StaffPayrollPage() {
                     {t("paySetEmail", "Set your revisor's email")}
                     <Icon name="ChevronRight" size={14} />
                   </Link>
+                )}
+                {error.action === "download" && (
+                  <button type="button" onClick={generatePdf}
+                    className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                    {t("payDownloadToSendYourself", "Download the PDF")}
+                    <Icon name="ChevronRight" size={14} />
+                  </button>
                 )}
               </SectionBanner>
             </div>

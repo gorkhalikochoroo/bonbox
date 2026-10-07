@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  announceCloseEmail, CLOSE_EMAIL_EVENT,
   closeEmailState, emailErrorKey, filenameFromResponse, newSendKey, resendCloseEmail, sentWhen,
 } from "../utils/closeEmail";
 
@@ -17,6 +18,15 @@ describe("closeEmailState — what History says about one close's lock mail", ()
   });
   it("an opted-out revisor is named as such, never as a failure to retry", () => {
     expect(closeEmailState({ status: "sent", sentTo: ["owner@x.dk"], profile: { ...profile, accountant_opted_out: true } }).kind).toBe("opted_out");
+  });
+  it("a revisor send that failed while the owner's copy went is 'failed', not owner-only", () => {
+    const st = closeEmailState({ status: "partial", sentTo: ["owner@x.dk"], profile });
+    expect(st.kind).toBe("failed");
+    // A deliberate owner-only send (auto-send off) is still owner_only.
+    expect(closeEmailState({ status: "sent", sentTo: ["owner@x.dk"], profile }).kind).toBe("owner_only");
+  });
+  it("a send in flight says so", () => {
+    expect(closeEmailState({ status: "sending", sentTo: [], profile }).kind).toBe("sending");
   });
   it("says nothing when it does not know (old closes, Free)", () => {
     expect(closeEmailState({ status: null, profile }).kind).toBe("none");
@@ -49,5 +59,16 @@ describe("file names and times", () => {
     const w = sentWhen("2026-10-08T05:12:00");
     expect(w.time).toMatch(/^\d\d:\d\d$/);
     expect(sentWhen(null)).toBeNull();
+  });
+});
+
+describe("one close, two places on the page", () => {
+  it("a send from the lock card is announced to the History row (and vice versa)", () => {
+    const got = [];
+    const on = (e) => got.push(e.detail);
+    window.addEventListener(CLOSE_EMAIL_EVENT, on);
+    announceCloseEmail("c1", { status: "sent", sentTo: ["anna@revisor.dk"] });
+    window.removeEventListener(CLOSE_EMAIL_EVENT, on);
+    expect(got).toEqual([{ id: "c1", status: "sent", sentTo: ["anna@revisor.dk"] }]);
   });
 });

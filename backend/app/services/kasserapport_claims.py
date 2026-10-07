@@ -292,6 +292,12 @@ def close_labels(currency: str) -> dict[str, str]:
         "a_cash_off":    "Kontant optalt — differencen er ikke afstemt." if DA
                          else "Cash counted — the difference is not reconciled.",
         "a_cash_none":   "Kontant IKKE optalt." if DA else "Cash NOT counted.",
+        # Information, not a failed check: a day whose payments are recorded
+        # and hold no cash has nothing in a drawer to count (a webshop, a
+        # card-only day). "Kontant IKKE optalt" made every such day "skal
+        # gennemgås" on the period export.
+        "a_cash_na":     ("Ingen kontantsalg på dagen — intet at optælle.") if DA
+                         else "No cash sales on the day — nothing to count.",
         # The THIRD outcome. A NULL cash_difference means the reconciliation
         # never ran — there was no expected figure to measure the drawer
         # against (no register cash for the date and no cash line in the
@@ -628,7 +634,17 @@ def build_close_claims(
         # "couldn't check" is a real state and gets its own line.
         cash_counted = _f(getattr(dc, "cash_counted", None))
         cash_diff = _f(getattr(dc, "cash_difference", None))
-        if cash_counted is None:
+        # No cash to count = payment lines are recorded, none of them is cash,
+        # and no expected cash figure exists. A revenue-only close (no lines)
+        # does not qualify: there it is unknown whether cash was taken.
+        _cash_line = sum(float(v or 0) for k, v in method_items
+                         if (k or "").strip().lower() == "cash")
+        _cash_exp = _f(getattr(dc, "cash_expected", None))
+        no_cash_sales = bool(method_items) and abs(_cash_line) < 0.005 and (
+            _cash_exp is None or abs(_cash_exp) < 0.005)
+        if cash_counted is None and no_cash_sales:
+            checks.append({"ok": True, "info": True, "text": L["a_cash_na"], "check": "cash"})
+        elif cash_counted is None:
             checks.append({"ok": False, "text": L["a_cash_none"], "check": "cash"})
         elif cash_diff is None:
             checks.append({"ok": False, "text": L["a_cash_nobase"], "check": "cash"})

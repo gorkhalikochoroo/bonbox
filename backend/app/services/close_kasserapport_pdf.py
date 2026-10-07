@@ -34,13 +34,42 @@ from app.models.business_profile import BusinessProfile
 from app.services.bonbox_pdf_kit import escape_pdf_text, export_bilagsnummer
 
 
-def close_filename(business_name: str, d, *, locked: bool = True) -> str:
+def close_filename(business_name: str, d, *, locked: bool = True,
+                   branch: str | None = None) -> str:
     """'Kasserapport Mirabelle ApS 2026-09-25.pdf' — business + date, safe
     characters. A draft says so in its name: a kladde mailed on and opened a
-    week later is identified by its filename alone."""
+    week later is identified by its filename alone. Two branches closing the
+    same day get two names ('… Mirabelle ApS Vesterbro 2026-09-04.pdf'), never
+    one name a revisor reads as a duplicate."""
     from app.services.revisor_mail import safe_name_part
     lead = "Kasserapport" if locked else "Kasserapport KLADDE"
-    return f"{lead} {safe_name_part(business_name)} {d.isoformat()}.pdf"
+    who = safe_name_part(business_name)
+    if branch:
+        who = f"{who} {safe_name_part(branch, 30)}"
+    return f"{lead} {who} {d.isoformat()}.pdf"
+
+
+def branch_code(branch_name: str | None, branch_id) -> str:
+    """A short, unique tag for a branch in a bilag number: up to 3 letters of
+    the name (æ/ø/å folded) + 4 hex of the branch id — 'VES3F2A'. The letters
+    say which shop; the id part keeps 'Vesterbro' and 'Vestergade' apart."""
+    import re as _re
+    name = (branch_name or "").upper()
+    for a, b in (("Æ", "AE"), ("Ø", "OE"), ("Å", "AA"), ("Ü", "U"), ("Ö", "O"), ("Ä", "A")):
+        name = name.replace(a, b)
+    letters = _re.sub(r"[^A-Z0-9]", "", name)[:3] or "AFD"
+    hexpart = _re.sub(r"[^0-9A-Fa-f]", "", str(branch_id or ""))[:4].upper()
+    return f"{letters}{hexpart}"
+
+
+def close_bilagsnummer(dc, branch_name: str | None = None) -> str:
+    """The single kasserapport's bilag number: KR-YYYYMMDD-YYYYMMDD, plus the
+    branch code when the close belongs to a branch — two branches locking the
+    same day used to share one number."""
+    base = export_bilagsnummer("KR", dc.date, dc.date)
+    if getattr(dc, "branch_id", None):
+        return f"{base}-{branch_code(branch_name, dc.branch_id)}"
+    return base
 
 
 def close_document_id(dc) -> str:
@@ -156,7 +185,8 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     except Exception:  # noqa: BLE001
         sale_vmin = sale_vmax = exp_vmin = exp_vmax = None
 
-    bilagsnummer = export_bilagsnummer("KR", dc.date, dc.date)
+    branch = _branch_name(db, user, dc)
+    bilagsnummer = close_bilagsnummer(dc, branch)
 
     # ── The document's claims — derived once, in kasserapport_claims ──
     profile_name = getattr(profile, "company_name", None) if profile else None
@@ -192,7 +222,6 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     else:
         date_str = dc.date.strftime("%A %d %B %Y")
 
-    branch = _branch_name(db, user, dc)
     src = source_line(dc, danish=DA, currency=currency)
     history_events = close_history_events(db, user, [dc]).get(str(dc.id), [])
     if not history_events and getattr(dc, "unlock_reason", None):
@@ -550,7 +579,8 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     )
     return {
         "pdf": pdf,
-        "filename": close_filename(claims["business_name"], dc.date, locked=claims["is_locked"]),
+        "filename": close_filename(claims["business_name"], dc.date, locked=claims["is_locked"],
+                                   branch=branch),
         "doc_id": doc_id,
         "bilagsnummer": bilagsnummer,
     }
