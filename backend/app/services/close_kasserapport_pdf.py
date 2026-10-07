@@ -63,12 +63,15 @@ def branch_code(branch_name: str | None, branch_id) -> str:
 
 
 def close_bilagsnummer(dc, branch_name: str | None = None) -> str:
-    """The single kasserapport's bilag number: KR-YYYYMMDD, plus the branch
-    code when the close belongs to a branch — two branches locking the same
-    day used to share one number. One day, so the date is printed once (it
-    read 'KR-20260925-20260925-…'), short enough for the period exports'
-    Bilag column, where every row now carries it."""
-    base = f"KR-{dc.date.strftime('%Y%m%d')}"
+    """The single kasserapport's bilag number: KR-YYYYMMDD-YYYYMMDD, plus the
+    branch code when the close belongs to a branch — two branches locking the
+    same day used to share one number. The number is printed on every
+    kasserapport already mailed to a revisor and filed as a voucher, so it
+    NEVER changes after issue: a shorter 'KR-YYYYMMDD' was tried and would
+    have renumbered every day already sent — the period exports' Bilag column
+    must match the voucher the revisor holds."""
+    from app.services.bonbox_pdf_kit import export_bilagsnummer
+    base = export_bilagsnummer("KR", dc.date, dc.date)
     if getattr(dc, "branch_id", None):
         return f"{base}-{branch_code(branch_name, dc.branch_id)}"
     return base

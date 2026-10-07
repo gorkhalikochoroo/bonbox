@@ -837,15 +837,15 @@ def build_daily_close_range_pdf(
         "ready":       "klar til bogføring" if DA else "ready for booking",
         "review":      "skal gennemgås" if DA else "need review",
         "of":          "af" if DA else "of",
-        "ready_rule":  ("klar = salgsmoms opgjort, kontant optalt inden for ±100 kr., "
-                        "betalinger stemmer, og linjerne modsiger ikke totalen; omsætning "
-                        "uden kategori er en note ved én momssats, men holder dagen tilbage "
-                        "ved blandet momssats — samme regel som på hver kasserapport"
+        "ready_rule":  ("klar = salgsmoms opgjort og lig med 25 % (eller 0 %), kontant "
+                        "optalt inden for ±100 kr., betalinger stemmer, og linjerne "
+                        "modsiger ikke totalen; omsætning uden kategori er en note — "
+                        "samme regel som på hver kasserapport"
                         if DA else
-                        "ready = VAT stated, cash counted within ±100 kr., payments agree "
-                        "and no line contradicts the total; revenue without a category is "
-                        "a note at one VAT rate and needs review at mixed rates — the same "
-                        "rule as each kasserapport"),
+                        "ready = VAT stated at the standard rate (or 0 %), cash counted within "
+                        "±100 kr., payments agree and no line contradicts the total; "
+                        "revenue without a category is a note — the same rule as each "
+                        "kasserapport"),
         # Kasseafstemning: optalt − forventet = difference (the app's sign)
         "kasse_title":  "Kasseafstemning" if DA else "Cash reconciliation",
         "kasse_over":   "for meget i kassen" if DA else "over",
@@ -2062,9 +2062,13 @@ def _with_cached_values(xlsx: bytes, sheet_no: int, values: dict) -> bytes:
         zin = zipfile.ZipFile(io.BytesIO(xlsx))
         xml = zin.read(path).decode("utf-8")
         for ref, v in values.items():
+            # Every shape the writer may emit for an empty value: `<v/>` /
+            # `<v />` (openpyxl's own writer) and `<v></v>` (openpyxl with
+            # lxml installed), or no <v> at all. Matching only the first
+            # shape silently dropped every total wherever lxml was present.
             xml = _re.sub(
-                rf'(<c r="{ref}"[^>]*><f>[^<]*</f>)<v\s*/>',
-                lambda m: f"{m.group(1)}<v>{v:.2f}</v>", xml, count=1)
+                rf'(<c r="{ref}"[^>]*>\s*<f>[^<]*</f>)\s*(?:<v\s*/>|<v>\s*</v>)?(\s*</c>)',
+                lambda m: f"{m.group(1)}<v>{v:.2f}</v>{m.group(2)}", xml, count=1)
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():

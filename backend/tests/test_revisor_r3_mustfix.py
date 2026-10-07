@@ -5,12 +5,13 @@ workbook, the csv module, the mail HTML) for the SAME days, and asserts that
 the kasserapport, the period PDF, the Excel, the CSV and the lock mail say the
 same thing about:
 
-  1. readiness — ONE rule for revenue without a category. On a single-rate
-     (25 %) day it is a NOTE ("Ikke fordelt på kategori: X kr.") whether part
-     of the day is unsplit or all of it; on a mixed-rate day (the MOMS is not
-     25 % of the base) the unsplit part means the MOMS cannot be verified, so
-     the day is GENNEMGÅS — again whether part or all of it is unsplit. It used
-     to be the other way round: a partial split failed, no split at all passed.
+  1. readiness — ONE rule for revenue without a category: a NOTE ("Ikke
+     fordelt på kategori: X kr.") whether part of the day is unsplit or all of
+     it. It used to be the other way round: a partial split failed, no split at
+     all passed. Whether the MOMS is right is the MOMS line's question, asked
+     whatever the split (categories carry no VAT rate): 25 % within rounding
+     or a whole momsfri day passes; anything else is GENNEMGÅS, with the
+     deviation in kroner.
   2. the MOMS label — "Salgsmoms (25 %)" only over a figure that IS 25 % of the
      base; a figure read off the Z-bon or typed is named by its source, with
      the rate it works out to when that is not 25 %.
@@ -98,22 +99,85 @@ def test_single_rate_day_is_book_ready_with_any_split(cats):
         assert claims["unallocated_value"] == pytest.approx(unsplit)
 
 
-@pytest.mark.parametrize("cats", [None, {"food": 1000.0}])
-def test_mixed_rate_day_with_unsplit_revenue_is_review_in_both_cases(cats):
-    """2.500 kr. MOMS on 15.000 kr. is 20 % of the base: part of the day carries
-    another rate, so revenue without a category cannot be verified."""
+@pytest.mark.parametrize("cats", [
+    None,                                   # total-only Z-bon
+    {"food": 1000.0},                       # a partial split
+    {"food": 10000.0, "drinks": 5000.0},    # a full split
+    {"food": 14999.0, "drinks": 1.0},       # a full split typed to clear a flag
+])
+def test_an_off_rate_moms_is_review_whatever_the_split(cats):
+    """2.500 kr. MOMS on 15.000 kr. is 20 % of the base. Revenue categories
+    carry no VAT rate, so splitting the day verifies nothing about it: the
+    MOMS line itself fails — with the deviation in kroner — whatever the split.
+    (A full split used to certify it KLAR, 500 kr. under-declared if every
+    sale was 25 %.) The unsplit amount is a note and never claims a rate."""
     dc = _day(date(2026, 9, 26), moms=2500.0, mode="manual", kind="zbon", cats=cats)
     a = build_close_claims(dc)["assurance"]
     assert a["all_ok"] is False and a["heading"] == "GENNEMGÅS"
+    assert close_readiness(dc)["ready"] is False
+    moms = next(c for c in a["checks"] if c["check"] == "moms")
+    assert moms["ok"] is False and not moms.get("info")
+    assert moms["text"] == ("Salgsmoms aflæst fra Z-bon svarer til 20 % af omsætningen ekskl. "
+                            "moms — 500,00 kr. under 25 % moms på hele omsætningen. "
+                            "Kontrollér den mod Z-bonnen.")
     lines = next(c for c in a["checks"] if c["check"] == "lines")
-    assert lines["ok"] is False and not lines.get("info")
-    assert "mere end én momssats" in lines["text"] and "20 %" in lines["text"]
+    assert lines["ok"] is True
+    for c in a["checks"]:
+        assert "mere end én momssats" not in c["text"]
+    if cats is None or sum(cats.values()) < 15000.0:
+        assert lines.get("info") is True
+        assert lines["text"].startswith("Ikke fordelt på kategori: ")
+        assert "momssats" not in lines["text"]
 
 
-def test_mixed_rate_day_fully_split_is_book_ready():
-    dc = _day(date(2026, 9, 27), moms=2500.0, mode="manual", kind="zbon",
-              cats={"food": 10000.0, "drinks": 5000.0})
-    assert close_readiness(dc)["ready"] is True
+@pytest.mark.parametrize("rev, moms, kind, label", [
+    (15000.0, 2998.0, "typed", "Salgsmoms (indtastet)"),        # 2,50 kr. off
+    (50000.0, 10001.20, "zbon", "Salgsmoms (fra Z-bon)"),        # 1,50 kr. off
+    (28469.0, 5695.30, "zbon", "Salgsmoms (fra Z-bon)"),         # 1,87 kr. off
+])
+def test_a_few_kroner_of_rounding_is_the_standard_rate(rev, moms, kind, label):
+    """A Z-bon's per-line VAT rounding is not another rate: the figure prints
+    as 25 %, so it IS 25 % — never "svarer til 25 %, ikke 25 %" and never
+    GENNEMGÅS on a total-only day."""
+    dc = _day(date(2026, 9, 24), rev=rev, moms=moms, mode="manual", kind=kind)
+    claims = build_close_claims(dc)
+    a = claims["assurance"]
+    assert claims["moms_label"] == label
+    assert a["all_ok"] is True and a["heading"] == "KLAR TIL BOGFØRING"
+    blob = " ".join(c["text"] for c in a["checks"]) + " " + (claims["moms_manual_note"] or "")
+    assert "ikke 25 %" not in blob and "momssats" not in blob.replace("(én momssats)", "")
+    moms_line = next(c for c in a["checks"] if c["check"] == "moms")
+    assert moms_line["ok"] is True and "svarer til 25 %" in moms_line["text"]
+
+
+def test_a_deviation_beyond_rounding_never_prints_the_same_rate_twice():
+    """Just outside the tolerance on a small day: the effective rate gets a
+    second decimal rather than read "25 %, ikke 25 %"."""
+    from app.services.kasserapport_claims import eff_pct_text, moms_rate_info
+    dc = _day(date(2026, 9, 24), rev=1000.0, moms=201.30, mode="manual", kind="typed")
+    info = moms_rate_info(dc)
+    assert info["off"] is True
+    assert eff_pct_text(info) != "25 %"
+    assert "25 %, ikke 25 %" not in moms_label(dc)
+
+
+def test_a_momsfri_day_is_one_rate_and_book_ready():
+    """0,00 kr. MOMS on 10.000 kr. with no categories: the whole day momsfri —
+    ONE rate (0 %). Stated on a muted line, never "mere end én momssats" and
+    never GENNEMGÅS (it was KLAR before the rate rule, and it is again)."""
+    dc = _day(date(2026, 9, 24), rev=10000.0, moms=0.0, mode="manual", kind="typed",
+              payment_categories=encode_breakdown({"cash": 5000.0, "card": 5000.0}),
+              payment_total=10000.0)
+    claims = build_close_claims(dc)
+    a = claims["assurance"]
+    assert a["all_ok"] is True and a["heading"] == "KLAR TIL BOGFØRING"
+    moms_line = next(c for c in a["checks"] if c["check"] == "moms")
+    assert moms_line["ok"] is True and moms_line.get("info") is True
+    assert moms_line["text"] == ("Salgsmoms indtastet af kasseansvarlig: 0,00 kr. — hele "
+                                 "dagens omsætning er opgjort som momsfri (0 %).")
+    lines = next(c for c in a["checks"] if c["check"] == "lines")
+    assert lines.get("info") is True and "mere end én" not in lines["text"]
+    assert claims["moms_label"] == "Salgsmoms (indtastet, svarer til 0 %)"
 
 
 def test_lines_that_contradict_the_total_still_fail():
@@ -149,7 +213,7 @@ def _period(db, user, branch=None):
         _day(date(2026, 9, 25), cats={"food": 4000.0}),
         # C: total-only, Z-bon MOMS at 20 % → GENNEMGÅS
         _day(date(2026, 9, 26), moms=2500.0, mode="manual", kind="zbon"),
-        # D: as C but fully split → KLAR, the same 20 % label
+        # D: as C but fully split → still GENNEMGÅS (a split verifies no rate)
         _day(date(2026, 9, 27), moms=2500.0, mode="manual", kind="zbon",
              cats={"food": 10000.0, "drinks": 5000.0}),
     ]
@@ -166,7 +230,7 @@ EXPECT = {
     date(2026, 9, 24): (True, "Salgsmoms (25 %)"),
     date(2026, 9, 25): (True, "Salgsmoms (25 %)"),
     date(2026, 9, 26): (False, "Salgsmoms (fra Z-bon, svarer til 20 %)"),
-    date(2026, 9, 27): (True, "Salgsmoms (fra Z-bon, svarer til 20 %)"),
+    date(2026, 9, 27): (False, "Salgsmoms (fra Z-bon, svarer til 20 %)"),
 }
 
 
@@ -191,7 +255,7 @@ def test_the_same_day_agrees_across_kasserapport_period_pdf_excel_csv_and_mail(d
         if label != "Salgsmoms (25 %)":
             # Never "25 %" over a figure that is not 25 % of the base.
             assert "Salgsmoms (25 %)" not in txt
-        assert out["bilagsnummer"] == f"KR-{c.date:%Y%m%d}"
+        assert out["bilagsnummer"] == f"KR-{c.date:%Y%m%d}-{c.date:%Y%m%d}"
         assert f"Bilagsnr. {out['bilagsnummer']}" in txt
         assert f"Dokument-id: {out['doc_id']}" in txt
         if c.revenue_categories is None or c.date == date(2026, 9, 25):
@@ -211,8 +275,9 @@ def test_the_same_day_agrees_across_kasserapport_period_pdf_excel_csv_and_mail(d
     for d, out in per_day.items():
         assert out["bilagsnummer"] in ptxt
         assert f"id {out['doc_id']}" in ptxt
-    # One rule for the badge: the one GENNEMGÅS day is the one named.
-    assert "3 af 4 klar til bogføring · 1 skal gennemgås: 26. sep 2026" in pflat
+    # One rule for the badge: the two off-rate days are the ones named.
+    assert ("2 af 4 klar til bogføring · 2 skal gennemgås: 26. sep 2026, 27. sep 2026"
+            in pflat)
     # The 20 % label for the Z-bon days, under the amount and in the source block.
     assert "26. sep 2026: Salgsmoms (fra Z-bon, svarer til 20 %)" in pflat
     assert "27. sep 2026: Salgsmoms (fra Z-bon, svarer til 20 %)" in pflat
@@ -246,7 +311,10 @@ def test_the_same_day_agrees_across_kasserapport_period_pdf_excel_csv_and_mail(d
             assert row["Dokument-id"] == out["doc_id"]
             assert row["Momsopgørelse"] == label
             assert row["Bogføring"].startswith(verdict), row["Bogføring"]
-    assert "mere end én momssats" in crows["2026-09-26"]["Bogføring"]
+    for d in ("2026-09-26", "2026-09-27"):
+        assert ("500,00 kr. under 25 % moms på hele omsætningen. Kontrollér den mod Z-bonnen"
+                in crows[d]["Bogføring"])
+        assert "mere end én momssats" not in crows[d]["Bogføring"]
 
     # ── the lock mail for each day: the same verdict, label and bilag ──
     for c in days:
@@ -278,7 +346,7 @@ def test_the_lock_mail_sent_on_lock_carries_the_kasserapports_bilag_and_id(
     pdf = pdf_text(base64.b64decode(mail["attachments"][0]["content"]))
     doc_id = re.search(r"Dokument-id: ([0-9a-f]{16})", pdf).group(1)
     plain = _flat(re.sub(r"<[^>]+>", " ", mail["html"]))
-    assert f"bilagsnr. KR-20260924, dokument-id {doc_id}" in plain
+    assert f"bilagsnr. KR-20260924-20260924, dokument-id {doc_id}" in plain
     # The figure was typed and is 20 % of the base: named by its source in
     # both the attachment and the mail body, never "(25 %)".
     assert "Salgsmoms (indtastet, svarer til 20 %)" in _flat(pdf)
@@ -315,11 +383,12 @@ def test_two_branches_keep_their_own_kr_number_in_every_period_row(db_session):
     c.user_id = user.id
     db_session.add(c); db_session.commit(); db_session.refresh(c)
     kr = build_close_kasserapport_pdf(db_session, user, c, profile=prof)["bilagsnummer"]
-    assert kr.startswith("KR-20260924-VES")
+    assert kr.startswith("KR-20260924-20260924-VES")
     extras = _range_extras(db_session, user, [c])
     csv_txt = closes_to_csv_bytes([c], currency="DKK", **extras).decode("utf-8-sig")
     assert kr in csv_txt
     ptxt = pdf_text(build_daily_close_range_pdf(
         [c], from_date=date(2026, 9, 1), to_date=date(2026, 9, 30), business_name="M",
         currency="DKK", branch_names=extras["branch_names"]))
-    assert kr in ptxt
+    # A branch number wraps after a hyphen in the 30 mm column.
+    assert kr in ptxt.replace("-\n", "-")

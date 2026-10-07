@@ -267,13 +267,13 @@ def test_starter_user_lock_triggers_auto_email_with_pdf_only_when_no_scan(
     # Owner + accountant both reached
     assert len(ritual["sent_to"]) == 2
     assert "revisor@bonbox.dk" in ritual["sent_to"]
-    assert "owner@mirabelle.dk" in ritual["sent_to"]
+    assert "anders@mirabelle.dk" in ritual["sent_to"]
     assert ritual["accountant_included"] is True
     # One copy each: the revisor's carries the opt-out (List-Unsubscribe +
     # footer), the owner's own copy does not.
     assert len(sent) == 2
     by_to = {p["to"][0]: p for p in sent}
-    rev, own = by_to["revisor@bonbox.dk"], by_to["owner@mirabelle.dk"]
+    rev, own = by_to["revisor@bonbox.dk"], by_to["anders@mirabelle.dk"]
     assert "List-Unsubscribe" in rev["headers"]
     assert "afmelde" in rev["html"]
     assert "headers" not in own
@@ -410,7 +410,7 @@ def test_no_accountant_email_partial_send_owner_only(db_session, client, monkeyp
     r = client.post("/api/daily-close", json=_lock_payload(), headers=_auth_headers(user))
     ritual = r.json()["close_ritual"]
     assert ritual["email_status"] == "sent"
-    assert ritual["sent_to"] == ["owner@mirabelle.dk"]
+    assert ritual["sent_to"] == ["anders@mirabelle.dk"]
 
 
 # ─── Layer 3: User preference toggle off ───────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { dateLocale, businessTodayIso, formatDateClear, formatDateClearFull, localIso } from "../utils/dateFormat";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
@@ -52,7 +52,7 @@ import {
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 import {
   closeEmailState, emailErrorKey, newSendKey, resendCloseEmail, sentWhen, filenameFromResponse,
-  announceCloseEmail, CLOSE_EMAIL_EVENT,
+  announceCloseEmail, CLOSE_EMAIL_EVENT, isDemoClose,
 } from "../utils/closeEmail";
 
 const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
@@ -4967,7 +4967,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         {/* The REAL recipients — it said "owner + revisor" even
                             when no revisor address existed. */}
                         {(() => {
-                          const owner = businessProfile?.email || user?.email || "";
+                          // The owner's copy goes to the LOGIN address (the
+                          // server never mails the unverified Profile e-mail).
+                          const owner = user?.email || "";
                           const acct = businessProfile?.accountant_email || "";
                           if (!acct) return t("autoEmailToNoRevisor", "To {owner}. No revisor e-mail is saved — add it on Profile if they should get it too.", { owner });
                           if (businessProfile?.accountant_opted_out) return t("autoEmailToOptedOut", "To {owner}. Your revisor ({acct}) has unsubscribed from BonBox mail and won't get it.", { owner, acct });
@@ -5328,6 +5330,8 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
       } else if (status === 409 && code === "accountant_opted_out") {
         setSt((s0) => ({ ...s0, skip: "opted_out" }));
         setErr(t("dcMailOptedOutErr", "Your revisor has unsubscribed from BonBox mail. Download the PDF and send it from your own mail."));
+      } else if (status === 409 && code === "demo_close") {
+        setErr(t("dcMailDemoClose", "This is a sample day (demo data) — it is never sent to your revisor."));
       } else if (status === 409 && code === "in_progress") {
         setErr(t("dcMailInProgress", "It is being sent right now (from another tab or button). Wait a moment — it will not go twice."));
       } else if (status === 429) {
@@ -5344,12 +5348,30 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
     }
   };
 
+  // A close locked before the status was kept and that the audit trail
+  // knows nothing about either: it may already have been sent, so the send
+  // ASKS first — recipient, day, and that it may be a second copy. The
+  // server still answers 409 already_sent when its trail shows a delivery.
+  const sendUnrecorded = async () => {
+    const day = shortRangeDay(String(close.date || "").slice(0, 10));
+    const ok = await confirm({
+      title: t("dcMailUnrecordedConfirmTitle", "Send this kasserapport to your revisor?"),
+      message: t("dcMailUnrecordedConfirmBody", "The kasserapport for {day} goes to {email}. BonBox has no record of whether it was sent when the day was locked — your revisor may already have it.", { day, email: acct }),
+      confirmLabel: t("dcMailSendToRevisor", "Send to revisor"),
+      cancelLabel: t("cancel", "Cancel"),
+    });
+    if (ok) await send(false);
+  };
+
   // No claim about the revisor before the profile has actually been read —
   // "ingen revisor-mail gemt" from a profile still loading would be false.
   if (kind === "none" || profile == null) return null;
+  // "Ikke registreret" only where BonBox could have sent it: a plan that
+  // sends, a saved revisor, and a real day — never a seeded demo close.
+  if (kind === "unrecorded" && (!acct || !canSend || isDemoClose(close))) return null;
   const reason = t(emailErrorKey(st.error), "unknown error");
-  const btn = (label) => (
-    <button type="button" onClick={() => send(false)} disabled={busy}
+  const btn = (label, onClick = () => send(false)) => (
+    <button type="button" onClick={onClick} disabled={busy}
       className="text-xs px-2.5 min-h-8 max-sm:min-h-10 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg font-semibold disabled:opacity-50 inline-flex items-center gap-1">
       <Icon name="Send" size={12} /> {busy ? t("sendingBtn", "Sending…") : label}
     </button>
@@ -5383,7 +5405,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
     line = (
       <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-2 flex-wrap`}>
         <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {t("dcMailUnrecorded", "Send to revisor: not recorded")}</span>
-        {acct && canSend && !profile?.accountant_opted_out && btn(t("dcMailSendToRevisor", "Send to revisor"))}
+        {!profile?.accountant_opted_out && btn(t("dcMailSendToRevisor", "Send to revisor"), sendUnrecorded)}
       </span>
     );
   } else if (kind === "failed_owner") {
@@ -5761,22 +5783,48 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     return { from: f, to: t };
   }, [rangePreset, customFrom, customTo]);
 
-  // Count closes that match the chosen range — gives the user
-  // confidence ("Export 14 closes for this range") before they tap.
-  const rangeCount = useMemo(
-    () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to).length,
-    [data, activeRange],
-  );
+  // The range's counts come from the SERVER (GET /daily-close/range-counts —
+  // the same rows the export and the send select). History's `data` holds
+  // only the newest 90 closes, so "Forrige kvartal" counted 76 where the
+  // mail counted 184. The cache is only the first paint until it answers,
+  // and re-read whenever History reloads (a lock or unlock changes them).
+  const rangeKey = `${activeRange.from}|${activeRange.to}`;
+  const [rangeServer, setRangeServer] = useState(null);
+  const latestRangeKey = useRef(rangeKey);
+  latestRangeKey.current = rangeKey;
+  const fetchRangeCounts = useCallback(async (from, to) => {
+    const r = await api.get("/daily-close/range-counts", { params: { from, to } });
+    const d = r?.data;
+    if (!d || typeof d.n_locked !== "number") return null;
+    const out = { key: `${from}|${to}`, nLocked: d.n_locked, nDrafts: d.n_drafts || 0,
+      locked: Array.isArray(d.locked) ? d.locked : [] };
+    // A late answer for a range the owner already left never overwrites
+    // the current one.
+    if (out.key === latestRangeKey.current) setRangeServer(out);
+    return out;
+  }, []);
+  useEffect(() => {
+    fetchRangeCounts(activeRange.from, activeRange.to)
+      .catch(() => { /* the cache below stays the fallback */ });
+  }, [rangeKey, data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const serverCounts = rangeServer && rangeServer.key === rangeKey ? rangeServer : null;
   // What a send to the revisor actually counts: LOCKED closes. The confirm
   // said "4 lukninger" where the mail said "3 låste" — and a drafts-only
   // range could mail the revisor a "0,00 kr." bundle.
-  const lockedInRange = useMemo(
-    () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to
-      && (dc.status || "confirmed") === "confirmed"),
+  const cachedInRange = useMemo(
+    () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to),
     [data, activeRange],
   );
-  const lockedRangeCount = lockedInRange.length;
-  const draftRangeCount = rangeCount - lockedRangeCount;
+  const lockedInRange = useMemo(
+    () => (serverCounts ? serverCounts.locked
+      : cachedInRange.filter(dc => (dc.status || "confirmed") === "confirmed")),
+    [serverCounts, cachedInRange],
+  );
+  const lockedRangeCount = serverCounts ? serverCounts.nLocked : lockedInRange.length;
+  const draftRangeCount = serverCounts ? serverCounts.nDrafts : cachedInRange.length - lockedInRange.length;
+  // Count closes that match the chosen range — gives the user
+  // confidence ("Export 14 closes for this range") before they tap.
+  const rangeCount = lockedRangeCount + draftRangeCount;
 
   // The plan's export window against the chosen range — said BEFORE anything
   // is generated, with the pieces the plan allows as one-tap buttons. The cap
@@ -6020,15 +6068,27 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     if (acct && !optedOut) {
       // Who, what, which days — before one tap mails a third party. LOCKED
       // closes only (what the mail and the file count), the drafts named as
-      // left out, and the address the owner's copy goes to.
-      const closesTxt = lockedRangeCount === 1
+      // left out, and the address the owner's copy goes to. Counted by the
+      // server at this moment — never from History's 90-row cache.
+      let nLocked = lockedRangeCount;
+      let nDrafts = draftRangeCount;
+      try {
+        const fresh = await fetchRangeCounts(activeRange.from, activeRange.to);
+        if (fresh) { nLocked = fresh.nLocked; nDrafts = fresh.nDrafts; }
+      } catch { /* the server refuses an empty period on its own */ }
+      if (nLocked === 0) {
+        setExportError(t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor."));
+        return;
+      }
+      const closesTxt = nLocked === 1
         ? t("dcSendLockedOne", "1 locked close")
-        : t("dcSendLockedMany", "{n} locked closes", { n: lockedRangeCount });
-      const draftsTxt = draftRangeCount <= 0 ? ""
-        : draftRangeCount === 1
+        : t("dcSendLockedMany", "{n} locked closes", { n: nLocked });
+      const draftsTxt = nDrafts <= 0 ? ""
+        : nDrafts === 1
           ? t("dcSendDraftLeftOne", " · 1 draft is not counted")
-          : t("dcSendDraftLeftMany", " · {n} drafts are not counted", { n: draftRangeCount });
-      const ownerCopy = (businessProfile?.email || user?.email || "").trim() || t("dcYourOwnMail", "your own mail");
+          : t("dcSendDraftLeftMany", " · {n} drafts are not counted", { n: nDrafts });
+      // The copy goes to the login address — the same one the server uses.
+      const ownerCopy = (user?.email || "").trim() || t("dcYourOwnMail", "your own mail");
       const ok = await confirm({
         title: t("dcSendConfirmTitle", "Send to your revisor?"),
         message: t("dcSendConfirmBody", "{format} for {from} – {to} ({closes}{drafts}) goes to {email}. You get a copy at {owner}.", {
@@ -7081,7 +7141,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               if (!row || !got) return null;
               const w = sentWhen(row.email_sent_at);
               const when = w ? t("dcMailWhen", "{date} at {time}", w) : "";
-              const auto = businessProfile?.accountant_auto_send_effective && directSendEntitled === true;
+              // "Automatically" only when the relock mail will really go: a
+              // plan that sends, the revisor auto-send on, AND the owner's own
+              // "mail on lock" switch on — the server skips the relock mail
+              // when that switch is off (skipped_preference_off).
+              const auto = businessProfile?.accountant_auto_send_effective
+                && directSendEntitled === true
+                && user?.auto_email_on_close !== false;
               return (
                 <p data-testid="dc-unlock-revisor-note" className="text-[13px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-4">
                   {auto

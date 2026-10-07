@@ -187,12 +187,25 @@ def _business_display_name(profile, user) -> str:
 
 def _owner_contact_email(profile, user) -> str:
     """The ONE owner address for everything a revisor mail implies about the
-    owner: the owner's own copy AND the Reply-To on the revisor's copy. The
-    business e-mail on Profile (the one the lock step names), else the login.
-    The copy went to one address and the revisor's replies to another, which
-    the owner may not read for the business."""
-    addr = ((getattr(profile, "email", None) or "") if profile else "").strip().lower()
-    return addr or (getattr(user, "email", None) or "").strip().lower()
+    owner: the owner's own copy (lock mail, "Send igen", the period cc) AND
+    the Reply-To on the revisor's copy — the account's LOGIN address.
+
+    Never the free-text business e-mail on Profile: nobody verifies it (a CVR
+    re-verify can even overwrite it with the register's address), and the
+    owner's copy is uncapped and carries no opt-out — so with Profile.email
+    set to a stranger, a forced "Send igen" mailed them over and over, and an
+    opted-out revisor put there got mail again. (`profile` is kept in the
+    signature so every caller asks this one function.)"""
+    return (getattr(user, "email", None) or "").strip().lower()
+
+
+def _owner_copy_allowed(profile, address: str) -> bool:
+    """False when `address` asked BonBox to stop (it is in the revisor
+    opt-out set) — an owner copy must not reach an opted-out address either."""
+    if not address:
+        return False
+    from app.services.revisor_mail import address_fingerprint, opted_out_fingerprints
+    return address_fingerprint(address) not in opted_out_fingerprints(profile)
 
 
 def _branch_names(db: Session, user: User, closes) -> dict:
@@ -825,8 +838,11 @@ def _fire_close_auto_email(
     tz = _user_zone(user)
 
     # ── Recipients ──
-    # One owner address for the owner's copy AND the revisor's Reply-To.
+    # One owner address for the owner's copy AND the revisor's Reply-To: the
+    # login. An address that opted out gets no owner copy either.
     owner_email = _owner_contact_email(profile, user)
+    if owner_email and not _owner_copy_allowed(profile, owner_email):
+        owner_email = ""
     from app.services.revisor_mail import (
         REVISOR_DAILY_CAP, address_fingerprint, revisor_daily_cap_reached, revisor_opted_out,
         revisor_unsubscribe_headers, revisor_unsubscribe_url,
@@ -836,6 +852,8 @@ def _fire_close_auto_email(
     result["accountant_email"] = acct or None
     if not acct:
         skip = "not_saved"
+    elif _is_demo_close(dc):
+        skip = "demo_close"
     elif revisor_opted_out(profile, acct):
         skip = "opted_out"
     elif acct == owner_email:
@@ -946,6 +964,7 @@ def _fire_close_auto_email(
                 "auto_send_off": "Revisoren fik ikke mailen: automatisk afsendelse til revisor er slået fra under Profil.",
                 "opted_out": f"Revisoren ({acct}) har afmeldt mails fra BonBox og fik ikke denne.",
                 "same_as_owner": None,
+                "demo_close": "Revisoren fik ikke mailen: dagen er eksempeldata (demo).",
                 "daily_cap": (f"Revisoren ({acct}) fik ikke mailen: BonBox sender højst "
                               f"{REVISOR_DAILY_CAP} mails om dagen til revisoren, og loftet er nået. "
                               "Send den fra Historik i morgen, eller fra din egen mail."),
@@ -958,6 +977,7 @@ def _fire_close_auto_email(
                 "auto_send_off": "Your accountant didn't get it: automatic sending to them is off on Profile.",
                 "opted_out": f"Your accountant ({acct}) unsubscribed from BonBox mail and didn't get this.",
                 "same_as_owner": None,
+                "demo_close": "Your accountant didn't get it: this day is sample (demo) data.",
                 "daily_cap": (f"Your accountant ({acct}) didn't get it: BonBox sends them at most "
                               f"{REVISOR_DAILY_CAP} mails a day and that limit is reached. "
                               "Send it from History tomorrow, or from your own mail."),
@@ -1746,6 +1766,92 @@ def _close_audit_trail(db: Session, user: User, dc: DailyClose) -> list[tuple]:
     return out
 
 
+def _latest_delivery(trail: list[tuple], address: str | None = None,
+                     *, delivered_only: bool = True) -> tuple | None:
+    """The latest send of the CURRENT locked version (after the latest lock)
+    — to `address` when given. `delivered_only`: only a send that reached
+    someone (sent_to non-empty). Closes locked before the status column
+    existed (email_status NULL) still have this append-only record: every
+    lock mail since May wrote a close.auto_emailed row with sent_to."""
+    locks = [t for t in trail if t[1] == "daily_close.lock"]
+    cutoff = locks[-1][0] if locks else None
+    addr = (address or "").strip().lower()
+    for t in reversed(trail):
+        if t[1] not in _DELIVERY_ACTIONS:
+            continue
+        if cutoff is not None and t[0] < cutoff:
+            break
+        to = [str(x).strip().lower() for x in (t[2].get("sent_to") or [])]
+        if delivered_only and not to:
+            continue
+        if addr and addr not in to:
+            continue
+        return t
+    return None
+
+
+def _fill_email_status_from_trail(db: Session, user: User, closes, rows: list[dict]) -> None:
+    """History's "Afsendelse til revisor" for closes locked before the status
+    was kept (email_status NULL): read from the audit trail, in ONE query for
+    the whole list, so a day the revisor got says so instead of "ikke
+    registreret" — and offers no one-tap duplicate. Read-time only; nothing
+    is written. Rows the trail knows nothing about stay NULL."""
+    import json as _json
+    want = {c.id for c in closes
+            if (getattr(c, "status", None) or "confirmed") == "confirmed"
+            and not getattr(c, "email_status", None)}
+    if not want:
+        return
+    try:
+        from app.models.audit_log import AuditLog
+        found = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.entity_id.in_(list(want)),
+                AuditLog.action.in_(_HISTORY_ACTIONS),
+            )
+            .order_by(AuditLog.created_at.asc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return
+    trails: dict = {}
+    for r in found:
+        try:
+            after = _json.loads(r.after_state or "{}") or {}
+        except Exception:  # noqa: BLE001
+            after = {}
+        trails.setdefault(r.entity_id, []).append(
+            (r.created_at, r.action, after if isinstance(after, dict) else {}))
+    for row in rows:
+        trail = trails.get(row.get("id"))
+        if not trail:
+            continue
+        t = _latest_delivery(trail, delivered_only=False)
+        status = t[2].get("email_status") if t else None
+        if not status:
+            continue
+        to = [str(x).strip().lower() for x in (t[2].get("sent_to") or []) if x]
+        row["email_status"] = status
+        row["email_error"] = t[2].get("email_error") or None
+        row["email_sent_to"] = to
+        row["email_sent_at"] = t[0] if to else None
+        row["email_status_source"] = "audit_trail"
+
+
+def _is_demo_close(dc) -> bool:
+    """A sample close from the demo seeder (notes end in " · demo"). It is
+    never mailed to a revisor: it carries the business's real name and CVR
+    over figures nobody took."""
+    return str(getattr(dc, "notes", None) or "").endswith(" · demo")
+
+
 def _correction_for(trail: list[tuple], dc: DailyClose, address: str | None,
                     currency: str) -> dict | None:
     """The correction block for the next mail to `address`, or None when that
@@ -1904,6 +2010,12 @@ def resend_close_email(
             "code": "not_locked",
             "message": "Only a locked kasserapport can be sent.",
         })
+    if _is_demo_close(dc):
+        # Sample data under the business's real name and CVR: never mailed.
+        raise HTTPException(status_code=409, detail={
+            "code": "demo_close",
+            "message": "This is a sample close (demo data). It is never sent to a revisor.",
+        })
     # Same click again (double tap, network retry): answer with what happened
     # the first time — never a second mail.
     if dc.email_send_key and dc.email_send_key == body.key:
@@ -1926,11 +2038,18 @@ def resend_close_email(
         target = acct
     else:
         acct = None
+        # The owner's own copy goes to the LOGIN address only (never the
+        # unverified Profile e-mail), and never to an address that opted out.
         target = _owner_contact_email(profile, user)
         if not target:
             raise HTTPException(status_code=400, detail={
                 "code": "no_recipient",
                 "message": "No e-mail address to send to. Add one on Profile.",
+            })
+        if not _owner_copy_allowed(profile, target):
+            raise HTTPException(status_code=409, detail={
+                "code": "accountant_opted_out",
+                "message": "This address has unsubscribed from BonBox mail.",
             })
     now = utc_now()
     in_flight = (dc.email_status == "sending" and dc.email_attempt_at is not None
@@ -1949,9 +2068,23 @@ def resend_close_email(
             "sent_at": dc.email_sent_at.isoformat() if dc.email_sent_at else None,
             "sent_to": sent_to_now,
         })
-    if acct:
-        # The ceiling is on mail to a THIRD party; the owner's own copy is not.
-        enforce_revisor_daily_cap(db, user)
+    if not dc.email_status and not body.force:
+        # Locked before the status was kept: the append-only audit trail
+        # still knows whether THIS version reached `target` — then the page
+        # asks "Send it again?" instead of mailing an unmarked duplicate.
+        prior = _latest_delivery(_close_audit_trail(db, user, dc), target)
+        if prior:
+            raise HTTPException(status_code=409, detail={
+                "code": "already_sent",
+                "message": ("Your revisor already got this kasserapport." if acct
+                            else "You already got this kasserapport."),
+                "sent_at": prior[0].isoformat() if prior[0] else None,
+                "sent_to": [target],
+            })
+    # The daily ceiling applies to every resend, the owner-only one too: each
+    # is audited as daily_close.resend_email (a REVISOR_SEND_ACTIONS row) and
+    # a forced owner-only resend loop was otherwise unlimited.
+    enforce_revisor_daily_cap(db, user)
 
     # The claim: key AND in-flight state in one conditional UPDATE, so of two
     # concurrent requests exactly one gets a row back.
@@ -2133,7 +2266,9 @@ def list_daily_closes(
         q = q.filter(DailyClose.branch_id == branch_id)
 
     closes = q.order_by(DailyClose.date.desc()).limit(90).all()
-    return [_to_response(dc) for dc in closes]
+    rows = [_to_response(dc) for dc in closes]
+    _fill_email_status_from_trail(db, user, closes, rows)
+    return rows
 
 
 # ─── GET — insights ───
@@ -3823,12 +3958,14 @@ def send_to_accountant(
 
     from app.services.revisor_mail import send_file_to_revisor, sender_display
 
-    # One owner address for the copy AND the revisor's Reply-To.
+    # One owner address for the copy AND the revisor's Reply-To: the login,
+    # and no copy to an address that opted out.
     owner_addr = _owner_contact_email(profile, user)
     ok, err, owner_copied = send_file_to_revisor(
         recipient=recipient, subject=subject,
         html_revisor=html, html_owner=html_owner,
-        owner_email=(owner_addr if body.cc_self else None),
+        owner_email=(owner_addr if (body.cc_self and _owner_copy_allowed(profile, owner_addr))
+                     else None),
         attachment_bytes=attachment, attachment_filename=filename,
         attachment_mime=mime, reply_to=owner_addr or user.email,
         from_display=sender_display(business_name),
@@ -3932,6 +4069,43 @@ def list_accountant_sends(
             "cc_to": a.get("cc_to"),
         })
     return out
+
+
+@router.get("/range-counts")
+def range_counts(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """What the period exports and the send to the revisor count for a range
+    — read from the database, the same rows _fetch_range_closes selects. The
+    page used History's cache, which holds only the newest 90 closes, so
+    "Forrige kvartal" (and any custom range reaching past them) undercounted
+    in the confirm ("76 låste" where the mail counted 184) and could claim a
+    range had no locked closes at all."""
+    if to_date < from_date:
+        from_date, to_date = to_date, from_date
+    rows = (
+        db.query(DailyClose.id, DailyClose.date, DailyClose.status)
+        .filter(
+            DailyClose.user_id == user.id,
+            DailyClose.is_deleted.isnot(True),
+            DailyClose.date >= from_date,
+            DailyClose.date <= to_date,
+        )
+        .order_by(DailyClose.date.asc())
+        .limit(5000)
+        .all()
+    )
+    locked = [r for r in rows if (r.status or "confirmed") == "confirmed"]
+    return {
+        "from": from_date.isoformat(),
+        "to": to_date.isoformat(),
+        "n_locked": len(locked),
+        "n_drafts": len(rows) - len(locked),
+        "locked": [{"id": str(r.id), "date": r.date.isoformat()} for r in locked],
+    }
 
 
 # ─── GET — single close ───

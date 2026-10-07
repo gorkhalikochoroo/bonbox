@@ -28,6 +28,12 @@ export function resendCloseEmail(api, closeId, { key, force = false }) {
 
 const FAILED = new Set(["send_failed", "queued_retry", "failed_skipped"]);
 
+/** A sample close from the demo seeder (notes end in " · demo"). It is never
+ *  offered for sending — the server refuses it too (409 demo_close). */
+export function isDemoClose(close) {
+  return String(close?.notes || "").endsWith(" · demo");
+}
+
 /**
  * What to say about one close's lock mail.
  *   kind: "revisor" (handed to the mail server for the revisor) | "owner_only" |
@@ -40,8 +46,11 @@ export function closeEmailState({ status, sentTo = [], skip = null, profile = nu
   const to = (sentTo || []).map((x) => String(x).toLowerCase());
   // Free: BonBox does not send — nothing to say.
   if (status === "skipped_feature_locked") return { kind: "none", acct };
-  // A close locked before the status was kept: "Ikke registreret", never a
-  // blank that reads like "nothing happened" (it may well have been sent).
+  // Locked before the status was kept AND unknown to the audit trail (the
+  // server fills the status from the trail when it knows): "Ikke
+  // registreret", never a blank that reads like "nothing happened". The page
+  // shows it only on a sending plan with a revisor saved, and asks before
+  // sending — it may already have gone.
   if (!status) return { kind: "unrecorded", acct };
   if (status === "sending") return { kind: "sending", acct };
   if (acct && to.includes(acct)) return { kind: "revisor", acct };

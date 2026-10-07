@@ -202,9 +202,36 @@ def test_excel_carries_its_identity_print_setup_vat_column_and_cached_totals(mon
     totals_row = 5
     assert ws.cell(row=totals_row, column=1).value == "I alt — 2 låste dage"
     assert ws.cell(row=totals_row, column=4).value.startswith("=SUMIFS(")
-    xml = zipfile.ZipFile(io.BytesIO(raw)).read("xl/worksheets/sheet2.xml").decode()
-    assert re.search(rf'<c r="D{totals_row}"[^>]*><f>[^<]*</f><v>3500.00</v></c>', xml)
-    assert re.search(rf'<c r="E{totals_row}"[^>]*><f>[^<]*</f><v>700.00</v></c>', xml)
+    # Read the way a previewer reads it — the cached value — whichever XML
+    # shape the writer used (`<v/>` without lxml, `<v></v>` with it).
+    cached = load_workbook(io.BytesIO(raw), data_only=True)["Kasserapport"]
+    assert cached.cell(row=totals_row, column=4).value == pytest.approx(3500.0)
+    assert cached.cell(row=totals_row, column=5).value == pytest.approx(700.0)
+
+
+@pytest.mark.parametrize("empty", ["<v/>", "<v />", "<v></v>", ""])
+def test_cached_totals_are_written_whatever_shape_the_empty_value_has(empty):
+    """openpyxl writes an empty formula value as `<v />` on its own and as
+    `<v></v>` when lxml is installed; both — and no <v> at all — get the total."""
+    from openpyxl import load_workbook
+    from app.services.daily_close_range_export import _with_cached_values
+    sheet = ('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+             '<sheetData><row r="1"><c r="A1"><f>SUM(B1:C1)</f>' + empty + '</c>'
+             '<c r="B1"><v>1</v></c><c r="C1"><v>2</v></c></row></sheetData></worksheet>')
+    from openpyxl import Workbook
+    wb = Workbook(); wb.active["A1"] = "=SUM(B1:C1)"; wb.active["B1"] = 1; wb.active["C1"] = 2
+    buf = io.BytesIO(); wb.save(buf)
+    zin = zipfile.ZipFile(io.BytesIO(buf.getvalue()))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as zout:
+        for item in zin.infolist():
+            data = (sheet.encode() if item.filename == "xl/worksheets/sheet1.xml"
+                    else zin.read(item.filename))
+            zout.writestr(item, data)
+    fixed = _with_cached_values(out.getvalue(), 1, {"A1": 3.0})
+    ws = load_workbook(io.BytesIO(fixed), data_only=True).active
+    assert ws["A1"].value == pytest.approx(3.0)
+    assert load_workbook(io.BytesIO(fixed)).active["A1"].value == "=SUM(B1:C1)"
 
 
 # ─── Unlock history: the role, never the login e-mail ─────────────────
@@ -274,7 +301,7 @@ def test_a_period_send_leaves_a_record_the_panel_reads(db_session, client):
         r = client.post("/api/daily-close/send-to-accountant?from=2026-09-01&to=2026-09-30",
                         json={"fmt": "xlsx"}, headers=_auth(user))
     assert r.status_code == 200, r.text
-    assert r.json()["cc_to"] == "owner@mirabelle.dk"
+    assert r.json()["cc_to"] == "anders@mirabelle.dk"
     rec = client.get("/api/daily-close/accountant-sends", headers=_auth(user))
     assert rec.status_code == 200
     (last,) = rec.json()
@@ -295,8 +322,8 @@ def test_owner_copy_and_revisor_reply_to_are_the_same_address(db_session, client
     _lock(client, user)
     revisor = _revisor_mails(mailbox)[-1]
     owner = [p for p in mailbox.sent if p["to"] != ["anna@revisor.dk"]][-1]
-    assert owner["to"] == ["owner@mirabelle.dk"]
-    assert revisor["reply_to"] == "owner@mirabelle.dk" == owner["reply_to"]
+    assert owner["to"] == ["anders@mirabelle.dk"]
+    assert revisor["reply_to"] == "anders@mirabelle.dk" == owner["reply_to"]
     # "Afleveret til mailserveren" — never a claim of delivery.
     assert "afleveret til mailserveren til revisoren (anna@revisor.dk)" in owner["html"]
 
@@ -311,7 +338,7 @@ def test_an_owner_only_setup_can_resend_its_failed_copy(db_session, client, mail
                     headers=_auth(user))
     assert r.status_code == 200, r.text
     assert r.json()["email_status"] == "sent"
-    assert [p["to"] for p in mailbox.sent] == [["owner@mirabelle.dk"]]
+    assert [p["to"] for p in mailbox.sent] == [["anders@mirabelle.dk"]]
     # A second click asks first, like a revisor send.
     again = client.post(f"/api/daily-close/{cid}/resend-email", json={"key": "click-own02"},
                         headers=_auth(user))

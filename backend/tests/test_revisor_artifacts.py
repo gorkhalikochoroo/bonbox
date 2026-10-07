@@ -214,7 +214,7 @@ def test_default_csv_parses_with_semicolon_and_decimal_comma():
     col = {h: i for i, h in enumerate(header)}
     body = {r[0]: r for r in rows[1:-1]}
     assert body["2026-09-26"][col["Status"]] == "Kladde (ikke medregnet)"
-    assert body["2026-09-25"][col["Bilagsnr."]] == "KR-20260925"
+    assert body["2026-09-25"][col["Bilagsnr."]] == "KR-20260925-20260925"
     # Totals row: locked closes only, parses back to the period total.
     total = rows[-1]
     assert total[col["Status"]].startswith("I alt — 2 låste dage")
@@ -383,9 +383,9 @@ def test_send_to_accountant_refuses_any_address_but_the_saved_revisor(db_session
         assert args[0] == "anna@revisor.dk"
         assert "List-Unsubscribe" in kwargs["headers"]
         # The owner's copy goes to the SAME owner address the revisor's
-        # Reply-To names: the business e-mail on Profile.
-        assert oargs[0] == "owner@mirabelle.dk"
-        assert kwargs["reply_to"] == "owner@mirabelle.dk"
+        # Reply-To names: the LOGIN, never the unverified Profile e-mail.
+        assert oargs[0] == "anders@mirabelle.dk"
+        assert kwargs["reply_to"] == "anders@mirabelle.dk"
         assert not okwargs.get("headers")
         assert "afmelde" not in oargs[2] and "Din kopi" in oargs[2]
         assert "<b>se venligst</b>" not in args[2]
@@ -559,7 +559,7 @@ def test_revisor_opt_out_stops_the_next_send_and_the_owner_sees_it(
     assert ritual["accountant_skip_reason"] == "opted_out"
     assert ritual["accountant_included"] is False
     assert len(_revisor_mails(mailbox)) == before
-    owner_copy = [x for x in mailbox.sent if x["to"] == ["owner@mirabelle.dk"]][-1]
+    owner_copy = [x for x in mailbox.sent if x["to"] == ["anders@mirabelle.dk"]][-1]
     assert "har afmeldt mails fra BonBox" in owner_copy["html"]
     # Manual sends refuse too.
     with patch("app.services.email_service.send_email_with_attachment",
@@ -603,7 +603,7 @@ def test_send_status_is_persisted_on_the_close(db_session, client, mailbox):
     got = client.get(f"/api/daily-close/{cid}", headers=_auth(user)).json()
     assert got["email_status"] == "sent"
     assert got["email_sent_at"] is not None
-    assert set(got["email_sent_to"]) == {"anna@revisor.dk", "owner@mirabelle.dk"}
+    assert set(got["email_sent_to"]) == {"anna@revisor.dk", "anders@mirabelle.dk"}
 
 
 def test_a_new_revisor_address_does_not_switch_on_auto_send(db_session, client, mailbox):
@@ -702,8 +702,8 @@ def test_single_kasserapport_carries_identity_traceability_and_fits_one_page(db_
     # Identity + traceability
     assert "Mirabelle ApS" in txt and "CVR 39842851" in txt
     assert "Fredag 25. september 2026" in txt
-    # One day, one date in the number (it read KR-20260925-20260925).
-    assert "Bilagsnr. KR-20260925\n" in txt or "Bilagsnr. KR-20260925 " in txt
+    # The issued number never changes (a revisor files it as the voucher).
+    assert "Bilagsnr. KR-20260925-20260925" in txt
     assert f"Dokument-id: {out['doc_id']}" in txt
     assert "Side 1 af 1" in txt
     assert "Opbevares i 5 år efter bogføringsloven." in txt
@@ -812,7 +812,7 @@ def test_lock_mail_attaches_the_same_kasserapport_as_history(db_session, client,
     for heading in ("KLAR TIL BOGFØRING", "GENNEMGÅS"):
         assert (heading in mailed_txt) == (heading in hist_txt)
     assert mailed["filename"] == "Kasserapport Mirabelle ApS 2026-09-24.pdf"
-    assert (f"Vedhæftet: Kasserapport Mirabelle ApS 2026-09-24.pdf (PDF, bilagsnr. KR-20260924, "
+    assert (f"Vedhæftet: Kasserapport Mirabelle ApS 2026-09-24.pdf (PDF, bilagsnr. KR-20260924-20260924, "
             f"dokument-id {doc_id})") in _revisor_mails(mailbox)[-1]["html"]
 
 
@@ -926,7 +926,7 @@ def test_a_revisor_who_never_got_v1_is_not_told_it_is_replaced(db_session, clien
     assert len(rev) == 1
     assert rev[0]["subject"] == "Kasserapport fre. 25.09.2026 — Mirabelle ApS"
     assert "erstatter" not in rev[0]["html"]
-    owner = [p for p in mailbox.sent if p["to"] == ["owner@mirabelle.dk"]][-1]
+    owner = [p for p in mailbox.sent if p["to"] == ["anders@mirabelle.dk"]][-1]
     assert "Rettet kasserapport" in owner["subject"] and "erstatter" in owner["html"]
 
     # Auto-send off again; the revisor now holds v2. v3 goes out by hand.
@@ -986,7 +986,7 @@ def test_the_lock_mail_counts_towards_the_daily_revisor_cap(db_session, client, 
     assert ritual["accountant_skip_reason"] == "daily_cap"
     assert ritual["accountant_included"] is False
     assert _revisor_mails(mailbox) == []
-    owner = [p for p in mailbox.sent if p["to"] == ["owner@mirabelle.dk"]][-1]
+    owner = [p for p in mailbox.sent if p["to"] == ["anders@mirabelle.dk"]][-1]
     assert "loftet er nået" in owner["html"]
 
 
@@ -1085,8 +1085,8 @@ def test_two_branches_on_one_day_are_two_documents(db_session, client, mailbox):
     texts = [" ".join(pdf_text(base64.b64decode(m["attachments"][0]["content"])).split())
              for m in mails]
     bilag = {re.search(r"Bilagsnr\. (KR-[0-9A-Z-]+)", t).group(1) for t in texts}
-    assert len(bilag) == 2 and all(b.startswith("KR-20260904-") for b in bilag)
-    assert {b[12:15] for b in bilag} == {"VES", "NOE"}
+    assert len(bilag) == 2 and all(b.startswith("KR-20260904-20260904-") for b in bilag)
+    assert {b[21:24] for b in bilag} == {"VES", "NOE"}
 
     closes = db_session.query(DailyClose).all()
     extras = _range_extras(db_session, user, closes)

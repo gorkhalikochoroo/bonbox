@@ -23,11 +23,13 @@ let cap = 31;
 let closes = [];
 let sends = [];
 let profile = {};
+let rangeCounts = null;
+let authUser = {};
 vi.mock("../services/api", () => ({
   default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
 }));
 vi.mock("../hooks/useAuth", () => ({
-  useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant", email: "login@x.dk" }, refreshUser: vi.fn() }),
+  useAuth: () => ({ user: authUser, refreshUser: vi.fn() }),
 }));
 vi.mock("../hooks/useLanguage", () => ({
   useLanguage: () => ({
@@ -78,6 +80,8 @@ beforeEach(() => {
   entitled = true;
   cap = 31;
   sends = [];
+  rangeCounts = null;
+  authUser = { currency: "DKK", business_type: "restaurant", email: "login@x.dk" };
   profile = { accountant_email: "anna@revisor.dk", company_name: "Mirabelle ApS", email: "info@mirabelle.dk" };
   closes = [
     close("S1", "2026-09-10"), close("S2", "2026-09-12"), close("S3", "2026-09-14", "draft"),
@@ -90,6 +94,7 @@ beforeEach(() => {
     if (url === "/business") return Promise.resolve({ data: profile });
     if (url === "/billing/me") return Promise.resolve({ data: { plan: cap < 31 ? "free" : "starter", caps: { daily_close_export_days: cap } } });
     if (url === "/daily-close/accountant-sends") return Promise.resolve({ data: sends });
+    if (url === "/daily-close/range-counts") return Promise.resolve({ data: rangeCounts || {} });
     if (String(url).startsWith("/daily-close/export.") || String(url).endsWith("/pdf")) {
       return Promise.resolve({ data: new Blob(["x"]), headers: {} });
     }
@@ -167,8 +172,28 @@ describe("the period send to the revisor", () => {
     expect(msg).toContain("dcSendConfirmBody");
     expect(msg).toContain("dcSendLockedOne");
     expect(msg).toContain("dcSendDraftLeftOne");
-    expect(msg).toContain("info@mirabelle.dk");
+    // The owner's copy goes to the LOGIN — never the unverified Profile e-mail.
+    expect(msg).toContain("login@x.dk");
+    expect(msg).not.toContain("info@mirabelle.dk");
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it("counts the range on the server, not History's 90-row cache", async () => {
+    // History holds two locked September days; the quarter really has 88.
+    window.confirm = vi.fn(() => false);
+    rangeCounts = { from: "2026-07-01", to: "2026-09-30", n_locked: 88, n_drafts: 3,
+      locked: [{ id: "S1", date: "2026-09-10" }] };
+    cap = 400;
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePresetPrevQuarter" }));
+    await waitFor(() => expect(get.mock.calls.some(([u, o]) => u === "/daily-close/range-counts"
+      && o?.params?.from === "2026-07-01" && o?.params?.to === "2026-09-30")).toBe(true));
+    expect(await screen.findByText(/dcRangeLockedAndDrafts:88\|3/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    const msg = String(window.confirm.mock.calls[0][0]);
+    expect(msg).toContain("dcSendLockedMany:88");
+    expect(msg).toContain("dcSendDraftLeftMany:3");
   });
 
   it("a drafts-only period cannot be sent, and the panel says why", async () => {
@@ -190,13 +215,36 @@ describe("the period send to the revisor", () => {
 });
 
 describe("History rows", () => {
-  it("an old close says 'ikke registreret' and that one day can be sent", async () => {
+  it("an old close says 'ikke registreret' and asks before sending that one day", async () => {
     closes = [close("O1", "2026-10-06", "confirmed", { email_status: null })];
+    window.confirm = vi.fn(() => false);
     await openHistory();
     expect(await screen.findByText(/dcMailUnrecorded/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /dcMailSendToRevisor/ }));
+    // It may already have gone: recipient and day named, nothing sent on No.
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    const msg = String(window.confirm.mock.calls[0][0]);
+    expect(msg).toContain("dcMailUnrecordedConfirmBody");
+    expect(msg).toContain("anna@revisor.dk");
+    expect(post).not.toHaveBeenCalled();
+    window.confirm = vi.fn(() => true);
     post.mockResolvedValueOnce({ data: { email_status: "sent", email_sent_to: ["anna@revisor.dk"] } });
     fireEvent.click(screen.getByRole("button", { name: /dcMailSendToRevisor/ }));
     await waitFor(() => expect(post.mock.calls.some(([u]) => u === "/daily-close/O1/resend-email")).toBe(true));
+  });
+
+  it("a demo close and a Free plan get no 'ikke registreret' and no send", async () => {
+    closes = [close("D1", "2026-10-06", "confirmed", { email_status: null, notes: "Travl aften · sample · demo" })];
+    await openHistory();
+    expect(screen.queryByText(/dcMailUnrecorded/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /dcMailSendToRevisor/ })).toBeNull();
+  });
+
+  it("Free: an old close says nothing about a send BonBox never makes", async () => {
+    entitled = false;
+    closes = [close("O1", "2026-10-06", "confirmed", { email_status: null })];
+    await openHistory();
+    expect(screen.queryByText(/dcMailUnrecorded/)).toBeNull();
   });
 
   it("the unlock dialog says the revisor already has the locked version", async () => {
@@ -208,5 +256,31 @@ describe("History rows", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /dcUnlock$/ })[0]);
     const note = await screen.findByTestId("dc-unlock-revisor-note");
     expect(note.textContent).toMatch(/^dcUnlockRevisorHas(Auto)?:anna@revisor\.dk\|/);
+  });
+
+  it("the unlock dialog never promises an automatic correction the server will skip", async () => {
+    // Revisor auto-send on, but the owner's own "mail on lock" switch is off:
+    // the relock mail is skipped (skipped_preference_off), so no "automatically".
+    profile = { ...profile, accountant_auto_send_effective: true };
+    authUser = { ...authUser, auto_email_on_close: false };
+    closes = [close("O1", "2026-10-06", "confirmed", {
+      email_status: "sent", email_sent_to: ["anna@revisor.dk"], email_sent_at: "2026-10-06T21:12:00",
+    })];
+    await openHistory();
+    fireEvent.click(screen.getAllByRole("button", { name: /dcUnlock$/ })[0]);
+    const note = await screen.findByTestId("dc-unlock-revisor-note");
+    expect(note.textContent).toMatch(/^dcUnlockRevisorHas:/);
+  });
+
+  it("…and does promise it when every switch is on", async () => {
+    profile = { ...profile, accountant_auto_send_effective: true };
+    authUser = { ...authUser, auto_email_on_close: true };
+    closes = [close("O1", "2026-10-06", "confirmed", {
+      email_status: "sent", email_sent_to: ["anna@revisor.dk"], email_sent_at: "2026-10-06T21:12:00",
+    })];
+    await openHistory();
+    fireEvent.click(screen.getAllByRole("button", { name: /dcUnlock$/ })[0]);
+    const note = await screen.findByTestId("dc-unlock-revisor-note");
+    expect(note.textContent).toMatch(/^dcUnlockRevisorHasAuto:/);
   });
 });
