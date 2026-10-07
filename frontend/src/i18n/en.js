@@ -8408,6 +8408,7 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    rangePresetPrevMonth: "Last month",
     dcMailWhen: "{date} at {time}",
     dcMailUnknownOutcome: "We couldn't confirm whether it was sent. Check your own inbox (you get a copy) before sending again.",
     dcMailAlreadyTitle: "Your revisor already has this kasserapport",

@@ -3,16 +3,35 @@
 It used to live inline in the GET /daily-close/{id}/pdf route, so nothing else
 could call it: the lock mail attached a different document (the one-day range
 export) with the opposite readiness verdict. History's download, the lock mail
-and the explicit resend now all render through here.
+and the explicit resend now all render through here, so the revisor receives
+exactly the document the owner reviewed — same figures, same verdict, same
+document id.
+
+What a revisor needs on it, and now gets:
+  · identity — business, address, CVR, the branch when there is one, the day,
+    a bilag number (KR-…), who closed it and when it was LOCKED (venue time);
+  · traceability — a document id derived from the close's content (stable:
+    the downloaded copy and the mailed copy carry the same id), "Side x af y"
+    on every page and a running header on page 2+;
+  · source and history — Z-bon scan vs typed, tills added together, figures the
+    owner corrected, and every unlock/relock (who, when, why) from the audit
+    trail;
+  · the cash count as the app shows it — byttepenge, "Optalt (uden
+    byttepenge)", and the difference in words;
+  · the retention note.
+
+Every assertion is derived in services/kasserapport_claims.py and only drawn
+here. Everything a person typed is escaped at the Paragraph boundary.
 """
 from __future__ import annotations
 
-from io import BytesIO
+import hashlib
+import json
 
 from sqlalchemy import func
 
 from app.models.business_profile import BusinessProfile
-from app.services.bonbox_pdf_kit import escape_pdf_text
+from app.services.bonbox_pdf_kit import escape_pdf_text, export_bilagsnummer
 
 
 def close_filename(business_name: str, d, *, locked: bool = True) -> str:
@@ -22,6 +41,52 @@ def close_filename(business_name: str, d, *, locked: bool = True) -> str:
     from app.services.revisor_mail import safe_name_part
     lead = "Kasserapport" if locked else "Kasserapport KLADDE"
     return f"{lead} {safe_name_part(business_name)} {d.isoformat()}.pdf"
+
+
+def close_document_id(dc) -> str:
+    """A stable 16-hex id for THIS version of the close: a digest of what the
+    document states (figures, lines, status, lock time, closer, notes, source).
+    The same close in the same state gives the same id on every download and in
+    the lock mail — unlike a hash of the bytes, which changes with the
+    generation timestamp printed in the footer. A re-lock with new figures gets
+    a new id."""
+    def _n(v):
+        return None if v is None else round(float(v), 2)
+    canon = {
+        "id": str(getattr(dc, "id", "")),
+        "date": dc.date.isoformat() if getattr(dc, "date", None) else None,
+        "status": getattr(dc, "status", None) or "confirmed",
+        "rev": getattr(dc, "revenue_categories", None),
+        "pay": getattr(dc, "payment_categories", None),
+        "revenue_total": _n(getattr(dc, "revenue_total", None)),
+        "payment_total": _n(getattr(dc, "payment_total", None)),
+        "moms_total": _n(getattr(dc, "moms_total", None)),
+        "revenue_ex_moms": _n(getattr(dc, "revenue_ex_moms", None)),
+        "cash_expected": _n(getattr(dc, "cash_expected", None)),
+        "cash_counted": _n(getattr(dc, "cash_counted", None)),
+        "cash_difference": _n(getattr(dc, "cash_difference", None)),
+        "cash_float": _n(getattr(dc, "cash_float", None)),
+        "tips_total": _n(getattr(dc, "tips_total", None)),
+        "closed_by": getattr(dc, "closed_by", None),
+        "closed_at": dc.closed_at.isoformat() if getattr(dc, "closed_at", None) else None,
+        "notes": getattr(dc, "notes", None),
+        "source": getattr(dc, "source_meta", None),
+    }
+    raw = json.dumps(canon, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _branch_name(db, user, dc) -> str | None:
+    """The branch, when the close belongs to one — or when the business has
+    more than one active branch, so 'which shop?' is never a question."""
+    try:
+        from app.models.branch import Branch
+        if getattr(dc, "branch_id", None):
+            b = db.query(Branch).filter(Branch.id == dc.branch_id, Branch.user_id == user.id).first()
+            return b.name if b else None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
@@ -36,19 +101,22 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
     from reportlab.platypus import (
-        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
-        KeepTogether,
+        Table, TableStyle, Paragraph, Spacer, HRFlowable, KeepTogether,
     )
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_RIGHT
 
-    from app.services.bonbox_pdf_kit import money_dk
+    from app.services.bonbox_pdf_kit import money_dk, render_with_doc_hash
+    from app.services.close_history import close_history_events, format_history, source_line
     from app.services.kasserapport_claims import (
         MARK_FAIL,
         MARK_PASS,
         MARK_REVIEW,
         build_close_claims,
     )
+    from app.services.tz_utils import _user_zone
+    from app.utils.document_hash import get_software_identifier
+    from app.utils.time import utc_now
 
     # Copenhagen-clean palette
     AMBER = colors.HexColor("#b45309")     # "look at this" — never decorative
@@ -59,10 +127,9 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     DANGER = colors.HexColor("#b91c1c")
 
     currency = user.currency or "DKK"
+    tz = _user_zone(user)
 
-    # ─── Voucher range for the day (Bogføringsloven 2024 audit trail) ───
-    # If sales/expenses for this date have voucher_numbers, show min-max range
-    # so accountant can cross-check the closes against the bilag list.
+    # ─── Voucher range for the day (Bogføringsloven audit trail) ───
     try:
         from app.models.sale import Sale
         from app.models.expense import Expense
@@ -89,16 +156,9 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     except Exception:  # noqa: BLE001
         sale_vmin = sale_vmax = exp_vmin = exp_vmax = None
 
-    # ── The document's claims ──
-    # Every assertion this PDF makes — whether it is final, what its lines add
-    # up to, whether its MOMS can be stated, which checks actually passed, what
-    # its footer and filename may say — is derived ONCE, in
-    # services/kasserapport_claims.py, and rendered here without addition.
-    # ReportLab compresses its streams, so a test cannot grep the produced PDF;
-    # deriving the claims in a pure function is what makes them pinnable, and
-    # the claims on this page are the part that must never drift.
-    #
-    # `has_bilag` is passed in because only the router can reach Sale/Expense.
+    bilagsnummer = export_bilagsnummer("KR", dc.date, dc.date)
+
+    # ── The document's claims — derived once, in kasserapport_claims ──
     profile_name = getattr(profile, "company_name", None) if profile else None
     claims = build_close_claims(
         dc,
@@ -106,429 +166,391 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
         profile=profile,
         business_name=(profile_name or getattr(user, "business_name", None) or "—"),
         has_bilag=bool(sale_vmin or exp_vmin),
+        bilagsnummer=bilagsnummer,
+        tz=tz,
     )
     L = claims["labels"]
     DA = claims["danish"]
+    doc_id = close_document_id(dc)
 
     def fmt(v):
         # The ONE Danish money formatter every BonBox export uses — DKK renders
-        # "1.234,56 kr." (period thousands, comma decimal, "kr." unit), which is
-        # what every screen in the app shows and what a kasserapport must tie
-        # out to. This endpoint used to hand-roll "1.234,56 DKK", so the one
-        # document a revisor reads disagreed with the page that produced it.
-        # None / non-numeric → "—", never a fabricated 0.
+        # "1.234,56 kr."; None → "—", never a fabricated 0.
         return money_dk(v, currency)
 
-    buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        topMargin=22 * mm, bottomMargin=18 * mm,
-        leftMargin=22 * mm, rightMargin=22 * mm,
-        # The PDF's own document properties are part of what it claims: a
-        # kladde opened in a viewer must not present itself as "Kasserapport"
-        # in the title bar while the page says KLADDE.
-        title=claims["title"],
-    )
-    styles = getSampleStyleSheet()
-    h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=2,
-                        textColor=INK, fontName="Helvetica-Bold")
-    h_period = ParagraphStyle("Period", parent=styles["Normal"], fontSize=9,
-                              textColor=MUTED, alignment=TA_RIGHT)
-    section_title = ParagraphStyle("Sect", parent=styles["Normal"], fontSize=8.5,
-                                   textColor=MUTED, fontName="Helvetica-Bold",
-                                   leading=12, spaceBefore=8, spaceAfter=3)
-    val = ParagraphStyle("Val", parent=styles["Normal"], fontSize=10.5,
-                         textColor=INK, fontName="Helvetica", leading=14)
-    val_r = ParagraphStyle("ValR", parent=val, alignment=TA_RIGHT)
-    val_b = ParagraphStyle("ValB", parent=val, fontName="Helvetica-Bold")
-    val_br = ParagraphStyle("ValBR", parent=val_b, alignment=TA_RIGHT)
-    foot = ParagraphStyle("Foot", parent=styles["Normal"], fontSize=8,
-                          textColor=MUTED, fontName="Helvetica-Oblique", leading=11)
+    def signed(v):
+        if v is None:
+            return "—"
+        return ("+" if float(v) > 0.004 else "") + fmt(v)
 
-    story = []
-
-    # ─── Header: title + date ───
-    # Draft vs locked is the document's single most important fact. An owner
-    # genuinely wants to read a kasserapport BEFORE locking it — that is how you
-    # check the day against the Z-report — so refusing to export a draft would
-    # remove a real use. What must never happen is a draft that READS as final.
-    # So a draft exports, marked KLADDE in the title, under a banner saying the
-    # figures can still change, with no assurance band and a kladde filename.
-    # Danish-style date format: "16. maj 2026" for DKK, "16 May 2026" else
     if DA:
         _DA_MONTHS = ["januar", "februar", "marts", "april", "maj", "juni",
                       "juli", "august", "september", "oktober", "november", "december"]
-        date_str = f"{dc.date.day}. {_DA_MONTHS[dc.date.month - 1]} {dc.date.year}"
+        _DA_DAYS = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
+        date_str = (f"{_DA_DAYS[dc.date.weekday()].capitalize()} {dc.date.day}. "
+                    f"{_DA_MONTHS[dc.date.month - 1]} {dc.date.year}")
     else:
-        date_str = dc.date.strftime("%d %B %Y")
-    head_table = Table(
-        [[Paragraph(claims["title"], h1), Paragraph(date_str, h_period)]],
-        colWidths=[100 * mm, 66 * mm],
-    )
-    head_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-    story.append(head_table)
-    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=4, spaceAfter=12))
+        date_str = dc.date.strftime("%A %d %B %Y")
 
-    if claims["draft_banner"]:
-        draft_band = Table(
-            [[Paragraph(
-                f"<font name='Helvetica-Bold' color='{colors.HexColor('#92400e').hexval()}'"
-                f" size='9.5'>{claims['draft_mark']}</font>"
-                f"<br/><font color='{MUTED.hexval()}' size='8'>{claims['draft_banner']}</font>",
-                val,
-            )]],
-            colWidths=[166 * mm],
+    branch = _branch_name(db, user, dc)
+    src = source_line(dc, danish=DA, currency=currency)
+    history_events = close_history_events(db, user, [dc]).get(str(dc.id), [])
+    if not history_events and getattr(dc, "unlock_reason", None):
+        # Unlocked right now and not yet re-locked: the row still carries it.
+        history_events = [{
+            "kind": "unlock", "at": getattr(dc, "unlocked_at", None),
+            "by": getattr(dc, "unlocked_by", None), "reason": dc.unlock_reason,
+        }]
+
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=0,
+                        textColor=INK, fontName="Helvetica-Bold", alignment=0, leading=17)
+    h_period = ParagraphStyle("Period", parent=styles["Normal"], fontSize=9,
+                              textColor=MUTED, alignment=TA_RIGHT, leading=12)
+    # Compact on purpose: a normal close — categories, methods, a counted
+    # drawer, tips, a note, a re-lock — must fit ONE A4 page. Page 2 used to
+    # hold nothing but the band and the footer.
+    section_title = ParagraphStyle("Sect", parent=styles["Normal"], fontSize=8.5,
+                                   textColor=MUTED, fontName="Helvetica-Bold",
+                                   leading=10.5, spaceBefore=5, spaceAfter=1)
+    val = ParagraphStyle("Val", parent=styles["Normal"], fontSize=9.5,
+                         textColor=INK, fontName="Helvetica", leading=12)
+    val_r = ParagraphStyle("ValR", parent=val, alignment=TA_RIGHT)
+    val_b = ParagraphStyle("ValB", parent=val, fontName="Helvetica-Bold")
+    val_br = ParagraphStyle("ValBR", parent=val_b, alignment=TA_RIGHT)
+    meta = ParagraphStyle("Meta", parent=val, fontSize=9, leading=12)
+    foot = ParagraphStyle("Foot", parent=styles["Normal"], fontSize=7.5,
+                          textColor=MUTED, fontName="Helvetica-Oblique", leading=10)
+
+    def _rows_table(rows):
+        t = Table(rows, colWidths=[110 * mm, 56 * mm])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
+        ]))
+        return t
+
+    def _story():
+        story = []
+
+        # ─── Header: title + day + bilag number ───
+        # Draft vs locked is the document's single most important fact: a
+        # draft exports, marked KLADDE, under a banner saying the figures can
+        # still change, with no assurance band and a kladde filename.
+        head_table = Table(
+            [[Paragraph(claims["title"], h1),
+              Paragraph(f"{date_str}<br/>{L['bilag_no']} {bilagsnummer}", h_period)]],
+            colWidths=[96 * mm, 70 * mm],
         )
-        draft_band.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fef3c7")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("ROUNDEDCORNERS", [4, 4, 4, 4]),
-        ]))
-        story.append(draft_band)
-        story.append(Spacer(1, 6 * mm))
-
-    # ─── Business info ───
-    # BusinessProfile uses `company_name` (CVR-style legal entity name);
-    # User uses `business_name` (signup-time DBA). Profile wins if both set
-    # because that's the legal name an accountant needs on the kasserapport.
-    # Everything a person typed is escaped here, at the Paragraph boundary —
-    # a Paragraph parses markup, so "Mad & drikke" broke the page and an
-    # `<img src=…>` in a name made the server read a file or a URL.
-    # (Security review, Sep 2026.)
-    biz_lines = [
-        f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(claims['business_name'])}</font>"
-    ]
-    # The stored `address` in DK almost always already ends with the postal town
-    # ("Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby") while zipcode + city are
-    # ALSO filled in, so the naive join printed "…, 2500 Valby, 2500 Valby".
-    # One shared composer now (bonbox_pdf_kit.compose_business_address).
-    if claims["address_line"]:
-        biz_lines.append(f"<font color='#6b7280'>{escape_pdf_text(claims['address_line'])}</font>")
-    if profile and getattr(profile, "org_number", None):
-        biz_lines.append(f"<font color='#6b7280'>CVR {escape_pdf_text(profile.org_number)}</font>")
-    if dc.closed_by:
-        # Danish document, Danish label — this said "Closed by:" on a page
-        # otherwise written entirely in Danish.
-        biz_lines.append(f"<font color='#6b7280'>{L['closed_by']}: {escape_pdf_text(dc.closed_by)}</font>")
-    story.append(Paragraph("<br/>".join(biz_lines), val))
-    story.append(Spacer(1, 6 * mm))
-
-    # ─── Revenue Breakdown ───
-    # Arithmetic integrity. The page used to print the stored line items above
-    # the stored total with NOTHING checking that they agree, so a row holding
-    # 'food:-57' with revenue_total 0.00 produced a −57,00 line sitting silently
-    # under a 0,00 total. Either the page adds up, or the page says that it does
-    # not — in its own voice, on the page itself. Derivation lives in
-    # kasserapport_claims.build_close_claims; this only draws it.
-    if claims["revenue_lines"]:
-        story.append(Paragraph(L["revenue"], section_title))
-        rows = []
-        for line in claims["revenue_lines"]:
-            label = escape_pdf_text(line["label"])
-            if line["is_correction"]:
-                label = (f"{label} <font color='{MUTED.hexval()}' size='8.5'>"
-                         f"({line['correction_tag']})</font>")
-            rows.append([Paragraph(label, val), Paragraph(line["amount"], val_r)])
-        if claims["discrepancy"] is not None:
-            # The lines and the total disagree. Show BOTH, plus the difference
-            # as its own explicit line, so the column visibly adds up and the
-            # reader is told what the difference is.
-            #
-            # Amber for a CONTRADICTION (a negative line the total ignored,
-            # lines summing past the total). Muted for an INCOMPLETE SPLIT —
-            # positive lines that do not yet itemise the whole of a known
-            # total, which is the Z-report scan flow working as designed and
-            # must not be dressed up as an error. The claim carries its own
-            # tone; this only draws it.
-            _tone = (AMBER if claims["discrepancy_tone"] == "amber" else MUTED)
-            rows.append([Paragraph(L["lines_sum"], val),
-                         Paragraph(claims["lines_sum"], val_r)])
-            rows.append([
-                Paragraph(
-                    f"<font color='{_tone.hexval()}'>{claims['discrepancy_label']}</font>",
-                    val),
-                Paragraph(f"<font color='{_tone.hexval()}'>{claims['discrepancy']}</font>",
-                          val_r),
-            ])
-        rows.append([Paragraph(L["total_revenue"], val_b),
-                     Paragraph(claims["total_revenue"], val_br)])
-        t = Table(rows, colWidths=[110 * mm, 56 * mm])
-        t.setStyle(TableStyle([
+        head_table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
         ]))
-        story.append(t)
-        if claims["discrepancy_note"]:
-            story.append(Spacer(1, 2 * mm))
-            _tone = (AMBER if claims["discrepancy_tone"] == "amber" else MUTED)
-            story.append(Paragraph(
-                f"<font color='{_tone.hexval()}'>{claims['discrepancy_note']}</font>",
-                foot,
-            ))
-        if claims["correction_note"]:
-            story.append(Spacer(1, 2 * mm))
-            story.append(Paragraph(claims["correction_note"], foot))
+        story.append(head_table)
+        story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=3, spaceAfter=8))
 
-    # ─── MOMS / SALG ───
-    # This block is a MOMS statement to an accountant; it underpins a filing, so
-    # it must never assert a number it cannot stand behind. It used to render
-    # `float(dc.moms_total or 0)` — a NULL or contradictory VAT figure printed as
-    # a confident "0,00" on a page whose own revenue lines said otherwise.
-    # Doctrine: a value that is not known renders "—".
-    if (dc.moms_total is not None or dc.revenue_ex_moms is not None
-            or not claims["revenue_ties_out"]):
-        story.append(Paragraph(L["moms_title"], section_title))
-        moms_rows = [
-            [Paragraph(L["moms_incl"], val), Paragraph(claims["moms"]["incl"], val_r)],
-            [Paragraph(L["moms_vat"], val), Paragraph(claims["moms"]["vat"], val_r)],
-            [Paragraph(L["moms_excl"], val_b), Paragraph(claims["moms"]["excl"], val_br)],
-        ]
-        t = Table(moms_rows, colWidths=[110 * mm, 56 * mm])
-        t.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
-        ]))
-        story.append(t)
-        if claims["moms_unknown_reason"]:
-            story.append(Spacer(1, 2 * mm))
-            story.append(Paragraph(
-                f"<font color='{AMBER.hexval()}'>{claims['moms_unknown_reason']}</font>",
-                foot,
-            ))
-        else:
-            # Names the basis when the lines above don't itemise all of it, so
-            # a stated MOMS is never read as reconciled against a breakdown
-            # that is admittedly incomplete.
-            for _note in (claims["moms_basis_note"], claims["moms_manual_note"]):
-                if _note:
-                    story.append(Spacer(1, 2 * mm))
-                    story.append(Paragraph(_note, foot))
-
-    # ─── Payment Methods ───
-    if claims["payment_lines"]:
-        story.append(Paragraph(L["payments"], section_title))
-        # Same rule as the revenue lines: built-in methods get the app's own
-        # word ("cash" → "Kontant", "bank_transfer" → "Bankoverførsel",
-        # "MobilePay" kept as the brand), anything the owner typed passes
-        # through verbatim.
-        rows = []
-        for line in claims["payment_lines"]:
-            if line["is_brand"]:
-                # A card brand is a SPLIT of the card line, not another method
-                # — payment_total deliberately excludes it. Drawn indented and
-                # muted so it can never be read as money on top. Printing these
-                # as peers is how a close carrying dankort/visa splits showed
-                # lines summing to far more than its own stated total.
-                rows.append([
-                    Paragraph(f"<font color='{MUTED.hexval()}' size='9'>"
-                              f"&nbsp;&nbsp;&nbsp;&nbsp;{escape_pdf_text(line['label'])}</font>", val),
-                    Paragraph(f"<font color='{MUTED.hexval()}' size='9'>"
-                              f"{line['amount']}</font>", val_r),
-                ])
-            else:
-                rows.append([Paragraph(escape_pdf_text(line["label"]), val),
-                             Paragraph(line["amount"], val_r)])
-        if claims["payment_discrepancy"] is not None:
-            # Same rule as the revenue block: lines and total may not disagree
-            # in silence.
-            rows.append([Paragraph(L["pay_lines_sum"], val),
-                         Paragraph(claims["payment_lines_sum"], val_r)])
-            rows.append([
-                Paragraph(f"<font color='{AMBER.hexval()}'>{L['pay_discrepancy']}</font>",
-                          val),
-                Paragraph(f"<font color='{AMBER.hexval()}'>"
-                          f"{claims['payment_discrepancy']}</font>", val_r),
-            ])
-        rows.append([Paragraph(L["total_pay"], val_b),
-                     Paragraph(claims["total_payment"], val_br)])
-        t = Table(rows, colWidths=[110 * mm, 56 * mm])
-        t.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
-        ]))
-        story.append(t)
-        if claims["payment_discrepancy_note"]:
-            story.append(Spacer(1, 2 * mm))
-            story.append(Paragraph(
-                f"<font color='{AMBER.hexval()}'>"
-                f"{claims['payment_discrepancy_note']}</font>", foot,
-            ))
-        if claims["brand_note"]:
-            story.append(Spacer(1, 2 * mm))
-            story.append(Paragraph(claims["brand_note"], foot))
-
-    # ─── Cash Drawer ───
-    if dc.cash_counted is not None:
-        story.append(Paragraph(L["cash"], section_title))
-        diff = float(dc.cash_difference or 0)
-        diff_style = ParagraphStyle("Diff", parent=val_br,
-                                    textColor=DANGER if abs(diff) > 100 else INK)
-        rows = [
-            [Paragraph(L["cash_expected"], val), Paragraph(fmt(dc.cash_expected), val_r)],
-            [Paragraph(L["cash_counted"], val), Paragraph(fmt(dc.cash_counted), val_r)],
-            [Paragraph(L["cash_diff"], val_b), Paragraph(fmt(dc.cash_difference), diff_style)],
-        ]
-        t = Table(rows, colWidths=[110 * mm, 56 * mm])
-        t.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
-        ]))
-        story.append(t)
-
-    # ─── Tips ───
-    if dc.tips_total:
-        story.append(Paragraph(L["tips"], section_title))
-        rows = [
-            [Paragraph(L["tips_total"], val), Paragraph(fmt(dc.tips_total), val_r)],
-            [Paragraph(L["tips_staff"], val),
-             Paragraph(str(dc.tips_staff_count or "—"), val_r)],
-            [Paragraph(L["tips_pp"], val_b), Paragraph(fmt(dc.tips_per_person), val_br)],
-        ]
-        t = Table(rows, colWidths=[110 * mm, 56 * mm])
-        t.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.5, DIVIDER),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 2 * mm))
-        story.append(Paragraph(L["tips_note"], foot))
-
-    # ─── Bilagsnummer audit trail (DK Bogføringsloven 2024) ───
-    if currency == "DKK" and (sale_vmin or exp_vmin):
-        story.append(Paragraph(L["vouchers"], section_title))
-        rows = []
-        if sale_vmin and sale_vmax:
-            label = (f"S-{dc.date.year}-{sale_vmin:04d} → S-{dc.date.year}-{sale_vmax:04d}"
-                     if sale_vmin != sale_vmax
-                     else f"S-{dc.date.year}-{sale_vmin:04d}")
-            rows.append([Paragraph(L["v_sales"], val), Paragraph(label, val_r)])
-        if exp_vmin and exp_vmax:
-            label = (f"E-{dc.date.year}-{exp_vmin:04d} → E-{dc.date.year}-{exp_vmax:04d}"
-                     if exp_vmin != exp_vmax
-                     else f"E-{dc.date.year}-{exp_vmin:04d}")
-            rows.append([Paragraph(L["v_exp"], val), Paragraph(label, val_r)])
-        if rows:
-            t = Table(rows, colWidths=[110 * mm, 56 * mm])
-            t.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
+        if claims["draft_banner"]:
+            draft_band = Table(
+                [[Paragraph(
+                    f"<font name='Helvetica-Bold' color='{colors.HexColor('#92400e').hexval()}'"
+                    f" size='9.5'>{claims['draft_mark']}</font>"
+                    f"<br/><font color='{MUTED.hexval()}' size='8'>{claims['draft_banner']}</font>",
+                    val,
+                )]],
+                colWidths=[166 * mm],
+            )
+            draft_band.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fef3c7")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("ROUNDEDCORNERS", [4, 4, 4, 4]),
             ]))
-            story.append(t)
+            story.append(draft_band)
+            story.append(Spacer(1, 4 * mm))
 
-    # ─── Notes ───
-    if dc.notes:
-        story.append(Paragraph(L["notes"], section_title))
-        # Escaped, and the owner's own line breaks kept.
-        story.append(Paragraph(escape_pdf_text(dc.notes).replace("\n", "<br/>"), val))
+        # ─── Identity ───
+        # Everything a person typed is escaped here, at the Paragraph boundary.
+        id_lines = [
+            f"<font name='Helvetica-Bold' size='10.5'>{escape_pdf_text(claims['business_name'])}</font>"
+        ]
+        sub = []
+        if claims["address_line"]:
+            sub.append(escape_pdf_text(claims["address_line"]))
+        if profile and getattr(profile, "org_number", None):
+            sub.append(f"CVR {escape_pdf_text(profile.org_number)}")
+        if sub:
+            id_lines.append(f"<font color='#6b7280'>{' · '.join(sub)}</font>")
+        if branch:
+            id_lines.append(f"<font color='#6b7280'>{L['branch']}: {escape_pdf_text(branch)}</font>")
+        who = []
+        if dc.closed_by:
+            # A draft was counted, not closed.
+            who_label = L["closed_by"] if claims["is_locked"] else L["counted_by"]
+            who.append(f"{who_label}: {escape_pdf_text(dc.closed_by)}")
+        if claims["locked_at_local"] is not None:
+            loc = claims["locked_at_local"]
+            who.append(f"{L['locked_at']} " + (loc.strftime("%d.%m.%Y kl. %H:%M") if DA
+                                               else loc.strftime("%d %b %Y %H:%M")))
+        elif not claims["is_locked"]:
+            who.append(L["not_locked"])
+        if who:
+            id_lines.append(f"<font color='#6b7280'>{' · '.join(who)}</font>")
+        if src:
+            id_lines.append(f"<font color='#6b7280'>{L['source']}: {escape_pdf_text(src)}</font>")
+        story.append(Paragraph("<br/>".join(id_lines), meta))
+        story.append(Spacer(1, 3 * mm))
 
-    # ─── Accountant readiness badge ───
-    # EVERY line in this badge is derived from the row (see build_close_claims).
-    # It used to be a static sentence — "Salgsmoms beregnet, kontant afstemt,
-    # bilagsnumre i orden" — printed under a GENNEMGÅS ("to be reviewed")
-    # heading on a draft with NULL payments and a 0,00 MOMS that contradicted
-    # its own page. A heading saying "review this" over a body listing three
-    # passes is a document arguing with itself; and none of the three had been
-    # checked. A DRAFT gets no badge at all — an unlocked close has nothing to
-    # assure, and the KLADDE band at the top of the page is its whole status.
-    assurance = claims["assurance"]
-    if assurance:
-        all_ok = assurance["all_ok"]
-        # 5mm, not 10. The band went from a heading plus one sentence to a
-        # heading plus four derived lines, and the old 10mm gap pushed the
-        # footer onto a second page carrying nothing else — a two-page
-        # kasserapport whose page 2 is one line of small print.
-        story.append(Spacer(1, 5 * mm))
-        badge_color = colors.HexColor("#065f46") if all_ok else colors.HexColor("#92400e")
-        badge_bg = colors.HexColor("#d1fae5") if all_ok else colors.HexColor("#fef3c7")
-        # Marks, not emoji: "✓" for a check that passed, "×" for one that did
-        # not. A failed check is never silently omitted — the whole value of
-        # this band to a revisor is seeing what was NOT done.
-        body = "<br/>".join(
-            f"<font color='{(OK_GREEN if c['ok'] else AMBER).hexval()}' size='8'>"
-            f"{MARK_PASS if c['ok'] else MARK_FAIL} {c['text']}</font>"
-            for c in assurance["checks"]
-        )
-        # Tighter leading for the check list — four 8pt lines do not need the
-        # 14pt leading the 10.5pt body rows use.
-        badge_style = ParagraphStyle("Badge", parent=val, leading=11.5)
-        badge_table = Table(
-            [[Paragraph(
-                f"<font name='Helvetica-Bold' color='{badge_color.hexval()}' size='9.5'>"
-                # MARK_REVIEW, not U+26A0. That codepoint is outside the
-                # WinAnsi encoding Helvetica is drawn in, so ReportLab put a
-                # black tofu box there — which is precisely the "▪ GENNEMGÅS"
-                # the founder's exported PDF showed. The marks are named in
-                # kasserapport_claims and pinned by mark_is_renderable.
-                f"{MARK_PASS if all_ok else MARK_REVIEW} "
-                f"{assurance['heading']}</font><br/>{body}",
-                badge_style,
-            )]],
-            colWidths=[166 * mm],
-        )
-        badge_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), badge_bg),
-            ("LEFTPADDING", (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("ROUNDEDCORNERS", [4, 4, 4, 4]),
-        ]))
-        # The band and the footer belong together: a band on page 1 with its
-        # footer stranded alone on page 2 reads as a truncated document.
-        story.append(KeepTogether([
-            badge_table,
-            Spacer(1, 4 * mm),
-            HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
-                       spaceBefore=2, spaceAfter=4),
-            # ─── Footer ───
-            # A label with no value is a claim with nothing behind it. This used
-            # to print "Lukket —" unconditionally, so a close that was NEVER
-            # locked told the revisor it was final and then dangled an em-dash
-            # where the timestamp should be. No timestamp → no "Lukket" segment
-            # at all; a draft says "Ikke låst", which is the true statement.
-            Paragraph(claims["footer"], foot),
-        ]))
-    else:
-        story.append(Spacer(1, 6 * mm))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
-                                spaceBefore=2, spaceAfter=4))
-        story.append(Paragraph(claims["footer"], foot))
+        # ─── Revenue ───
+        # Either the page adds up, or the page says that it does not — in its
+        # own voice. Derivation lives in kasserapport_claims.
+        if claims["revenue_lines"]:
+            story.append(Paragraph(L["revenue"], section_title))
+            rows = []
+            for line in claims["revenue_lines"]:
+                label = escape_pdf_text(line["label"])
+                if line["is_correction"]:
+                    label = (f"{label} <font color='{MUTED.hexval()}' size='8.5'>"
+                             f"({line['correction_tag']})</font>")
+                rows.append([Paragraph(label, val), Paragraph(line["amount"], val_r)])
+            if claims["discrepancy"] is not None:
+                # Amber for a CONTRADICTION; muted for an INCOMPLETE SPLIT (the
+                # Z-bon scan flow working as designed).
+                _tone = (AMBER if claims["discrepancy_tone"] == "amber" else MUTED)
+                rows.append([Paragraph(L["lines_sum"], val),
+                             Paragraph(claims["lines_sum"], val_r)])
+                rows.append([
+                    Paragraph(f"<font color='{_tone.hexval()}'>{claims['discrepancy_label']}</font>", val),
+                    Paragraph(f"<font color='{_tone.hexval()}'>{claims['discrepancy']}</font>", val_r),
+                ])
+            rows.append([Paragraph(L["total_revenue"], val_b),
+                         Paragraph(claims["total_revenue"], val_br)])
+            story.append(_rows_table(rows))
+            if claims["discrepancy_note"]:
+                _tone = (AMBER if claims["discrepancy_tone"] == "amber" else MUTED)
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(
+                    f"<font color='{_tone.hexval()}'>{claims['discrepancy_note']}</font>", foot))
+            if claims["correction_note"]:
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(claims["correction_note"], foot))
 
-    doc.build(story)
-    buf.seek(0)
-    # The filename must not imply finality either — a kladde downloaded, mailed
-    # on and opened a week later is identified by its name alone.
-    pdf = buf.getvalue()
-    from app.utils.document_hash import short_hash
+        # ─── MOMS — never a number it cannot stand behind ───
+        if (dc.moms_total is not None or dc.revenue_ex_moms is not None
+                or not claims["revenue_ties_out"]):
+            story.append(Paragraph(L["moms_title"], section_title))
+            story.append(_rows_table([
+                [Paragraph(L["moms_incl"], val), Paragraph(claims["moms"]["incl"], val_r)],
+                [Paragraph(L["moms_vat"], val), Paragraph(claims["moms"]["vat"], val_r)],
+                [Paragraph(L["moms_excl"], val_b), Paragraph(claims["moms"]["excl"], val_br)],
+            ]))
+            if claims["moms_unknown_reason"]:
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(
+                    f"<font color='{AMBER.hexval()}'>{claims['moms_unknown_reason']}</font>", foot))
+            else:
+                for _note in (claims["moms_basis_note"], claims["moms_manual_note"]):
+                    if _note:
+                        story.append(Spacer(1, 1 * mm))
+                        story.append(Paragraph(_note, foot))
+
+        # ─── Payment methods ───
+        if claims["payment_lines"]:
+            story.append(Paragraph(L["payments"], section_title))
+            rows = []
+            for line in claims["payment_lines"]:
+                if line["is_brand"]:
+                    # A card brand is a SPLIT of the card line, never money on top.
+                    rows.append([
+                        Paragraph(f"<font color='{MUTED.hexval()}' size='9'>"
+                                  f"&nbsp;&nbsp;&nbsp;&nbsp;{escape_pdf_text(line['label'])}</font>", val),
+                        Paragraph(f"<font color='{MUTED.hexval()}' size='9'>{line['amount']}</font>", val_r),
+                    ])
+                else:
+                    rows.append([Paragraph(escape_pdf_text(line["label"]), val),
+                                 Paragraph(line["amount"], val_r)])
+            if claims["payment_discrepancy"] is not None:
+                rows.append([Paragraph(L["pay_lines_sum"], val),
+                             Paragraph(claims["payment_lines_sum"], val_r)])
+                rows.append([
+                    Paragraph(f"<font color='{AMBER.hexval()}'>{L['pay_discrepancy']}</font>", val),
+                    Paragraph(f"<font color='{AMBER.hexval()}'>{claims['payment_discrepancy']}</font>", val_r),
+                ])
+            rows.append([Paragraph(L["total_pay"], val_b),
+                         Paragraph(claims["total_payment"], val_br)])
+            story.append(_rows_table(rows))
+            if claims["payment_discrepancy_note"]:
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(
+                    f"<font color='{AMBER.hexval()}'>{claims['payment_discrepancy_note']}</font>", foot))
+            if claims["brand_note"]:
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(claims["brand_note"], foot))
+
+        # ─── Cash drawer — as the app counts it ───
+        if dc.cash_counted is not None:
+            story.append(Paragraph(L["cash"], section_title))
+            diff = float(dc.cash_difference) if dc.cash_difference is not None else None
+            from app.services.kasserapport_claims import CASH_TOL
+            diff_style = ParagraphStyle(
+                "Diff", parent=val_br,
+                textColor=DANGER if (diff is not None and abs(diff) > CASH_TOL) else INK)
+            rows = [[Paragraph(L["cash_expected"], val), Paragraph(fmt(dc.cash_expected), val_r)]]
+            cash_float = getattr(dc, "cash_float", None)
+            if cash_float is not None:
+                rows.append([Paragraph(L["cash_drawer"], val),
+                             Paragraph(fmt(float(dc.cash_counted) + float(cash_float)), val_r)])
+                rows.append([Paragraph(f"− {L['cash_float']}", val),
+                             Paragraph(fmt(cash_float), val_r)])
+            rows.append([Paragraph(L["cash_counted"], val), Paragraph(fmt(dc.cash_counted), val_r)])
+            rows.append([Paragraph(L["cash_diff"], val_b), Paragraph(signed(diff), diff_style)])
+            story.append(_rows_table(rows))
+            if diff is not None and abs(diff) >= 0.005:
+                amt = fmt(abs(diff))
+                words = ((f"Kassen mangler {amt}." if diff < 0 else f"Der er {amt} for meget i kassen.")
+                         if DA else (f"Cash short by {amt}." if diff < 0 else f"Cash over by {amt}."))
+                story.append(Spacer(1, 1 * mm))
+                story.append(Paragraph(words, foot))
+
+        # ─── Tips ───
+        if dc.tips_total:
+            story.append(Paragraph(L["tips"], section_title))
+            story.append(_rows_table([
+                [Paragraph(L["tips_total"], val), Paragraph(fmt(dc.tips_total), val_r)],
+                [Paragraph(L["tips_staff"], val), Paragraph(str(dc.tips_staff_count or "—"), val_r)],
+                [Paragraph(L["tips_pp"], val_b), Paragraph(fmt(dc.tips_per_person), val_br)],
+            ]))
+            story.append(Spacer(1, 1 * mm))
+            story.append(Paragraph(L["tips_note"], foot))
+
+        # ─── Bilagsnummer audit trail ───
+        if currency == "DKK" and (sale_vmin or exp_vmin):
+            story.append(Paragraph(L["vouchers"], section_title))
+            rows = []
+            if sale_vmin and sale_vmax:
+                label = (f"S-{dc.date.year}-{sale_vmin:04d} → S-{dc.date.year}-{sale_vmax:04d}"
+                         if sale_vmin != sale_vmax else f"S-{dc.date.year}-{sale_vmin:04d}")
+                rows.append([Paragraph(L["v_sales"], val), Paragraph(label, val_r)])
+            if exp_vmin and exp_vmax:
+                label = (f"E-{dc.date.year}-{exp_vmin:04d} → E-{dc.date.year}-{exp_vmax:04d}"
+                         if exp_vmin != exp_vmax else f"E-{dc.date.year}-{exp_vmin:04d}")
+                rows.append([Paragraph(L["v_exp"], val), Paragraph(label, val_r)])
+            if rows:
+                t = Table(rows, colWidths=[110 * mm, 56 * mm])
+                t.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ]))
+                story.append(t)
+
+        # ─── Notes ───
+        if dc.notes:
+            story.append(Paragraph(L["notes"], section_title))
+            story.append(Paragraph(escape_pdf_text(dc.notes).replace("\n", "<br/>"), meta))
+
+        # ─── History — unlock / relock, from the append-only audit trail ───
+        if history_events:
+            story.append(Paragraph(L["history"], section_title))
+            story.append(Paragraph(
+                escape_pdf_text(format_history(history_events, danish=DA, tz=tz)).replace(" · ", "<br/>"),
+                meta,
+            ))
+
+        # ─── Accountant readiness badge ───
+        # EVERY line is derived from the row (build_close_claims). A draft gets
+        # no badge at all. Marks, not emoji: MARK_PASS for a check that passed,
+        # MARK_FAIL for one that did not, a muted "·" for information that does
+        # not gate the heading.
+        assurance = claims["assurance"]
+        if assurance:
+            all_ok = assurance["all_ok"]
+            story.append(Spacer(1, 3 * mm))
+            badge_color = colors.HexColor("#065f46") if all_ok else colors.HexColor("#92400e")
+            badge_bg = colors.HexColor("#d1fae5") if all_ok else colors.HexColor("#fef3c7")
+
+            def _mark(c):
+                if c.get("info"):
+                    return f"<font color='{MUTED.hexval()}' size='8'>· {c['text']}</font>"
+                return (f"<font color='{(OK_GREEN if c['ok'] else AMBER).hexval()}' size='8'>"
+                        f"{MARK_PASS if c['ok'] else MARK_FAIL} {c['text']}</font>")
+
+            body = "<br/>".join(_mark(c) for c in assurance["checks"])
+            badge_style = ParagraphStyle("Badge", parent=val, leading=10.5)
+            badge_table = Table(
+                [[Paragraph(
+                    # MARK_REVIEW, not U+26A0 — that codepoint draws as a black
+                    # box in Helvetica's WinAnsi encoding.
+                    f"<font name='Helvetica-Bold' color='{badge_color.hexval()}' size='9.5'>"
+                    f"{MARK_PASS if all_ok else MARK_REVIEW} "
+                    f"{assurance['heading']}</font><br/>{body}",
+                    badge_style,
+                )]],
+                colWidths=[166 * mm],
+            )
+            badge_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), badge_bg),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("ROUNDEDCORNERS", [4, 4, 4, 4]),
+            ]))
+            # The band and the footer belong together: a band on page 1 with
+            # its footer stranded alone on page 2 reads as a truncated document.
+            story.append(KeepTogether([
+                badge_table,
+                Spacer(1, 3 * mm),
+                HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
+                           spaceBefore=2, spaceAfter=3),
+                # A label with no value is a claim with nothing behind it; a
+                # draft says "Ikke låst", which is the true statement.
+                Paragraph(claims["footer"], foot),
+            ]))
+        else:
+            story.append(Spacer(1, 4 * mm))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
+                                    spaceBefore=2, spaceAfter=3))
+            story.append(Paragraph(claims["footer"], foot))
+        return story
+
+    try:
+        generated_at_str = utc_now().strftime("%Y-%m-%d %H:%M UTC")
+    except Exception:  # noqa: BLE001
+        generated_at_str = ""
+    running = (
+        f"{claims['title']} · {claims['business_name']} · "
+        f"{dc.date.strftime('%d.%m.%Y')} · {L['bilag_no']} {bilagsnummer}"
+    )
+    pdf = render_with_doc_hash(
+        _story,
+        pagesize=A4,
+        left_mm=22, right_mm=22, top_mm=15, bottom_mm=18,
+        # The PDF's own document properties are part of what it claims: a
+        # kladde must not present itself as "Kasserapport" in a title bar.
+        title=claims["title"],
+        author="BonBox",
+        subject=f"{claims['business_name']} {dc.date.isoformat()}",
+        software_id=get_software_identifier(),
+        generated_at_str=generated_at_str,
+        # No login e-mail on a document that goes to a third party.
+        generator_email="",
+        is_danish=DA,
+        doc_hash=doc_id,
+        hash_label="Dokument-id" if DA else "Document ID",
+        running_header=running,
+    )
     return {
         "pdf": pdf,
         "filename": close_filename(claims["business_name"], dc.date, locked=claims["is_locked"]),
-        "doc_id": short_hash(pdf, length=16),
-        "bilagsnummer": "",
+        "doc_id": doc_id,
+        "bilagsnummer": bilagsnummer,
     }

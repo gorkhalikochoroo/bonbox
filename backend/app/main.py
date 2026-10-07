@@ -2586,6 +2586,12 @@ _migrations = [
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_auto_send BOOLEAN",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_opted_out_at TIMESTAMP",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS accountant_opted_out_email VARCHAR(255)",
+    # ── Migration 083 (2026-10-07): the kasserapport names its sources ────
+    # The float (byttepenge) taken off the drawer count, and where the
+    # figures came from (Z-bon scan vs typed, tills added together, fields the
+    # owner corrected). Nullable, no default, no backfill.
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS cash_float NUMERIC(12,2)",
+    "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS source_meta TEXT",
 ]
 
 
@@ -3217,6 +3223,9 @@ def _run_migrations():
             ok += _add("business_profiles", "accountant_auto_send", "BOOLEAN")
             ok += _add("business_profiles", "accountant_opted_out_at", "TIMESTAMP")
             ok += _add("business_profiles", "accountant_opted_out_email", "VARCHAR(255)")
+            # Mirror of Migration 083 — the float and the figures' source.
+            ok += _add("daily_closes", "cash_float", "NUMERIC(12,2)")
+            ok += _add("daily_closes", "source_meta", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

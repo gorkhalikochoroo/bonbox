@@ -2715,6 +2715,34 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     const notesWithExtras = [notes, ...extraNoteParts].filter(Boolean).join("\n") || null;
 
+    // Where the figures came from, for the revisor's kasserapport: read off a
+    // Z-bon (and how many tills were added together), typed, and which lines
+    // the owner changed after the scan. A reopened draft with no new scan
+    // sends nothing, so the server keeps what it already knows.
+    const readScan = scanResult && !scanResult.from_draft ? scanResult : null;
+    let source_meta = null;
+    if (readScan) {
+      const corrected = [];
+      const near = (a, b) => Math.abs(readMoney0(a) - readMoney0(b)) < 0.005;
+      Object.entries(readScan.revenue || {}).forEach(([k, v]) => {
+        if (v != null && v !== "" && !near(v, revenue_breakdown[k] ?? 0)) corrected.push(`rev:${k}`);
+      });
+      Object.entries(readScan.payments || {}).forEach(([k, v]) => {
+        if (v != null && v !== "" && !near(v, payment_breakdown[k] ?? 0)) corrected.push(`pay:${k}`);
+      });
+      if (readScan.revenue_total_text) corrected.push("revenue_total");
+      const mi = readScan.merge_info || {};
+      source_meta = {
+        kind: "zbon",
+        scans: Number(mi.scans) || 1,
+        terminal_totals: mi.mode === "sum" ? (mi.terminalTotals || []).map(Number).filter(Number.isFinite) : [],
+        corrected,
+      };
+    } else if (!scanResult && !receiptPhotoUrl) {
+      source_meta = { kind: "typed" };
+    }
+    const countedNum = cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null;
+
     return {
       date: businessDate,
       branch_id: fileBranchId,
@@ -2725,7 +2753,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       moms_mode: momsMode,
       tips_total: tipsTotal && Number.isFinite(readMoney(tipsTotal)) ? readMoney(tipsTotal) : null,
       tips_staff_count: staffCount ? parseInt(staffCount) : null,
-      cash_counted: cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null,
+      cash_counted: countedNum,
+      // The byttepenge taken off the drawer count — so the kasserapport can
+      // show "Optalt (uden byttepenge)" the way this screen does.
+      cash_float: countedNum != null && Number.isFinite(readMoney0(cashFloat)) ? readMoney0(cashFloat) : null,
+      source_meta,
       closed_by: closedBy || null,
       notes: notesWithExtras,
       // Phase A forward-compat fields — the backend ignores unknown keys today
@@ -5631,6 +5663,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     if (rangePreset === "14d") return { from: isoDaysAgo(13), to };
     if (rangePreset === "1m") return { from: isoDaysAgo(29), to };
     if (rangePreset === "3m") return { from: isoDaysAgo(89), to };
+    if (rangePreset === "prev") {
+      // The calendar month before this one — what a revisor books.
+      const [y, m] = to.split("-").map(Number);
+      const py = m === 1 ? y - 1 : y;
+      const pm = m === 1 ? 12 : m - 1;
+      const last = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+      const mm = String(pm).padStart(2, "0");
+      return { from: `${py}-${mm}-01`, to: `${py}-${mm}-${String(last).padStart(2, "0")}` };
+    }
     // Custom: use whatever the user typed; basic guard against
     // inverted ranges so the API doesn't bounce a 422 visibly.
     const f = customFrom > customTo ? customTo : customFrom;
@@ -5721,7 +5762,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // same tick as the click and never appended the anchor, which is a 0-byte
       // file on Safari and an ignored click on Firefox. A not-ok outcome is the
       // only signal the owner gets, so it reaches the same banner as a 402.
-      const out = await saveFile(blob, `daily-close_${activeRange.from}_to_${activeRange.to}.${fmt}`, {
+      // The server's name: "Kasserapporter <firma> <fra>–<til>.xlsx".
+      const out = await saveFile(blob, filenameFromResponse(res, `Kasserapporter ${activeRange.from}–${activeRange.to}.${fmt}`), {
         type: _MIME[fmt] || "application/octet-stream",
       });
       if (!out.ok) setExportError(t("dcExportFailed"));
@@ -5975,9 +6017,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // from the server's own Content-Disposition (kasserapport_kladde_…).
       // A kladde mailed on and opened a week later is identified by its
       // filename alone.
-      const name = isDraft
-        ? `kasserapport_kladde_${dateStr}.pdf`
-        : `kasserapport_${dateStr}.pdf`;
+      // Mirrored from the server's own Content-Disposition:
+      // "Kasserapport <firma> <dato>.pdf" / "Kasserapport KLADDE …".
+      const name = filenameFromResponse(res, isDraft
+        ? `Kasserapport KLADDE ${dateStr}.pdf`
+        : `Kasserapport ${dateStr}.pdf`);
       const out = await saveFile(res.data, name, {
         type: "application/pdf",
       });
@@ -6032,12 +6076,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     try {
       const aggregated = dcToAggregated(dc);
       const dateLabel = formatDanishDateLabel(new Date(dc.date));
+      // The same name as every revisor artifact (the profile's legal name).
+      const bizName = businessProfile?.company_name || user?.business_name;
       const title = buildShareTitle({
-        businessName: user?.business_name,
+        businessName: bizName,
         dateLabel,
       });
       const text = buildShareMessage(aggregated, {
-        businessName: user?.business_name,
+        businessName: bizName,
         dateLabel,
         currency,
       });
@@ -6200,6 +6246,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             { id: "7d",     label: t("rangePreset7d", "Last 7 days"),   days: 7 },
             { id: "14d",    label: t("rangePreset14d", "Last 14 days"),  days: 14 },
             { id: "1m",     label: t("rangePreset1m", "Last 1 month"),  days: 31 },
+            { id: "prev",   label: t("rangePresetPrevMonth", "Last month"), days: 31 },
             { id: "3m",     label: t("rangePreset3m", "Last 3 months"), days: 90 },
             { id: "custom", label: t("rangePresetCustom", "Custom"),     days: 0 },
           ].map(p => {

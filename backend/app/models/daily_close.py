@@ -82,6 +82,16 @@ class DailyClose(Base):
     email_sent_to: Mapped[str | None] = mapped_column(Text, nullable=True)
     email_send_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Migration 083 — what the kasserapport needs to say where its figures
+    # came from. cash_float: the byttepenge taken off the drawer count (the
+    # form always did this; the server never saw the float, so the PDF could
+    # not show it). source_meta: JSON {"kind": "zbon"|"typed", "scans": n,
+    # "terminal_totals": [..] when tills were added together, "corrected":
+    # ["rev:food", "pay:card", "revenue_total"] — fields the owner changed
+    # after the scan}. Both nullable; old closes print what is known.
+    cash_float: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    source_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

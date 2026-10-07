@@ -109,7 +109,10 @@ def test_draft_carries_no_assurance_banner():
 
 def test_locked_close_renders_lukket_with_its_timestamp():
     c = _claims(_good_close())
-    assert "Lukket 17/09/2026 23:30" in c["footer"]
+    # In the venue's time (23:30 UTC on 17 Sep is 01:30 on 18 Sep in
+    # Copenhagen) — the app and the e-mail already said 01:30.
+    assert "Låst 18.09.2026 kl. 01:30" in c["footer"]
+    assert "Opbevares i 5 år efter bogføringsloven." in c["footer"]
 
 
 def test_label_with_no_value_never_renders():
@@ -317,11 +320,18 @@ def test_counted_but_unreconciled_cash_is_distinguished_from_not_counted():
     assert cash["text"] == "Kontant optalt — differencen er ikke afstemt."
 
 
-def test_missing_bilagsnumre_says_so():
-    a = _claims(_good_close(), has_bilag=False)["assurance"]
+def test_missing_bilagsnumre_is_stated_but_does_not_gate_the_heading():
+    """A café that books from the Z-bon has no other vouchers in BonBox; the
+    kasserapport IS the day's bilag. Failing that made 'klar til bogføring'
+    unreachable for exactly them — and the period export (which never checked
+    it) gave the same day the opposite verdict. Now: stated, as information."""
+    a = _claims(_good_close(), has_bilag=False, bilagsnummer="KR-20260917-20260917")["assurance"]
     bilag = next(c for c in a["checks"] if c["check"] == "bilag")
-    assert bilag["ok"] is False
-    assert bilag["text"] == "Ingen bilagsnumre på dagen."
+    assert bilag.get("info") is True
+    assert "KR-20260917-20260917" in bilag["text"]
+    assert a["all_ok"] is True
+    a2 = _claims(_good_close(), has_bilag=False)["assurance"]
+    assert next(c for c in a2["checks"] if c["check"] == "bilag")["text"] == "Ingen bilagsnumre på dagen."
 
 
 def test_heading_agrees_with_the_body():
@@ -334,7 +344,7 @@ def test_heading_agrees_with_the_body():
         (_good_close(moms_total=None, revenue_ex_moms=None), True),
     ]:
         a = _claims(dc, has_bilag=bilag)["assurance"]
-        passed = all(c["ok"] for c in a["checks"])
+        passed = all(c["ok"] for c in a["checks"] if not c.get("info"))
         assert a["all_ok"] is passed
         assert a["heading"] == ("KLAR TIL BOGFØRING" if passed else "GENNEMGÅS")
 

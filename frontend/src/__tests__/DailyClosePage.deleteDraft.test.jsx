@@ -130,8 +130,11 @@ describe("a draft kasserapport can be deleted", () => {
 });
 
 describe("a draft's filename does not imply finality", () => {
-  it("the downloaded kladde is named kasserapport_kladde_<date>.pdf", () => {
-    expect(CODE).toMatch(/kasserapport_kladde_\$\{dateStr\}\.pdf/);
+  it("the downloaded kladde says KLADDE in its name (server's name, with a KLADDE fallback)", () => {
+    // The server names it "Kasserapport KLADDE <firma> <dato>.pdf"; the page
+    // reads that from Content-Disposition, and its own fallback says KLADDE too.
+    expect(CODE).toMatch(/filenameFromResponse\(res, isDraft/);
+    expect(CODE).toMatch(/`Kasserapport KLADDE \$\{dateStr\}\.pdf`/);
     expect(CODE).toMatch(/downloadPdf = async \(id, dateStr, isDraft = false\)/);
   });
 

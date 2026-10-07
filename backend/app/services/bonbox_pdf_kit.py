@@ -256,6 +256,9 @@ def render_with_doc_hash(
     generated_at_str: str = "",
     generator_email: str = "",
     is_danish: bool = True,
+    doc_hash: str | None = None,
+    hash_label: str | None = None,
+    running_header: str = "",
 ) -> bytes:
     """Render a reportlab story with the accountant-grade provenance footer —
     the SINGLE reusable 2-pass renderer that kills the copy-paste hazard.
@@ -278,6 +281,16 @@ def render_with_doc_hash(
       pass to get clean objects. (This is exactly the trap the gold avoids by
       hand with `_rebuild_filing_story`; routing through here means callers
       never re-implement it.)
+
+    `doc_hash` — when the caller already has a STABLE identifier for the
+    document (the single-close kasserapport derives one from its content), it
+    is printed as-is, in one pass, under `hash_label` ("Dokument-id"). The same
+    value then goes in the e-mail and the audit row, so a revisor can match
+    the file to both. The 2-pass bytes hash above could never be checked
+    against the file it was printed in.
+
+    `running_header` — a one-line identity drawn at the top of every page
+    after the first, so a page 2 is never an unidentifiable sheet.
 
     `pagesize[0]` is used for the page width so the footer positions correctly
     for BOTH portrait (A4) and landscape (landscape(A4)) documents.
@@ -319,19 +332,26 @@ def render_with_doc_hash(
 
     # Hash is unknown until pass 1 renders; the footer closure reads it live so
     # pass 2 picks up the real value once we've patched the holder.
-    doc_hash_holder = {"value": "pending"}
+    doc_hash_holder = {"value": doc_hash or "pending"}
+    label = hash_label or "Doc-hash"
+    page_height = pagesize[1]
 
     def _draw_audit_footer(canv, page_num, total_pages):
         from reportlab.lib import colors as _c
 
         canv.saveState()
+        if running_header and page_num > 1:
+            canv.setFont("Helvetica", 7.5)
+            canv.setFillColor(_c.HexColor("#6b7280"))
+            canv.drawString(left_margin, page_height - 12 * mm, running_header)
         canv.setFont("Helvetica", 6.8)
         canv.setFillColor(_c.HexColor("#94a3b8"))
         # Right edge of content = page_width − right margin (NOT a hardcoded
-        # 22mm), so "Side X / Y" lines up with the table's right edge.
+        # 22mm), so "Side X af Y" lines up with the table's right edge.
         canv.drawRightString(
             page_width - right_margin, 10 * mm,
-            ("Side " if is_danish else "Page ") + f"{page_num} / {total_pages}",
+            (f"Side {page_num} af {total_pages}" if is_danish
+             else f"Page {page_num} of {total_pages}"),
         )
         # "af <email>" / "by <email>" is only meaningful when we actually have
         # a generator email. When it's blank/None, drop the "af"/"by" + email so
@@ -352,7 +372,7 @@ def render_with_doc_hash(
         # table's left edge.
         canv.drawString(
             left_margin, 10 * mm,
-            f"Doc-hash: {doc_hash_holder['value']}",
+            f"{label}: {doc_hash_holder['value']}",
         )
         canv.restoreState()
 
@@ -366,6 +386,12 @@ def render_with_doc_hash(
             title=title, author=author,
             creator=software_id or author, subject=subject,
         )
+
+    if doc_hash:
+        # A stable id was supplied: one pass, nothing to discover.
+        buf = BytesIO()
+        _new_doc(buf).build(story_builder(), canvasmaker=canvas_maker)
+        return buf.getvalue()
 
     # Pass 1 — placeholder hash; fresh flowables from the builder.
     buf1 = BytesIO()

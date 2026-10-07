@@ -620,7 +620,7 @@ def test_a_failed_pdf_build_is_named_not_blamed_on_the_environment(
 
 def test_migration_and_sqlite_mirror_carry_every_new_column():
     """create_all() hides a missing mirror on a fresh sqlite db, so pin both
-    the Postgres ALTER and the SQLite mirror for every Migration 082 column."""
+    the Postgres ALTER and the SQLite mirror for every Migration 082/083 column."""
     import inspect
     import app.main as m
     src = inspect.getsource(m)
@@ -631,6 +631,204 @@ def test_migration_and_sqlite_mirror_carry_every_new_column():
         ("business_profiles", "accountant_auto_send"),
         ("business_profiles", "accountant_opted_out_at"),
         ("business_profiles", "accountant_opted_out_email"),
+        ("daily_closes", "cash_float"), ("daily_closes", "source_meta"),
     ):
         assert f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} " in src, (table, col)
         assert f'_add("{table}", "{col}"' in src, ("mirror", table, col)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Stage 3 — document quality (every assertion reads the rendered file)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _sep25(db, user, **kw):
+    """The rating's 25 Sep close: 3 categories, 4 methods, +25 drawer with a
+    1.000 kr. float, tips, a note — the one that spilled onto an orphan page."""
+    base = dict(
+        id=uuid.uuid4(), user_id=user.id, branch_id=None, date=date(2026, 9, 25),
+        revenue_categories="food:17393|drinks:9058|takeaway:2018",
+        revenue_total=28469.0,
+        payment_categories="cash:7971|card:16512|mobilepay:3416|gift_card:570",
+        payment_total=28469.0, moms_total=5693.8, revenue_ex_moms=22775.2,
+        moms_mode="auto", cash_expected=7971.0, cash_counted=7996.0,
+        cash_difference=25.0, cash_float=1000.0, tips_total=832.0,
+        tips_staff_count=4, tips_per_person=208.0, status="confirmed",
+        notes="Travl fredag. Kortterminal 2 genstartet kl. 20.",
+        closed_by="Lars", closed_at=datetime(2026, 9, 25, 23, 28), is_deleted=False,
+    )
+    base.update(kw)
+    c = DailyClose(**base)
+    db.add(c); db.commit(); db.refresh(c)
+    return c
+
+
+def test_single_kasserapport_carries_identity_traceability_and_fits_one_page(db_session):
+    from pypdf import PdfReader
+    from app.services.close_kasserapport_pdf import build_close_kasserapport_pdf
+    user = _make_user(db_session)
+    prof = _make_profile(db_session, user, address="Vestergade 1", zipcode="1456", city="København K")
+    dc = _sep25(db_session, user)
+    out = build_close_kasserapport_pdf(db_session, user, dc, profile=prof)
+    reader = PdfReader(io.BytesIO(out["pdf"]))
+    assert len(reader.pages) == 1, "a typical close fits one A4 page"
+    txt = pdf_text(out["pdf"])
+    # Identity + traceability
+    assert "Mirabelle ApS" in txt and "CVR 39842851" in txt
+    assert "Fredag 25. september 2026" in txt
+    assert "Bilagsnr. KR-20260925-20260925" in txt
+    assert f"Dokument-id: {out['doc_id']}" in txt
+    assert "Side 1 af 1" in txt
+    assert "Opbevares i 5 år efter bogføringsloven." in txt
+    # Lock time in Copenhagen time, same as the app and the mail (not 23:28 UTC).
+    assert "Låst 26.09.2026 kl. 01:28" in txt
+    assert "23:28" not in txt
+    # Cash as the app counts it — float shown, words for the difference.
+    assert "Forventet kontant (kontantsalg)" in txt and "fra bilag" not in txt
+    assert "Byttepenge" in txt and "1.000,00 kr." in txt
+    assert "Optalt i skuffen i alt" in txt and "8.996,00 kr." in txt
+    assert "Optalt (uden byttepenge)" in txt and "7.996,00 kr." in txt
+    assert "+25,00 kr." in txt
+    assert "Der er 25,00 kr. for meget i kassen." in txt
+    # Not "afstemt" beside a non-zero difference.
+    assert "og afstemt" not in txt
+    assert "inden for tolerancen på ±100 kr." in txt
+    # File name: business + date.
+    assert out["filename"] == "Kasserapport Mirabelle ApS 2026-09-25.pdf"
+    # Stable id: the same close renders the same document id.
+    assert build_close_kasserapport_pdf(db_session, user, dc, profile=prof)["doc_id"] == out["doc_id"]
+
+
+def test_single_kasserapport_names_branch_source_tills_and_history(db_session, client):
+    import json as _json
+    from app.models.branch import Branch
+    from app.services.close_kasserapport_pdf import build_close_kasserapport_pdf
+    user = _make_user(db_session)
+    prof = _make_profile(db_session, user)
+    br = Branch(id=uuid.uuid4(), user_id=user.id, name="Mirabelle Vesterbro")
+    db_session.add(br); db_session.commit()
+    dc = _sep25(db_session, user, branch_id=br.id, source_meta=_json.dumps({
+        "kind": "zbon", "scans": 2, "terminal_totals": [12000.0, 16469.0],
+        "corrected": ["pay:card"],
+    }))
+    # Unlock + relock, through the audit trail the router writes.
+    for action, after, when in (
+        ("daily_close.lock", {"status": "confirmed"}, datetime(2026, 9, 25, 23, 28)),
+        ("daily_close.unlock", {"unlock_reason": "Forkert kortbeløb", "unlocked_by": "ejer@mirabelle.dk"},
+         datetime(2026, 9, 29, 7, 0)),
+        ("daily_close.lock", {"status": "confirmed"}, datetime(2026, 9, 29, 7, 12)),
+    ):
+        db_session.add(AuditLog(user_id=user.id, action=action, entity_type="daily_close",
+                                entity_id=dc.id, after_state=_json.dumps(after), created_at=when))
+    db_session.commit()
+    txt = pdf_text(build_close_kasserapport_pdf(db_session, user, dc, profile=prof)["pdf"])
+    flat = " ".join(txt.split())
+    assert "Afdeling: Mirabelle Vesterbro" in flat
+    assert "Z-bon (scannet)" in flat
+    assert "2 terminaler lagt sammen: 12.000,00 kr. + 16.469,00 kr." in flat
+    assert "rettet af ejeren efter scanning: Kort" in flat
+    assert "HISTORIK" in flat
+    assert "Låst op 29.09.2026 kl. 09:00 af ejer@mirabelle.dk — årsag: Forkert kortbeløb" in flat
+    assert "Låst igen 29.09.2026 kl. 09:12" in flat
+
+    # …and the same history and source in the Excel and the CSV.
+    from openpyxl import load_workbook
+    from app.routers.daily_close import _range_extras
+    extras = _range_extras(db_session, user, [dc])
+    wb = load_workbook(io.BytesIO(build_daily_close_range_xlsx(
+        [dc], from_date=date(2026, 9, 1), to_date=date(2026, 9, 30),
+        business_name="Mirabelle ApS", currency="DKK",
+        tz=extras["tz"], history=extras["history"], sources=extras["sources"])))
+    ws = wb["Kasserapport"]
+    hdr = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+    row = dict(zip(hdr, [ws.cell(row=2, column=i).value for i in range(1, ws.max_column + 1)]))
+    assert "Forkert kortbeløb" in row["Historik"] and "Låst igen" in row["Historik"]
+    assert "2 terminaler lagt sammen" in row["Kilde"]
+    assert row["Låst (dansk tid)"] == datetime(2026, 9, 26, 1, 28)
+    assert row["Gavekort"] == 570
+    assert row["Kategori: Mad"] == 17393 and row["Kategori: Drikkevarer"] == 9058
+    csv_txt = closes_to_csv_bytes([dc], currency="DKK", **extras).decode("utf-8-sig")
+    assert "26.09.2026 kl. 01:28" in csv_txt
+    assert "Forkert kortbeløb" in csv_txt and "Mirabelle Vesterbro" in csv_txt
+
+
+def test_draft_kasserapport_says_counted_by_and_not_locked(db_session):
+    from app.services.close_kasserapport_pdf import build_close_kasserapport_pdf
+    user = _make_user(db_session)
+    prof = _make_profile(db_session, user)
+    dc = _sep25(db_session, user, status="draft", closed_at=None)
+    out = build_close_kasserapport_pdf(db_session, user, dc, profile=prof)
+    txt = pdf_text(out["pdf"])
+    assert "KLADDE" in txt
+    assert "Optalt af: Lars" in txt and "Lukket af" not in txt
+    assert "Ikke låst" in txt
+    assert out["filename"] == "Kasserapport KLADDE Mirabelle ApS 2026-09-25.pdf"
+
+
+def test_lock_mail_attaches_the_same_kasserapport_as_history(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user, d="2026-09-24")
+    cid = r.json()["id"]
+    mailed = _revisor_mails(mailbox)[-1]["attachments"][0]
+    import base64
+    mailed_txt = pdf_text(base64.b64decode(mailed["content"]))
+    hist = client.get(f"/api/daily-close/{cid}/pdf", headers=_auth(user))
+    assert hist.status_code == 200
+    assert "Kasserapport%20Mirabelle%20ApS%202026-09-24.pdf" in hist.headers["content-disposition"]
+    hist_txt = pdf_text(hist.content)
+    doc_id = hist.headers["x-document-id"]
+    # Same document: same id, same verdict, same figures — and the mail names it.
+    assert f"Dokument-id: {doc_id}" in mailed_txt and f"Dokument-id: {doc_id}" in hist_txt
+    for heading in ("KLAR TIL BOGFØRING", "GENNEMGÅS"):
+        assert (heading in mailed_txt) == (heading in hist_txt)
+    assert mailed["filename"] == "Kasserapport Mirabelle ApS 2026-09-24.pdf"
+    assert "Vedhæftet: Kasserapport Mirabelle ApS 2026-09-24.pdf (PDF)" in _revisor_mails(mailbox)[-1]["html"]
+
+
+def test_range_pdf_uses_the_kasserapport_readiness_rule_and_reads_right_way_round():
+    good = _close(date(2026, 9, 1), 4245.0, 849.0, pay={"cash": 4245.0},
+                  cash_expected=4205.0, cash_counted=4245.0, cash_difference=40.0)
+    short = _close(date(2026, 9, 2), 5000.0, 1000.0, pay={"cash": 5000.0},
+                   cash_expected=5180.0, cash_counted=5000.0, cash_difference=-180.0)
+    from app.services.kasserapport_claims import build_close_claims
+    assert build_close_claims(good)["assurance"]["all_ok"] is True
+    assert build_close_claims(short)["assurance"]["all_ok"] is False
+    txt = " ".join(pdf_text(build_daily_close_range_pdf(
+        [good, short], from_date=date(2026, 9, 1), to_date=date(2026, 9, 30),
+        business_name="Cafe", currency="DKK")).split())
+    assert "1 af 2 klar til bogføring · 1 skal gennemgås: 2. sep 2026" in txt
+    # optalt − forventet = difference, in the app's words.
+    assert "optalt 4.245,00 kr. − forventet 4.205,00 kr. = +40,00 kr. (for meget i kassen)" in txt
+    assert "optalt 5.000,00 kr. − forventet 5.180,00 kr. = -180,00 kr. (kassen mangler)" in txt
+
+
+def test_range_pdf_shows_gavekort_and_the_category_split():
+    c = _close(date(2026, 9, 25), 28469.0, 5693.8,
+               pay={"cash": 7971.0, "card": 16512.0, "mobilepay": 3416.0, "gift_card": 570.0},
+               cats={"food": 17393.0, "drinks": 9058.0, "takeaway": 2018.0})
+    txt = " ".join(pdf_text(build_daily_close_range_pdf(
+        [c], from_date=date(2026, 9, 1), to_date=date(2026, 9, 30),
+        business_name="Cafe", currency="DKK")).split())
+    assert "Gavekort" in txt and "570,00 kr." in txt
+    assert ("Omsætning pr. kategori: Mad 17.393,00 kr. · Drikkevarer 9.058,00 kr. · "
+            "Takeaway 2.018,00 kr.") in txt
+    assert "Betalinger pr. metode: Kontant 7.971,00 kr. · Kort 16.512,00 kr. · MobilePay 3.416,00 kr. · Gavekort 570,00 kr." in txt
+    assert "1 låst · 0 kladder" in txt
+    assert "Side 1 af 1" in txt
+    assert "Opbevares i 5 år efter bogføringsloven" in txt and "§10" not in txt
+
+
+def test_source_meta_and_float_are_saved_from_the_close_form(db_session, client, mailbox):
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    r = _lock(client, user, cash_float=1000.0, source_meta={
+        "kind": "zbon", "scans": 2, "terminal_totals": [5000, 7500],
+        "corrected": ["pay:card"], "evil": "<script>"})
+    assert r.status_code == 200, r.text
+    dc = db_session.query(DailyClose).filter(DailyClose.id == uuid.UUID(r.json()["id"])).first()
+    assert float(dc.cash_float) == 1000.0
+    import json as _json
+    meta = _json.loads(dc.source_meta)
+    assert meta == {"kind": "zbon", "scans": 2, "terminal_totals": [5000.0, 7500.0],
+                    "corrected": ["pay:card"]}

@@ -46,6 +46,13 @@ class DailyCloseCreate(BaseModel):
     # can show a soft "double-check" dialog. The owner either fixes the
     # numbers or re-submits with this set True to skip the guard and lock.
     acknowledge_anomaly: bool = False
+    # The byttepenge the form took off the drawer count (counted = drawer −
+    # float). Printed on the kasserapport so "Optalt (uden byttepenge)" can be
+    # checked. None = not sent (older clients) — the row keeps what it had.
+    cash_float: float | None = Field(None, ge=0, le=1_000_000)
+    # Where the figures came from — see DailyClose.source_meta. A small dict;
+    # the router keeps only the known keys and bounds them.
+    source_meta: dict | None = None
 
 
 class DailyCloseUnlock(BaseModel):

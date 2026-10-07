@@ -8117,6 +8117,7 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    rangePresetPrevMonth: "Forrige måned",
     dcMailWhen: "{date} kl. {time}",
     dcMailUnknownOutcome: "Vi kunne ikke bekræfte, om den blev sendt. Tjek din egen indbakke (du får en kopi), før du sender igen.",
     dcMailAlreadyTitle: "Revisoren har allerede fået denne kasserapport",

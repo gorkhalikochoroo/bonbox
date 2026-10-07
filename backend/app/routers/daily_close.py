@@ -164,6 +164,7 @@ def _to_response(dc: DailyClose) -> dict:
         "is_deleted": dc.is_deleted,
         "created_at": dc.created_at,
         "receipt_photo": getattr(dc, "receipt_photo", None),
+        "cash_float": float(dc.cash_float) if getattr(dc, "cash_float", None) is not None else None,
         # The lasting lock-mail status — History reads it after a reload.
         "email_status": getattr(dc, "email_status", None),
         "email_error": getattr(dc, "email_error", None),
@@ -999,6 +1000,29 @@ def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) 
 
 # ─── POST — submit daily close ───
 
+def _clean_source_meta(meta) -> str | None:
+    """Keep only the known, bounded keys of the client's source description
+    (see DailyClose.source_meta) and store it as JSON text."""
+    import json as _json
+    if not isinstance(meta, dict):
+        return None
+    kind = meta.get("kind")
+    if kind not in ("zbon", "typed"):
+        return None
+    out: dict = {"kind": kind}
+    scans = meta.get("scans")
+    if isinstance(scans, int) and 0 < scans <= 20:
+        out["scans"] = scans
+    tt = [round(float(x), 2) for x in (meta.get("terminal_totals") or [])
+          if isinstance(x, (int, float)) and not isinstance(x, bool)][:10]
+    if tt:
+        out["terminal_totals"] = tt
+    corr = [str(x)[:40] for x in (meta.get("corrected") or []) if isinstance(x, str)][:20]
+    if corr:
+        out["corrected"] = corr
+    return _json.dumps(out)
+
+
 def _capture_extraction_correction(db, user, *, status, final_values):
     """Close the OCR learning loop: stamp what the owner ACTUALLY saved
     (final_json) onto the most recent uncommitted scan extraction for this
@@ -1340,6 +1364,13 @@ def create_daily_close(
         # the existing reference.
         if data.receipt_photo:
             existing.receipt_photo = data.receipt_photo
+        # Same rule for the float and the figures' source: an older client
+        # that does not send them must not wipe what is stored.
+        if data.cash_float is not None:
+            existing.cash_float = data.cash_float
+        _meta = _clean_source_meta(data.source_meta)
+        if _meta is not None:
+            existing.source_meta = _meta
         if status == "confirmed":
             existing.closed_at = utc_now()
             # Clear unlock audit when re-confirming
@@ -1415,6 +1446,8 @@ def create_daily_close(
         closed_by=data.closed_by,
         closed_at=utc_now() if status == "confirmed" else None,
         receipt_photo=data.receipt_photo,
+        cash_float=data.cash_float,
+        source_meta=_clean_source_meta(data.source_meta),
     )
     db.add(dc)
     db.flush()  # populate dc.id before the audit row references it

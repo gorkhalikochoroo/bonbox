@@ -627,8 +627,9 @@ def test_reconciliation_flags_payment_revenue_mismatch():
     txt = _pdf_text(pdf)
     assert "stemmer ikke med omsætning" in txt          # reconciliation warning
     assert "1.005,00" in txt                            # the exact gap is shown
-    assert "klar til bogføring" not in txt              # NOT falsely "ready"
-    assert "skal gennemgås" in txt                      # honest "needs review"
+    # The badge reads the right way round, with the day to look at named.
+    assert "0 af 1 klar til bogføring" in txt           # NOT falsely "ready"
+    assert "1 skal gennemgås: 1. maj 2026" in txt
 
 
 def test_reconciliation_ok_when_payments_tie_out():
@@ -637,14 +638,15 @@ def test_reconciliation_ok_when_payments_tie_out():
     c = _make_close(
         revenue_total=18200.00, revenue_ex_moms=14560.00, moms_total=3640.00,
         payment_categories=encode_breakdown({"cash": 4200, "card": 14000}),
-        payment_total=18200.00, cash_counted=None, cash_difference=None,
-        status="confirmed",
+        payment_total=18200.00, cash_counted=4200.0, cash_expected=4200.0,
+        cash_difference=0.0, status="confirmed",
     )
     txt = _pdf_text(build_daily_close_range_pdf(
         [c], from_date=date(2026, 5, 1), to_date=date(2026, 5, 1),
         business_name="Cafe", currency="DKK"))
     assert "afstemt med omsætning" in txt               # reconciled OK
-    assert "klar til bogføring" in txt                  # ready badge
+    assert "1 af 1 klar til bogføring" in txt           # ready badge
+    assert "skal gennemgås" not in txt
 
 
 def test_bilagsnummer_renders_in_header():
@@ -681,10 +683,13 @@ def test_revenue_only_close_not_flagged():
     """A confirmed revenue-only close (no payment-method split — common for
     scan-and-lock) has nothing to reconcile. It must NOT be flagged 'Betalinger
     stemmer ikke' and must still count as 'klar til bogføring'."""
+    # Counted against the till's cash (expected from the register), no
+    # payment split typed — the scan-and-lock shape.
     c = _make_close(
         revenue_total=18200.00, revenue_ex_moms=14560.00, moms_total=3640.00,
         payment_categories=None, payment_total=None,
-        cash_counted=None, cash_difference=None, status="confirmed",
+        cash_counted=4200.0, cash_expected=4200.0, cash_difference=0.0,
+        status="confirmed",
     )
     assert _has_reconcilable_payments(c) is False
     assert _payments_sum(c) == 0.0
@@ -692,7 +697,7 @@ def test_revenue_only_close_not_flagged():
         [c], from_date=date(2026, 5, 1), to_date=date(2026, 5, 1),
         business_name="Cafe", currency="DKK"))
     assert "stemmer ikke med omsætning" not in txt   # not false-flagged
-    assert "klar til bogføring" in txt               # still book-ready
+    assert "1 af 1 klar til bogføring" in txt        # still book-ready
 
 
 # ─── Kasserapport honesty (from a real exported PDF, 20 Jul 2026) ────────
