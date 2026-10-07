@@ -683,7 +683,8 @@ def test_card_brand_splits_not_double_counted():
 def test_revenue_only_close_not_flagged():
     """A confirmed revenue-only close (no payment-method split — common for
     scan-and-lock) has nothing to reconcile. It must NOT be flagged 'Betalinger
-    stemmer ikke' and must still count as 'klar til bogføring'."""
+    stemmer ikke'. Once its drawer is COUNTED it is 'klar til bogføring'; an
+    uncounted one is pinned by the test below (it reads 'skal gennemgås')."""
     # Counted against the till's cash (expected from the register), no
     # payment split typed — the scan-and-lock shape.
     c = _make_close(
@@ -699,6 +700,28 @@ def test_revenue_only_close_not_flagged():
         business_name="Cafe", currency="DKK"))
     assert "stemmer ikke med omsætning" not in txt   # not false-flagged
     assert "1 af 1 klar til bogføring" in txt        # still book-ready
+
+
+def test_uncounted_revenue_only_close_reads_skal_gennemgaas_on_the_period_pdf():
+    """The scan-and-lock day with NO cash count: still not false-flagged for
+    payments, but not book-ready either — the period PDF uses the day's own
+    kasserapport rule (cash sales may have been taken; nobody counted them),
+    so the two never give the same day opposite verdicts."""
+    from app.services.kasserapport_claims import build_close_claims
+    c = _make_close(
+        revenue_total=18200.00, revenue_ex_moms=14560.00, moms_total=3640.00,
+        payment_categories=None, payment_total=None,
+        cash_counted=None, cash_expected=None, cash_difference=None,
+        status="confirmed",
+    )
+    assert _has_reconcilable_payments(c) is False
+    assert build_close_claims(c, currency="DKK")["assurance"]["all_ok"] is False
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [c], from_date=date(2026, 5, 1), to_date=date(2026, 5, 1),
+        business_name="Cafe", currency="DKK"))
+    assert "stemmer ikke med omsætning" not in txt   # payments not false-flagged
+    assert "0 af 1 klar til bogføring" in txt
+    assert "1 skal gennemgås: 1. maj 2026" in txt
 
 
 # ─── Kasserapport honesty (from a real exported PDF, 20 Jul 2026) ────────

@@ -4,6 +4,11 @@ import uuid
 import datetime
 from pydantic import BaseModel, Field
 
+# Length limits for the informational text on a close. The router cuts to
+# these (it never refuses); the close form's inputs carry the same maxLength.
+CLOSED_BY_MAX = 80
+NOTES_MAX = 4000
+
 
 class DailyCloseCreate(BaseModel):
     date: datetime.date
@@ -30,10 +35,13 @@ class DailyCloseCreate(BaseModel):
     tips_total: float | None = None
     tips_staff_count: int | None = None
     cash_counted: float | None = None
-    notes: str | None = Field(None, max_length=4000)
+    # Free text; a Z-report scan also appends to it. Cut to NOTES_MAX by the
+    # router (_clip_text), never refused — informational text must not 422 a
+    # lock (an offline-queued lock would be dead-lettered over a long note).
+    notes: str | None = None
     # A first name, typed by staff, printed on the kasserapport and put into
-    # the revisor's mail. Bounded — it had no cap at all.
-    closed_by: str | None = Field(None, max_length=80)
+    # the revisor's mail. Cut to CLOSED_BY_MAX by the router, same rule.
+    closed_by: str | None = None
     # Z-report photo URL — set when the owner used "Snap report" in the
     # close flow. Backend persists it on DailyClose.receipt_photo so
     # the photo can be re-viewed later. 2000-char cap is well above

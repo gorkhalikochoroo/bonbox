@@ -1194,3 +1194,108 @@ def test_a_card_only_day_without_a_cash_count_is_book_ready():
     c2 = _close(date(2026, 9, 25), 12500.0, 2500.0, pay={"cash": 2500.0, "card": 10000.0},
                 cash_counted=None, cash_difference=None)
     assert build_close_claims(c2, currency="DKK")["assurance"]["all_ok"] is False
+
+
+# ─── Restore: long Lukket af / notes are cut, never refused ───────────
+
+
+def test_a_long_closed_by_and_note_still_lock_stored_cut(db_session, client, mailbox):
+    """closed_by / notes are informational text, like the float: a 200-char
+    name or a 6000-char note (a Z-report scan appends to the note on its own)
+    must not 422 the lock — an offline-queued close came back "refused, check
+    the numbers". Kept bounded: stored cut to 80 / 4000."""
+    from app.schemas.daily_close import CLOSED_BY_MAX, NOTES_MAX
+    assert (CLOSED_BY_MAX, NOTES_MAX) == (80, 4000)
+    user = _make_user(db_session)
+    _make_profile(db_session, user)
+    long_name, long_note = "Å" * 200, "x" * 6000
+
+    # A draft autosave with the long values (the create path)…
+    r = _lock(client, user, status="draft", closed_by=long_name, notes=long_note)
+    assert r.status_code == 200, r.text
+    dc = db_session.query(DailyClose).filter(DailyClose.date == date(2026, 9, 25)).first()
+    assert dc.status == "draft"
+    assert dc.closed_by == "Å" * 80 and len(dc.notes) == 4000
+
+    # …then the lock over that draft (the update path) — still locks.
+    r = _lock(client, user, closed_by=long_name, notes=long_note)
+    assert r.status_code == 200, r.text
+    db_session.expire_all()
+    dc = db_session.query(DailyClose).filter(DailyClose.date == date(2026, 9, 25)).first()
+    assert dc.status == "confirmed"
+    assert dc.closed_by == "Å" * 80
+    assert dc.notes == "x" * 4000
+
+    # A fresh lock with the long values (create path, confirmed).
+    r = _lock(client, user, d="2026-09-26", closed_by=long_name, notes=long_note)
+    assert r.status_code == 200, r.text
+    assert r.json()["closed_by"] == "Å" * 80
+    assert len(r.json()["notes"]) == 4000
+
+    # A short name is untouched.
+    r = _lock(client, user, d="2026-09-27", closed_by="Lars", notes="ok")
+    assert r.json()["closed_by"] == "Lars" and r.json()["notes"] == "ok"
+
+
+# ─── Restore: payment methods in the default (revisor) CSV ────────────
+
+
+def test_default_csv_has_a_column_per_payment_method_after_the_fixed_ones():
+    """Owner-typed methods (Wolt, Just Eat) and card-brand splits were folded
+    into "Andre betalinger" / dropped. Each now has its own column, appended
+    AFTER the category and "Ikke fordelt" columns — no fixed column moves."""
+    from app.services.daily_close_range_export import _REVISOR_CSV_COLUMNS_DA
+    closes = [
+        _close(date(2026, 9, 24), 14500.0, 2900.0,
+               pay={"cash": 2000.0, "card": 10000.0, "visa": 6000.0,
+                    "dankort": 4000.0, "Wolt": 2500.0}),
+        _close(date(2026, 9, 25), 3700.0, 740.0,
+               pay={"card": 2500.0, "visa": 2500.0, "Wolt": 800.0, "Just Eat": 400.0}),
+        # A draft lists its methods but stays out of the totals row.
+        _close(date(2026, 9, 26), 900.0, 180.0, status="draft",
+               pay={"cash": 400.0, "Wolt": 500.0}),
+    ]
+    raw = closes_to_csv_bytes(closes, currency="DKK")
+    rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig")), delimiter=";"))
+    header = rows[0]
+    n_fixed = len(_REVISOR_CSV_COLUMNS_DA)
+    # Every fixed column keeps its position.
+    assert header[:n_fixed] == _REVISOR_CSV_COLUMNS_DA
+    # Categories (and "Ikke fordelt") come first, the payment detail last.
+    i_unalloc = header.index("Kategori: Ikke fordelt")
+    detail = header[i_unalloc + 1:]
+    assert detail == ["Kort heraf: Dankort", "Kort heraf: Visa",
+                      "Betaling: Just Eat", "Betaling: Wolt"]
+    col = {h: i for i, h in enumerate(header)}
+    body = {r[0]: r for r in rows[1:-1]}
+    d24, d25, d26 = body["2026-09-24"], body["2026-09-25"], body["2026-09-26"]
+    assert d24[col["Betaling: Wolt"]] == "2500,00"
+    assert d24[col["Kort heraf: Visa"]] == "6000,00"
+    assert d24[col["Kort heraf: Dankort"]] == "4000,00"
+    assert d24[col["Betaling: Just Eat"]] == ""
+    assert d25[col["Betaling: Just Eat"]] == "400,00"
+    assert d26[col["Betaling: Wolt"]] == "500,00"
+    # The fixed bucket columns are unchanged: brands are not added on top of
+    # Kort, and "Andre betalinger" still carries Wolt + Just Eat.
+    assert d24[col["Kort"]] == "10000,00"
+    assert d24[col["Andre betalinger"]] == "2500,00"
+    assert d25[col["Andre betalinger"]] == "1200,00"
+    # Totals row: locked days only, Danish decimal comma like the rest.
+    total = rows[-1]
+    assert total[col["Status"]].startswith("I alt — 2 låste dage")
+    assert total[col["Betaling: Wolt"]] == "3300,00"       # 2500 + 800, draft's 500 out
+    assert total[col["Betaling: Just Eat"]] == "400,00"
+    assert total[col["Kort heraf: Visa"]] == "8500,00"
+    assert total[col["Kort heraf: Dankort"]] == "4000,00"
+    assert total[col["Andre betalinger"]] == "3700,00"
+    assert total[col["Omsætning inkl. moms"]] == "18200,00"
+    # Every row has the same width as the header.
+    assert {len(r) for r in rows} == {len(header)}
+
+
+def test_default_csv_without_extra_methods_gets_no_payment_columns():
+    """A range with only the bucket methods adds nothing after "Ikke fordelt"."""
+    raw = closes_to_csv_bytes(_sep_period(), currency="DKK").decode("utf-8-sig")
+    header = next(csv.reader(io.StringIO(raw), delimiter=";"))
+    assert header[-1] == "Kategori: Ikke fordelt"
+    assert not any(h.startswith(("Betaling: ", "Kort heraf: ")) for h in header)

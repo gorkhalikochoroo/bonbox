@@ -202,6 +202,11 @@ async function parseExportError(err, t = englishOnly) {
    It now lives in its own module with the poster injected, so every one of
    those paths is pinned by a test. */
 const postClose = (payload) => api.post("/daily-close", payload);
+// The server's limits for the close's informational text (schemas/daily_close
+// CLOSED_BY_MAX / NOTES_MAX). It cuts rather than refusing; the inputs and the
+// payload stay inside them so nothing the owner sees is cut server-side.
+const CLOSED_BY_MAX = 80;
+const NOTES_MAX = 4000;
 
 /* ═══════════════════════════════════════════════════════════
    DECIMAL POLICY — one rule, stated once
@@ -851,6 +856,7 @@ export default function DailyClosePage() {
           close={lockedBannerClose}
           currency={currency}
           profile={bizQ.data}
+          profileLoaded={!bizQ.loading && !bizQ.failed}
           businessType={user?.business_type}
           onEmailSent={fetchHistory}
           onDismiss={() => {
@@ -867,6 +873,7 @@ export default function DailyClosePage() {
           close={pastLockClose}
           currency={currency}
           profile={bizQ.data}
+          profileLoaded={!bizQ.loading && !bizQ.failed}
           businessType={user?.business_type}
           dateLabel={formatDateClearFull(String(pastLockClose.date || "").slice(0, 10))}
           onEmailSent={fetchHistory}
@@ -2773,8 +2780,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         return Number.isFinite(f) && f >= 0 && f <= 1_000_000 ? f : null;
       })(),
       source_meta,
-      closed_by: closedBy || null,
-      notes: notesWithExtras,
+      closed_by: closedBy ? closedBy.slice(0, CLOSED_BY_MAX) : null,
+      // A scan appends to the notes (and the extras above add more), past the
+      // textarea's maxLength — keep the payload inside the server's limit.
+      notes: notesWithExtras ? notesWithExtras.slice(0, NOTES_MAX) : null,
       // Phase A forward-compat fields — the backend ignores unknown keys today
       // (Pydantic v2 default), so these are safe to send and become available
       // the moment DailyCloseCreate grows columns. Gavekort is deliberately a
@@ -4915,12 +4924,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             <div className="space-y-3">
               <div>
                 <label htmlFor="dc-closed-by" className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("closedBy")}</label>
-                <input id="dc-closed-by" type="text" placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400"
+                <input id="dc-closed-by" type="text" maxLength={CLOSED_BY_MAX} placeholder={t("managerNamePlaceholder", "Manager name…")} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400"
                   value={closedBy} onChange={e => setClosedBy(e.target.value)} />
               </div>
               <div>
                 <label htmlFor="dc-notes" className="text-sm font-medium text-gray-600 dark:text-gray-300">{t("notes")}</label>
-                <textarea id="dc-notes" placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400"
+                <textarea id="dc-notes" maxLength={NOTES_MAX} placeholder={t("notesPlaceholderTonight", "Any notes for tonight…")} rows={2} className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-400"
                   value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
             </div>
@@ -5256,7 +5265,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    reload, and it never fakes a "sent". A failed send offers the real resend
    (POST /daily-close/{id}/resend-email, one idempotency key per click); there
    is no background retry and nothing here says there is. */
-function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = false, onSent = null, canSend = true }) {
+function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoaded = false, compact = false, onSent = null, canSend = true }) {
   const confirm = useConfirm();
   const [st, setSt] = useState(() => ({
     status: ritual?.email_status ?? close.email_status ?? null,
@@ -5270,7 +5279,10 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
   // Kept across a lost response so a second tap replays the SAME key and the
   // server answers with what happened instead of mailing twice.
   const keyRef = useRef(null);
-  const { kind, acct } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip, profile });
+  // A settled null profile means the owner has no BusinessProfile row — read
+  // as {} (no revisor saved), so the "Ikke sendt" lines still show.
+  const { kind, acct } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
+    profile: profileLoaded ? (profile ?? {}) : null });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
   // The lock card and the History row render the same close, each with its
@@ -5363,9 +5375,10 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
     if (ok) await send(false);
   };
 
-  // No claim about the revisor before the profile has actually been read —
-  // "ingen revisor-mail gemt" from a profile still loading would be false.
-  if (kind === "none" || profile == null) return null;
+  // No claim about the revisor until GET /business has settled — "ingen
+  // revisor-mail gemt" from a profile still loading (or a failed read) would
+  // be false. A settled null is no profile row, treated as {} above.
+  if (kind === "none" || !profileLoaded) return null;
   // "Ikke registreret" only where BonBox could have sent it: a plan that
   // sends, a saved revisor, and a real day — never a seeded demo close.
   if (kind === "unrecorded" && (!acct || !canSend || isDemoClose(close))) return null;
@@ -5463,7 +5476,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, compact = f
   );
 }
 
-function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null, onEmailSent = null }) {
+function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null, profileLoaded = false, onEmailSent = null }) {
   const ritual = close.close_ritual || {};
   // The server stores closed_at in UTC without a zone suffix; read bare, the
   // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
@@ -5520,7 +5533,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
             <Icon name="Mail" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSent", "Sent to {recipients}").replace("{recipients}", recipients)}
           </p>
         )}
-        <CloseEmailStatus t={t} close={close} ritual={ritual} profile={profile} onSent={onEmailSent} />
+        <CloseEmailStatus t={t} close={close} ritual={ritual} profile={profile} profileLoaded={profileLoaded} onSent={onEmailSent} />
         {ritual.scan_degraded && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded", "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached. We'll keep the original on file.")}
@@ -6425,6 +6438,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           close={lastLockedClose}
           currency={currency}
           profile={businessProfile}
+          profileLoaded={profileKnown}
           businessType={user?.business_type}
           onDismiss={onDismissLastLocked}
           onEmailSent={onRefresh}
@@ -6906,7 +6920,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {(dc.status || "confirmed") === "confirmed" && (
                   <div className="mt-1">
                     <CloseEmailStatus key={`${dc.id}-${dc.email_status || ""}-${dc.email_sent_at || ""}`}
-                      t={t} close={dc} profile={profileKnown ? businessProfile : null} compact
+                      t={t} close={dc} profile={businessProfile} profileLoaded={profileKnown} compact
                       canSend={directSendEntitled === true}
                       onSent={onRefresh} />
                   </div>

@@ -40,7 +40,9 @@ from app.models.cashbook import CashTransaction
 from app.models.business_profile import BusinessProfile
 from app.models.terminal import Terminal
 from app.models.kasserapport import KasserapportExtraction
-from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
+from app.schemas.daily_close import (
+    CLOSED_BY_MAX, NOTES_MAX, DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock,
+)
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
 from app.services.expense_status import not_pending
@@ -1192,6 +1194,15 @@ def _clean_cash_float(v) -> float | None:
     return round(f, 2)
 
 
+def _clip_text(v, limit: int) -> str | None:
+    """Informational text (Lukket af, notes) is cut to its column limit, never
+    refused — same rule as _clean_cash_float. A 422 here failed the lock and
+    sent an offline-queued close back as "refused, check the numbers"."""
+    if v is None:
+        return None
+    return str(v)[:limit]
+
+
 def _lock_lines(data) -> dict:
     """The lines a lock audit row records, so a later correction mail can say
     which payment method or category moved (not only the headline figures)."""
@@ -1323,6 +1334,11 @@ def create_daily_close(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Cut informational text to length before any use (update path, create
+    # path, audit payloads) — a long name or note never fails a lock.
+    data.closed_by = _clip_text(data.closed_by, CLOSED_BY_MAX)
+    data.notes = _clip_text(data.notes, NOTES_MAX)
+
     # Check for existing close on same date+branch (upsert)
     existing = (
         db.query(DailyClose)

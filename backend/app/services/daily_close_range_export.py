@@ -274,6 +274,11 @@ def closes_to_csv_bytes(
     header = list(_REVISOR_CSV_COLUMNS_DA if DA else _REVISOR_CSV_COLUMNS_EN)
     header += [cat_prefix + revenue_category_label(k, danish=DA) for k in cats]
     header += [cat_prefix + ("Ikke fordelt" if DA else "Not allocated")]
+    # Per-method payment detail — what "Andre betalinger" folds together and
+    # the card-brand split of "Kort". Appended AFTER every fixed and category
+    # column, so no existing column moves.
+    pay_detail = payment_detail_columns(closes)
+    header += [payment_detail_label(k, danish=DA) for k in pay_detail]
     writer.writerow(header)
 
     sorted_closes = sorted(closes, key=lambda c: c.date or date.min)
@@ -313,6 +318,8 @@ def closes_to_csv_bytes(
         ]
         row += [num(amounts.get(k)) if k in amounts else "" for k in cats]
         row += [num(unsplit) if unsplit else ""]
+        pd = _payment_detail_amounts(c)
+        row += [num(pd[k]) if k in pd else "" for k in pay_detail]
         writer.writerow(row)
 
     if sorted_closes:
@@ -335,6 +342,7 @@ def closes_to_csv_bytes(
         ]
         total_row += [num(t["categories"].get(k, 0.0)) for k in cats]
         total_row += [num(t["unallocated"]) if t["unallocated"] else ""]
+        total_row += [num(t["payment_detail"].get(k, 0.0)) for k in pay_detail]
         writer.writerow(total_row)
     return buf.getvalue().encode("utf-8")
 
@@ -440,6 +448,37 @@ _PAY_BUCKETS = ["cash", "card", "mobilepay", "gift_card", "bank_transfer"]
 _CARD_BRAND_KEYS = {"dankort", "visa", "mastercard", "softpay", "betalingskort"}
 
 
+def _norm_pay_key(k) -> str:
+    """A stored payment key in the bucket vocabulary: lower/underscore form,
+    Danish spellings mapped to the English keys the write side persists."""
+    norm = (k or "").lower().replace(" ", "_").replace("-", "_")
+    # Danish ⟷ English payment-method synonyms. The write side persists
+    # English keys (cash/card/mobilepay — see routers/daily_close.py:1565
+    # kontant→cash, dankort→card; defensive "kontant" in pb at :893), but
+    # manually-edited / legacy / imported closes can still carry Danish
+    # spellings. Without this map kontant/kort fell into "other" and
+    # vanished from the table's Kontant/Kort columns while still summing
+    # into _payments_sum — so the reconciliation badge read "✓ afstemt"
+    # above a table that visibly did NOT tie out. Normalize so every
+    # spelling lands in the right visible column.
+    return {
+        "kontant": "cash",
+        "kort": "card",
+        # NB: "betalingskort" is intentionally NOT mapped here — it is a
+        # card-brand split (in _CARD_BRAND_KEYS above); callers set it apart,
+        # never add it on top of the card line.
+        "mobile_pay": "mobilepay",
+        "mobilepay_total": "mobilepay",
+        "gavekort": "gift_card",
+        "giftcard": "gift_card",
+        "gift_cards": "gift_card",
+        "bankoverforsel": "bank_transfer",
+        "bankoverførsel": "bank_transfer",
+        "bank_overforsel": "bank_transfer",
+        "overforsel": "bank_transfer",
+    }.get(norm, norm)
+
+
 def _bucketed_payments(c: DailyClose) -> dict:
     """Decode encoded payment_categories into known buckets + 'other'.
 
@@ -454,39 +493,61 @@ def _bucketed_payments(c: DailyClose) -> dict:
             amt = float(v or 0)
         except (TypeError, ValueError):
             continue
-        norm = (k or "").lower().replace(" ", "_").replace("-", "_")
+        norm = _norm_pay_key(k)
         if norm in _CARD_BRAND_KEYS:
             continue  # brand split of the card line — never add it on top
-        # Danish ⟷ English payment-method synonyms. The write side persists
-        # English keys (cash/card/mobilepay — see routers/daily_close.py:1565
-        # kontant→cash, dankort→card; defensive "kontant" in pb at :893), but
-        # manually-edited / legacy / imported closes can still carry Danish
-        # spellings. Without this map kontant/kort fell into "other" and
-        # vanished from the table's Kontant/Kort columns while still summing
-        # into _payments_sum — so the reconciliation badge read "✓ afstemt"
-        # above a table that visibly did NOT tie out. Normalize so every
-        # spelling lands in the right visible column.
-        norm = {
-            "kontant": "cash",
-            "kort": "card",
-            # NB: "betalingskort" is intentionally NOT mapped here — it is a
-            # card-brand split (in _CARD_BRAND_KEYS above) and is dropped
-            # before reaching this map, never added on top of the card line.
-            "mobile_pay": "mobilepay",
-            "mobilepay_total": "mobilepay",
-            "gavekort": "gift_card",
-            "giftcard": "gift_card",
-            "gift_cards": "gift_card",
-            "bankoverforsel": "bank_transfer",
-            "bankoverførsel": "bank_transfer",
-            "bank_overforsel": "bank_transfer",
-            "overforsel": "bank_transfer",
-        }.get(norm, norm)
         if norm in _PAY_BUCKETS:
             out[norm] += amt
         else:
             out["other"] += amt
     return out
+
+
+def _payment_detail_amounts(c) -> dict:
+    """The payment methods the six bucket columns hide, for the revisor CSV:
+    every method folded into "Andre betalinger" (Wolt, Just Eat, Faktura, any
+    owner-typed method) as ("other", name), and the card-brand splits as
+    ("brand", key) — a breakdown OF "Kort", never an amount on top of it.
+    Built-in keys fold case-insensitively; owner-typed names stay verbatim."""
+    from app.services.close_category_labels import payment_method_label
+    out: dict = {}
+    for k, v in (decode_breakdown(getattr(c, "payment_categories", None)) or {}).items():
+        try:
+            amt = float(v or 0)
+        except (TypeError, ValueError):
+            continue
+        norm = _norm_pay_key(k)
+        if norm in _CARD_BRAND_KEYS:
+            key = ("brand", norm)
+        elif norm in _PAY_BUCKETS:
+            continue
+        elif payment_method_label(norm) != norm:
+            key = ("other", norm)             # built-in (invoice, paypal …)
+        else:
+            key = ("other", (k or "").strip())  # the owner's own method name
+        out[key] = round(out.get(key, 0.0) + amt, 2)
+    return out
+
+
+def payment_detail_columns(closes) -> list:
+    """The detail keys found in a range, in a STABLE order: card brands
+    first (alphabetically), then the other methods alphabetically."""
+    seen: set = set()
+    for c in closes:
+        seen.update(_payment_detail_amounts(c).keys())
+    brands = sorted((k for k in seen if k[0] == "brand"), key=lambda k: k[1])
+    other = sorted((k for k in seen if k[0] == "other"), key=lambda k: k[1].lower())
+    return brands + other
+
+
+def payment_detail_label(key, *, danish: bool = True) -> str:
+    """'Betaling: Wolt' / 'Kort heraf: Visa' — the brand prefix says the
+    column is part of Kort, so nobody adds it on top."""
+    from app.services.close_category_labels import payment_method_label
+    name = payment_method_label(key[1], danish=danish)
+    if key[0] == "brand":
+        return ("Kort heraf: " if danish else "Card, of which: ") + name
+    return ("Betaling: " if danish else "Payment: ") + name
 
 
 def _payments_sum(c: DailyClose) -> float:
@@ -579,6 +640,11 @@ def period_totals(closes) -> dict:
         for k, v in _bucketed_payments(c).items():
             buckets[k] = round(buckets[k] + v, 2)
 
+    payment_detail: dict = {}
+    for c in confirmed:
+        for k, v in _payment_detail_amounts(c).items():
+            payment_detail[k] = round(payment_detail.get(k, 0.0) + v, 2)
+
     categories: dict = {}
     unallocated = 0.0
     for c in confirmed:
@@ -608,6 +674,7 @@ def period_totals(closes) -> dict:
         "cash_difference": _opt_sum("cash_difference"),
         "categories": categories,
         "unallocated": unallocated,
+        "payment_detail": payment_detail,
     }
 
 
