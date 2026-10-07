@@ -130,6 +130,43 @@ def test_an_off_rate_moms_is_review_whatever_the_split(cats):
         assert "momssats" not in lines["text"]
 
 
+@pytest.mark.parametrize("kind", [
+    "zbon",   # a scanned Z-bon MOMS the form kept under Auto ("the scanned figure still WINS")
+    None,     # BonBox's own MOMS on revenue − momsfri sales (exempt_sales_total is not stored)
+])
+@pytest.mark.parametrize("cats", [None, {"food": 6000.0, "drinks": 4000.0}])
+def test_an_off_rate_auto_moms_is_review_too(kind, cats):
+    """Pinned deliberately (removal audit, AUTO source). 1.800 kr. on 10.000 kr.
+    saved under moms_mode=auto is 21,9 % of the base — not BonBox's revenue ×
+    25/125 (2.000 kr.). Before the rate rule it read KLAR with "Salgsmoms
+    beregnet af BonBox ud fra omsætningen", which is false for both real
+    sources (read off the Z-bon; or worked out on a base net of momsfri sales
+    the page does not carry). The rate rule asks the figure, not the toggle:
+    the same day is GENNEMGÅS whatever the split, exactly as a Z-bon figure
+    saved under Manual, and every artifact reads that one verdict."""
+    dc = _day(date(2026, 9, 26), rev=10000.0, moms=1800.0, mode="auto", kind=kind, cats=cats,
+              payment_categories=encode_breakdown({"cash": 5000.0, "card": 5000.0}),
+              payment_total=10000.0)
+    claims = build_close_claims(dc)
+    a = claims["assurance"]
+    assert a["all_ok"] is False and a["heading"] == "GENNEMGÅS"
+    assert close_readiness(dc)["ready"] is False
+    moms = next(c for c in a["checks"] if c["check"] == "moms")
+    assert moms["ok"] is False and not moms.get("info")
+    assert moms["text"] == ("Salgsmoms svarer til 21,9 % af omsætningen ekskl. moms — "
+                            "200,00 kr. under 25 % moms på hele omsætningen. "
+                            "Kontrollér den mod Z-bonnen.")
+    assert claims["moms_label"] == "Salgsmoms (svarer til 21,9 %)"
+    assert not any("beregnet af BonBox" in c["text"] for c in a["checks"])
+    # Only the MOMS line fails: cash, payments and the split say what they say.
+    assert [c["check"] for c in a["checks"] if not c["ok"]] == ["moms"]
+    # BonBox's own figure on the whole revenue is still certified as such.
+    std = _day(date(2026, 9, 26), rev=10000.0, moms=2000.0, mode="auto", kind=kind, cats=cats,
+               payment_categories=encode_breakdown({"cash": 5000.0, "card": 5000.0}),
+               payment_total=10000.0)
+    assert close_readiness(std)["ready"] is True
+
+
 @pytest.mark.parametrize("rev, moms, kind, label", [
     (15000.0, 2998.0, "typed", "Salgsmoms (indtastet)"),        # 2,50 kr. off
     (50000.0, 10001.20, "zbon", "Salgsmoms (fra Z-bon)"),        # 1,50 kr. off
