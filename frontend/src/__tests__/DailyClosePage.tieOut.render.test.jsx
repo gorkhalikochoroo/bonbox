@@ -128,12 +128,15 @@ describe("the review card states the tie-out", () => {
     // in silence.
     await walkToReview(container, { revenue: "17030", payment: "15830" });
 
-    const verdict = await screen.findByText(/^dcTieOutOff:/);
-    // Signed and grouped da-DK, at the review card's two-decimal ledger
-    // precision — "1.200" on an English-locale browser would be one kroner
-    // and twenty øre to the Dane reading it.
+    // Both surfaces say it: the payments step on the way, the review here.
+    const verdicts = await screen.findAllByText(/^dcPayBelowRevenue:/);
+    const verdict = verdicts[verdicts.length - 1];
+    // Grouped da-DK, at the review card's two-decimal ledger precision —
+    // "1.200" on an English-locale browser would be one kroner and twenty øre
+    // to the Dane reading it. The direction is the WORD ("under omsætningen"),
+    // not a sign the owner has to decode.
     expect(verdict.textContent).toContain("1.200,00");
-    expect(verdict.textContent).toMatch(/[+]/);
+    expect(verdict.textContent).not.toMatch(/[+−]/);
     // And it says the lock is still available, because an owner may be
     // genuinely short and still has to file the day.
     expect(screen.getByText("dcTieOutOffHint")).toBeInTheDocument();
@@ -143,7 +146,7 @@ describe("the review card states the tie-out", () => {
     const { container } = renderPage();
     await walkToReview(container, { revenue: "17030", payment: "15830" });
 
-    await screen.findByText(/^dcTieOutOff:/);
+    await screen.findAllByText(/^dcPayBelowRevenue:/);
     const lock = screen.getAllByRole("button").find((b) => /confirmAndLock/.test(b.textContent));
     expect(lock).toBeTruthy();
     expect(lock.disabled).toBe(false);
@@ -154,7 +157,7 @@ describe("the review card states the tie-out", () => {
     await walkToReview(container, { revenue: "17030", payment: "17030" });
 
     expect(await screen.findByText("dcTieOutBalanced")).toBeInTheDocument();
-    expect(screen.queryByText(/^dcTieOutOff:/)).toBeNull();
+    expect(screen.queryByText(/^dcPay(Below|Above)Revenue:/)).toBeNull();
   });
 
   it("refuses to invent a difference when payments were never entered", async () => {
@@ -166,7 +169,7 @@ describe("the review card states the tie-out", () => {
     await walkToReview(container, { revenue: "17030", payment: null });
 
     expect(await screen.findByText("dcTieOutUnknown")).toBeInTheDocument();
-    expect(screen.queryByText(/^dcTieOutOff:/)).toBeNull();
+    expect(screen.queryByText(/^dcPay(Below|Above)Revenue:/)).toBeNull();
     expect(screen.queryByText("dcTieOutBalanced")).toBeNull();
   });
 });

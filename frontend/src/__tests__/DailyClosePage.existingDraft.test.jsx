@@ -104,3 +104,26 @@ describe("daily close — the chosen day already has a draft", () => {
     expect(closePosts()[0][1].status).toBe("draft");
   });
 });
+
+describe("daily close — picking a day that has a draft, mid-form", () => {
+  it("locks the form until the owner chooses, instead of discarding what is typed", async () => {
+    // The banner offered Fortsæt / Start forfra while Mad still took "999" —
+    // which was never saved, and nothing said so.
+    const d = new Date(`${today}T12:00:00`);
+    d.setDate(d.getDate() - 2);
+    const pad = (n) => String(n).padStart(2, "0");
+    const past = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    get.mockImplementation((url) => Promise.resolve({ data: url === "/daily-close" ? [{ ...DRAFT, date: past }] : [] }));
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByText("skipEnterManually"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    expect(container.querySelector("#dc-rev-food").matches(":disabled")).toBe(false);
+
+    fireEvent.change(container.querySelector("#close-date"), { target: { value: past } });
+    await waitFor(() => expect(screen.getByText("dcDayHasDraft")).toBeInTheDocument());
+    expect(container.querySelector("#dc-rev-food").matches(":disabled")).toBe(true);
+
+    fireEvent.click(screen.getByText("dcStartOverDraft"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food").matches(":disabled")).toBe(false));
+  });
+});

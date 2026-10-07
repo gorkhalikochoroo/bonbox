@@ -798,6 +798,7 @@ export default function DailyClosePage() {
       {reviewItem && (
         <CloseAnomalyDialog
           t={t}
+          currency={currency}
           anomaly={reviewItem.anomaly || {}}
           dateLabel={formatDateClear(reviewItem.payload?.date) || reviewItem.payload?.date || ""}
           saving={reviewSaving}
@@ -1017,36 +1018,80 @@ export default function DailyClosePage() {
  * stretch and can be any business date. Acknowledging a money guard without
  * knowing which day it locks is not an acknowledgement.
  */
-function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "", extraNote = "", dateLabel = "" }) {
+/**
+ * A dialog that takes the focus — and gives it back. The anomaly check and
+ * the unlock modal opened with focus left on <body>, so a keyboard or screen
+ * reader was still "behind" them. Same rules as useConfirm: the given control
+ * (the safe answer, or the field to fill) gets focus, Esc cancels, Tab stays
+ * inside, and focus returns to whatever opened it.
+ */
+function useDialogFocus(boxRef, initialRef, onEscape) {
+  const escRef = useRef(onEscape);
+  useEffect(() => { escRef.current = onEscape; });
+  useEffect(() => {
+    const opener = document.activeElement;
+    (initialRef?.current || boxRef.current)?.focus?.();
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); escRef.current?.(); return; }
+      if (e.key !== "Tab" || !boxRef.current) return;
+      const items = [...boxRef.current.querySelectorAll("button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), a[href]")];
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      if (opener && opener.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+/** The dialog box itself, focused while it is mounted (see useDialogFocus). */
+function FocusedDialog({ labelledBy, initialRef, onEscape, className, children, ...rest }) {
+  const boxRef = useRef(null);
+  useDialogFocus(boxRef, initialRef, onEscape);
+  return (
+    <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={labelledBy} tabIndex={-1} className={className} {...rest}>
+      {children}
+    </div>
+  );
+}
+
+function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "", extraNote = "", dateLabel = "", currency = "DKK" }) {
   const a = anomaly || {};
   const pct = Math.abs(Math.round((a.delta_pct || 0) * 100));
-  // Numbers only, grouped da-DK. NOT formatOwnerMoney/formatKr here: the
-  // closeAnomaly*Msg templates already carry the unit ("{today} kr"), so a
-  // formatter that appends "kr." would print "17.030 kr. kr". The locale is
-  // pinned explicitly for the same reason the money primitives exist — a bare
-  // toLocaleString() uses the BROWSER locale and renders 17030 as "17,030",
-  // which a Dane reads as seventeen kroner.
-  const today = Math.round(a.today_total || 0).toLocaleString("da-DK");
-  const avg = Math.round(a.baseline_avg || 0).toLocaleString("da-DK");
-  const msgKey = a.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
+  // The money primitive, with øre when there are any — the dialog said
+  // "17.913 kr." for a row showing 17.912,75 kr. The *Money templates carry
+  // no unit of their own (the old ones said "{today} kr").
+  const today = formatOwnerMoney(a.today_total || 0, currency, { decimals: oreDecimals(a.today_total) });
+  const avg = formatOwnerMoney(a.baseline_avg || 0, currency, { decimals: oreDecimals(a.baseline_avg) });
+  const msgKey = a.reason === "high" ? "closeAnomalyHighMoney" : "closeAnomalyLowMoney";
+  const boxRef = useRef(null);
+  const cancelRef = useRef(null);
+  useDialogFocus(boxRef, cancelRef, () => { if (!saving) onCancel(); });
   return (
     // Above the phone's bottom bar (also z-50): the bar sat over this dialog
     // and stayed tappable. The app's confirm uses the same layer.
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
       {/* shadow-sm, not one of the heavy tiers: the unlock modal three hundred lines down
           already uses shadow-sm, the doctrine bans the heavy tiers, and the
           black/40 overlay is what actually lifts a dialog off the page. */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6 animate-fadeIn">
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby="dc-anomaly-title" tabIndex={-1}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6 animate-fadeIn focus:outline-none">
         <div className="flex items-start gap-3">
           <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center"><Icon name="AlertTriangle" size={20} className="text-amber-600 dark:text-amber-400" /></div>
           <div className="min-w-0">
-            <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
+            <h3 id="dc-anomaly-title" className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
             {dateLabel && (
               <p className="mt-0.5 text-xs font-semibold text-gray-500 dark:text-gray-400">
                 {t("dcAnomalyForDate", "Kasserapport for {date}", { date: dateLabel })}
               </p>
             )}
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t(msgKey, { today, pct, avg })}</p>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300 tabular-nums">{t(msgKey, { today, pct, avg })}</p>
             <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t("closeAnomalyHint")}</p>
             {extraNote && <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{extraNote}</p>}
             {error && (
@@ -1057,7 +1102,7 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
           </div>
         </div>
         <div className="mt-5 flex gap-3 justify-end">
-          <Button variant="secondary" onClick={onCancel} disabled={saving}>
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={saving}>
             {t("closeAnomalyCancel")}
           </Button>
           <Button variant="accent" onClick={onConfirm} disabled={saving}>
@@ -2165,7 +2210,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               // Add any payment methods from data that aren't in the default list
               const existingKeys = new Set(defaultPayMethods.map(m => m.key));
               Object.entries(payPrefill).forEach(([k, v]) => {
-                newPay[k] = String(v);
+                newPay[k] = asBox(v);
                 if (!existingKeys.has(k) && k !== "other") {
                   setPayMethods(prev => {
                     if (prev.find(m => m.key === k)) return prev;
@@ -2189,7 +2234,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               setSplitMeta(null);
             } else if (split && split.categories && Object.keys(split.categories).length > 0) {
               const next = {};
-              Object.entries(split.categories).forEach(([k, v]) => { next[k] = String(v); });
+              Object.entries(split.categories).forEach(([k, v]) => { next[k] = asBox(v); });
               setRevAmounts(next);
               setSplitMeta({
                 source: split.source,
@@ -2295,10 +2340,21 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   const hasCashBaseline =
     cashExpectedFromRegister || String(payAmounts.cash ?? "").trim() !== "";
   const cashCountedVal = readMoney0(cashCounted);
-  const cashDiff = cashCounted ? cashCountedVal - cashExpected : null;
+  // An unreadable count is no count: it showed "0 kr." takings, a −2.000
+  // difference and the >100 kr. warning beside "Vi kan ikke læse beløbet".
+  const cashCountReadable = String(cashCounted ?? "").trim() !== "" && !isMoneyRejected(cashCounted, mLocale);
+  const cashDiff = cashCountReadable ? Math.round((cashCountedVal - cashExpected) * 100) / 100 : null;
   // Whole kroner at a glance — but a figure with øre shows them, or the step
   // says −50 while the review and the kasserapport say −50,25.
   const oreIfAny = (v) => (Number.isFinite(v) && Math.abs(v - Math.round(v)) > 0.004 ? LEDGER_DECIMALS : GLANCE_DECIMALS);
+  // The cash difference in words, so its sign can't be read the wrong way.
+  const cashDirection = (diff, decimals = oreIfAny(diff)) => {
+    if (Math.abs(diff) < 0.005) return t("dcCashMatches", "The drawer matches");
+    const amount = formatOwnerMoney(Math.abs(diff), currency, { decimals });
+    return diff < 0
+      ? t("dcCashShortBy", "The drawer is {amount} short", { amount })
+      : t("dcCashOverBy", "The drawer is {amount} over", { amount });
+  };
   // staffCount stays parseInt: it is a HEAD COUNT, not money. tipsTotal is
   // money and reads strictly, so an unreadable tips box yields no per-person
   // figure at all rather than a confident wrong one.
@@ -3047,6 +3103,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
       {anomalyCheck && (
         <CloseAnomalyDialog
           t={t}
+          currency={currency}
           anomaly={anomalyCheck}
           saving={saving}
           onCancel={() => setAnomalyCheck(null)}
@@ -3919,8 +3976,11 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
         {existingBannerEl}
 
         {/* A locked day is read-only here: the form under the "already locked"
-            banner could still be filled in, only to be refused at the end. */}
-        <fieldset disabled={existingLocked} className={"min-w-0 m-0 p-0 border-0 " + (existingLocked ? "opacity-50 pointer-events-none select-none" : "")} aria-hidden={existingLocked || undefined}>
+            banner could still be filled in, only to be refused at the end.
+            So is a day whose draft question is still open: what was typed
+            under "Fortsæt kladden / Start forfra" was never saved, and
+            nothing said so. */}
+        <fieldset disabled={existingBlocks} className={"min-w-0 m-0 p-0 border-0 " + (existingBlocks ? "opacity-50 pointer-events-none select-none" : "")} aria-hidden={existingBlocks || undefined}>
 
         {/* Sync indicator.
             Was the page's only blue surface — a decorative family carrying no
@@ -4133,7 +4193,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2"
                       onClick={() => {
                         const next = {};
-                        Object.entries(splitMeta.categories).forEach(([k, v]) => { next[k] = String(v); });
+                        Object.entries(splitMeta.categories).forEach(([k, v]) => { next[k] = asBox(v); });
                         setRevAmounts(next);
                       }}
                     >
@@ -4257,9 +4317,13 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     // and amber there. It needs a look; it isn't money lost.
                     : "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300"
                 }`}>
+                  {/* The direction in words: "Difference: +2.912,75 kr." when the
+                      payments were SHORT read either way. */}
                   {tieOut.state === "balanced"
                     ? <><Icon name="CheckCircle2" size={14} className="inline align-text-bottom mr-1" />{t("balanced", "Balanced!")}</>
-                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${formatOwnerMoney(tieOut.diff, currency, { decimals: oreIfAny(tieOut.diff), sign: true })}`}</>}
+                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{tieOut.diff > 0
+                      ? t("dcPayBelowRevenue", "Payments are {amount} below revenue", { amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: oreIfAny(tieOut.diff) }) })
+                      : t("dcPayAboveRevenue", "Payments are {amount} above revenue", { amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: oreIfAny(tieOut.diff) }) })}</>}
                 </div>
               )}
             </div>
@@ -4288,7 +4352,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700/50 px-4 py-3 space-y-1.5 tabular-nums">
               <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
                 <span>{t("dcCashTakings", "Cash from today's sales")}</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-100"><Amount value={cashCounted ? cashCountedVal : null} currency={currency} decimals={oreIfAny(cashCountedVal)} /></span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100"><Amount value={cashCountReadable ? cashCountedVal : null} currency={currency} decimals={oreIfAny(cashCountedVal)} /></span>
               </div>
               <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
                 <span>
@@ -4309,12 +4373,16 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 </p>
               )}
             </div>
+            {/* Kassedifference, named as History names it, and the direction
+                in words. Red for a real shortage; over is "check it" (amber). */}
             {cashDiff !== null && (
-              <div className={`px-4 py-3 rounded-xl text-center font-semibold text-[16px] ${
+              <div className={`px-4 py-3 rounded-xl text-center ${
                 Math.abs(cashDiff) <= 100 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                  : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                  : cashDiff < 0 ? "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                    : "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300"
               }`}>
-                {t("difference")}: <Amount value={cashDiff} currency={currency} decimals={oreIfAny(cashDiff)} sign />
+                <p className="text-[12px] font-medium">{t("dcCashDiffLabel", "Cash difference")}</p>
+                <p className="font-semibold text-[16px] tabular-nums">{cashDirection(cashDiff)}</p>
                 {Math.abs(cashDiff) > 100 && <p className="text-[13px] font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThanAmount", "Off by more than {amount} — double-check your count", { amount: formatOwnerMoney(100, currency, { decimals: GLANCE_DECIMALS }) })}</p>}
               </div>
             )}
@@ -4504,8 +4572,11 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{cashExpectedFromRegister ? t("expectedFromRegister", "Expected (from register)") : t("expectedFromEntry", "Expected (from your entry)")}</span><span><Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
                 <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("dcCashTakingsCounted", "Counted (float taken off)")}</span><span><Amount value={cashCountedVal} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
                 <div className={`flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 tabular-nums ${cashDiff < -100 ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>
-                  <span>{t("difference")}</span><span><Amount value={cashDiff} currency={currency} decimals={LEDGER_DECIMALS} sign /></span>
+                  <span>{t("dcCashDiffLabel", "Cash difference")}</span><span><Amount value={cashDiff} currency={currency} decimals={LEDGER_DECIMALS} sign /></span>
                 </div>
+                {cashDiff !== null && Math.abs(cashDiff) >= 0.005 && (
+                  <p className={`text-[12px] mt-1 text-right ${cashDiff < -100 ? "text-red-700 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>{cashDirection(cashDiff, LEDGER_DECIMALS)}</p>
+                )}
               </div>
             )}
 
@@ -4707,10 +4778,16 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     )}
                     {tieOut.state === "off" && (
                       <>
+                        {/* Which way, in words — a signed "+4.450,00 kr." left the
+                            owner guessing whether payments were short or over. */}
                         <p className="text-[13px] font-semibold text-amber-800 dark:text-amber-300 tabular-nums">
-                          {t("dcTieOutOff", "Revenue and payments differ by {amount}.", {
-                            amount: formatOwnerMoney(tieOut.diff, currency, { decimals: LEDGER_DECIMALS, sign: true }),
-                          })}
+                          {tieOut.diff > 0
+                            ? t("dcPayBelowRevenue", "Payments are {amount} below revenue", {
+                              amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: LEDGER_DECIMALS }),
+                            })
+                            : t("dcPayAboveRevenue", "Payments are {amount} above revenue", {
+                              amount: formatOwnerMoney(Math.abs(tieOut.diff), currency, { decimals: LEDGER_DECIMALS }),
+                            })}
                         </p>
                         <p className="text-[12px] text-amber-700 dark:text-amber-400 mt-1">
                           {t("dcTieOutOffHint", "You can still lock the day — the kasserapport records the difference exactly as it stands.")}
@@ -5063,6 +5140,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // Ten at a time: 30+ cards made History a 14.000px scroll on a phone.
   const [shownCount, setShownCount] = useState(10);
   const [unlockReason, setUnlockReason] = useState("");
+  const unlockReasonRef = useRef(null);
   const [unlocking, setUnlocking] = useState(false);
   // A refused unlock used to be swallowed by `catch { /* ignore */ }`, so the
   // modal closed and the row stayed locked — identical on screen to success.
@@ -5477,7 +5555,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         // No full stop straight after the amount: the Danish money token ends
         // in one already ("1.070 kr."), and the dialog rendered "kr..".
         "This kladde shows {amount} — it is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
-        { amount: formatOwnerMoney(dc.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) },
+        // Øre when the row has them — the card said 17.912,75 kr., the dialog 17.913 kr.
+        { amount: formatOwnerMoney(dc.revenue_total ?? 0, currency, { decimals: oreDecimals(dc.revenue_total) }) },
       ),
       confirmLabel: t("delete", "Delete"),
       cancelLabel: t("cancel", "Cancel"),
@@ -5932,7 +6011,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               <button
                 onClick={sendToAccountant}
                 disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-                className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+                className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-gray-700 dark:disabled:text-gray-300 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
                   businessProfile?.accountant_email
                     ? `${t("sendToTooltip", "Send to")} ${businessProfile.accountant_email}`
@@ -6064,7 +6143,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             {/* Its own line: beside the amount it squeezed the date onto two
                 lines on a phone. */}
             {revChange !== null && Math.abs(revChange) >= 5 && revChange <= 300 && revChange >= -75 && (
-              <p className={`text-[11px] font-semibold mt-1 flex items-center gap-1 sm:justify-end ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+              // A lower day is not a shortfall — red is for money out and a
+              // real shortage. The icon carries the direction.
+              <p className={`text-[11px] font-semibold mt-1 flex items-center gap-1 sm:justify-end ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-gray-600 dark:text-gray-400"}`}>
                 <Icon name={revChange > 0 ? "TrendingUp" : "TrendingDown"} size={11} />
                 {revChange > 0 ? t("dcTrendHigherThanPrev", "Higher than the close before") : t("dcTrendLowerThanPrev", "Lower than the close before")}
               </p>
@@ -6127,9 +6208,12 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 )}
                 {dc.tips_total > 0 && (
                   <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={oreDecimals(dc.tips_total)} />{dc.tips_staff_count ? ` (${t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})` : ""}
-                    {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
-                      <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-                        {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
+                    {/* A direction word in gray, like the revenue line — a raw
+                        red "↓13%" read as money lost. */}
+                    {tipsChange !== null && Math.abs(tipsChange) >= 5 && tipsChange <= 300 && tipsChange >= -75 && (
+                      <span className="ml-1 inline-flex items-center gap-0.5 text-gray-600 dark:text-gray-400">
+                        <Icon name={tipsChange > 0 ? "TrendingUp" : "TrendingDown"} size={11} />
+                        {tipsChange > 0 ? t("dcTipsHigherThanPrev", "more than the close before") : t("dcTipsLowerThanPrev", "less than the close before")}
                       </span>
                     )}
                   </span>
@@ -6241,21 +6325,24 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       {/* Unlock modal */}
       {unlockId && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
-            <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock the kasserapport")}</h3>
+          <FocusedDialog labelledBy="dc-unlock-title" initialRef={unlockReasonRef}
+            onEscape={() => { if (!unlocking) { setUnlockId(null); setUnlockError(""); } }}
+            className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm focus:outline-none" onClick={e => e.stopPropagation()}>
+            <h3 id="dc-unlock-title" className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock the kasserapport")}</h3>
             {/* Which day — the dialog didn't say. */}
             {(() => {
               const row = (data || []).find((r) => r.id === unlockId);
               return row ? (
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                  {formatDateClear(String(row.date).slice(0, 10))} · <Amount value={row.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} />
+                  {formatDateClearFull(String(row.date).slice(0, 10))} · <Amount value={row.revenue_total} currency={currency} decimals={oreDecimals(row.revenue_total)} />
                 </p>
               ) : null;
             })()}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
             </p>
-            <textarea placeholder={t("dcUnlockReasonPlaceholder", "e.g. Accountant found an error in cash count…")}
+            <textarea ref={unlockReasonRef} aria-label={t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
+              placeholder={t("dcUnlockReasonPlaceholder", "e.g. Accountant found an error in cash count…")}
               rows={3}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none mb-4"
               value={unlockReason} onChange={e => setUnlockReason(e.target.value)} />
@@ -6275,7 +6362,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {unlocking ? t("dcUnlocking", "Unlocking…") : <><Icon name="LockOpen" size={15} /> {t("dcUnlock", "Unlock")}</>}
               </button>
             </div>
-          </div>
+          </FocusedDialog>
         </div>
       )}
 

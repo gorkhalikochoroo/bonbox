@@ -54,16 +54,22 @@ describe("the promoted scan path still lands on review", () => {
 });
 
 describe("the difference is stated on the review card", () => {
+  // The "off" verdict names its direction in words (round 11): "Betalingerne
+  // er 2.912,75 kr. under omsætningen" / "… over omsætningen". The review's is
+  // the LAST dcPayBelowRevenue in the file — the payments step uses it too.
+  const reviewVerdict = () => CODE.lastIndexOf('t("dcPayBelowRevenue"');
+
   it("the review branch renders the tie-out verdict", () => {
     expect(CODE).toMatch(/dcTieOutBalanced/);
-    expect(CODE).toMatch(/dcTieOutOff/);
+    expect(CODE).toMatch(/dcPayBelowRevenue/);
+    expect(CODE).toMatch(/dcPayAboveRevenue/);
     expect(CODE).toMatch(/dcTieOutUnknown/);
   });
 
   it("it sits inside the review step and above Bekræft & lås", () => {
     const reviewStart = at('currentStepId === "review"');
     const lockButton = at('t("confirmAndLock"');
-    const verdict = at('t("dcTieOutOff"');
+    const verdict = reviewVerdict();
     expect(reviewStart).toBeGreaterThan(-1);
     expect(lockButton).toBeGreaterThan(-1);
     expect(verdict).toBeGreaterThan(reviewStart);
@@ -75,20 +81,23 @@ describe("the difference is stated on the review card", () => {
     // scrolls to the lock has to pass this line to reach it. Even the lock's
     // own failure banner renders above it, so the tie-out is never pushed off
     // the bottom of the card by something else appearing.
-    const verdict = at('t("dcTieOutOff"');
+    const verdict = reviewVerdict();
     const errorBanner = at("{error && (");
     expect(errorBanner).toBeGreaterThan(-1);
     expect(verdict).toBeGreaterThan(errorBanner);
   });
 
-  it("the figure goes through formatOwnerMoney with a sign, at ledger precision", () => {
-    // A signed amount, because "differ by 1.200 kr" without a direction does
-    // not tell the owner whether they are over or short. LEDGER_DECIMALS,
+  it("the figure goes through formatOwnerMoney with its direction in words, at ledger precision", () => {
+    // A direction, because "differ by 1.200 kr" does not tell the owner
+    // whether they are over or short — and a bare "+1.200" did not either
+    // (round 11: "+2.912,75" read as "over" when payments were short). So the
+    // sign is a WORD now, picked from the sign of the diff. LEDGER_DECIMALS,
     // because every other figure on this card is at two decimals and a
     // difference that does not visibly reconcile the rows above it is worse
     // than no difference at all.
+    expect(CODE).toMatch(/tieOut\.diff > 0\s*\?\s*t\("dcPayBelowRevenue"/);
     expect(CODE).toMatch(
-      /formatOwnerMoney\(tieOut\.diff, currency, \{ decimals: LEDGER_DECIMALS, sign: true \}\)/,
+      /formatOwnerMoney\(Math\.abs\(tieOut\.diff\), currency, \{ decimals: LEDGER_DECIMALS \}\)/,
     );
   });
 });
