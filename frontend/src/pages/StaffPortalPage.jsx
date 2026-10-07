@@ -13,7 +13,7 @@ import { swapDoubleBooks } from "../utils/swapClash";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
@@ -27,6 +27,8 @@ import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { useKeyboardLift } from "../hooks/useKeyboardLift";
 import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
+import { usePortalStream } from "../hooks/usePortalStream";
+import { App as CapApp } from "@capacitor/app";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
@@ -5089,10 +5091,11 @@ function LoadingSkeleton() {
 // written for them in their own language and showing FastAPI's English.
 function PortalError({ message, expected = false }) {
   const { t } = useLanguage();
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
-        <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+        <Link2Off className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
         {/* Catalogue copy wins for the expected dead/expired link — it exists
             in real en+da and it tells the staffer what to DO ("ask your manager
@@ -5108,12 +5111,13 @@ function PortalError({ message, expected = false }) {
             "link not working" screen for a dead/expired portal token, and the
             full document load is what discards that token and the portal's
             in-memory state. A soft navigation would carry the dead session
-            into /join. */}
+            into /join. Styled as the real button it is, with /join's verb. */}
         <a
           href="/join"
-          className="inline-block mt-4 text-sm font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900"
+          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold active:scale-[0.98] transition"
         >
-          {t("portalErrorJoin", "Have a join code? Connect here")}
+          <KeyRound className="w-4 h-4" strokeWidth={2.2} aria-hidden />
+          {t("portalErrorJoinCta", "Connect with a code")}
         </a>
       </div>
     </div>
@@ -5121,19 +5125,62 @@ function PortalError({ message, expected = false }) {
 }
 
 
-/** Opening the portal failed WITHOUT the server saying the link is dead —
-    offline, a timeout, a 5xx while the backend wakes. The saved link is kept;
-    this screen says so and offers the retry (the page also retries by itself
-    on the browser's 'online' event). Never shows axios's raw "Network Error". */
-function PortalOffline({ onRetry, busy = false }) {
+/** The staff screens before a portal has loaded (opening, offline, dead link)
+    carry the staff app's own tab / app-switcher title, not the owner app's
+    marketing <title> from index.html. Restored on unmount. */
+function useStaffDocTitle(title) {
+  useEffect(() => {
+    const prev = document.title;
+    document.title = title;
+    return () => { document.title = prev; };
+  }, [title]);
+}
+
+
+/** Opening the portal. The retry interceptor can spend ~20 s on a cold
+    server; a bare spinner that long reads as frozen, so after a few seconds
+    it says what it is doing. (Offline fails at once — see portalApi.) */
+function PortalOpening() {
   const { t } = useLanguage();
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(id);
+  }, []);
+  return (
+    <div className="min-h-screen bg-[#f5f7fb] flex flex-col items-center justify-center p-6">
+      <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" aria-hidden />
+      <p role="status" className="mt-4 text-center text-[13px] text-gray-600 max-w-xs min-h-[1.25rem]">
+        {slow ? t("portalOpeningSlow", "Connecting to BonBox… this can take up to 20 seconds.") : ""}
+      </p>
+    </div>
+  );
+}
+
+
+/** Opening the portal failed WITHOUT the server saying the link is dead.
+    kind "offline": no answer at all (the phone's connection). kind "server":
+    BonBox answered with trouble (5xx while it wakes, 429) — the phone IS
+    online, so this must not blame it. Either way the saved link is kept, a
+    retry runs by itself, and "Prøv igen" is there. Never shows axios's raw
+    "Network Error". */
+function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
+  const { t } = useLanguage();
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  const server = kind === "server";
+  const Icon = server ? ServerCrash : CloudOff;
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
-      <div className="text-center max-w-xs">
-        <CloudOff className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-        <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalOfflineTitle", "No connection")}</h1>
+      <div className="text-center max-w-xs" data-kind={kind}>
+        <Icon className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+        <h1 className="text-xl font-bold text-gray-900 mb-2">
+          {server ? t("portalServerDownTitle", "The server isn't answering") : t("portalOfflineTitle", "No connection")}
+        </h1>
         <p className="text-sm text-gray-500">
-          {t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
+          {server
+            ? t("portalServerDownBody", "It's not your phone — it's on our side. Your link is saved, and we'll try again by ourselves in a moment.")
+            : t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
         </p>
         <button
           type="button"
@@ -6976,7 +7023,7 @@ export default function StaffPortalPage() {
   // liveConnected — true while the SSE stream (Phase 2) is open. Drives the
   // "Live" pill and backs the foreground poll off from 20s → 60s (the stream
   // covers instant schedule pushes; the poll then only keeps hours fresh).
-  const [liveConnected, setLiveConnected] = useState(false);
+  // Declared below, after loadData (hooks/usePortalStream).
 
   // Email & phone editing
   const [showEmailEdit, setShowEmailEdit] = useState(false);
@@ -7099,7 +7146,10 @@ export default function StaffPortalPage() {
         setLoading(false);
         setRetrying(false);
         if (!dead) {
-          setError({ transient: true });
+          // "server" when BonBox answered with trouble (5xx while it wakes, a
+          // 429) — the phone is online, so "you're offline" would be wrong and
+          // the 'online' event that retries an offline open never fires.
+          setError({ transient: true, kind: err?.response ? "server" : "offline" });
           return;
         }
         // The dead-link screen uses the da/en catalogue copy: the server's
@@ -7127,6 +7177,20 @@ export default function StaffPortalPage() {
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [transientOpen]);
+  // …and on a timer, because neither failure is guaranteed an 'online' event:
+  // a server in trouble leaves the phone online, and the iOS web view can
+  // miss the event after a suspend. Each failed try sets a fresh `error`, so
+  // this re-arms itself; a server that is down is asked every 15 s, an
+  // offline phone every 30 s — only while the screen is in front.
+  useEffect(() => {
+    if (!error?.transient) return undefined;
+    const id = setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      setRetrying(true);
+      setValidateKey((k) => k + 1);
+    }, error.kind === "server" ? 15000 : 30000);
+    return () => clearTimeout(id);
+  }, [error]);
 
   // 2. Load data once verified
   const loadData = useCallback(() => {
@@ -7172,6 +7236,12 @@ export default function StaffPortalPage() {
         setShifts(nextShifts);
         setSchedState("ok");
         setLastSynced(new Date());
+        // An answer from the server IS being online. navigator.onLine and its
+        // events are only a hint — inside the iOS web view an 'offline' that
+        // fired while the phone slept may never be followed by 'online', and
+        // the header said "Offline" for hours over a schedule that kept
+        // refreshing. The pill now follows what actually happened.
+        setIsOnline(true);
       } else {
         setSchedState((st) => (st === "ok" ? "ok" : "error"));
         // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
@@ -7387,12 +7457,29 @@ export default function StaffPortalPage() {
     };
   }, [pinVerified, info, tab, token]);
 
+  // 2e. Realtime stream (Phase 2) — instant push the moment the owner
+  // publishes: on a "schedule_published" nudge we refetch immediately
+  // (loadData diffs + toasts as usual). The 20s/60s poll below is the
+  // fallback, so the stream is pure speed, never a correctness dependency.
+  // usePortalStream reopens a stream the browser gave up on (an error status
+  // while the server restarts, the 429 stream cap) with backoff, and starts a
+  // fresh one whenever the staffer comes back to the app — the "Offline/no
+  // Live until relaunch" report after hours idle.
+  const onStreamPublished = useCallback(() => { loadData(); loadHours(); }, [loadData, loadHours]);
+  const liveConnected = usePortalStream({
+    enabled: Boolean(pinVerified && info),
+    url: token ? `${portalApi.defaults?.baseURL || ""}/portal/${token}/stream` : null,
+    onPublished: onStreamPublished,
+  });
+
   // 2b. Refetch triggers — keep the schedule fresh without any realtime deps.
   // All gated on pinVerified && info, all cleaned up on unmount.
   //   • visibilitychange → refetch when the tab/app becomes visible again
   //     (the "came back after hours away" case — the biggest freshness win).
   //   • online → refetch the moment connectivity returns; track isOnline so
   //     the pill can show the truth.
+  //   • native 'resume' → the same as visibilitychange, in case the web view
+  //     does not report it after a long suspend.
   //   • setInterval(~20s) → background poll, but ONLY while the tab is
   //     visible (respects the 30/min API rate-limit; 20s ≈ 3/min).
   useEffect(() => {
@@ -7403,7 +7490,11 @@ export default function StaffPortalPage() {
     const refreshAll = () => { loadData(); loadHours(); };
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") refreshAll();
+      if (document.visibilityState !== "visible") return;
+      // Re-read the hint on the way back in; the refetch then settles it
+      // (a schedule answer sets isOnline true — see loadData).
+      if (typeof navigator !== "undefined" && navigator.onLine !== false) setIsOnline(true);
+      refreshAll();
     };
     const onOnline = () => {
       setIsOnline(true);
@@ -7414,6 +7505,10 @@ export default function StaffPortalPage() {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    let resumeSub = null;
+    if (isNativeApp()) {
+      try { resumeSub = CapApp.addListener("resume", onVisible); } catch { /* plugin missing */ }
+    }
 
     const pollId = setInterval(() => {
       if (document.visibilityState === "visible") refreshAll();
@@ -7423,39 +7518,10 @@ export default function StaffPortalPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      Promise.resolve(resumeSub).then((l) => l?.remove?.()).catch(() => {});
       clearInterval(pollId);
     };
   }, [pinVerified, info, loadData, loadHours, liveConnected]);
-
-  // 2e. Realtime stream (Phase 2) — instant push the moment the owner
-  // publishes. Opens a Server-Sent Events connection to the portal stream; on
-  // a "schedule_published" nudge we refetch immediately (loadData diffs +
-  // toasts as usual). The browser's EventSource auto-reconnects on drop, and
-  // the 20s/60s poll above is the fallback — so the stream is pure speed, never
-  // a correctness dependency. liveConnected drives the "Live" pill + poll backoff.
-  useEffect(() => {
-    if (!(pinVerified && info)) return;
-    if (typeof window === "undefined" || typeof window.EventSource === "undefined") return;
-
-    const base = portalApi.defaults.baseURL || "";
-    let es;
-    try {
-      es = new EventSource(`${base}/portal/${token}/stream`);
-    } catch {
-      return; // EventSource unavailable → poll-only, harmless no-op
-    }
-
-    const onPublished = () => { loadData(); loadHours(); };
-    es.onopen = () => setLiveConnected(true);
-    es.onerror = () => setLiveConnected(false); // browser keeps auto-reconnecting
-    es.addEventListener("schedule_published", onPublished);
-
-    return () => {
-      setLiveConnected(false);
-      try { es.removeEventListener("schedule_published", onPublished); } catch { /* noop */ }
-      try { es.close(); } catch { /* noop */ }
-    };
-  }, [pinVerified, info, token, loadData, loadHours]);
 
   // 2c. Freshness ticker — re-render the pill every 15s so "Synced" decays to
   // "Synced HH:MM" as data ages, independent of any fetch.
@@ -7545,13 +7611,7 @@ export default function StaffPortalPage() {
   }, [token, info, lang, t]);
 
   // Loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
+  if (loading) return <PortalOpening />;
 
   // Error state — see the token-validation catch. {transient} is "we could
   // not reach the server" (link kept, retry offered); anything else is the
@@ -7559,6 +7619,7 @@ export default function StaffPortalPage() {
   if (error?.transient) {
     return (
       <PortalOffline
+        kind={error.kind}
         busy={retrying}
         onRetry={() => { setRetrying(true); setValidateKey((k) => k + 1); }}
       />

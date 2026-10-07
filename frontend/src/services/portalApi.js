@@ -83,6 +83,13 @@ portalApi.interceptors.response.use(null, async (err) => {
   if (!config) return Promise.reject(err);
   const isRetryable = !err.response || err.code === "ECONNABORTED" || err.response?.status >= 500;
   if (!isRetryable) return Promise.reject(err);
+  // The phone itself says it is offline and nothing answered: the backoff
+  // below would only add ~20 s of spinner before the same answer. Fail now —
+  // the portal and /join show "Ingen forbindelse" and retry on 'online' (and
+  // on a timer). A server error with the phone online still gets every retry.
+  if (!err.response && typeof navigator !== "undefined" && navigator.onLine === false) {
+    return Promise.reject(err);
+  }
   const method = (config.method || "get").toLowerCase();
   const safeToRepeat = method === "get" || (config.url || "").includes("/portal/join");
   const maxRetries = safeToRepeat ? 4 : 2;

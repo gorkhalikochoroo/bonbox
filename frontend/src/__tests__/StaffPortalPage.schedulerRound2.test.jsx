@@ -5,6 +5,11 @@
  *   • Swap picker (C5): a colleague shift that would put either person on two
  *     shifts at once is never offered; the server's 409 reason is shown in
  *     Danish on propose AND on accept (it used to vanish on accept).
+ *   • Header pill (lead report): "Offline" stuck for hours although the
+ *     backend was up — only the 'online' event could clear it. A schedule
+ *     answer now proves the phone is online.
+ *   • Opening a link while the server is in trouble says so ("Serveren svarer
+ *     ikke", not "du er offline") and retries by itself.
  */
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -164,5 +169,97 @@ describe("Accepting a swap that would double-book you", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Du har allerede en vagt på det tidspunkt den dag");
     expect(screen.getByRole("button", { name: "Afvis" })).not.toBeDisabled();
+  });
+});
+
+describe("Header pill — 'Offline' recovers without relaunching the app", () => {
+  it("a stale 'offline' is cleared by the next schedule answer", async () => {
+    await mount("da");
+    const pill = () => document.querySelector("h1").parentElement.querySelector("button");
+    await waitFor(() => expect(pill().textContent).toBe("Synket"));
+
+    // The web view reported offline while the phone slept; on wake the
+    // 'online' event never comes and navigator.onLine is still stale.
+    const desc = Object.getOwnPropertyDescriptor(window.navigator, "onLine");
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => false });
+    try {
+      await act(async () => { window.dispatchEvent(new Event("offline")); });
+      expect(pill().textContent).toBe("Offline");
+
+      const before = get.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/schedule`)).length;
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      await waitFor(() =>
+        expect(get.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/schedule`)).length).toBeGreaterThan(before),
+      );
+      await waitFor(() => expect(pill().textContent).not.toBe("Offline"));
+    } finally {
+      if (desc) Object.defineProperty(window.navigator, "onLine", desc);
+      else delete window.navigator.onLine;
+    }
+  });
+});
+
+describe("Opening a link while the server is in trouble", () => {
+  it("says the server is not answering and retries by itself", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let opens = 0;
+      const base = get.getMockImplementation();
+      get.mockImplementation((url) => {
+        if (url === `/portal/${TOK}`) {
+          opens += 1;
+          if (opens === 1) return reject(503, { detail: "Server is starting up, please retry in a moment" });
+        }
+        return base(url);
+      });
+      localStorage.setItem("lang", "da");
+      render(
+        <LanguageProvider>
+          <ConfirmProvider>
+            <MemoryRouter initialEntries={[`/portal/${TOK}`]}>
+              <Routes>
+                <Route path="/portal/:token" element={<StaffPortalPage />} />
+              </Routes>
+            </MemoryRouter>
+          </ConfirmProvider>
+        </LanguageProvider>,
+      );
+      expect(await screen.findByText("Serveren svarer ikke")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("Ingen forbindelse");
+      expect(document.body.textContent).not.toContain("starting up");
+      expect(document.title).toBe("BonBox Scheduler");
+
+      await act(async () => { vi.advanceTimersByTime(15000); });
+      await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
+      expect(opens).toBe(2);
+      get.mockImplementation(base);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("Dead link", () => {
+  it("offers a real 44px button with /join's verb, and the staff title", async () => {
+    const base = get.getMockImplementation();
+    get.mockImplementation((url) => (url === `/portal/${TOK}` ? reject(404, { detail: "Link not found or inactive" }) : base(url)));
+    try {
+      localStorage.setItem("lang", "da");
+      render(
+        <LanguageProvider>
+          <MemoryRouter initialEntries={[`/portal/${TOK}`]}>
+            <Routes>
+              <Route path="/portal/:token" element={<StaffPortalPage />} />
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>,
+      );
+      const cta = await screen.findByRole("link", { name: "Tilslut med kode" });
+      expect(cta.getAttribute("href")).toBe("/join");
+      expect(cta.className).toContain("min-h-[44px]");
+      expect(document.title).toBe("BonBox Scheduler");
+    } finally {
+      get.mockImplementation(base);
+    }
   });
 });
