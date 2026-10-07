@@ -174,14 +174,23 @@ describe("Alerts — the detail is data, in the reader's language, and opens its
     fireEvent.click(row);
     await waitFor(() => expect(weekLabel()).toBe(`Uge ${isoWeek(wk(3))}`));
     expect(document.body.textContent).toContain("11:00–20:00");
+
+    // Back to Nyt, then Vagtplan from the bottom nav: this week again, not
+    // the old alert's week re-opened on every return.
+    fireEvent.click(screen.getByRole("button", { name: "Nyt" }));
+    await screen.findByText(`${dateLabel} · 11:00–20:00`);
+    fireEvent.click(within(document.querySelector("nav")).getByText("Vagtplan").closest("button"));
+    await waitFor(() => expect(weekLabel()).toBe("Denne uge"));
   });
 });
 
 describe("Fravær — a declined request says Afvist", () => {
   it("declined → Afvist; the staffer's own withdrawal → Annulleret", async () => {
     absence = [
-      { id: "a1", kind: "ferie", date: wk(2, 0), status: "declined", reason: null },
-      { id: "a2", kind: "ferie", date: wk(4, 0), status: "cancelled", reason: null },
+      // `status` is the stored value for both (an unknown "declined" status
+      // read as "Afventer" in installed apps); the owner's no is the flag.
+      { id: "a1", kind: "ferie", date: wk(2, 0), status: "cancelled", declined: true, reason: null },
+      { id: "a2", kind: "ferie", date: wk(4, 0), status: "cancelled", declined: false, reason: null },
     ];
     await mount("da");
     fireEvent.click(within(document.querySelector("nav")).getByText("Kan ikke").closest("button"));

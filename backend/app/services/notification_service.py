@@ -333,7 +333,11 @@ def _feed_subject(prefix: str, day, start: str | None = None, end: str | None = 
     prefix stays: the portal's title (and its "cancelled" check) reads it.
     The email itself keeps its human subject — only the feed row changes."""
     iso = day.isoformat() if hasattr(day, "isoformat") else str(day)
-    times = f" {start}-{end}" if start and end else ""
+    def _hh(t):
+        # The shift schema accepts "9:00"; store "09:00" so the app shows it padded.
+        t = str(t)
+        return "0" + t if len(t) == 4 and t[1] == ":" else t
+    times = f" {_hh(start)}-{_hh(end)}" if start and end else ""
     return f"{prefix} - {iso}{times}"
 
 

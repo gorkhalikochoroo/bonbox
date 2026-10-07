@@ -8024,6 +8024,12 @@ def decline_absence(
     ).first()
     if not absence:
         raise HTTPException(status_code=404, detail="Absence not found")
+    if absence.status == "cancelled":
+        # Already gone — the staffer withdrew it (or it was declined before).
+        # A stale approval card must not stamp acknowledged_at onto the
+        # staffer's own withdrawal, or the portal would tell them "Afvist"
+        # for something they took back themselves.
+        return _serialize_absence(absence, db)
     absence.status = "cancelled"
     if absence.acknowledged_at is None:
         absence.acknowledged_at = utc_now()

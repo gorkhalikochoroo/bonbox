@@ -12,7 +12,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TOK = "tokpol";
 const ok = (data) => Promise.resolve({ data });
@@ -110,6 +110,14 @@ describe("Vagtplan hours read like the owner app", () => {
 });
 
 describe("Timer", () => {
+  // The chart pads only weeks it KNOWS (up to today / the last entry), so the
+  // clock is pinned: after October 2026 unless a test moves it.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-05T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("labels weeks 'Uge NN' in Danish and keeps the empty week", async () => {
     mount("da");
     await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
@@ -130,6 +138,43 @@ describe("Timer", () => {
     const bars = await screen.findAllByTestId("portal-week-bar");
     expect(bars[0].lastChild.textContent).toBe("W40");
     expect(document.body.textContent).toContain("7.5 h");
+  });
+
+  it("a month touching six ISO weeks shows all six — a Sunday-the-1st shift is not dropped", async () => {
+    // November 2026: Sun 1 (W44) → Mon 30 (W49).
+    vi.setSystemTime(new Date("2026-12-03T12:00:00"));
+    hoursImpl = () => ok({
+      period_start: "2026-11-01", period_end: "2026-11-30", total_hours: 12, hours_source: "logged",
+      entries: [
+        { date: "2026-11-01", start_time: "10:00", end_time: "16:00", total_hours: 6 },
+        { date: "2026-11-30", start_time: "10:00", end_time: "16:00", total_hours: 6 },
+      ],
+    });
+    mount("da");
+    await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
+    navTo("Timer");
+    const bars = await screen.findAllByTestId("portal-week-bar");
+    expect(bars.map((b) => b.lastChild.textContent)).toEqual(["Uge 44", "Uge 45", "Uge 46", "Uge 47", "Uge 48", "Uge 49"]);
+    expect(bars[0].firstChild.textContent).toBe("6");   // the Sunday-the-1st hours, not dropped
+    // The default pay period is the whole period, not "the last N weeks".
+    expect(document.body.textContent).not.toMatch(/sidste \d+ uger/i);
+  });
+
+  it("logged hours: a week that has not happened yet gets no '0' column", async () => {
+    vi.setSystemTime(new Date("2026-11-10T12:00:00"));
+    hoursImpl = () => ok({
+      period_start: "2026-11-01", period_end: "2026-11-30", total_hours: 12, hours_source: "logged",
+      entries: [
+        { date: "2026-11-01", start_time: "10:00", end_time: "16:00", total_hours: 6 },
+        { date: "2026-11-09", start_time: "10:00", end_time: "16:00", total_hours: 6 },
+      ],
+    });
+    mount("da");
+    await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
+    navTo("Timer");
+    const bars = await screen.findAllByTestId("portal-week-bar");
+    // W44, W45 (empty, past), W46 (today) — nothing for W47–W49.
+    expect(bars.map((b) => b.lastChild.textContent)).toEqual(["Uge 44", "Uge 45", "Uge 46"]);
   });
 
   it("a failed fetch offers 'Prøv igen', which fetches again", async () => {

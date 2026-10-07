@@ -237,7 +237,17 @@ class PortalNotification(BaseModel):
 
 _EN_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _EN_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-_REF_ISO = re.compile(r" - (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2})-(\d{2}:\d{2}))?$")
+# Hours are 1-2 digits: the shift schema (_HHMM_RE) stores "9:00" unpadded,
+# and an anchored 2-digit pattern rejected the WHOLE tail for it — the row
+# then printed the raw "2026-11-25 9:00-17:00" and opened no week.
+_REF_ISO = re.compile(r" - (\d{4}-\d{2}-\d{2})(?: (\d{1,2}:\d{2})-(\d{1,2}:\d{2}))?$")
+
+
+def _pad_hhmm(t: str | None) -> str | None:
+    """"9:00" -> "09:00"; anything else unchanged."""
+    if t and len(t) == 4 and t[1] == ":":
+        return "0" + t
+    return t
 _REF_EN_DAY = re.compile(r" - (Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
 _REF_UGE = re.compile(r" - Uge (\d{1,2})$")
 _REF_WEEK_OF = re.compile(r" - Week of (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})$")
@@ -257,7 +267,7 @@ def _notification_ref(subject: str | None, created_at: datetime | None):
     m = _REF_ISO.search(subj)
     if m:
         try:
-            return date.fromisoformat(m.group(1)), m.group(2), m.group(3)
+            return date.fromisoformat(m.group(1)), _pad_hhmm(m.group(2)), _pad_hhmm(m.group(3))
         except ValueError:
             return None, None, None
     anchor = (created_at.date() if isinstance(created_at, datetime) else None) or date.today()
@@ -2758,7 +2768,11 @@ def portal_list_absence(token: str, request: Request, db: Session = Depends(get_
                 "id": str(a.id),
                 "kind": a.kind,
                 "date": a.date.isoformat(),
-                "status": _portal_absence_status(a),
+                # The STORED value, always — a new enum value here reached
+                # installed Scheduler apps (bundled web code) as unknown and
+                # rendered a declined ferie as amber "Afventer".
+                "status": a.status,
+                "declined": _portal_absence_declined(a),
                 "reason": a.reason,
             }
             for a in rows
@@ -2766,19 +2780,18 @@ def portal_list_absence(token: str, request: Request, db: Session = Depends(get_
     }
 
 
-def _portal_absence_status(a) -> str:
-    """The status as the STAFFER needs to read it. The owner's decline and the
-    staffer's own withdraw are both stored as 'cancelled' (so every roster
-    filter drops them alike); the owner's decision is the one that also
-    stamps acknowledged_at (staff.decline_absence) — a withdraw only ever
-    touches pending rows, which never carry it. So 'cancelled' + acknowledged
-    = "declined" ("Afvist"), and the staffer can see their manager said no
-    instead of the same "Annulleret" as their own withdrawal. Rows declined
-    before acknowledged_at was stamped stay "cancelled" — nothing recorded
+def _portal_absence_declined(a) -> bool:
+    """Did the OWNER say no? The owner's decline and the staffer's own
+    withdraw are both stored as 'cancelled' (so every roster filter drops them
+    alike); the owner's decision is the one that also stamps acknowledged_at
+    (staff.decline_absence, which no-ops on an already-withdrawn row) — a
+    withdraw only ever touches pending rows, which never carry it. So
+    'cancelled' + acknowledged = declined, and the app shows "Afvist" instead
+    of the same "Annulleret" as the staffer's own withdrawal. A separate flag,
+    not a new status value: older apps ignore it and keep "Annulleret". Rows
+    declined before acknowledged_at was stamped stay False — nothing recorded
     who acted on those."""
-    if a.status == "cancelled" and getattr(a, "acknowledged_at", None) is not None:
-        return "declined"
-    return a.status
+    return a.status == "cancelled" and getattr(a, "acknowledged_at", None) is not None
 
 
 class AbsenceWithdrawBody(BaseModel):

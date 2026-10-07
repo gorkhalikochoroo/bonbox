@@ -2980,15 +2980,22 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       return { key: `${th.getFullYear()}-${String(week).padStart(2, "0")}`, week };
     };
     const buckets = new Map();
-    // EVERY week of the period gets a column, worked or not. A week with no
-    // shifts used to vanish (W40, W41, W43), which reads as "the chart
-    // skipped one" rather than "you were off that week".
+    // A week of the period with no shifts keeps its (0) column — it used to
+    // vanish (W40, W41, W43), which reads as "the chart skipped one" rather
+    // than "you were off that week". But only weeks we KNOW: up to today, or
+    // the last week holding an entry if that is later. A week that has not
+    // happened yet and holds nothing is unknown, not 0 — drawing "0" there is
+    // a computed zero shown as measured.
     if (data?.period_start && data?.period_end) {
-      for (let d = data.period_start; d <= data.period_end; d = addDays(d, 7)) {
+      const today = toLocalISO(new Date());
+      const lastEntry = (data.entries || []).reduce((m, e) => ((e.date || "") > m ? e.date : m), "");
+      const known = today > lastEntry ? today : lastEntry;
+      const end = known < data.period_end ? known : data.period_end;
+      for (let d = data.period_start; d <= end; d = addDays(d, 7)) {
         const k = isoWeek(d);
         if (k) buckets.set(k.key, 0);
       }
-      const last = isoWeek(data.period_end);
+      const last = end >= data.period_start ? isoWeek(end) : null;
       if (last) buckets.set(last.key, buckets.get(last.key) || 0);
     }
     for (const e of data?.entries || []) {
@@ -3000,7 +3007,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     // W52 of one year with W52 of the next, or sort W01 before W52.
     const sorted = [...buckets.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const rows = sorted
-      .slice(-5)                                               // v2 shows five columns
+      // Six columns: a calendar month can touch six ISO weeks (Nov 2026 runs
+      // Sun 1 → Mon 30, W44–W49). Five dropped the first week — hours and
+      // all — and flagged the default pay period as "last 5 weeks". Only a
+      // long custom window is a tail now.
+      .slice(-6)
       // "Uge 40" in Danish, "W40" in English — the label was English always.
       .map(([k, n]) => ({ k, w: t("portalWeekShort", "W{n}", { n: Number(k.split("-")[1]) }), n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
     rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
@@ -5133,7 +5144,13 @@ function AbsenceSection({ token, onChanged }) {
     setLoadFailed(false);
     try {
       const res = await portalApi.get(`/portal/${token}/absence`);
-      setRows(res.data?.absence || []);
+      // `status` is the stored value; the owner's decline is the separate
+      // `declined` flag (a new status value would read as "Afventer" in
+      // installed apps that bundle older code). Fold it in here so grouping
+      // and the chip see "declined" → "Afvist".
+      setRows((res.data?.absence || []).map((a) => (
+        a.status === "cancelled" && a.declined ? { ...a, status: "declined" } : a
+      )));
     } catch {
       // Keep whatever was last loaded and say the refresh failed. Clearing to
       // [] rendered "no absence registered" to a staffer who HAS booked
@@ -5165,7 +5182,8 @@ function AbsenceSection({ token, onChanged }) {
     covered: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
     cancelled: { label: t("fravaerStatusCancelled", "Cancelled"), cls: "bg-gray-100 text-gray-500" },
     // The owner said no. Stored as 'cancelled' like a withdrawal; the portal
-    // API tells the two apart (staff_portal._portal_absence_status).
+    // API flags it (`declined`, staff_portal._portal_absence_declined) and
+    // load() folds that into this key.
     declined: { label: t("fravaerStatusDeclined", "Declined"), cls: "bg-rose-50 text-rose-700" },
   };
 
@@ -5775,7 +5793,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     const rank = (s) => (s === "acknowledged" || s === "covered") ? 2 : 1;
     const m = {};
     (absence || []).forEach((a) => {
-      if (a.status === "cancelled" || a.status === "declined") return;
+      if (a.status === "cancelled") return;
       const prev = m[a.date];
       if (!prev || rank(a.status) >= rank(prev.status)) m[a.date] = { status: a.status, kind: a.kind };
     });
@@ -5786,7 +5804,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     () => Object.entries(oneOffByDate).map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date)),
     [oneOffByDate],
   );
-  const hasAbsence = (absence || []).some((a) => a.status !== "cancelled" && a.status !== "declined");
+  const hasAbsence = (absence || []).some((a) => a.status !== "cancelled");
 
   const withSaving = (iso, on) => setSavingSet((s) => { const n = new Set(s); on ? n.add(iso) : n.delete(iso); return n; });
 
@@ -6883,7 +6901,11 @@ export default function StaffPortalPage() {
   }, [token, pinVerified, info, tab, lastSynced]);
 
   useEffect(() => {
-    if (tab !== "schedule" && tab !== "alerts") setScheduleFocus(null);
+    // Any other tab, Alerts included, drops the focus: ScheduleTab remounts
+    // on every return to Vagtplan and would otherwise re-open the old alert's
+    // week each time. An alert tap sets focus + tab in one batch, so it is
+    // never cleared before ScheduleTab reads it.
+    if (tab !== "schedule") setScheduleFocus(null);
   }, [tab]);
 
   // Opening Alerts IS reading them — otherwise the badge stays lit until the

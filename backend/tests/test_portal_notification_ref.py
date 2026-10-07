@@ -202,3 +202,29 @@ def test_unreadable_rows_carry_no_ref(client, db):
 ])
 def test_legacy_year_inference(subject, created, expected):
     assert _notification_ref(subject, created)[0] == expected
+
+
+def test_single_digit_hours_are_read_and_padded(client, db):
+    """The shift schema (_HHMM_RE) accepts and stores "9:00". The anchored
+    2-digit parser rejected the whole tail for it, so the row printed the raw
+    "2026-11-25 9:00-17:00" and opened no week. Old rows stored that way
+    still resolve, padded; new rows are written padded."""
+    assert _notification_ref("Shift updated - 2026-11-25 9:00-17:00", None) == (
+        date(2026, 11, 25), "09:00", "17:00",
+    )
+    u, s = _setup(db)
+    _row(db, u, s, "Shift updated - 2026-11-25 9:00-17:00", event="shift_changed")
+    (n,) = _feed(client)
+    assert (n["ref_date"], n["ref_start"], n["ref_end"]) == ("2026-11-25", "09:00", "17:00")
+
+
+def test_new_rows_store_single_digit_hours_padded(db):
+    u, s = _setup(db)
+    send_single_shift_notification(
+        db, u.id, s.id,
+        ShiftChange(change_type="modified", date="2026-11-25", old_start="8:00",
+                    old_end="16:00", new_start="9:00", new_end="17:00"),
+        "shift_changed", lang="da",
+    )
+    row = db.query(NotificationLog).filter(NotificationLog.staff_id == s.id).one()
+    assert row.subject == "Shift updated - 2026-11-25 09:00-17:00"

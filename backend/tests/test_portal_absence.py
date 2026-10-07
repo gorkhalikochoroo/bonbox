@@ -114,7 +114,7 @@ def test_register_range_and_single_day(client, db):
     listed = client.get("/api/portal/tokA/absence").json()["absence"]
     assert len(listed) == 4
     # Tracking shape only — no pay fields leak.
-    assert set(listed[0].keys()) == {"id", "kind", "date", "status", "reason"}
+    assert set(listed[0].keys()) == {"id", "kind", "date", "status", "reason", "declined"}
     assert all(x["status"] == "pending" for x in listed)
 
 
@@ -218,10 +218,40 @@ def test_owner_decline_reads_declined_but_own_withdraw_reads_cancelled(client, d
     w = client.post("/api/portal/tokA/absence/withdraw", json={"ids": [by_date[_iso(mine)]["id"]]})
     assert w.json()["withdrawn"] == 1
 
-    after = {x["date"]: x["status"] for x in client.get("/api/portal/tokA/absence").json()["absence"]}
-    assert after[_iso(ferie)] == "declined"     # "Afvist" — the manager said no
-    assert after[_iso(mine)] == "cancelled"     # "Annulleret" — they took it back
+    after = {x["date"]: x for x in client.get("/api/portal/tokA/absence").json()["absence"]}
+    # status stays the STORED value: installed Scheduler apps carry their own
+    # copy of the web code, and an unknown "declined" rendered as "Afventer".
+    assert after[_iso(ferie)]["status"] == "cancelled"
+    assert after[_iso(ferie)]["declined"] is True      # "Afvist" — the manager said no
+    assert after[_iso(mine)]["status"] == "cancelled"
+    assert after[_iso(mine)]["declined"] is False      # "Annulleret" — they took it back
 
     # Stored value is still 'cancelled' for both, so nothing else moves.
     stored = {r.date.isoformat(): r.status for r in db.query(StaffAbsence).all()}
     assert stored[_iso(ferie)] == "cancelled" and stored[_iso(mine)] == "cancelled"
+
+
+def test_owner_decline_after_own_withdraw_stays_a_withdrawal(client, db):
+    """A stale approval card can POST decline on a row the staffer already
+    withdrew. That must not stamp acknowledged_at onto the withdrawal and
+    relabel it "Afvist" — the decline is a no-op on a cancelled row."""
+    from app.services.auth import get_current_user
+    u, _a, _b = _seed(db)
+    day = TODAY + timedelta(days=45)
+    client.post("/api/portal/tokA/absence", json={"kind": "ferie", "date_from": _iso(day)})
+    (row,) = client.get("/api/portal/tokA/absence").json()["absence"]
+    assert client.post("/api/portal/tokA/absence/withdraw", json={"ids": [row["id"]]}).json()["withdrawn"] == 1
+
+    app.dependency_overrides[get_current_user] = lambda: u
+    try:
+        r = client.post(f"/api/staff/absences/{row['id']}/decline")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "cancelled"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    (after,) = client.get("/api/portal/tokA/absence").json()["absence"]
+    assert after["status"] == "cancelled" and after["declined"] is False
+    stored = db.query(StaffAbsence).one()
+    db.refresh(stored)
+    assert stored.acknowledged_at is None
