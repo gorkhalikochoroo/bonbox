@@ -27,7 +27,7 @@
  *                   what it could NOT sum instead of inventing a number.
  */
 
-import { parseMoneyInput } from "./currency";
+import { moneyInputText, parseMoneyInput } from "./currency";
 
 export const MERGE_FILL = "fill";
 export const MERGE_REPLACE = "replace";
@@ -195,6 +195,15 @@ function sumMerge(existing, incoming, locale = "da-DK") {
     else if (av != null) { merged[field] = av; incomplete.push(field); }
     else if (bv != null) { merged[field] = bv; incomplete.push(field); }
     else delete merged[field];
+  }
+  // A total the owner corrected by hand is kept as their keystrokes, and the
+  // "Samlet omsætning" box shows those first. `{ ...existing }` carried till
+  // 1's "16.450" over unchanged, so the box read 16.450 under a 21.450 sum —
+  // and editing it then dropped till 2. The box now holds the sum. The text
+  // stays (rather than being deleted) because it is also what marks the
+  // scanned MOMS as stale: it belonged to till 1's misread total.
+  if (existing.revenue_total_text != null && merged.revenue_total != null) {
+    merged.revenue_total_text = moneyInputText(Math.round(merged.revenue_total * 100) / 100, locale);
   }
 
   // Per-terminal documents: keep the first terminal's, say so when the second

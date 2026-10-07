@@ -170,3 +170,24 @@ describe("the review card states the tie-out", () => {
     expect(screen.queryByText("dcTieOutBalanced")).toBeNull();
   });
 });
+
+describe("the review card states the tie-out for a scanned total", () => {
+  it('a total-only Z-bon with no payments says "can\'t tell", not nothing', async () => {
+    // Trin 5 showed "Betalinger I alt —" and no verdict at all: the card was
+    // gated on a TYPED category or payment, and a scan fills neither.
+    post.mockImplementation((url) => Promise.resolve({
+      data: String(url).includes("scan")
+        ? { revenue: {}, revenue_total: 17030, moms_total: 3406, payments: {}, raw_text: "KASSE", ocr_available: true }
+        : {},
+    }));
+    const { container } = renderPage();
+    fireEvent.change(container.querySelector('input[type="file"]'), {
+      target: { files: [new File(["x"], "kasse.jpg", { type: "image/jpeg" })] },
+    });
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
+    await waitFor(() => expect(screen.getByText(/^stepNReview:/)).toBeInTheDocument());
+
+    expect(screen.getByText("dcTieOutUnknown")).toBeInTheDocument();
+  });
+});

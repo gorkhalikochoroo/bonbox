@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { dateLocale, businessTodayIso, formatDateClear, localIso } from "../utils/dateFormat";
+import { dateLocale, businessTodayIso, formatDateClear, formatDateClearFull, localIso } from "../utils/dateFormat";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -632,6 +632,10 @@ export default function DailyClosePage() {
     ? { ...todaysConfirmedClose, close_ritual: todaysConfirmedClose.close_ritual || {} }
     : null);
   const isLockedToday = Boolean(lockedBannerClose);
+  // …but a past day locked from this page still gets its answer. Hiding it
+  // with the rule above ended a back-filled close on today's live cards and
+  // "Luk dagen", with no word that the day just locked.
+  const pastLockClose = lastLockedClose && !freshLockIsToday ? lastLockedClose : null;
   // …and the third outcome for the lock itself. `isLockedToday === false` used
   // to mean two different things: "the list came back and today is not in it"
   // and "the list never came back", and the page rendered the reassuring one —
@@ -815,6 +819,18 @@ export default function DailyClosePage() {
           close={lockedBannerClose}
           currency={currency}
           businessType={user?.business_type}
+          onDismiss={() => setLastLockedClose(null)}
+        />
+      )}
+      {/* A past day just locked: the same card, naming the day. Tonight's
+          "Luk dagen" below stays — that day is still open. */}
+      {pastLockClose && (
+        <JustLockedCard
+          t={t}
+          close={pastLockClose}
+          currency={currency}
+          businessType={user?.business_type}
+          dateLabel={formatDateClearFull(String(pastLockClose.date || "").slice(0, 10))}
           onDismiss={() => setLastLockedClose(null)}
         />
       )}
@@ -2008,8 +2024,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     if (!appliedMoms || (appliedMoms.key !== momsKey && !ownerTypedMoms)) {
       // Not when the owner corrected the total: that scanned MOMS belongs to
       // the old figure, and manual mode pinned it (16.450 saved with 16.540's
-      // MOMS). Auto recomputes from the corrected total.
-      if (scanResult.moms_total && !mergeIncomplete.includes("moms_total") && !scanResult.revenue_total_text) {
+      // MOMS). Auto recomputes from the corrected total. Nor when the lines
+      // on the card add up past the bon's total — that is what gets saved.
+      const willSave = scanResult.revenue_total_text && Number(scanResult.revenue_total) > 0
+        ? Number(scanResult.revenue_total)
+        : Math.max(headlineTotal(scanResult, mLocale) || 0, Object.values(newRev).reduce((a, v) => a + readMoney0(v), 0));
+      if (!mergeIncomplete.includes("moms_total") && scanMomsFits(scanResult, willSave)) {
         nextManual = asBox(scanResult.moms_total);
         setMomsMode("manual");
       } else {
@@ -2409,21 +2429,39 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     return Math.max(0, Math.round((savedRevenue - exemptSalesTotal) * 100) / 100);
   }, [savedRevenue, exemptSalesTotal]);
 
+  // The scanned MOMS belongs to the total it was read with, and is the day's
+  // MOMS only while THAT is the total being saved. A corrected total, a
+  // category corrected by hand past the bon's total (17.130 saved with
+  // 17.030's 3.406), or one till of two summed — each leaves it describing
+  // another figure. One rule, read by the review, the card and the save.
+  const scanMomsFits = (scan, total) => {
+    if (!(Number(scan?.moms_total) > 0) || scan.revenue_total_text) return false;
+    if ((scan.merge_info?.incompleteFields || []).includes("moms_total")) return false;
+    const bon = Number(scan.revenue_total);
+    return !(bon > 0) || Math.abs(total - bon) < 0.5;
+  };
+  // A bon MOMS that no longer fits, but is a real figure (not one till of two).
+  const scanMomsMoved = (scan, total) => Number(scan?.moms_total) > 0
+    && !(scan.merge_info?.incompleteFields || []).includes("moms_total")
+    && !scanMomsFits(scan, total);
+  const momsFor = (total) => {
+    const base = Math.max(0, Math.round((total - exemptSalesTotal) * 100) / 100);
+    return base > 0 && vatRate > 0 ? Math.round((base * vatRate / vatDivisor) * 100) / 100 : 0;
+  };
+
   const momsTotal = useMemo(() => {
     if (momsMode === "manual") return readMoney0(momsManual);
     // Same guard as applyScanValues: a scanned MOMS that covers one of two
     // summed tills is not "the MOMS from the receipt". Without this, flipping
     // the toggle back to Auto did NOT recover — this branch returned the
     // one-till figure while the UI printed "Auto-calculated: Revenue × 25% /
-    // 125%", a computation that had not happened.
-    const scannedMoms = ((scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
-      // A corrected total makes the scanned MOMS stale — recompute from it.
-      || scanResult?.revenue_total_text)
-      ? null
-      : scanResult?.moms_total;
+    // 125%", a computation that had not happened. A corrected total (or a
+    // category raised past the bon's total) makes it stale the same way.
+    const scannedMoms = scanMomsFits(scanResult, savedRevenue) ? Number(scanResult.moms_total) : null;
     if (scannedMoms) return scannedMoms;
     return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
-  }, [momsMode, momsManual, scanResult, taxableBase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [momsMode, momsManual, scanResult, taxableBase, savedRevenue]);
 
   // WHICH of the two "auto" paths produced that number — because the caption
   // underneath used to assert the multiplication either way. The comment above
@@ -2436,15 +2474,31 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // The scanned figure still WINS — the till's own MOMS knows about split
   // rates that revenue × 25/125 cannot — so what is saved does not change.
   // Only the sentence changes, to name where the number actually came from.
+  // "recomputed": the bon had a MOMS, but for another total — said in words.
   const momsSource = useMemo(() => {
     if (momsMode === "manual") return "manual";
-    const scannedMoms = ((scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
-      || scanResult?.revenue_total_text)
-      ? null
-      : scanResult?.moms_total;
+    const scannedMoms = scanMomsFits(scanResult, savedRevenue) ? scanResult.moms_total : null;
+    if (!scannedMoms && scanMomsMoved(scanResult, savedRevenue)) return "recomputed";
     return scannedMoms ? "scanned" : "computed";
-  }, [momsMode, scanResult]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [momsMode, scanResult, savedRevenue]);
   const revenueExMoms = useMemo(() => Math.round((savedRevenue - momsTotal) * 100) / 100, [savedRevenue, momsTotal]);
+
+  // The bon's MOMS put in as "Fra kvittering" follows the total once the total
+  // moves off the bon's: a category corrected by hand after a full read kept
+  // 3.406 under 17.130, and Auto gave the same 3.406. A MOMS the owner typed
+  // is theirs and stays.
+  const savedRevenueSeenRef = useRef(savedRevenue);
+  useEffect(() => {
+    const moved = Math.abs(savedRevenueSeenRef.current - savedRevenue) >= 0.005;
+    savedRevenueSeenRef.current = savedRevenue;
+    if (!moved || momsMode !== "manual" || !scanMomsMoved(scanResult, savedRevenue)) return;
+    if (Math.abs(readMoney0(momsManual) - Number(scanResult.moms_total)) < 0.005) {
+      setMomsMode("auto");
+      setMomsManual("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedRevenue]);
 
   const addCustomRevCat = () => {
     if (!customRevName.trim()) return;
@@ -2846,25 +2900,35 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   }, [scanResult, revCats, payMethods, vatName, t]);
 
   /**
-   * The scanned MOMS, but only when it still describes ALL the revenue on
-   * screen. After a sum whose second Z-bon had no readable MOMS line, the
-   * figure covers one till out of two — see the guard in applyScanValues.
+   * The MOMS the card shows is the MOMS "Brug disse tal" leaves in the form —
+   * one figure on the card, the review and the saved row. The scanned figure
+   * only while it describes ALL the revenue the card will save: after a sum
+   * whose second Z-bon had no readable MOMS line it covers one till of two,
+   * and after a corrected total the card kept "3.406 kr. read" while the
+   * review and the save used 3.290. Back on the card after applying, it is
+   * the form's own MOMS (a reopened draft's typed figure, say).
    */
-  const scanMomsTrusted = ((scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
-    // Nor after the owner corrected the total: the card kept "3.406 kr. read"
-    // while the review and the save used 3.290 — two MOMS for one day.
-    || scanResult?.revenue_total_text)
-    ? null
-    : scanResult?.moms_total;
-  // The MOMS the card shows is the MOMS "Brug disse tal" leaves in the form.
-  // Back on the card after applying, that is the form's own MOMS (a reopened
-  // draft's typed figure, say) — not a second figure next to the review's.
+  const cardSaveTotal = !scanResult ? 0
+    : scanResult.revenue_total_text && Number(scanResult.revenue_total) > 0 ? Number(scanResult.revenue_total)
+      : Math.max(headlineTotal(scanResult, mLocale) || 0,
+        Object.values(scanResult.revenue || {}).reduce((a, v) => a + readMoney0(v), 0));
   const cardMomsApplied = Boolean(scanResult) && Boolean(appliedMoms) && appliedMoms.key === scanMomsKey(scanResult);
-  const cardMoms = cardMomsApplied && momsMode === "manual"
-    ? { value: readMoney0(momsManual), read: Boolean(scanMomsTrusted) && Math.abs(readMoney0(momsManual) - Number(scanMomsTrusted)) < 0.005 }
-    : scanMomsTrusted
-      ? { value: Number(scanMomsTrusted), read: true }
-      : { value: vatRate > 0 ? Math.round(((scanResult?.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0, read: false };
+  const cardMoms = (() => {
+    const bon = Number(scanResult?.moms_total);
+    const fits = scanMomsFits(scanResult, cardSaveTotal);
+    // The form's MOMS is what applying leaves: the figure already applied, or
+    // one the owner typed (kept even when a new figure arrives).
+    const formKept = momsMode === "manual" && Boolean(appliedMoms)
+      && (cardMomsApplied || appliedMoms.owner || momsManual !== appliedMoms.manual);
+    if (formKept) {
+      const kept = readMoney0(momsManual);
+      const isBon = Math.abs(kept - bon) < 0.005;
+      // The bon's own figure under a total that moved off it follows the total.
+      if (!(isBon && !fits)) return { value: kept, read: isBon && fits, moved: false };
+    }
+    if (fits) return { value: bon, read: true, moved: false };
+    return { value: momsFor(cardSaveTotal), read: false, moved: scanMomsMoved(scanResult, cardSaveTotal) };
+  })();
 
   /**
    * "These numbers are a SUM of two tills" — rendered on the scan card AND on
@@ -2883,6 +2947,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   const renderMergeSummary = ({ withUndo = false } = {}) => {
     if (scanResult?.merge_info?.mode !== MERGE_SUM) return null;
     const info = scanResult.merge_info;
+    const mergedTillSum = Math.round((info.terminalTotals || []).reduce((a, v) => a + (Number(v) || 0), 0) * 100) / 100;
+    const nowTotal = headlineTotal(scanResult, mLocale);
     return (
       <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm space-y-1">
         <div className="flex items-center justify-between gap-3">
@@ -2900,11 +2966,21 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
             </button>
           )}
         </div>
+        {/* The sum of the tills, always — after "=" it printed the box's
+            current figure, so a later hand edit made "16.450 + 5.000 =
+            16.500". A total corrected after the sum is said on its own line. */}
         <div className="text-xs text-gray-600 dark:text-gray-300">
-          {(info.terminalTotals || []).map((v) => formatOwnerMoney(v, currency, { decimals: GLANCE_DECIMALS })).join("  +  ")}
+          {(info.terminalTotals || []).map((v) => formatOwnerMoney(v, currency, { decimals: oreIfAny(v) })).join("  +  ")}
           {" = "}
-          <strong>{formatOwnerMoney(headlineTotal(scanResult, mLocale), currency, { decimals: GLANCE_DECIMALS })}</strong>
+          <strong>{formatOwnerMoney(mergedTillSum, currency, { decimals: oreIfAny(mergedTillSum) })}</strong>
         </div>
+        {nowTotal != null && Math.abs(nowTotal - mergedTillSum) >= 0.01 && (
+          <p className="text-xs text-gray-600 dark:text-gray-300">
+            {t("dcMergeCorrectedTo", "You corrected the total to {amount}", {
+              amount: formatOwnerMoney(nowTotal, currency, { decimals: oreIfAny(nowTotal) }),
+            })}
+          </p>
+        )}
         {/* Honest about what could NOT be added, BY NAME. "Terminal 2's MOMS
             line was unreadable" and "terminal 2 had no MOMS" look the same on
             a photo, so we say which lines instead of inventing a sum. */}
@@ -3612,6 +3688,14 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   {formatOwnerMoney(cardMoms.value, currency, { decimals: oreIfAny(cardMoms.value) })}
                 </span>
               </div>
+              {cardMoms.moved && (
+                <p className="text-[12px] text-amber-700 dark:text-amber-400">
+                  {t("dcMomsRecomputed", "The Z-report's MOMS ({bon}) belongs to another total than the {saved} you save, so MOMS is worked out again from that total. If the report has more than one MOMS rate, tap From receipt and type the right figure.", {
+                    bon: formatOwnerMoney(Number(scanResult.moms_total), currency, { decimals: oreIfAny(Number(scanResult.moms_total)) }),
+                    saved: formatOwnerMoney(cardSaveTotal, currency, { decimals: oreIfAny(cardSaveTotal) }),
+                  })}
+                </p>
+              )}
               {defaultRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
                 if (!val) return null;
@@ -4336,11 +4420,22 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
                   </div>
                 )}
-                {momsMode === "auto" && (
+                {momsMode === "auto" && momsSource !== "recomputed" && (
                   <p className="text-[12px] text-gray-500 dark:text-gray-400">
                     {momsSource === "scanned"
                       ? t("momsFromZReport", "Read from your Z-report — not recalculated from revenue.")
                       : t("momsAutoCalc", "Auto-calculated: Revenue × {pct}% / {div}%", { pct: vatRatePct, div: 100 + vatRatePct })}
+                  </p>
+                )}
+                {/* The bon's MOMS belongs to another total than the one saved —
+                    said, with the way back for a mixed-rate day. */}
+                {momsMode === "auto" && momsSource === "recomputed" && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                    <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+                    <span>{t("dcMomsRecomputed", "The Z-report's MOMS ({bon}) belongs to another total than the {saved} you save, so MOMS is worked out again from that total. If the report has more than one MOMS rate, tap From receipt and type the right figure.", {
+                      bon: formatOwnerMoney(Number(scanResult?.moms_total), currency, { decimals: oreIfAny(Number(scanResult?.moms_total)) }),
+                      saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
+                    })}</span>
                   </p>
                 )}
                 <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 py-0.5 tabular-nums">
@@ -4585,7 +4680,10 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 locked, a close that does not reconcile is picked up again by
                 the close_unreconciled row in "Skal ses nu", so the statement
                 survives the lock instead of dying with the wizard. */}
-            {(hasRevenueEntry || hasPaymentEntry) && (
+            {/* revenueKnown, not hasRevenueEntry: a total read off the Z-bon is
+                revenue, and with no payments read the review said nothing at
+                all — not even "can't tell". */}
+            {(revenueKnown || hasPaymentEntry) && (
               <div className={`rounded-xl p-4 ${
                 tieOut.state === "off"
                   ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40"
@@ -4763,7 +4861,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
    L9 in the multi-barrier defense: never lie about state. If the email
    couldn't go, the card says so — it doesn't fake a green checkmark.
 */
-function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
+function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "" }) {
   const ritual = close.close_ritual || {};
   // The server stores closed_at in UTC without a zone suffix; read bare, the
   // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
@@ -4897,7 +4995,10 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
           <Icon name="CheckCircle2" size={26} className="text-emerald-600 dark:text-emerald-500 shrink-0" />
           <div className="flex-1 min-w-0 space-y-3">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 pr-9">
-              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {t(closeTitleKeyFor(businessType), "Tonight's kasserapport is locked · {time} by {who}", { time: closedAt, who: closedBy })}
+              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {dateLabel
+                // "Tonight's" is only true of tonight: a back-filled day is named.
+                ? t("dcPastDayLockedTitle", "The kasserapport for {date} is locked · {time} by {who}", { date: dateLabel, time: closedAt, who: closedBy })
+                : t(closeTitleKeyFor(businessType), "Tonight's kasserapport is locked · {time} by {who}", { time: closedAt, who: closedBy })}
             </p>
             {emailLine}
             {ritual.push_status === "sent" && (

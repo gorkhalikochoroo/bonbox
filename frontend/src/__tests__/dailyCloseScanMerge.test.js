@@ -270,3 +270,34 @@ describe("owner-typed notation in the review boxes", () => {
     expect(headlineTotal({ revenue_total: "1.234" }, "en-US")).toBe(null);
   });
 });
+
+describe("a total the owner corrected, then a second till", () => {
+  it("the box text becomes the sum — not till 1's corrected figure", () => {
+    // The "Samlet omsætning" box renders revenue_total_text first. `{...existing}`
+    // kept till 1's "16.450" under a 21.450 sum, and editing the box then
+    // dropped till 2 from the saved total.
+    const till1 = { revenue_total: 16450, revenue_total_text: "16.450", moms_total: 3406 };
+    const till2 = { revenue_total: 5000, moms_total: 1000 };
+    const merged = mergeScans(till1, till2, MERGE_SUM, "da-DK");
+    expect(merged.revenue_total).toBe(21450);
+    expect(merged.revenue_total_text).toBe("21.450");
+    // Still marked as owner-corrected: till 1's scanned MOMS belonged to the
+    // misread figure, so the MOMS is recomputed rather than summed.
+    expect(headlineTotal(merged, "da-DK")).toBe(21450);
+  });
+
+  it("writes øre in the account's notation", () => {
+    const merged = mergeScans(
+      { revenue_total: 1500.5, revenue_total_text: "1.500,50" },
+      { revenue_total: 1000 },
+      MERGE_SUM,
+      "da-DK",
+    );
+    expect(merged.revenue_total_text).toBe("2.500,50");
+  });
+
+  it("leaves a scan nobody corrected without a typed total", () => {
+    const merged = mergeScans({ revenue_total: 17030 }, { revenue_total: 5000 }, MERGE_SUM, "da-DK");
+    expect(merged.revenue_total_text).toBeUndefined();
+  });
+});
