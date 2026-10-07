@@ -216,7 +216,7 @@ describe("the period summary, for a staffer with no wage rate", () => {
       summary,
     });
     await openTab(/^hovTabPerStaff/);
-    return screen.findByText("Agnes");
+    return (await screen.findAllByText("Agnes"))[0];
   };
 
   it("renders the earned column as unknown, never as 0 kr.", async () => {
@@ -284,9 +284,29 @@ describe("the period summary, for a staffer with no wage rate", () => {
       summary: [idle],
     });
     await openTab(/^hovTabPerStaff/);
-    await screen.findByText("Agnes");
+    await screen.findAllByText("Agnes");
     // No hours means earned really IS 0, whatever the rate would have been.
     // Blanking it here would trade one lie for a different one.
     expect(screen.queryByText("shpMissingRateOne")).not.toBeInTheDocument();
   });
 });
+
+describe("Oversigt's Hvem arbejdede, for a staffer with no wage rate", () => {
+  it("shows the money as unknown with the reason, never 0,00 kr.", async () => {
+    mountPage({
+      roster: [{ id: "s-1", name: "Agnes" }, { id: "s-2", name: "Bo" }],
+      overview: { ...EMPTY_OVERVIEW, has_any_hours: true, hours: { scheduled_total: 44, actual_total: 44 }, cost: {}, labor: {}, flags: {} },
+      summary: [ROW_NO_RATE, ROW_WITH_RATE],
+    });
+    const card = (await screen.findByText("hovWhoWorked")).closest("div.rounded-xl");
+    const agnes = within(card).getByText("Agnes").closest("li");
+    expect(within(agnes).getByText("shpNoRateSet")).toBeInTheDocument();
+    // Hours yes; money: a dash, no digits after the hours.
+    expect(agnes.textContent).toContain("—");
+    expect(agnes.textContent.replace(/34.*?t/, "")).not.toMatch(/\d/);
+    // The control keeps its real wage.
+    const bo = within(card).getByText("Bo").closest("li");
+    expect(bo.textContent).toMatch(/1[.,]?500/);
+  });
+});
+

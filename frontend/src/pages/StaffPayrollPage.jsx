@@ -1259,9 +1259,22 @@ export default function StaffPayrollPage() {
                   <DkStat label={t("stfPayrollASkatEst", "A-skat (est. 36%)")} value={dkEstimate.totals.a_skat} currency={currency} accent="blue" />
                   <DkStat label={t("stfPayrollNetToStaff", "Net to staff")} value={dkEstimate.totals.net_pay} currency={currency} accent="green" />
                 </div>
+                {/* How the net is reached — the employee's ATP share was in it
+                    and nowhere on screen, so the four tiles did not add up. */}
+                {dkEstimate.totals.atp_employee != null && (
+                  <p className="-mt-2 mb-4 text-[12px] text-gray-600 dark:text-gray-400 tabular-nums" data-testid="net-reconcile">
+                    {t("payNetReconcile", "Gross {gross} − AM {am} − A-skat {askat} − ATP (employee) {atp} = net {net}", {
+                      gross: fmtMoney(dkEstimate.totals.gross, currency),
+                      am: fmtMoney(dkEstimate.totals.am_bidrag, currency),
+                      askat: fmtMoney(dkEstimate.totals.a_skat, currency),
+                      atp: fmtMoney(dkEstimate.totals.atp_employee, currency),
+                      net: fmtMoney(dkEstimate.totals.net_pay, currency),
+                    })}
+                  </p>
+                )}
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
-                  <DkStat label="ATP" value={dkEstimate.totals.atp} currency={currency} small />
+                  <DkStat label={t("payAtpEmployer", "ATP (employer)")} value={dkEstimate.totals.atp} currency={currency} small />
                   <DkStat label={t("stfPayrollFeriepenge", "Feriepenge (12.5%)")} value={dkEstimate.totals.feriepenge} currency={currency} small />
                   <DkStat label={t("stfPayrollEmployerCost", "Employer total cost")} value={dkEstimate.totals.employer_total_cost} currency={currency} small accent="dark" />
                 </div>

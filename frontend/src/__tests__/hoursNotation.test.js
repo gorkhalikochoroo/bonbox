@@ -93,7 +93,7 @@ describe("formatHours", () => {
 
   it("signs a delta when asked", () => {
     expect(formatHours(2.5, { lang: "da", sign: true })).toBe("+2,5 t");
-    expect(formatHours(-2.5, { lang: "da", sign: true })).toBe("-2,5 t");
+    expect(formatHours(-2.5, { lang: "da", sign: true })).toBe("\u22122,5 t");
   });
 
   it("maps the unit off the language in exactly one place", () => {

@@ -1346,7 +1346,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
     // where to set one instead of being a dead end.
     limVal = "—";
     limHelper = (
-      <Link to="/staff/schedule" className="underline underline-offset-2 hover:no-underline">
+      <Link to="/staff/schedule" className="inline-flex items-center min-h-10 sm:min-h-0 underline underline-offset-2 hover:no-underline">
         {t("hovLimitsSetLink", "set limits under Staff")}
       </Link>
     );
@@ -1428,6 +1428,14 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
   );
 }
 
+// Hours worked but no wage to cost them: the money is UNKNOWN, not 0 kr. Same
+// rule as the Pr. medarbejder table's rateMissing(); a seat that may not see
+// wages (earned == null) never gets here — it is shown no money at all.
+function rateUnknown(p) {
+  if (!p || p.earned == null || !(Number(p.actual_hours || 0) > 0)) return false;
+  return p.hourly_rate == null || (Number(p.earned || 0) === 0 && Number(p.hourly_rate || 0) > 0);
+}
+
 function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null }) {
   const { t, lang } = useLanguage();
   const worked = (people || [])
@@ -1461,13 +1469,21 @@ function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null })
       <ul className="divide-y divide-gray-100 dark:divide-gray-700">
         {shown.map((p) => (
           <li key={p.staff_id} className="px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3 text-sm tabular-nums">
-            <span className="min-w-0 truncate text-gray-800 dark:text-gray-100">{p.staff_name}</span>
+            <span className="min-w-0">
+              <span className="block truncate text-gray-800 dark:text-gray-100">{p.staff_name}</span>
+              {rateUnknown(p) && (
+                <span className="block text-[11px] text-amber-700 dark:text-amber-400">{t("shpNoRateSet", "no wage rate set")}</span>
+              )}
+            </span>
             <span className="shrink-0 flex items-center gap-3">
               <span className="font-semibold text-gray-900 dark:text-white">{formatHours(Number(p.actual_hours || 0), { lang, decimals: 2 })}</span>
-              {/* Money only where it may be shown; a redacted seat sees hours. */}
+              {/* Money only where it may be shown; a redacted seat sees hours.
+                  No wage on file → "—", never a confident 0,00 kr. */}
               {p.earned != null && (
                 <span className="w-24 text-right text-gray-600 dark:text-gray-300">
-                  <Amount value={p.earned} currency={currency} decimals={2} />
+                  {rateUnknown(p)
+                    ? <span className="text-gray-400 dark:text-gray-500">{"\u2014"}</span>
+                    : <Amount value={p.earned} currency={currency} decimals={2} />}
                 </span>
               )}
             </span>
@@ -1478,7 +1494,8 @@ function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null })
         {worked.length > shown.length && (() => {
           const rest = worked.slice(shown.length);
           const restHours = rest.reduce((a, p) => a + Number(p.actual_hours || 0), 0);
-          const restMoney = rest.every((p) => p.earned == null)
+          const restUnknown = rest.some(rateUnknown);
+          const restMoney = rest.every((p) => p.earned == null) || restUnknown
             ? null
             : rest.reduce((a, p) => a + Number(p.earned || 0), 0);
           return (
@@ -1492,6 +1509,9 @@ function WhoWorkedCard({ people = [], currency, onGoDetails, breakdown = null })
                   <span className="w-24 text-right text-gray-500 dark:text-gray-400">
                     <Amount value={restMoney} currency={currency} decimals={2} />
                   </span>
+                )}
+                {showMoney && restMoney == null && restUnknown && (
+                  <span className="w-24 text-right text-gray-400 dark:text-gray-500" title={t("shpNoRateSet", "no wage rate set")}>{"\u2014"}</span>
                 )}
               </span>
             </li>
@@ -2675,7 +2695,7 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
               <th className="sticky left-0 z-10 bg-gray-50 dark:bg-gray-800 px-3 sm:px-5 py-3 font-medium">{t("navStaff")}</th>
               <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("scheduled")}</th>
               <th className="px-3 py-3 font-medium text-right">{t("actual")}</th>
-              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("diff")}</th>
+              <th className="hidden lg:table-cell px-3 py-3 font-medium text-right" title={t("shpDiffOnPlanDaysHint", "Worked minus planned, on the days that had a planned shift")}>{t("diff")}</th>
               <th className="hidden lg:table-cell px-3 py-3 font-medium text-right">{t("rate")}</th>
               {/* Bruttoløn, said: the money before feriepenge and ATP. The
                   line under the table adds those up to the cost total. */}
@@ -2732,6 +2752,9 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                                 : t("shpOnPlan", "as planned"));
                             }
                             if (p.unplanned >= 0.005) bits.push(t("shpUnplannedHours", "{h} without a plan", { h: formatHours(p.unplanned, { lang, decimals: 2 }) }));
+                            // The phone's "—" in I alt needs its reason in view;
+                            // on desktop it is only a tooltip.
+                            if (rateMissing(row)) bits.push(t("shpNoRateSet", "no wage rate set"));
                             return bits.join(" \u00b7 ");
                           })()}
                           {/* When the row HAS something to resolve the state
@@ -2895,12 +2918,21 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                     return s + (onPlan - planned);
                   }, 0);
                   const unplanned = summary.reduce((s, r) => s + (Number(r.unplanned_hours) || 0), 0);
+                  // Say what the total leaves out, so 183 t planlagt, 251 t
+                  // faktisk and −48 t forskel can be reconciled by eye.
+                  const pend = summary.filter((r) => openOnly(r) && Number(r.scheduled_hours) > 0);
+                  const pendH = pend.reduce((s, r) => s + Number(r.scheduled_hours), 0);
                   return (
                     <span className="inline-flex flex-col items-end gap-0.5">
                       <span>{Math.abs(d) < 0.005 ? "\u2014" : formatHours(d, { lang, sign: true, decimals: 2 })}</span>
                       {unplanned >= 0.005 && (
                         <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
                           {t("shpUnplannedHours", "{h} without a plan", { h: formatHours(unplanned, { lang, decimals: 2 }) })}
+                        </span>
+                      )}
+                      {pend.length > 0 && (
+                        <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400 whitespace-normal max-w-[12rem] text-right">
+                          {t("shpPlanPendingNote", "{h} planned for {n} still clocked in: not counted", { h: formatHours(pendH, { lang, decimals: 2 }), n: pend.length })}
                         </span>
                       )}
                     </span>
@@ -2949,6 +2981,11 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
             {missingRateCount === 1
               ? t("shpMissingRateOne", "1 person has no wage rate set, so wage figures wait for it.")
               : t("shpMissingRateMany", "{n} people have no wage rate set, so wage figures wait for them.").replace("{n}", String(missingRateCount))}
+            {" "}
+            {/* Who — the count alone sent the owner hunting for the "—". */}
+            <span className="font-medium text-gray-900 dark:text-gray-100">
+              {(summary || []).filter(rateMissing).map((r) => r.staff_name).join(", ")}
+            </span>
           </span>
           <Link
             to="/staff/schedule"

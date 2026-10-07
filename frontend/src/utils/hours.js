@@ -144,5 +144,8 @@ export function formatHours(value, { lang = "en", decimals = 1, sign = false } =
   // Shield chip shipped.
   s = s.replace(".", decimalMark(lang));
   const prefix = sign && r > 0 ? "+" : "";
+  // A signed difference gets a real minus (U+2212), like formatHoursMinutes —
+  // "-16,59 t" with a hyphen sat beside "+3 t" and looked like a dash.
+  if (sign && r < 0) s = s.replace(/^-/, "\u2212");
   return `${prefix}${s} ${u}`;
 }

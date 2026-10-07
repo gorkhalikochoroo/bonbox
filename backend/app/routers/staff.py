@@ -129,6 +129,14 @@ def count_active_staff(db: Session, user_id) -> int:
 
 router = APIRouter()
 
+# The same body main.py's shared-device middleware sends: services/api.js
+# raises the PIN pad on detail.code, so a bare string here left a raw
+# "device_pin_required" on screen and no way to unlock.
+_DEVICE_PIN_DETAIL = {
+    "code": "device_pin_required",
+    "message": "Enter your PIN to view your finances on this shared device.",
+}
+
 # Rate-limit shared with the "today on shift" dashboard card.  60/min is
 # permissive (the card refetches on focus + bonbox-data-changed events),
 # but blocks the obvious scrape vector if /today is harvested in a loop.
@@ -175,7 +183,7 @@ def _require_owner_actor(user: User) -> None:
     # Distinct code from "owner_only": the frontend interceptor raises the
     # reveal PIN pad on device_pin_required, and this owner CAN lift it.
     if getattr(user, "_shared_device_locked", False):
-        raise HTTPException(status_code=403, detail="device_pin_required")
+        raise HTTPException(status_code=403, detail=_DEVICE_PIN_DETAIL)
 
 
 def _wage_visible(user: User) -> bool:
@@ -229,7 +237,7 @@ def _require_uncurtained_wages(user: User) -> None:
     denied to them wholesale in main.py.)
     """
     if getattr(user, "_shared_device_locked", False):
-        raise HTTPException(status_code=403, detail="device_pin_required")
+        raise HTTPException(status_code=403, detail=_DEVICE_PIN_DETAIL)
 
 
 def _wage_stripped_hours(entry) -> "HoursLogResponse":
@@ -1145,7 +1153,7 @@ def list_staff_documents(
     """Documents shared with one staff member. Metadata only — no blob."""
     _require_owner_actor(user)
     if getattr(user, "_shared_device_locked", False):
-        raise HTTPException(status_code=403, detail="device_pin_required")
+        raise HTTPException(status_code=403, detail=_DEVICE_PIN_DETAIL)
     member = _member_or_404(member_id, user, db)
 
     rows = (
@@ -1178,7 +1186,7 @@ def upload_staff_document(
     """Owner shares a document with one staff member."""
     _require_owner_actor(user)
     if getattr(user, "_shared_device_locked", False):
-        raise HTTPException(status_code=403, detail="device_pin_required")
+        raise HTTPException(status_code=403, detail=_DEVICE_PIN_DETAIL)
     member = _member_or_404(member_id, user, db)
 
     from app.services import staff_documents

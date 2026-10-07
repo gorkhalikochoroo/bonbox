@@ -298,7 +298,7 @@ def test_a_curtained_shared_device_cannot_delete_or_lock(env):
         for r in (c.delete(f"/api/staff/tips/{tip['id']}"),
                   c.post(f"/api/staff/tips/{tip['id']}/confirm")):
             assert r.status_code == 403, r.text
-            assert r.json()["detail"] == "device_pin_required"
+            assert r.json()["detail"]["code"] == "device_pin_required"
     finally:
         del owner._shared_device_locked
     assert s.query(Tip).one().confirmed is False

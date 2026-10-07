@@ -302,6 +302,9 @@ def estimate_period_payroll(
         "gross": 0.0, "am_bidrag": 0.0, "a_skat": 0.0,
         "atp": 0.0, "feriepenge": 0.0, "net_pay": 0.0,
         "employer_total_cost": 0.0, "hours": 0.0,
+        # The employee's ATP share — what makes gross − AM − A-skat reach the
+        # net on screen (Løn showed a 94,67 kr. gap nobody could see).
+        "atp_employee": 0.0,
     }
     for sid, gross in gross_by_staff.items():
         staff = staff_map[sid]
@@ -377,7 +380,7 @@ def _empty_payroll_summary(period_start: date, period_end: date) -> dict[str, An
         "staff_count": 0,
         "totals": {k: 0.0 for k in (
             "gross", "am_bidrag", "a_skat", "atp", "feriepenge",
-            "net_pay", "employer_total_cost", "hours",
+            "net_pay", "employer_total_cost", "hours", "atp_employee",
         )},
         "skat_remit": {"am_bidrag": 0.0, "a_skat": 0.0, "total": 0.0},
         "per_staff": [],

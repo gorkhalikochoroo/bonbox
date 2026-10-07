@@ -369,7 +369,7 @@ def test_curtained_tablet_cannot_touch_portal_credentials(client, db, method, ur
     assert res.status_code == 403, f"{method.upper()} {url} served: {res.text[:200]}"
     # device_pin_required, not owner_only: this owner CAN lift the curtain, and
     # the client interceptor raises the reveal pad on that code.
-    assert res.json()["detail"] == "device_pin_required"
+    assert res.json()["detail"]["code"] == "device_pin_required"
 
 
 def test_the_pin_reopens_the_share_links(client, db):
