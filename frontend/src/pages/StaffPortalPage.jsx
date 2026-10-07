@@ -9,6 +9,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
+import { swapDoubleBooks } from "../utils/swapClash";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
@@ -25,6 +26,7 @@ import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-re
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { useKeyboardLift } from "../hooks/useKeyboardLift";
+import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
@@ -1027,7 +1029,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   }
 
   return (
-    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
         <button
@@ -3699,6 +3701,20 @@ function SwapTab({ token, ownShifts, onChanged }) {
 /* Swap shifts arrive as ISO dates ("2026-06-05") — render them the way the
    rest of the portal speaks ("Fri 5 Jun" / "fre. 5. jun."), locale-aware. */
 
+/** The swap endpoints answer a trade that would double-book someone with
+    409 {code: "swap_overlap", who: "self" | "colleague"} — `who` relative to
+    the person asking. Say it in their language; anything else goes through
+    errText as before. */
+function swapErrText(err, t, fallback) {
+  const d = err?.response?.data?.detail;
+  if (err?.response?.status === 409 && d && d.code === "swap_overlap") {
+    return d.who === "colleague"
+      ? t("portalSwapClashColleague", "Your colleague already works at that time that day — this swap would put them on two shifts at once.")
+      : t("portalSwapClashSelf", "You already work at that time that day — this swap would put you on two shifts at once.");
+  }
+  return errText(err, fallback);
+}
+
 function fmtSwapDay(iso, lang) {
   if (!iso) return iso;
   try {
@@ -3711,15 +3727,23 @@ function fmtSwapDay(iso, lang) {
 function SwapRow({ swap, token, onChanged }) {
   const { t, lang } = useLanguage();
   const [busy, setBusy] = useState(false);
+  const [rowErr, setRowErr] = useState("");
 
   const respond = async (accept) => {
     setBusy(true);
+    setRowErr("");
     try {
       await portalApi.post(
         `/portal/${token}/swap-requests/${swap.id}/respond`,
         { accept },
       );
       onChanged();
+    } catch (err) {
+      // A refusal used to vanish: the button just stopped spinning. Now the
+      // staffer reads why (e.g. the trade would double-book them) and the
+      // request stays open, so Decline is still right there.
+      haptic.warning();
+      setRowErr(swapErrText(err, t, t("portalSwapRespondFailed", "Couldn't answer the swap. Try again.")));
     } finally {
       setBusy(false);
     }
@@ -3816,19 +3840,24 @@ function SwapRow({ swap, token, onChanged }) {
       )}
 
       {/* Actions */}
+      {rowErr && (
+        <div role="alert" className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[12px] px-2.5 py-1.5 leading-snug">
+          {rowErr}
+        </div>
+      )}
       {swap.status === "proposed" && swap.direction === "incoming" && (
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={() => respond(true)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
+            className="min-h-[44px] text-[13px] font-semibold px-4 rounded-[12px] bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
           >
             {t("portalSwapAccept", "Accept")}
           </button>
           <button
             onClick={() => respond(false)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+            className="min-h-[44px] text-[13px] font-semibold px-4 rounded-[12px] bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
           >
             {t("portalSwapDecline", "Decline")}
           </button>
@@ -3902,7 +3931,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
   };
 
   return (
-    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5">
           <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
@@ -3978,9 +4007,18 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   // Don't let staff pick THEIR OWN shift as the to_shift — that'd be a
   // self-swap. Server rejects but UI catches it earlier.
   const ownStaffId = teamShifts.find((s) => s.shift_id === fromShiftId)?.staff_id;
-  const candidateTeamShifts = teamShifts.filter(
+  const fromShift = upcomingOwn.find((s) => s.id === fromShiftId) || null;
+  const teammateShifts = teamShifts.filter(
     (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId,
   );
+  // Never offer a trade that would put either of you on two shifts at once —
+  // an accept executes it immediately. The server refuses it too (409); this
+  // just keeps the impossible option off the list. The count says why the
+  // list is shorter than the team schedule.
+  const candidateTeamShifts = teammateShifts.filter(
+    (s) => !swapDoubleBooks({ fromShift, toShift: s, ownShifts, teamShifts }),
+  );
+  const hiddenForOverlap = fromShift ? teammateShifts.length - candidateTeamShifts.length : 0;
 
   const submit = async () => {
     if (!fromShiftId || !toShiftId) return;
@@ -3997,14 +4035,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       });
       onProposed?.();
     } catch (err) {
-      setError(errText(err, t("portalSwapProposeFailed", "Couldn't propose. Try again.")));
+      setError(swapErrText(err, t, t("portalSwapProposeFailed", "Couldn't propose. Try again.")));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
         <button
@@ -4051,6 +4089,12 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
               </option>
             ))}
           </select>
+          {hiddenForOverlap > 0 && (
+            <p data-testid="swap-hidden-overlap" className="mt-1.5 text-[11px] text-gray-500 leading-snug">
+              {t("portalSwapHiddenOverlap", "{n} hidden — they would put you or your colleague on two shifts at once.")
+                .split("{n}").join(String(hiddenForOverlap))}
+            </p>
+          )}
         </div>
       )}
 
@@ -4448,7 +4492,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center">
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE}>
       <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
       <div
         role="dialog"
@@ -4956,6 +5000,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           keyboard is up it rides on top of the keyboard instead. */}
       <div
         data-testid="portal-chat-composer"
+        data-kb-skip=""
         className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
         style={{ bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
@@ -5297,7 +5342,7 @@ function AbsenceSection({ token, onChanged }) {
         </p>
         </div>
       ) : (
-        <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
+        <div data-kb-block="" data-testid="fravaer-form" className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
           <div className="grid grid-cols-2 gap-1.5">
             {/* Sygdom deliberately absent: this form's banner promises manager
                 approval, and that is a lie for a sick day. Sick lives on the
@@ -6797,6 +6842,11 @@ export default function StaffPortalPage() {
     document.body.classList.add("portal-shell");
     return () => document.body.classList.remove("portal-shell");
   }, []);
+  // Native keyboard height (0 on the web and while it is down). The shell ends
+  // at the keyboard's top edge instead of behind it, the profile sheets ride
+  // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
+  // scrolled into what is left. See hooks/useKeyboardReveal.js.
+  const kbShell = useKeyboardReveal();
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours) and
     // any deep link open the right tab.
@@ -7567,7 +7617,10 @@ export default function StaffPortalPage() {
     // and makes the sticky header + fixed bottom nav feel loose. The nav and
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
-    <div className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24">
+    <div
+      className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24"
+      style={kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : undefined}
+    >
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
@@ -7801,7 +7854,7 @@ export default function StaffPortalPage() {
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
         {showEmailEdit && createPortal((
-          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
             <button
               type="button"
               aria-label={t("close", "Close")}

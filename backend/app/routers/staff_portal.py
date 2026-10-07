@@ -3314,6 +3314,14 @@ def portal_claim_giveaway(
     return _hydrate_swap(swap, db, viewer_staff_id=member.id)
 
 
+def _swap_overlap_detail(e) -> dict:
+    """409 body for a trade that would double-book someone. `code` + `who`
+    let the portal say it in the staffer's language; `message` is the English
+    fallback an older app bundle shows through errText. No times, no other
+    shift — only that one of the two already works then."""
+    return {"code": "swap_overlap", "who": getattr(e, "who", "self"), "message": str(e)}
+
+
 @router.post("/{token}/swap-requests", response_model=SwapPortalResponse)
 @limiter.limit("6/minute")
 def portal_propose_swap(
@@ -3325,7 +3333,7 @@ def portal_propose_swap(
     """Staff proposes a swap. The body never carries the staff_id —
     it's bound by the magic-link token."""
     import uuid as _uuid
-    from app.services.shift_swap_service import propose_swap, ShiftSwapError
+    from app.services.shift_swap_service import propose_swap, ShiftSwapError, ShiftSwapOverlap
 
     _link, member = _get_staff_from_token(token, db)
     try:
@@ -3345,6 +3353,8 @@ def portal_propose_swap(
             to_shift_id=to_shift,
             reason=body.reason,
         )
+    except ShiftSwapOverlap as e:
+        raise HTTPException(status_code=409, detail=_swap_overlap_detail(e))
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -3386,7 +3396,7 @@ def portal_respond_to_swap(
     swap's to_staff_id != the token's staff (same shape as not-found —
     no enumeration)."""
     import uuid as _uuid
-    from app.services.shift_swap_service import respond_to_swap, ShiftSwapError
+    from app.services.shift_swap_service import respond_to_swap, ShiftSwapError, ShiftSwapOverlap
 
     _link, member = _get_staff_from_token(token, db)
     try:
@@ -3397,6 +3407,8 @@ def portal_respond_to_swap(
         swap = respond_to_swap(
             db, swap_id=swap_uuid, responder_staff_id=member.id, accept=body.accept,
         )
+    except ShiftSwapOverlap as e:
+        raise HTTPException(status_code=409, detail=_swap_overlap_detail(e))
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
