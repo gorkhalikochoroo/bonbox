@@ -34,6 +34,8 @@ import {
   headlineTotal,
   mergeScans,
   needsTerminalChoice,
+  scanBonTotal,
+  scanSaveTotal,
   MERGE_FILL,
   MERGE_REPLACE,
   MERGE_SUM,
@@ -2512,7 +2514,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   const scanMomsFits = (scan, total) => {
     if (!(Number(scan?.moms_total) > 0) || scan.revenue_total_text) return false;
     if ((scan.merge_info?.incompleteFields || []).includes("moms_total")) return false;
-    const bon = Number(scan.revenue_total);
+    // A sum's MOMS belongs to the bons' printed totals (bon_total), not to a
+    // till that saves more than its bon (a category raised by hand).
+    const bon = Number(scan.bon_total ?? scan.revenue_total);
     return !(bon > 0) || Math.abs(total - bon) < 0.5;
   };
   // A bon MOMS that no longer fits, but is a real figure (not one till of two).
@@ -3311,8 +3315,11 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                 looking at the numbers, not by parsing a sentence. Nothing
                 is merged until they answer. */}
             {pendingScan && (() => {
-              const existingTotal = headlineTotal(scanResult, mLocale);
-              const incomingTotal = headlineTotal(pendingScan, mLocale);
+              // What each card SAVES — the figure "du gemmer" on the card —
+              // not its printed total: a Mad corrected to 9.500 on a 17.030
+              // bon is 17.530 on screen, and the sum must carry it.
+              const existingTotal = scanSaveTotal(scanResult, mLocale) ?? headlineTotal(scanResult, mLocale);
+              const incomingTotal = scanSaveTotal(pendingScan, mLocale) ?? headlineTotal(pendingScan, mLocale);
               return (
                 <div className="rounded-xl p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-3">
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
@@ -3359,7 +3366,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
               <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3">
                 <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
                   <Icon name="RefreshCw" size={15} />
-                  {t("scanReplacedWithNew", "Using the new photo ({total})", { total: formatOwnerMoney(headlineTotal(scanResult, mLocale) || 0, currency, { decimals: GLANCE_DECIMALS }) })}
+                  {t("scanReplacedWithNew", "Using the new photo ({total})", { total: formatOwnerMoney(scanSaveTotal(scanResult, mLocale) || 0, currency, { decimals: GLANCE_DECIMALS }) })}
                 </span>
                 <button onClick={undoMerge}
                   className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
@@ -3763,11 +3770,17 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                     onChange={(e) => {
                       const v = e.target.value;
                       const n = readMoney(v);
-                      setScanResult((prev) => ({
-                        ...prev,
-                        revenue_total_text: v,
-                        revenue_total: Number.isFinite(n) && n > 0 ? n : null,
-                      }));
+                      setScanResult((prev) => {
+                        // The printed figure, kept once the owner types over
+                        // it: the card says how far the saved total is off it.
+                        const bon = scanBonTotal(prev, mLocale);
+                        return {
+                          ...prev,
+                          ...(bon != null ? { bon_total: bon } : {}),
+                          revenue_total_text: v,
+                          revenue_total: Number.isFinite(n) && n > 0 ? n : null,
+                        };
+                      });
                     }}
                   />
                 </div>

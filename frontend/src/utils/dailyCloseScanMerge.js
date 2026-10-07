@@ -89,6 +89,46 @@ export function headlineTotal(scan, locale = "da-DK") {
   return null;
 }
 
+/** The category lines of a scan added up (a POS "total" key is not a line). */
+function lineSum(bucket, locale) {
+  const sum = Object.entries(bucket || {})
+    .filter(([k]) => !TOTAL_KEYS.includes(k))
+    .reduce((a, [, v]) => a + (toNum(v, locale) || 0), 0);
+  return Math.round(sum * 100) / 100;
+}
+
+/**
+ * The total ONE till's card will save — the same rule as the card, the page
+ * and the server: a total the owner typed is saved as typed; otherwise the
+ * larger of the printed total and the category lines. Null when the scan
+ * claims no total (or the owner's box cannot be read).
+ *
+ * A sum must add THESE, not the printed totals. Mad corrected by hand to
+ * 9.500 on a 17.030 bon is a 17.530 till; adding the printed 17.030 to a
+ * second till's 5.000 saved 22.030 and dropped the correction — and its MOMS
+ * — from a signed kasserapport.
+ */
+export function scanSaveTotal(scan, locale = "da-DK") {
+  const head = headlineTotal(scan, locale);
+  if (head == null) return null;
+  if (scan.revenue_total_text != null) return head;
+  return Math.max(head, lineSum(scan.revenue, locale));
+}
+
+/**
+ * What the Z-bon (or the summed Z-bons) printed as the total — or null once
+ * nobody knows: a total the owner typed replaces the printed one in
+ * revenue_total, so the card keeps the printed figure in bon_total. A
+ * reopened draft's total was saved, not read off a photo, so it is no
+ * "Z-bon" figure either.
+ */
+export function scanBonTotal(scan, locale = "da-DK") {
+  if (!scan || typeof scan !== "object") return null;
+  if (scan.bon_total != null) return toNum(scan.bon_total, locale);
+  if (scan.revenue_total_text != null || scan.from_draft) return null;
+  return headlineTotal(scan, locale);
+}
+
 /**
  * True when the owner — not us — has to say what the second scan is.
  * Both scans carrying a headline total is the ONLY ambiguous case.
@@ -133,7 +173,11 @@ function fillMerge(existing, incoming) {
 
   if (incoming.tips != null) merged.tips = incoming.tips;
   if (incoming.moms_total != null) merged.moms_total = incoming.moms_total;
-  if (incoming.revenue_total != null) merged.revenue_total = incoming.revenue_total;
+  if (incoming.revenue_total != null) {
+    merged.revenue_total = incoming.revenue_total;
+    // The new page's total is the printed one now.
+    delete merged.bon_total;
+  }
 
   // Rich Z-report fields — last scan wins (typical retake = better photo).
   if (incoming.prefill) merged.prefill = incoming.prefill;
@@ -163,7 +207,7 @@ function fillMerge(existing, incoming) {
  * and "terminal 2 had no MOMS" are different facts and we cannot tell them
  * apart from a photo. Nothing missing ever becomes 0.
  */
-function sumMerge(existing, incoming, locale = "da-DK") {
+function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(existing, locale)) {
   const merged = { ...existing };
   const incomplete = [];
 
@@ -188,9 +232,16 @@ function sumMerge(existing, incoming, locale = "da-DK") {
   merged.revenue = sumBucket("revenue");
   merged.payments = sumBucket("payments");
 
+  // Each till's revenue is what ITS card saves (scanSaveTotal), not its
+  // printed total: a category corrected past the bon's total is part of the
+  // day. A box nobody can read stays unreadable (null), never a guess.
+  const tillTotal = (scan) => {
+    const printed = toNum(scan.revenue_total, locale);
+    return printed == null ? null : (scanSaveTotal(scan, locale) ?? printed);
+  };
   for (const field of ["revenue_total", "moms_total", "tips", "cash_counted_total"]) {
-    const av = toNum(existing[field], locale);
-    const bv = toNum(incoming[field], locale);
+    const av = field === "revenue_total" ? tillTotal(existing) : toNum(existing[field], locale);
+    const bv = field === "revenue_total" ? tillTotal(incoming) : toNum(incoming[field], locale);
     if (av != null && bv != null) merged[field] = av + bv;
     else if (av != null) { merged[field] = av; incomplete.push(field); }
     else if (bv != null) { merged[field] = bv; incomplete.push(field); }
@@ -209,6 +260,13 @@ function sumMerge(existing, incoming, locale = "da-DK") {
     && toNum(existing.revenue_total, locale) != null && toNum(incoming.revenue_total, locale) != null) {
     merged.revenue_total_text = moneyInputText(Math.round(merged.revenue_total * 100) / 100, locale);
   }
+
+  // What the Z-bons printed, added up — the figure the summed MOMS belongs
+  // to. When a till saves more (or less) than its bon, the saved total moves
+  // off it and the MOMS is worked out again instead of summed.
+  const bonB = scanBonTotal(incoming, locale);
+  if (bonA != null && bonB != null) merged.bon_total = Math.round((bonA + bonB) * 100) / 100;
+  else delete merged.bon_total;
 
   // Per-terminal documents: keep the first terminal's, say so when the second
   // one also had data we are not folding in.
@@ -229,13 +287,15 @@ function sumMerge(existing, incoming, locale = "da-DK") {
   merged.ocr_available = true;
 
   const prevInfo = existing.merge_info || {};
+  // Per till, the figure its card said it would save — so the line reads
+  // "17.530 + 5.000 = 22.530", the sum that is saved.
   const prevTotals = Array.isArray(prevInfo.terminalTotals) && prevInfo.terminalTotals.length
     ? prevInfo.terminalTotals
-    : [headlineTotal(existing)].filter((v) => v != null);
+    : [scanSaveTotal(existing, locale)].filter((v) => v != null);
   merged.merge_info = {
     mode: MERGE_SUM,
     scans: (prevInfo.scans || 1) + 1,
-    terminalTotals: [...prevTotals, headlineTotal(incoming)].filter((v) => v != null),
+    terminalTotals: [...prevTotals, scanSaveTotal(incoming, locale)].filter((v) => v != null),
     incompleteFields: Array.from(new Set([...(prevInfo.incompleteFields || []), ...incomplete])),
   };
 
@@ -254,13 +314,15 @@ function sumMerge(existing, incoming, locale = "da-DK") {
 export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-DK") {
   if (!existing) return incoming;
   if (!incoming) return existing;
+  // Read before the draft mark goes: a reopened draft's total is no bon's.
+  const existingBon = scanBonTotal(existing, locale);
   // A photo went into it, so it is a read again: the reopened draft's
   // "not read" mark hid that photo's confidence and its missing lines.
   if (existing.from_draft) {
     existing = { ...existing };
     delete existing.from_draft;
   }
-  if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale);
+  if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale, existingBon);
 
   // "Same till — use the new photo" means the new photo IS the figures.
   // Filling gaps from the old one kept its MobilePay 1.000 on top of the new
@@ -273,7 +335,7 @@ export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-D
     merged.merge_info = {
       mode: MERGE_REPLACE,
       scans: 1,
-      terminalTotals: [headlineTotal(merged)].filter((v) => v != null),
+      terminalTotals: [scanSaveTotal(merged, locale)].filter((v) => v != null),
       incompleteFields: [],
     };
   }
