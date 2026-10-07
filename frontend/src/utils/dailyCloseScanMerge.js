@@ -202,7 +202,11 @@ function sumMerge(existing, incoming, locale = "da-DK") {
   // and editing it then dropped till 2. The box now holds the sum. The text
   // stays (rather than being deleted) because it is also what marks the
   // scanned MOMS as stale: it belonged to till 1's misread total.
-  if (existing.revenue_total_text != null && merged.revenue_total != null) {
+  // Only when both tills' totals were read: a box holding text nobody could
+  // read ("16.45O") must stay red and block the lock, not turn into till 2's
+  // figure as if it were the sum.
+  if (existing.revenue_total_text != null && merged.revenue_total != null
+    && toNum(existing.revenue_total, locale) != null && toNum(incoming.revenue_total, locale) != null) {
     merged.revenue_total_text = moneyInputText(Math.round(merged.revenue_total * 100) / 100, locale);
   }
 
@@ -250,6 +254,12 @@ function sumMerge(existing, incoming, locale = "da-DK") {
 export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-DK") {
   if (!existing) return incoming;
   if (!incoming) return existing;
+  // A photo went into it, so it is a read again: the reopened draft's
+  // "not read" mark hid that photo's confidence and its missing lines.
+  if (existing.from_draft) {
+    existing = { ...existing };
+    delete existing.from_draft;
+  }
   if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale);
 
   // "Same till — use the new photo" means the new photo IS the figures.

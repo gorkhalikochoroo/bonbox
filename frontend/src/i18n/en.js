@@ -8408,6 +8408,8 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcMomsDraftOtherTotal: "This MOMS ({moms}) was saved for a total of {old}, not the {saved} you save now. Check it against the Z-report, or tap Auto.",
+    dcMomsDraftFollowed: "The draft was saved with MOMS {moms} for a total of {old}. The total is now {saved}, so MOMS is worked out again from it. If the Z-report has more than one MOMS rate, tap From receipt and type the right figure.",
     dcPayBelowRevenue: "Payments are {amount} below revenue",
     dcPayAboveRevenue: "Payments are {amount} above revenue",
     dcCashMatches: "The drawer matches",

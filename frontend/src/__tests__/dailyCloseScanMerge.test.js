@@ -11,6 +11,7 @@
  * and a summed result must be honest about what it could not add.
  */
 import { describe, expect, it } from "vitest";
+import { isMoneyRejected } from "../utils/currency";
 
 import {
   headlineTotal,
@@ -299,5 +300,31 @@ describe("a total the owner corrected, then a second till", () => {
   it("leaves a scan nobody corrected without a typed total", () => {
     const merged = mergeScans({ revenue_total: 17030 }, { revenue_total: 5000 }, MERGE_SUM, "da-DK");
     expect(merged.revenue_total_text).toBeUndefined();
+  });
+
+  it("keeps a box nobody can read as typed — it does not become till 2's figure", () => {
+    // "16.45O" stores revenue_total null; rewriting the text to the one till
+    // that was read ("5.000") cleared the red box and let 5.000 lock against
+    // 21.450 of lines.
+    const merged = mergeScans(
+      { revenue_total: null, revenue_total_text: "16.45O", revenue: { food: 10000, drinks: 6450 } },
+      { revenue_total: 5000, revenue: { food: 5000 } },
+      MERGE_SUM,
+      "da-DK",
+    );
+    expect(merged.revenue_total_text).toBe("16.45O");
+    expect(isMoneyRejected(merged.revenue_total_text, "da-DK")).toBe(true);
+    expect(merged.merge_info.incompleteFields).toContain("revenue_total");
+  });
+});
+
+describe("a reopened draft that gets a photo", () => {
+  // The draft's card is marked from_draft (not a read). A photo merged into it
+  // is a read again — its confidence and missing lines must show.
+  const draft = { revenue_total: 17030, revenue: { food: "10.000" }, from_draft: true };
+  it.each([MERGE_SUM, MERGE_FILL, MERGE_REPLACE])("%s merge drops the draft mark", (mode) => {
+    const merged = mergeScans(draft, { revenue_total: 5000, revenue: { food: 5000 } }, mode, "da-DK");
+    expect(merged.from_draft).toBeUndefined();
+    expect(draft.from_draft).toBe(true);
   });
 });

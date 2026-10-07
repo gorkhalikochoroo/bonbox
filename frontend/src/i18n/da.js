@@ -8117,6 +8117,8 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcMomsDraftOtherTotal: "Denne MOMS ({moms}) blev gemt for en total på {old}, ikke de {saved}, du gemmer nu. Tjek den mod Z-bonen, eller tryk Auto.",
+    dcMomsDraftFollowed: "Kladden blev gemt med MOMS {moms} for en total på {old}. Totalen er nu {saved}, så MOMS er regnet ud igen af den. Har Z-bonen flere momssatser, så tryk Fra kvittering og skriv den rigtige MOMS.",
     dcPayBelowRevenue: "Betalingerne er {amount} under omsætningen",
     dcPayAboveRevenue: "Betalingerne er {amount} over omsætningen",
     dcCashMatches: "Kassen stemmer",

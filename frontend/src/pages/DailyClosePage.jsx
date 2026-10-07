@@ -480,6 +480,10 @@ export default function DailyClosePage() {
   // render the locked-state card at the top of the History tab. The
   // card stays until the user dismisses it or navigates away.
   const [lastLockedClose, setLastLockedClose] = useState(null);
+  // Tonight's card has its own X: it is also rebuilt from history, so clearing
+  // lastLockedClose did not hide it — and with a past day's card beside it,
+  // that X closed the other card.
+  const [todayCardDismissed, setTodayCardDismissed] = useState(false);
 
   // Offline resilience
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -814,13 +818,16 @@ export default function DailyClosePage() {
           jumps to the top so the owner sees "you're done for tonight"
           before the live KPIs or the close wizard. Dismissible — same
           state as the in-History card so it doesn't pop back. */}
-      {isLockedToday && (
+      {isLockedToday && !todayCardDismissed && (
         <JustLockedCard
           t={t}
           close={lockedBannerClose}
           currency={currency}
           businessType={user?.business_type}
-          onDismiss={() => setLastLockedClose(null)}
+          onDismiss={() => {
+            setTodayCardDismissed(true);
+            if (freshLockIsToday) setLastLockedClose(null);
+          }}
         />
       )}
       {/* A past day just locked: the same card, naming the day. Tonight's
@@ -960,6 +967,8 @@ export default function DailyClosePage() {
             // been replaced by the History tab.
             if (lockResult && lockResult.close_ritual) {
               setLastLockedClose(lockResult);
+              // Tonight locked again (after an unlock): its card comes back.
+              if (String(lockResult.date || "").slice(0, 10) === todayIso) setTodayCardDismissed(false);
             }
             setTab("history");
             // The "locked" card is at the top of the page; the phone stayed
@@ -1446,6 +1455,11 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // Z-bon's one-off extras (drawer count, clerk notes), applied once per scan:
   // every re-apply appended the clerk notes again and reset a typed count.
   const [appliedMoms, setAppliedMoms] = useState(null);
+  // A reopened draft's typed MOMS and the total it was saved with ({ moms,
+  // total, followed }). The bon's MOMS comes back from the row as a typed
+  // figure with no photo behind it, so the "follows the total" rule below
+  // never saw the total move: 3.406 stayed under a corrected 17.130.
+  const [draftMoms, setDraftMoms] = useState(null);
   const appliedPrefillRef = useRef(null);
 
   // ─── POS terminal auto-detect — Commit 3 owner-confirm state ───────
@@ -1594,6 +1608,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     // The saved MOMS is the form's: going back to the card and applying it
     // again dropped a typed MOMS to Auto.
     setAppliedMoms({ key: scanMomsKey(draftScan), manual: loaded.momsManual, owner: false });
+    setDraftMoms(loaded.momsMode === "manual" && Number(dc.revenue_total) > 0
+      ? { moms: Number(dc.moms_total), total: Number(dc.revenue_total), followed: false }
+      : null);
     appliedPrefillRef.current = null;
     // Autosave waits for a real change: opening "Rediger" re-saved the close
     // within two seconds, before the owner had touched anything. Every field
@@ -1609,7 +1626,9 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
     setStaffCount(loaded.staff);
     setClosedBy(loaded.by);
     setNotes(loaded.notes);
-    if (dc.receipt_photo) setReceiptPhotoUrl(dc.receipt_photo);
+    // This close's own photo, or none: a Z-bon read earlier for another day
+    // stayed behind and was filed as this day's source document.
+    setReceiptPhotoUrl(dc.receipt_photo || null);
     // Skip scan UI (the user already has values) and jump to step 1.
     setScanMode("skipped");
     setStep(1);
@@ -2545,13 +2564,31 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   // 3.406 under 17.130, and Auto gave the same 3.406. A MOMS the owner typed
   // is theirs and stays.
   const savedRevenueSeenRef = useRef(savedRevenue);
+  // The reopened draft's MOMS still in the box, under a total that moved off
+  // the one it was saved with.
+  const draftMomsMoved = Boolean(draftMoms) && Math.abs(savedRevenue - draftMoms.total) >= 0.005;
+  const draftMomsKept = draftMomsMoved && momsMode === "manual"
+    && Math.abs(readMoney0(momsManual) - draftMoms.moms) < 0.015;
   useEffect(() => {
     const moved = Math.abs(savedRevenueSeenRef.current - savedRevenue) >= 0.005;
     savedRevenueSeenRef.current = savedRevenue;
-    if (!moved || momsMode !== "manual" || !scanMomsMoved(scanResult, savedRevenue)) return;
-    if (Math.abs(readMoney0(momsManual) - Number(scanResult.moms_total)) < 0.005) {
+    if (!moved || momsMode !== "manual") return;
+    if (scanMomsMoved(scanResult, savedRevenue)) {
+      if (Math.abs(readMoney0(momsManual) - Number(scanResult.moms_total)) < 0.005) {
+        setMomsMode("auto");
+        setMomsManual("");
+      }
+      return;
+    }
+    // After a reopen nobody knows whether the saved MOMS came off the bon or
+    // was typed. It follows only when it was the plain one-rate MOMS of the
+    // total it was saved with — what Auto gives, so nothing the owner typed is
+    // lost. Any other figure stays theirs, and the review says it belongs to
+    // the old total.
+    if (draftMomsKept && Math.abs(momsFor(draftMoms.total) - draftMoms.moms) < 0.015) {
       setMomsMode("auto");
       setMomsManual("");
+      setDraftMoms({ ...draftMoms, followed: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedRevenue]);
@@ -2799,9 +2836,24 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
   const handleSubmit = async (opts = {}) => {
     // The lock carries every field itself. A draft still waiting would be
     // flushed when the form closes after the lock — a stale draft POSTed over
-    // the confirmed row.
+    // the confirmed row. Held back, not dropped: a lock that does not happen
+    // (the double-check, a refusal) leaves the form open, and the edit typed
+    // just before the tap was then never saved — "Gemmer…" with nothing on
+    // its way.
+    const heldSave = pendingSaveRef.current;
     clearTimeout(autoSaveRef.current);
     pendingSaveRef.current = null;
+    const dropHeldSave = () => {
+      clearTimeout(autoSaveRef.current);
+      pendingSaveRef.current = null;
+      if (!savesInFlightRef.current) setDraftSaving(false);
+    };
+    const restoreHeldSave = () => {
+      // An edit made while the lock was on its way is newer — it wins.
+      if (pendingSaveRef.current || !heldSave) return;
+      pendingSaveRef.current = heldSave;
+      autoSaveRef.current = setTimeout(heldSave, 2000);
+    };
     setSaving(true);
     setError("");
     setErrorDetail("");
@@ -2814,7 +2866,8 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
       // loop told — tell the owner instead, so they can write the numbers down.
       const queued = addToOfflineQueue(payload);
       setSaving(false);
-      if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
+      if (!queued) { restoreHeldSave(); setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
+      dropHeldSave();
       onQueued?.();
       return;
     }
@@ -2826,10 +2879,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
       // NOTHING) instead of a close. Surface the soft "double-check"
       // dialog; the owner fixes the numbers or confirms to lock anyway.
       if (resp?.data?.requires_confirmation) {
+        restoreHeldSave();
         setAnomalyCheck(resp.data.anomaly || {});
         setSaving(false);
         return;
       }
+      dropHeldSave();
       setAnomalyCheck(null);
       // Sealed — one success haptic on a genuine confirmed lock. Native-only
       // (no-op on web); the offline-queue + anomaly paths returned above, so
@@ -2856,10 +2911,12 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
         // if the device refused to store it).
         const queued = addToOfflineQueue(payload);
         setSaving(false);
-        if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
+        if (!queued) { restoreHeldSave(); setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
+        dropHeldSave();
         onQueued?.();
         return;
       }
+      restoreHeldSave();
       // The server refused the lock. This used to render the server's own
       // English sentence as the headline — or, when there wasn't one, the
       // literal string "Failed to save", which is not a sentence in any
@@ -3940,7 +3997,7 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                   + {t("addAnotherPhoto", "Add another page or terminal")}
                 </button>
               )}
-              <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); appliedPrefillRef.current = null; setScanMode("idle"); }}
+              <button onClick={() => { applyScanResult(null); setScanPhotos([]); setReceiptPhotoUrl(null); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); appliedPrefillRef.current = null; setScanMode("idle"); }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
               </button>
@@ -4487,6 +4544,27 @@ function CloseForm({ currency, t, branchType, branchId, branches = [], onDone, o
                       className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
                   </div>
+                )}
+                {/* A reopened draft's MOMS kept under a total that moved. */}
+                {draftMomsKept && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                    <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+                    <span>{t("dcMomsDraftOtherTotal", "This MOMS ({moms}) was saved for a total of {old}, not the {saved} you save now. Check it against the Z-report, or tap Auto.", {
+                      moms: formatOwnerMoney(draftMoms.moms, currency, { decimals: oreIfAny(draftMoms.moms) }),
+                      old: formatOwnerMoney(draftMoms.total, currency, { decimals: oreIfAny(draftMoms.total) }),
+                      saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
+                    })}</span>
+                  </p>
+                )}
+                {momsMode === "auto" && momsSource === "computed" && draftMoms?.followed && draftMomsMoved && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                    <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+                    <span>{t("dcMomsDraftFollowed", "The draft was saved with MOMS {moms} for a total of {old}. The total is now {saved}, so MOMS is worked out again from it. If the Z-report has more than one MOMS rate, tap From receipt and type the right figure.", {
+                      moms: formatOwnerMoney(draftMoms.moms, currency, { decimals: oreIfAny(draftMoms.moms) }),
+                      old: formatOwnerMoney(draftMoms.total, currency, { decimals: oreIfAny(draftMoms.total) }),
+                      saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
+                    })}</span>
+                  </p>
                 )}
                 {momsMode === "auto" && momsSource !== "recomputed" && (
                   <p className="text-[12px] text-gray-500 dark:text-gray-400">
