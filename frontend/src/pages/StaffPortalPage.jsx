@@ -417,28 +417,38 @@ function HolidaySection({ token }) {
   const fmt = (n) => Number(n).toLocaleString(lang === "da" ? "da-DK" : "en-GB", {
     minimumFractionDigits: 1, maximumFractionDigits: 1,
   });
+  // The honesty line under it still says what this counts and from when.
+  const nothingYet = !(Number(h.earned) > 0) && !(Number(h.taken) > 0);
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
       <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
         {t("portalHolidaySection", "Holiday")}
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-          {/* `partial` means the ferieår began before we knew this staffer, so
-              what we hold is a floor. A bare 0,0 at 22px bold would read as a
-              statement about their entitlement — the one thing it is not. */}
-          {h.partial && !h.remaining ? "–" : fmt(h.remaining)}
-        </span>
-        <span className="text-[12px] text-gray-500">
-          {t("portalHolidayUnit", "days")}
-        </span>
-      </div>
-      <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
-        {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
-          earned: fmt(h.earned), taken: fmt(h.taken),
-        })}
-      </div>
+      {nothingYet ? (
+        // Nothing earned or taken while BonBox has known them: say that in
+        // words. A bare "–" above "0,0 optjent · 0,0 afholdt" read as a broken
+        // value, and a big 0,0 would read as a verdict on their entitlement.
+        <div data-testid="holiday-empty" className="text-[15px] font-bold text-gray-900 leading-snug">
+          {t("portalHolidayNoneYet", "No holiday days earned yet")}
+        </div>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+              {fmt(h.remaining)}
+            </span>
+            <span className="text-[12px] text-gray-500">
+              {t("portalHolidayUnit", "days")}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
+            {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
+              earned: fmt(h.earned), taken: fmt(h.taken),
+            })}
+          </div>
+        </>
+      )}
       {/* The honesty line. Without it the number reads as a legal balance. */}
       <div className="mt-1 text-[10px] text-gray-400">
         {t("portalHolidaySince", "Counted from {date} — what BonBox has recorded, not your full entitlement. Your payslip is the authority.", {
@@ -1336,8 +1346,10 @@ function useClock(token) {
       // 200 m rule). The staffer used to get a plain success and never learn
       // their manager would see the punch as unverified.
       let unverified = false;
+      let noFix = false;   // no position at all — usually location switched off
       if (dir === "in" && st?.geofence_on) {
         const pos = await getPos();
+        noFix = !pos;
         unverified = !pos || (pos.accuracy != null && pos.accuracy > 200);
         if (pos) {
           payload = pos;
@@ -1376,8 +1388,18 @@ function useClock(token) {
         );
         setTimeout(() => setResult(""), 6000);
       } else if (unverified) {
-        setResult(t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."));
-        setTimeout(() => setResult(""), 10000);
+        // Say how to fix it, not only that it happened: with no position at
+        // all, location is almost always switched off for the app / site.
+        const fix = noFix
+          ? (isNativeApp()
+            ? t("portalClockNoLocationFixNative", "To fix it: Settings → BonBox Scheduler → Location → While Using the App.")
+            : t("portalClockNoLocationFixWeb", "To fix it: allow location for this site in your browser — your next punch is then confirmed."))
+          : "";
+        setResult([
+          t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."),
+          fix,
+        ].filter(Boolean).join(" "));
+        setTimeout(() => setResult(""), noFix ? 20000 : 10000);
       } else {
         setResult("");
       }
@@ -3275,9 +3297,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       </div>
 
       {/* v2 by-week chart. Bars are proportional to the period's own maximum,
-          and the tallest is green — so the shape answers "which week was
-          heaviest" before any number is read. Silent when a period has one
-          week: a single full-height bar compares nothing. */}
+          and the tallest is in the portal's ink — so the shape answers "which
+          week was heaviest" before any number is read. Not green: green means
+          confirmed / done everywhere else in the app, and "most hours" is not
+          a status. Silent when a period has one week: a single full-height
+          bar compares nothing. */}
       {weekBars.length > 1 && (
         <div
           className="bg-white"
@@ -3305,9 +3329,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     width: "100%", borderRadius: 7,
                     height: Math.max(3, Math.round((b.n / weekBars.max) * 74)),
                     background: b.n === weekBars.max
-                      ? "linear-gradient(180deg,#22c55e,#15803d)"
+                      ? "linear-gradient(180deg,#334155,#0f172a)"
                       : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
-                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(22,163,74,.8)" : "none",
+                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(15,23,42,.7)" : "none",
                     transition: "height .5s cubic-bezier(.22,.9,.24,1)",
                   }}
                 />
@@ -5220,10 +5244,51 @@ function groupAbsence(rows) {
  * range; the owner sees + approves. Tracking only, no pay. Lives inside the
  * "Kan ikke" tab (the staffer's "when I'm off" home) so it's not an 8th nav tab.
  */
+/** A date field that fits its grid cell on iOS WebKit. The native control has
+    an intrinsic minimum width, so two of them side by side ran into each other
+    and past the card edge; min-width 0 + border-box + no native appearance
+    lets the cell decide. An empty iOS date input shows nothing at all, so the
+    placeholder says what tapping it does. */
+function DateField({ label, value, onChange, min, max, testId }) {
+  const { t } = useLanguage();
+  return (
+    <label className="block min-w-0">
+      <span className="text-[10px] text-gray-500 mb-1 block">{label}</span>
+      <span className="relative block min-w-0">
+        <input
+          type="date"
+          value={value}
+          min={min}
+          max={max}
+          onChange={(e) => onChange(e.target.value)}
+          data-testid={testId}
+          className="block w-full min-h-[44px] px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 text-left outline-none focus:border-gray-900/30"
+          style={{ minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
+        />
+        {!value && (
+          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-gray-400">
+            {t("portalPickDate", "Pick a date")}
+          </span>
+        )}
+      </span>
+    </label>
+  );
+}
+
 function AbsenceSection({ token, onChanged }) {
   const { t, lang } = useLanguage();
   const [rows, setRows] = useState(null);
   const [adding, setAdding] = useState(false);
+  // The form opens at the bottom of a long tab, under the bottom nav — bring
+  // it into view so Ferie/Andet, the dates AND Send are on screen.
+  const formRef = useRef(null);
+  useEffect(() => {
+    if (!adding) return;
+    const id = setTimeout(() => {
+      formRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    }, 30);
+    return () => clearTimeout(id);
+  }, [adding]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [kind, setKind] = useState("ferie");
@@ -5362,7 +5427,7 @@ function AbsenceSection({ token, onChanged }) {
                   <button
                     type="button"
                     onClick={() => withdraw(g)}
-                    className="shrink-0 text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                    className="shrink-0 min-h-[44px] px-3 rounded-[12px] border border-[#e2e8f0] bg-white text-[12px] font-semibold text-gray-700 hover:bg-gray-50 active:scale-[0.98] transition inline-flex items-center"
                   >
                     {isNotifyKind(g.kind)
                       ? t("fravaerUndo", "Undo")
@@ -5389,7 +5454,14 @@ function AbsenceSection({ token, onChanged }) {
         </p>
         </div>
       ) : (
-        <div data-kb-block="" data-testid="fravaer-form" className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
+        <div
+          ref={formRef}
+          data-kb-block=""
+          data-testid="fravaer-form"
+          className="rounded-xl bg-white border border-gray-200 p-4 space-y-4"
+          // Clear the sticky header and the fixed bottom nav when scrolled to.
+          style={{ scrollMarginTop: 96, scrollMarginBottom: "calc(6rem + env(safe-area-inset-bottom))" }}
+        >
           <div className="grid grid-cols-2 gap-1.5">
             {/* Sygdom deliberately absent: this form's banner promises manager
                 approval, and that is a lie for a sick day. Sick lives on the
@@ -5408,16 +5480,8 @@ function AbsenceSection({ token, onChanged }) {
             ))}
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerFrom", "From")}</label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
-                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900/30" />
-            </div>
-            <div>
-              <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerTo", "To (optional)")}</label>
-              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)}
-                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900/30" />
-            </div>
+            <DateField label={t("fravaerFrom", "From")} value={from} onChange={setFrom} testId="fravaer-from" />
+            <DateField label={t("fravaerTo", "To (optional)")} value={to} min={from || undefined} onChange={setTo} testId="fravaer-to" />
           </div>
           <input
             type="text" value={reason} maxLength={80} onChange={(e) => setReason(e.target.value)}
@@ -6527,9 +6591,7 @@ function ShiftReminderRow({ token }) {
                 border: `1px solid ${minutes === m ? "transparent" : "#e8edf3"}`,
               }}
             >
-              {m < 60
-                ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
-                : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+              {fmtLead(m, t)}
             </button>
           ))}
         </div>
@@ -6818,9 +6880,7 @@ function StaffPushOptIn({ token }) {
                     border: `1px solid ${reminder === m ? "transparent" : "#e8edf3"}`,
                   }}
                 >
-                  {m < 60
-                    ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
-                    : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+                  {fmtLead(m, t)}
                 </button>
               ))}
             </div>

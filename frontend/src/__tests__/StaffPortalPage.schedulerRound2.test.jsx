@@ -38,7 +38,7 @@ let teamImpl;
 let swapsImpl;
 let postImpl;
 
-const get = vi.fn((url) => {
+const defaultGet = (url) => {
   if (url === `/portal/${TOK}`) {
     return ok({ has_pin: false, staff_name: "Ali R.", restaurant_name: "Testcafé", role: "kitchen" });
   }
@@ -50,8 +50,12 @@ const get = vi.fn((url) => {
   }
   if (url.includes("/notifications")) return ok({ notifications: [] });
   if (url.endsWith("/chat/unread")) return ok({ unread: 0 });
+  if (extraGet[url.replace(`/portal/${TOK}`, "")]) return extraGet[url.replace(`/portal/${TOK}`, "")]();
   return ok([]);
-});
+};
+const get = vi.fn(defaultGet);
+/** Per-test GET answers keyed by the path after /portal/{token}. */
+let extraGet = {};
 const post = vi.fn((...a) => postImpl(...a));
 
 vi.mock("../services/portalApi", () => ({
@@ -99,6 +103,7 @@ const ANNA = "staff-anna";
 beforeEach(() => {
   localStorage.clear();
   get.mockClear();
+  get.mockImplementation(defaultGet);
   post.mockClear();
   // Ali works Wed 11:00–20:00 and Fri 15:00–23:00 (the round-2 repro).
   scheduleImpl = () => ok({
@@ -122,6 +127,7 @@ beforeEach(() => {
   ]);
   swapsImpl = () => ok([]);
   postImpl = () => ok({});
+  extraGet = {};
 });
 
 async function openSwapPicker() {
@@ -260,6 +266,114 @@ describe("Dead link", () => {
       expect(document.title).toBe("BonBox Scheduler");
     } finally {
       get.mockImplementation(base);
+    }
+  });
+});
+
+describe("Polish", () => {
+  const openProfile = async () => {
+    fireEvent.click(screen.getByTitle("Rediger profil"));
+    await waitFor(() => expect(document.querySelector('[role="dialog"][aria-modal="true"]')).not.toBeNull());
+  };
+
+  it("reminder chips speak Danish: 1 time, 2 timer", async () => {
+    extraGet["/reminder"] = () => ok({ minutes: 60 });
+    await mount("da");
+    await openProfile();
+    for (const label of ["30 min", "1 time", "2 timer", "3 timer"]) {
+      expect(await screen.findByRole("button", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "1 timer" })).toBeNull();
+  });
+
+  it("holiday: nothing earned yet is said in words, not '– dage' over 0,0", async () => {
+    extraGet["/holiday"] = () => ok({ earned: 0, taken: 0, remaining: 0, partial: true, since: inDays(-30) });
+    await mount("da");
+    await openProfile();
+    expect((await screen.findByTestId("holiday-empty")).textContent).toBe("Ingen feriedage optjent endnu");
+    expect(document.body.textContent).not.toContain("0,0 optjent");
+  });
+
+  it("holiday: a real balance still shows the number", async () => {
+    extraGet["/holiday"] = () => ok({ earned: 4.16, taken: 1, remaining: 3.16, partial: true, since: inDays(-60) });
+    await mount("da");
+    await openProfile();
+    await waitFor(() => expect(document.body.textContent).toContain("3,2"));
+    expect(screen.queryByTestId("holiday-empty")).toBeNull();
+  });
+
+  it("Fravær: the form scrolls into view, date fields fit their cell, withdraw is a 44px button", async () => {
+    extraGet["/absence"] = () => ok({ absence: [{ id: "a1", kind: "ferie", date: inDays(20), status: "pending" }] });
+    const scrolled = vi.fn();
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      await mount("da");
+      navTo("Kan ikke");
+      const withdraw = await screen.findByRole("button", { name: "Fortryd" });
+      expect(withdraw.className).toContain("min-h-[44px]");
+      expect(withdraw.className).not.toContain("underline");
+
+      fireEvent.click(screen.getByRole("button", { name: /Anmod om fri/ }));
+      const form = await screen.findByTestId("fravaer-form");
+      await waitFor(() => expect(scrolled).toHaveBeenCalled());
+      expect(scrolled.mock.contexts[0]).toBe(form);
+
+      for (const id of ["fravaer-from", "fravaer-to"]) {
+        const input = screen.getByTestId(id);
+        expect(input.style.minWidth).toMatch(/^0(px)?$/);
+        expect(input.style.boxSizing).toBe("border-box");
+      }
+      expect(within(form).getAllByText("Vælg dato")).toHaveLength(2);
+      fireEvent.change(screen.getByTestId("fravaer-from"), { target: { value: inDays(30) } });
+      expect(within(form).getAllByText("Vælg dato")).toHaveLength(1);
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("week chart: the biggest week is not painted status-green", async () => {
+    get.mockImplementation(((base) => (url) => (url.startsWith(`/portal/${TOK}/hours`)
+      ? ok({
+        period_start: inDays(-20), period_end: inDays(0), total_hours: 14, hours_source: "logged",
+        entries: [
+          { date: inDays(-15), start_time: "10:00", end_time: "14:00", total_hours: 4 },
+          { date: inDays(-1), start_time: "10:00", end_time: "20:00", total_hours: 10 },
+        ],
+      })
+      : base(url)))(get.getMockImplementation()));
+    await mount("da");
+    navTo("Timer");
+    const bars = await screen.findAllByTestId("portal-week-bar");
+    expect(bars.length).toBeGreaterThan(1);
+    const fills = bars.map((b) => b.querySelector("div").style.background);
+    expect(fills.some((f) => f.includes("#0f172a") || f.includes("rgb(15, 23, 42)"))).toBe(true);
+    expect(fills.join(" ")).not.toMatch(/#22c55e|rgb\(34, 197, 94\)/);
+  });
+
+  it("a punch without location says how to fix it", async () => {
+    const now = new Date();
+    const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const start = new Date(now.getTime() - 60 * 60000);
+    const end = new Date(now.getTime() + 120 * 60000);
+    scheduleImpl = () => ok({
+      shifts: [{ id: "now", date: start.toLocaleDateString("sv-SE"), start_time: hhmm(start), end_time: hhmm(end), status: "published", net_hours: 3 }],
+    });
+    extraGet["/clock"] = () => ok({ geofence_on: true, clocked_in: false, locked: false });
+    postImpl = (url) => (url.endsWith("/clock-in") ? ok({ geofence_on: true, clocked_in: true, elapsed_sec: 0 }) : ok({}));
+    const origGeo = navigator.geolocation;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: { getCurrentPosition: (_ok, fail) => fail({ code: 1 }) },
+    });
+    try {
+      await mount("da");
+      const btn = await screen.findByRole("button", { name: /Stempl ind/ });
+      await act(async () => { fireEvent.click(btn); });
+      await waitFor(() => expect(document.body.textContent).toContain("Sådan retter du det"));
+      expect(document.body.textContent).toContain("tillad lokalitet for denne side i din browser");
+    } finally {
+      Object.defineProperty(navigator, "geolocation", { configurable: true, value: origGeo });
     }
   });
 });
