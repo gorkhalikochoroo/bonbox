@@ -836,7 +836,7 @@ const lineKey = (f) => (f.startsWith("revenue.") ? `rev:${f.slice(8)}`
  * `afterUnlock`: the reopened close was unlocked — changed since, it is
  * marked edited_after_unlock.
  */
-export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown = {}, momsTyped = false, tipsSaved = false, photo = null, restore = false, afterUnlock = false } = {}) {
+export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown = {}, momsTyped = false, momsValue = null, tipsSaved = false, photo = null, restore = false, afterUnlock = false } = {}) {
   const { locale } = state;
   const active = activeEntries(state);
   const scansIn = active.filter((e) => e.origin === TILL_SCAN);
@@ -848,6 +848,13 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     const ft0 = formTill(state);
     const own = ft0?.origin === TILL_DRAFT && ft0.meta ? ft0.meta : null;
     const plain = !cardView(state) && !photo ? { kind: "typed" } : null;
+    // A MOMS typed on a reopened Z-bon read that is not the MOMS it was
+    // opened with is the owner's figure: "moms" goes in `typed`, so the
+    // kasserapport never prints it as "Salgsmoms aflæst fra Z-bon".
+    const momsChanged = Boolean(own && own.kind === "zbon") && reopenedMomsTyped(ft0, momsTyped, momsValue, locale);
+    const withTypedMoms = (meta) => (momsChanged && meta
+      ? { ...meta, typed: Array.from(new Set([...(Array.isArray(meta.typed) ? meta.typed.filter((k) => typeof k === "string") : []), "moms"])) }
+      : meta);
     if (restore) {
       // A reopened Z-bon read: what the owner changed on it since it was
       // opened is a correction of that read — said the same way as while a
@@ -857,8 +864,8 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
       // the record says so ("rettet af ejeren efter oplåsning") — the server
       // only ever adds that mark, on an unlocked close.
       const changes = own ? draftChanges(ft0, locale) : [];
-      const mark = afterUnlock && changes.length ? { edited_after_unlock: true } : {};
-      if (own && own.kind === "zbon") return reopenedReadMeta(state, own, changes, mark);
+      const mark = afterUnlock && (changes.length || momsChanged) ? { edited_after_unlock: true } : {};
+      if (own && own.kind === "zbon") return withTypedMoms(reopenedReadMeta(state, own, changes, mark));
       if (own) return { ...own, ...mark };
       if (plain) return plain;
       // A close saved before its source was recorded, with its own photo
@@ -872,8 +879,9 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     // "scannet". Untouched, it sends null: the server keeps its own.
     if (own && own.kind === "zbon") {
       const changes = draftChanges(ft0, locale);
-      if (changes.length || sumMovedOf(state, own)) {
-        return reopenedReadMeta(state, own, changes, afterUnlock && changes.length ? { edited_after_unlock: true } : {});
+      if (changes.length || sumMovedOf(state, own) || momsChanged) {
+        return withTypedMoms(reopenedReadMeta(state, own, changes,
+          afterUnlock && (changes.length || momsChanged) ? { edited_after_unlock: true } : {}));
       }
     }
     if (own) return null;
@@ -1000,6 +1008,18 @@ export function readTotalsOf(state, draftTills = null) {
   };
   const read = tillTotals(stripped);
   return draftTills && draftTills.length > 1 ? [...draftTills, ...read.slice(1)] : read;
+}
+
+/**
+ * A MOMS typed (moms_mode "manual") on a reopened draft that is not the MOMS
+ * it was opened with — or opened with none typed (Auto): the owner's figure.
+ */
+export function reopenedMomsTyped(ft, momsTyped, momsValue, locale = "da-DK") {
+  if (!ft?.loaded || !momsTyped) return false;
+  const now = typeof momsValue === "number" ? momsValue : num(momsValue, locale);
+  if (now == null || !Number.isFinite(now)) return false;
+  const was = ft.loaded.moms_total;
+  return was == null || !Number.isFinite(Number(was)) || Math.abs(now - Number(was)) >= 0.005;
 }
 
 /** What the owner changed on a reopened draft since it was loaded, as record keys. */

@@ -6,7 +6,8 @@
  * recipient. The revisor line ("Afleveret til mailserveren — til din revisor
  * (revisor@firma.dk)") names the revisor only, so the owner's own copy — and
  * address — was said nowhere. The plain line is a repeat only when the
- * revisor was the one recipient (or the owner-only line already says it).
+ * revisor was the one recipient, or on an owner-only send, whose line names
+ * the owner's own address itself ("Sendt til dig (ejer@…)", review fix).
  * Real Danish strings: the recipients are filled into "Sendt til {recipients}".
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -107,5 +108,27 @@ describe("U4 — the lock card names the owner's own address when the owner's co
     await waitFor(() => expect(container.textContent).toContain("revisor@firma.dk"));
     expect(container.textContent).not.toContain("Sendt til revisor@firma.dk");
     expect(container.textContent.match(/revisor@firma\.dk/g)).toHaveLength(1);
+  });
+
+  // Review fix: the owner-only line said "Sendt til dig" — the owner's own
+  // address was said nowhere on the card.
+  it("no revisor, sent to the owner only: the status line names the owner's own address — once", async () => {
+    profile = {};
+    lockAnswer = answer(["ejer@cafe.dk"]);
+    const { container } = await lockOne();
+    await waitFor(() => expect(container.textContent).toContain("ejer@cafe.dk"));
+    expect(container.textContent).toContain("Sendt til dig (ejer@cafe.dk)");
+    expect(container.textContent).toContain("ingen revisor-mail gemt");
+    expect(container.textContent.match(/ejer@cafe\.dk/g)).toHaveLength(1);
+  });
+
+  it("a revisor saved but not sent to: \"Sendt til dig (ejer@…) — ikke til revisoren\"", async () => {
+    profile = { accountant_email: "revisor@firma.dk" };
+    lockAnswer = answer(["ejer@cafe.dk"]);
+    const { container } = await lockOne();
+    await waitFor(() => expect(container.textContent).toContain("ejer@cafe.dk"));
+    expect(container.textContent).toContain("Sendt til dig (ejer@cafe.dk)");
+    expect(container.textContent).toContain("ikke til revisoren");
+    expect(container.textContent.match(/ejer@cafe\.dk/g)).toHaveLength(1);
   });
 });

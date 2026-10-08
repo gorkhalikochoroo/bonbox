@@ -149,7 +149,9 @@ def test_a_deleted_locked_close_under_a_branch_is_never_overwritten(db_session, 
     dead = _dead_locked(db_session, u, branch_id=b.id)
     r = client.post("/api/daily-close", headers=_auth(u), json=_body(branch_id=str(b.id)))
     # Refused, plainly — not a 500 from the unique key, and not a take-back.
-    assert r.status_code == 409, r.text
+    # Not a 409 either: clients read 409 as "already locked and in the books"
+    # (the offline queue then offered to remove the only copy of the day).
+    assert r.status_code == 423, r.text
     assert r.json()["detail"]["code"] == "deleted_locked_close"
     _unchanged_locked(db_session, dead.id)
     assert db_session.query(DailyClose).filter(DailyClose.user_id == u.id).count() == 1

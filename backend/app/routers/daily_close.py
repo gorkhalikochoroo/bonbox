@@ -2114,9 +2114,14 @@ def create_daily_close(
         )
         if dead_any is not None and (dead_any.status or "draft") != "draft":
             # Taken back it would be overwritten; inserted beside it the
-            # unique key refuses (500). Said plainly instead.
+            # unique key refuses (500). Said plainly instead — and NOT as a
+            # 409: to every client (the page, the offline queue, an app build
+            # already in the field) a 409 from this route means "a live close
+            # is locked for this day, the money is in the books", and a queued
+            # copy was offered for removal on it. Nothing of this day is in the
+            # books: 423 (Locked) with its own code, kept as a failed save.
             raise HTTPException(
-                status_code=409,
+                status_code=423,
                 detail={
                     "code": "deleted_locked_close",
                     "message": ("Der ligger en slettet, låst kasserapport for denne dag og afdeling. "

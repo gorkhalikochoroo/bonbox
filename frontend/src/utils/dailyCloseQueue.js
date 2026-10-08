@@ -53,6 +53,18 @@ export const QUEUE_ALREADY_SAVED = "already_saved";
    detail, never as the headline. */
 export const QUEUE_ERR_REJECTED = "rejected"; // 4xx — the close itself was refused
 export const QUEUE_ERR_SERVER = "server";     // 5xx — BonBox's side broke
+/* A deleted, LOCKED kasserapport holds the day's key under a branch (the
+   server: 423, detail.code "deleted_locked_close"). It is kept by law and is
+   never overwritten — so nothing of this day is in the books, and this copy
+   is the only one: never "already saved", never offered as a spare. */
+export const QUEUE_ERR_DELETED_LOCKED = "deleted_locked";
+
+/** The server's code for a day held by a deleted, locked kasserapport. */
+export const DELETED_LOCKED_CLOSE = "deleted_locked_close";
+export function isDeletedLockedClose(err) {
+  const d = err?.response?.data?.detail;
+  return Boolean(d && typeof d === "object" && d.code === DELETED_LOCKED_CLOSE);
+}
 
 /** Classify an HTTP status into one of the reason codes above. */
 function reasonForStatus(status) {
@@ -238,6 +250,20 @@ export async function syncOfflineQueue(post) {
         break;
       }
       const status = err.response?.status ?? null;
+      // A deleted, locked kasserapport holds the day (423, or a 409 from a
+      // server that said it that way): nothing is in the books and this copy
+      // is the only one. It stays, failed, with the server's own words.
+      if (isDeletedLockedClose(err)) {
+        remaining.push({
+          ...item,
+          state: QUEUE_FAILED,
+          errorCode: QUEUE_ERR_DELETED_LOCKED,
+          errorDetail: errText(err, ""),
+          httpStatus: status,
+          lastTriedTs: Date.now(),
+        });
+        continue;
+      }
       // 409 is the ONE conflict POST /daily-close raises: a confirmed close
       // already exists for this date. Either the owner re-entered it in the
       // wizard, or our own POST committed and the response was lost on flaky

@@ -23,6 +23,7 @@ import {
   updateQueueItem,
   OQ_KEY,
   QUEUE_ALREADY_SAVED,
+  QUEUE_ERR_DELETED_LOCKED,
   QUEUE_ERR_REJECTED,
   QUEUE_ERR_SERVER,
   QUEUE_FAILED,
@@ -155,6 +156,26 @@ describe("syncOfflineQueue", () => {
     const again = vi.fn().mockResolvedValue({ data: {} });
     await syncOfflineQueue(again);
     expect(again).not.toHaveBeenCalled();
+  });
+
+  // Round 20 review: a branch day held by a deleted, LOCKED kasserapport is
+  // refused (423 deleted_locked_close). Nothing of the day is in the books —
+  // this queued copy is the only one, so it is never "already saved" (whose
+  // row offers "remove this copy" as a spare).
+  it.each([423, 409])("a %s with code deleted_locked_close is never ALREADY_SAVED: kept, failed, with the server's words", async (status) => {
+    seed([{ date: "2026-09-15", revenue_total: 7000 }]);
+    const said = "Der ligger en slettet, låst kasserapport for denne dag og afdeling. Den bevares (bogføringsloven) og kan ikke overskrives — kontakt support.";
+    const post = vi.fn().mockRejectedValue(httpError(status, { code: "deleted_locked_close", message: said }));
+
+    const res = await syncOfflineQueue(post);
+
+    expect(res.alreadySaved).toBe(0);
+    expect(res.failed).toBe(1);
+    const [item] = getOfflineQueue();
+    expect(item.state).toBe(QUEUE_FAILED);
+    expect(item.errorCode).toBe(QUEUE_ERR_DELETED_LOCKED);
+    expect(item.errorDetail).toBe(said);
+    expect(item.payload.revenue_total).toBe(7000);
   });
 
   it("never erases a close queued WHILE a sync is in flight", async () => {

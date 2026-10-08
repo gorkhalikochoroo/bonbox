@@ -56,7 +56,7 @@ import { businessTodayIso, dateLocale } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 /** How many times each invariant was actually checked (SEQ_STATS=1 prints them). */
-export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0, F1: 0, F3: 0, F4: 0, F6: 0 };
+export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0, F1: 0, F3: 0, F4: 0, F6: 0, F6m: 0 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
 
@@ -745,6 +745,15 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         expect(Math.abs(tt.reduce((a, v) => a + v, 0) - zrow.revenue_total) < 0.5,
           fail("F6 a hand-edited Z-bon read is filed as corrected", `the tills no longer add up to the stored total — ${where6}`)).toBe(true);
       }
+      // A MOMS typed that is not the one the read was opened with is the
+      // owner's: the backend's moms_source must say "typed" — never print it
+      // as "Salgsmoms aflæst fra Z-bon" (round 20 review).
+      if (zrow.moms_mode === "manual" && (z.moms == null || Math.abs(Number(zrow.moms_total) - z.moms) >= 0.005)) {
+        STATS.F6m += 1;
+        const src = (meta.typed_tills || []).length || (meta.typed || []).includes("moms") ? "typed" : "zbon";
+        expect(src, fail("F6 a hand-edited Z-bon read is filed as corrected",
+          `MOMS ${zrow.moms_total} (opened with ${z.moms}) filed as read off the bon — ${where6}`)).toBe("typed");
+      }
     }
   };
 
@@ -923,6 +932,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         M.zbonLoaded = {
           date, revenue_breakdown: { ...(row.revenue_breakdown || {}) }, payment_breakdown: { ...(row.payment_breakdown || {}) },
           corrected: [...(row.source_meta.corrected || [])],
+          // The MOMS it was opened with (null: opened on Auto).
+          moms: row.moms_mode === "manual" && row.moms_total != null ? Number(row.moms_total) : null,
         };
       }
       M.form = { rev: { ...(row.revenue_breakdown || {}) }, pay: { ...(row.payment_breakdown || {}) } };

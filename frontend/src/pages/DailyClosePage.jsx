@@ -24,7 +24,9 @@ import {
   removeFromOfflineQueue,
   syncOfflineQueue,
   updateQueueItem,
+  isDeletedLockedClose,
   QUEUE_ALREADY_SAVED,
+  QUEUE_ERR_DELETED_LOCKED,
   QUEUE_ERR_REJECTED,
   QUEUE_ERR_SERVER,
   QUEUE_FAILED,
@@ -407,6 +409,22 @@ const _typesRestaurantLast = (obj) =>
   Object.keys(obj).filter((k) => k !== "restaurant").concat(obj.restaurant ? ["restaurant"] : []);
 const CAT_LABEL = Object.fromEntries(_typesRestaurantLast(REVENUE_CATS_BY_TYPE).flatMap((k) => REVENUE_CATS_BY_TYPE[k]).map((c) => [c.key, c]));
 const PAY_LABEL = Object.fromEntries(_typesRestaurantLast(PAYMENT_METHODS_BY_TYPE).flatMap((k) => PAYMENT_METHODS_BY_TYPE[k]).map((c) => [c.key, c]));
+/**
+ * The note without the text a Z-report's prefill appended to it (each part
+ * as appended, newest first, with the newline that joined it). A part the
+ * owner edited is no longer found and stays — theirs now.
+ */
+function withoutScanNotes(text, parts) {
+  return (parts || []).slice().reverse().reduce((s, part) => {
+    if (!part) return s;
+    const i = s.lastIndexOf(part);
+    if (i < 0) return s;
+    const end = i + part.length;
+    if (i > 0 && s[i - 1] === "\n") return s.slice(0, i - 1) + s.slice(end);
+    return s.slice(0, i) + s.slice(end < s.length && s[end] === "\n" ? end + 1 : end);
+  }, String(text ?? ""));
+}
+
 function chipLabel(map, k, t) {
   // Case-insensitive: sample data stores "Food"/"Drinks".
   const c = map[k] || map[String(k).toLowerCase()];
@@ -590,7 +608,11 @@ export default function DailyClosePage() {
   const queueErrorText = (it) => (
     it?.errorCode === QUEUE_ERR_SERVER
       ? t("dcQueueErrServer", "BonBox could not receive it just now. It is still on this phone — try again in a moment.")
-      : t("dcQueueErrRejected", "The kasserapport was refused. Check the numbers and file this date again.")
+      // Nothing of the day is in the books, and filing it again is refused
+      // the same way: said as it is, never "check the numbers".
+      : it?.errorCode === QUEUE_ERR_DELETED_LOCKED
+        ? t("dcQueueErrDeletedLocked", "A deleted, locked kasserapport is kept for this date (bookkeeping law), so nothing was saved. This copy stays on this phone — contact support.")
+        : t("dcQueueErrRejected", "The kasserapport was refused. Check the numbers and file this date again.")
   );
 
   /** Drop a queued copy the owner no longer needs (it is already in the books). */
@@ -621,6 +643,12 @@ export default function DailyClosePage() {
       if (!err?.response) {
         setReviewError(t("dcQueueErrOffline", "No connection right now. The kasserapport is still on this phone — try again when you're back online."));
         setQueue(updateQueueItem(item.id, { state: QUEUE_NEEDS_CONFIRMATION }));
+      } else if (isDeletedLockedClose(err)) {
+        // A deleted, locked kasserapport holds the day: nothing is in the
+        // books and this copy is the only one — never "already saved".
+        const failed = { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DELETED_LOCKED, errorDetail: errText(err, ""), httpStatus: status };
+        setReviewError(queueErrorText(failed));
+        setQueue(updateQueueItem(item.id, failed));
       } else if (status === 409) {
         // The owner already filed this date in the wizard (which is exactly
         // what our own "cancel and re-open the date" note tells them to do).
@@ -1744,6 +1772,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // never saw the total move: 3.406 stayed under a corrected 17.130.
   const [draftMoms, setDraftMoms] = useState(null);
   const appliedPrefillRef = useRef(null);
+  // What a Z-report's own prefill put in the form (applyScanValues): the
+  // drawer its denomination count set (and the drawer before it), and each
+  // note it appended (per-clerk lines, the read's ambiguity notes). Read off
+  // a photo, not typed: while unchanged they never keep a thrown-away photo's
+  // draft as "your count / your note", and Start forfra takes them away with
+  // the photo. { drawer, drawerBefore, notes: [] } or null.
+  const scanPrefillRef = useRef(null);
 
   // ─── POS terminal auto-detect — Commit 3 owner-confirm state ───────
   //
@@ -1907,6 +1942,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       ? { moms: Number(dc.moms_total), total: Number(dc.revenue_total), followed: false }
       : null);
     appliedPrefillRef.current = null;
+    scanPrefillRef.current = null;
     // Autosave waits for a real change: opening "Rediger" re-saved the close
     // within two seconds, before the owner had touched anything. Every field
     // counts as a change — a note, a staff count or the MOMS alone was never
@@ -2562,10 +2598,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const pf = card.prefill;
     if (pf && appliedPrefillRef.current !== pf) {
       appliedPrefillRef.current = pf;
+      const mark = { drawer: null, drawerBefore: drawerCount, notes: [], ...(scanPrefillRef.current || {}) };
       // Step 3 — Cash drawer counted total (from denomination math)
       if (pf.cash_drawer?.counted_total != null) {
         // A denomination count of the drawer — float included.
         const drawer = toMoneyInput(Number(pf.cash_drawer.counted_total));
+        // The drawer before the photos' count: what was in the box unless it
+        // is still an earlier photo's count.
+        if (mark.drawer == null || drawerCount !== mark.drawer) mark.drawerBefore = drawerCount;
+        mark.drawer = drawer;
         setDrawerCount(drawer);
         setCashCounted(takingsFrom(drawer, cashFloat));
       }
@@ -2574,8 +2615,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (pf.per_clerk_notes) noteParts.push(pf.per_clerk_notes);
       if (card.claude_notes) noteParts.push(card.claude_notes);
       if (noteParts.length > 0) {
+        mark.notes = [...mark.notes, noteParts.join("\n")];
         setNotes(prev => prev ? prev + "\n" + noteParts.join("\n") : noteParts.join("\n"));
       }
+      scanPrefillRef.current = mark;
     }
     // Jump to review or step 1 — from the bottom of a long scan card, so the
     // step's top is brought into view too.
@@ -3306,6 +3349,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       revenue_breakdown,
       payment_breakdown,
       momsTyped,
+      // The MOMS typed, held against the one a reopened Z-bon read was
+      // opened with: changed, it is the owner's — never "aflæst fra Z-bon".
+      momsValue: momsTyped ? readMoney0(momsManual) : null,
       tipsSaved: Boolean(tipsTotal && Number.isFinite(readMoney(tipsTotal))),
       photo: receiptPhotoUrl,
       restore: filedScanKeysRef.current.has(dayKey),
@@ -3470,8 +3516,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // now answers 409. So ask it, believe it, and forget it the moment the
   // target row changes.
   const [lockedRowRejected, setLockedRowRejected] = useState(false);
+  // A deleted, LOCKED kasserapport holds this (branch, day): the server keeps
+  // it (bogføringsloven) and refuses the day (423 deleted_locked_close). Not
+  // the lock above — nothing is in the books, History lists nothing to
+  // unlock — so the owner is told so, with the server's own words, and the
+  // autosave stops knocking. Holds the server's text ("" when it gave none).
+  const [deletedLockedRow, setDeletedLockedRow] = useState(null);
   useEffect(() => {
     setLockedRowRejected(false);
+    setDeletedLockedRow(null);
   }, [businessDate, fileBranchId]);
 
   // A close already filed for the chosen day. A fresh close typed over a
@@ -3603,9 +3656,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    *   "refiled"   the day was filed again since this was asked, or a save
    *               for it is waiting (`why` "startOver": the owner typed): it
    *               holds those figures now and is left to them.
+   * `keep` (Start forfra): the owner typed fields outside the tills — a row
+   * that turns out to be this form's once the saves answered stays ("kept").
    * Waits for every save on its way first; what it decides is decided after.
    */
-  const releaseDayDraft = async (key, { why = "move" } = {}) => {
+  const releaseDayDraft = async (key, { why = "move", keep = false } = {}) => {
     const gen0 = sendGenRef.current[key] || 0;
     // Start forfra emptied the day: the draft this form made for it is off
     // the list at once — figures typed while the saves before it answer are
@@ -3636,6 +3691,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // is still the day's, and the banner says so again.
       setOverwriteKey((prev) => (prev === key ? null : prev));
       return "none";
+    }
+    // Start forfra was decided before the day's save answered (sent while
+    // its question was open, on a slow connection): the row it filed holds
+    // what the owner typed beside the photo — the only copy of it. It stays,
+    // and the next save updates it (every field is sent again).
+    if (why === "startOver" && keep && (own.created || own.before)) {
+      if (own.id) setDroppedIds((prev) => { if (!prev.has(own.id)) return prev; const n = new Set(prev); n.delete(own.id); return n; });
+      return "kept";
     }
     if (own.created && id) {
       // Off the list before the delete goes: the day's draft banner offered
@@ -3751,7 +3814,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Stop re-asking to overwrite a signed kasserapport. The 409 below is the
     // real barrier; this only stops the timer knocking every two seconds after
     // the server has already said no for this row.
-    if (lockedRowRejected || existingBlocks) return nothingToSave();
+    if (lockedRowRejected || deletedLockedRow != null || existingBlocks) return nothingToSave();
     // Typed for another day, and not yet confirmed for this one: not filed
     // as this day's draft until the owner answers (dateMove).
     if (dateMoveOpen) return nothingToSave();
@@ -3837,8 +3900,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         if (lastSentRef.current === sent) lastSentRef.current = null;
         // Still best-effort for every other failure (offline, 500, flaky
         // connection) — but a 409 is not a transient error, it is the lock
-        // saying this row is final.
-        if (err?.response?.status === 409) setLockedRowRejected(true);
+        // saying this row is final. A day held by a deleted, locked
+        // kasserapport is not that lock: said on the wizard, in the server's
+        // words — the figures exist only on this screen.
+        if (isDeletedLockedClose(err)) {
+          if (savingKey === rowKeyRef.current) setDeletedLockedRow(errText(err, ""));
+        } else if (err?.response?.status === 409) setLockedRowRejected(true);
       } finally {
         inflightRef.current.delete(tracker);
         answered();
@@ -3862,7 +3929,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // and the draft kept the photo the owner had thrown away.
   // refile: a release found the day filed again under it (releaseDayDraft).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, formIsTheDay, autosaveLedger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen, refile]);
+  }, [step, formIsTheDay, autosaveLedger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, deletedLockedRow, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen, refile]);
 
   // Leaving sends the waiting save instead of dropping it: the form unmounts on
   // every tab switch and route change, and a phone can be locked or the tab
@@ -3989,6 +4056,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Only the server's OWN words earn that line. errText falls back to
       // axios's "Request failed with status code 500" when the payload said
       // nothing, which is noise dressed as an explanation.
+      if (isDeletedLockedClose(err)) {
+        // Not "already locked — unlock it from History": History lists no
+        // deleted row, and nothing of the day is in the books.
+        setDeletedLockedRow(errText(err, ""));
+        setError(t("dcDeletedLockedClose", "This day can't be saved: a deleted, locked kasserapport is kept for it (bookkeeping law). Nothing was saved — your numbers are still on this screen. Contact support."));
+        setErrorDetail(errText(err, ""));
+        return;
+      }
       if (err.response.status === 409) {
         // The amount only when this form knows it: editing a draft whose day
         // was locked elsewhere said "Locked at 0 kr.", a figure nobody locked.
@@ -5310,6 +5385,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // …or, over a draft the banner's "Start forfra" replaced, that
                 // draft comes back as it was.
                 const bringsBack = photoOnly && !dropsDraft ? ownRowsRef.current[rowKey]?.before : null;
+                // …or the day's first save is still on its way (a slow
+                // connection): no row is known yet, but one is being filed —
+                // with whatever the owner typed beside the photo in it.
+                const firstSaveOnWay = photoOnly && !ownRowsRef.current[rowKey]
+                  && (sendGenRef.current[rowKey] || 0) > 0 && inflightRef.current.size > 0;
+                // What the photos' Z-report prefill wrote, unchanged since, is
+                // the photo's (its denomination count, its per-clerk lines and
+                // ambiguity notes) — it goes with the photo, and is never
+                // "your count" or "your note".
+                const pfMark = scanPrefillRef.current;
+                const drawerIsPhotos = Boolean(pfMark) && pfMark.drawer != null && drawerCount === pfMark.drawer;
+                const drawerLeft = drawerIsPhotos ? pfMark.drawerBefore : drawerCount;
+                const notesLeft = pfMark ? withoutScanNotes(notes, pfMark.notes) : notes;
                 // What the owner typed OUTSIDE the photo's till — the drawer
                 // count, Lukket af, the note, gavekort, staff, the batch —
                 // stays on screen; and the stored draft is the only copy of
@@ -5322,14 +5410,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // photo's till: they go with it, and the question says so.
                 const tipsTyped = Boolean(config.hasTips) && typed(scanResult?.tips);
                 const keptFields = [
-                  (filledIn(drawerCount) || filledIn(cashCounted)) && t("dcStartOverKeepsCount", "your cash count"),
+                  (filledIn(drawerLeft) || (!drawerIsPhotos && filledIn(cashCounted))) && t("dcStartOverKeepsCount", "your cash count"),
                   filledIn(closedBy) && t("dcStartOverKeepsClosedBy", "Closed by"),
-                  filledIn(notes) && t("dcStartOverKeepsNote", "your note"),
+                  filledIn(notesLeft) && t("dcStartOverKeepsNote", "your note"),
                   filledIn(gavekortSold) && t("dcStartOverKeepsGiftCards", "the gift cards sold"),
                   filledIn(staffCount) && t("dcStartOverKeepsStaff", "the staff count"),
                   config.hasBatch && filledIn(batchRef) && t("dcStartOverKeepsBatch", "the batch number"),
                 ].filter(Boolean);
-                const keepsDraft = (dropsDraft || Boolean(bringsBack)) && (keptFields.length > 0 || (photoOnly && tipsTyped));
+                const ownTyped = keptFields.length > 0 || (photoOnly && tipsTyped);
+                const keepsDraft = (dropsDraft || Boolean(bringsBack) || firstSaveOnWay) && ownTyped;
                 if (corrected || keepsDraft) {
                   // What stays is said: the owner's own till comes back, whole.
                   const own = formTill(before);
@@ -5406,6 +5495,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 const after = act(discardScans);
                 ownTillBack(before, after);
                 setScanPhotos([]);
+                // The photos' own prefill goes with them: the drawer back to
+                // what it held before their count, their note lines out.
+                if (pfMark) {
+                  if (drawerIsPhotos) { setDrawerCount(drawerLeft); setCashCounted(takingsFrom(drawerLeft, cashFloat)); }
+                  if (notesLeft !== notes) setNotes(notesLeft);
+                  scanPrefillRef.current = null;
+                }
                 // The day's photo is now the reopened close's own (its till
                 // came back), or none: a thrown-away bon's photo is never the
                 // close's source document (the next save clears a stored one).
@@ -5427,7 +5523,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   // (left from there, the draft holds the old figures).
                   if (!keepsDraft) {
                     filedLedgerRef.current = null;
-                    releaseDayDraft(rowKey, { why: "startOver" });
+                    // `keep`: a save filed while the question was open holds
+                    // the owner's fields too — decided again once it answered.
+                    releaseDayDraft(rowKey, { why: "startOver", keep: ownTyped });
                   }
                 }
               }}
@@ -5697,6 +5795,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             <p className="text-[12px] text-gray-600 dark:text-gray-300">
               <strong>{t("nightShiftLabel", "Night shift:")}</strong> {t("nightShiftClosingFor", "closing for {date} (cutoff {hour}:00 AM)", { date: new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }), hour: cutoffHour })}
             </p>
+          </div>
+        )}
+
+        {/* The day is held by a deleted, locked kasserapport (the autosave was
+            refused): said on every step, not only at Bekræft & lås. */}
+        {deletedLockedRow != null && !error && (
+          <div className="mb-4" data-testid="dc-deleted-locked">
+            <SectionBanner severity="critical" icon="AlertCircle">
+              {t("dcDeletedLockedClose", "This day can't be saved: a deleted, locked kasserapport is kept for it (bookkeeping law). Nothing was saved — your numbers are still on this screen. Contact support.")}
+              {deletedLockedRow && (
+                <span className="block mt-1 text-[12px] opacity-70">{deletedLockedRow}</span>
+              )}
+            </SectionBanner>
           </div>
         )}
 
@@ -6892,13 +7003,17 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
       </span>
     );
   } else if (kind === "owner_only") {
+    // Named by its address: "Sendt til dig" alone said nowhere which of the
+    // owner's addresses got it (removal audit U4 — the lock card names the
+    // owner's own address when it is the recipient).
+    const ownerTo = (st.sentTo || []).join(", ");
     line = (
       <span className={`${textCls} text-gray-700 dark:text-gray-300 inline-flex items-center gap-2 flex-wrap`}>
         <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {acct || identity
-          ? t("dcMailOwnerOnly", "Sent to you {when} — not to your revisor", { when: whenText })
+          ? t("dcMailOwnerOnly", "Sent to you ({to}) {when} — not to your revisor", { when: whenText, to: ownerTo })
           : demo
-            ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you {when} — the revisor is sample data", { when: whenText })
-            : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
+            ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you ({to}) {when} — the revisor is sample data", { when: whenText, to: ownerTo })
+            : t("dcMailOwnerOnlyNoRevisor", "Sent to you ({to}) {when} — no revisor e-mail saved", { when: whenText, to: ownerTo })}</span>
         {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
           <Link to="/profile" className={`text-xs font-semibold underline ${PROFILE_LINK_TAP}`}>{identity
             ? t("identityIsDemoCta", "Correct your business on Profile")
@@ -6978,7 +7093,9 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
   });
   // The revisor line names the revisor's address only: when the owner's own
   // copy went too, the plain line is what names the owner's address — left
-  // out, the card never said the owner got one (removal audit U4).
+  // out, the card never said the owner got one (removal audit U4). The
+  // owner-only line names the owner's own address itself ("Sendt til dig
+  // (ejer@…)"), so there the plain line would only repeat it.
   const statusNamesWho = profileLoaded && (mailKind === "owner_only"
     || (mailKind === "revisor" && recipientsList.every((a) => String(a).toLowerCase() === mailAcct)));
 

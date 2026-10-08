@@ -62,6 +62,9 @@ const NAMED = [
   ["F3 Start forfra deleted the draft holding the owner's note (sequences lane, U5)", [7002, 7041]],
   ["F4 \"\" cleared another device's photo (removal audit U6)", [7018, 7045]],
   ["F6 a hand-edited reopened Z-bon read stayed \"scannet\" (sequences lane)", [7033, 7058]],
+  // Round 20 review: broke on 6025d198 — MOMS 600 typed on a reopened read
+  // (opened with 3.406) stored as "Salgsmoms aflæst fra Z-bon".
+  ["F6 a MOMS typed on a reopened Z-bon read was filed as read off the bon (round 20 review)", [7019]],
 ];
 
 describe("daily close — round 20 sequences (floats, own photos, a reopened sum, another device)", () => {
