@@ -7691,7 +7691,11 @@ export function ScheduleGrid({
                         {formatShiftHours(hrs, lang)}
                       </div>
                       {showCost && cost != null && (
-                        <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
+                        // gray-500 / dark gray-400, not gray-400 / gray-500:
+                        // the old pair was 2.5:1 / 3.3:1 on this footer band,
+                        // now 4.7:1 / 6.1:1 (8 Oct 2026). The 10px size is a
+                        // separate backlog item (money ≥ 12px).
+                        <div className="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums mt-px">
                           ≈ {formatKr(cost, { decimals: 0 })}
                         </div>
                       )}
@@ -7700,7 +7704,7 @@ export function ScheduleGrid({
                           does not read as costing 0 kr. */}
                       {showCost && cost == null && d && hrs > 0 && (
                         <div
-                          className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px"
+                          className="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums mt-px"
                           title={t("schedCostUnknownTitle", "Someone on this day has no hourly wage on file")}
                         >
                           —

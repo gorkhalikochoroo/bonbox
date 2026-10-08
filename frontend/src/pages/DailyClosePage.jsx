@@ -778,9 +778,13 @@ export default function DailyClosePage() {
   return (
     // Native date pickers and selects drew light chrome in dark mode — this
     // page only, so no other screen's controls change underneath it.
-    // Dark: the whispered "kr." measured 2.5:1 on the gray-700/50 cards —
-    // lifted to gray-400 on this page only (Amount marks its token).
-    <PageShell width="default" className="dark:[color-scheme:dark] dark:[&_[data-amount-token]]:text-gray-400">
+    // The whispered "kr." (Amount marks its token), set for this page's own
+    // surfaces. Light: gray-600 — Amount's gray-500 clears 4.5:1 on white and
+    // gray-50 but not on this page's gray-100 revenue chips or the red-50
+    // expenses panel (4.4:1); gray-600 is ~7:1 on all of them. Dark: gray-400
+    // — 4.6:1 on the gray-700/60 chips, 4.7:1 on the gray-700/50 cards, 5.5:1
+    // on the red expenses panel (computed in Chromium, 8 Oct 2026).
+    <PageShell width="default" className="dark:[color-scheme:dark] [&_[data-amount-token]]:text-gray-600 dark:[&_[data-amount-token]]:text-gray-400">
       <PageHeader
         // No eyebrow. It said "RAPPORTER" — the group this page has not been
         // in since the C5 nav diet moved it onto the core spine (navManifest
