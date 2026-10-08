@@ -1600,6 +1600,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // payment/revenue breakdown. See registerCash / editLoadedRef notes.
     editLoadedRef.current = true;
     boxFillEpochRef.current += 1;
+    formSeedOffRef.current = false;
     // An edited close is filed against ITS OWN date, never today — mark the
     // date as chosen before the prefill for that date can resolve.
     if (dc.date) {
@@ -1877,7 +1878,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Merge with existing results — unless the merge is ambiguous, in which
       // case nothing is merged until the owner says which it is. Reading the
       // ref (not the closure) matters: several files are awaited in a loop.
-      const current = scanResultRef.current;
+      let current = scanResultRef.current;
+      // No scan yet, but the form already holds the day's figures — a draft
+      // reopened with "Fortsæt kladden" whose categories add up to its total,
+      // or a close typed by hand. Those figures are "the one on screen": a
+      // second Z-bon then silently became the whole close (17.130 replaced by
+      // 4.000, autosaved over the draft) with no question and no Fortryd.
+      // The form is the first side now, marked as not read off a photo.
+      if (!current && !pendingScansRef.current.length) {
+        const fromForm = formAsScan();
+        if (fromForm) {
+          current = fromForm;
+          applyScanResult(fromForm);
+        }
+      }
       // Once ANY scan is waiting on the owner, every later scan waits behind
       // it. Merging a straggler into the numbers while an unanswered question
       // sits on top of them would mean answering that question about a state
@@ -1917,6 +1931,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Trin 1 lives only in the form until "← Scan Z-bon" folds it in. A photo
     // from the hero went straight in, so the sum (and "Brug disse tal")
     // dropped that correction. Fold it in first, once for all the files.
+    // With no scan yet, a close typed by hand is the first side the same way
+    // (handleFileSelect seeds it from the form before it asks).
     if (scanMode === "skipped" && scanResultRef.current) applyScanResult(foldFormIntoScan(scanResultRef.current));
     (async () => { for (const f of heroScanFiles.files) await handleFileSelect(f); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2159,6 +2175,29 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       payments: fold(scan.payments, payAmounts),
       ...(config.hasTips ? { tips: String(tipsTotal).trim() === "" ? null : (tipsRead ? scan.tips : tipsTotal) } : {}),
     };
+  };
+
+  // The form as the first side of a scan, when there is no scan yet: what the
+  // owner typed or a reopened draft holds. Not the sales sync's own figures —
+  // a Z-bon over the POS's numbers replaces them as it always has, with no
+  // question. `from_draft` keeps it from ever reading as a Z-bon: no "Z-bon:"
+  // total, no confidence, no "aflæst", no "mangler". Null when the form holds
+  // nothing of the owner's.
+  // "Start forfra" on the scan card: the figures still in the form came from
+  // the photo just thrown away, so the next photo is a fresh start, not a
+  // second till against them. Off again once the owner types or a close loads.
+  const formSeedOffRef = useRef(false);
+  const formAsScan = () => {
+    if (formSeedOffRef.current) return null;
+    const synced = salesFillRef.current;
+    const owners = (boxes, fill) => Object.entries(boxes || {}).some(([k, v]) =>
+      String(v ?? "").trim() !== "" && !(fill && fill[k] === v));
+    if (!owners(revAmounts, synced?.rev) && !owners(payAmounts, synced?.pay)) return null;
+    // What the form saves now; a close typed as payments only has no revenue
+    // line yet, and its payments are the figure on screen.
+    const total = revenueTotal > 0 ? revenueTotal : paymentTotal;
+    if (!(total > 0)) return null;
+    return foldFormIntoScan({ revenue: {}, payments: {}, revenue_total: Math.round(total * 100) / 100, from_draft: true });
   };
 
   const applyScanValues = (jumpToReview = false) => {
@@ -3222,19 +3261,25 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // Count how many fields OCR detected — what the SCANNER read (its figures
   // are numbers; a box the owner typed holds a string). The total and the
   // MOMS count too: a read of total, MOMS and Kort said "1/8 felter".
+  // Lines on the card that nobody read off a photo — the owner's own, or the
+  // form's when it was the first side of a sum. A sum makes them numbers; they
+  // still must not read as "aflæst" or count as found.
+  const typedOnCard = useMemo(() => new Set(scanResult?.merge_info?.typedFields || []), [scanResult]);
+  const readOnCard = (field, v) => typeof v === "number" && v !== 0 && !typedOnCard.has(field);
   const scanFieldsDetected = useMemo(() => {
     if (!scanResult) return 0;
-    const read = (v) => typeof v === "number" && v !== 0;
     let count = 0;
     const r = scanResult.revenue || {};
     const p = scanResult.payments || {};
-    defaultRevCats.forEach(c => { if (read(r[c.key])) count++; });
-    defaultPayMethods.forEach(m => { if (read(p[m.key])) count++; });
-    if (config.hasTips && read(scanResult.tips)) count++;
+    defaultRevCats.forEach(c => { if (readOnCard(`revenue.${c.key}`, r[c.key])) count++; });
+    defaultPayMethods.forEach(m => { if (readOnCard(`payments.${m.key}`, p[m.key])) count++; });
+    if (config.hasTips && readOnCard("tips", scanResult.tips)) count++;
+    const read = (v) => typeof v === "number" && v !== 0;
     if (read(scanResult.revenue_total) && !scanResult.revenue_total_text) count++;
     if (read(scanResult.moms_total)) count++;
     return count;
-  }, [scanResult, defaultRevCats, defaultPayMethods]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanResult, typedOnCard, defaultRevCats, defaultPayMethods]);
   const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0) + 2;
   // A card rebuilt from a reopened draft carries no read at all — no
   // confidence, no "missing", no "we couldn't read the split".
@@ -3271,8 +3316,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       }
       return null;
     };
-    return Array.from(new Set(fields.map(label).filter(Boolean)));
-  }, [scanResult, revCats, payMethods, vatName, t]);
+    // A line the owner typed (or the form brought in) is theirs, not one
+    // bon's: "Stod kun på den ene bon: Kontant" named a figure on no bon.
+    return Array.from(new Set(fields.filter((f) => !typedOnCard.has(f)).map(label).filter(Boolean)));
+  }, [scanResult, typedOnCard, revCats, payMethods, vatName, t]);
 
   /**
    * The MOMS the card shows is the MOMS "Brug disse tal" leaves in the form —
@@ -4000,7 +4047,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
                       <Icon name={c.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, c)}</span>
-                      {typeof val === "number" && val !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                      {readOnCard(`revenue.${c.key}`, val) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                       {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     {/* Controlled now, and the RAW string is what we keep. The
@@ -4179,7 +4226,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
                       <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, m)}</span>
-                      {typeof val === "number" && val !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                      {readOnCard(`payments.${m.key}`, val) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
                     <MoneyField
@@ -4234,7 +4281,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
                   {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
                   <Icon name="Coins" size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{t("tipsLabel", "Tips")}</span>
-                  {typeof scanResult.tips === "number" && scanResult.tips !== 0 && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
+                  {readOnCard("tips", scanResult.tips) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                 </span>
                 {/* Raw string kept, same reason as the revenue field above. */}
                 <MoneyField
@@ -4359,6 +4406,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   if (!ok) return;
                 }
                 applyScanResult(null); setScanPhotos([]); setReceiptPhotoUrl(null); applyPendingScans([]); setMergeUndo(null); setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); appliedPrefillRef.current = null; setScanMode("idle");
+                formSeedOffRef.current = true;
               }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
@@ -4672,7 +4720,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <label htmlFor={`dc-rev-${cat.key}`} className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, cat)}</label>
                 <MoneyField id={`dc-rev-${cat.key}`} locale={mLocale} placeholder="0" className={inputClass}
                   value={revAmounts[cat.key] || ""}
-                  onChange={e => { boxFillEpochRef.current += 1; setRevAmounts({ ...revAmounts, [cat.key]: e.target.value }); }} />
+                  onChange={e => { boxFillEpochRef.current += 1; formSeedOffRef.current = false; setRevAmounts({ ...revAmounts, [cat.key]: e.target.value }); }} />
               </div>
             ))}
             <div className="flex gap-2">
@@ -4711,7 +4759,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <label htmlFor={`dc-pay-${m.key}`} className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</label>
                 <MoneyField id={`dc-pay-${m.key}`} locale={mLocale} placeholder="0" className={inputClass}
                   value={payAmounts[m.key] || ""}
-                  onChange={e => { boxFillEpochRef.current += 1; setPayAmounts({ ...payAmounts, [m.key]: e.target.value }); }} />
+                  onChange={e => { boxFillEpochRef.current += 1; formSeedOffRef.current = false; setPayAmounts({ ...payAmounts, [m.key]: e.target.value }); }} />
               </div>
             ))}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700">

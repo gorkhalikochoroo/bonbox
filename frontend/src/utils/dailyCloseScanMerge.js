@@ -208,6 +208,17 @@ const ONE_NOTCH_DOWN = { high: "medium", medium: "low", low: "low" };
 /** Today's merge: incoming wins where it has a value, existing fills the rest. */
 function fillMerge(existing, incoming) {
   const merged = { ...existing };
+  // A line the new page carries is the page's read now, not a typed figure.
+  const prevTyped = existing.merge_info?.typedFields;
+  if (Array.isArray(prevTyped) && prevTyped.length) {
+    const readNow = (f) => {
+      const [bucket, k] = f.split(".");
+      if (k === undefined) return incoming[f] != null && typeof incoming[f] !== "string";
+      const v = incoming[bucket]?.[k];
+      return v != null && typeof v !== "string";
+    };
+    merged.merge_info = { ...existing.merge_info, typedFields: prevTyped.filter((f) => !readNow(f)) };
+  }
 
   const rev = { ...(existing.revenue || {}) };
   Object.entries(incoming.revenue || {}).forEach(([k, v]) => { if (v != null) rev[k] = v; });
@@ -253,9 +264,19 @@ function fillMerge(existing, incoming) {
  * and "terminal 2 had no MOMS" are different facts and we cannot tell them
  * apart from a photo. Nothing missing ever becomes 0.
  */
-function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(existing, locale)) {
+function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(existing, locale), existingIsForm = false) {
   const merged = { ...existing };
   const incomplete = [];
+  // Lines nobody read off a photo: the owner's keystrokes (kept as text) and
+  // everything a form or reopened draft brought in as the first side. A sum
+  // turns them into numbers, and a number is what the card calls "aflæst" —
+  // so they are written down here instead, and stay the owner's figures.
+  const typed = [];
+  const typedBefore = new Set(existing.merge_info?.typedFields || []);
+  const typedIncoming = new Set(incoming.merge_info?.typedFields || []);
+  const notRead = (side, field, raw) => (side === "a"
+    ? existingIsForm || typedBefore.has(field) || typeof raw === "string"
+    : typedIncoming.has(field) || typeof raw === "string");
 
   const sumBucket = (name) => {
     const a = existing[name] || {};
@@ -265,6 +286,9 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
     for (const k of keys) {
       const av = toNum(a[k], locale);
       const bv = toNum(b[k], locale);
+      if ((av != null && notRead("a", `${name}.${k}`, a[k])) || (bv != null && notRead("b", `${name}.${k}`, b[k]))) {
+        typed.push(`${name}.${k}`);
+      }
       if (av != null && bv != null) out[k] = av + bv;
       // Carry the PARSED number over, not the raw cell. A one-sided field used
       // to keep `a[k]` verbatim, so an owner-typed "1.500,50" survived into a
@@ -299,6 +323,9 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
   for (const field of ["revenue_total", "moms_total", "tips", "cash_counted_total"]) {
     const av = field === "revenue_total" ? tillTotal(existing) : toNum(existing[field], locale);
     const bv = field === "revenue_total" ? tillTotal(incoming) : toNum(incoming[field], locale);
+    if (field === "tips" && ((av != null && notRead("a", field, existing[field])) || (bv != null && notRead("b", field, incoming[field])))) {
+      typed.push(field);
+    }
     if (av != null && bv != null) merged[field] = av + bv;
     else if (av != null) { merged[field] = av; incomplete.push(field); }
     else if (bv != null) { merged[field] = bv; incomplete.push(field); }
@@ -363,6 +390,7 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
     scans: (prevInfo.scans || 1) + 1,
     terminalTotals: [...prevTotals, scanSaveTotal(incoming, locale)].filter((v) => v != null),
     incompleteFields: Array.from(new Set([...(prevInfo.incompleteFields || []), ...incomplete])),
+    ...(typed.length ? { typedFields: Array.from(new Set(typed)) } : {}),
     ...(overBon > 0 ? { overBon, linesAtSum: lineSum(merged.revenue, locale) } : {}),
   };
 
@@ -393,7 +421,7 @@ export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-D
     // card and the review called it "Z-bon: 17.030" once a page went in.
     existing.bon_total = null;
   }
-  if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale, existingBon);
+  if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale, existingBon, wasDraft);
 
   // "Same till — use the new photo" means the new photo IS the figures.
   // Filling gaps from the old one kept its MobilePay 1.000 on top of the new
