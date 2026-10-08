@@ -218,6 +218,32 @@ describe("the lock card says who got the mail once", () => {
     expect(container.textContent).not.toMatch(/closeLockedEmailSent/);
     expect(container.textContent.match(/dcMailOwnerOnlyDemoRevisor/g)).toHaveLength(1);
   });
+
+  // Review fix: the plain line was hidden in EVERY state once the profile
+  // loaded. A revisor send that failed ("partial", the revisor not among
+  // those who got it) names nobody in its status line, so the owner's own
+  // copy that did go was said nowhere.
+  it("partial — the revisor's send failed, the owner's copy went: \"Sendt til\" the owner stays beside \"not sent\"", async () => {
+    profile = { accountant_email: "revisor@firma.dk" };
+    lockAnswer = (body) => ({
+      id: "c1", status: "confirmed", date: body.date, revenue_total: 1234.5, closed_by: "Test",
+      closed_at: "2026-10-07T05:20:00", email_status: "partial", email_sent_to: ["owner@example.com"],
+      close_ritual: { email_status: "partial", sent_to: ["owner@example.com"] },
+    });
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByText("skipEnterManually"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "1234,50" } });
+    for (let i = 0; i < 6 && !screen.queryByText("confirmAndLock"); i++) {
+      const next = screen.getAllByRole("button").find((x) => /^next\s/.test(x.textContent));
+      if (next) fireEvent.click(next);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    fireEvent.click(await screen.findByText("confirmAndLock"));
+    await waitFor(() => expect(container.textContent).toMatch(/dcMailNotSent/));
+    // (The key-echo t() prints the key; the recipients are put in by replace.)
+    expect(container.textContent).toMatch(/closeLockedEmailSent/);
+  });
 });
 
 describe("B2 restored: a filed draft gone from History is filed again by the next step", () => {

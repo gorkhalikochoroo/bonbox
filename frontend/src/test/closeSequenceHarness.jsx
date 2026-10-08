@@ -35,13 +35,24 @@
  *   MV  "Brug dem for {to}" moves, not copies: once the new day is filed,
  *       the old day's draft this page created is gone, and the page says so.
  *
+ * Round 19 review — the same invariants over drafts the page REPLACED (the
+ * banner's "Start forfra", then the page's own figures filed over it): M6
+ * and MV hold that row to the draft it was before the page wrote over it
+ * (back as it was, the banner / "er stadig gemt" saying so), and M4b runs
+ * on it while the banner shows. MV also covers a day on a card (a Z-bon)
+ * moved with no question. The "review" variant (runSequence's 4th argument)
+ * adds the openings and timings the reviewers attacked with: "Start forfra"
+ * on the day's draft banner first, a slow network (a save — or delete —
+ * still on its way during the owner's next step), and two date changes
+ * inside the autosave's 2 s.
+ *
  * The stub server is the backend's save rule in miniature — keep it in step
  * with backend/app/routers/daily_close.py (revenue_total, the MOMS rules).
  */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { expect } from "vitest";
-import { businessTodayIso } from "../utils/dateFormat";
+import { businessTodayIso, dateLocale } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 /** How many times each invariant was actually checked (SEQ_STATS=1 prints them). */
@@ -150,8 +161,12 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
       if (!(covers(claim) && Math.abs(server - claim) <= 1.0 && covers(server))) sent = null;
     }
     const moms = sent != null ? r2(sent) : (rev !== 0 ? momsOf(rev) : 0);
+    // A day deleted earlier is filed again under the same row (the backend
+    // takes the soft-deleted row back: its unique day key still holds it).
+    const reused = !prev && S.dead.get(key);
+    if (reused) S.dead.delete(key);
     const row = {
-      id: prev?.id || `row${++S.seq}`,
+      id: prev?.id || reused || `row${++S.seq}`,
       date: body.date,
       branch_id: body.branch_id || null,
       status: body.status === "draft" ? "draft" : "confirmed",
@@ -177,14 +192,24 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
   // DELETE /daily-close/{id}: a draft goes (soft-deleted: off the list); a
   // locked close is refused.
   S.deletes = [];
-  S.remove = (id) => {
+  S.dead = new Map();
+  const removeNow = (id) => {
     const entry = [...S.rows.entries()].find(([, r]) => r.id === id);
     if (!entry) return Promise.reject(Object.assign(new Error("gone"), { response: { status: 404, data: {} } }));
     if (entry[1].status === "confirmed") return Promise.reject(Object.assign(new Error("locked"), { response: { status: 409, data: {} } }));
     S.rows.delete(entry[0]);
+    S.dead.set(entry[0], id);
     S.deletes.push(id);
     return Promise.resolve({ data: null });
   };
+  // A slow network: while `holding` is set, each save (or delete) waits in
+  // `held` and reaches the server — in the order sent — on releaseHeld().
+  S.holding = { post: false, del: false };
+  S.held = [];
+  S.releaseHeld = () => { const h = S.held.splice(0); h.forEach((go) => go()); return h.length; };
+  S.remove = (id) => (S.holding.del || S.held.length
+    ? new Promise((res, rej) => { S.held.push(() => removeNow(id).then(res, rej)); })
+    : removeNow(id));
   return S;
 }
 
@@ -206,13 +231,23 @@ export function installApi(S, get, post, del = null) {
       return s ? Promise.resolve({ data: JSON.parse(JSON.stringify(s)) }) : Promise.reject(new Error("no scan stubbed"));
     }
     if (url === "/daily-close") {
-      const key = `${body.date}|${body.branch_id || ""}`;
-      if (S.rows.get(key)?.status === "confirmed") {
-        S.lockConflicts += 1;
-        return Promise.reject(Object.assign(new Error("locked"), { response: { status: 409, data: {} } }));
+      const copy = JSON.parse(JSON.stringify(body));
+      // What the day held when the page SENT it (a held save arrives later).
+      const tags = S.tagAtSend ? S.tagAtSend(copy) : {};
+      const arrive = () => {
+        const key = `${copy.date}|${copy.branch_id || ""}`;
+        if (S.rows.get(key)?.status === "confirmed") {
+          S.lockConflicts += 1;
+          return Promise.reject(Object.assign(new Error("locked"), { response: { status: 409, data: {} } }));
+        }
+        S.posts.push({ ...copy, ...tags });
+        return Promise.resolve({ data: S.save(copy) });
+      };
+      // Behind anything still on its way: requests arrive in the order sent.
+      if (S.holding.post || S.held.length) {
+        return new Promise((res, rej) => { S.held.push(() => arrive().then(res, rej)); });
       }
-      S.posts.push(JSON.parse(JSON.stringify(body)));
-      return Promise.resolve({ data: S.save(body) });
+      return arrive();
     }
     return Promise.resolve({ data: {} });
   });
@@ -315,8 +350,9 @@ const DRAFTS = [
 
 const VALUES = ["750", "2.000", "9.000", "5.000", "14.000", "1.234,50", "3.000", "12.000"];
 
-export async function runSequence(seed, page, { S: givenS, get, post, del = null } = {}) {
+export async function runSequence(seed, page, { S: givenS, get, post, del = null } = {}, { variant = null } = {}) {
   const { DailyClosePage } = page;
+  const review = variant === "review";
   const rnd = mulberry32(seed * 7919 + 13);
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const chance = (p) => rnd() < p;
@@ -326,10 +362,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const exemptByDate = { [yesterday]: 2000 };
   if (chance(0.3)) exemptByDate[today] = pick([2000, 750, 1500]);
 
-  const opening = pick(["typed", "typed", "scan", "draft", "draft", "momsfri"]);
+  const opening = review
+    ? pick(["bannerTyped", "bannerScan", "bannerScan", "typed", "scan", "draft"])
+    : pick(["typed", "typed", "scan", "draft", "draft", "momsfri"]);
   const seededRows = [];
   let draftRow = null;
-  if (opening === "draft") {
+  if (opening === "draft" || opening === "bannerTyped" || opening === "bannerScan") {
     const d = pick(DRAFTS);
     draftRow = { id: "seed1", date: today, branch_id: null, status: "draft", closed_by: "Test", notes: "Test", ...d };
     delete draftRow.kind;
@@ -390,6 +428,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // The rows this mount CREATED (no row for the day when it first posted):
   // the only drafts it may delete (M6, MV).
   const createdHere = new Set();
+  // Days whose draft banner was answered "Start forfra" in this mount, and
+  // the row as it was when the page first wrote over it (M6, MV, M4b).
+  const startedOverHere = new Set();
+  const originals = new Map();
+  // A slow step: its saves are still on their way during the next step.
+  let slowStep = false;
   // A Start forfra that left the day empty (M6), and a move answered "Brug
   // dem" (MV): checked once the page has filed what follows.
   let emptiedDay = null;
@@ -400,6 +444,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const businessDayShown = () => q("#close-date")?.value || shownDay;
   const mount = () => {
     postedHere.clear(); createdHere.clear(); emptiedDay = null; pendingMove = null;
+    startedOverHere.clear(); originals.clear();
     shownDay = today; mounted = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
   };
   // The page's history (the day's draft or lock) answers after the first render.
@@ -416,6 +461,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     // I4 — every payload sent since the last check: a till typed by hand is
     // never filed as a Z-bon read.
     for (const body of S.posts.slice(lastPostCount)) {
+      if (body.__other) continue;
       const meta = body.source_meta;
       if (body.__noPhotos && body.__ownKind === "typed") {
         STATS.I4 += 1;
@@ -429,13 +475,26 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     lastPostCount = S.posts.length;
   };
   // Tag each payload with what the day held when it was sent.
-  const origPush = S.posts.push.bind(S.posts);
-  S.posts.push = (body) => (postedHere.add(body.date), S.rows.has(`${body.date}|${body.branch_id || ""}`) || createdHere.add(body.date), origPush({
-    ...body,
+  S.tagAtSend = (body) => ({
+    // A save for another day than the one on screen (a moved day's draft
+    // filed back as it was) carries nothing of the day on screen.
+    __other: body.date !== businessDayShown(),
     __noPhotos: !photosIn(),
     __ownKind: M.ownKind,
     __summedOwnTyped: M.scans.length > 0 && M.ownActive && M.ownKind === "typed" && M.ownTotal > 0 && !M.pageIn,
-  }));
+  });
+  const origPush = S.posts.push.bind(S.posts);
+  S.posts.push = (body) => {
+    const key = `${body.date}|${body.branch_id || ""}`;
+    postedHere.add(body.date);
+    if (!S.rows.has(key)) createdHere.add(body.date);
+    // A draft this page wrote over (the banner's "Start forfra"): the row as
+    // it was, which taking the page's figures off the day must give back.
+    else if (startedOverHere.has(body.date) && !originals.has(body.date) && !createdHere.has(body.date)) {
+      originals.set(body.date, JSON.parse(JSON.stringify(S.rows.get(key))));
+    }
+    return origPush(body);
+  };
 
   // M4 / M4b on a stored row: what the revisor gets with the day.
   const checkStoredRow = (date, row) => {
@@ -453,6 +512,14 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         `${date} stores ${row.receipt_photo}; photos in the day: ${[...allowed].join(", ") || "none"}`)).toBe(true);
     }
   };
+  // The row is the draft it was before this page wrote over it.
+  const sameDraft = (row, orig) => Boolean(row) && row.status === "draft"
+    && Math.abs(Number(row.revenue_total) - Number(orig.revenue_total)) < 0.005
+    && JSON.stringify(row.revenue_breakdown || {}) === JSON.stringify(orig.revenue_breakdown || {})
+    && JSON.stringify(row.payment_breakdown || {}) === JSON.stringify(orig.payment_breakdown || {})
+    && (row.receipt_photo || null) === (orig.receipt_photo || null)
+    && (orig.source_meta == null || JSON.stringify(row.source_meta) === JSON.stringify(orig.source_meta));
+  const brief = (r) => r && JSON.stringify({ revenue_total: r.revenue_total, revenue_breakdown: r.revenue_breakdown, payment_breakdown: r.payment_breakdown, receipt_photo: r.receipt_photo, source_meta: r.source_meta });
   const storedChecks = async () => {
     // The page's own follow-ups (a draft deleted once the saves have
     // answered) run on the saves' answers.
@@ -465,7 +532,15 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       emptiedDay = null;
       const row = S.rows.get(`${day}|`);
       STATS.M6 += 1;
-      if (row && row.status === "draft") {
+      const orig = originals.get(day);
+      if (orig) {
+        // A draft the page replaced through the banner: back as it was, and
+        // the banner shows it — never the thrown-away photo's figures.
+        expect(sameDraft(row, orig), fail("M6 Start forfra takes the photo's draft back",
+          `${day}: the draft the page replaced should be back as it was ${brief(orig)}, stored ${brief(row)}`)).toBe(true);
+        expect(hasText("dcDayHasDraft"), fail("M6 Start forfra takes the photo's draft back",
+          `${day}: the replaced draft is back, and nothing says so`)).toBe(true);
+      } else if (row && row.status === "draft") {
         if (createdHere.has(day)) {
           expect(false, fail("M6 Start forfra takes the photo's draft back",
             `the draft this page created for ${day} still holds ${row.revenue_total} (${JSON.stringify(row.source_meta)})`)).toBe(true);
@@ -483,14 +558,33 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       const row = S.rows.get(`${mv.from}|`);
       const onTo = onForm() && q("#close-date")?.value === mv.to;
       STATS.MV += 1;
-      if (mv.created) {
+      const orig = originals.get(mv.from);
+      if (orig) {
+        // A draft the page replaced through the banner: the moved figures
+        // leave it, and it is the draft it was — "er stadig gemt" is true.
+        expect(sameDraft(row, orig), fail("MV a date move moves, not copies",
+          `${mv.from}: the draft the page replaced should be back as it was ${brief(orig)}, stored ${brief(row)} after the figures went to ${mv.to}`)).toBe(true);
+        if (onTo) expect(hasText("dcDateMovedKeptOld"), fail("MV a date move moves, not copies", "nothing says the old day's draft is still there")).toBe(true);
+      } else if (mv.created) {
         expect(!row || row.status !== "draft", fail("MV a date move moves, not copies",
           `${mv.from} still holds the draft this page made (${row?.revenue_total}) after the figures went to ${mv.to}`)).toBe(true);
         if (onTo) expect(hasText("dcDateMovedFrom"), fail("MV a date move moves, not copies", "nothing says the figures moved")).toBe(true);
       } else if (row && row.status === "draft" && mv.filed && onTo) {
-        expect(hasText("dcDateMovedKeptOld"), fail("MV a date move moves, not copies",
-          `${mv.from}'s draft (not this page's to delete) stays, and nothing says so`)).toBe(true);
+        // Neither made nor replaced here, but written to: it still has the
+        // page's figures, and the page says so (never "er stadig gemt").
+        expect(hasText("dcDateMovedOldHolds"), fail("MV a date move moves, not copies",
+          `${mv.from}'s draft (not this page's to delete) still has the moved figures, and nothing says so`)).toBe(true);
       }
+    }
+    // M4b on a replaced draft while its banner shows: never a photo of a
+    // bon the owner threw away.
+    const shown = businessDayShown();
+    const replaced = shown && originals.get(shown);
+    if (replaced && hasText("dcDayHasDraft")) {
+      const row = S.rows.get(`${shown}|`);
+      STATS.M4b += 1;
+      expect(!row?.receipt_photo || row.receipt_photo === (replaced.receipt_photo || null), fail("M4b no stored photo of a bon no longer in the day",
+        `${shown} (banner) stores ${row?.receipt_photo}`)).toBe(true);
     }
     // M4 / M4b — the stored row for the day in view (filed by this page).
     const date = businessDayShown();
@@ -503,6 +597,20 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const checkpoint = async () => {
     // Whatever save is waiting goes now (the page sends it on pagehide).
     await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
+    if (slowStep) {
+      // Still on their way: the next step happens before they arrive, and
+      // what is stored is checked once they have.
+      slowStep = false;
+      S.holding.post = false; S.holding.del = false;
+      STATS.I5 += 1;
+      return;
+    }
+    // A slow step's saves (and deletes) arrive, in the order sent, and the
+    // page's follow-ups run on their answers.
+    for (let i = 0; i < 6 && S.held.length; i++) {
+      await act(async () => { S.releaseHeld(); await new Promise((r) => setTimeout(r, 0)); });
+      await settle();
+    }
     checkPosts();
     await storedChecks();
     // I5 — never a page with nothing to tap.
@@ -521,7 +629,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // An emptied (or unreadable) total box is no figure: it is red and
       // holds the lock until one is typed.
       const readable = total && total.value.trim() !== "" && total.getAttribute("aria-invalid") !== "true";
-      if (readable && row && row.status === "draft" && postedHere.has(date) && !M.synced) {
+      // Under the day's draft banner the card files nothing, and the banner
+      // says which draft is stored (a revert landing after a new photo).
+      // Nor over the day's own old draft, put back as it was (nothing of the
+      // page's is stored for the day then).
+      const putBack = originals.has(date) && sameDraft(row, originals.get(date));
+      if (readable && row && row.status === "draft" && postedHere.has(date) && !M.synced && !hasText("dcDayHasDraft") && !putBack) {
         const shown = val(total.value);
         if (Math.abs(shown - row.revenue_total) >= 0.005) {
           STATS.I6 += 1;
@@ -562,6 +675,13 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // One owner step: do it, let the page settle, update the test's own
   // picture of the day (`then`), and check everything.
   const step = async (label, fn, then) => {
+    // The review variant: now and then the network is slow for a step — its
+    // saves and deletes are still on their way during the next one.
+    if (review && !slowStep && !S.held.length && chance(0.3)) {
+      slowStep = true;
+      S.holding.post = true; S.holding.del = true;
+      label += " (slow)";
+    }
     log.push(label);
     STATS.steps += 1;
     await fn();
@@ -593,14 +713,20 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     }
     if (hasText("dcDayHasDraft") && onForm()) {
       // Moved onto a day that has a draft: continue it, or start over over it.
-      if (chance(0.5)) await step("continue that draft", () => tap(/^dcContinueDraft$/), onReopenLoaded);
-      else await step("start over that draft", () => tap(/^dcStartOverDraft$/));
+      // Continued: the figures carried onto this day are not filed for it
+      // (the draft is) — a move onto it is not made, nothing is taken off
+      // the day they came from.
+      if (chance(0.5)) await step("continue that draft", () => tap(/^dcContinueDraft$/), () => { if (pendingMove && pendingMove.to === q("#close-date")?.value) pendingMove = null; onReopenLoaded(); });
+      else {
+        const d = q("#close-date")?.value;
+        await step("start over that draft", () => tap(/^dcStartOverDraft$/), () => { if (d) startedOverHere.add(d); });
+      }
     }
     if (hasText("dcDayAlreadyLocked")) return false;
     if (q('[data-testid="dc-date-move"]')) {
       await step("use them for the new day", () => tap(/^dcDateMoveKeep/), () => {
         const from = moveOrigin;
-        if (from) {
+        if (from && !slowStep) {
           pendingMove = {
             from, to: q("#close-date")?.value, created: createdHere.has(from), filed: postedHere.has(from), posts: S.posts.length,
           };
@@ -767,8 +893,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       if (a) { M.form = a.form; M.ownTotal = a.ownTotal; M.ownKind = a.ownKind; M.draftFloor = a.draftFloor; M.draftPinned = a.draftPinned; }
       M.exact = a ? a.exact !== false : true;
       M.atFirst = null;
-      // A photo-only day emptied (M6).
-      if (!ownFig() && day && postedHere.has(day)) emptiedDay = day;
+      // A photo-only day emptied (M6) — checked once this step's requests
+      // have arrived (a slow step's are checked by I1/M4 after the next).
+      if (!ownFig() && day && postedHere.has(day) && !slowStep) emptiedDay = day;
     });
   };
 
@@ -811,6 +938,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     }
   };
 
+  // A day on a card (a photo's till in it) moves with no question: once the
+  // new day is filed, the old day's draft goes the same way (MV).
+  const cardMove = (from, to) => {
+    if (slowStep || q('[data-testid="dc-date-move"]') || !photosIn() || !postedHere.has(from)) return;
+    pendingMove = { from, to, created: createdHere.has(from), filed: true, posts: S.posts.length, card: true };
+  };
   const moveDate = async () => {
     if (!(await ensureForm())) return;
     const el = q("#close-date");
@@ -818,11 +951,70 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const to = pick([today, yesterday, twoDaysAgo].filter((d) => d !== el.value));
     // The day the figures were typed for (moved again before answering: still the first).
     if (!q('[data-testid="dc-date-move"]')) moveOrigin = el.value;
-    await step(`date → ${to}`, () => { fireEvent.change(el, { target: { value: to } }); }, () => { if (to === twoDaysAgo) { M.exact = false; M.synced = true; } });
+    const from = el.value;
+    await step(`date → ${to}`, () => { fireEvent.change(el, { target: { value: to } }); }, () => {
+      if (to === twoDaysAgo) { M.exact = false; M.synced = true; }
+      cardMove(from, to);
+    });
     await ensureForm();
   };
+  // Review variant: "Brug dem", then another date before the new day is
+  // filed (inside the autosave's 2 s), then "Brug dem" or "Hent … salg".
+  // The figures are still the first day's: the second answer moves them
+  // from THAT day — and "Hent" leaves that day's draft where it is.
+  const doubleMove = async () => {
+    if (!(await ensureForm())) return;
+    const el = q("#close-date");
+    if (!el || el.disabled || q('[data-testid="dc-date-move"]')) return;
+    const origin = el.value;
+    const [mid, last] = [today, yesterday, twoDaysAgo].filter((d) => d !== origin);
+    await arriveAll();
+    const originRow = S.rows.get(`${origin}|`);
+    const originBefore = originRow && JSON.parse(JSON.stringify(originRow));
+    let asked = false;
+    await step(`date → ${mid}, Brug dem, date → ${last} (inside 2 s)`, async () => {
+      fireEvent.change(el, { target: { value: mid } });
+      await settle();
+      const keep = findBtn(/^dcDateMoveKeep/);
+      if (!keep) return;
+      fireEvent.click(keep);
+      await settle();
+      fireEvent.change(q("#close-date"), { target: { value: last } });
+      await settle();
+      asked = Boolean(q('[data-testid="dc-date-move"]'));
+    }, () => { M.exact = false; if (last === twoDaysAgo || mid === twoDaysAgo) M.synced = true; });
+    if (!asked) return;
+    const fetch = findBtn(/^dcDateMoveFetch/);
+    if (fetch && chance(0.5)) {
+      await step("Hent … salg", () => { fireEvent.click(fetch); }, () => { M.form = { rev: {}, pay: {} }; M.ownKind = null; M.ownTotal = 0; });
+      // Nothing moved: the first day's draft is still its own.
+      if (originBefore && !slowStep && !S.held.length) {
+        const row = S.rows.get(`${origin}|`);
+        STATS.MV += 1;
+        expect(Boolean(row) && row.status === originBefore.status && Math.abs(row.revenue_total - originBefore.revenue_total) < 0.005, fail("MV a date move moves, not copies",
+          `"Hent" after a second date change took ${origin}'s draft (${originBefore.revenue_total}) off it: stored ${brief(row)}`)).toBe(true);
+      }
+      return;
+    }
+    await step("use them for the new day", () => tap(/^dcDateMoveKeep/), () => {
+      if (!slowStep) pendingMove = { from: origin, to: last, created: createdHere.has(origin), filed: postedHere.has(origin), posts: S.posts.length };
+    });
+    // The note names the first day, never the one in between.
+    const note = q('[data-testid="dc-date-moved"]');
+    if (note) {
+      const short = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+      expect(note.textContent.includes(short(origin)) && !note.textContent.includes(short(mid)), fail("MV a date move moves, not copies",
+        `the note should name ${origin}, not ${mid}: ${note.textContent}`)).toBe(true);
+    }
+  };
 
+  // Whatever is still on its way arrives (a slow step overlaps the owner's
+  // next step on the same page; a reload racing a save is another matter).
+  const arriveAll = async () => {
+    while (S.held.length) { await act(async () => { S.releaseHeld(); await new Promise((r) => setTimeout(r, 0)); }); await settle(); }
+  };
   const reopen = async () => {
+    await arriveAll();
     await step("leave + reopen", async () => {
       await unmount();
       mount();
@@ -832,6 +1024,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   };
 
   const lock = async () => {
+    // Whatever is still on its way arrives first.
+    await arriveAll();
     if (!(await ensureForm())) return false;
     if (!(await toStep("review"))) return false;
     const btn = findBtn(/confirmAndLock/);
@@ -923,10 +1117,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // The sync's figures join the day (the server takes the larger): no
       // till-by-till sum to hold the review to.
       if (!q('[data-testid="dc-date-move"]')) moveOrigin = el.value;
-      await step(`date → ${twoDaysAgo} (synced)`, () => { fireEvent.change(el, { target: { value: twoDaysAgo } }); }, () => { M.exact = false; M.synced = true; });
+      const from = el.value;
+      await step(`date → ${twoDaysAgo} (synced)`, () => { fireEvent.change(el, { target: { value: twoDaysAgo } }); }, () => { M.exact = false; M.synced = true; cardMove(from, twoDaysAgo); });
       await ensureForm();
     }],
     [2, moveDate],
+    ...(review ? [[2, doubleMove]] : []),
     [2, reopen],
     [2, notes],
     [2, moms],
@@ -945,6 +1141,17 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     await loaded();
     if (opening === "draft") {
       await step("Fortsæt kladden", () => tap(/^dcContinueDraft$/), onReopenLoaded);
+    } else if (opening === "bannerTyped" || opening === "bannerScan") {
+      // The day's draft, replaced: "Start forfra" on its banner.
+      await step("Start forfra (banner)", () => tap(/^dcStartOverDraft$/), () => startedOverHere.add(today));
+      if (opening === "bannerScan") {
+        await shoot(pick(BON_KEYS));
+        await apply(pick(["review", "steps"]));
+      } else {
+        await step("skip", () => tap(/^skipEnterManually$/));
+        await typeBox("rev", "food", pick(VALUES));
+        await typeBox("pay", "card", pick(VALUES));
+      }
     } else if (opening === "scan") {
       await shoot(pick(BON_KEYS));
       await apply(pick(["review", "steps"]));
@@ -961,6 +1168,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     for (let m = 0; m < motifs; m++) await pickMotif()();
     if (chance(0.25)) await lock();
   } finally {
+    await arriveAll();
     await unmount();
     cleanup();
   }

@@ -829,9 +829,11 @@ const lineKey = (f) => (f.startsWith("revenue.") ? `rev:${f.slice(8)}`
  * (a bon summed in and saved). With no photo left in the day the server's
  * "keep what you know" would keep THAT — a typed close filed and locked as
  * "Z-bon (scannet)" — so the record is told again what it is: the reopened
- * draft's own source, or typed.
+ * draft's own source (with what the owner corrected on it since), or typed.
+ * `afterUnlock`: the reopened close was unlocked — changed since, it is
+ * marked edited_after_unlock.
  */
-export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown = {}, momsTyped = false, tipsSaved = false, photo = null, restore = false } = {}) {
+export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown = {}, momsTyped = false, tipsSaved = false, photo = null, restore = false, afterUnlock = false } = {}) {
   const { locale } = state;
   const active = activeEntries(state);
   const scansIn = active.filter((e) => e.origin === TILL_SCAN);
@@ -844,7 +846,20 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     const own = ft0?.origin === TILL_DRAFT && ft0.meta ? ft0.meta : null;
     const plain = !cardView(state) && !photo ? { kind: "typed" } : null;
     if (restore) {
-      if (own) return own;
+      // A reopened Z-bon read: what the owner changed on it since it was
+      // opened is a correction of that read — said the same way as while a
+      // bon was summed in. Sent unchanged, the stored record (which held the
+      // correction) went back to "read off the bon" for a figure typed by hand.
+      // A reopened close that was UNLOCKED (`afterUnlock`) and changed since:
+      // the record says so ("rettet af ejeren efter oplåsning") — the server
+      // only ever adds that mark, on an unlocked close.
+      const changes = own ? draftChanges(ft0, locale) : [];
+      const mark = afterUnlock && changes.length ? { edited_after_unlock: true } : {};
+      if (own && own.kind === "zbon") {
+        const was = Array.isArray(own.corrected) ? own.corrected.filter((k) => typeof k === "string") : [];
+        return { ...own, corrected: Array.from(new Set([...was, ...changes])), ...mark };
+      }
+      if (own) return { ...own, ...mark };
       if (plain) return plain;
       // A close saved before its source was recorded, with its own photo
       // (its till came back): the photo is its read. Anything else is typed.
@@ -904,7 +919,12 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
   // correction of the total), and the kasserapport names the bons and the
   // correction separately: "Z-bon 1: 17.030 · Z-bon 2: 4.000 · rettet af
   // ejeren til 21.500" — never one till's.
-  const read = summed ? readTotalsOf(state, keepsDraftTills ? mt : null) : [];
+  // A reopened sum stands for its own tills with what each one READ: its
+  // stored read_totals when it has them (terminal_totals already hold the
+  // owner's correction — "4.470" for a bon that read 4.000), else its list.
+  const draftRead_ = Array.isArray(ft?.meta?.read_totals) ? ft.meta.read_totals.map(Number) : [];
+  const draftReads = draftRead_.length === mt.length && draftRead_.every(Number.isFinite) ? draftRead_ : mt;
+  const read = summed ? readTotalsOf(state, keepsDraftTills ? draftReads : null) : [];
   const readDiffers = read.length === terminal.length && read.some((v, i) => Math.abs(v - terminal[i]) >= 0.005);
   const scans = summed ? Math.max(1, terminal.length - typedTills.length) : 1;
   return {

@@ -8409,6 +8409,8 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcDateMovedOldHolds: "Used for {to} — the {from} draft still has the same figures",
+    dcScanStartOverDraftBack: "The draft saved before ({amount}) comes back.",
     dcDateMovedFrom: "Moved from {from}",
     dcDateMovedKeptOld: "Used for {to} — the {from} draft is still saved",
     dcScanStartOverDraftGoes: "The draft saved at {amount} is deleted too.",

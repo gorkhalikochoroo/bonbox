@@ -86,6 +86,32 @@ describe("closeTills r19 — the owner's correction of a summed total is never o
   });
 });
 
+describe("closeTills r19 — a reopened corrected sum keeps its bons' read figures", () => {
+  // Review fix: a reopened summed draft stood for its tills with its
+  // terminal_totals — which already hold the owner's correction — so its
+  // stored read_totals were dropped once another bon was summed, and the
+  // kasserapport printed "4.470" for a bon that read 4.000 again.
+  it("draft {17.030 + 4.000 → rettet til 21.500} + a 3.000 bon: read_totals [17.030, 4.000, 3.000] go with the till list", () => {
+    const meta = { kind: "zbon", scans: 2, terminal_totals: [17030, 4470], read_totals: [17030, 4000], corrected: ["revenue_total"] };
+    let s = loadDraft(createTills(L), { revenue: { food: "21.500" }, payments: { card: "21.500" }, total: 21500, meta });
+    s = chooseTerminal(addScan(s, BON_3000, { photo: "b", form: tillFromForm({ revenue: { food: "21.500" }, payments: { card: "21.500" }, locale: L }) }), MERGE_SUM);
+    const out = sourceMetaOf(s, { revenue_breakdown: { food: 23500, drinks: 1000 } });
+    expect(out.terminal_totals).toEqual([17030, 4470, 3000]);
+    expect(out.read_totals).toEqual([17030, 4000, 3000]);
+    expect(out.corrected).toContain("revenue_total");
+    expect(readTotalsOf(s, meta.read_totals)).toEqual([17030, 4000, 3000]);
+  });
+
+  it("a stored read list of another length is not used: the till list stands for itself", () => {
+    const meta = { kind: "zbon", scans: 2, terminal_totals: [17030, 4470], read_totals: [17030], corrected: [] };
+    let s = loadDraft(createTills(L), { revenue: { food: "21.500" }, payments: { card: "21.500" }, total: 21500, meta });
+    s = chooseTerminal(addScan(s, BON_3000, { photo: "b", form: tillFromForm({ revenue: { food: "21.500" }, payments: { card: "21.500" }, locale: L }) }), MERGE_SUM);
+    const out = sourceMetaOf(s, { revenue_breakdown: { food: 23500, drinks: 1000 } });
+    expect(out.terminal_totals).toEqual([17030, 4470, 3000]);
+    expect(out.read_totals).toBeUndefined();
+  });
+});
+
 describe("closeTills r19 — no photo left: the record is told again what it is", () => {
   it("a reopened typed draft + a summed bon, then Start forfra: null as before, its own source with restore", () => {
     let s = loadDraft(createTills(L), {
@@ -108,6 +134,33 @@ describe("closeTills r19 — no photo left: the record is told again what it is"
     const { s: typed } = typed14000();
     expect(sourceMetaOf(typed, { restore: true })).toEqual({ kind: "typed" });
     expect(sourceMetaOf(typed)).toEqual({ kind: "typed" });
+  });
+
+  // Review fix: restore sent the meta the draft was opened with, unchanged —
+  // a line the owner corrected by hand on a reopened Z-bon read (and filed
+  // as corrected while a bon was summed in) went back to "read off the bon".
+  it("a reopened Z-bon draft, Mad 9.000 → 9.500 by hand, a bon summed, Start forfra: restore keeps the correction", () => {
+    const zbonMeta = { kind: "zbon", scans: 1, corrected: [] };
+    const lines = { revenue: { food: "9.000", drinks: "8.030" }, payments: { card: "17.030" } };
+    let z = loadDraft(createTills(L), { ...lines, total: 17030, meta: zbonMeta });
+    z = typeIntoForm(z, "revenue.food", "9.500");
+    const form = tillFromForm({ revenue: { food: "9.500", drinks: "8.030" }, payments: { card: "17.030" }, locale: L });
+    z = chooseTerminal(addScan(z, BON_3000, { photo: "b", form }), MERGE_SUM);
+    expect(sourceMetaOf(z, { revenue_breakdown: { food: 11500, drinks: 9030 } }).corrected).toContain("rev:food");
+    z = discardScans(z);
+    expect(sourceMetaOf(z, { restore: true })).toEqual({ kind: "zbon", scans: 1, corrected: ["rev:food"] });
+    // A typed draft has no read to correct: its own source, as it was.
+    let d = loadDraft(createTills(L), { ...lines, total: 17030, meta: { kind: "typed" } });
+    d = discardScans(chooseTerminal(addScan(typeIntoForm(d, "revenue.food", "9.500"), BON_3000, { photo: "b", form }), MERGE_SUM));
+    expect(sourceMetaOf(d, { restore: true })).toEqual({ kind: "typed" });
+    // Reopened after an unlock: changed since, it says so (the server keeps
+    // the mark only on an unlocked close).
+    expect(sourceMetaOf(z, { restore: true, afterUnlock: true })).toEqual({ kind: "zbon", scans: 1, corrected: ["rev:food"], edited_after_unlock: true });
+    expect(sourceMetaOf(d, { restore: true, afterUnlock: true })).toEqual({ kind: "typed", edited_after_unlock: true });
+    // Unchanged since it was opened: no mark.
+    const asLoaded = tillFromForm({ ...lines, locale: L });
+    const u = discardScans(chooseTerminal(addScan(loadDraft(createTills(L), { ...lines, total: 17030, meta: zbonMeta }), BON_3000, { photo: "b", form: asLoaded }), MERGE_SUM));
+    expect(sourceMetaOf(u, { restore: true, afterUnlock: true })).toEqual(zbonMeta);
   });
 
   it("restore never relabels a day that still has a photo in it", () => {

@@ -1,13 +1,12 @@
 /**
- * Round 19 — named regressions for the sequence invariants added this round
- * (src/test/closeSequenceHarness.jsx: M4, M4b, M6, MV — held to the STORED
- * row, not the payload). Each seed below broke its invariant on the round-18
- * page (cce8d04e + round 19's first commit) and passes now; they are part of
- * the committed 300 as well, pinned here by name so a reshuffle of those
- * files cannot drop them. The reviewers' own seeds (1175, 1329, 1539, 1254)
- * came from their generator: their exact path is pinned step for step in
- * DailyClosePage.r19StartOver (§3), and the seeds are run here too.
- * Replay one: SEQ_ONLY=<seed> npx vitest run src/__tests__/DailyClosePage.r19Sequences.test.jsx
+ * Round 19 review — the sequence harness in its "review" variant: the
+ * openings and timings the reviewers attacked with (src/test/closeSequenceHarness.jsx):
+ * "Start forfra" on the day's draft banner first (then a photo, or figures
+ * typed), a slow network now and then (a save or a delete still on its way
+ * while the owner takes the next step), and two date changes inside the
+ * autosave's 2 s. Every invariant (I1–I6, M4, M4b, M6, MV — M6 / MV / M4b
+ * also over a draft the page replaced) after every step.
+ * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r19ReviewSequences.test.jsx
  */
 import { afterAll, beforeAll, describe, it, vi } from "vitest";
 
@@ -45,30 +44,20 @@ const { runSequence, STATS } = await import("../test/closeSequenceHarness");
 const DailyClosePage = (await import("../pages/DailyClosePage")).default;
 
 const env = globalThis.process?.env || {};
-
+const FROM = Number(env.SEQ_FROM || 6001);
+const COUNT = Number(env.SEQ_COUNT || 100);
+// Seeds of this variant that broke on the round-19 page before the review
+// fixes (each named by what broke), pinned by name: also run when a replay
+// range is given.
 const NAMED = [
-  // M4 — a typed day (or a reopened typed draft) stored as a Z-bon read after Start forfra.
-  ["M4", [27, 84, 149, 180]],
-  // M4b — the thrown-away bon's photo still on the stored row.
-  ["M4b", [16, 30, 51, 101, 132]],
-  // M6 — Start forfra on a photo-only day kept the photo's draft.
-  ["M6", [3, 81, 104, 157, 163]],
-  // MV — "Brug dem for {to}" left the old day's draft with the same till.
-  ["MV", [13, 17, 21, 32, 58]],
-  // I6 — a reopened draft's total emptied before the photo, then Start
-  // forfra and two bons summed: the card's empty (red) total turned into the
-  // bons' "3.000" under a day that saves 8.234,50 (dailyCloseScanMerge fold).
-  ["I6", [1508]],
-  // The reviewers' M4 seeds (their generator; see the header).
-  ["reviewers' M4", [1175, 1254, 1329, 1539]],
-  // Review: M4b on an unseen seed — a reopened Z-bon draft's total emptied,
-  // a 1.500 bon "samme terminal" filed, then Fortryd and "brug det ikke":
-  // the card stayed (not filed) while the draft kept the dropped bon and
-  // its photo. With no photo left the owner's till is the day again, filed.
-  ["review M4b", [20235]],
+  ["MV a move left this page's draft on the old day", [6005, 6036]],
+  ["I1 a Start forfra delete raced a newer save (nothing stored)", [6006, 6115]],
+  ["M6 a replaced draft kept the thrown-away photo's figures", [6016, 6043]],
+  ["MV a replaced draft kept the moved figures", [6019, 6035]],
+  ["MV \"Hent\" after a second date change deleted the first day's draft", [6069]],
 ];
 
-describe("daily close — round 19 named sequence regressions", () => {
+describe("daily close — round 19 review sequences (banner Start forfra, slow network, fast date changes)", () => {
   beforeAll(() => {
     window.scrollTo = () => {};
     Element.prototype.scrollIntoView = () => {};
@@ -81,16 +70,24 @@ describe("daily close — round 19 named sequence regressions", () => {
     if (env.SEQ_STATS) console.log("sequence checks", JSON.stringify(STATS));
     await new Promise((r) => setTimeout(r, 3200));
   }, 10000);
-  for (const [inv, seeds] of NAMED) {
+  for (const [what, seeds] of NAMED) {
     for (const seed of seeds) {
-      if (env.SEQ_ONLY && Number(env.SEQ_ONLY) !== seed) continue;
-      it(`${inv}: seed ${seed}`, async () => {
+      it(`${what}: seed ${seed}`, async () => {
         localStorage.clear();
         get.mockReset();
         post.mockReset();
         del.mockReset();
-        await runSequence(seed, { DailyClosePage }, { get, post, del });
+        await runSequence(seed, { DailyClosePage }, { get, post, del }, { variant: "review" });
       }, 30000);
     }
+  }
+  for (let seed = FROM; seed < FROM + COUNT; seed++) {
+    it(`seed ${seed}`, async () => {
+      localStorage.clear();
+      get.mockReset();
+      post.mockReset();
+      del.mockReset();
+      await runSequence(seed, { DailyClosePage }, { get, post, del }, { variant: "review" });
+    }, 30000);
   }
 });

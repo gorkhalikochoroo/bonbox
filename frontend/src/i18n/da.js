@@ -8118,6 +8118,8 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcDateMovedOldHolds: "Brugt for {to} — kladden for {from} har stadig de samme tal",
+    dcScanStartOverDraftBack: "Kladden, der var gemt før ({amount}), kommer tilbage.",
     dcDateMovedFrom: "Flyttet fra {from}",
     dcDateMovedKeptOld: "Brugt for {to} — kladden for {from} er stadig gemt",
     dcScanStartOverDraftGoes: "Kladden, der er gemt med {amount}, slettes også.",

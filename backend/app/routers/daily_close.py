@@ -1525,6 +1525,35 @@ def _source_after_unlock_edit(existing, data, revenue_total, moms_total) -> str 
     return _json.dumps(meta)
 
 
+def _keep_unlock_mark(existing, client_meta, cleaned: str) -> str:
+    """The source a client sends for a reopened (unlocked) close keeps the
+    "rettet af ejeren efter oplåsning" mark.
+
+    The mark is the server's own (_source_after_unlock_edit sets it on a hand
+    edit; _clean_source_meta drops it from a client's meta), so any source
+    the page sent afterwards — the reopened draft's own source told again
+    after Start forfra — erased it, and the re-locked kasserapport presented
+    figures typed after the unlock as never touched. Kept when the stored
+    source has it; set when the page says the figures differ from the close
+    as it was opened (it only ever adds the disclosure, and only on a close
+    that is unlocked). A close that is not unlocked is stored as sent."""
+    import json as _json
+    if not getattr(existing, "unlock_reason", None):
+        return cleaned
+    had = False
+    try:
+        old = _json.loads(getattr(existing, "source_meta", None) or "null")
+        had = isinstance(old, dict) and bool(old.get("edited_after_unlock"))
+    except Exception:  # noqa: BLE001
+        had = False
+    says = isinstance(client_meta, dict) and client_meta.get("edited_after_unlock") is True
+    if not (had or says):
+        return cleaned
+    meta = _json.loads(cleaned)
+    meta["edited_after_unlock"] = True
+    return _json.dumps(meta)
+
+
 def _capture_extraction_correction(db, user, *, status, final_values):
     """Close the OCR learning loop: stamp what the owner ACTUALLY saved
     (final_json) onto the most recent uncommitted scan extraction for this
@@ -1939,7 +1968,7 @@ def create_daily_close(
             existing.cash_float = _float
         _meta = _clean_source_meta(data.source_meta)
         if _meta is not None:
-            existing.source_meta = _meta
+            existing.source_meta = _keep_unlock_mark(existing, data.source_meta, _meta)
         elif _src_after_unlock is not None:
             existing.source_meta = _src_after_unlock
         if status == "confirmed":
@@ -2029,8 +2058,54 @@ def create_daily_close(
         cash_float=_clean_cash_float(data.cash_float),
         source_meta=_clean_source_meta(data.source_meta),
     )
-    db.add(dc)
+    # A deleted draft for the same day (and branch) is still in the table —
+    # a delete is soft — and the (user, branch, date) unique key covers it:
+    # the INSERT below failed with an IntegrityError (500) for a venue that
+    # files under a branch, and the day could never be saved or locked again.
+    # The page deletes drafts on its own now (Start forfra on a day of photos
+    # only, a date move). The deleted row is taken back as this new close:
+    # every column is the new close's, nothing of the deleted one survives
+    # (no photo, source, float, unlock or send state), and the audit trail
+    # says so. NULL branches never collided (NULLs are distinct) but are
+    # reused the same way — one row per day.
+    dead = (
+        db.query(DailyClose)
+        .filter(
+            DailyClose.user_id == user.id,
+            DailyClose.date == data.date,
+            DailyClose.branch_id == data.branch_id,
+            DailyClose.is_deleted.is_(True),
+        )
+        .first()
+    )
+    restored_from = None
+    if dead is not None:
+        restored_from = {"deleted_at": dead.deleted_at.isoformat() if dead.deleted_at else None,
+                         "status": dead.status}
+        now = utc_now()
+        for attr in DailyClose.__mapper__.column_attrs:
+            if attr.key in ("id", "user_id", "branch_id", "date"):
+                continue
+            setattr(dead, attr.key, getattr(dc, attr.key, None))
+        dead.is_deleted = False
+        dead.deleted_at = None
+        dead.created_at = now
+        dead.updated_at = now
+        dc = dead
+    else:
+        db.add(dc)
     db.flush()  # populate dc.id before the audit row references it
+    if restored_from is not None:
+        audit_service.record(
+            db, user=user,
+            action="close.restored",
+            entity_type="daily_close",
+            entity_id=dc.id,
+            before={"is_deleted": True, **restored_from},
+            after={"is_deleted": False, "date": data.date.isoformat() if data.date else None,
+                   "status": status},
+            ip_address=getattr(request.client, "host", None) if request.client else None,
+        )
     # Bogføringsloven §10 — append-only audit row for the new close.
     audit_service.record(
         db, user=user,

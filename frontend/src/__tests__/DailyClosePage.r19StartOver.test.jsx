@@ -261,7 +261,11 @@ describe("5. Start forfra on a photo-only day takes the photo's draft back", () 
     expect(document.body.textContent).toContain("scanZReportTitle");
   });
 
-  it("a draft this page did not make (\"Start forfra\" on the banner, then a photo): never deleted — the banner shows it", async () => {
+  // Review fix (expectation changed): the row the banner's "Start forfra"
+  // replaced held only the thrown-away bon after Start forfra on the card —
+  // its photo, "Z-bon (scannet)", and the banner offered it back ("Gemt med
+  // 5.000 kr. — fortsæt den"). The draft it replaced goes back as it was.
+  it("a draft this page did not make (\"Start forfra\" on the banner, then a photo): never deleted — it goes back as it was, and the banner shows it", async () => {
     serve([TYPED_DRAFT]);
     await mount();
     tap(/^dcStartOverDraft$/);
@@ -274,8 +278,12 @@ describe("5. Start forfra on a photo-only day takes the photo's draft back", () 
     tap(/^startOver$/);
     await flush();
     expect(S.deletes).toEqual([]);
-    expect(rowFor(today)).toMatchObject({ id: "seed1", status: "draft" });
-    expect(document.body.textContent).toContain("dcDayHasDraftBody:5.000 kr.");
+    expect(rowFor(today)).toMatchObject({
+      id: "seed1", status: "draft", revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 },
+      payment_breakdown: { card: 14000 }, source_meta: { kind: "typed" }, receipt_photo: null, notes: "Test", closed_by: "Test",
+    });
+    expect(document.body.textContent).toContain("dcDayHasDraftBody:14.000 kr.");
+    expect(document.body.textContent).not.toContain("dcDayHasDraftBody:5.000 kr.");
   });
 
   it("an untouched photo still goes in one tap (no question) — the deletion is not asked about", async () => {
@@ -345,7 +353,9 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     expect(rowFor(today)).toBeUndefined();
   });
 
-  it("a draft the page did not make (Start forfra on the banner) is never deleted — the page says it stays", async () => {
+  // Review fix (expectation strengthened): the old day's row held the moved
+  // 12.000, not its own 14.000, while the note said its draft "er stadig gemt".
+  it("a draft the page did not make (Start forfra on the banner) is never deleted — it goes back as it was, and the page says it stays", async () => {
     serve([TYPED_DRAFT]);
     await mount();
     tap(/^dcStartOverDraft$/);
@@ -360,7 +370,7 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     tap(/^dcDateMoveKeep/);
     await flush();
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 12000 });
-    expect(rowFor(today)).toMatchObject({ id: "seed1" });
+    expect(rowFor(today)).toMatchObject({ id: "seed1", revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 } });
     expect(S.deletes).toEqual([]);
     expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedKeptOld:/);
   });
