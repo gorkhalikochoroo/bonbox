@@ -1,6 +1,7 @@
 /**
  * Round 18, step 0 — the page-level sequence test, seeds 61–120 (of 300).
- * The harness and its four invariants: src/test/closeSequenceHarness.jsx.
+ * The harness and its invariants (I1–I6, and round 19's M4, M4b, M6, MV):
+ * src/test/closeSequenceHarness.jsx.
  * Split over five files so they run side by side. Replay one seed:
  *   SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r18Sequences.2.test.jsx
  */
@@ -8,8 +9,9 @@ import { afterAll, beforeAll, describe, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+const del = vi.fn();
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -63,7 +65,8 @@ describe("daily close — seeded owner sequences (2/5)", () => {
       localStorage.clear();
       get.mockReset();
       post.mockReset();
-      await runSequence(seed, { DailyClosePage }, { get, post });
+      del.mockReset();
+      await runSequence(seed, { DailyClosePage }, { get, post, del });
     }, 30000);
   }
 });

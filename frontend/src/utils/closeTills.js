@@ -824,8 +824,14 @@ const lineKey = (f) => (f.startsWith("revenue.") ? `rev:${f.slice(8)}`
  * `typed`; lines the owner changed on a photo's till are `corrected`. A
  * reopened draft with no new photo sends nothing (the server keeps what it
  * knows); a close typed by hand with no photo is "typed".
+ *
+ * `restore`: this form filed a source read off photos for the day earlier
+ * (a bon summed in and saved). With no photo left in the day the server's
+ * "keep what you know" would keep THAT — a typed close filed and locked as
+ * "Z-bon (scannet)" — so the record is told again what it is: the reopened
+ * draft's own source, or typed.
  */
-export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown = {}, momsTyped = false, tipsSaved = false, photo = null } = {}) {
+export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown = {}, momsTyped = false, tipsSaved = false, photo = null, restore = false } = {}) {
   const { locale } = state;
   const active = activeEntries(state);
   const scansIn = active.filter((e) => e.origin === TILL_SCAN);
@@ -835,8 +841,17 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     // forfra drops the page's photo, and a reopened Z-bon read was
     // relabelled "typed".
     const ft0 = formTill(state);
-    if (ft0?.origin === TILL_DRAFT && ft0.meta) return null;
-    return !cardView(state) && !photo ? { kind: "typed" } : null;
+    const own = ft0?.origin === TILL_DRAFT && ft0.meta ? ft0.meta : null;
+    const plain = !cardView(state) && !photo ? { kind: "typed" } : null;
+    if (restore) {
+      if (own) return own;
+      if (plain) return plain;
+      // A close saved before its source was recorded, with its own photo
+      // (its till came back): the photo is its read. Anything else is typed.
+      return ft0?.origin === TILL_DRAFT && photo ? { kind: "zbon", scans: 1, corrected: [] } : { kind: "typed" };
+    }
+    if (own) return null;
+    return plain;
   }
   const groups = tillGroups(state);
   const summed = groups.length > 1;

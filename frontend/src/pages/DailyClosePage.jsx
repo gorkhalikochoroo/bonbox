@@ -64,6 +64,7 @@ import {
   tillFromForm,
   tillGroups,
   tillTotals,
+  TILL_DRAFT,
   TILL_SCAN,
   typeIntoForm,
   undo as undoTill,
@@ -1305,6 +1306,11 @@ function CardMoneyField({ value, onChange, onBlur, locale, ...rest }) {
   );
 }
 
+/** A close row's day key, the way the form keys what it files: "date|branch". */
+const closeRowKey = (dc) => `${String(dc?.date || "").slice(0, 10)}|${dc?.branch_id || ""}`;
+/** What a built payload was made of (not sent): the day it is for, and whether its source was read off photos. */
+const payloadInfo = new WeakMap();
+
 function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
@@ -1663,6 +1669,36 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // Persisted on the close row as receipt_photo so the owner can re-view
   // the source document later (Bogføringsloven §10 retention).
   const [receiptPhotoUrl, setReceiptPhotoUrl] = useState(null);
+  // ─── What the server holds for each day this form files ────────────
+  //
+  // The server reads a null source_meta / receipt_photo as "keep what is
+  // stored". That only holds while the stored row is still what the day was
+  // when the form opened it. A bon summed in and filed (source "Z-bon", its
+  // photo), then thrown away with Start forfra, left a typed close filed —
+  // and locked — as "Z-bon (scannet)" with the thrown-away bon's photo sent
+  // to the revisor. So the form keeps, per day (`date|branch`):
+  //   loadedPhotoRef   the reopened close's own photo (Start forfra gives it
+  //                    back with the draft's till; null for a close typed here)
+  //   serverSrcRef     the source and photo the server answered with
+  //   filedScanKeysRef days this form filed a source read off photos for —
+  //                    with no photo left, the record is told again what it is
+  //   clearPhotoKeysRef days whose stored photo must go when no photo is left
+  //   ownRowsRef       the row id each save answered with, and whether this
+  //                    form CREATED the row (only such a draft is ever deleted)
+  const loadedPhotoRef = useRef(null);
+  const serverSrcRef = useRef({});
+  const filedScanKeysRef = useRef(new Set());
+  const clearPhotoKeysRef = useRef(new Set());
+  const ownRowsRef = useRef({});
+  // Saves on their way: a draft is deleted only once they have answered.
+  const inflightRef = useRef(new Set());
+  // Drafts this form deleted: History may list them until it refetches.
+  const [droppedIds, setDroppedIds] = useState(() => new Set());
+  // "Brug dem for {to}": the day the figures were typed for, until the new
+  // day's first save lands — then that day's draft (if this form made it) goes.
+  const moveFromRef = useRef(null);
+  // What the move did, said once under the date: { from, to, kept }.
+  const [movedNote, setMovedNote] = useState(null);
   // The scan MOMS the form last took ({ key: scanMomsKey, manual }), so a
   // second "Brug disse tal" keeps the MOMS the form already has. And the
   // Z-bon's one-off extras (drawer count, clerk notes), applied once per scan:
@@ -1730,6 +1766,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     editLoadedRef.current = true;
     boxFillEpochRef.current += 1;
     setDateMove(null);
+    // A move answered but not filed yet is not this draft's.
+    moveFromRef.current = null;
+    setMovedNote(null);
     // An edited close is filed against ITS OWN date, never today — mark the
     // date as chosen before the prefill for that date can resolve.
     if (dc.date) {
@@ -1854,6 +1893,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // This close's own photo, or none: a Z-bon read earlier for another day
     // stayed behind and was filed as this day's source document.
     setReceiptPhotoUrl(dc.receipt_photo || null);
+    // …and what the server holds for it is what was just opened.
+    loadedPhotoRef.current = dc.receipt_photo || null;
+    {
+      const loadedKey = closeRowKey(dc);
+      serverSrcRef.current[loadedKey] = {
+        meta: dc.source_meta && typeof dc.source_meta === "object" ? dc.source_meta : null,
+        photo: dc.receipt_photo || null,
+      };
+      filedScanKeysRef.current.delete(loadedKey);
+      clearPhotoKeysRef.current.delete(loadedKey);
+    }
     // Skip scan UI (the user already has values) and jump to step 1.
     setScanMode("skipped");
     setStep(1);
@@ -2573,7 +2623,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       && (owners(revAmounts, synced?.rev) || owners(payAmounts, synced?.pay) || typedExtras);
     // Moved again before answering: the figures are still the first day's.
     const from = dateMoveOpen?.from ?? businessDate;
-    setDateMove(typed && from !== next ? { from, to: next } : null);
+    // The row key the first day's figures were filed under (its branch too).
+    const fromKey = dateMoveOpen?.fromKey ?? `${businessDate}|${fileBranchId || ""}`;
+    setDateMove(typed && from !== next ? { from, to: next, fromKey } : null);
+    setMovedNote(null);
     // The tills move with the date (closeTills.dateMoved never changes them);
     // the question above is what decides which day they are filed for.
     act(dateMoved, next);
@@ -3174,16 +3227,30 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // photo. A typed till is never a Z-bon read: it is listed in typed_tills,
     // its own lines in `typed`. A reopened draft with no new photo sends
     // nothing, so the server keeps what it already knows.
+    // The day this payload files. With no photo left in it, a day this form
+    // filed a photo's source for is told again what it is (`restore`): the
+    // reopened draft's own source, or typed — null would keep the Z-bon.
+    const dayKey = `${businessDate}|${fileBranchId || ""}`;
     const source_meta = sourceMetaOf(ledger, {
       revenue_breakdown,
       payment_breakdown,
       momsTyped,
       tipsSaved: Boolean(tipsTotal && Number.isFinite(readMoney(tipsTotal))),
       photo: receiptPhotoUrl,
+      restore: filedScanKeysRef.current.has(dayKey),
     });
+    // The photo: the day's own (the first photo still in it, or the reopened
+    // close's), else none. A null keeps whatever the server holds, so when it
+    // holds a photo of no bon in the day any more (thrown away with Start
+    // forfra, or the old draft's that "Start forfra" on the banner replaced)
+    // it is cleared explicitly with "".
+    const storedPhoto = serverSrcRef.current[dayKey]
+      ? serverSrcRef.current[dayKey].photo
+      : ((existingCloses || []).find((dc) => closeRowKey(dc) === dayKey && !dc.is_deleted && !droppedIds.has(dc.id))?.receipt_photo || null);
+    const receipt_photo = receiptPhotoUrl || (clearPhotoKeysRef.current.has(dayKey) || storedPhoto ? "" : null);
     const countedNum = cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null;
 
-    return {
+    const body = {
       date: businessDate,
       branch_id: fileBranchId,
       status,
@@ -3231,8 +3298,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       batch_ref: (config.hasBatch && batchRef.trim()) ? batchRef.trim() : null,
       // Z-report photo URL — backend stores on DailyClose.receipt_photo.
       // Only sent if the owner actually scanned a photo this session;
-      // null preserves the existing value on update (server-side guard).
-      receipt_photo: receiptPhotoUrl || null,
+      // null preserves the existing value on update (server-side guard), and
+      // "" clears a stored photo of a bon that is no longer in the day.
+      receipt_photo,
       // Total-only fallback (banner-driven) and per-close MOMS-mode
       // override. Both are accepted by the backend in DailyCloseCreate.
       revenue_total_override,
@@ -3250,6 +3318,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // (Pydantic v2 default), so this is safe to send today.
       exempt_sales_total: exemptSalesTotal || null,
     };
+    payloadInfo.set(body, {
+      key: dayKey,
+      // Read off photos still in the day: once filed, a Start forfra that
+      // leaves none has to say the source again.
+      scanSource: source_meta?.kind === "zbon" && hasScanTills(ledger),
+    });
+    return body;
   };
 
   // Draft auto-save — fires on step change (silent, no loading state)
@@ -3341,8 +3416,87 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // the owner means. The strict compare missed it, and typing then saved
       // a second close for that day with no branch.
       && (!branchId || (dc.branch_id || null) === fileBranchId)
-      && !dc.is_deleted) || null;
-  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey]);
+      // A draft this form deleted is gone, whatever History still lists.
+      && !dc.is_deleted && !droppedIds.has(dc.id)) || null;
+  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey, droppedIds]);
+
+  // Every save still on its way has answered (a draft is deleted only then:
+  // a save landing after the delete filed the day again).
+  const savesSettled = async () => {
+    while (inflightRef.current.size) await Promise.allSettled([...inflightRef.current]);
+  };
+  // What a save answered: the row's id, whether this form created it, and
+  // the source and photo the server now holds for the day.
+  const noteSaved = (key, body, res, created) => {
+    const data = res?.data && typeof res.data === "object" ? res.data : {};
+    const prev = serverSrcRef.current[key] || {};
+    serverSrcRef.current[key] = {
+      meta: "source_meta" in data ? (data.source_meta ?? null) : (body.source_meta != null ? body.source_meta : (prev.meta ?? null)),
+      photo: "receipt_photo" in data ? (data.receipt_photo || null)
+        : (body.receipt_photo === "" ? null : (body.receipt_photo || prev.photo || null)),
+    };
+    if (payloadInfo.get(body)?.scanSource) filedScanKeysRef.current.add(key);
+    // A photo of this session filed, or one cleared: if no photo is left in
+    // the day later, the stored one goes (and stays gone).
+    if (body.receipt_photo === "" || (body.receipt_photo && body.receipt_photo !== loadedPhotoRef.current)) {
+      clearPhotoKeysRef.current.add(key);
+    }
+    const own = ownRowsRef.current[key];
+    ownRowsRef.current[key] = { id: data.id ?? own?.id ?? null, created: own ? own.created : Boolean(created) };
+  };
+  /**
+   * The draft this form filed for a day, taken back: deleted when this form
+   * CREATED it this session ("deleted"); a draft it did not create is never
+   * touched — the day's "there is already a draft" banner shows it again
+   * ("kept"). "none": nothing of this form's is stored for the day.
+   */
+  const releaseDayDraft = async (key) => {
+    await savesSettled();
+    const own = ownRowsRef.current[key];
+    const id = own?.id || (existingCloses || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted)?.id || null;
+    const forget = () => {
+      delete ownRowsRef.current[key];
+      delete serverSrcRef.current[key];
+      filedScanKeysRef.current.delete(key);
+      clearPhotoKeysRef.current.delete(key);
+      setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
+    };
+    if (!own) {
+      // "Start over" chosen on the banner, nothing filed since: the old draft
+      // is still the day's, and the banner says so again.
+      setOverwriteKey((prev) => (prev === key ? null : prev));
+      return "none";
+    }
+    if (!own.created || !id) {
+      forget();
+      setOverwriteKey((prev) => (prev === key ? null : prev));
+      onDraftSaved?.();
+      return "kept";
+    }
+    forget();
+    let ok = false;
+    try {
+      await api.delete(`/daily-close/${id}`);
+      ok = true;
+    } catch (err) {
+      ok = err?.response?.status === 404;
+    }
+    // Not deleted (offline, refused): it is still the day's draft, and the
+    // banner shows it with its amount instead of hiding it.
+    if (ok) setDroppedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    onDraftSaved?.();
+    return ok ? "deleted" : "kept";
+  };
+  // "Brug dem for {to}" answered, and the new day's first save landed: the
+  // figures belong to the new day only. The old day's draft this form made
+  // goes; one it did not make stays, and the line under the date says which.
+  const finishMove = async (savedKey) => {
+    const m = moveFromRef.current;
+    if (!m || savedKey === m.fromKey) return;
+    moveFromRef.current = null;
+    const outcome = await releaseDayDraft(m.fromKey);
+    setMovedNote({ from: m.from, to: m.to, kept: outcome === "kept" });
+  };
   // Named when the venue has several, so "a draft for this day" says whose.
   const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
     ? (branches.find((b) => String(b.id) === String(existingForDate.branch_id))?.name || "")
@@ -3407,6 +3561,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
     const savingKey = rowKey;
+    // This save creates the day's row: no close is filed for it (a draft
+    // reopened here, or one "Start forfra" on the banner replaces, is not
+    // this form's to delete later).
+    const savingCreates = !editingDate && overwriteKey !== rowKey
+      && !(existingCloses || []).some((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted && !droppedIds.has(dc.id));
     // `keepalive` when the page itself is going away (pagehide / hidden): a
     // plain request can die with the page, a keepalive fetch is finished by
     // the browser.
@@ -3416,13 +3575,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const body = buildPayloadRef.current("draft");
       const sent = JSON.stringify(body);
       lastSentRef.current = sent;
+      let answered;
+      const tracker = new Promise((r) => { answered = r; });
+      inflightRef.current.add(tracker);
       try {
-        await api.post("/daily-close", body,
+        const res = await api.post("/daily-close", body,
           keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
+        noteSaved(savingKey, body, res, savingCreates);
         setOwnDraftKeys((prev) => (prev.has(savingKey) ? prev : new Set(prev).add(savingKey)));
         onDraftSaved?.();
         setDraftSaved(true);
         setTimeout(() => setDraftSaved(false), 3000);
+        // The new day of a date move is filed: the old day's draft goes.
+        finishMove(savingKey);
       } catch (err) {
         // Not on the server: the same draft is sent again on the next change.
         if (lastSentRef.current === sent) lastSentRef.current = null;
@@ -3431,6 +3596,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // saying this row is final.
         if (err?.response?.status === 409) setLockedRowRejected(true);
       } finally {
+        inflightRef.current.delete(tracker);
+        answered();
         savesInFlightRef.current -= 1;
         // A newer edit may already be waiting behind this one.
         if (!pendingSaveRef.current && !savesInFlightRef.current) setDraftSaving(false);
@@ -3527,6 +3694,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       }
       dropHeldSave();
       setAnomalyCheck(null);
+      // Locked for the day the figures were moved to: the old day's draft
+      // this form made goes (a move, not a copy).
+      finishMove(`${payload.date}|${payload.branch_id || ""}`);
       // Sealed — one success haptic on a genuine confirmed lock. Native-only
       // (no-op on web); the offline-queue + anomaly paths returned above, so
       // this fires exactly once per real lock, never on draft/queue/validation-fail.
@@ -4864,23 +5034,37 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 const severalPhotos = scanResult?.merge_info?.mode === MERGE_SUM || dayPhotos.length > 1;
                 const corrected = scanResult && (severalPhotos || scanResult.revenue_total_text != null || typed(scanResult.tips)
                   || [...Object.values(scanResult.revenue || {}), ...Object.values(scanResult.payments || {})].some(typed));
+                // A day of photos only, already filed as this form's own new
+                // draft: emptied, the day has nothing to file, and that draft
+                // (the photo's figures) is deleted with it — said in the
+                // question when there is one (an untouched photo still goes
+                // in one tap, as before).
+                const dropsDraft = !formTill(discardScans(before)) && Boolean(ownRowsRef.current[rowKey]?.created);
                 if (corrected) {
                   // What stays is said: the owner's own till comes back, whole.
                   const own = formTill(before);
                   const ownTotal = own ? tillTotals(discardScans(before))[0] || 0 : 0;
                   const total = formatOwnerMoney(ownTotal, currency, { decimals: oreIfAny(ownTotal) });
                   const photos = dayPhotos.length;
+                  const stored = (existingCloses || []).find((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted)?.revenue_total;
+                  const draftAmount = Number(stored ?? (filedLedgerRef.current ? savedTotal(filedLedgerRef.current) : ledgerSaved)) || 0;
+                  const draftLine = dropsDraft
+                    ? t("dcScanStartOverDraftGoes", "The draft saved at {amount} is deleted too.", {
+                      amount: formatOwnerMoney(draftAmount, currency, { decimals: oreIfAny(draftAmount) }),
+                    })
+                    : "";
+                  const base = own
+                    ? (photos > 1
+                      ? t("dcScanStartOverKeepsOwnMany", "All {count} photos — and what you corrected on them — go. Your own figures ({total}) come back.", { count: photos, total })
+                      : t("dcScanStartOverKeepsOwn", "The photo — and what you corrected on it — goes. Your own figures ({total}) come back.", { total }))
+                    : severalPhotos
+                      ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
+                          count: Math.max(photos, 2),
+                        })
+                      : t("dcScanStartOverBody", "The photo and your corrections on the card will be gone.");
                   const ok = await askConfirm({
                     title: t("dcScanStartOverTitle", "Start over?"),
-                    message: own
-                      ? (photos > 1
-                        ? t("dcScanStartOverKeepsOwnMany", "All {count} photos — and what you corrected on them — go. Your own figures ({total}) come back.", { count: photos, total })
-                        : t("dcScanStartOverKeepsOwn", "The photo — and what you corrected on it — goes. Your own figures ({total}) come back.", { total }))
-                      : severalPhotos
-                        ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
-                            count: Math.max(photos, 2),
-                          })
-                        : t("dcScanStartOverBody", "The photo and your corrections on the card will be gone."),
+                    message: draftLine ? `${base} ${draftLine}` : base,
                     confirmLabel: t("startOver", "Start over"),
                     cancelLabel: t("cancel", "Cancel"),
                     destructive: true,
@@ -4895,8 +5079,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // already thrown away (the same 3.000 counted twice).
                 const after = act(discardScans);
                 ownTillBack(before, after);
-                setScanPhotos([]); setReceiptPhotoUrl(null);
+                setScanPhotos([]);
+                // The day's photo is now the reopened close's own (its till
+                // came back), or none: a thrown-away bon's photo is never the
+                // close's source document (the next save clears a stored one).
+                setReceiptPhotoUrl(formTill(after)?.origin === TILL_DRAFT ? loadedPhotoRef.current : null);
                 setScanMode("idle");
+                if (!formTill(after)) {
+                  // Nothing of the day is left: nothing waiting is filed, and
+                  // the draft this form filed for it (the photo's figures) is
+                  // taken back — deleted when this form made it, shown by the
+                  // day's draft banner when it did not.
+                  clearTimeout(autoSaveRef.current);
+                  pendingSaveRef.current = null;
+                  lastSentRef.current = null;
+                  filedLedgerRef.current = null;
+                  releaseDayDraft(rowKey);
+                }
               }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
@@ -4963,7 +5162,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 </span>
               </p>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" className="min-h-10" onClick={() => setDateMove(null)}>
+                <Button size="sm" variant="secondary" className="min-h-10" onClick={() => {
+                  // A move, not a copy: once the new day's first save lands,
+                  // the old day's draft this form made goes (finishMove).
+                  moveFromRef.current = { fromKey: dateMoveOpen.fromKey, from: dateMoveOpen.from, to: dateMoveOpen.to };
+                  setDateMove(null);
+                }}>
                   {t("dcDateMoveKeep", "Use them for {to}", { to })}
                 </Button>
                 {daySync && (
@@ -4982,6 +5186,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 )}
               </div>
             </div>
+          );
+        })()}
+
+        {/* What "Brug dem for {to}" did, once the new day was filed: the
+            figures moved ("Flyttet fra 8. okt."), or — a draft this form did
+            not make — the old day's draft is still there, and it says so. */}
+        {movedNote && movedNote.to === businessDate && !dateMoveOpen && (() => {
+          const short = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+          return (
+            <p data-testid="dc-date-moved" className="mb-4 -mt-1 text-[13px] text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+              <Icon name="CalendarCheck" size={14} className="shrink-0" />
+              <span>
+                {movedNote.kept
+                  ? t("dcDateMovedKeptOld", "Used for {to} — the {from} draft is still saved", { to: short(movedNote.to), from: short(movedNote.from) })
+                  : t("dcDateMovedFrom", "Moved from {from}", { from: short(movedNote.from) })}
+              </span>
+            </p>
           );
         })()}
 

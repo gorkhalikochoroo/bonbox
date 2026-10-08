@@ -353,7 +353,13 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
   // Only when both tills' totals were read: a box holding text nobody could
   // read ("16.45O") must stay red and block the lock, not turn into till 2's
   // figure as if it were the sum.
+  // The text itself must read as a figure too: folding a third till in, the
+  // left side is the first two already merged — its total is the second
+  // till's figure, never the emptied (or unreadable) box of the first — and
+  // the empty red box turned into the bons' "3.000" under a day that saves
+  // 8.234,50.
   if (existing.revenue_total_text != null && merged.revenue_total != null
+    && toNum(existing.revenue_total_text, locale) != null
     && toNum(existing.revenue_total, locale) != null && toNum(incoming.revenue_total, locale) != null) {
     merged.revenue_total_text = moneyInputText(Math.round(merged.revenue_total * 100) / 100, locale);
   }

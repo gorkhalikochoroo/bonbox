@@ -1926,6 +1926,12 @@ def create_daily_close(
         # the existing reference.
         if data.receipt_photo:
             existing.receipt_photo = data.receipt_photo
+        elif data.receipt_photo == "":
+            # The page says the close has no photo any more: the bon it was
+            # of was thrown away (Start forfra), so it is no longer the
+            # close's source document — the lock mail attached it as "og
+            # Z-bon-foto" to a close typed by hand. null still keeps it.
+            existing.receipt_photo = None
         # Same rule for the float and the figures' source: an older client
         # that does not send them must not wipe what is stored.
         _float = _clean_cash_float(data.cash_float)
@@ -2018,7 +2024,8 @@ def create_daily_close(
         notes=_notes_to_store(None, data, revenue_total),
         closed_by=data.closed_by,
         closed_at=utc_now() if status == "confirmed" else None,
-        receipt_photo=data.receipt_photo,
+        # "" (no photo any more) is no photo on a new row either.
+        receipt_photo=data.receipt_photo or None,
         cash_float=_clean_cash_float(data.cash_float),
         source_meta=_clean_source_meta(data.source_meta),
     )
