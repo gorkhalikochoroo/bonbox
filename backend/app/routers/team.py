@@ -113,6 +113,18 @@ ROLE_PERMISSIONS = {
 _INVITE_TTL_DAYS = 7
 _INVITE_TOKEN_MIN_LEN = 32  # defence-in-depth against truncation attacks
 
+# Invite mail goes to an address the owner typed, under BonBox's sender — the
+# same exposure as revisor mail, so it gets ceilings (counted from the audit
+# rows every invite and resend already writes, matched on the invitee's
+# address so a revoke → re-invite does not start a fresh count):
+#   • per invitee: 3 invite mails in 24 hours, and 10 minutes between two
+#     resends (the first "it didn't arrive" resend may follow the invite);
+#   • per owner: 20 invite mails in 24 hours (seat caps are single digits).
+_INVITE_MAIL_ACTIONS = ("team.invited", "team.invite_resent")
+_INVITE_MAILS_PER_INVITEE_PER_DAY = 3
+_INVITE_RESEND_COOLDOWN_MIN = 10
+_INVITE_MAILS_PER_OWNER_PER_DAY = 20
+
 
 # ── Schemas ──────────────────────────────────────────────
 class InviteRequest(BaseModel):
@@ -193,9 +205,16 @@ def _invite_email_html(owner_name: str, role: str, accept_url: str, is_danish: b
     Mirrors the visual style of accountants.py's _invite_email_html.
     The role chip is rendered in the recipient's language; the noun
     `medarbejder` (employee) stays Danish per the terminology lock.
+
+    Every interpolated value is escaped (revisor_mail.esc, the one mail
+    escape): owner_name is the business name the owner typed, and it goes
+    to someone who never chose BonBox.
     """
-    role_label_en = {"manager": "manager", "cashier": "cashier", "viewer": "viewer"}.get(role, role)
-    role_label_da = {"manager": "manager", "cashier": "kasserer", "viewer": "viewer"}.get(role, role)
+    from app.services.revisor_mail import esc
+    role_label_en = esc({"manager": "manager", "cashier": "cashier", "viewer": "viewer"}.get(role, role))
+    role_label_da = esc({"manager": "manager", "cashier": "kasserer", "viewer": "viewer"}.get(role, role))
+    owner_name = esc(owner_name)
+    accept_url = esc(accept_url)
     if is_danish:
         return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
@@ -238,12 +257,14 @@ def _send_invite_email(owner: User, invitee_email: str, role: str, raw_token: st
     """
     try:
         from app.services.email_service import send_email
-        owner_name = owner.business_name or owner.email
+        from app.services.revisor_mail import header_safe
+        owner_name = header_safe(owner.business_name or owner.email, 120)
         is_danish = _is_danish_locale(owner)
-        subject = (
+        subject = header_safe(
             f"Du er inviteret som medarbejder hos {owner_name} på BonBox"
             if is_danish
-            else f"You've been invited to {owner_name}'s BonBox team"
+            else f"You've been invited to {owner_name}'s BonBox team",
+            200,
         )
         ok = send_email(
             to=invitee_email,
@@ -255,6 +276,48 @@ def _send_invite_email(owner: User, invitee_email: str, role: str, raw_token: st
         # Don't log the token; log only that the send blew up.
         logger.warning("team invite email send failed: %s", e)
         return False
+
+
+def _enforce_invite_mail_ceiling(db: Session, owner: User, email: str, *, resend: bool) -> None:
+    """429 before an invite mail that would pass a ceiling (see the
+    constants). Fail-open on a counting error, like the revisor cap: the
+    per-IP limiter still holds and an invite must not die on a hiccup."""
+    from app.services.revisor_mail import third_party_sends
+
+    rows = third_party_sends(db, owner, _INVITE_MAIL_ACTIONS)
+    if rows is None:
+        return
+
+    def _refuse(code: str, message: str) -> None:
+        raise HTTPException(status_code=429, detail={"code": code, "message": message})
+
+    if len(rows) >= _INVITE_MAILS_PER_OWNER_PER_DAY:
+        _refuse(
+            "team_invite_daily_cap",
+            f"BonBox sends at most {_INVITE_MAILS_PER_OWNER_PER_DAY} team invites a day. "
+            "Try again tomorrow.",
+        )
+    addr = (email or "").strip().lower()
+    to_invitee = [r for r in rows if str(r.get("email") or "").strip().lower() == addr]
+    if len(to_invitee) >= _INVITE_MAILS_PER_INVITEE_PER_DAY:
+        _refuse(
+            "team_invite_invitee_cap",
+            "This person has had enough invites from BonBox today. "
+            "Ask them to check their spam folder, or try again tomorrow.",
+        )
+    if resend:
+        last_resend = next((r for r in to_invitee if r.get("_action") == "team.invite_resent"), None)
+        if last_resend is not None and last_resend.get("_at") is not None:
+            try:
+                recent = (utc_now() - last_resend["_at"]) < timedelta(minutes=_INVITE_RESEND_COOLDOWN_MIN)
+            except TypeError:
+                recent = False
+            if recent:
+                _refuse(
+                    "team_invite_cooldown",
+                    f"The invite was just sent again. Wait {_INVITE_RESEND_COOLDOWN_MIN} minutes "
+                    "before sending it once more.",
+                )
 
 
 def _resolve_invite_user(db: Session, raw_token: str) -> User | None:
@@ -389,8 +452,13 @@ def invite_member(
     a 200-shape response with email_sent=false rather than leaking the
     fact that the email exists elsewhere. The audit row records the
     "rejected_existing_user" reason for the owner to see if needed.
+
+    Mail to a third party: the owner's own e-mail must be confirmed
+    (403 email_unverified) and the invite-mail ceilings apply (429).
     """
     require_owner(user)
+    from app.services.revisor_mail import require_verified_sender
+    require_verified_sender(user)
 
     email = data.email.strip().lower()
     name = (data.name or "").strip() or email.split("@")[0]
@@ -515,6 +583,10 @@ def invite_member(
     else:
         invitee = None
 
+    # Only now, when a mail is really about to go out: the ceilings. The
+    # silent refusals above send nothing and keep their uniform answer.
+    _enforce_invite_mail_ceiling(db, user, email, resend=False)
+
     # ── 3. Mint token + persist on User row (created if needed) ────
     raw_token = secrets.token_urlsafe(32)
     token_hash = _hash_token(raw_token)
@@ -594,8 +666,13 @@ def resend_invite(
     """Re-mint the magic-link token + re-send the email. Burns the
     previous token (single-use guarantee even before acceptance).
     Returns the same shape as POST /invite.
+
+    Ceilings (429) and the verified-sender rule (403) as for /invite — a
+    resend is a mail to a third party too.
     """
     require_owner(user)
+    from app.services.revisor_mail import require_verified_sender
+    require_verified_sender(user)
     invitee = (
         db.query(User)
         .filter(User.id == member_id, User.invited_by_user_id == user.id)
@@ -603,6 +680,7 @@ def resend_invite(
     )
     if not invitee or invitee.invite_token_hash is None:
         raise HTTPException(404, "Pending invite not found")
+    _enforce_invite_mail_ceiling(db, user, invitee.email, resend=True)
 
     raw_token = secrets.token_urlsafe(32)
     invitee.invite_token_hash = _hash_token(raw_token)

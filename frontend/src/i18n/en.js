@@ -3601,6 +3601,8 @@ export const en = {
     teamInviteSend: "Send invite",
     teamInviteFailed: "Failed to invite",
     teamResendFailed: "Failed to resend",
+    teamInviteMailCap: "BonBox sent this person an invite a moment ago. Ask them to check their spam folder, or try again later.",
+    teamInviteDailyCap: "You have reached today's limit for team invites. Try again tomorrow.",
     teamRevokeFailed: "Failed to revoke",
     teamUpdateRoleFailed: "Failed to update role",
     teamRemoveFailed: "Failed to remove",
