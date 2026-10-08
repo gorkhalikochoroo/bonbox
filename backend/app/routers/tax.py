@@ -297,6 +297,19 @@ def tax_filing_pdf(
         BusinessProfile.user_id == user.id,
     ).first()
 
+    # Sample data under the owner's OWN company and CVR (onboarding's "explore
+    # with sample data" keeps the profile): the filing sums every close and
+    # expense in the period, so the PDF would be a momsangivelse under the real
+    # CVR built from invented figures, with no EKSEMPEL mark. Refused, as the
+    # mail path is. A business that is still the sample company downloads as
+    # before — the name and CVR on it are the sample's too.
+    from app.services.revisor_mail import (
+        demo_in_period_document_error, demo_rows_under_own_identity,
+    )
+    n_demo = demo_rows_under_own_identity(db, user, profile, p_start, p_end)
+    if n_demo:
+        raise demo_in_period_document_error(n_demo)
+
     business_name = (
         (getattr(profile, "company_name", None) if profile else None)
         or getattr(user, "business_name", None)

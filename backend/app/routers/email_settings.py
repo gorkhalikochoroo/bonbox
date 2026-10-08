@@ -99,9 +99,9 @@ def preview_alerts(
 @router.post("/test-welcome")
 def test_welcome(user: User = Depends(get_current_user)):
     """Send a test welcome email to the current user."""
-    from app.routers.auth import _welcome_email_html
-    html = _welcome_email_html(user.business_name or "there")
-    success = send_email(user.email, "Welcome to BonBox! 🎉", html)
+    from app.routers.auth import _send_welcome_mail
+    from app.services.owner_language import owner_lang
+    success = _send_welcome_mail(user.email, user.business_name or "", owner_lang(user))
     return {"sent": success, "to": user.email}
 
 

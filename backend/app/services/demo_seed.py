@@ -794,7 +794,7 @@ def reset_demo_account(db: Session) -> dict:
 # in by hand. Multi-layer safety: clear only runs when the user has
 # AT MOST a small number of non-demo rows — better to be paranoid.
 
-def _count_non_demo_rows(db: Session, user_id) -> int:
+def _count_non_demo_rows(db: Session, user_id, *, include_verified_profile: bool = True) -> int:
     """How many rows of real (non-demo) data does the user have?
 
     Used as a safety gate for both seeding (don't pollute a working
@@ -845,6 +845,9 @@ def _count_non_demo_rows(db: Session, user_id) -> int:
     # owner has done a real CVR/Erhvervsstyrelsen lookup.  Skip rows
     # whose cvr_verified_source carries the " · demo" sentinel since
     # those are seeded.
+    # `include_verified_profile=False` (seed_for_user's keep_profile mode):
+    # the profile is not touched at all, so a verified one is no reason to
+    # refuse — the other rows still are.
     verified_profile = (
         db.query(BusinessProfile)
         .filter(BusinessProfile.user_id == user_id,
@@ -852,10 +855,45 @@ def _count_non_demo_rows(db: Session, user_id) -> int:
         .filter(or_(BusinessProfile.cvr_verified_source.is_(None),
                     ~BusinessProfile.cvr_verified_source.like("% · demo")))
         .count()
-    )
+    ) if include_verified_profile else 0
     return int(
         real_expense + real_close + real_inventory + real_sales + verified_profile
     )
+
+
+def _count_in_use_rows(db: Session, user_id) -> int:
+    """Signs a venue is already running on BonBox even with no closes or
+    expenses: its own (non-demo) bookings, its own bookable tables, and a staff
+    roster. seed_for_user's keep_profile mode refuses on any of them — it no
+    longer has the CVR-verified gate, and sample tables (is_active, so real
+    capacity for the public booking page) and tonight's sample bookings must
+    never land on a live host stand. Kept out of _count_non_demo_rows so the
+    default seed and "Ryd demodata" rules are unchanged."""
+    from sqlalchemy import or_
+    from app.models.staff import StaffMember
+    real_bookings = (
+        db.query(Reservation)
+        .filter(Reservation.user_id == user_id, Reservation.is_deleted.isnot(True))
+        .filter(or_(Reservation.idempotency_key.is_(None),
+                    ~Reservation.idempotency_key.like("demo-%")))
+        .count()
+    )
+    real_tables = (
+        db.query(BookableResource)
+        .filter(BookableResource.user_id == user_id,
+                BookableResource.is_deleted.isnot(True))
+        .filter(~BookableResource.label.like("% · demo"))
+        .count()
+    )
+    # Every staff member, active or not: staff are only ever deactivated, and
+    # a roster at all means the venue has used BonBox for real.
+    staff = (
+        db.query(StaffMember)
+        .filter(StaffMember.user_id == user_id,
+                StaffMember.is_deleted.isnot(True))
+        .count()
+    )
+    return int(real_bookings + real_tables + staff)
 
 
 def _seed_reservations(db: Session, user: User, mark_demo: bool = True) -> dict:
@@ -937,7 +975,7 @@ def _seed_reservations(db: Session, user: User, mark_demo: bool = True) -> dict:
     return {"tables": len(tables), "bookings": made}
 
 
-def seed_for_user(db: Session, user: User) -> dict:
+def seed_for_user(db: Session, user: User, *, keep_profile: bool = False) -> dict:
     """Materialize sample data on the CURRENT user's account.
 
     Safety rules:
@@ -946,12 +984,41 @@ def seed_for_user(db: Session, user: User) -> dict:
       2. Refuse if the user has already-seeded demo rows — they
          should clear first.
       3. Tenant-scoped end-to-end — only writes for this user_id.
+
+    `keep_profile` (the onboarding wizard's "Udforsk med eksempeldata"): the
+    owner has just typed their OWN business in — name, CVR, address, day
+    rollover, revisor. The sample days, stock, expenses, tables and bookings
+    are added (each carrying the demo marker, cleared by "Ryd demodata"), but
+    the business profile is not touched at all: no sample company, no sample
+    revisor, no sample cutoff. No sample branch either — "Mirabelle Vesterbro"
+    at the sample address would put the sample company back on the owner's
+    documents (and the clear does not remove branches); an existing branch is
+    used as is. Because the profile is left alone, a CVR-verified one is not a
+    reason to refuse here (it still is in the default mode, which writes the
+    profile) — but an account already IN USE still is: real bookings, real
+    tables or staff (_count_in_use_rows) refuse it, so a live venue
+    re-running the welcome wizard never gets sample tables on its host stand
+    or in its public availability.
+
+    What fences the sample days under the owner's real identity: a sample
+    close's kasserapport is titled EKSEMPEL and is never mailed to a revisor
+    (skip "demo_close"); the momsangivelse mail refuses a period holding sample
+    rows (demo_in_period), and so do the momsangivelse PDF download and the
+    bookkeeping exports that carry closes and expenses
+    (revisor_mail.demo_rows_under_own_identity) until "Ryd demodata".
     """
     if user is None:
         return {"ok": False, "reason": "no user"}
 
-    # Block when there's any real data
-    real_count = _count_non_demo_rows(db, user.id)
+    # Block when there's any real data. keep_profile drops the verified-
+    # profile signal (the profile is not touched) and adds the account-in-use
+    # one instead (bookings, tables, staff — what a live venue has even with
+    # no closes or expenses yet).
+    real_count = _count_non_demo_rows(
+        db, user.id, include_verified_profile=not keep_profile,
+    )
+    if keep_profile:
+        real_count += _count_in_use_rows(db, user.id)
     if real_count > 0:
         return {
             "ok": False,
@@ -974,8 +1041,11 @@ def seed_for_user(db: Session, user: User) -> dict:
             "demo_row_count": int(existing_demo),
         }
 
-    _seed_business_profile(db, user, mark_demo=True)
-    branch = _seed_branch(db, user)
+    if keep_profile:
+        branch = db.query(Branch).filter_by(user_id=user.id).first()
+    else:
+        _seed_business_profile(db, user, mark_demo=True)
+        branch = _seed_branch(db, user)
     branch_id = branch.id if branch else None
     closes = _seed_daily_closes(db, user, branch_id, mark_demo=True)
     inventory = _seed_inventory(db, user, branch_id, mark_demo=True)
@@ -989,6 +1059,7 @@ def seed_for_user(db: Session, user: User) -> dict:
         "inventory": inventory,
         "expenses": expenses,
         "reservations": reservations,
+        "profile_kept": bool(keep_profile),
     }
 
 
@@ -1027,6 +1098,11 @@ def clear_for_user(db: Session, user: User) -> dict:
     for r in demo_reservations:
         db.delete(r)
         deleted["reservations"] += 1
+    # Flush the deletes before the tables ask "is a booking still seated
+    # here?": the app's sessions run with autoflush=False, so the query below
+    # still saw the sample bookings and every sample table was kept as
+    # "still referenced" — "Ryd demodata" left Bord 1–3 and Vindue 1 behind.
+    db.flush()
 
     # Bookable resources (tables) — " · demo" label marker. A table the owner
     # renamed/added by hand carries no suffix and is left untouched.

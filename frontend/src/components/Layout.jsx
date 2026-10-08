@@ -27,6 +27,7 @@ import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
+import VerifyEmailReminder from "./VerifyEmailReminder";
 import { Icon } from "./ui";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
@@ -1272,6 +1273,9 @@ export default function Layout() {
             day count + see-plans link + dismiss × on the right.
             Hidden on mobile (md-). */}
         <TrialChip />
+        {/* "Bekræft din e-mail" — quiet, only while the owner has skipped the
+            verification wall (7 days); never on the day's close. */}
+        <VerifyEmailReminder />
         <Outlet />
       </main>
 

@@ -61,8 +61,12 @@ def send_email(
     *,
     reply_to: str | None = None,
     headers: dict[str, str] | None = None,
+    text: str | None = None,
 ) -> bool:
     """Send an email via Resend. Returns True on success.
+
+    `text` adds a text/plain part (multipart/alternative) beside the html —
+    the signup mails (verification code, welcome) pass one.
 
     `reply_to` (Audit P3 — Task #80): when set, recipients who hit
     Reply land in the owner's inbox instead of `noreply@bonbox.dk`.
@@ -89,6 +93,8 @@ def send_email(
             "subject": subject,
             "html": html,
         }
+        if text:
+            payload["text"] = text
         if reply_to:
             payload["reply_to"] = reply_to
         if headers:

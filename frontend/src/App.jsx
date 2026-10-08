@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { setStandToken } from "./services/standAuth";
 import { reportClientError } from "./utils/reportClientError";
+import { verifySkipActive, verifyWallExempt } from "./utils/verifySkip";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { canUsePersonalMode, homeFor } from "./lib/appMode";
 import { isStaffMemberRole } from "./config/navManifest";
@@ -472,6 +473,9 @@ const JoinPage = lazyRetry(() => import("./pages/JoinPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 // Task #55 — First-run welcome wizard. Full-screen, no Layout chrome.
 const OnboardingPage = lazyRetry(() => import("./pages/OnboardingPage"));
+// "Du er klar" — the one next step after the wizard: today's kasserapport,
+// and the staff invite (existing link + join code, shared by the owner).
+const FirstStepsPage = lazyRetry(() => import("./pages/FirstStepsPage"));
 const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const AdminSupportPage = lazyRetry(() => import("./pages/AdminSupportPage"));
@@ -504,11 +508,17 @@ const TeamAcceptInvitePage = lazyRetry(() => import("./pages/TeamAcceptInvitePag
 
 function ProtectedRoute({ children }) {
   const { user, loading, needsEmailVerification } = useAuth();
+  const location = useLocation();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
-  // Allow skipping email verification (native apps or user chose "skip for now")
-  const skipped = sessionStorage.getItem("skip_email_verify");
-  if (needsEmailVerification() && !skipped) return <Navigate to="/verify-email" />;
+  // Allow skipping email verification (native apps or user chose "skip for
+  // now") — remembered for 7 days per account (utils/verifySkip), not just
+  // the session. The day's close is never taken away by the wall: an expired
+  // skip re-rendering this guard mid-close would drop the typed numbers.
+  const skipped = verifySkipActive(user.id);
+  if (needsEmailVerification() && !skipped && !verifyWallExempt(location.pathname)) {
+    return <Navigate to="/verify-email" />;
+  }
   // Task #55 — first-run wizard. After signup, send the user to /onboarding
   // until they finish (or explicitly skip past) the welcome flow. We only
   // gate on the OWNER role here — team members and accountants don't see
@@ -540,7 +550,7 @@ function OnboardingRoute() {
   const { user, loading, needsEmailVerification } = useAuth();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace />;
-  const skipped = sessionStorage.getItem("skip_email_verify");
+  const skipped = verifySkipActive(user.id);
   if (needsEmailVerification() && !skipped) {
     return <Navigate to="/verify-email" replace />;
   }
@@ -588,11 +598,16 @@ function OwnerOnlyRoute({ children }) {
 
 function VerifyEmailRoute() {
   const { user, loading, needsEmailVerification } = useAuth();
+  const location = useLocation();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
-  // If already verified or skipped, go to dashboard
-  const skipped = sessionStorage.getItem("skip_email_verify");
-  if (!needsEmailVerification() || skipped) return <Navigate to="/dashboard" />;
+  // If already verified or skipped, go to dashboard — unless the owner asked
+  // for the page: the "Bekræft din e-mail" reminder and Profile's
+  // "Unverified" chip link here with ?now=1, and a skip must not turn that
+  // tap into a bounce back to the dashboard.
+  const asked = new URLSearchParams(location.search).get("now") === "1";
+  if (!needsEmailVerification()) return <Navigate to="/dashboard" />;
+  if (verifySkipActive(user.id) && !asked) return <Navigate to="/dashboard" />;
   return <VerifyEmailPage />;
 }
 
@@ -646,6 +661,9 @@ function AppRoutes() {
             (no sidebar / mobile nav chrome). OnboardingRoute does its
             own auth + owner-only + onboarding-pending guards. */}
         <Route path="/onboarding" element={<OnboardingRoute />} />
+        {/* After the wizard — full-screen like it, but a normal protected
+            route (onboarding must be done; reload-safe; revisitable). */}
+        <Route path="/getting-started" element={<ProtectedRoute><FirstStepsPage /></ProtectedRoute>} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />
