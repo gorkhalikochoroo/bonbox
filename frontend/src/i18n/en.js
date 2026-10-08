@@ -2137,6 +2137,7 @@ export const en = {
     rsvpWalkInRemovedDone: "Drop-in removed — the table is free.",
     rsvpDeclinedDone: "The request from {name} is declined.",
     rsvpCancelledDone: "The booking for {name} is cancelled.",
+    rsvpGuestMailOwnerCap: "Saved. The guest was not e-mailed: BonBox has sent {cap} guest e-mails for your venue in the last 24 hours, the most it sends. Let the guest know yourself.",
     rsvpConfirm: "Confirm reservation", rsvpSendRequest: "Send request",
     // Provider (salon) confirm CTA — DK "tidsbestilling" stays Danish in EN.
     rsvpConfirmTime: "Confirm appointment",

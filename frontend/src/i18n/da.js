@@ -2091,6 +2091,7 @@ export const da = {
     rsvpWalkInRemovedDone: "Drop-in fjernet — bordet er frit.",
     rsvpDeclinedDone: "Anmodningen fra {name} er afvist.",
     rsvpCancelledDone: "Reservationen for {name} er aflyst.",
+    rsvpGuestMailOwnerCap: "Gemt. Gæsten fik ingen e-mail: BonBox har sendt {cap} gæstemails for dit sted det seneste døgn, og flere sender BonBox ikke. Giv selv gæsten besked.",
     rsvpConfirm: "Bekræft reservation", rsvpSendRequest: "Send forespørgsel",
     rsvpConfirmTime: "Bekræft tidsbestilling",
     rsvpConfirmedTitle: "Reservation bekræftet", rsvpRequestTitle: "Forespørgsel modtaget",

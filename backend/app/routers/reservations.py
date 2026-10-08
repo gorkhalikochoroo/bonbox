@@ -2243,20 +2243,34 @@ def _sitting_inside_hours(profile, settings: dict, start: datetime, end: datetim
 
 
 def _queue_guest_email(background_tasks: BackgroundTasks, user: User, r: Reservation,
-                       change: str, **kw) -> None:
+                       change: str, *, db: Session | None = None, **kw) -> dict | None:
     """Queue a "the venue changed your booking" email, OFF the request path.
 
     Only for a booking still ahead (starts_at is naive LOCAL — compared with the
     owner's local now) that has a guest email; the task re-checks both on a
     fresh session before sending. Never raises: the owner's change is already
-    committed, and a mail problem must not turn it into an error."""
+    committed, and a mail problem must not turn it into an error.
+
+    When the venue has already reached its daily guest-mail ceiling
+    (reservation_emails.GUEST_EMAILS_PER_OWNER_PER_DAY) nothing is queued and
+    the notice for the owner is returned — the caller puts it in its answer
+    as guest_email_skipped, so the app can say the guest was not e-mailed.
+    deliver() enforces the same ceiling at send time either way."""
     try:
         if not r.guest_email or not reservation_emails.starts_in_future(r, user):
-            return
+            return None
+        if db is not None:
+            try:
+                cap = reservation_emails.owner_guest_mail_capped(db, user.id)
+            except Exception:  # noqa: BLE001 — deliver() re-checks and refuses
+                cap = None
+            if cap is not None:
+                return reservation_emails.owner_cap_notice(cap)
         background_tasks.add_task(reservation_emails.run_venue_change,
                                   str(r.id), str(user.id), change, **kw)
     except Exception:  # noqa: BLE001
         pass
+    return None
 
 
 @router.patch("/reservations/{reservation_id}")
@@ -2480,12 +2494,16 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
             and not reservation_emails.same_start(old_starts_at, r.starts_at, user)):
         new_local = reservation_emails.to_naive_local(r.starts_at, user)
         old_local = reservation_emails.to_naive_local(old_starts_at, user)
-        _queue_guest_email(
-            background_tasks, user, r, "moved",
+        skipped = _queue_guest_email(
+            background_tasks, user, r, "moved", db=db,
             old_starts_at=old_local.isoformat() if old_local else None,
             new_starts_at=new_local.isoformat() if new_local else None,
         )
+    else:
+        skipped = None
     out = _reservation_dict(r)
+    if skipped:
+        out["guest_email_skipped"] = skipped
     if moved:
         out["moved"] = moved
     if kept:
@@ -2679,15 +2697,22 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     # two changes a guest must hear about: their request was accepted, or their
     # booking (or request) was cancelled. Seated / completed / no-show happen
     # with the guest in the room (or not coming) — no mail.
+    guest_mail_skipped = None
     if payload.notify_guest and payload.status != prev_status:
         if prev_status == "requested" and payload.status == "confirmed":
-            _queue_guest_email(background_tasks, user, r, "request_confirmed",
-                               prev_status=prev_status)
+            guest_mail_skipped = _queue_guest_email(
+                background_tasks, user, r, "request_confirmed", db=db,
+                prev_status=prev_status)
         elif payload.status == "cancelled" and prev_status in ("requested", "confirmed"):
-            _queue_guest_email(background_tasks, user, r, "cancelled_by_venue",
-                               prev_status=prev_status)
+            guest_mail_skipped = _queue_guest_email(
+                background_tasks, user, r, "cancelled_by_venue", db=db,
+                prev_status=prev_status)
 
     out = _reservation_dict(r)
+    if guest_mail_skipped:
+        # Over the venue's daily guest-mail ceiling: the change is saved, the
+        # guest was not e-mailed — the app tells the owner (da/en).
+        out["guest_email_skipped"] = guest_mail_skipped
     if early_from is not None:
         # The booked time the seating moved away from — the app says so; a
         # booking moving from 18.00 to 17.07 without a word looked like a bug.

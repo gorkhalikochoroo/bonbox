@@ -25,6 +25,9 @@ One module now owns:
         a relay aimed at a stranger's inbox), also used by the expiry mail;
       – per reservation: GUEST_EMAILS_PER_RESERVATION_PER_DAY guest emails
         per rolling 24 h, so an owner editing back and forth cannot spam;
+      – per owner: GUEST_EMAILS_PER_OWNER_PER_DAY guest emails per rolling
+        24 h across all bookings (lower while the owner's own e-mail is
+        unconfirmed), so many bookings cannot do what one may not;
       – "you cancelled" goes only to a guest we have already mailed about
         that booking — otherwise the public form + the cancel link would be a
         way around the confirmation cap.
@@ -69,6 +72,15 @@ CONFIRMATIONS_PER_ADDRESS_PER_DAY = 3
 # Guest emails about ONE reservation per rolling 24 h — confirmation, moves,
 # cancellation, reminder together. A real booking needs two or three.
 GUEST_EMAILS_PER_RESERVATION_PER_DAY = 5
+# Guest emails from ONE venue (owner) per rolling 24 h, every kind together.
+# The per-reservation cap alone did not bound an owner: bookings are free to
+# create with any guest address, so an account could move them back and forth
+# and mail strangers at the request rate (sweep, 8 Oct). A busy venue's real
+# day — a confirmation and a reminder per online booking, plus moves and
+# cancellations — stays far below this; a throw-away signup whose own e-mail
+# was never confirmed gets the lower ceiling.
+GUEST_EMAILS_PER_OWNER_PER_DAY = 300
+GUEST_EMAILS_PER_OWNER_PER_DAY_UNCONFIRMED = 100
 
 # ── NotificationLog.event_type (the column is VARCHAR(50)) ────────────
 GUEST_CONFIRMATION = "guest_confirmation"
@@ -828,6 +840,57 @@ def guest_emails_sent_last_24h(db: Session, owner_id, reservation_id) -> int:
     )
 
 
+def guest_emails_sent_by_owner_last_24h(db: Session, owner_id) -> int:
+    """Guest emails this venue's owner had DELIVERED in the last 24 hours,
+    across every booking (failed / capped rows and mail to the owner do not
+    count)."""
+    since = utc_now() - timedelta(days=1)
+    return int(
+        db.query(func.count(NotificationLog.id))
+        .filter(
+            NotificationLog.user_id == owner_id,
+            NotificationLog.channel == "email",
+            NotificationLog.status == "sent",
+            NotificationLog.event_type.in_(GUEST_EVENTS),
+            NotificationLog.created_at >= since,
+        )
+        .scalar() or 0
+    )
+
+
+def guest_email_owner_cap(db: Session, owner_id) -> int:
+    """This owner's rolling-24h guest-mail ceiling: the lower one until the
+    owner's own e-mail address is confirmed."""
+    verified = db.query(User.email_verified).filter(User.id == owner_id).scalar()
+    return (GUEST_EMAILS_PER_OWNER_PER_DAY if verified is True
+            else GUEST_EMAILS_PER_OWNER_PER_DAY_UNCONFIRMED)
+
+
+def owner_guest_mail_capped(db: Session, owner_id) -> int | None:
+    """The ceiling when this owner has reached it, else None. Raises when the
+    count itself fails — the caller decides (deliver() refuses to send)."""
+    cap = guest_email_owner_cap(db, owner_id)
+    return cap if guest_emails_sent_by_owner_last_24h(db, owner_id) >= cap else None
+
+
+def owner_cap_notice(cap: int) -> dict:
+    """What the owner's edit / status answer carries when the guest was not
+    e-mailed because the venue reached its daily guest-mail ceiling. The
+    change itself is saved."""
+    return {
+        "code": "guest_email_owner_cap",
+        "cap": int(cap),
+        "message": (
+            f"Saved. The guest was not e-mailed: BonBox has sent {cap} guest e-mails "
+            "for your venue in the last 24 hours, the most it sends. Let the guest know yourself."
+        ),
+        "message_da": (
+            f"Gemt. Gæsten fik ingen e-mail: BonBox har sendt {cap} gæstemails for dit sted "
+            "det seneste døgn, og flere sender BonBox ikke. Giv selv gæsten besked."
+        ),
+    }
+
+
 def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
             to: str | None, subject: str, html: str,
             reply_to: str | None = None) -> bool:
@@ -850,6 +913,9 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
             capped = (guest_emails_sent_last_24h(db, owner_id, reservation_id)
                       >= GUEST_EMAILS_PER_RESERVATION_PER_DAY)
             reason = "capped"
+            if not capped and owner_guest_mail_capped(db, owner_id) is not None:
+                # The venue's own daily ceiling, across all its bookings.
+                capped, reason = True, "owner_capped"
         except Exception:  # noqa: BLE001 — couldn't check → don't send
             capped, reason = True, "cap_check_error"
         if capped:
