@@ -41,6 +41,40 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
+def claim_unverified_account(db: Session, user: User, *, via: str,
+                             ip_address: str | None = None) -> bool:
+    """The inbox owner just proved this address (an e-mail link, or Apple's
+    verified claim) and lands in an account whose address was NEVER
+    confirmed. Whoever created that account did not prove the inbox, so
+    nothing they hold may survive the hand-over (account pre-hijacking,
+    review 8 Oct): the password they set is replaced by a random one, every
+    session they hold is revoked (token_version), the pending code is
+    cleared, and the address is now confirmed. Audited.
+
+    An already-confirmed account is untouched (returns False): its owner
+    proved the inbox once, so this is the same person signing in again.
+    The caller commits and mints the session AFTER this (new token_version).
+    """
+    if getattr(user, "email_verified", False) is True:
+        return False
+    import secrets as _secrets
+    user.password_hash = hash_password(_secrets.token_urlsafe(32))
+    user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
+    user.verification_code = None
+    user.verification_code_expires = None
+    user.email_verified = True
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, user, "auth.unverified_account_claimed", "user",
+            entity_id=user.id, after={"via": via, "token_version": user.token_version},
+            ip_address=ip_address,
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never block the sign-in
+        pass
+    return True
+
+
 def create_access_token(
     user_id: str,
     token_version: int | None = None,

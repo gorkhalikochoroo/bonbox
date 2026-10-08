@@ -226,7 +226,7 @@ const SECTIONS = [
 
 export default function ProfilePage() {
   const [theme, setTheme] = useTheme();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const confirm = useConfirm();
   // Task #55 — "Run onboarding again" link. Resets the user's
   // onboarding_completed_at to null then navigates to /onboarding.
@@ -713,7 +713,13 @@ export default function ProfilePage() {
     try {
       const res = await api.post("/email/test-digest");
       setEmailMsg(res.data.sent ? `${t("digestSentTo")} ${res.data.to}!` : t("digestFailedToSend"));
-    } catch { setEmailMsg(t("failedToSendTest")); }
+    } catch (err) {
+      // 429: the test-mail ceiling (one per 10 minutes, five a day) — say
+      // which, in the owner's language (the server sends both).
+      const d = err?.response?.data?.detail;
+      const capped = err?.response?.status === 429 && d && typeof d === "object";
+      setEmailMsg((capped && (lang === "da" ? d.message_da : d.message)) || t("failedToSendTest"));
+    }
     setSendingTest(false);
     setTimeout(() => setEmailMsg(""), 4000);
   };

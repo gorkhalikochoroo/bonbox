@@ -575,3 +575,62 @@ def test_verify_with_token_of_different_hash_returns_401(client, db, email_outbo
     assert res_a.status_code == res_b.status_code == 200
     assert res_a.json()["user"]["email"] == "a@bonbox.dk"
     assert res_b.json()["user"]["email"] == "b@bonbox.dk"
+
+
+# ─── Account pre-hijacking (review, 8 Oct) ─────────────────────────────
+# Someone pre-registers the victim's address with a password of their own
+# (never verified). The victim later signs in with an e-mail link: the click
+# proves the inbox, so the pre-registered password and every session it
+# opened must go, and the address is confirmed.
+
+
+def _link_signin(client, email_outbox, email):
+    email_outbox.clear()
+    r = client.post("/api/auth/magic-link/request", json={"email": email})
+    assert r.status_code == 200, r.text
+    token = _extract_token_from_email(email_outbox[-1]["html"])
+    return client.post("/api/auth/magic-link/verify", json={"token": token})
+
+
+def test_magic_link_claims_a_preregistered_unverified_account(client, db, email_outbox):
+    from app.services.auth import create_access_token, verify_password
+    squatter = _make_user(db, email="victim@bonbox.dk", email_verified=False,
+                          password_hash=hash_password("attacker-pw-1"),
+                          verification_code="123456")
+    old_tv = squatter.token_version or 0
+    squatter_jwt = create_access_token(str(squatter.id), old_tv)
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": f"Bearer {squatter_jwt}"}).status_code == 200
+
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert res.status_code == 200, res.text
+    assert res.json()["user"]["id"] == str(squatter.id)  # same account, now the victim's
+    assert res.json()["user"]["email_verified"] is True
+
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert u.email_verified is True
+    assert u.token_version == old_tv + 1
+    assert u.verification_code is None
+    assert not verify_password("attacker-pw-1", u.password_hash)
+    # The pre-registering party's session is dead; the victim's works.
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": f"Bearer {squatter_jwt}"}).status_code == 401
+    assert client.get("/api/auth/me", headers={
+        "Authorization": f"Bearer {res.json()['access_token']}"}).status_code == 200
+    assert db.query(AuditLog).filter(
+        AuditLog.action == "auth.unverified_account_claimed").count() == 1
+
+
+def test_magic_link_leaves_a_confirmed_account_untouched(client, db, email_outbox):
+    from app.services.auth import verify_password
+    owner = _make_user(db, email="owner@bonbox.dk")  # email_verified=True
+    old_hash, old_tv = owner.password_hash, owner.token_version or 0
+    res = _link_signin(client, email_outbox, "owner@bonbox.dk")
+    assert res.status_code == 200, res.text
+    db.expire_all()
+    u = db.query(User).filter(User.id == owner.id).one()
+    assert u.password_hash == old_hash and verify_password("owner-password-1", u.password_hash)
+    assert (u.token_version or 0) == old_tv
+    assert db.query(AuditLog).filter(
+        AuditLog.action == "auth.unverified_account_claimed").count() == 0

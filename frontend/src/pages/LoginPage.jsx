@@ -10,6 +10,7 @@ import api from "../services/api";
 import AppleSignInButton from "../components/AppleSignInButton";
 import { oauthErrText } from "../utils/errText";
 import { withSignupRef } from "../utils/signupRef";
+import { postLoginPath } from "../utils/verifySkip";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -181,11 +182,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const data = await login(email, password);
-      if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
-        navigate("/verify-email");
-      } else {
-        navigate("/dashboard");
-      }
+      navigate(postLoginPath(data.user));
     } catch (err) {
       let msg;
       const detail = err.response?.data?.detail;
@@ -240,16 +237,7 @@ export default function LoginPage() {
       const name =
         [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
       const data = await appleOauthLogin(idToken, name);
-      if (
-        data.user &&
-        !data.user.email_verified &&
-        data.user.created_at &&
-        new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")
-      ) {
-        navigate("/verify-email");
-      } else {
-        navigate("/dashboard");
-      }
+      navigate(postLoginPath(data.user));
     } catch (err) {
       // The plugin rejects user-cancellation with code "user_cancelled" —
       // swallow silently (parity with the web button's popup_closed_by_user).
@@ -500,16 +488,7 @@ export default function LoginPage() {
                       setError("");
                       try {
                         const data = await appleOauthLogin(idToken, name);
-                        if (
-                          data.user &&
-                          !data.user.email_verified &&
-                          data.user.created_at &&
-                          new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")
-                        ) {
-                          navigate("/verify-email");
-                        } else {
-                          navigate("/dashboard");
-                        }
+                        navigate(postLoginPath(data.user));
                       } catch (err) {
                         setError(oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t));
                       }
@@ -531,11 +510,7 @@ export default function LoginPage() {
                         const fn = googleOauthLogin || googleLogin;
                         fn(res.credential)
                           .then((data) => {
-                            if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
-                              navigate("/verify-email");
-                            } else {
-                              navigate("/dashboard");
-                            }
+                            navigate(postLoginPath(data.user));
                           })
                           .catch((err) => setError(oauthErrText(err, t("googleSigninFailed"), t)));
                       }}

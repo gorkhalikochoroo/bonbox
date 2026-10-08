@@ -245,3 +245,53 @@ def test_apple_invalid_token_401(db_session, client):
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 401
     assert "Invalid or expired" in r.json()["detail"]
+
+
+# ─── Account pre-hijacking on the legacy link (review, 8 Oct) ─────────
+# By decision the legacy route still links Apple onto an existing account
+# when Apple says the e-mail is verified. When that account was never
+# confirmed, whoever pre-registered it keeps nothing: password replaced,
+# sessions revoked, the address confirmed.
+
+
+def test_legacy_apple_link_claims_an_unverified_account(db_session, client):
+    from app.services.auth import create_access_token, verify_password
+    squatter = User(
+        email="victim@bonbox.test", password_hash=hash_password("attacker-pw-1"),
+        business_name="V", business_type="cafe", currency="DKK",
+    )
+    db_session.add(squatter); db_session.commit(); db_session.refresh(squatter)
+    old_tv = squatter.token_version or 0
+    old_jwt = create_access_token(str(squatter.id), old_tv)
+
+    with _patch_verify({"sub": "001234.claim.0001", "email": "victim@bonbox.test",
+                        "email_verified": "true"}):
+        r = client.post("/api/auth/apple", json={"identity_token": "x"})
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["id"] == str(squatter.id)
+    db_session.refresh(squatter)
+    assert squatter.apple_user_id == "001234.claim.0001"   # the link stays
+    assert squatter.email_verified is True
+    assert squatter.token_version == old_tv + 1
+    assert not verify_password("attacker-pw-1", squatter.password_hash)
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": f"Bearer {old_jwt}"}).status_code == 401
+    assert client.get("/api/auth/me", headers={
+        "Authorization": f"Bearer {r.json()['access_token']}"}).status_code == 200
+
+
+def test_legacy_apple_link_leaves_a_confirmed_account_untouched(db_session, client):
+    from app.services.auth import verify_password
+    owner = User(
+        email="real@bonbox.test", password_hash=hash_password("owner-pw-1"),
+        business_name="R", business_type="cafe", currency="DKK", email_verified=True,
+    )
+    db_session.add(owner); db_session.commit(); db_session.refresh(owner)
+    old_tv = owner.token_version or 0
+    with _patch_verify({"sub": "001234.claim.0002", "email": "real@bonbox.test",
+                        "email_verified": "true"}):
+        r = client.post("/api/auth/apple", json={"identity_token": "x"})
+    assert r.status_code == 200, r.text
+    db_session.refresh(owner)
+    assert verify_password("owner-pw-1", owner.password_hash)
+    assert (owner.token_version or 0) == old_tv

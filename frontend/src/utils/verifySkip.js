@@ -60,3 +60,27 @@ export function verifyWallExempt(pathname) {
   const p = String(pathname || "");
   return p === "/daily-close" || p.startsWith("/daily-close/");
 }
+
+/**
+ * Where a fresh sign-in lands (LoginPage: password, Google, Apple). The
+ * verify wall only for an unconfirmed owner created after the grace date who
+ * has NOT tapped "Spring over for nu" in the last 7 days — the rule
+ * ProtectedRoute applies. The login used to skip the skip check, so a skipped
+ * owner met the wall again on every sign-in and VerifyEmailRoute mailed them
+ * a fresh code each time (review, 8 Oct). Purposeful arrivals (Profile,
+ * "Bekræft nu", the ?now=1 reminder) still reach /verify-email directly.
+ */
+export const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
+
+export function postLoginPath(user, now = Date.now()) {
+  if (
+    user &&
+    !user.email_verified &&
+    user.created_at &&
+    new Date(user.created_at) >= new Date(VERIFICATION_GRACE_DATE) &&
+    !verifySkipActive(user.id, now)
+  ) {
+    return "/verify-email";
+  }
+  return "/dashboard";
+}
