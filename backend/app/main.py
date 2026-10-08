@@ -1087,11 +1087,26 @@ _migrations = [
     # been through it once (or explicitly skipped) and we leave them on
     # /dashboard. Users can re-trigger the wizard from Profile, which
     # nulls this back out.
-    # Backfill: existing users get NOW() so they don't suddenly get
-    # forced through onboarding after this deploy. New signups land
-    # with NULL (column default) and are walked through the flow.
+    # New signups land with NULL (column default) and are walked through
+    # the flow.
+    #
+    # NO BACKFILL HERE ANY MORE (hotfix, 8 Oct 2026). This list used to
+    # carry a one-time backfill right after the ADD COLUMN:
+    #   UPDATE users SET onboarding_completed_at = NOW()
+    #   WHERE onboarding_completed_at IS NULL AND created_at < NOW() - INTERVAL '1 day'
+    # so the owners who existed when the column was added were not forced
+    # through the new wizard. But _migration_already_applied never skips an
+    # UPDATE, so it ran on EVERY startup: at each deploy every account older
+    # than a day that had not finished the wizard was stamped "onboarding
+    # finished". Owners who never finished never saw the wizard again, the
+    # onboarding_finished count in /admin/signup-refs was meaningless, and
+    # the stamp — always after ACTIVATION_DISCLOSURE_LAUNCH_AT — moved those
+    # accounts into the activation-disclosure cohort (routers/activation.py
+    # _is_in_scope). The backfill's job was done at the first
+    # deploy after Migration 042; it must not come back. The SQLite mirror
+    # (_add below) never had it. Pinned by
+    # tests/test_onboarding_not_restamped_on_startup.py.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMP",
-    "UPDATE users SET onboarding_completed_at = NOW() WHERE onboarding_completed_at IS NULL AND created_at < NOW() - INTERVAL '1 day'",
 
     # ── Migration 043: magic_link_tokens (Task #61) ──────────────────────
     # Single-use, sha256-hashed sign-in tokens for passwordless login.
