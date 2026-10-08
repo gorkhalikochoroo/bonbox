@@ -132,7 +132,11 @@ def _override_user_with_request(user: User):
 # ─── Helpers ───────────────────────────────────────────────────────────
 
 
-def _owner(db, plan: str = "starter", email_suffix: str = "") -> User:
+def _owner(db, plan: str = "starter", email_suffix: str = "", verified: bool = True) -> User:
+    # Confirmed by default: BonBox mails a revisor only for an owner whose own
+    # e-mail is confirmed (8 Oct), and the tests below that assert a sent
+    # invite are about the confirmed owner. The unconfirmed owner has its own
+    # tests (verified=False) — grant created, mail held.
     u = User(
         email=f"owner{email_suffix}@bonbox.dk",
         password_hash=hash_password("ownerpw123"),
@@ -141,6 +145,7 @@ def _owner(db, plan: str = "starter", email_suffix: str = "") -> User:
         currency="DKK",
         plan=plan,
         role="owner",
+        email_verified=verified,
     )
     db.add(u)
     db.commit()
@@ -854,3 +859,127 @@ def test_invite_reports_whether_the_mail_left(client, db, monkeypatch):
     assert body["email_sent"] is False
     assert body["accept_url"]  # the copy-link fallback is still there
 
+
+# ─── An unconfirmed owner: the grant is created, the mail is held (8 Oct) ──
+
+
+def _capture_sends(monkeypatch) -> list[dict]:
+    sent: list[dict] = []
+
+    def _capture(to, subject, html, *, reply_to=None, headers=None):
+        sent.append({"to": to, "subject": subject, "html": html})
+        return True
+
+    monkeypatch.setattr("app.services.email_service.send_email", _capture)
+    return sent
+
+
+def test_unconfirmed_owner_invite_creates_the_grant_but_mails_nobody(client, db, monkeypatch):
+    import json
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+
+    res = client.post("/api/accountants/invite",
+                      json={"email": "revisor@example.dk", "name": "Anna Hansen"})
+    assert res.status_code == 201, res.text
+    body = res.json()
+    # Same response shape; the mail is reported as not sent, with the reason.
+    assert body["status"] == "pending"
+    assert body["email_sent"] is False
+    assert body["email_not_sent_reason"] == "email_unverified"
+    assert body["accept_url"]  # the owner can still hand the link over
+    assert sent == []  # send_email never called
+
+    grant = db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).one()
+    assert grant.status == "pending" and grant.invite_token
+    assert body["accept_url"].endswith(grant.invite_token)
+    row = db.query(AuditLog).filter(AuditLog.action == "accountant.invited").one()
+    assert json.loads(row.after_state)["mail_held"] == "email_unverified"
+
+    # Nothing lost: the revisor's access works from the link.
+    _override_user(None)
+    res = client.post("/api/accountants/signup", json={
+        "invite_token": grant.invite_token, "password": "revisorpw123", "full_name": "Anna Hansen",
+    })
+    assert res.status_code == 200, res.text
+    db.refresh(grant)
+    assert grant.status == "active"
+    assert sent == []
+
+
+def test_confirmed_owner_invite_mails_exactly_as_before(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    assert owner.email_verified is True
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    res = client.post("/api/accountants/invite", json={"email": "revisor@example.dk"})
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["email_sent"] is True
+    assert body["email_not_sent_reason"] is None
+    assert [m["to"] for m in sent] == ["revisor@example.dk"]
+    import json
+    row = db.query(AuditLog).filter(AuditLog.action == "accountant.invited").one()
+    assert "mail_held" not in json.loads(row.after_state)
+
+
+def test_after_confirming_send_invitation_mails_the_held_invite_once(client, db, monkeypatch):
+    """Team → Revisor → "Send invitation" re-posts the pending grant's own
+    address. Before confirmation it still holds the mail; after, it re-arms
+    the SAME grant (no duplicate) and mails it once, audited and counted in
+    the revisor cap like every invite."""
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    first = client.post("/api/accountants/invite",
+                        json={"email": "revisor@example.dk", "name": "Anna Hansen"}).json()
+    assert first["email_sent"] is False and sent == []
+
+    # Tapping it again while still unconfirmed: still held, still one grant.
+    again = client.post("/api/accountants/invite",
+                        json={"email": "revisor@example.dk", "name": "Anna Hansen"}).json()
+    assert again["email_sent"] is False and again["email_not_sent_reason"] == "email_unverified"
+    assert again["id"] == first["id"] and sent == []
+
+    owner.email_verified = True  # the owner confirms their own e-mail
+    db.commit()
+
+    res = client.post("/api/accountants/invite",
+                      json={"email": "revisor@example.dk", "name": "Anna Hansen"})
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["id"] == first["id"]  # the held grant, re-armed
+    assert body["email_sent"] is True and body["email_not_sent_reason"] is None
+    assert [m["to"] for m in sent] == ["revisor@example.dk"]
+    grant = db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).one()
+    assert grant.status == "pending"
+    # The mailed link is the live one.
+    assert grant.invite_token in sent[0]["html"]
+    assert body["accept_url"].endswith(grant.invite_token)
+    assert db.query(AuditLog).filter(AuditLog.action == "accountant.invited").count() == 3
+
+
+def test_unconfirmed_owner_still_meets_every_invite_gate(client, db, monkeypatch):
+    """Holding the mail does not open a side door: the opt-out and the daily
+    cap still refuse before any grant is written."""
+    from app.models.business_profile import BusinessProfile
+    from app.services.revisor_mail import address_fingerprint
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    db.add(BusinessProfile(user_id=owner.id, company_name="Bon Bakery",
+                           accountant_email="anna@revisor.dk",
+                           accountant_opted_out_at=utc_now(),
+                           accountant_opted_out_email=address_fingerprint("anna@revisor.dk")))
+    db.commit()
+    res = client.post("/api/accountants/invite", json={"email": "anna@revisor.dk"})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "accountant_opted_out"
+    for _ in range(20):
+        db.add(AuditLog(user_id=owner.id, action="accountant.invited",
+                        entity_type="accountant_grant", created_at=utc_now() - timedelta(hours=1)))
+    db.commit()
+    res = client.post("/api/accountants/invite", json={"email": "other@revisor.dk"})
+    assert res.status_code == 429 and res.json()["detail"]["code"] == "revisor_daily_cap"
+    assert db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).count() == 0
+    assert sent == []

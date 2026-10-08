@@ -607,9 +607,16 @@ VERIFY_EMAIL_FIRST_MESSAGE_DA = (
 )
 
 
+def sender_is_verified(user: Any) -> bool:
+    """True only when the account's own address is confirmed. The non-raising
+    form, for a path that still does its work but holds the mail (the revisor
+    invite: the grant is created, nothing is e-mailed)."""
+    return getattr(user, "email_verified", False) is True
+
+
 def require_verified_sender(user: Any) -> None:
     """403 email_unverified unless the account's own address is confirmed."""
-    if getattr(user, "email_verified", False) is True:
+    if sender_is_verified(user):
         return
     raise HTTPException(
         status_code=403,

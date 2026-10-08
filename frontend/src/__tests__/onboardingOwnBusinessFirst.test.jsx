@@ -9,7 +9,7 @@
  *   • "Udforsk med eksempeldata" is the quiet secondary path and asks the
  *     server to keep the owner's own profile (POST /demo/seed?keep_profile).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -204,5 +204,44 @@ describe("the finish — one obvious next step (item 4)", () => {
     await act(async () => { fireEvent.click(screen.getByText("onbFinishToFirstWin")); });
     await waitFor(() => expect(h.navigate).toHaveBeenCalled());
     expect(h.navigate).toHaveBeenLastCalledWith("/reservations", { replace: true });
+  });
+});
+
+describe("step 4 — an unconfirmed owner's invite is saved, not mailed (8 Oct)", () => {
+  afterEach(() => { h.post.mockImplementation(() => Promise.resolve({ data: { ok: true } })); });
+
+  it("says so plainly, shows no error, and the wizard finishes as usual", async () => {
+    h.post.mockImplementation((url) => (
+      url === "/accountants/invite"
+        ? Promise.resolve({ data: {
+          id: "g1", status: "pending", accept_url: "https://bonbox.dk/accept-invite/x",
+          email_sent: false, email_not_sent_reason: "email_unverified",
+        } })
+        : Promise.resolve({ data: { ok: true } })
+    ));
+    await toStep4();
+    fireEvent.change(document.getElementById("onb-revisor-email"), { target: { value: "revisor@regnskab.dk" } });
+    await act(async () => { fireEvent.click(screen.getByText("onbStep4Finish")); });
+    await waitFor(() => expect(h.navigate).toHaveBeenCalled());
+    expect(h.post).toHaveBeenCalledWith("/accountants/invite", { email: "revisor@regnskab.dk", name: null });
+    expect(screen.getByText("onbRevisorInviteHeld")).toBeInTheDocument();
+    expect(screen.queryByText("onbRevisorInviteSent")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(h.post).toHaveBeenCalledWith("/auth/onboarding/complete");
+    expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
+  });
+
+  it("a confirmed owner's mailed invite still says sent", async () => {
+    h.post.mockImplementation((url) => (
+      url === "/accountants/invite"
+        ? Promise.resolve({ data: { id: "g1", status: "pending", email_sent: true, email_not_sent_reason: null } })
+        : Promise.resolve({ data: { ok: true } })
+    ));
+    await toStep4();
+    fireEvent.change(document.getElementById("onb-revisor-email"), { target: { value: "revisor@regnskab.dk" } });
+    await act(async () => { fireEvent.click(screen.getByText("onbStep4Finish")); });
+    await waitFor(() => expect(h.navigate).toHaveBeenCalled());
+    expect(screen.getByText("onbRevisorInviteSent")).toBeInTheDocument();
+    expect(screen.queryByText("onbRevisorInviteHeld")).toBeNull();
   });
 });

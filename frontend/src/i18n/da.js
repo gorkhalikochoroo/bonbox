@@ -6938,6 +6938,9 @@ export const da = {
     revisorInviteSent: "Invitation sendt. De har 7 dage til at acceptere.",
     revisorInviteNotEmailed: "Invitationen er klar, men mailen kunne ikke sendes. Kopiér linket herunder og send det til din revisor. Det virker i 7 dage.",
     revisorCopyLinkHint: "Kom den ikke frem? Send selv din revisor dette link — det virker i 7 dage.",
+    revisorInviteHeldUnverified: "Invitationen er gemt, men ikke sendt endnu: BonBox sender kun mail til andre, når din egen e-mail er bekræftet. Bekræft den, og tryk så på Send invitationen ud for din revisor herunder.",
+    revisorCopyLinkHintUnsent: "Eller send selv din revisor dette link — det virker i 7 dage.",
+    revisorSendInvitation: "Send invitationen",
     copyLink: "Kopiér link",
     revisorPlanRequired: "Invitation af revisor kræver Starter. Opgrader for at låse skrivebeskyttet revisor-adgang op.",
     revisorAlreadyActive: "Denne revisor har allerede aktiv adgang.",
@@ -7634,6 +7637,7 @@ export const da = {
     onbRevisorStarterRequired: "Invitation af revisor kræver Starter eller højere. Opgrader eller spring over.",
     onbRevisorInviteSent: "Invitation sendt til {email}. De har 7 dage til at acceptere.",
     onbRevisorAlreadyActive: "Den revisor har allerede adgang.",
+    onbRevisorInviteHeld: "Invitationen til din revisor er gemt, men ikke sendt endnu: BonBox sender kun mail til andre, når din egen e-mail er bekræftet. Bekræft den, og tryk så på Send invitationen under Hold → Revisor.",
     onbRevisorInviteFailed: "Kunne ikke sende invitationen. Du kan gøre det senere fra Profil.",
     // ── "Her er hvad vi har sat op til dig"-panel (Milestone 1) ──
     // Vises på sidste trin; afspejler den fundne arketype. Viser arketypens

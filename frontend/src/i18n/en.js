@@ -7149,6 +7149,9 @@ export const en = {
     revisorInviteSent: "Invite sent. They have 7 days to accept.",
     revisorInviteNotEmailed: "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.",
     revisorCopyLinkHint: "Didn't arrive? Send your revisor this link yourself — it works for 7 days.",
+    revisorInviteHeldUnverified: "Invite saved, but not e-mailed yet: BonBox only sends mail to others once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.",
+    revisorCopyLinkHintUnsent: "Or send your revisor this link yourself — it works for 7 days.",
+    revisorSendInvitation: "Send invitation",
     copyLink: "Copy link",
     revisorPlanRequired: "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access.",
     revisorAlreadyActive: "This revisor already has active access.",
@@ -7916,6 +7919,7 @@ export const en = {
     onbRevisorStarterRequired: "Inviting a revisor needs Starter or higher. Upgrade or skip for now.",
     onbRevisorInviteSent: "Invite sent to {email}. They have 7 days to accept.",
     onbRevisorAlreadyActive: "That revisor already has access.",
+    onbRevisorInviteHeld: "Your revisor's invite is saved, but not e-mailed yet: BonBox only sends mail to others once your own e-mail is confirmed. Confirm it, then tap Send invitation under Team → Revisor.",
     onbRevisorInviteFailed: "Couldn't send the invite. You can do it later from Profile.",
     // ── "Here's what we set up for you" panel (Milestone 1) ──
     // Shown on the final step; reflects the resolved archetype. Lists the

@@ -73,6 +73,10 @@ class AccountantGrantResponse(BaseModel):
     # server, False when it was not (owner must share accept_url themselves),
     # None on every other response.
     email_sent: Optional[bool] = None
+    # Invite response only: why no e-mail was attempted. "email_unverified" =
+    # the owner's own address is not confirmed, so BonBox held the mail (the
+    # grant and accept_url are still there). None when a send was attempted.
+    email_not_sent_reason: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
