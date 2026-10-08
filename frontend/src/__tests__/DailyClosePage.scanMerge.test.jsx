@@ -243,8 +243,11 @@ describe("daily close — a second Z-bon with its own total", () => {
     fireEvent.click(screen.getByText(/scanSecondTotalSum/));
     await waitFor(() => expect(screen.getByText("scanMergedTerminals:2")).toBeInTheDocument());
 
-    // MOMS is named as un-summable...
-    expect(screen.getByText(/scanMergedIncompleteNamed:.*MOMS/)).toBeInTheDocument();
+    // MOMS is said to be worked out for the whole day — not listed as "stood
+    // on one bon only", which contradicted the worked-out figure beside it
+    // (round 16, verified). Drinks, read off one bon only, is still named.
+    expect(screen.getByTestId("dc-moms-one-till")).toBeInTheDocument();
+    expect(screen.getByText(/^scanMergedIncompleteNamed:.+/).textContent).not.toMatch(/MOMS/);
     // ...the OCR badge is withdrawn (the number no longer covers the total)...
     expect(within(momsHeading()).queryByText("scanBadgeRead")).not.toBeInTheDocument();
     // ...and the figure shown is 25% of the SUMMED revenue (21.240 → 4.248),

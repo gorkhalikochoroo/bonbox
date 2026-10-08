@@ -2688,7 +2688,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // The total the scan card SAVES (its total box shows it): a typed total, or
   // the larger of the printed total and the card's lines (closeSaveTotal).
   const cardSaveTotal = !scanResult ? 0 : ledgerSaved;
-
+  // The owner's own till (a typed close, a reopened draft) is in the day: its
+  // lines are theirs, never "found on this bon" and never "missing" from it.
+  const cardOwnTill = useMemo(() => Boolean(formTill(ledger)), [ledger]);
+  // Every category the card carries — a custom one ("Catering") the owner's
+  // till brought in too — so its lines add up to the total it saves.
+  const cardRevCats = useMemo(() => {
+    const extra = Object.entries(scanResult?.revenue || {})
+      .filter(([k, v]) => !TOTAL_KEYS.includes(k) && !defaultRevCats.some((c) => c.key === k)
+        && v != null && String(v).trim() !== "")
+      .map(([k]) => revCats.find((c) => c.key === k)
+        || { key: k, label: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "), icon: "Tag" });
+    return extra.length ? [...defaultRevCats, ...extra] : defaultRevCats;
+  }, [scanResult, defaultRevCats, revCats]);
+  const cardUnsplit = !scanResult ? 0 : Math.round((cardSaveTotal - Object.entries(scanResult.revenue || {})
+    .filter(([k]) => !TOTAL_KEYS.includes(k)).reduce((a, [, v]) => a + readMoney0(v), 0)) * 100) / 100;
   const scanLinesAddUp = (bucket, lines, total = scanTotalNow) => total > 0
     && Math.abs(lines.reduce((a, c) => a + readMoney0(bucket?.[c.key]), 0) - total) < 1;
   // The categories against the printed total (lines that add up to it ARE
@@ -3361,8 +3375,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    * out on purpose — they are not money lines the owner types.
    */
   const mergeIncompleteNames = useMemo(() => {
-    // Lines only some tills carried (closeTills.oneSidedLines).
-    const sides = oneSidedLines(ledger, { listMoms: true });
+    // Lines only some tills carried (closeTills.oneSidedLines). MOMS is named
+    // only when the day's MOMS is a figure the owner typed: otherwise the MOMS
+    // shown is worked out for the whole day, and "MOMS stood on one bon only —
+    // check it" contradicted the very figure beside it.
+    const sides = oneSidedLines(ledger, { listMoms: momsTyped });
     if (!sides.read.length && !sides.own.length) return { read: [], own: [] };
     const label = (f) => {
       if (f === "moms_total") return vatName;
@@ -3389,7 +3406,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // is still not added up — the new bon's cash, say, is in no line — so it
     // is named on its own line, in words that do not call it a bon's.
     return { read: names(sides.read), own: names(sides.own) };
-  }, [ledger, revCats, payMethods, vatName, t]);
+  }, [ledger, momsTyped, revCats, payMethods, vatName, t]);
   const mergeIncompleteLabels = mergeIncompleteNames.read;
   const mergeIncompleteOwnLabels = mergeIncompleteNames.own;
 
@@ -3436,7 +3453,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // known): what applying leaves, and nobody read it off a photo.
     if (ledgerMoms.source === "typed") return { value: ledgerMoms.value, read: false, moved: false };
     if (fits) return { value: ledgerMoms.value, read: true, moved: false };
-    return { value: momsFor(cardSaveTotal), read: false, moved: ledgerMoms.recomputed };
+    return { value: momsFor(cardSaveTotal), read: false, moved: ledgerMoms.recomputed, oneTill: ledgerMoms.oneTill };
   })();
 
   /**
@@ -3741,6 +3758,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // bon is 17.530 on screen, and the sum must carry it.
               const existingTotal = ledgerSaved;
               const incomingTotal = scanSaveTotal(pendingScan, mLocale) ?? headlineTotal(pendingScan, mLocale);
+              // Øre as on the form: "14.000,50 kr.", never a rounded "14.001".
+              const qDec = pairDecimals(existingTotal, incomingTotal, (existingTotal || 0) + (incomingTotal || 0));
               return (
                 <div ref={terminalQRef} tabIndex={-1} role="group" aria-labelledby="dc-terminal-q"
                   data-testid="dc-terminal-question"
@@ -3751,8 +3770,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   </p>
                   <p className="text-xs text-amber-800 dark:text-amber-200">
                     {t("scanSecondTotalBody", "This scan has its own total of {incoming}. The one on screen is {existing}.", {
-                      incoming: formatOwnerMoney(incomingTotal, currency, { decimals: GLANCE_DECIMALS }),
-                      existing: formatOwnerMoney(existingTotal, currency, { decimals: GLANCE_DECIMALS }),
+                      incoming: formatOwnerMoney(incomingTotal, currency, { decimals: qDec }),
+                      existing: formatOwnerMoney(existingTotal, currency, { decimals: qDec }),
                     })}
                   </p>
                   {/* Picking several photos at once is one tap, so say how many
@@ -3768,14 +3787,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       onClick={() => resolveTerminalChoice(MERGE_SUM)}
                       iconLeft={<Icon name="Plus" size={15} />}>
                       {t("scanSecondTotalSum", "Another terminal — add them up ({sum})", {
-                        sum: formatOwnerMoney((existingTotal || 0) + (incomingTotal || 0), currency, { decimals: GLANCE_DECIMALS }),
+                        sum: formatOwnerMoney((existingTotal || 0) + (incomingTotal || 0), currency, { decimals: qDec }),
                       })}
                     </Button>
                     <Button variant="secondary" size="sm" className="flex-1 h-auto! min-h-11 py-2 whitespace-normal! text-left leading-snug"
                       onClick={() => resolveTerminalChoice(MERGE_REPLACE)}
                       iconLeft={<Icon name="RefreshCw" size={15} />}>
                       {t("scanSecondTotalReplace", "Same terminal — use the new photo ({incoming})", {
-                        incoming: formatOwnerMoney(incomingTotal, currency, { decimals: GLANCE_DECIMALS }),
+                        incoming: formatOwnerMoney(incomingTotal, currency, { decimals: qDec }),
                       })}
                     </Button>
                   </div>
@@ -4094,9 +4113,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // Lines that add up to the total ARE the split: an empty
               // Takeaway was 0 that night, not something to ask for.
               if (!hasTotal || scanRevComplete || !cardIsRead) return null;
+              // The owner's own till is on the card (a typed close, a reopened
+              // draft): its categories are theirs, not "found on this bon", and
+              // the bon's unsplit part is the "Ikke fordelt" line below — no
+              // category is asked for. It named Takeaway as missing from a bon
+              // that had no split at all.
+              if (cardOwnTill) return null;
+              // Found = read off the photo; a line the owner typed is not.
               const detected = defaultRevCats
                 .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
-                .filter(r => r.val != null && r.val !== 0 && r.val !== "");
+                .filter(r => readOnCard(`revenue.${r.key}`, r.val));
               const missing = defaultRevCats
                 .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
                 .filter(r => !(r.val != null && r.val !== 0 && r.val !== ""));
@@ -4126,9 +4152,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                 {t("revenueMedMoms", "Revenue (med moms)")}
               </h3>
-              {defaultRevCats.map(c => {
+              {cardRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
-                const isEmpty = !val && !scanRevComplete && cardIsRead;
+                const isEmpty = !val && !scanRevComplete && cardIsRead && !cardOwnTill;
                 return (
                   <div key={c.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
                     {/* Icons and badges keep their size; the label gives way. In the
@@ -4160,7 +4186,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   </div>
                 );
               })}
-
+              {/* The card's lines add up to the total it saves: the part no
+                  category carries (a bon read as a total) is its own line. */}
+              <UnsplitLine amount={cardUnsplit} show={cardSaveTotal > 0} currency={currency} t={t}
+                decimals={pairDecimals(cardSaveTotal, cardUnsplit)} />
               {/* Money on this card goes through formatOwnerMoney. It used to
                   be a bare `toLocaleString() + currency code`, which uses the
                   BROWSER locale: a Danish owner on an English phone read
@@ -4250,6 +4279,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   {formatOwnerMoney(cardMoms.value, currency, { decimals: oreIfAny(cardMoms.value) })}
                 </span>
               </div>
+              {cardMoms.oneTill && !cardMoms.moved && (
+                <p className="text-[12px] text-amber-700 dark:text-amber-400" data-testid="dc-moms-one-till">
+                  {t("dcMomsOneTillRecomputed", "Only some of the tills had a MOMS line, so MOMS is worked out from the combined {saved}. If a receipt has more than one MOMS rate, tap From receipt and type the right figure.", {
+                    saved: formatOwnerMoney(cardSaveTotal, currency, { decimals: oreIfAny(cardSaveTotal) }),
+                  })}
+                </p>
+              )}
               {cardMoms.moved && (
                 <p className="text-[12px] text-amber-700 dark:text-amber-400">
                   {t("dcMomsRecomputed", "The Z-report's MOMS ({bon}) belongs to another total than the {saved} you save, so MOMS is worked out again from that total. If the report has more than one MOMS rate, tap From receipt and type the right figure.", {
@@ -5166,6 +5202,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     })}</span>
                   </p>
                 )}
+                {/* Some tills had a MOMS line and some did not: worked out for
+                    the whole day — said once, the same as on the card. */}
+                {!momsTyped && momsSource === "computed" && ledgerMoms.oneTill && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="dc-review-moms-one-till">
+                    <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+                    <span>{t("dcMomsOneTillRecomputed", "Only some of the tills had a MOMS line, so MOMS is worked out from the combined {saved}. If a receipt has more than one MOMS rate, tap From receipt and type the right figure.", {
+                      saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
+                    })}</span>
+                  </p>
+                )}
                 {!momsTyped && momsSource !== "recomputed" && (
                   <p className="text-[12px] text-gray-500 dark:text-gray-400">
                     {momsSource === "scanned"
@@ -5551,7 +5597,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // A summed day's categories raised past their bons, on top of
               // the bons' totals.
               const overBon = summedDay && !ownerSet && ocrTotal > 0 ? Math.max(0, Math.round((willSave - ocrTotal) * 100) / 100) : 0;
-
+              // The owner's own till summed with a Z-bon: their figure and
+              // the bon's, never all of it "fra bon".
+              const ownTotals = summedDay && cardOwnTill ? tillTotals(ledger) : null;
               // The other direction had no note: categories raised past the
               // bon's total are what is saved, and "Gemmer total" said nothing.
               // No bon known (a reopened draft's saved total) is no "Z-bon".
@@ -5619,7 +5667,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         {ownerSet
                           // The owner typed this total — "from the receipt" was untrue.
                           ? t("dcSavesYourTotal", "(your corrected total — the categories add up to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })
-
+                          // A typed (or reopened) till plus a Z-bon: the
+                          // figures said for what they are, the way the
+                          // revisor's line reads "… (indtastet) + …".
+                          : ownTotals
+                            ? t("dcSavesTypedPlusBon", "(you typed {typed} + Z-report {bon} — your breakdown sums to {sum})", {
+                                typed: formatOwnerMoney(ownTotals[0] || 0, currency, { decimals: LEDGER_DECIMALS }),
+                                bon: formatOwnerMoney(ownTotals.slice(1).reduce((a, v) => a + (v || 0), 0), currency, { decimals: LEDGER_DECIMALS }),
+                                sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }),
+                              })
                           // A sum the tills' corrected categories moved off
                           // the bons: the bons' figure, the amount and which
                           // way, then the split — three figures that add up.
@@ -5634,7 +5690,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                                 bon: formatOwnerMoney(bonTotal, currency, { decimals: LEDGER_DECIMALS }),
                                 sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }),
                               })
-                            : t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
+                            // "From the receipt" only when a bon's figure is
+                            // known — a reopened draft's saved total is not one.
+                            : bonTotal == null
+                              ? t("dcSavesSplitSums", "(your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })
+                              : t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
                       </span>
                     )}
                     {splitOverBon && (

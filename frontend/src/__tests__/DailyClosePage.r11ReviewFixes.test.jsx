@@ -258,6 +258,9 @@ describe("daily close — a reopened draft's card after a real photo is summed i
     fireEvent.click(screen.getByText(/scanSecondTotalSum/));
     await waitFor(() => expect(screen.getByText("scanMergedTerminals:2")).toBeInTheDocument());
     expect(screen.getByText(/^scanConfidenceLevel/)).toBeInTheDocument();
-    expect(screen.getAllByText("scanBadgeMissing").length).toBeGreaterThan(0);
+    // The owner's own lines are not "missing" from a bon (round 16, verified):
+    // what no category carries is said on the card's own "Ikke fordelt" line.
+    expect(screen.queryByText("scanBadgeMissing")).toBeNull();
+    expect(screen.getByText("dcUnsplitRevenue")).toBeInTheDocument();
   });
 });
