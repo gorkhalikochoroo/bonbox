@@ -52,9 +52,48 @@ describe("mergeScans — typed lines", () => {
     expect(page.merge_info.typedFields).toContain("revenue.drinks");
   });
 
+  it("the form's side is written down apart (formFields, formFirst) — a card correction is not the form's", () => {
+    const m = mergeScans(FORM, TILL2, MERGE_SUM);
+    expect(new Set(m.merge_info.formFields)).toEqual(new Set([
+      "revenue.food", "revenue.drinks", "revenue.takeaway", "payments.card", "payments.cash",
+    ]));
+    expect(m.merge_info.formFirst).toBe(true);
+    // A Kontant corrected on a read bon is typed, but not the form's — and it
+    // is still a one-sided line the card names.
+    const t1 = { revenue: { food: 9000 }, revenue_total: 17030, payments: { card: 12000, cash: "5.300" } };
+    const read = mergeScans(t1, TILL2, MERGE_SUM);
+    expect(read.merge_info.typedFields).toEqual(["payments.cash"]);
+    expect(read.merge_info.incompleteFields).toContain("payments.cash");
+    expect(read.merge_info.formFields).toBeUndefined();
+    expect(read.merge_info.formFirst).toBeUndefined();
+  });
+
+  it("the form's MOMS is added to the bon's, and stays the form's", () => {
+    const form = { ...FORM, moms_total: 3000, merge_info: { formFields: ["moms_total"], typedFields: ["moms_total"] } };
+    const m = mergeScans(form, TILL2, MERGE_SUM);
+    expect(m.moms_total).toBe(3800);
+    expect(m.merge_info.incompleteFields).not.toContain("moms_total");
+    expect(m.merge_info.formFields).toContain("moms_total");
+    expect(m.merge_info.typedFields).toContain("moms_total");
+    // A third till still adds to it, and it is still the form's.
+    const three = mergeScans(m, { revenue: {}, revenue_total: 1000, moms_total: 200, payments: { card: 1000 } }, MERGE_SUM);
+    expect(three.moms_total).toBe(4000);
+    expect(three.merge_info.formFields).toContain("moms_total");
+    expect(three.merge_info.formFirst).toBe(true);
+    // A page with its own MOMS: that page's read now, not the form's.
+    const page = mergeScans(form, { revenue: {}, payments: { card: 4000 }, moms_total: 800 }, MERGE_FILL);
+    expect(page.moms_total).toBe(800);
+    expect(page.merge_info.formFields).not.toContain("moms_total");
+    // Its total is known to be unknown: the card never calls it a bon's.
+    expect(Object.prototype.hasOwnProperty.call(page, "bon_total")).toBe(true);
+    expect(page.bon_total).toBeNull();
+  });
+
   it("\"same till\" starts over from the photo: nothing typed", () => {
     const two = mergeScans(FORM, TILL2, MERGE_SUM);
     const replaced = mergeScans(two, TILL2, MERGE_REPLACE);
     expect(replaced.merge_info.typedFields).toBeUndefined();
+    expect(replaced.merge_info.formFields).toBeUndefined();
+    expect(replaced.merge_info.formFirst).toBeUndefined();
   });
 });

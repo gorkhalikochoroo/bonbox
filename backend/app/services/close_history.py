@@ -162,27 +162,45 @@ def source_line(dc: Any, *, danish: bool = True, currency: str = "DKK") -> str:
     rev = getattr(dc, "revenue_total", None)
     if totals and rev is not None and abs(sum(totals) - float(rev)) > 0.5:
         totals = []
+    # Tills the owner typed rather than scanned (a Z-bon added to a typed
+    # close or a reopened draft) — never presented as a scanned till.
+    typed_tills = {t for t in (meta.get("typed_tills") or []) if isinstance(t, int) and not isinstance(t, bool)}
+    typed_mark = " (indtastet)" if danish else " (typed in)"
     if len(totals) >= 2:
-        amounts = " + ".join(money_dk(t, currency) for t in totals)
+        amounts = " + ".join(money_dk(t, currency) + (typed_mark if i in typed_tills else "")
+                             for i, t in enumerate(totals))
         parts.append(
             (f"{len(totals)} terminaler lagt sammen: {amounts}") if danish
             else (f"{len(totals)} tills added together: {amounts}")
         )
-    corrected = [str(k) for k in (meta.get("corrected") or []) if k]
-    if corrected:
+    elif typed_tills:
+        parts.append("lagt sammen med indtastede tal" if danish else "added to figures typed in")
+
+    def _labels(keys):
         labels = []
-        for k in corrected[:8]:
+        for k in keys[:8]:
             if k == "revenue_total":
                 labels.append("Omsætning i alt" if danish else "Total revenue")
+            elif k == "moms":
+                labels.append("MOMS" if danish else "VAT")
+            elif k == "tips":
+                labels.append("Drikkepenge" if danish else "Tips")
             elif k.startswith("pay:"):
                 labels.append(payment_method_label(k[4:], danish=danish))
             elif k.startswith("rev:"):
                 labels.append(revenue_category_label(k[4:], danish=danish))
             else:
                 labels.append(k)
+        return ", ".join(labels)
+
+    typed = [str(k) for k in (meta.get("typed") or []) if k]
+    if typed:
+        parts.append(("indtastet af ejeren: " if danish else "typed in by the owner: ") + _labels(typed))
+    corrected = [str(k) for k in (meta.get("corrected") or []) if k]
+    if corrected:
         parts.append(
             ("rettet af ejeren efter scanning: " if danish else "corrected by the owner after the scan: ")
-            + ", ".join(labels)
+            + _labels(corrected)
         )
     if edited:
         parts.append(edited_txt)

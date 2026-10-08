@@ -88,7 +88,10 @@ class DailyClose(Base):
     # not show it). source_meta: JSON {"kind": "zbon"|"typed", "scans": n,
     # "terminal_totals": [..] when tills were added together, "corrected":
     # ["rev:food", "pay:card", "revenue_total"] — fields the owner changed
-    # after the scan}. Both nullable; old closes print what is known.
+    # after the scan, "typed_tills": [0] — tills typed, not scanned (a Z-bon
+    # added to a typed close or a reopened draft), "typed": ["rev:food",
+    # "moms"] — the owner's own lines on such a close}. Both nullable; old
+    # closes print what is known.
     cash_float: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     source_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
 

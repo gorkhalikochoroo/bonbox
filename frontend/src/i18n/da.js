@@ -8118,6 +8118,7 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    scanMergedIncompleteOwn: "Dine egne tal, som ikke stod på den nye bon, er ikke lagt sammen: {fields}. Tjek dem, inden du låser.",
     dcDateMoveTyped: "Du har tastet tal for {from}. Brug dem for {to}, eller hent {toGen} salg fra kassesystemet?",
     dcDateMoveTypedNoSync: "Du har tastet tal for {from}. Brug dem for {to}?",
     dcDateMoveKeep: "Brug dem for {to}",

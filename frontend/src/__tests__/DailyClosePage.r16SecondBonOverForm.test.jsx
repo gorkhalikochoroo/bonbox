@@ -145,6 +145,11 @@ describe("daily close — a second Z-bon over a reopened draft (must-fix 1)", ()
     expect(screen.queryByText("scanBadgeRead")).toBeNull();
     const incomplete = screen.queryByText(/^scanMergedIncompleteNamed/);
     expect(incomplete?.textContent || "").not.toMatch(/food|drinks|takeaway|card|cash/i);
+    // …but they are still not added up (till 2 had none of them), so they are
+    // named — as the owner's own figures, not as a bon's lines.
+    const own = screen.getByText(/^scanMergedIncompleteOwn:/).textContent;
+    for (const k of ["dcCatFood", "dcCatDrinks", "dcCatTakeaway", "dcPayCash"]) expect(own).toContain(k);
+    expect(own).not.toContain("dcPayCard");
 
     // Fortryd: the draft's 17.130 and the question are back.
     fireEvent.click(screen.getByText("scanMergedUndo"));

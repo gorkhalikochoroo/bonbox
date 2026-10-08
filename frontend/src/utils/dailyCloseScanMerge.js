@@ -208,16 +208,19 @@ const ONE_NOTCH_DOWN = { high: "medium", medium: "low", low: "low" };
 /** Today's merge: incoming wins where it has a value, existing fills the rest. */
 function fillMerge(existing, incoming) {
   const merged = { ...existing };
-  // A line the new page carries is the page's read now, not a typed figure.
-  const prevTyped = existing.merge_info?.typedFields;
-  if (Array.isArray(prevTyped) && prevTyped.length) {
-    const readNow = (f) => {
-      const [bucket, k] = f.split(".");
-      if (k === undefined) return incoming[f] != null && typeof incoming[f] !== "string";
-      const v = incoming[bucket]?.[k];
-      return v != null && typeof v !== "string";
-    };
-    merged.merge_info = { ...existing.merge_info, typedFields: prevTyped.filter((f) => !readNow(f)) };
+  // A line the new page carries is the page's read now, not a typed figure —
+  // nor the form's (formFields: what the form brought in as the first side).
+  const readNow = (f) => {
+    const [bucket, k] = f.split(".");
+    if (k === undefined) return incoming[f] != null && typeof incoming[f] !== "string";
+    const v = incoming[bucket]?.[k];
+    return v != null && typeof v !== "string";
+  };
+  for (const key of ["typedFields", "formFields"]) {
+    const prev = merged.merge_info?.[key];
+    if (Array.isArray(prev) && prev.length) {
+      merged.merge_info = { ...merged.merge_info, [key]: prev.filter((f) => !readNow(f)) };
+    }
   }
 
   const rev = { ...(existing.revenue || {}) };
@@ -277,6 +280,13 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
   const notRead = (side, field, raw) => (side === "a"
     ? existingIsForm || typedBefore.has(field) || typeof raw === "string"
     : typedIncoming.has(field) || typeof raw === "string");
+  // Of those, what the FORM brought in (a close typed by hand, a reopened
+  // draft — or a till summed onto one): the payload marks that till and those
+  // lines as typed for the revisor, and the form's own MOMS is the owner's
+  // figure, added to the bon's — not "the MOMS from the Z-bon".
+  const formBefore = new Set(existing.merge_info?.formFields || []);
+  const fromForm = (field) => existingIsForm || formBefore.has(field);
+  const formSide = [];
 
   const sumBucket = (name) => {
     const a = existing[name] || {};
@@ -289,6 +299,7 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
       if ((av != null && notRead("a", `${name}.${k}`, a[k])) || (bv != null && notRead("b", `${name}.${k}`, b[k]))) {
         typed.push(`${name}.${k}`);
       }
+      if (av != null && fromForm(`${name}.${k}`)) formSide.push(`${name}.${k}`);
       if (av != null && bv != null) out[k] = av + bv;
       // Carry the PARSED number over, not the raw cell. A one-sided field used
       // to keep `a[k]` verbatim, so an owner-typed "1.500,50" survived into a
@@ -323,9 +334,11 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
   for (const field of ["revenue_total", "moms_total", "tips", "cash_counted_total"]) {
     const av = field === "revenue_total" ? tillTotal(existing) : toNum(existing[field], locale);
     const bv = field === "revenue_total" ? tillTotal(incoming) : toNum(incoming[field], locale);
-    if (field === "tips" && ((av != null && notRead("a", field, existing[field])) || (bv != null && notRead("b", field, incoming[field])))) {
+    if ((field === "tips" || field === "moms_total")
+      && ((av != null && notRead("a", field, existing[field])) || (bv != null && notRead("b", field, incoming[field])))) {
       typed.push(field);
     }
+    if ((field === "tips" || field === "moms_total") && av != null && fromForm(field)) formSide.push(field);
     if (av != null && bv != null) merged[field] = av + bv;
     else if (av != null) { merged[field] = av; incomplete.push(field); }
     else if (bv != null) { merged[field] = bv; incomplete.push(field); }
@@ -391,6 +404,11 @@ function sumMerge(existing, incoming, locale = "da-DK", bonA = scanBonTotal(exis
     terminalTotals: [...prevTotals, scanSaveTotal(incoming, locale)].filter((v) => v != null),
     incompleteFields: Array.from(new Set([...(prevInfo.incompleteFields || []), ...incomplete])),
     ...(typed.length ? { typedFields: Array.from(new Set(typed)) } : {}),
+    ...(formSide.length ? { formFields: Array.from(new Set(formSide)) } : {}),
+    // The first till is the form's, not a photo (terminalTotals[0]). Also
+    // when the form took a page first (it then carries formFields, no sum).
+    ...(existingIsForm || prevInfo.formFirst || (prevInfo.mode !== MERGE_SUM && formBefore.size > 0)
+      ? { formFirst: true } : {}),
     ...(overBon > 0 ? { overBon, linesAtSum: lineSum(merged.revenue, locale) } : {}),
   };
 

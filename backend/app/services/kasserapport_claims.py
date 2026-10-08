@@ -586,6 +586,7 @@ def moms_source(dc: Any) -> str:
         return "auto"
     raw = getattr(dc, "source_meta", None)
     kind = None
+    meta = None
     if raw:
         try:
             import json as _json
@@ -593,6 +594,11 @@ def moms_source(dc: Any) -> str:
             kind = meta.get("kind") if isinstance(meta, dict) else None
         except Exception:  # noqa: BLE001
             kind = None
+    # A Z-bon added to figures the owner typed: a manual MOMS on it is (at
+    # least partly) the owner's — never "fra Z-bon".
+    if kind == "zbon" and isinstance(meta, dict) and (
+            meta.get("typed_tills") or "moms" in (meta.get("typed") or [])):
+        return "typed"
     if kind == "zbon" or (kind is None and getattr(dc, "receipt_photo", None)):
         return "zbon"
     return "typed"

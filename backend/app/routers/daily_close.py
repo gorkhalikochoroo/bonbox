@@ -1321,6 +1321,18 @@ def _clean_source_meta(meta) -> str | None:
     corr = [str(x)[:40] for x in (meta.get("corrected") or []) if isinstance(x, str)][:20]
     if corr:
         out["corrected"] = corr
+    # A Z-bon added to figures the owner typed (a close typed by hand, a
+    # reopened draft): which tills were typed, not scanned (indexes into
+    # terminal_totals), and which lines are the owner's own. Without them the
+    # kasserapport printed a typed till as the second scanned one.
+    if kind == "zbon":
+        typed_tills = sorted({x for x in (meta.get("typed_tills") or [])
+                              if isinstance(x, int) and not isinstance(x, bool) and 0 <= x < len(tt)})
+        if typed_tills:
+            out["typed_tills"] = typed_tills
+        typed = [str(x)[:40] for x in (meta.get("typed") or []) if isinstance(x, str)][:20]
+        if typed:
+            out["typed"] = typed
     return _json.dumps(out)
 
 

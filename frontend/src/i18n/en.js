@@ -8409,6 +8409,7 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    scanMergedIncompleteOwn: "Your own figures that were not on the new receipt are not added up: {fields}. Check them before you lock.",
     dcDateMoveTyped: "You typed figures for {from}. Use them for {to}, or fetch {toGen} sales from your POS?",
     dcDateMoveTypedNoSync: "You typed figures for {from}. Use them for {to}?",
     dcDateMoveKeep: "Use them for {to}",
