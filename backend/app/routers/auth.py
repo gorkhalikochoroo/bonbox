@@ -1193,6 +1193,80 @@ _RESET_CODE_TTL_MIN = 15
 # flood is pointless, short enough that an owner whose first mail went to spam
 # is not stuck waiting out the full code lifetime.
 _RESET_RESEND_COOLDOWN_MIN = 2
+# Per-ACCOUNT ceilings over a rolling 24 hours (security round, 8 Oct). The
+# 5-wrong-guesses limit used to start over with every new code, so the only
+# per-account bound on guesses was the 2-minute resend cooldown (~3,600
+# guesses a day against a 6-digit code), and nothing bounded the reset mails
+# a known owner address could be sent. Counted from audit_logs, the repo's
+# usage counter — no migration:
+#   • at most _RESET_CODES_PER_DAY codes (= reset mails) per account;
+#   • at most _RESET_MAX_FAILED wrong codes per account. The counter is
+#     carried across a reissue, not zeroed; at the limit reset is paused for
+#     the rest of the window and the owner gets ONE mail saying so.
+_RESET_CODES_PER_DAY = 5
+_RESET_MAX_FAILED = 5
+_RESET_ISSUED_ACTION = "auth.reset_code_issued"
+_RESET_FAILED_ACTION = "auth.reset_code_failed"
+_RESET_LOCKED_ACTION = "auth.reset_locked"
+
+
+def _reset_events_24h(db: Session, user: User, action: str) -> int | None:
+    """How many `action` audit rows this account has in the last 24 hours.
+    None when the count itself failed — the caller decides what that means."""
+    try:
+        from app.models.audit_log import AuditLog
+        since = utc_now() - timedelta(hours=24)
+        return (
+            db.query(AuditLog)
+            .filter(AuditLog.user_id == user.id, AuditLog.action == action,
+                    AuditLog.created_at >= since)
+            .count()
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("reset ceiling count failed (%s): %s", action, e)
+        return None
+
+
+def _reset_audit(db: Session, user: User, action: str, request: Request | None) -> None:
+    """Best-effort audit row (no code, no address in the payload)."""
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, user.id, action, entity_type="user", entity_id=user.id,
+            ip_address=getattr(getattr(request, "client", None), "host", None),
+        )
+    except Exception:  # noqa: BLE001 — never block the flow on the audit write
+        pass
+
+
+def _reset_locked_email_html(lang: str) -> tuple[str, str]:
+    """(subject, html) of the one mail an owner gets when reset is paused."""
+    if lang == "da":
+        subject = "BonBox — nulstilling af adgangskode er sat på pause"
+        lines = (
+            "Der er indtastet forkerte nulstillingskoder til din BonBox-konto for mange gange.",
+            "Nulstilling af adgangskode er derfor sat på pause i 24 timer.",
+            "Din adgangskode er ikke ændret. Var det ikke dig, behøver du ikke gøre noget.",
+            "Du kan stadig logge ind med din adgangskode eller et login-link.",
+        )
+    else:
+        subject = "BonBox — password reset paused"
+        lines = (
+            "Too many wrong reset codes were entered for your BonBox account.",
+            "Password reset is paused for 24 hours.",
+            "Your password has not changed. If this wasn't you, there is nothing you need to do.",
+            "You can still sign in with your password or a login link.",
+        )
+    body = "".join(
+        f'<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 12px">{line}</p>'
+        for line in lines
+    )
+    html = (
+        "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+        "max-width:480px;margin:0 auto;padding:32px 24px;background:#fff\">"
+        f"{body}</div>"
+    )
+    return subject, html
 
 
 @router.post("/forgot-password")
@@ -1233,11 +1307,26 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
             # and send. A throttle must never lock a real owner out of reset.
             pass
 
+    # Per-account daily ceilings — the same generic answer, no mail. A
+    # counting failure never blocks the owner (n is None → not over).
+    _issued = _reset_events_24h(db, user, _RESET_ISSUED_ACTION)
+    if _issued is not None and _issued >= _RESET_CODES_PER_DAY:
+        return {"message": "If an account exists with that email, we've sent a reset code."}
+    _failed = _reset_events_24h(db, user, _RESET_FAILED_ACTION)
+    if _failed is not None and _failed >= _RESET_MAX_FAILED:
+        # Paused (the owner was told by mail when it happened): a code now
+        # could not be used, so none is sent.
+        return {"message": "If an account exists with that email, we've sent a reset code."}
+
     # Generate a short 6-digit code instead of a long token
     code = f"{secrets.randbelow(900000) + 100000}"
     user.reset_token = code
     user.reset_token_expires = _now + timedelta(minutes=_RESET_CODE_TTL_MIN)
-    user.reset_attempts = 0  # fresh code → reset the brute-force counter
+    # The wrong-guess counter is CARRIED across a new code, not zeroed: it
+    # holds this account's wrong codes of the last 24 hours. (On a counting
+    # failure the stored value stands — never a fresh 0.)
+    user.reset_attempts = _failed if _failed is not None else (user.reset_attempts or 0)
+    _reset_audit(db, user, _RESET_ISSUED_ACTION, request)
     db.commit()
 
     email_sent = send_email(
@@ -1296,7 +1385,7 @@ def reset_password(
     # per-IP limit (5/min) alone won't stop a distributed/botnet spray inside
     # the 15-min window. After 5 wrong guesses we burn the code so it can no
     # longer be brute-forced; the user simply requests a fresh one.
-    if (user.reset_attempts or 0) >= 5:
+    if (user.reset_attempts or 0) >= _RESET_MAX_FAILED:
         user.reset_token = None
         user.reset_token_expires = None
         db.commit()
@@ -1310,7 +1399,22 @@ def reset_password(
         (data.reset_token or "").encode("utf-8"),
     ):
         user.reset_attempts = (user.reset_attempts or 0) + 1
+        _reset_audit(db, user, _RESET_FAILED_ACTION, request)
+        locked_now = user.reset_attempts >= _RESET_MAX_FAILED
+        if locked_now:
+            # Burn the code at once and pause reset for the window.
+            user.reset_token = None
+            user.reset_token_expires = None
+            _reset_audit(db, user, _RESET_LOCKED_ACTION, request)
         db.commit()
+        if locked_now:
+            # One mail, once per lock: tell the owner what happened.
+            try:
+                from app.services.owner_language import owner_lang
+                subj, html = _reset_locked_email_html(owner_lang(user))
+                send_email(user.email, subj, html)
+            except Exception:  # noqa: BLE001
+                logger.warning("reset lock notice failed for user %s", user.id)
         raise invalid
 
     user.password_hash = hash_password(data.new_password)
