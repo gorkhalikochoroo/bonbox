@@ -8860,6 +8860,8 @@ export const en = {
     noInvoicesYetHint: "Tap + New invoice above to create your first. Customers can be auto-filled from CVR — no manual typing of address or tax number.",
     noInvoicesConnHint: "Or finish your setup first",
     invoiceSentDirect: "✓ Faktura emailed to",
+    sendNeedsVerifiedEmail: "Confirm your own e-mail address first (Profile → Unverified). BonBox only sends mail to others for a confirmed account.",
+    invoiceMailDailyCap: "You have reached today's limit for faktura e-mails from BonBox. Download the PDF and send it from your own e-mail, or try again tomorrow.",
     kreditnotaReasonTooShort: "Reason must be at least 5 characters — your accountant will see this.",
     kreditnotaReasonTooLong: "Reason is too long (max 200 characters).",
     voidFailed: "Couldn't create kreditnota — please try again.",
