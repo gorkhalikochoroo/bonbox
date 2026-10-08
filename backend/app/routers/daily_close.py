@@ -1220,6 +1220,43 @@ def _fire_close_push(db: Session, user: User, dc: DailyClose) -> str:
         return "failed_skipped"
 
 
+def _momsfri_sales_for_date(db: Session, *, user: User, target_date) -> float | None:
+    """The day's MOMS-free (tax-exempt) sales as the server sees them, or None
+    when they cannot be read.
+
+    The same figure the close page shows and sends as exempt_sales_total: the
+    property report's total_revenue − taxable_sales for the business day (same
+    rows, same void/return rules, same cutoff resolution). Used to check the
+    page's claim before it may keep an auto MOMS — never to compute one.
+    """
+    try:
+        from app.routers.property_report import property_financial_report
+        had_cutoff = hasattr(user, "day_cutoff_hour")
+        prev_cutoff = getattr(user, "day_cutoff_hour", None)
+        try:
+            report = property_financial_report(
+                report_date=target_date, day_cutoff_hour=6, db=db, user=user,
+            )
+        finally:
+            # The report stashes the resolved cutoff on the user object; the
+            # save that called it must not see a different one afterwards.
+            if had_cutoff:
+                user.day_cutoff_hour = prev_cutoff
+            else:
+                try:
+                    del user.day_cutoff_hour
+                except AttributeError:
+                    pass
+        if not isinstance(report, dict) or report.get("_error"):
+            return None
+        totals = report.get("totals") or {}
+        exempt = float(totals.get("total_revenue") or 0) - float(totals.get("taxable_sales") or 0)
+        return max(0.0, round(exempt, 2))
+    except Exception as e:  # noqa: BLE001 — a failed lookup only means "not shown"
+        logger.warning("daily_close: MOMS-free lookup failed user=%s date=%s: %s", user.id, target_date, e)
+        return None
+
+
 def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) -> float | None:
     """Cash the POS register says was taken on `target_date`.
 
@@ -1681,20 +1718,31 @@ def create_daily_close(
     # Unless it is ALSO the MOMS of the saved revenue less the day's MOMS-free
     # sales — the page's own figure: 17.030 − 2.500 MOMS-free = 14.530, which
     # happened to be the category sum too, and 2.906 was swapped for 3.406.
-    try:
-        exempt = float(data.exempt_sales_total or 0)
-    except (TypeError, ValueError):
-        exempt = 0.0
-    exempt_fits = (
-        sent_moms is not None and exempt > 0
-        and abs(float(sent_moms) - _moms_of(max(0.0, revenue_total - exempt))) < 0.02
-    )
-    if (
+    #
+    # The MOMS-free total is the page's claim, so it is never taken on trust:
+    # it is held to 0..revenue and must match the server's own MOMS-free
+    # sales for the date (the same figure the page reads, from the property
+    # report) within 1 kr. Anything else — an unbounded number, a figure the
+    # day's sales do not show, a lookup that fails — shields nothing, and the
+    # stale auto MOMS is recomputed from the saved total as before.
+    stale_auto = (
         sent_moms is not None and moms_mode == "auto" and vat_rate > 0
         and breakdown_sum > 0 and abs(revenue_total - breakdown_sum) > 0.5
         and abs(float(sent_moms) - _moms_of(breakdown_sum)) < 0.02
-        and not exempt_fits
-    ):
+    )
+    exempt_fits = False
+    if stale_auto:
+        try:
+            exempt = float(data.exempt_sales_total or 0)
+        except (TypeError, ValueError):
+            exempt = 0.0
+        if exempt != exempt:  # NaN
+            exempt = 0.0
+        exempt = min(max(exempt, 0.0), max(0.0, float(revenue_total)))
+        if exempt > 0 and abs(float(sent_moms) - _moms_of(max(0.0, revenue_total - exempt))) < 0.02:
+            server_exempt = _momsfri_sales_for_date(db, user=user, target_date=data.date)
+            exempt_fits = server_exempt is not None and abs(server_exempt - exempt) <= 1.0
+    if stale_auto and not exempt_fits:
         sent_moms = None
     if sent_moms is not None:
         moms_total = round(sent_moms, 2)

@@ -100,6 +100,15 @@ def _row(db, u):
     return db.query(DailyClose).filter(DailyClose.user_id == u.id).first()
 
 
+def _momsfri_sale(db, u, amount, day="2026-06-02"):
+    """A MOMS-free sale on the close's date: since round 16 the server checks
+    the page's exempt_sales_total against the day's own MOMS-free sales."""
+    from datetime import date as _d
+    from app.models.sale import Sale
+    db.add(Sale(user_id=u.id, date=_d.fromisoformat(day), amount=amount, is_tax_exempt=True))
+    db.commit()
+
+
 def test_the_bons_moms_sent_as_the_bons_is_stored_as_shown(db_session, client):
     u = _user(db_session)
     _post(client, u, moms_total=2906, moms_mode="manual",
@@ -122,6 +131,7 @@ def test_the_stale_auto_rule_still_recomputes_a_sum_moms(db_session, client):
 
 def test_auto_moms_net_of_momsfri_sales_is_kept(db_session, client):
     u = _user(db_session)
+    _momsfri_sale(db_session, u, 2500)
     _post(client, u, moms_total=2906, moms_mode="auto", exempt_sales_total=2500)
     dc = _row(db_session, u)
     assert float(dc.revenue_total) == 17030.0
