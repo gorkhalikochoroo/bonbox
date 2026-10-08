@@ -22,6 +22,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { Button, Card, Icon } from "./ui";
@@ -48,7 +49,9 @@ function Message({ tone, children }) {
   const palette =
     tone === "success"
       ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50"
-      : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800/50";
+      : tone === "notice"
+        ? "bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800/50"
+        : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800/50";
   return (
     <div className={`text-xs px-3 py-2 rounded-lg border ${palette}`}>
       {children}
@@ -58,6 +61,7 @@ function Message({ tone, children }) {
 
 export default function RevisorSection() {
   const { t } = useLanguage();
+  const { user } = useAuth() || {};
   const confirm = useConfirm();
   const [revisorEmail, setRevisorEmail] = useState("");
   const [revisorName, setRevisorName] = useState("");
@@ -72,6 +76,14 @@ export default function RevisorSection() {
   // hand. Persists until the next invite (not auto-cleared like the message).
   const [inviteLink, setInviteLink] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
+  // The last invite was saved but not e-mailed because the owner's own
+  // address is unconfirmed (BonBox mails others only for a confirmed account).
+  const [inviteHeld, setInviteHeld] = useState(false);
+  // Whether the last invite response said the e-mail did not leave.
+  const [inviteUnsent, setInviteUnsent] = useState(false);
+  // The pending row whose "Send invitation" is in flight.
+  const [resendingId, setResendingId] = useState(null);
+  const ownerConfirmed = user?.email_verified === true;
 
   const refreshGrants = () => {
     setGrantsLoading(true);
@@ -104,52 +116,90 @@ export default function RevisorSection() {
         email,
         name: revisorName.trim() || null,
       });
-      setInviteLink(res.data?.accept_url || "");
-      // Only claim a sent e-mail when the server says it left; otherwise the
-      // copy-link below is the way to reach the revisor.
-      setRevisorMsg(
-        res.data?.email_sent === false
-          ? t("revisorInviteNotEmailed", "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.")
-          : t("revisorInviteSent", "Invite sent. They have 7 days to accept."),
-      );
+      showInviteResult(res);
       setRevisorEmail("");
       setRevisorName("");
       refreshGrants();
-      // A "could not e-mail" notice stays until the owner acts on it.
-      if (res.data?.email_sent !== false) setTimeout(() => setRevisorMsg(""), 5000);
     } catch (err) {
-      const detail = err?.response?.data?.detail;
-      if (err?.response?.status === 402 && detail?.code === "plan_required") {
-        setRevisorLocked(true);
-        // App Store compliance (Apple 3.1.1): neutral message on native (no
-        // tier name / "upgrade"). Web keeps the conversion copy.
-        setRevisorError(
-          isNativeApp()
-            ? t("revisorPlanRequiredNative", "Inviting a revisor isn't part of your current plan.")
-            : t("revisorPlanRequired", "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access."),
-        );
-      } else if (detail?.code === "already_active_grant") {
-        setRevisorError(
-          t("revisorAlreadyActive", "This revisor already has active access."),
-        );
-      } else if (detail?.code === "demo_recipient") {
-        // The demo seeder's sample revisor: no invite mail goes there.
-        setRevisorError(
-          t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile."),
-        );
-      } else if (detail?.code === "demo_identity") {
-        // The business is still the demo's sample company: the invite would
-        // introduce "Mirabelle ApS" to a real revisor.
-        setRevisorError(
-          t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."),
-        );
-      } else {
-        setRevisorError(
-          errText(err, t("revisorInviteFailed", "Could not send the invite. Try again.")),
-        );
-      }
+      showInviteError(err);
     } finally {
       setRevisorSaving(false);
+    }
+  };
+
+  /** What the server said about one invite, in the owner's words. */
+  const showInviteResult = (res) => {
+    setInviteLink(res.data?.accept_url || "");
+    const unsent = res.data?.email_sent === false;
+    const held = unsent && res.data?.email_not_sent_reason === "email_unverified";
+    setInviteUnsent(unsent);
+    setInviteHeld(held);
+    // Only claim a sent e-mail when the server says it left; otherwise the
+    // copy-link below is the way to reach the revisor.
+    const msg = held
+      ? t("revisorInviteHeldUnverified", "Invite saved, but not e-mailed yet: BonBox only sends mail to others once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.")
+      : unsent
+        ? t("revisorInviteNotEmailed", "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.")
+        : t("revisorInviteSent", "Invite sent. They have 7 days to accept.");
+    setRevisorMsg(msg);
+    // A "could not e-mail" notice stays until the owner acts on it; a "sent"
+    // one fades — without wiping a later notice that replaced it.
+    if (!unsent) setTimeout(() => setRevisorMsg((m) => (m === msg ? "" : m)), 5000);
+  };
+
+  /** "Send invitation" on a pending row — after the owner confirmed their
+   *  e-mail, this mails the invite that was saved while it was unconfirmed
+   *  (and re-sends any pending one). Same endpoint and gates as the form:
+   *  the server re-arms the SAME grant (fresh 7-day link) and mails it. */
+  const sendInvitation = async (g) => {
+    setRevisorError("");
+    setRevisorMsg("");
+    setLinkCopied(false);
+    setResendingId(g.id);
+    try {
+      const res = await api.post("/accountants/invite", {
+        email: g.accountant_email,
+        name: g.accountant_name || null,
+      });
+      showInviteResult(res);
+      refreshGrants();
+    } catch (err) {
+      showInviteError(err);
+    } finally {
+      setResendingId(null);
+    }
+  };
+
+  const showInviteError = (err) => {
+    const detail = err?.response?.data?.detail;
+    if (err?.response?.status === 402 && detail?.code === "plan_required") {
+      setRevisorLocked(true);
+      // App Store compliance (Apple 3.1.1): neutral message on native (no
+      // tier name / "upgrade"). Web keeps the conversion copy.
+      setRevisorError(
+        isNativeApp()
+          ? t("revisorPlanRequiredNative", "Inviting a revisor isn't part of your current plan.")
+          : t("revisorPlanRequired", "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access."),
+      );
+    } else if (detail?.code === "already_active_grant") {
+      setRevisorError(
+        t("revisorAlreadyActive", "This revisor already has active access."),
+      );
+    } else if (detail?.code === "demo_recipient") {
+      // The demo seeder's sample revisor: no invite mail goes there.
+      setRevisorError(
+        t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile."),
+      );
+    } else if (detail?.code === "demo_identity") {
+      // The business is still the demo's sample company: the invite would
+      // introduce "Mirabelle ApS" to a real revisor.
+      setRevisorError(
+        t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."),
+      );
+    } else {
+      setRevisorError(
+        errText(err, t("revisorInviteFailed", "Could not send the invite. Try again.")),
+      );
     }
   };
 
@@ -240,11 +290,27 @@ export default function RevisorSection() {
             />
           </Field>
         </div>
-        {revisorMsg && <Message tone="success">{revisorMsg}</Message>}
+        {revisorMsg && (
+          <Message tone={inviteHeld ? "notice" : "success"}>
+            <span data-testid={inviteHeld ? "revisor-invite-held" : undefined}>{revisorMsg}</span>
+            {/* Held for an unconfirmed account: the one tap that fixes it. */}
+            {inviteHeld && !ownerConfirmed && (
+              <Link
+                to="/verify-email?now=1"
+                className="ml-2 inline-flex items-center font-semibold underline underline-offset-2"
+              >
+                {t("verifyEmailNowCta", "Confirm now")}
+              </Link>
+            )}
+          </Message>
+        )}
         {inviteLink && (
           <div className="text-xs px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 space-y-2">
             <div className="text-gray-600 dark:text-gray-400">
-              {t("revisorCopyLinkHint", "Didn't arrive? Send your revisor this link yourself — it works for 7 days.")}
+              {/* "Didn't arrive?" only when a mail actually left. */}
+              {inviteUnsent
+                ? t("revisorCopyLinkHintUnsent", "Or send your revisor this link yourself — it works for 7 days.")
+                : t("revisorCopyLinkHint", "Didn't arrive? Send your revisor this link yourself — it works for 7 days.")}
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -346,14 +412,33 @@ export default function RevisorSection() {
                     </div>
                   </div>
                   {g.status !== "revoked" && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => revokeRevisor(g)}
-                    >
-                      {t("revoke", "Revoke")}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {/* Mails the pending invite — shown once the owner's own
+                          e-mail is confirmed (before that the server would
+                          hold it again). */}
+                      {isPending && ownerConfirmed && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          busy={resendingId === g.id}
+                          disabled={resendingId !== null}
+                          onClick={() => sendInvitation(g)}
+                        >
+                          {resendingId === g.id
+                            ? t("sending", "Sending…")
+                            : t("revisorSendInvitation", "Send invitation")}
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => revokeRevisor(g)}
+                      >
+                        {t("revoke", "Revoke")}
+                      </Button>
+                    </div>
                   )}
                 </li>
               );

@@ -242,6 +242,32 @@ def _clear_accountant_client_cookie(response: Response, request: Request | None)
     )
 
 
+def _send_invite_mail(user: User, email: str, accept_url: str) -> bool:
+    """Mail the invite to the revisor. Best-effort, never raises: True only
+    when the mail server accepted it."""
+    try:
+        from app.services.email_service import send_email
+        from app.services.revisor_mail import header_safe
+        owner_name = user.business_name or user.email
+        is_danish = (user.currency or "DKK").upper() == "DKK"
+        subject_name = header_safe(owner_name, 120)
+        subject = (
+            f"{subject_name} har inviteret dig som revisor på BonBox"
+            if is_danish
+            else f"{subject_name} has invited you as their accountant on BonBox"
+        )
+        # `to`, not `to_email`: the wrong keyword raised a TypeError that the
+        # except below swallowed, so no invite e-mail had ever been sent.
+        return bool(send_email(
+            to=email,
+            subject=subject,
+            html=_invite_email_html(owner_name, accept_url, is_danish),
+        ))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("accountant invite email failed: %s", e)
+        return False
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────
 
 
@@ -258,6 +284,16 @@ def invite_accountant(
 
     Returns the freshly-created (or refreshed) grant — same shape as
     GET /grants.
+
+    BonBox mails a third party only for an account whose own e-mail is
+    confirmed (Manoj, 8 Oct — the faktura mail and team invites already
+    follow it via revisor_mail.require_verified_sender). An unconfirmed
+    owner's invite still CREATES the grant and returns the accept link (the
+    revisor's access works, nothing is lost); only the mail is held:
+    email_sent=false, email_not_sent_reason="email_unverified". Once the
+    owner confirms, re-posting the same address (Team → Revisor → "Send
+    invitation") re-arms the pending grant and mails it, under every gate
+    below.
     """
     _require_real_owner(user)
     _enforce_accountant_login_tier(user)
@@ -270,7 +306,7 @@ def invite_accountant(
     # opt-out page promised "BonBox sender ikke flere mails til dig".
     from app.services.revisor_mail import (
         demo_identity_error, demo_recipient_error, enforce_revisor_daily_cap,
-        is_demo_identity, is_demo_revisor, revisor_opted_out,
+        is_demo_identity, is_demo_revisor, revisor_opted_out, sender_is_verified,
     )
     _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
     if is_demo_revisor(_profile, email):
@@ -377,18 +413,23 @@ def invite_accountant(
             },
         ) from e
 
+    # An unconfirmed account gets the grant but no mail to the revisor.
+    mail_held = None if sender_is_verified(user) else "email_unverified"
+    _invite_after = {
+        "owner_user_id": str(user.id),
+        "accountant_email": grant.accountant_email,
+        "status": grant.status,
+        "expires_at": grant.invite_token_expires_at.isoformat() if grant.invite_token_expires_at else None,
+    }
+    if mail_held:
+        _invite_after["mail_held"] = mail_held
     audit_service.record(
         db,
         user=user,
         action="accountant.invited",
         entity_type="accountant_grant",
         entity_id=grant.id,
-        after={
-            "owner_user_id": str(user.id),
-            "accountant_email": grant.accountant_email,
-            "status": grant.status,
-            "expires_at": grant.invite_token_expires_at.isoformat() if grant.invite_token_expires_at else None,
-        },
+        after=_invite_after,
         ip_address=_client_ip(request),
     )
     db.commit()
@@ -403,32 +444,16 @@ def invite_accountant(
 
     # Send invite email — best-effort, never block the API response. Whether
     # it actually left is reported back (email_sent) so the owner is never
-    # told "Invitation sendt" for a mail that did not go out.
+    # told "Invitation sendt" for a mail that did not go out. A held mail
+    # (unconfirmed account) is never attempted and says why.
     email_sent = False
-    try:
-        from app.services.email_service import send_email
-        from app.services.revisor_mail import header_safe
-        owner_name = user.business_name or user.email
-        is_danish = (user.currency or "DKK").upper() == "DKK"
-        subject_name = header_safe(owner_name, 120)
-        subject = (
-            f"{subject_name} har inviteret dig som revisor på BonBox"
-            if is_danish
-            else f"{subject_name} has invited you as their accountant on BonBox"
-        )
-        # `to`, not `to_email`: the wrong keyword raised a TypeError that the
-        # except below swallowed, so no invite e-mail had ever been sent.
-        email_sent = bool(send_email(
-            to=email,
-            subject=subject,
-            html=_invite_email_html(owner_name, accept_url, is_danish),
-        ))
-    except Exception as e:  # noqa: BLE001
-        logger.warning("accountant invite email failed: %s", e)
+    if mail_held is None:
+        email_sent = _send_invite_mail(user, email, accept_url)
 
     resp = _to_response(grant, owner_business_name=user.business_name)
     resp.accept_url = accept_url  # copy-link fallback (invite response only)
     resp.email_sent = email_sent
+    resp.email_not_sent_reason = mail_held
     return resp
 
 

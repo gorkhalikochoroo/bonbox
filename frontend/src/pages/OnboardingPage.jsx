@@ -784,11 +784,16 @@ export default function OnboardingPage() {
       setRevisorSending(true);
       setRevisorError("");
       try {
-        await api.post("/accountants/invite", {
+        const res = await api.post("/accountants/invite", {
           email,
           name: (revisor.name || "").trim() || null,
         });
-        setRevisorMsg(t("onbRevisorInviteSent", { email }));
+        // An unconfirmed account's invite is saved but not e-mailed (BonBox
+        // mails others only for a confirmed account): say so, never "sent",
+        // and finish the wizard as usual — it is not an error.
+        const held = res?.data?.email_sent === false
+          && res?.data?.email_not_sent_reason === "email_unverified";
+        setRevisorMsg(held ? t("onbRevisorInviteHeld") : t("onbRevisorInviteSent", { email }));
       } catch (err) {
         const detail = err?.response?.data?.detail;
         const code = detail && typeof detail === "object" ? detail.code : null;
