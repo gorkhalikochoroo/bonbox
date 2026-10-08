@@ -8,11 +8,16 @@
  * step the invariants are checked:
  *   I1 the saved total is the sum of the tills' totals;
  *   I2 no scan (by id or identical photo) is counted twice;
- *   I3 Start forfra never changes a typed or draft till;
+ *   I3 Start forfra gives a typed or draft till back exactly as it was when
+ *      the day's first photo came in (nothing distributed into it since);
  *   I4 undo restores the exact previous state (one step);
  *   I5 the payments the boxes show add up to the tills' payments;
  *   I6 typed figures never appear in the source as a Z-bon read;
- *   I7 the boxes show the per-line sum of the tills.
+ *   I7 the boxes show the per-line sum of the tills;
+ *   I8 with no card, the boxes' lines are the lone till's whole figure (a
+ *      total typed for it is never held out of sight).
+ * Plus: typing a figure keystroke by keystroke leaves exactly the ledger
+ * typing it in one go leaves (the split depends on the figure only).
  * Then the regression cases from rounds 13–16, by name.
  *
  * No new dependency: a small seeded generator (mulberry32), so a failure
@@ -21,8 +26,8 @@
 import { describe, expect, it } from "vitest";
 import { MERGE_REPLACE, MERGE_SUM, closeSaveTotal } from "../utils/dailyCloseScanMerge";
 import {
-  TILL_SCAN, activeEntries, addScan, cardView, chooseTerminal, createTills, dateMoved, discardScans,
-  formTill, formValues, isDuplicateScan, lastStep, loadDraft, momsOf, needsTerminalQuestion,
+  TILL_DRAFT, TILL_SCAN, activeEntries, addScan, cardView, chooseTerminal, createTills, dateMoved, discardScans,
+  draftChanges, formTill, formValues, hasScanTills, isDuplicateScan, lastStep, loadDraft, momsOf, needsTerminalQuestion,
   oneSidedLines, savedTotal, sourceMetaOf, tillFromForm, tillGroups, tillTotals, tillsReducer,
   typeIntoForm, undo,
 } from "../utils/closeTills";
@@ -71,7 +76,8 @@ function makeRandom(rnd) {
     if (shape !== "page" && rnd() < 0.7) s.moms_total = Math.round((s.revenue_total || lines) * 0.2 * 100) / 100;
     if (rnd() < 0.15) s.tips = amount();
     photoSeq += 1;
-    return { scan: s, photo: `IMG_${photoSeq}.jpg|${1000 + photoSeq}|${photoSeq}` };
+    // Some photos carry the server's scan id (the stored image), as the page sends it.
+    return { scan: s, photo: `IMG_${photoSeq}.jpg|${1000 + photoSeq}|${photoSeq}`, id: rnd() < 0.5 ? `kasserapport/${photoSeq}` : null };
   };
   const text = (f) => (f !== "revenue_total" && rnd() < 0.1 ? "" : moneyInputText(amount(), L));
   const field = () => pick([
@@ -85,9 +91,11 @@ function makeRandom(rnd) {
     PAY.filter(() => rnd() < 0.6).forEach((k) => { payments[k] = moneyInputText(amount(), L); });
     const lines = Object.values(revenue).reduce((a, v) => a + num(v), 0);
     const total = pick([lines, lines, lines + int(1, 40) * 100, Math.max(1, lines - 300)]);
-    return { revenue, payments, total, moms: rnd() < 0.4 ? moneyInputText(amount(), L) : null };
+    // Some drafts were read off a Z-bon (and corrected then).
+    const meta = rnd() < 0.4 ? { kind: "zbon", scans: 1, corrected: rnd() < 0.5 ? ["rev:food"] : [] } : null;
+    return { revenue, payments, total, moms: rnd() < 0.4 ? moneyInputText(amount(), L) : null, meta };
   };
-  return { int, pick, scan, text, field, draft, rnd };
+  return { int, pick, scan, text, field, draft, rnd, amount };
 }
 
 /** The page's own move: the form as a till, from what the boxes show. */
@@ -172,6 +180,22 @@ function checkInvariants(state, ctx) {
     expect(meta.terminal_totals.length).toBe(tillGroups(state).length);
     expect(near(meta.terminal_totals.reduce((a, v) => a + v, 0), savedTotal(state)), `I6 tills ≠ saved — ${where()}`).toBe(true);
   }
+  // I6 for a reopened Z-bon read: every line the owner changed on it since is
+  // on the record as corrected, never as part of the read.
+  if (meta?.kind === "zbon" && ft?.origin === TILL_DRAFT && ft.meta?.kind === "zbon") {
+    draftChanges(ft, L).forEach((k) => {
+      expect(meta.corrected, `I6 a changed draft line ${k} filed as read — ${where()}`).toContain(k);
+    });
+  }
+  if (!hasScan && ft?.origin === TILL_DRAFT && ft.meta) expect(meta, `I6 a reopened draft relabelled — ${where()}`).toBeNull();
+  // I8
+  if (!card && tillGroups(state).length === 1) {
+    const lines = Object.values(fv.revenue).reduce((a, v) => a + (num(v) || 0), 0);
+    const pays = Object.values(fv.payments).reduce((a, v) => a + (num(v) || 0), 0);
+    if (!Number.isNaN(lines) && !Number.isNaN(pays)) {
+      expect(near(lines > 0 ? lines : pays, tills[0]), `I8 boxes ${lines} vs the till's ${tills[0]} — ${where()}`).toBe(true);
+    }
+  }
 }
 
 function runSequence(seed, steps) {
@@ -180,17 +204,23 @@ function runSequence(seed, steps) {
   let state = createTills(L);
   const seen = []; // photos already shot, for "retake the same bon"
   const model = []; // snapshots the ledger's undo must return to
+  // The owner's till as it was when the day's first photo came in (I3).
+  let preScan = null;
   const ctx = { seed, step: 0, action: "" };
   const push = (before, after) => {
     if (after.undo !== before.undo) {
-      model.push({ entries: before.entries, pending: before.pending, overlay: before.overlay });
+      model.push({ entries: before.entries, pending: before.pending, overlay: before.overlay, preScan });
       if (model.length > 30) model.shift();
     }
   };
+  const firstPhoto = (before, after) => {
+    if (after !== before && !hasScanTills(before) && !before.pending.length) preScan = formTill(after);
+  };
   const shoot = (s, mode) => {
     const before = state;
-    state = addScan(state, s.scan, { photo: s.photo, form: R.rnd() < 0.8 ? formOf(state) : undefined });
+    state = addScan(state, s.scan, { photo: s.photo, id: s.id, form: R.rnd() < 0.8 ? formOf(state) : undefined });
     push(before, state);
+    firstPhoto(before, state);
     if (state.pending.length && mode) {
       const b2 = state;
       state = chooseTerminal(state, mode);
@@ -218,12 +248,20 @@ function runSequence(seed, steps) {
     } else if (action === "retake") {
       if (seen.length) {
         const s = R.pick(seen);
-        const dup = isDuplicateScan(state, { photo: s.photo, scan: s.scan });
+        // The same photo is read again: an LLM read can differ a little, and
+        // a renamed copy of it still carries the same scan id.
+        const read = R.rnd() < 0.3 ? { ...s.scan, payments: { ...s.scan.payments, mobilepay: 0 } } : s.scan;
+        const photoRef = s.id && R.rnd() < 0.3 ? `${s.photo}-copy` : s.photo;
+        const inDay = [...activeEntries(state).filter((e) => e.origin === TILL_SCAN), ...state.pending]
+          .some((e) => e.photo === s.photo || (s.id && e.scanId === s.id));
+        const dup = isDuplicateScan(state, { photo: photoRef, id: s.id });
+        expect(dup, `I2 a photo already in the day was not recognised — seed ${seed} step ${i}`).toBe(inDay);
         const before = state;
-        const after = addScan(state, s.scan, { photo: s.photo, form: formOf(state) });
+        const after = addScan(state, read, { photo: photoRef, id: s.id, form: formOf(state) });
         if (dup) expect(after, `retake of a photo already in the day changed it — seed ${seed} step ${i}`).toBe(before);
         state = after;
         push(before, state);
+        firstPhoto(before, state);
         if (state.pending.length) {
           const b2 = state;
           state = chooseTerminal(state, R.rnd() < 0.5 ? MERGE_SUM : MERGE_REPLACE);
@@ -234,6 +272,7 @@ function runSequence(seed, steps) {
       const expected = model.pop();
       const before = state;
       state = undo(state);
+      if (expected) preScan = expected.preScan;
       if (expected) {
         // I4: exactly the state before the last step — the very same objects.
         expect(state.entries, `I4 entries — seed ${seed} step ${i}`).toBe(expected.entries);
@@ -247,19 +286,21 @@ function runSequence(seed, steps) {
       const before = state;
       state = discardScans(state);
       push(before, state);
-      // I3: the typed / draft tills are exactly as they were.
+      // I3: the typed / draft tills are exactly as they were before the first photo.
       const after = state.entries;
       expect(after.length, `I3 — seed ${seed} step ${i}`).toBe(own.length);
       own.forEach((e, j) => {
-        const { replacedBy: _a, ...was } = e;
+        const { replacedBy: _a, ...was } = preScan && e.id === preScan.id ? preScan : e;
         const { replacedBy: _b, ...now } = after[j];
         expect(now, `I3 typed till changed — seed ${seed} step ${i}`).toEqual(was);
       });
       expect(state.pending).toEqual([]);
       expect(after.every((e) => !e.replacedBy)).toBe(true);
+      if (state !== before) preScan = null;
     } else if (action === "draft") {
       state = loadDraft(state, R.draft());
       model.length = 0;
+      preScan = null;
     } else if (action === "date") {
       const before = state;
       state = dateMoved(state, `2026-06-${String(R.int(1, 28)).padStart(2, "0")}`);
@@ -452,5 +493,177 @@ describe("closeTills — the sequences that broke before (r13–r16)", () => {
     s = tillsReducer(s, { type: "discard" });
     expect(savedTotal(s)).toBe(100);
     expect(tillsReducer(s, { type: "nope" })).toBe(s);
+  });
+});
+
+/* ─── round 17 review: the figure, not the keystrokes ────────────────── */
+
+/** Type `value` the way a box hands it over: every prefix, then the whole. */
+const keyIn = (state, field, value) => {
+  let s = state;
+  for (let i = 1; i <= value.length; i++) s = typeIntoForm(s, field, value.slice(0, i));
+  return s;
+};
+
+describe("closeTills — a multi-till split depends on the figure typed, never on how (property)", () => {
+  it("typing every prefix of a value, then the value, leaves exactly the ledger typing it once leaves", () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 1500; seed++) {
+      const rnd = mulberry32(seed * 7919);
+      const R = makeRandom(rnd);
+      let s = createTills(L);
+      if (rnd() < 0.5) {
+        const form = typedForm({ food: moneyInputText(R.amount(), L), drinks: moneyInputText(R.amount(), L) },
+          { card: moneyInputText(R.amount(), L), cash: moneyInputText(R.amount(), L) });
+        s = typeIntoForm(s, "revenue.food", form.revenue.food, { form, fromForm: true });
+      }
+      for (let k = 0; k < R.int(1, 2); k++) {
+        const b = R.scan();
+        s = addScan(s, b.scan, { photo: b.photo, form: formOf(s) });
+        if (s.pending.length) s = chooseTerminal(s, MERGE_SUM);
+      }
+      if (tillGroups(s).length < 2) continue;
+      // Sometimes another line was already typed on the summed day.
+      if (rnd() < 0.4) s = keyIn(s, R.field(), moneyInputText(R.amount(), L));
+      const f = R.field();
+      const v = moneyInputText(R.amount() * (rnd() < 0.3 ? 3 : 1), L);
+      const once = typeIntoForm(s, f, v);
+      const keyed = keyIn(s, f, v);
+      const where = `seed ${seed}: ${f} = "${v}"`;
+      expect(keyed.entries, where).toEqual(once.entries);
+      expect(tillTotals(keyed), where).toEqual(tillTotals(once));
+      expect(savedTotal(keyed), where).toBe(savedTotal(once));
+      expect(formValues(keyed), where).toEqual(formValues(once));
+      expect(sourceMetaOf(keyed), where).toEqual(sourceMetaOf(once));
+      // The figure the box already shows, typed again keystroke by keystroke,
+      // moves nothing between the tills.
+      if (f !== "revenue_total") {
+        const [bucket, key] = f === "tips" ? ["tips", null] : f.split(".");
+        const shown = key ? formValues(s)[bucket][key] : formValues(s).tips;
+        if (shown != null && shown !== "" && Number.isFinite(num(shown))) {
+          const same = keyIn(s, f, moneyInputText(num(shown), L));
+          expect(same.entries, `${where} retyped unchanged`).toEqual(s.entries);
+          expect(tillTotals(same), `${where} retyped unchanged`).toEqual(tillTotals(s));
+        }
+      }
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(400);
+  }, 60000);
+});
+
+describe("closeTills — round 17 review cases", () => {
+  const typed14000 = () => {
+    const form = typedForm({ food: "9.000", drinks: "5.000" }, { cash: "4.000", card: "10.000" });
+    return typeIntoForm(createTills(L), "revenue.food", "9.000", { form, fromForm: true });
+  };
+  const BON_4000 = { revenue: {}, revenue_total: 4000, moms_total: 800, payments: { card: 4000 } };
+
+  it("typed 14.000 + a 4.000 bon: Mad retyped as the same 9.000 keystroke by keystroke keeps 18.000", () => {
+    let s = typed14000();
+    s = chooseTerminal(addScan(s, BON_4000, { photo: "b", form: formOf(s) }), MERGE_SUM);
+    expect(savedTotal(s)).toBe(18000);
+    const keyed = keyIn(s, "revenue.food", "9.000");
+    expect(tillTotals(keyed)).toEqual([14000, 4000]);
+    expect(savedTotal(keyed)).toBe(18000);
+    expect(sourceMetaOf(keyed, { revenue_breakdown: { food: 9000, drinks: 5000 } }).corrected).toEqual([]);
+    // Kort retyped unchanged: no till's Kort moves.
+    const card = keyIn(s, "payments.card", "14.000");
+    expect(card.entries).toEqual(s.entries);
+  });
+
+  it("the card's total typed as 21.530 over 17.030 + 4.000 records 17.030 + 4.500", () => {
+    const t1 = { revenue: { food: 9000, drinks: 6000, takeaway: 2030 }, revenue_total: 17030, moms_total: 3406, payments: { card: 17030 } };
+    let s = chooseTerminal(addScan(addScan(createTills(L), t1, { photo: "a" }), BON_4000, { photo: "b" }), MERGE_SUM);
+    s = keyIn(s, "revenue_total", "21.530");
+    expect(tillTotals(s)).toEqual([17030, 4500]);
+    expect(sourceMetaOf(s).terminal_totals).toEqual([17030, 4500]);
+    // Emptied: the tills keep the figures from before the typing.
+    const emptied = typeIntoForm(s, "revenue_total", "");
+    expect(tillTotals(emptied)).toEqual([17030, 4000]);
+    expect(cardView(emptied).revenue_total_text).toBe("");
+  });
+
+  it("a total typed on the card goes with the photos at Start forfra — the owner's till comes back as it was", () => {
+    let s = typed14000();
+    s = chooseTerminal(addScan(s, BON_3000, { photo: "b", form: formOf(s) }), MERGE_SUM);
+    s = typeIntoForm(s, "revenue_total", "16.000");
+    expect(savedTotal(s)).toBe(16000);
+    s = discardScans(s);
+    expect(savedTotal(s)).toBe(14000);
+    expect(tillTotals(s)).toEqual([14000]);
+    expect(formTill(s).edits).toEqual({});
+    // The retake is asked about against 14.000 and sums to 17.000.
+    s = addScan(s, BON_3000, { photo: "b2", form: formOf(s) });
+    expect(tillTotals(s)).toEqual([14000]);
+    s = chooseTerminal(s, MERGE_SUM);
+    expect(savedTotal(s)).toBe(17000);
+  });
+
+  it("one till: a page with no total + a total typed on the card, then Start forfra, is the typed 4.400 again", () => {
+    let s = typeIntoForm(createTills(L), "revenue.food", "4.400", { form: typedForm({ food: "4.400" }, {}), fromForm: true });
+    s = addScan(s, { revenue: { drinks: 2000 }, payments: {} }, { photo: "page", form: formOf(s) });
+    s = typeIntoForm(s, "revenue_total", "18.600");
+    expect(savedTotal(s)).toBe(18600);
+    s = discardScans(s);
+    expect(tillTotals(s)).toEqual([4400]);
+    expect(formValues(s).revenue).toEqual({ food: "4.400" });
+  });
+
+  it("a total typed for the owner's lone till is on a card, never hidden behind its lines", () => {
+    const s = { ...typed14000() };
+    const own = formTill(s);
+    const withTotal = { ...s, entries: s.entries.map((e) => (e === own ? { ...e, edits: { revenue_total: "13.000" } } : e)) };
+    expect(cardView(withTotal)?.revenue_total_text).toBe("13.000");
+  });
+
+  it("the same photo read a little differently is still the same photo; the same stored image too", () => {
+    const t1 = { revenue: { food: 9000, drinks: 6000, takeaway: 2030 }, revenue_total: 17030, payments: { card: 12000, cash: 4030, mobilepay: 1000 } };
+    let s = addScan(createTills(L), t1, { photo: "IMG_0042.jpg|123456|1", id: "u/kasserapport/abc.jpg" });
+    const reread = { ...t1, payments: { ...t1.payments, mobilepay: 0 } };
+    expect(isDuplicateScan(s, { photo: "IMG_0042.jpg|123456|1" })).toBe(true);
+    expect(addScan(s, reread, { photo: "IMG_0042.jpg|123456|1" })).toBe(s);
+    expect(addScan(s, reread, { photo: "kopi.jpg|123456|9", id: "u/kasserapport/abc.jpg" })).toBe(s);
+    s = discardScans(s);
+    expect(addScan(s, reread, { photo: "IMG_0042.jpg|123456|1", id: "u/kasserapport/abc.jpg" }).entries).toHaveLength(1);
+  });
+
+  it("a reopened Z-bon draft edited, then a second bon: the edit and the draft's old correction are on the record", () => {
+    const draft = {
+      revenue: { food: "9.000", drinks: "6.000", takeaway: "2.030" }, payments: { card: "17.030" }, total: 17030,
+      meta: { kind: "zbon", scans: 1, corrected: ["rev:food"] },
+    };
+    let s = loadDraft(createTills(L), draft);
+    s = typeIntoForm(s, "revenue.food", "9.500", { fromForm: true });
+    s = chooseTerminal(addScan(s, BON_4000, { photo: "b", form: typedForm({ ...draft.revenue, food: "9.500" }, draft.payments) }), MERGE_SUM);
+    const meta = sourceMetaOf(s, { revenue_breakdown: { food: 9500, drinks: 6000, takeaway: 2030 }, payment_breakdown: { card: 21530 } });
+    expect(meta).toMatchObject({ kind: "zbon", scans: 2, terminal_totals: [17530, 4000] });
+    expect(meta.corrected).toEqual(["rev:food"]);
+    expect(meta.typed_tills).toBeUndefined();
+    // Untouched, the draft adds nothing of its own but its old correction.
+    let u = loadDraft(createTills(L), draft);
+    u = chooseTerminal(addScan(u, BON_4000, { photo: "b", form: typedForm(draft.revenue, draft.payments) }), MERGE_SUM);
+    expect(sourceMetaOf(u, { revenue_breakdown: { food: 9000 } }).corrected).toEqual(["rev:food"]);
+    expect(sourceMetaOf(u, { revenue_breakdown: {} }).corrected).toEqual([]);
+  });
+
+  it("Start forfra on a reopened Z-bon draft sends no source: the server keeps the read", () => {
+    let s = loadDraft(createTills(L), { revenue: { food: "14.000" }, payments: { card: "14.000" }, total: 14000, meta: { kind: "zbon", scans: 1 } });
+    expect(sourceMetaOf(s)).toBeNull();
+    s = addScan(s, BON_4000, { photo: "b", form: typedForm({ food: "14.000" }, { card: "14.000" }) });
+    s = discardScans(s);
+    expect(sourceMetaOf(s, { photo: null })).toBeNull();
+    // A close typed by hand is still "typed".
+    expect(sourceMetaOf(typed14000())).toEqual({ kind: "typed" });
+  });
+
+  it("Fortryd after a sum, then a photo: the boxes' answer is never re-read as the owner's till", () => {
+    let s = typed14000();
+    s = chooseTerminal(addScan(s, BON_3000, { photo: "b", form: formOf(s) }), MERGE_SUM);
+    const summedBoxes = formOf(s);
+    s = undo(s);
+    expect(s.pending).toHaveLength(1);
+    s = addScan(s, BON_4000, { photo: "c", form: summedBoxes });
+    expect(tillTotals(s)).toEqual([14000]);
   });
 });

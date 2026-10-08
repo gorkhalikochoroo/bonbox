@@ -29,6 +29,12 @@
  *   undo     one snapshot per step — undo is exactly one step back.
  *   overlay  the owner's keystrokes on a line several tills carry: the
  *            difference goes to one till, the box keeps what was typed.
+ *   overlayBase  per overlaid line, the tills' own figures for it before
+ *            the first keystroke — every keystroke is worked out from
+ *            these, so the split depends on the figure typed, never on
+ *            how it was typed ("9" on the way to "9.000" moved nothing).
+ *   ownBase  the owner's own till as it was when the day's first photo came
+ *            in — Start forfra gives it back exactly that way.
  *   mirror   the form's boxes show this ledger (applied, typed, a draft) —
  *            so Start forfra and Fortryd may write them back.
  *
@@ -63,6 +69,7 @@ function num(v, locale) {
 }
 const r2 = (n) => Math.round(n * 100) / 100;
 const filled = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+const hasOwn = (o, k) => Boolean(o) && Object.prototype.hasOwnProperty.call(o, k);
 
 function lineSum(bucket, locale) {
   return r2(Object.entries(bucket || {})
@@ -132,11 +139,14 @@ function markFormSide(s, locale) {
 /* ─── the state ──────────────────────────────────────────────────────── */
 
 export function createTills(locale = "da-DK") {
-  return { locale, seq: 0, entries: [], pending: [], undo: [], overlay: EMPTY, mirror: false, day: null };
+  return { locale, seq: 0, entries: [], pending: [], undo: [], overlay: EMPTY, overlayBase: EMPTY, ownBase: null, mirror: false, day: null };
 }
 
 const nextId = (state) => `t${state.seq + 1}`;
-const snapshot = (state, kind) => ({ kind, entries: state.entries, pending: state.pending, overlay: state.overlay });
+const snapshot = (state, kind) => ({
+  kind, entries: state.entries, pending: state.pending, overlay: state.overlay,
+  overlayBase: state.overlayBase || EMPTY, ownBase: state.ownBase || null,
+});
 const pushUndo = (state, kind) => [...state.undo, snapshot(state, kind)].slice(-UNDO_DEPTH);
 
 /* Selectors are memoised per state object: a keystroke makes one new state
@@ -248,7 +258,10 @@ export function cardView(state) {
       // A photo waits on "another terminal or the same?": the owner's own
       // till is "the one on screen", as the form's side of the question.
       if (state.pending.length) return formSideScan(e, locale, true);
-      const card = e.floor != null || e.scan.revenue_total_text != null;
+      // A total typed for the owner's till is on a card — never held out of
+      // sight while the boxes and the review show its lines.
+      const card = e.floor != null || e.scan.revenue_total_text != null
+        || Object.prototype.hasOwnProperty.call(e.edits, "revenue_total");
       return card ? formSideScan(e, locale, false) : null;
     }
     const scans = groupScans(state);
@@ -307,13 +320,15 @@ export function needsTerminalQuestion(state, incoming) {
   return groupScans(state).some((s) => (scanSaveTotal(s, state.locale) || 0) > 0);
 }
 
-/** The same photo read the same way, or the same scan id, is the same scan. */
-export function isDuplicateScan(state, { id = null, photo = null, scan = null } = {}) {
-  const same = (a, b) => JSON.stringify([a?.revenue, a?.payments, a?.revenue_total, a?.moms_total, a?.tips])
-    === JSON.stringify([b?.revenue, b?.payments, b?.revenue_total, b?.moms_total, b?.tips]);
+/**
+ * The same photo (its ref) or the same scan id is the same scan — however it
+ * was read this time. Every pick runs the OCR again and an LLM read can
+ * differ a little between runs (a "MobilePay 0" more): that is still the one
+ * photo, never a second till.
+ */
+export function isDuplicateScan(state, { id = null, photo = null } = {}) {
   const all = [...activeEntries(state).filter((e) => e.origin === TILL_SCAN), ...state.pending];
-  return all.some((e) => (id != null && e.scanId === id)
-    || (photo != null && e.photo === photo && (scan == null || same(e.scan, scan))));
+  return all.some((e) => (id != null && e.scanId === id) || (photo != null && e.photo === photo));
 }
 
 /* ─── the form as a till ─────────────────────────────────────────────── */
@@ -342,7 +357,10 @@ export function tillFromForm({ revenue = {}, payments = {}, tips = null, moms = 
  * total typed over it); a typed till with nothing left in it goes.
  */
 function seedFromForm(state, form) {
-  if (form === undefined || hasScanTills(state)) return state;
+  // A photo already in the day (one waiting on the question counts): the
+  // boxes may still show an answer taken back with Fortryd — never re-read
+  // them as the owner's own till.
+  if (form === undefined || hasScanTills(state) || state.pending.length) return state;
   const ft = formTill(state);
   if (form == null) {
     if (!ft || ft.floor != null || ft.scan.revenue_total_text != null) return state;
@@ -366,8 +384,11 @@ function seedFromForm(state, form) {
  */
 export function addScan(state, scan, { id = null, photo = null, form } = {}) {
   if (!scan || typeof scan !== "object") return state;
-  if (isDuplicateScan(state, { id, photo, scan })) return state;
-  const seeded = { ...seedFromForm(state, form), overlay: EMPTY };
+  if (isDuplicateScan(state, { id, photo })) return state;
+  let seeded = { ...seedFromForm(state, form), overlay: EMPTY, overlayBase: EMPTY };
+  // The day's first photo: the owner's till as it is now is what Start
+  // forfra gives back — whatever is distributed into it while photos are in.
+  if (!hasScanTills(state) && !state.pending.length) seeded = { ...seeded, ownBase: formTill(seeded) };
   const entryId = nextId(seeded);
   const base = { id: entryId, origin: TILL_SCAN, scan, edits: EMPTY, photo, scanId: id, replacedBy: null };
   // Once any photo waits on the owner, every later one waits behind it.
@@ -390,7 +411,7 @@ export function chooseTerminal(state, mode) {
   let entries = state.entries;
   if (mode === MERGE_REPLACE) entries = entries.map((e) => (e.replacedBy ? e : { ...e, replacedBy: head.id }));
   const entry = { ...head, join: mode === MERGE_SUM ? JOIN_SUM : JOIN_REPLACE };
-  let next = { ...state, entries: [...entries, entry], pending: rest, overlay: EMPTY, undo: pushUndo(state, mode) };
+  let next = { ...state, entries: [...entries, entry], pending: rest, overlay: EMPTY, overlayBase: EMPTY, undo: pushUndo(state, mode) };
   if (mode === MERGE_SUM) {
     const atJoin = tillTotals(next);
     next = { ...next, entries: next.entries.map((e) => (e.id === entry.id ? { ...e, atJoin } : e)) };
@@ -503,7 +524,7 @@ export function typeIntoForm(state, field, value, { form, fromForm = false } = {
   if (!active.length) {
     const scan = form || withField({ revenue: {}, payments: {} }, field, value, locale);
     const entry = { id: nextId(state), origin: TILL_TYPED, join: JOIN_BASE, scan, edits: EMPTY, photo: null, scanId: null, replacedBy: null, floor: null, meta: null };
-    return { ...state, seq: state.seq + 1, entries: [...state.entries, entry], overlay: EMPTY, mirror };
+    return { ...state, seq: state.seq + 1, entries: [...state.entries, entry], overlay: EMPTY, overlayBase: EMPTY, mirror };
   }
   const groups = tillGroups(state);
   if (groups.length === 1) {
@@ -512,17 +533,29 @@ export function typeIntoForm(state, field, value, { form, fromForm = false } = {
   }
   const n = num(value, locale);
   const overlay = { ...state.overlay, [field]: value };
+  // The box hands over every keystroke ("9", "9.", "9.0" … "9.000"). Each one
+  // is worked out from the tills as they stood before the FIRST keystroke on
+  // this line, with the whole difference — never from what the keystroke
+  // before left behind. Otherwise a low "9" on the way took money out of the
+  // owner's till, and the final raise filled a bon's unsplit room instead:
+  // the same 9.000 retyped moved 4.000 kr. out of the signed close.
+  const prevBase = state.overlayBase || EMPTY;
+  const known = hasOwn(prevBase, field);
+  const base = known ? prevBase[field] : fieldEdits(state, field);
+  const overlayBase = known ? prevBase : { ...prevBase, [field]: base };
+  const from = withFieldEdits(state, field, base);
   // Not an amount yet (or the total emptied): the box says so and blocks the
-  // lock; the tills keep their last good figures.
-  if ((filled(value) && n == null) || (field === "revenue_total" && n == null)) return { ...state, overlay, mirror };
-  const scans = groupScans(state);
+  // lock; the tills keep their figures from before the typing began.
+  if ((filled(value) && n == null) || (field === "revenue_total" && n == null)) return { ...from, overlay, overlayBase, mirror };
+  const fromGroups = tillGroups(from);
+  const scans = groupScans(from);
   if (field === "revenue_total") {
     // The day's total typed: the owner's till (or the last) takes the
     // difference. Typed below what the other tills save, each till takes its
     // share instead — no till is left with a total of nothing.
-    const totals = tillTotals(state);
-    const own = groups.findIndex((g) => g.some((e) => e.origin !== TILL_SCAN));
-    const t = own >= 0 ? own : groups.length - 1;
+    const totals = tillTotals(from);
+    const own = fromGroups.findIndex((g) => g.some((e) => e.origin !== TILL_SCAN));
+    const t = own >= 0 ? own : fromGroups.length - 1;
     const residual = r2(n - totals.reduce((a, v, i) => (i === t ? a : a + v), 0));
     const sum = totals.reduce((a, v) => a + v, 0);
     let shares;
@@ -531,25 +564,47 @@ export function typeIntoForm(state, field, value, { form, fromForm = false } = {
       shares = totals.map((v) => r2((n * v) / sum));
       shares[shares.length - 1] = r2(n - shares.slice(0, -1).reduce((a, v) => a + v, 0));
     }
-    let next = state;
+    let next = from;
     shares.forEach((v, i) => {
       if (v == null) return;
-      const entry = winnerIn(groups[i], field);
+      const entry = winnerIn(fromGroups[i], field);
       next = setEdit(next, next.entries.find((e) => e.id === entry.id), field, moneyInputText(v, locale));
     });
-    return { ...next, overlay, mirror };
+    return { ...next, overlay, overlayBase, mirror };
   }
   const target = n ?? 0;
-  const { cur, shares } = distribute(state, field, r2(target - cur0(scans, field, locale)));
-  let next = state;
+  const { cur, shares } = distribute(from, field, r2(target - cur0(scans, field, locale)));
+  let next = from;
   shares.forEach((d, i) => {
     if (Math.abs(d) < 0.005) return;
-    const g = tillGroups(state)[i];
-    const entry = winnerIn(g, field);
+    const entry = winnerIn(fromGroups[i], field);
     const live = next.entries.find((e) => e.id === entry.id);
     next = setEdit(next, live, field, moneyInputText(r2(cur[i] + d), locale));
   });
-  return { ...next, overlay, mirror };
+  return { ...next, overlay, overlayBase, mirror };
+}
+
+/** Each entry's own change to one line, as it stands: { [entryId]: value }. */
+function fieldEdits(state, field) {
+  const out = {};
+  state.entries.forEach((e) => { if (hasOwn(e.edits, field)) out[e.id] = e.edits[field]; });
+  return out;
+}
+
+/** The entries with one line's changes put back to `base` (fieldEdits). */
+function withFieldEdits(state, field, base) {
+  let changed = false;
+  const entries = state.entries.map((e) => {
+    const had = hasOwn(e.edits, field);
+    const want = hasOwn(base, e.id);
+    if (!had && !want) return e;
+    if (had && want && e.edits[field] === base[e.id]) return e;
+    changed = true;
+    if (want) return { ...e, edits: { ...e.edits, [field]: base[e.id] } };
+    const { [field]: _gone, ...rest } = e.edits;
+    return { ...e, edits: Object.keys(rest).length ? rest : EMPTY };
+  });
+  return changed ? { ...state, entries } : state;
 }
 
 function cur0(scans, field, locale) {
@@ -558,22 +613,32 @@ function cur0(scans, field, locale) {
 
 /**
  * Start forfra: every photo and its corrections go; the owner's own till (a
- * typed close, a reopened draft) stays exactly as it is — back in the day if
- * a "same terminal" photo had superseded it.
+ * typed close, a reopened draft) comes back exactly as it was when the first
+ * photo came in — back in the day if a "same terminal" photo had superseded
+ * it. What was distributed into it while photos were in the day (a total
+ * typed on the card, a category raised on a summed day) goes with the
+ * photos: it was a share of a day that no longer exists.
  */
 export function discardScans(state) {
   if (!state.entries.some((e) => e.origin === TILL_SCAN) && !state.pending.length && state.overlay === EMPTY) return state;
+  const was = state.ownBase;
   const entries = state.entries
     .filter((e) => e.origin !== TILL_SCAN)
-    .map((e) => (e.replacedBy ? { ...e, replacedBy: null } : e));
-  return { ...state, entries, pending: [], overlay: EMPTY, undo: pushUndo(state, "discard") };
+    .map((e) => {
+      const own = was && e.id === was.id ? was : e;
+      return own.replacedBy ? { ...own, replacedBy: null } : own;
+    });
+  return { ...state, entries, pending: [], overlay: EMPTY, overlayBase: EMPTY, ownBase: null, undo: pushUndo(state, "discard") };
 }
 
 /** Fortryd: exactly one step back. */
 export function undo(state) {
   const top = state.undo[state.undo.length - 1];
   if (!top) return state;
-  return { ...state, entries: top.entries, pending: top.pending, overlay: top.overlay, undo: state.undo.slice(0, -1) };
+  return {
+    ...state, entries: top.entries, pending: top.pending, overlay: top.overlay,
+    overlayBase: top.overlayBase || EMPTY, ownBase: top.ownBase || null, undo: state.undo.slice(0, -1),
+  };
 }
 
 /** The step Fortryd would take back ("sum", "replace", "page", "scan", "queue", "discard"), or null. */
@@ -608,6 +673,9 @@ export function loadDraft(state, { revenue = {}, payments = {}, tips = null, tot
     id: nextId(state), origin: TILL_DRAFT, join: JOIN_BASE, scan, edits: EMPTY,
     photo: null, scanId: null, replacedBy: null, floor: differs && !typedTotal ? t : null,
     meta: meta && typeof meta === "object" ? meta : null,
+    // The figures as saved: what the owner changes on a reopened Z-bon read
+    // is a correction of that read, on the record as one.
+    loaded: scan,
   };
   return { ...createTills(locale), seq: state.seq + 1, entries: [entry], mirror: true, day: state.day };
 }
@@ -708,7 +776,15 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
   const { locale } = state;
   const active = activeEntries(state);
   const scansIn = active.filter((e) => e.origin === TILL_SCAN);
-  if (!scansIn.length) return !cardView(state) && !photo ? { kind: "typed" } : null;
+  if (!scansIn.length) {
+    // A reopened draft with no photo in the day sends nothing when the
+    // server knows its source: it keeps the one it was saved with. Start
+    // forfra drops the page's photo, and a reopened Z-bon read was
+    // relabelled "typed".
+    const ft0 = formTill(state);
+    if (ft0?.origin === TILL_DRAFT && ft0.meta) return null;
+    return !cardView(state) && !photo ? { kind: "typed" } : null;
+  }
   const groups = tillGroups(state);
   const summed = groups.length > 1;
   const ft = formTill(state);
@@ -733,6 +809,15 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     const read = num(fieldOf(e.scan, f), locale) || 0;
     if (Math.abs((num(v, locale) || 0) - read) >= 0.005) corrected.push(lineKey(f));
   }));
+  if (draftRead) {
+    // The reopened draft was itself read off a Z-bon: what was corrected on
+    // it then stays on the record, and what the owner changed on it since is
+    // a correction of that read — never part of it.
+    (Array.isArray(ft.meta.corrected) ? ft.meta.corrected : []).forEach((k) => {
+      if (typeof k === "string" && (k === "revenue_total" || stillSaved(k))) corrected.push(k);
+    });
+    draftChanges(ft, locale).forEach((k) => corrected.push(k));
+  }
   const own = ft ? groups.findIndex((g) => g.includes(ft)) : -1;
   let terminal = summed ? tillTotals(state) : [];
   let typedTills = summed && own >= 0 && !draftRead ? [own] : [];
@@ -751,6 +836,29 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     corrected: Array.from(new Set(corrected)),
     ...(typed.length ? { typed } : {}),
   };
+}
+
+/** What the owner changed on a reopened draft since it was loaded, as record keys. */
+export function draftChanges(ft, locale = "da-DK") {
+  if (!ft?.loaded) return [];
+  const now = applyEdits(ft.scan, ft.edits, locale);
+  const out = [];
+  ["revenue", "payments"].forEach((b) => {
+    const keys = new Set([...Object.keys(ft.loaded[b] || {}), ...Object.keys(now[b] || {})]);
+    keys.forEach((k) => {
+      if (TOTAL_KEYS.includes(k)) return;
+      const a = num(now[b]?.[k], locale) || 0;
+      const was = num(ft.loaded[b]?.[k], locale) || 0;
+      if (Math.abs(a - was) >= 0.005) out.push(lineKey(`${b}.${k}`));
+    });
+  });
+  if (hasOwn(ft.edits, "revenue_total")) {
+    const was = ft.floor != null ? ft.floor
+      : (ft.loaded.revenue_total != null ? num(ft.loaded.revenue_total, locale) : lineSum(ft.loaded.revenue, locale));
+    const typed = num(ft.edits.revenue_total, locale);
+    if (typed == null || Math.abs(typed - (was || 0)) >= 0.005) out.push("revenue_total");
+  }
+  return out;
 }
 
 /* ─── one reducer over all of it ─────────────────────────────────────── */

@@ -8409,6 +8409,7 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcScanTotalEmptySum: "Type the day's total revenue — with several terminals added together it can't be left empty.",
     dcScanSamePhoto: "That photo is already in today's close — nothing was added.",
     dcMomsOneTillRecomputed: "Only some of the tills had a MOMS line, so MOMS is worked out from the combined {saved}. If a receipt has more than one MOMS rate, tap From receipt and type the right figure.",
     dcScanStartOverKeepsOwn: "The photo — and what you corrected on it — goes. Your own figures ({total}) come back.",

@@ -59,6 +59,7 @@ import {
   savedTotal,
   sourceMetaOf,
   tillFromForm,
+  tillGroups,
   tillTotals,
   typeIntoForm,
   undo as undoTill,
@@ -1454,6 +1455,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // after such a fill is the day's POS figures, not the owner's — it must not
   // write over them.
   const boxFillEpochRef = useRef(0);
+  // The boxes were last written from a ledger that held photos (an applied
+  // scan or sum). Start forfra writes them back from what is left — also
+  // after Fortryd took the photo out of the tills and back to the question,
+  // when the ledger alone no longer says the boxes show it.
+  const boxesHoldPhotosRef = useRef(false);
 
   // Edit-resync guard. When the owner unlocks + edits an existing close
   // (editDraft), the [branchId, businessDate]-keyed prefill effect re-fires
@@ -1592,6 +1598,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const scanResult = useMemo(() => cardView(ledger), [ledger]);
   // What the day saves when a card is in it: what each till saves, added up.
   const ledgerSaved = useMemo(() => savedTotal(ledger), [ledger]);
+  // A day of several tills (another terminal summed in).
+  const severalTills = useMemo(() => tillGroups(ledger).length > 1, [ledger]);
+  // The day's total emptied on the card of several tills: no figure — the
+  // tills keep theirs, and the box is red and holds the lock until the
+  // owner types one (or the review would show one figure and lock another).
+  const scanTotalEmptied = Boolean(scanResult) && severalTills && scanResult.revenue_total_text != null
+    && String(scanResult.revenue_total_text).trim() === "";
   const [scanPhotos, setScanPhotos] = useState([]); // [{url, name}]
   // First scanned Z-report photo URL (Supabase signed URL or local path).
   // Persisted on the close row as receipt_photo so the owner can re-view
@@ -1744,6 +1757,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       moms: loaded.momsMode === "manual" ? loaded.momsManual : null,
       meta: dc.source_meta && typeof dc.source_meta === "object" ? dc.source_meta : null,
     });
+    // The boxes show the reopened close now, not a photo.
+    boxesHoldPhotosRef.current = false;
     setCashCounted(loaded.cash);
     setDrawerCount(drawerFrom(loaded.cash, cashFloat));
     setMomsMode(loaded.momsMode);
@@ -1906,9 +1921,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Add thumbnail (use the resized file so the preview matches what
       // the backend actually saw)
       const before = ledgerRef.current;
-      // The same photo read the same way is already in the day: never a
-      // second till. Nothing is added, and the owner is told why.
-      if (isDuplicateScan(before, { photo: photoRef, scan: res.data })) {
+      // The stored image's path (the server keys it by the photo's bytes;
+      // the signed URL's token is not part of it): the same photo picked
+      // again — renamed, or read a little differently by the OCR — is
+      // already in the day. Never a second till: nothing is added, and the
+      // owner is told why.
+      const scanId = typeof res.data?.image_url === "string" && res.data.image_url
+        ? res.data.image_url.split("?")[0] : null;
+      if (isDuplicateScan(before, { photo: photoRef, id: scanId })) {
         setScanError(t("dcScanSamePhoto", "That photo is already in today's close — nothing was added."));
         setScanMode(cardView(before) ? "result" : "idle");
         return;
@@ -1922,7 +1942,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Whether to ask, to queue behind a question already open, or to fill
       // in a page: closeTills.addScan.
       const form = hasScanTills(before) ? undefined : formAsTill();
-      act(addScan, res.data, { photo: photoRef, form });
+      act(addScan, res.data, { photo: photoRef, id: scanId, form });
       if (form?.moms_total != null) {
         // The MOMS the owner typed is on their till now, and a sum adds the
         // bon's to it: applying takes the day's figure — not the typed one
@@ -2213,6 +2233,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     };
     salesFillRef.current = null;
     boxFillEpochRef.current += 1;
+    boxesHoldPhotosRef.current = false;
     setRevAmounts(pick(fv.revenue, revCats));
     setPayAmounts(pick(fv.payments, payMethods));
     if (config.hasTips) setTipsTotal(fv.tips != null && String(fv.tips).trim() !== "" ? asBox(fv.tips) : "");
@@ -2240,6 +2261,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const formSide = Boolean(formTill(lg));
     // The boxes show the ledger from here on: Start forfra writes them back.
     act(markApplied);
+    boxesHoldPhotosRef.current = hasScanTills(lg) || lg.pending.length > 0;
     // The Z-bon's figures now, not ones typed for another day. A card that
     // still carries the form's lines carries those very figures: the question
     // stays, and nothing is filed for this day until it is answered.
@@ -2273,7 +2295,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const ownerTypedMoms = Boolean(appliedMoms) && momsTyped
       && (appliedMoms.owner || momsManual !== appliedMoms.manual);
     let nextManual = momsMode === "manual" ? momsManual : "";
-    if (!appliedMoms || (appliedMoms.key !== momsKey && !ownerTypedMoms)) {
+    // A card that is only the owner's own till (a reopened draft whose total
+    // was corrected on the card, a typed close) brings no MOMS of a photo:
+    // the form's MOMS stays as it is. The draft's saved MOMS on its till is
+    // not "typed" for a total it was never saved with — the reopened-draft
+    // rule (draftMoms, below) already lets it follow the corrected total.
+    const photoMoms = hasScanTills(lg);
+    if (photoMoms && (!appliedMoms || (appliedMoms.key !== momsKey && !ownerTypedMoms))) {
       // The day's MOMS by the ledger's one rule: the tills' own MOMS added
       // up when EVERY till's is known — the owner's typed MOMS on their till
       // (kept as theirs, never dropped to Auto, never called the Z-bon's), or
@@ -2355,6 +2383,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const fillBoxesFromSync = (data, { replace = false } = {}) => {
     // The sync is not a till: the boxes no longer show the ledger.
     act(detachForm);
+    boxesHoldPhotosRef.current = false;
     const payPrefill = data?.suggested_prefill?.payment_breakdown || {};
     if (Object.keys(payPrefill).length > 0) {
       const newPay = {};
@@ -2799,7 +2828,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return Number.isFinite(n) && n < 0;
   }, [cashCounted, mLocale]);
   const moneyRejected = useMemo(
-    () => cashCountedNegative ||
+    () => cashCountedNegative || scanTotalEmptied ||
       [
         ...Object.values(revAmounts),
         ...Object.values(payAmounts),
@@ -2809,7 +2838,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         momsMode === "manual" ? momsManual : "",
         scanResult?.revenue_total_text ?? "",
       ].some((v) => isMoneyRejected(v, mLocale)),
-    [cashCountedNegative, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult],
+    [cashCountedNegative, scanTotalEmptied, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult],
   );
 
   // WHICH group holds it. The lock button sits on the review step, three
@@ -2827,11 +2856,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       ["moms", [momsMode === "manual" ? momsManual : ""]],
     ];
     for (const [name, values] of groups) {
+      if (name === "revenue" && scanTotalEmptied) return name;
       if (name === "cash" && cashCountedNegative) return name;
       if (values.some((v) => isMoneyRejected(v, mLocale))) return name;
     }
     return null;
-  }, [cashCountedNegative, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult]);
+  }, [cashCountedNegative, scanTotalEmptied, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult]);
 
   // Taxable base = entered revenue MINUS today's exempt sales total.
   // Clamp at 0: if the user only entered a placeholder and the exempt
@@ -2961,7 +2991,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // shows. The server's max(breakdown, override) then saves exactly it: a
     // till's categories raised past its bon count for that till, and lowering
     // them again takes it back out.
-    const revenue_total_override = ocrTotal && ocrTotal > 0 ? ledgerSaved : null;
+    // On a day of several tills it is sent whatever the card's box holds:
+    // an emptied total left the tills' 21.030 in the review while the server
+    // saved the categories' 17.030 (with the 21.030's MOMS).
+    const revenue_total_override = (ocrTotal && ocrTotal > 0) || (scanResult && severalTills && ledgerSaved > 0)
+      ? ledgerSaved : null;
     // Only override when the user actually scanned with the toggle —
     // otherwise leave null and let the user's account-level
     // prices_include_moms preference apply.
@@ -4224,8 +4258,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     // off it. On a day of several tills the difference goes
                     // to the owner's own till, or the last.
                     onChange={(e) => act(typeIntoForm, "revenue_total", e.target.value)}
+                    {...(scanTotalEmptied ? { "aria-invalid": true, "aria-describedby": "scan-total-empty" } : {})}
                   />
                 </div>
+                {scanTotalEmptied && (
+                  <p id="scan-total-empty" role="alert" className="text-[11px] text-red-600 dark:text-red-400 text-right">
+                    {t("dcScanTotalEmptySum", "Type the day's total revenue — with several terminals added together it can't be left empty.")}
+                  </p>
+                )}
                 {cardBonGap && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 tabular-nums">
                     <span className="font-semibold">
@@ -4526,18 +4566,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // about against the owner's own figures, never against a bon
                 // already thrown away (the same 3.000 counted twice).
                 const after = act(discardScans);
-                const boxesShowedPhotos = before.mirror && hasScanTills(before);
+                // Whether the boxes show photos is not only what the tills
+                // hold right now: after Fortryd the bon is back on the
+                // question (out of the tills) while the boxes still hold the
+                // applied sum — left there, it was filed as typed and counted
+                // again by the retake.
+                const boxesShowedPhotos = before.mirror
+                  && (hasScanTills(before) || before.pending.length > 0 || boxesHoldPhotosRef.current);
                 if (boxesShowedPhotos) writeBoxesFromLedger(after);
                 setScanPhotos([]); setReceiptPhotoUrl(null);
                 // The MOMS goes back with them: the owner's till's own MOMS, or
-                // worked out. A MOMS the owner typed since is theirs and stays.
+                // worked out. A MOMS the owner typed since is theirs and stays —
+                // unless it rode on photos alone (a photo-only day, or a scan's
+                // MOMS put in the form): then it belongs to no till that is
+                // left, and was filed as "indtastet" on the next day's bon.
                 const ownerTypedMoms = momsTyped && Boolean(appliedMoms)
                   && (appliedMoms.owner || momsManual !== appliedMoms.manual);
-                if (boxesShowedPhotos && !ownerTypedMoms) {
+                const momsRodeOnPhotos = Boolean(appliedMoms?.fromScan) || (boxesShowedPhotos && !formTill(before));
+                if (boxesShowedPhotos && (!ownerTypedMoms || momsRodeOnPhotos)) {
                   const left = momsOf(after);
                   if (left.source === "typed") { setMomsMode("manual"); setMomsManual(asBox(left.value)); } else { setMomsMode("auto"); setMomsManual(""); }
                   setAppliedMoms(null);
-                } else if (appliedMoms?.fromScan && !ownerTypedMoms) {
+                } else if (momsRodeOnPhotos) {
                   setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null);
                 }
                 appliedPrefillRef.current = null; setScanMode("idle");
@@ -5598,8 +5648,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // the bons' totals.
               const overBon = summedDay && !ownerSet && ocrTotal > 0 ? Math.max(0, Math.round((willSave - ocrTotal) * 100) / 100) : 0;
               // The owner's own till summed with a Z-bon: their figure and
-              // the bon's, never all of it "fra bon".
-              const ownTotals = summedDay && cardOwnTill ? tillTotals(ledger) : null;
+              // the bon's, never all of it "fra bon". Read off the same record
+              // the lock sends (closeTills.sourceMetaOf): only tills it files
+              // as typed are "indtastet" — a reopened draft that was itself
+              // read off a Z-bon is a bon, as the kasserapport prints it.
+              const ownTotals = (() => {
+                if (!summedDay || !cardOwnTill) return null;
+                const meta = sourceMetaOf(ledger);
+                const typedIdx = new Set(meta?.typed_tills || []);
+                if (!typedIdx.size) return null;
+                const tt = meta.terminal_totals || [];
+                const typed = tt.reduce((a, v, i) => (typedIdx.has(i) ? a + (Number(v) || 0) : a), 0);
+                const bon = tt.reduce((a, v, i) => (typedIdx.has(i) ? a : a + (Number(v) || 0)), 0);
+                return { typed: Math.round(typed * 100) / 100, bon: Math.round(bon * 100) / 100 };
+              })();
               // The other direction had no note: categories raised past the
               // bon's total are what is saved, and "Gemmer total" said nothing.
               // No bon known (a reopened draft's saved total) is no "Z-bon".
@@ -5672,8 +5734,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                           // revisor's line reads "… (indtastet) + …".
                           : ownTotals
                             ? t("dcSavesTypedPlusBon", "(you typed {typed} + Z-report {bon} — your breakdown sums to {sum})", {
-                                typed: formatOwnerMoney(ownTotals[0] || 0, currency, { decimals: LEDGER_DECIMALS }),
-                                bon: formatOwnerMoney(ownTotals.slice(1).reduce((a, v) => a + (v || 0), 0), currency, { decimals: LEDGER_DECIMALS }),
+                                typed: formatOwnerMoney(ownTotals.typed, currency, { decimals: LEDGER_DECIMALS }),
+                                bon: formatOwnerMoney(ownTotals.bon, currency, { decimals: LEDGER_DECIMALS }),
                                 sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }),
                               })
                           // A sum the tills' corrected categories moved off

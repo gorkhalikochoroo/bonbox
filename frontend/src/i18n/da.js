@@ -8118,6 +8118,7 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcScanTotalEmptySum: "Skriv dagens samlede omsætning — med flere terminaler lagt sammen kan feltet ikke stå tomt.",
     dcScanSamePhoto: "Det billede er allerede med i dagens kasserapport — der blev ikke lagt noget til.",
     dcMomsOneTillRecomputed: "Kun nogle af terminalerne havde en MOMS-linje, så MOMS er regnet ud af den samlede omsætning på {saved}. Har en bon flere momssatser, så tryk Fra kvittering og skriv den rigtige MOMS.",
     dcScanStartOverKeepsOwn: "Billedet — og det, du har rettet på det — forsvinder. Dine egne tal ({total}) kommer tilbage.",
