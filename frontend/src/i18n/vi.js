@@ -776,9 +776,9 @@ export const vi = {
   cookieCatFunctional: "Tuỳ chọn",
   cookieCatFunctionalDesc: "Ghi nhớ các lựa chọn nhỏ như giao diện và mẹo đã đóng để bạn không thấy lại.",
   cookieCatAnalytics: "Phân tích",
-  cookieCatAnalyticsDesc: "Giúp chúng tôi hiểu tính năng nào hữu ích và ứng dụng lỗi ở đâu. Chỉ tổng hợp — không bao giờ gắn với dữ liệu bán hàng của bạn.",
+  cookieCatAnalyticsDesc: "Giúp chúng tôi hiểu tính năng nào hữu ích và ứng dụng lỗi ở đâu. Được ghi lại theo từng tài khoản trong cơ sở dữ liệu riêng của BonBox, không bao giờ chia sẻ với công ty phân tích nào và bị xoá sau 180 ngày.",
   cookieCatMarketing: "Tiếp thị",
-  cookieCatMarketingDesc: "Cho phép chúng tôi đo kênh nào dẫn người quan tâm tới BonBox. Tắt theo mặc định.",
+  cookieCatMarketingDesc: "Cho phép chúng tôi đo kênh nào dẫn người quan tâm tới BonBox. Hiện tại việc này chỉ gồm một điều: mã chiến dịch từ mã QR trên một tờ rơi in của chúng tôi được lưu trên thiết bị này tối đa 30 ngày, để tài khoản mới có thể được gắn với lần ghé thăm đó. Tắt theo mặc định.",
   close: "Đóng",
   cookieSettings: "Cài đặt cookie",
   // Trækkort (DK)

@@ -1301,7 +1301,7 @@ def admin_signup_refs(
             "LOWER BOUND: an account counts only when it was created in the "
             "browser that opened the QR (or from an e-mail link asked for "
             "there), while that page load lasted or with the cookie banner's "
-            "Analytics consent, and only from the day the code-keeping build "
+            "Marketing consent, and only from the day the code-keeping build "
             "went live (check /api/health commit). Sheets handed out before "
             "that, a QR scanned on a phone and a signup later on a laptop, or "
             "blocked storage are lost, not zero. "

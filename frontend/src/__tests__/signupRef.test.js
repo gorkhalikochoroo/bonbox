@@ -1,23 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   cleanSignupRef, captureSignupRef, getSignupRef, clearSignupRef, withSignupRef,
-  onCookieConsentChanged,
+  onCookieConsentChanged, FLYER_TEXT_SINCE,
 } from "../utils/signupRef";
 
 // The leave-behind QR's code must survive from the first page load until an
 // account exists, and a bad one must simply be ignored. It touches the
-// device (local storage) only with the cookie banner's Analytics consent.
+// device (local storage) only with the cookie banner's Marketing consent —
+// the category that says it measures which channels bring people — given
+// on or after the day the banner first named the flyer code.
 
 const KEY = "bonbox_signup_ref";
-const consent = (analytics) =>
+const DAY = 24 * 60 * 60 * 1000;
+const record = (choices, timestamp = new Date().toISOString()) =>
   localStorage.setItem(
     "bonbox_cookie_consent",
     JSON.stringify({
       version: 1,
-      timestamp: new Date().toISOString(),
-      choices: { necessary: true, functional: false, analytics, marketing: false },
+      timestamp,
+      choices: { necessary: true, functional: false, analytics: false, marketing: false, ...choices },
     }),
   );
+const consent = (marketing) => record({ marketing });
 
 beforeEach(() => {
   clearSignupRef(); // this page load's memory
@@ -51,7 +55,7 @@ describe("signup ref", () => {
   });
 
   it("ignores any other ?ref= — not kept, not stored, not sent", () => {
-    consent(true); // even with Analytics consent nothing reaches the device
+    consent(true); // even with Marketing consent nothing reaches the device
     const others = [
       "producthunt", "newsletter", "flyer-01", "abc", "r1-a", "r1-a-", "r1a03", "r123-a-01",
       "r1-ab-01", "r1-a-1000", "r-a-01", "test", "test-1", "test-001", "test-ab", "x-r1-a-03",
@@ -123,7 +127,7 @@ describe("signup ref and the cookie banner (ePrivacy Art. 5(3))", () => {
     expect(localStorage.getItem(KEY)).toBeNull();
   });
 
-  it("with Analytics consent it is kept on the device for the next page load", async () => {
+  it("with Marketing consent it is kept on the device for the next page load", async () => {
     consent(true);
     captureSignupRef("?ref=r1-a-03");
     expect(JSON.parse(localStorage.getItem(KEY)).ref).toBe("r1-a-03");
@@ -148,11 +152,11 @@ describe("signup ref and the cookie banner (ePrivacy Art. 5(3))", () => {
     expect(localStorage.getItem(KEY)).toBeNull();
 
     consent(true);
-    onCookieConsentChanged({ necessary: true, analytics: true });
+    onCookieConsentChanged({ necessary: true, marketing: true });
     expect(JSON.parse(localStorage.getItem(KEY)).ref).toBe("r1-a-03");
 
     consent(false);
-    onCookieConsentChanged({ necessary: true, analytics: false });
+    onCookieConsentChanged({ necessary: true, marketing: false });
     expect(localStorage.getItem(KEY)).toBeNull();
     // This page load can still send it — nothing is on the device.
     expect(getSignupRef()).toBe("r1-a-03");
@@ -164,11 +168,85 @@ describe("signup ref and the cookie banner (ePrivacy Art. 5(3))", () => {
     fresh.watchCookieConsentForSignupRef();
     fresh.captureSignupRef("?ref=r2-b-04");
     consent(true);
-    window.dispatchEvent(new CustomEvent("bonbox-cookie-consent-changed", { detail: { analytics: true } }));
+    window.dispatchEvent(new CustomEvent("bonbox-cookie-consent-changed", { detail: { marketing: true } }));
     expect(JSON.parse(localStorage.getItem(KEY)).ref).toBe("r2-b-04");
     consent(false);
-    window.dispatchEvent(new CustomEvent("bonbox-cookie-consent-changed", { detail: { analytics: false } }));
+    window.dispatchEvent(new CustomEvent("bonbox-cookie-consent-changed", { detail: { marketing: false } }));
     expect(localStorage.getItem(KEY)).toBeNull();
     fresh.clearSignupRef();
+  });
+});
+
+describe("signup ref — Marketing, not Analytics, is the switch", () => {
+  it("Analytics on and Marketing off: the code never reaches the device", async () => {
+    record({ analytics: true, marketing: false });
+    expect(captureSignupRef("?ref=r1-a-03")).toBe("r1-a-03");
+    expect(localStorage.getItem(KEY)).toBeNull();
+    onCookieConsentChanged({ necessary: true, analytics: true, marketing: false });
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    localStorage.setItem(KEY, JSON.stringify({ ref: "r2-b-01", at: Date.now() }));
+    vi.resetModules();
+    const fresh = await import("../utils/signupRef");
+    expect(fresh.getSignupRef()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("a Marketing yes given before the banner named the flyer code does not count", async () => {
+    const before = new Date(FLYER_TEXT_SINCE - 60 * 1000).toISOString();
+    record({ analytics: true, marketing: true }, before);
+    expect(captureSignupRef("?ref=r1-a-03")).toBe("r1-a-03"); // memory still works
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    localStorage.setItem(KEY, JSON.stringify({ ref: "r1-a-03", at: Date.now() }));
+    vi.resetModules();
+    const fresh = await import("../utils/signupRef");
+    expect(fresh.getSignupRef()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("a Marketing yes given on the day the text changed counts", () => {
+    record({ marketing: true }, new Date(FLYER_TEXT_SINCE).toISOString());
+    captureSignupRef("?ref=r1-a-03");
+    expect(JSON.parse(localStorage.getItem(KEY)).ref).toBe("r1-a-03");
+  });
+});
+
+describe("signup ref — '30 days' is a deletion, on any page load", () => {
+  it("an expired copy is removed by a load without ?ref= (same page)", () => {
+    const t0 = Date.now();
+    consent(true);
+    captureSignupRef("?ref=r1-a-03", t0);
+    expect(localStorage.getItem(KEY)).not.toBeNull();
+    expect(captureSignupRef("", t0 + 31 * DAY)).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("an expired copy is removed by a later page load without ?ref=", async () => {
+    consent(true);
+    localStorage.setItem(KEY, JSON.stringify({ ref: "r1-a-03", at: Date.now() - 31 * DAY }));
+    vi.resetModules();
+    const fresh = await import("../utils/signupRef");
+    expect(fresh.captureSignupRef("?utm_source=x")).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("a fresh copy with consent is left alone by a load without ?ref=", async () => {
+    consent(true);
+    localStorage.setItem(KEY, JSON.stringify({ ref: "r1-a-03", at: Date.now() - 2 * DAY }));
+    vi.resetModules();
+    const fresh = await import("../utils/signupRef");
+    expect(fresh.captureSignupRef("")).toBeNull();
+    expect(JSON.parse(localStorage.getItem(KEY)).ref).toBe("r1-a-03");
+    expect(fresh.getSignupRef()).toBe("r1-a-03");
+  });
+
+  it("a copy held without consent (withdrawn in another tab) is removed on the next load", async () => {
+    consent(false);
+    localStorage.setItem(KEY, JSON.stringify({ ref: "r1-a-03", at: Date.now() }));
+    vi.resetModules();
+    const fresh = await import("../utils/signupRef");
+    expect(fresh.captureSignupRef("")).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });

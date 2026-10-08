@@ -29,7 +29,13 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  */
 
 const STORAGE_KEY = "bonbox_cookie_consent";
-const VERSION = 1; // bump if the categories/wording change materially
+// Bump if the categories/wording change materially — but a bump makes
+// getCookieConsent() return null for everyone, and the usage log
+// (useEventLog.js) only stops on an explicit analytics:false, so earlier
+// "no" answers would be logged again until re-answered. The 8 Oct 2026 flyer
+// sentence in Marketing is handled by the answer's timestamp instead
+// (FLYER_TEXT_SINCE in utils/signupRef.js).
+const VERSION = 1;
 const TWELVE_MONTHS_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
@@ -85,6 +91,22 @@ export function getCookieConsent() {
     analytics: !!parsed.choices.analytics,
     marketing: !!parsed.choices.marketing,
   };
+}
+
+/**
+ * When the stored answer was given (ms since epoch), or null when there is no
+ * valid answer (same checks as getCookieConsent). Lets a consumer tell an
+ * answer given to today's wording from one given to an older text — see
+ * FLYER_TEXT_SINCE in utils/signupRef.js.
+ */
+export function getCookieConsentTime() {
+  if (!getCookieConsent()) return null;
+  try {
+    const ts = new Date(JSON.parse(localStorage.getItem(STORAGE_KEY)).timestamp).getTime();
+    return Number.isFinite(ts) ? ts : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Honor browser DoNotTrack signal. If user set DNT=1, default everything off. */

@@ -13,6 +13,8 @@ Apple completion. These tests pin what the backend does with it:
   • a sign-in to an existing account never adds or replaces a code
   • the migration and the SQLite mirror both carry the column
   • the owner's own data export includes it (it is stored about them)
+  • from SIGNUP_REF_DELETE_ON (31 Jan 2027, promised on /privacy) no account
+    is stamped and the nightly maintenance clears every stored code
 
 No mail leaves the test: send_email is replaced by a list.
 
@@ -34,7 +36,9 @@ from app import models as _all_models  # noqa: F401
 from app.main import app, _db_ready
 from app.models.user import User
 from app.services.auth import hash_password
-from app.services.signup_ref import apply_signup_ref, clean_signup_ref, ref_prefix
+from app.services.signup_ref import (
+    SIGNUP_REF_DELETE_ON, apply_signup_ref, clean_signup_ref, purge_signup_refs, ref_prefix,
+)
 
 _db_ready.set()
 
@@ -392,3 +396,62 @@ def test_owner_data_export_includes_the_ref(db_session, client):
     assert e.status_code == 200, e.text
     text = e.text
     assert "signup_ref" in text and "r1-a-03" in text
+
+
+# ── Retention: deleted from accounts on SIGNUP_REF_DELETE_ON ─────────
+
+
+def test_the_delete_date_is_the_one_the_privacy_policy_promises():
+    from datetime import datetime
+    assert SIGNUP_REF_DELETE_ON == datetime(2027, 1, 31)
+
+
+def test_apply_stamps_nothing_from_the_delete_date():
+    from datetime import timedelta
+
+    class U:
+        signup_ref = None
+    before, on = U(), U()
+    assert apply_signup_ref(before, "r1-a-03", now=SIGNUP_REF_DELETE_ON - timedelta(seconds=1)) is True
+    assert before.signup_ref == "r1-a-03"
+    assert apply_signup_ref(on, "r1-a-03", now=SIGNUP_REF_DELETE_ON) is False
+    assert on.signup_ref is None
+
+
+def test_purge_clears_every_code_on_the_delete_date_and_not_before(db_session, client):
+    from datetime import timedelta
+    _register(client, signup_ref="r1-a-03")
+    _register(client, signup_ref="test-01")
+    _register(client)  # no code — untouched either way
+    held = lambda: db_session.query(User).filter(User.signup_ref.isnot(None)).count()  # noqa: E731
+    assert held() == 2
+
+    assert purge_signup_refs(db_session, SIGNUP_REF_DELETE_ON - timedelta(days=1)) == 0
+    db_session.commit()
+    assert held() == 2
+
+    assert purge_signup_refs(db_session, SIGNUP_REF_DELETE_ON) == 2
+    db_session.commit()
+    db_session.expire_all()
+    assert held() == 0
+    assert db_session.query(User).count() == 3  # accounts stay, only the code goes
+    assert purge_signup_refs(db_session, SIGNUP_REF_DELETE_ON + timedelta(days=1)) == 0
+
+
+def test_nightly_maintenance_runs_the_purge(db_session, client, monkeypatch):
+    import inspect
+    from datetime import timedelta
+    import app.jobs.retention_and_patterns as job
+
+    _register(client, signup_ref="r2-b-07")
+    db_session.commit()
+    monkeypatch.setattr(job, "SessionLocal", lambda: db_session)
+
+    monkeypatch.setattr(job, "utc_now", lambda: SIGNUP_REF_DELETE_ON - timedelta(hours=1))
+    assert job.purge_expired_signup_refs() == 0
+    monkeypatch.setattr(job, "utc_now", lambda: SIGNUP_REF_DELETE_ON + timedelta(hours=3))
+    assert job.purge_expired_signup_refs() == 1
+    db_session.expire_all()
+    assert db_session.query(User).filter(User.signup_ref.isnot(None)).count() == 0
+    # …and daily_maintenance calls it.
+    assert "purge_expired_signup_refs()" in inspect.getsource(job.daily_maintenance)

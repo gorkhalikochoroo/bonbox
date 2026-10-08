@@ -17,9 +17,22 @@
  *     the e-mail link, which carries the code in its own URL (the backend
  *     adds &ref= to the link it mails).
  *   • In local storage (bonbox_signup_ref, 30 days) ONLY while the cookie
- *     banner's Analytics choice is on. Given later → written then; withdrawn
- *     → removed. Without it, nothing about the code touches the device.
- *   Listed on /cookies and /privacy.
+ *     banner's Marketing choice is on — counting which printed flyer brought
+ *     an account is channel measurement, which is what that category says it
+ *     is for; Analytics is the in-app usage log. Given later → written then;
+ *     withdrawn → removed. Without it, nothing about the code touches the
+ *     device.
+ *   • A Marketing "yes" counts only when it was given on or after
+ *     FLYER_TEXT_SINCE, the day the banner first named the flyer code. An
+ *     older "yes" was given to a text that did not mention it, so the code
+ *     stays in memory until the visitor answers the banner again. (Bumping
+ *     the banner's VERSION instead would also forget every Analytics "no",
+ *     and the usage log only stops on an explicit "no".)
+ *   • Every page load first drops a copy that is past 30 days or held
+ *     without consent, so "up to 30 days" is a deletion, not just a value
+ *     that is ignored.
+ *   Listed on /cookies and /privacy (which also say the e-mail sign-in link
+ *   carries the code).
  *
  * Rules:
  *   • Only a fieldwork code is kept: r<round>-<argument>-<visit> ("r1-a-03"),
@@ -37,7 +50,7 @@
  *     mode, blocked storage) are swallowed — a lost ref must never cost a
  *     signup.
  */
-import { getCookieConsent } from "../components/CookieConsent";
+import { getCookieConsent, getCookieConsentTime } from "../components/CookieConsent";
 
 const KEY = "bonbox_signup_ref";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -45,6 +58,9 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // _FIELDWORK_RE — or test-01 … test-99 for checking a QR end to end.
 const REF_RE = /^(?:r\d{1,2}-[a-z]-\d{1,3}|test-\d{2})$/;
 const CONSENT_EVENT = "bonbox-cookie-consent-changed";
+// 8 Oct 2026, Copenhagen: the banner's Marketing text names the flyer code
+// from this release on. See the header.
+export const FLYER_TEXT_SINCE = Date.parse("2026-10-08T00:00:00+02:00");
 
 // This page load's code: { ref, at } or null.
 let memory = null;
@@ -55,9 +71,12 @@ export function cleanSignupRef(raw) {
   return REF_RE.test(value) ? value : null;
 }
 
-function analyticsAllowed() {
+/** Marketing consent, given to the text that names the flyer code. */
+function storageAllowed() {
   try {
-    return !!getCookieConsent()?.analytics;
+    if (!getCookieConsent()?.marketing) return false;
+    const at = getCookieConsentTime();
+    return at !== null && at >= FLYER_TEXT_SINCE;
   } catch {
     return false;
   }
@@ -73,9 +92,9 @@ function writeStored() {
 }
 
 function readStored(now) {
-  // Not read without Analytics consent — and a copy from before a
+  // Not read without Marketing consent — and a copy from before a
   // withdrawal is dropped.
-  if (!analyticsAllowed()) {
+  if (!storageAllowed()) {
     removeStored();
     return null;
   }
@@ -106,11 +125,14 @@ function kept(now) {
 /** Keep the ?ref= code from the current URL, if it is valid and none is kept. */
 export function captureSignupRef(search = typeof window !== "undefined" ? window.location.search : "", now = Date.now()) {
   try {
+    // Runs on every page load (main.jsx): drop a copy past 30 days or held
+    // without consent, whether or not this URL carries a code.
+    const already = kept(now);
     const ref = cleanSignupRef(new URLSearchParams(search || "").get("ref"));
     if (!ref) return null;
-    if (kept(now)) return null; // first code wins
+    if (already) return null; // first code wins
     memory = { ref, at: now };
-    if (analyticsAllowed()) writeStored();
+    if (storageAllowed()) writeStored();
     return ref;
   } catch {
     return null;
@@ -118,11 +140,11 @@ export function captureSignupRef(search = typeof window !== "undefined" ? window
 }
 
 /**
- * The cookie banner was answered (or re-answered). Analytics on → keep this
+ * The cookie banner was answered (or re-answered). Marketing on → keep this
  * page load's code for 30 days; off → remove any kept copy from the device.
  */
 export function onCookieConsentChanged(choices) {
-  if (choices?.analytics) writeStored();
+  if (choices?.marketing) writeStored();
   else removeStored();
 }
 

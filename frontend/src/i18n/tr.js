@@ -770,9 +770,9 @@ export const tr = {
   cookieCatFunctional: "Tercihler",
   cookieCatFunctionalDesc: "Tema ve kapatılmış ipuçları gibi küçük seçimleri hatırlar, tekrar görmezsiniz.",
   cookieCatAnalytics: "Analitik",
-  cookieCatAnalyticsDesc: "Hangi özelliklerin yararlı olduğunu ve nerede sorun çıktığını anlamamıza yardım eder. Yalnızca toplu — satış verilerinize asla bağlanmaz.",
+  cookieCatAnalyticsDesc: "Hangi özelliklerin yararlı olduğunu ve uygulamanın nerede sorun çıkardığını anlamamıza yardım eder. Hesap bazında BonBox'un kendi veritabanına kaydedilir, hiçbir analiz şirketiyle paylaşılmaz ve 180 gün sonra silinir.",
   cookieCatMarketing: "Pazarlama",
-  cookieCatMarketingDesc: "Hangi kanalların BonBox'la ilgilenenleri getirdiğini ölçmemizi sağlar. Varsayılan olarak kapalı.",
+  cookieCatMarketingDesc: "Hangi kanalların BonBox'la ilgilenenleri getirdiğini ölçmemizi sağlar. Bugün bu yalnızca tek bir şeyi kapsar: basılı broşürlerimizden birindeki QR koddan gelen kampanya kodu bu cihazda en fazla 30 gün saklanır, böylece yeni bir hesap o ziyaretle ilişkilendirilebilir. Varsayılan olarak kapalı.",
   close: "Kapat",
   cookieSettings: "Çerez ayarları",
   // Trækkort (DK)

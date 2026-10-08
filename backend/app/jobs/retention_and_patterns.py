@@ -148,6 +148,25 @@ def purge_old_error_logs(days: int = ERROR_LOG_RETENTION_DAYS) -> int:
         db.close()
 
 
+def purge_expired_signup_refs() -> int:
+    """Clear door-visit codes from accounts once their retention date has
+    passed (services/signup_ref.py SIGNUP_REF_DELETE_ON — the date /privacy
+    promises). Returns the number of accounts cleared."""
+    from app.services.signup_ref import purge_signup_refs
+
+    db: Session = SessionLocal()
+    try:
+        n = purge_signup_refs(db, utc_now())
+        db.commit()
+        return n
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        print(f"[retention] purge_expired_signup_refs failed: {e}")
+        return 0
+    finally:
+        db.close()
+
+
 def daily_maintenance() -> dict:
     """Composite job — run all maintenance steps and return a summary.
 
@@ -177,6 +196,13 @@ def daily_maintenance() -> dict:
         summary["error_logs_purged"] = purge_old_error_logs()
     except Exception as e:  # noqa: BLE001
         summary["error_log_retention_error"] = str(e)
+
+    # Door-visit codes: /privacy says they are deleted from accounts on
+    # 31 January 2027. A no-op before that date.
+    try:
+        summary["signup_refs_deleted"] = purge_expired_signup_refs()
+    except Exception as e:  # noqa: BLE001
+        summary["signup_ref_retention_error"] = str(e)
 
     # Accounting retention sweep — Bogføringsloven §12 (5y min) +
     # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive
