@@ -317,7 +317,11 @@ export function needsTerminalQuestion(state, incoming) {
   // A till "with figures" has a total of its own: a typed or reopened close,
   // or a photo that printed one. A first page of lines with no total is the
   // top of a receipt whose total is still to come.
-  return groupScans(state).some((s) => (scanSaveTotal(s, state.locale) || 0) > 0);
+  // Whatever its total box holds now: a Z-bon whose total the owner emptied
+  // (or retyped) is still a till with a total — it folded the next till's
+  // bon in as a page of it, and one till's money was gone.
+  return groupScans(state).some((s) => (scanSaveTotal(s, state.locale) || 0) > 0
+    || s.revenue_total_text != null || (num(s.bon_total, state.locale) || 0) > 0);
 }
 
 /**

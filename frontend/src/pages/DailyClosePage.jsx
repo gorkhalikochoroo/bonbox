@@ -1253,6 +1253,7 @@ const sortedFilled = (m) => Object.entries(m || {})
   .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 const editSignature = (o) => JSON.stringify([
   sortedFilled(o.rev), sortedFilled(o.pay), o.cash, o.tips, o.staff, o.by, o.notes, o.momsMode, o.momsManual,
+  o.cashFloat ?? "", o.gavekort ?? "", o.batch ?? "",
 ]);
 
 // What a scan's MOMS was read against. A scan's MOMS goes into the form once
@@ -1773,8 +1774,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Autosave waits for a real change: opening "Rediger" re-saved the close
     // within two seconds, before the owner had touched anything. Every field
     // counts as a change — a note, a staff count or the MOMS alone was never
-    // saved, because only the money fields were compared.
-    editBaselineRef.current = editSignature({ rev, pay, ...loaded });
+    // saved, because only the money fields were compared — and so does the
+    // day's ledger (a total typed on the card moves no box).
+    editBaselineRef.current = editSignature({ rev, pay, ...loaded, cashFloat, gavekort: "", batch: "" });
+    editOpenLedgerRef.current = draftLedger;
     // NOTE: registerCash (the "Expected (from register)" baseline) is NOT set
     // from the saved close here — a close row can't tell us whether its stored
     // cash_expected was register- or typed-derived. Instead the prefill effect
@@ -1896,6 +1899,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
   const handleFileSelect = async (rawFile) => {
     if (!rawFile) return;
+    // The form as it stood before the photo is saved first (the hero camera
+    // takes a photo from the form itself).
+    flushWaitingSave();
     // The photo as the camera roll knows it: picked again, it is the same photo.
     const photoRef = `${rawFile.name || ""}|${rawFile.size ?? ""}|${rawFile.lastModified ?? ""}`;
     setScanMode("scanning");
@@ -2999,7 +3005,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Only override when the user actually scanned with the toggle —
     // otherwise leave null and let the user's account-level
     // prices_include_moms preference apply.
-    const prices_include_moms_override = scanMode === "skipped" || scanMode === "result"
+    // The empty scan card's own save (Start forfra, the owner's till alone)
+    // sends what the same form sends past it.
+    const prices_include_moms_override = scanMode === "skipped" || scanMode === "result" || scanMode === "idle"
       ? scanMomsMode === "with-moms"
       : null;
     // Phase A — fold the per-archetype extra fields into a revisor-readable
@@ -3052,7 +3060,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // server's stale-auto rule could swap 2.906 for 3.406. Anything else
       // goes as the auto figure it is: never "manual" over a number nobody
       // typed or read, which the kasserapport would print as "indtastet".
-      moms_total: momsTyped ? momsTotal : (momsTotal || null),
+      // The auto figure goes too — 0 included — whenever there is revenue:
+      // on a day whose MOMS-free sales cover the close the review said MOMS
+      // 0,00 while `|| null` let the server work out 25/125 of the revenue
+      // (150 kr. on 750). The server keeps that 0 only when its own MOMS-free
+      // sales for the day say the same.
+      moms_total: momsTyped ? momsTotal : (savedRevenue > 0 ? momsTotal : (momsTotal || null)),
       moms_mode: (momsTyped || momsSource === "scanned") ? "manual" : "auto",
       tips_total: tipsTotal && Number.isFinite(readMoney(tipsTotal)) ? readMoney(tipsTotal) : null,
       tips_staff_count: staffCount ? parseInt(staffCount) : null,
@@ -3086,7 +3099,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // override. Both are accepted by the backend in DailyCloseCreate.
       revenue_total_override,
       // The owner corrected the scanned total by hand → it is the figure.
-      revenue_total_owner_set: Boolean(scanResult?.revenue_total_text) && revenue_total_override != null,
+      // So is the tills' figure whenever the boxes show the tills and it is
+      // below their lines: the server's max(lines, total) saved 16.800 under
+      // a review of 12.000.
+      revenue_total_owner_set: revenue_total_override != null && (Boolean(scanResult?.revenue_total_text)
+        || (ledger.mirror && revenue_total_override < Object.values(revenue_breakdown).reduce((a, v) => a + v, 0) - 0.005)),
       prices_include_moms_override,
       // Tax-exempt total for the day. Pydantic schemas/daily_close.py
       // does NOT accept this field yet — sending it is forward-compat
@@ -3115,7 +3132,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // leaving never reached the server. Leaving now sends it instead.
   const pendingSaveRef = useRef(null);
   const savesInFlightRef = useRef(0);
+  // A save still waiting on the form goes now — before the scan card takes
+  // over (a waiting timer is cancelled there, and the edit typed just before
+  // the tap was never saved).
+  const flushWaitingSave = () => {
+    const waiting = pendingSaveRef.current;
+    if (!waiting) return;
+    clearTimeout(autoSaveRef.current);
+    waiting();
+  };
+  // A reopened close as it was opened (its fields, and its ledger): nothing
+  // is saved until the owner changes something. Once they have, every change
+  // is saved — a change back to the opened figures too.
   const editBaselineRef = useRef(null);
+  const editOpenLedgerRef = useRef(null);
   // "The server told us this exact row is locked." NOT a guess from page state.
   //
   // The obvious guard here is a `dayLocked` prop fed from the page's
@@ -3181,12 +3211,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Only auto-save if user has entered some data and is past scan UI
     // On the total that will be SAVED: a Z-bon read as a total only was
     // never autosaved, because its categories summed to zero.
-    if (scanMode !== "skipped" || savedRevenue === 0) return nothingToSave();
-    // An edit that hasn't changed anything yet is not a save.
-    if (editBaselineRef.current && editBaselineRef.current === editSignature({
-      rev: revAmounts, pay: payAmounts, cash: cashCounted, tips: tipsTotal,
-      staff: staffCount, by: closedBy, notes, momsMode, momsManual,
-    })) return nothingToSave();
+    // The form is the day past the scan card ("skipped") — and on an empty
+    // scan card when the day is the owner's own till and nothing else: Start
+    // forfra put their figures back in the boxes, and leaving from there kept
+    // the photo's figures in the draft (24.412,50 saved under a 21.412,50
+    // form). A card with photos on it is not filed until it is applied.
+    const formIsTheDay = scanMode === "skipped"
+      || (scanMode === "idle" && Boolean(formTill(ledger)) && !hasScanTills(ledger) && !ledger.pending.length);
+    if (!formIsTheDay || savedRevenue === 0) return nothingToSave();
+    // A reopened close not touched yet is not a save. The first change ends
+    // that for good: the stored draft then holds the change, so going back to
+    // the figures it was opened with is a change too — it was skipped, and
+    // the server kept the version in between (a Kort of 21.000 lost).
+    if (editBaselineRef.current) {
+      const untouched = ledger === editOpenLedgerRef.current && editBaselineRef.current === editSignature({
+        rev: revAmounts, pay: payAmounts, cash: cashCounted, tips: tipsTotal,
+        staff: staffCount, by: closedBy, notes, momsMode, momsManual,
+        cashFloat, gavekort: gavekortSold, batch: batchRef,
+      });
+      if (untouched) return nothingToSave();
+      editBaselineRef.current = null;
+      editOpenLedgerRef.current = null;
+    }
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
     const savingKey = rowKey;
@@ -3222,7 +3268,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // autosaved — "Kladde gemt" and then lost on the next open.
   // momsTotal / exemptSalesTotal: the day's MOMS-free answer landing after
   // the save went out changes the MOMS, and that is saved too.
-  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen]);
+  // scanMode / ledger: Fortryd and Start forfra change the day on the scan
+  // card, and "Spring over" back to the form moved no step — nothing re-ran,
+  // and the draft kept the photo the owner had thrown away.
+  }, [step, scanMode, ledger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen]);
 
   // Leaving sends the waiting save instead of dropping it: the form unmounts on
   // every tab switch and route change, and a phone can be locked or the tab
@@ -5181,13 +5230,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {revCats.filter(c => revAmounts[c.key]).map(c => (
                 <div key={c.key} className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-700 dark:text-gray-300 tabular-nums">
                   <span><Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}</span>
-                  <span><Amount value={readMoney(revAmounts[c.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span data-testid={`dc-review-rev-${c.key}`}><Amount value={readMoney(revAmounts[c.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
               {/* So the rows add up to the total the kasserapport will carry. */}
               <UnsplitLine amount={unsplitRevenue} show={revenueKnown} currency={currency} t={t} />
               <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
-                <span>{t("total")}</span><span><Amount value={revenueKnown ? savedRevenue : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                <span>{t("total")}</span><span data-testid="dc-review-total"><Amount value={revenueKnown ? savedRevenue : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
               </div>
             </div>
 
@@ -5311,7 +5360,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 )}
                 <div className="flex justify-between text-[13px] font-semibold py-0.5 text-gray-900 dark:text-gray-100 tabular-nums">
                   <span>{vatName} {vatRatePct}%{momsTyped ? ` ${t("fromReceiptSuffix", "(from receipt)")}` : ""}</span>
-                  <span><Amount value={momsTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span data-testid="dc-review-moms"><Amount value={momsTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 <div className="flex justify-between text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-1 text-gray-900 dark:text-white tabular-nums">
                   <span>{t("revenueUdenMoms", "Revenue (excl. MOMS)")}</span>
@@ -5331,7 +5380,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {payMethods.filter(m => payAmounts[m.key]).map(m => (
                 <div key={m.key} className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-700 dark:text-gray-300 tabular-nums">
                   <span><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</span>
-                  <span><Amount value={readMoney(payAmounts[m.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span data-testid={`dc-review-pay-${m.key}`}><Amount value={readMoney(payAmounts[m.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
               <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
@@ -5612,6 +5661,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             // Back to the scan card WITH the scan, to correct it — it threw the
             // read Z-bon and its photo away without asking.
             <Button variant="ghost" size="lg" onClick={() => {
+              flushWaitingSave();
               if (scanResult) {
                 // The card shows what the form holds NOW — every box edit is
                 // already in the ledger, nothing is folded back.

@@ -1774,6 +1774,35 @@ def create_daily_close(
             exempt_fits = server_exempt is not None and abs(server_exempt - exempt) <= 1.0
     if stale_auto and not exempt_fits:
         sent_moms = None
+    # A day whose MOMS-free sales cover the whole close (gift cards only,
+    # say): the page's auto MOMS is 0 — the MOMS of nothing left to tax — and
+    # the review shows 0,00. Sent as null it was worked out from the full
+    # revenue (750 → 150,00 stored under a review of 0,00); sent as 0 it is
+    # the same claim as any MOMS-free figure: kept only when the server's own
+    # MOMS-free sales for the date (the property report, within 1 kr.) cover
+    # the revenue too. An auto 0 with nothing MOMS-free behind it is worked
+    # out from the revenue as before.
+    if (
+        sent_moms is not None and moms_mode == "auto" and vat_rate > 0
+        and revenue_total > 0 and abs(float(sent_moms)) < 0.005
+        and abs(_moms_of(revenue_total)) >= 0.005
+    ):
+        try:
+            claim0 = float(data.exempt_sales_total or 0)
+        except (TypeError, ValueError):
+            claim0 = 0.0
+        if claim0 != claim0 or claim0 < 0:  # NaN, or nothing MOMS-free
+            claim0 = 0.0
+
+        def _covers(exempt: float) -> bool:
+            return exempt > 0 and abs(_moms_of(max(0.0, revenue_total - exempt))) < 0.005
+
+        kept = False
+        if _covers(claim0):
+            server_exempt0 = _momsfri_sales_for_date(db, user=user, target_date=data.date)
+            kept = server_exempt0 is not None and abs(server_exempt0 - claim0) <= 1.0 and _covers(server_exempt0)
+        if not kept:
+            sent_moms = None
     if sent_moms is not None:
         moms_total = round(sent_moms, 2)
     else:
