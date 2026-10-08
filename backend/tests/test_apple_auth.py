@@ -247,15 +247,28 @@ def test_apple_invalid_token_401(db_session, client):
     assert "Invalid or expired" in r.json()["detail"]
 
 
-# ─── Account pre-hijacking on the legacy link (review, 8 Oct) ─────────
+# ─── An unconfirmed account on the legacy link: ASK, don't claim ────────
 # By decision the legacy route still links Apple onto an existing account
 # when Apple says the e-mail is verified. When that account was never
-# confirmed, whoever pre-registered it keeps nothing: password replaced,
-# sessions revoked, the address confirmed.
+# confirmed, the inbox owner is ASKED whether they made it (Manoj, 8 Oct):
+# the address is confirmed, nothing else changes, and — because old iOS
+# builds cannot show the question — the one notice mail carries it as two
+# links (Keep / Secure). "Secure" from the mail then claims the account.
 
 
-def test_legacy_apple_link_claims_an_unverified_account(db_session, client):
+def _claim_mail_ticket(html):
+    import re
+    m = re.search(r"/login/claim\?token=([A-Za-z0-9_-]{43,})&answer=keep", html)
+    assert m, html[:400]
+    return m.group(1)
+
+
+def test_legacy_apple_link_asks_and_does_not_claim(db_session, client, monkeypatch):
+    from app.models.account_claim_ticket import AccountClaimTicket
+    from app.routers.auth import limiter as _auth_limiter
     from app.services.auth import create_access_token, verify_password
+    _auth_limiter.reset()
+    monkeypatch.setattr("app.services.email_service.send_email", lambda *a, **k: True)
     squatter = User(
         email="victim@bonbox.test", password_hash=hash_password("attacker-pw-1"),
         business_name="V", business_type="cafe", currency="DKK",
@@ -271,13 +284,60 @@ def test_legacy_apple_link_claims_an_unverified_account(db_session, client):
     assert r.json()["user"]["id"] == str(squatter.id)
     db_session.refresh(squatter)
     assert squatter.apple_user_id == "001234.claim.0001"   # the link stays
-    assert squatter.email_verified is True
-    assert squatter.token_version == old_tv + 1
-    assert not verify_password("attacker-pw-1", squatter.password_hash)
+    assert squatter.email_verified is True                  # Apple proved the inbox
+    assert (squatter.token_version or 0) == old_tv          # nobody signed out
+    assert verify_password("attacker-pw-1", squatter.password_hash)   # not replaced
     assert client.get("/api/auth/me",
-                      headers={"Authorization": f"Bearer {old_jwt}"}).status_code == 401
+                      headers={"Authorization": f"Bearer {old_jwt}"}).status_code == 200
     assert client.get("/api/auth/me", headers={
         "Authorization": f"Bearer {r.json()['access_token']}"}).status_code == 200
+    # Only the mail ticket: old builds have no page to answer on.
+    kinds = [t.kind for t in db_session.query(AccountClaimTicket).filter(
+        AccountClaimTicket.user_id == squatter.id)]
+    assert kinds == ["mail"]
+
+
+def test_legacy_apple_link_mails_the_question_and_secure_claims(db_session, client, monkeypatch):
+    """Old iOS builds read nothing new from the answer, so the one notice mail
+    asks; its "secure" link (through the page) runs the claim."""
+    from app.routers.auth import limiter as _auth_limiter
+    from app.routers.auth_magic_link import limiter as _ml_limiter
+    from app.services.auth import create_access_token, verify_password
+    _auth_limiter.reset()   # the per-IP limiter is not what is under test
+    _ml_limiter.reset()
+    sent = []
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, **kw: sent.append((to, subject, html)) or True)
+    squatter = User(
+        email="victim2@bonbox.test", password_hash=hash_password("attacker-pw-1"),
+        business_name="V", business_type="cafe", currency="DKK",
+    )
+    db_session.add(squatter); db_session.commit(); db_session.refresh(squatter)
+    old_jwt = create_access_token(str(squatter.id), squatter.token_version or 0)
+    with _patch_verify({"sub": "001234.claim.0003", "email": "victim2@bonbox.test",
+                        "email_verified": "true"}):
+        r = client.post("/api/auth/apple", json={"identity_token": "x"})
+    assert r.status_code == 200, r.text
+    assert len(sent) == 1
+    to, subject, html = sent[0]
+    assert to == "victim2@bonbox.test"
+    assert "med Apple" in html and "Har du selv oprettet denne BonBox-konto den" in html
+    assert "&answer=keep" in html and "&answer=secure" in html
+    # A second Apple sign-in before any answer: no second mail.
+    with _patch_verify({"sub": "001234.claim.0003", "email": "victim2@bonbox.test",
+                        "email_verified": "true"}):
+        assert client.post("/api/auth/apple", json={"identity_token": "x"}).status_code == 200
+    assert len(sent) == 1
+
+    ans = client.post("/api/auth/claim-decision",
+                      json={"ticket": _claim_mail_ticket(html), "answer": "secure"})
+    assert ans.status_code == 200, ans.text
+    assert ans.json()["access_token"] is None   # a mail link signs nobody in
+    db_session.expire_all()
+    u = db_session.query(User).filter(User.id == squatter.id).one()
+    assert not verify_password("attacker-pw-1", u.password_hash)
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": f"Bearer {old_jwt}"}).status_code == 401
 
 
 def test_legacy_apple_link_leaves_a_confirmed_account_untouched(db_session, client):
@@ -295,30 +355,6 @@ def test_legacy_apple_link_leaves_a_confirmed_account_untouched(db_session, clie
     db_session.refresh(owner)
     assert verify_password("owner-pw-1", owner.password_hash)
     assert (owner.token_version or 0) == old_tv
-
-
-def test_legacy_apple_claim_tells_the_inbox_owner_by_mail(db_session, client, monkeypatch):
-    """Old iOS builds read no flag from the answer, so the one notice mail is
-    how the inbox owner learns the old password stopped working (review,
-    8 Oct)."""
-    from app.routers.auth import limiter as _auth_limiter
-    _auth_limiter.reset()   # the per-IP limiter is not what is under test
-    sent = []
-    monkeypatch.setattr("app.services.email_service.send_email",
-                        lambda to, subject, html, **kw: sent.append((to, subject, html)) or True)
-    squatter = User(
-        email="victim2@bonbox.test", password_hash=hash_password("attacker-pw-1"),
-        business_name="V", business_type="cafe", currency="DKK",
-    )
-    db_session.add(squatter); db_session.commit()
-    with _patch_verify({"sub": "001234.claim.0003", "email": "victim2@bonbox.test",
-                        "email_verified": "true"}):
-        r = client.post("/api/auth/apple", json={"identity_token": "x"})
-    assert r.status_code == 200, r.text
-    assert len(sent) == 1
-    to, subject, html = sent[0]
-    assert to == "victim2@bonbox.test"
-    assert "med Apple" in html and "Glemt adgangskode" in html
 
 
 def test_legacy_apple_sign_in_to_a_confirmed_account_sends_no_notice(db_session, client, monkeypatch):

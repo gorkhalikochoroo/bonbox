@@ -577,11 +577,17 @@ def test_verify_with_token_of_different_hash_returns_401(client, db, email_outbo
     assert res_b.json()["user"]["email"] == "b@bonbox.dk"
 
 
-# ─── Account pre-hijacking (review, 8 Oct) ─────────────────────────────
-# Someone pre-registers the victim's address with a password of their own
-# (never verified). The victim later signs in with an e-mail link: the click
-# proves the inbox, so the pre-registered password and every session it
-# opened must go, and the address is confirmed.
+# ─── A login link on a never-confirmed account ASKS (Manoj, 8 Oct) ──────
+# Someone signed up with a password and never typed the code — the inbox
+# owner, or somebody who pre-registered their address. The link proves the
+# inbox: the address is confirmed and this browser is signed in, but nothing
+# else changes until the inbox owner answers "Did you create this BonBox
+# account yourself on <date> and choose the password?":
+#   keep   (Ja, det var mig)  — password, other devices, grants unchanged;
+#   secure (Nej / Ved ikke)   — password replaced, every session signed out,
+#                               revisor grants + host-stand links closed.
+# Only a ticket answers: the page's (30 min, in the verify body) or the one in
+# the notice mail (7 days). The squatter's own session cannot answer.
 
 
 def _link_signin(client, email_outbox, email):
@@ -590,60 +596,6 @@ def _link_signin(client, email_outbox, email):
     assert r.status_code == 200, r.text
     token = _extract_token_from_email(email_outbox[-1]["html"])
     return client.post("/api/auth/magic-link/verify", json={"token": token})
-
-
-def test_magic_link_claims_a_preregistered_unverified_account(client, db, email_outbox):
-    from app.services.auth import create_access_token, verify_password
-    squatter = _make_user(db, email="victim@bonbox.dk", email_verified=False,
-                          password_hash=hash_password("attacker-pw-1"),
-                          verification_code="123456")
-    old_tv = squatter.token_version or 0
-    squatter_jwt = create_access_token(str(squatter.id), old_tv)
-    assert client.get("/api/auth/me",
-                      headers={"Authorization": f"Bearer {squatter_jwt}"}).status_code == 200
-
-    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
-    assert res.status_code == 200, res.text
-    assert res.json()["user"]["id"] == str(squatter.id)  # same account, now the victim's
-    assert res.json()["user"]["email_verified"] is True
-
-    db.expire_all()
-    u = db.query(User).filter(User.id == squatter.id).one()
-    assert u.email_verified is True
-    assert u.token_version == old_tv + 1
-    assert u.verification_code is None
-    assert not verify_password("attacker-pw-1", u.password_hash)
-    # The pre-registering party's session is dead; the victim's works.
-    assert client.get("/api/auth/me",
-                      headers={"Authorization": f"Bearer {squatter_jwt}"}).status_code == 401
-    assert client.get("/api/auth/me", headers={
-        "Authorization": f"Bearer {res.json()['access_token']}"}).status_code == 200
-    assert db.query(AuditLog).filter(
-        AuditLog.action == "auth.unverified_account_claimed").count() == 1
-
-
-def test_magic_link_leaves_a_confirmed_account_untouched(client, db, email_outbox):
-    from app.services.auth import verify_password
-    owner = _make_user(db, email="owner@bonbox.dk")  # email_verified=True
-    old_hash, old_tv = owner.password_hash, owner.token_version or 0
-    res = _link_signin(client, email_outbox, "owner@bonbox.dk")
-    assert res.status_code == 200, res.text
-    db.expire_all()
-    u = db.query(User).filter(User.id == owner.id).one()
-    assert u.password_hash == old_hash and verify_password("owner-password-1", u.password_hash)
-    assert (u.token_version or 0) == old_tv
-    assert db.query(AuditLog).filter(
-        AuditLog.action == "auth.unverified_account_claimed").count() == 0
-
-
-# ─── What the claim closes, and what the claimant is told (review, 8 Oct) ──
-# The claim replaced the password and bumped token_version, but a revisor
-# grant or a host-stand device the pre-registering party set up stayed live —
-# a squatter's revisor JWT still opened the books after the hand-over. Both
-# are now closed by the claim, and the person who just clicked the link is
-# told what changed (password_reset in the answer + one notice mail): the
-# claim cannot tell a squatter from a real owner who never typed the code,
-# and a real owner's old password silently stopping was a dead end.
 
 
 def _grant_and_stand(db, owner):
@@ -665,46 +617,381 @@ def _grant_and_stand(db, owner):
     return revisor, g, pending, stand
 
 
-def test_claim_closes_revisor_grants_and_stand_devices(client, db, email_outbox):
+def _squatter(db, email="victim@bonbox.dk", **kw):
+    return _make_user(db, email=email, email_verified=False,
+                      password_hash=hash_password("attacker-pw-1"),
+                      verification_code="123456", **kw)
+
+
+def _notices(email_outbox, to):
+    """Mails to `to` that are not the login link itself."""
+    return [m for m in email_outbox if m["to"] == to and "/login/magic?token=" not in m["html"]]
+
+
+def _mail_ticket(mail_html):
+    import re
+    m = re.search(r"/login/claim\?token=([A-Za-z0-9_-]{43,})&amp;answer=keep|/login/claim\?token=([A-Za-z0-9_-]{43,})&answer=keep", mail_html)
+    assert m, mail_html[:400]
+    return m.group(1) or m.group(2)
+
+
+def _answer(client, ticket, answer, **extra):
+    return client.post("/api/auth/claim-decision", json={"ticket": ticket, "answer": answer, **extra})
+
+
+def _me(client, jwt):
+    return client.get("/api/auth/me", headers={"Authorization": f"Bearer {jwt}"}).status_code
+
+
+def _actions(db, action):
+    return db.query(AuditLog).filter(AuditLog.action == action).count()
+
+
+def test_link_on_an_unconfirmed_account_asks_and_changes_nothing_yet(client, db, email_outbox):
     from app.models.accountant_grant import AccountantGrant
     from app.models.stand_link import StandLink
-    from app.services.auth import create_access_token
-    squatter = _make_user(db, email="victim@bonbox.dk", email_verified=False,
-                          password_hash=hash_password("attacker-pw-1"))
-    revisor, g, pending, stand = _grant_and_stand(db, squatter)
-    revisor_jwt = create_access_token(str(revisor.id), revisor.token_version or 0)
-    hdr = {"Authorization": f"Bearer {revisor_jwt}"}
-    assert client.post(f"/api/accountants/switch-client/{squatter.id}", headers=hdr).status_code == 200
+    from app.services.auth import create_access_token, verify_password
+    squatter = _squatter(db)
+    _revisor, g, pending, stand = _grant_and_stand(db, squatter)
+    old_tv = squatter.token_version or 0
+    squatter_jwt = create_access_token(str(squatter.id), old_tv)
 
     res = _link_signin(client, email_outbox, "victim@bonbox.dk")
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["password_reset"] is True
-    assert body["access_closed"] is True
+    assert body["user"]["id"] == str(squatter.id)
+    assert body["user"]["email_verified"] is True            # the link proved the inbox
+    q = body["claim_question"]
+    from app.services.claim_decision import created_on
+    # The day it was made, in the owner's timezone (Europe/Copenhagen).
+    assert q == {"created_at": created_on(squatter).isoformat(), "has_password": True}
+    assert len(q["created_at"]) == 10                          # the date only
+    assert isinstance(body["claim_ticket"], str) and len(body["claim_ticket"]) >= 43
+    assert body["password_reset"] is False and body["access_closed"] is False
 
     db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert u.email_verified is True and u.verification_code is None
+    assert verify_password("attacker-pw-1", u.password_hash)  # NOT replaced
+    assert (u.token_version or 0) == old_tv
+    assert _me(client, squatter_jwt) == 200                    # other sessions untouched
+    assert _me(client, body["access_token"]) == 200            # this browser is signed in
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "active"
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == pending.id).one().status == "pending"
+    assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is True
+    assert _actions(db, "auth.claim.asked") == 1
+    assert _actions(db, "auth.claim.secured") == 0
+    # Only hashes are stored.
+    from app.models.account_claim_ticket import AccountClaimTicket
+    rows = db.query(AccountClaimTicket).filter(AccountClaimTicket.user_id == squatter.id).all()
+    assert {r.kind for r in rows} == {"page", "mail"}
+    assert all(r.token_hash != body["claim_ticket"] and len(r.token_hash) == 64 for r in rows)
+    page = next(r for r in rows if r.kind == "page")
+    assert page.sign_in_ref is not None                          # bound to this sign-in
+    assert (page.expires_at - page.created_at).total_seconds() == 30 * 60
+    mail = next(r for r in rows if r.kind == "mail")
+    assert (mail.expires_at - mail.created_at).days == 7
+
+
+def test_one_notice_mail_asks_the_same_question_with_two_links(client, db, email_outbox):
+    squatter = _squatter(db)   # DKK, no app language yet → Danish
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert res.status_code == 200, res.text
+    notices = _notices(email_outbox, "victim@bonbox.dk")
+    assert len(notices) == 1
+    html = notices[0]["html"]
+    from app.services.claim_decision import created_on, long_date
+    assert f"Har du selv oprettet denne BonBox-konto den {long_date(created_on(squatter), 'da')} og valgt adgangskoden?" in html
+    assert "Ja, det var mig" in html and "Nej / Ved ikke" in html
+    ticket = _mail_ticket(html)
+    assert f"/login/claim?token={ticket}&answer=keep" in html
+    assert f"/login/claim?token={ticket}&answer=secure" in html
+    assert ticket != res.json()["claim_ticket"]                 # its own ticket
+    assert notices[0]["subject"] == "BonBox: Har du selv oprettet din konto?"
+
+
+def test_the_notice_mail_is_english_for_an_english_account(client, db, email_outbox):
+    _squatter(db, ui_language="en")
+    assert _link_signin(client, email_outbox, "victim@bonbox.dk").status_code == 200
+    html = _notices(email_outbox, "victim@bonbox.dk")[0]["html"]
+    assert "Did you create this BonBox account yourself on" in html
+    assert "Yes, it was me" in html and "No / Not sure" in html
+
+
+def test_kept_leaves_password_sessions_and_grants_as_they_are(client, db, email_outbox):
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    from app.services.auth import create_access_token, verify_password
+    from app.services.claim_decision import question_open
+    squatter = _squatter(db)
+    _revisor, g, _pending, stand = _grant_and_stand(db, squatter)
+    old_tv = squatter.token_version or 0
+    other_jwt = create_access_token(str(squatter.id), old_tv)
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    mail_ticket = _mail_ticket(_notices(email_outbox, "victim@bonbox.dk")[0]["html"])
+
+    r = _answer(client, res.json()["claim_ticket"], "keep")
+    assert r.status_code == 200, r.text
+    assert r.json()["decision"] == "keep" and r.json()["already_decided"] is False
+    assert r.json()["access_token"] is None
+
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert verify_password("attacker-pw-1", u.password_hash)
+    assert (u.token_version or 0) == old_tv and u.email_verified is True
+    assert _me(client, other_jwt) == 200 and _me(client, res.json()["access_token"]) == 200
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "active"
+    assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is True
+    assert _actions(db, "auth.claim.kept") == 1 and _actions(db, "auth.claim.secured") == 0
+    assert question_open(db, u) is False
+    # Decided: the mail's ticket is void now.
+    r2 = _answer(client, mail_ticket, "secure")
+    assert r2.status_code == 409 and r2.json()["detail"]["code"] == "claim_already_decided"
+    assert r2.json()["detail"]["decision"] == "keep"
+    db.expire_all()
+    assert verify_password("attacker-pw-1", db.query(User).filter(User.id == squatter.id).one().password_hash)
+    # A later login link is an ordinary sign-in again.
+    later = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert later.json()["claim_question"] is None and later.json()["claim_ticket"] is None
+
+
+def test_secured_replaces_the_password_signs_out_and_closes_access(client, db, email_outbox):
+    import json as _json
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    from app.services.auth import create_access_token, verify_password
+    squatter = _squatter(db)
+    revisor, g, pending, stand = _grant_and_stand(db, squatter)
+    old_tv = squatter.token_version or 0
+    squatter_jwt = create_access_token(str(squatter.id), old_tv)
+    revisor_hdr = {"Authorization": f"Bearer {create_access_token(str(revisor.id), revisor.token_version or 0)}"}
+    assert client.post(f"/api/accountants/switch-client/{squatter.id}", headers=revisor_hdr).status_code == 200
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    page_jwt = res.json()["access_token"]
+
+    r = _answer(client, res.json()["claim_ticket"], "secure")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["decision"] == "secure" and out["access_closed"] is True
+    assert out["access_token"] and out["user"]["id"] == str(squatter.id)
+    assert "bonbox_session" in r.headers.get("set-cookie", "")   # this browser stays in
+
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert not verify_password("attacker-pw-1", u.password_hash)   # old password fails
+    assert u.token_version == old_tv + 1 and u.email_verified is True
+    assert _me(client, squatter_jwt) == 401                         # old sessions 401
+    assert _me(client, page_jwt) == 401                             # incl. the one minted before the answer
+    assert _me(client, out["access_token"]) == 200                  # the answering browser's new one
+    assert client.post("/api/auth/login", json={"email": "victim@bonbox.dk",
+                                                "password": "attacker-pw-1"}).status_code in (400, 401)
     assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "revoked"
     p = db.query(AccountantGrant).filter(AccountantGrant.id == pending.id).one()
     assert p.status == "revoked" and p.invite_token is None and p.revoked_at is not None
     assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is False
-    # The pre-registering party's revisor login no longer opens these books.
-    assert client.post(f"/api/accountants/switch-client/{squatter.id}", headers=hdr).status_code == 403
-    row = db.query(AuditLog).filter(AuditLog.action == "auth.unverified_account_claimed").one()
-    import json as _json
+    assert client.post(f"/api/accountants/switch-client/{squatter.id}", headers=revisor_hdr).status_code == 403
+    row = db.query(AuditLog).filter(AuditLog.action == "auth.claim.secured").one()
     after = _json.loads(row.after_state)
     assert after["revoked_grants"] == 2 and after["revoked_stand_links"] == 1
+    assert after["via"] == "magic_link" and after["ticket"] == "page"
 
 
-def test_the_claimant_gets_one_notice_mail(client, db, email_outbox):
-    _make_user(db, email="victim@bonbox.dk", email_verified=False,
-               password_hash=hash_password("attacker-pw-1"))
+def test_secure_from_the_mail_link_claims_but_signs_nobody_in(client, db, email_outbox):
+    from app.services.auth import create_access_token, verify_password
+    squatter = _squatter(db)
+    squatter_jwt = create_access_token(str(squatter.id), squatter.token_version or 0)
     res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    mail_ticket = _mail_ticket(_notices(email_outbox, "victim@bonbox.dk")[0]["html"])
+
+    st = client.post("/api/auth/claim-decision/status", json={"ticket": mail_ticket})
+    assert st.status_code == 200, st.text
+    assert st.json()["state"] == "open"
+    from app.services.claim_decision import created_on
+    assert st.json()["question"]["created_at"] == created_on(squatter).isoformat()
+
+    r = _answer(client, mail_ticket, "secure")
+    assert r.status_code == 200, r.text
+    assert r.json()["access_token"] is None and r.json()["user"] is None
+    assert "bonbox_session" not in r.headers.get("set-cookie", "")
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert not verify_password("attacker-pw-1", u.password_hash)
+    assert _me(client, squatter_jwt) == 401 and _me(client, res.json()["access_token"]) == 401
+    st2 = client.post("/api/auth/claim-decision/status", json={"ticket": mail_ticket})
+    assert st2.json()["state"] == "decided" and st2.json()["decision"] == "secure"
+    # The page's ticket is void now.
+    r2 = _answer(client, res.json()["claim_ticket"], "keep")
+    assert r2.status_code == 409 and r2.json()["detail"]["decision"] == "secure"
+
+
+def test_a_ticket_answers_once(client, db, email_outbox):
+    _squatter(db)
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    t = res.json()["claim_ticket"]
+    assert _answer(client, t, "secure").status_code == 200
+    db.expire_all()
+    tv = db.query(User).filter(User.email == "victim@bonbox.dk").one().token_version
+    # The same answer again: idempotent — nothing more happens, no new session.
+    again = _answer(client, t, "secure")
+    assert again.status_code == 200 and again.json()["already_decided"] is True
+    assert again.json()["access_token"] is None
+    db.expire_all()
+    assert db.query(User).filter(User.email == "victim@bonbox.dk").one().token_version == tv
+    assert _actions(db, "auth.claim.secured") == 1
+    # Another answer with the same ticket: refused.
+    other = _answer(client, t, "keep")
+    assert other.status_code == 409 and other.json()["detail"]["code"] == "claim_already_decided"
+    assert _actions(db, "auth.claim.kept") == 0
+
+
+def test_an_expired_ticket_is_refused_and_the_question_stays_open(client, db, email_outbox):
+    from datetime import timedelta as _td
+    from app.models.account_claim_ticket import AccountClaimTicket
+    from app.services.auth import verify_password
+    from app.services.claim_decision import question_open
+    squatter = _squatter(db)
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    for row in db.query(AccountClaimTicket).all():
+        row.expires_at = utc_now() - _td(seconds=1)
+    db.commit()
+    r = _answer(client, res.json()["claim_ticket"], "keep")
+    assert r.status_code == 410 and r.json()["detail"]["code"] == "claim_ticket_expired"
+    assert r.json()["detail"]["message_da"]
+    mail_ticket = _mail_ticket(_notices(email_outbox, "victim@bonbox.dk")[0]["html"])
+    assert _answer(client, mail_ticket, "secure").status_code == 410
+    st = client.post("/api/auth/claim-decision/status", json={"ticket": mail_ticket})
+    assert st.json()["state"] == "expired"
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert verify_password("attacker-pw-1", u.password_hash)
+    assert question_open(db, u) is True       # unanswered is not "kept"
+
+    # The next login link asks again — with a fresh page ticket, and no second mail.
+    again = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert again.json()["claim_question"] is not None
+    assert again.json()["claim_ticket"] not in (None, res.json()["claim_ticket"])
+    assert _notices(email_outbox, "victim@bonbox.dk") == []
+    assert _actions(db, "auth.claim.asked") == 1
+    assert _answer(client, again.json()["claim_ticket"], "keep").status_code == 200
+
+
+def test_leaving_the_question_unanswered_asks_again_next_time_without_a_second_mail(client, db, email_outbox):
+    from app.services.auth import verify_password
+    _squatter(db)
+    first = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert len(_notices(email_outbox, "victim@bonbox.dk")) == 1
+    second = _link_signin(client, email_outbox, "victim@bonbox.dk")   # page closed, came back
+    assert second.status_code == 200
+    assert second.json()["claim_question"] is not None
+    assert second.json()["claim_ticket"] != first.json()["claim_ticket"]
+    assert _notices(email_outbox, "victim@bonbox.dk") == []
+    db.expire_all()
+    assert verify_password("attacker-pw-1",
+                           db.query(User).filter(User.email == "victim@bonbox.dk").one().password_hash)
+
+
+def test_a_forged_ticket_or_an_account_id_cannot_answer(client, db, email_outbox):
+    import secrets as _s
+    from app.services.auth import create_access_token, verify_password
+    squatter = _squatter(db)
+    squatter_jwt = create_access_token(str(squatter.id), squatter.token_version or 0)
+    _link_signin(client, email_outbox, "victim@bonbox.dk")
+    hdr = {"Authorization": f"Bearer {squatter_jwt}"}
+    # The squatter holds a session but no ticket: a guessed one is unknown.
+    forged = client.post("/api/auth/claim-decision",
+                         json={"ticket": _s.token_urlsafe(32), "answer": "keep"}, headers=hdr)
+    assert forged.status_code == 404 and forged.json()["detail"]["code"] == "claim_ticket_invalid"
+    # An account id is never accepted in place of (or next to) the ticket.
+    by_id = client.post("/api/auth/claim-decision",
+                        json={"user_id": str(squatter.id), "answer": "keep"}, headers=hdr)
+    assert by_id.status_code == 422
+    with_id = _answer(client, _s.token_urlsafe(32), "keep", user_id=str(squatter.id))
+    assert with_id.status_code == 422
+    assert _answer(client, "short", "keep").status_code == 422
+    assert _answer(client, _s.token_urlsafe(32), "maybe").status_code == 422
+    assert client.post("/api/auth/claim-decision/status",
+                       json={"ticket": _s.token_urlsafe(32)}).status_code == 404
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert verify_password("attacker-pw-1", u.password_hash)
+    assert _actions(db, "auth.claim.kept") == 0 and _actions(db, "auth.claim.secured") == 0
+
+
+def test_the_answer_endpoint_is_rate_limited(client, db, email_outbox):
+    import secrets as _s
+    codes = [_answer(client, _s.token_urlsafe(32), "keep").status_code for _ in range(21)]
+    assert codes[:20] == [404] * 20 and codes[20] == 429
+
+
+@pytest.mark.parametrize("answer", ["keep", "secure"])
+def test_a_changed_login_email_follows_the_same_flow(client, db, email_outbox, monkeypatch, answer):
+    """The owner changes the login e-mail (now unconfirmed), then signs in with
+    a link to the new address: asked, not claimed — the owner answers."""
+    from app.routers import auth as auth_router
+    from app.services.auth import create_access_token, verify_password
+    monkeypatch.setattr("app.routers.auth.send_email", lambda *a, **k: True)
+    auth_router.limiter.reset()
+    owner = _make_user(db, email="owner@bonbox.dk")   # confirmed, password owner-password-1
+    jwt = create_access_token(str(owner.id), owner.token_version or 0)
+    r = client.patch("/api/auth/profile", headers={"Authorization": f"Bearer {jwt}"},
+                     json={"email": "new@bonbox.dk", "current_password": "owner-password-1"})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.query(User).filter(User.id == owner.id).one().email_verified is False
+
+    res = _link_signin(client, email_outbox, "new@bonbox.dk")
     assert res.status_code == 200, res.text
-    assert res.json()["password_reset"] is True
-    assert res.json()["access_closed"] is False
-    notices = [m for m in email_outbox if m["to"] == "victim@bonbox.dk" and "token=" not in m["html"]]
-    assert len(notices) == 1
-    assert "Forgot password" in notices[0]["html"] or "Glemt adgangskode" in notices[0]["html"]
+    from app.services.claim_decision import created_on
+    assert res.json()["claim_question"]["created_at"] == created_on(owner).isoformat()
+    assert len(_notices(email_outbox, "new@bonbox.dk")) == 1
+    db.expire_all()
+    u = db.query(User).filter(User.id == owner.id).one()
+    assert verify_password("owner-password-1", u.password_hash) and _me(client, jwt) == 200
+
+    assert _answer(client, res.json()["claim_ticket"], answer).status_code == 200
+    db.expire_all()
+    u = db.query(User).filter(User.id == owner.id).one()
+    assert u.email_verified is True and u.email == "new@bonbox.dk"
+    if answer == "keep":
+        assert verify_password("owner-password-1", u.password_hash) and _me(client, jwt) == 200
+    else:
+        assert not verify_password("owner-password-1", u.password_hash) and _me(client, jwt) == 401
+
+
+def test_the_login_email_cannot_move_while_the_question_is_open(client, db, email_outbox, monkeypatch):
+    from app.routers import auth as auth_router
+    from app.services.auth import create_access_token
+    monkeypatch.setattr("app.routers.auth.send_email", lambda *a, **k: True)
+    squatter = _squatter(db)
+    jwt = create_access_token(str(squatter.id), squatter.token_version or 0)
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    auth_router.limiter.reset()
+    body = {"email": "elsewhere@example.com", "current_password": "attacker-pw-1"}
+    r = client.patch("/api/auth/profile", headers={"Authorization": f"Bearer {jwt}"}, json=body)
+    assert r.status_code == 409, r.text
+    d = r.json()["detail"]
+    assert d["code"] == "claim_question_open" and d["message"] and d["message_da"]
+    db.expire_all()
+    assert db.query(User).filter(User.id == squatter.id).one().email == "victim@bonbox.dk"
+    # Answered (keep): the address can change again.
+    assert _answer(client, res.json()["claim_ticket"], "keep").status_code == 200
+    auth_router.limiter.reset()
+    r2 = client.patch("/api/auth/profile", headers={"Authorization": f"Bearer {jwt}"}, json=body)
+    assert r2.status_code == 200, r2.text
+
+
+def test_magic_link_leaves_a_confirmed_account_untouched(client, db, email_outbox):
+    from app.services.auth import verify_password
+    owner = _make_user(db, email="owner@bonbox.dk")  # email_verified=True
+    old_hash, old_tv = owner.password_hash, owner.token_version or 0
+    res = _link_signin(client, email_outbox, "owner@bonbox.dk")
+    assert res.status_code == 200, res.text
+    assert res.json()["claim_question"] is None and res.json()["claim_ticket"] is None
+    db.expire_all()
+    u = db.query(User).filter(User.id == owner.id).one()
+    assert u.password_hash == old_hash and verify_password("owner-password-1", u.password_hash)
+    assert (u.token_version or 0) == old_tv
+    assert _actions(db, "auth.claim.asked") == 0
 
 
 def test_a_confirmed_account_gets_no_reset_flag_and_keeps_its_access(client, db, email_outbox):
@@ -719,5 +1006,39 @@ def test_a_confirmed_account_gets_no_reset_flag_and_keeps_its_access(client, db,
     db.expire_all()
     assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "active"
     assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is True
-    # Only the link mail itself — no claim notice.
+    # Only the link mail itself — no notice.
     assert [m for m in email_outbox if "token=" not in m["html"]] == []
+
+
+def test_the_question_names_the_owners_own_calendar_day():
+    """created_at is naive UTC; 22:30 UTC on 8 Oct is already 9 Oct in
+    Copenhagen, and the question says the day the owner lived."""
+    from datetime import datetime as _dt
+    from app.services.claim_decision import created_on, long_date
+    u = User(email="x@bonbox.dk", password_hash="x", business_name="", business_type="",
+             created_at=_dt(2026, 10, 8, 22, 30))
+    assert created_on(u).isoformat() == "2026-10-09"
+    assert long_date(created_on(u), "da") == "9. oktober 2026"
+    assert long_date(created_on(u), "en") == "9 October 2026"
+
+
+def test_a_browser_holding_the_session_cookie_can_answer_without_a_csrf_header(engine_and_session, client, db, email_outbox):
+    """First-party host: the CSRF middleware enforces X-CSRF-Token on cookie
+    requests. The answer endpoints read no cookie (the ticket is the
+    credential), so the browser that just signed in — cookie and all — must
+    not get a 403 for it."""
+    from fastapi.testclient import TestClient as _TC
+    _squatter(db)
+    browser = _TC(app, base_url="https://api.bonbox.dk")
+    email_outbox.clear()
+    assert browser.post("/api/auth/magic-link/request", json={"email": "victim@bonbox.dk"}).status_code == 200
+    token = _extract_token_from_email(email_outbox[-1]["html"])
+    res = browser.post("/api/auth/magic-link/verify", json={"token": token})
+    assert res.status_code == 200, res.text
+    assert browser.cookies.get("bonbox_session")          # the browser holds the session cookie
+    # Enforcement is live on this host: a cookie POST elsewhere without the header is refused.
+    assert browser.post("/api/auth/logout").status_code == 403
+    st = browser.post("/api/auth/claim-decision/status", json={"ticket": res.json()["claim_ticket"]})
+    assert st.status_code == 200, st.text
+    r = browser.post("/api/auth/claim-decision", json={"ticket": res.json()["claim_ticket"], "answer": "keep"})
+    assert r.status_code == 200, r.text

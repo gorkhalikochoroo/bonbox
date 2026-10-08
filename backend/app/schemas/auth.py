@@ -256,9 +256,25 @@ class Token(BaseModel):
     user: UserResponse
 
 
+class ClaimQuestion(BaseModel):
+    """"Did you create this BonBox account yourself on <created_at> and choose
+    the password?" — asked when a login link lands in an account whose address
+    was never confirmed (services/claim_decision.py). The creation DATE only."""
+    created_at: str
+    has_password: bool = True
+
+
 class MagicLinkSessionToken(Token):
-    """/auth/magic-link/verify: the Token shape plus what an e-mail-link
-    sign-in changed on an account whose address was never confirmed
-    (services/auth.claim_unverified_account) — so the app can say so."""
+    """/auth/magic-link/verify: the Token shape, plus the question for the
+    inbox owner when the link landed in a never-confirmed account (or one
+    whose question is still unanswered): `claim_question` and `claim_ticket`,
+    the single-use 30-minute ticket that answers it (POST
+    /auth/claim-decision). Absent on an ordinary sign-in.
+
+    password_reset / access_closed are kept for app builds that read them; a
+    login link no longer replaces a password by itself, so both stay False
+    here (the answer endpoint reports what "secure" closed)."""
     password_reset: bool = False
     access_closed: bool = False
+    claim_question: ClaimQuestion | None = None
+    claim_ticket: str | None = None

@@ -78,114 +78,25 @@ def _close_access_handed_out(db: Session, user: User) -> tuple[int, int]:
     return len(grants), len(stands)
 
 
-def claim_unverified_account(db: Session, user: User, *, via: str,
-                             ip_address: str | None = None) -> bool:
-    """The inbox owner just proved this address (an e-mail link, or Apple's
-    verified claim) and lands in an account whose address was NEVER
-    confirmed. Whoever created that account did not prove the inbox, so
-    nothing they hold may survive the hand-over (account pre-hijacking,
-    review 8 Oct): the password they set is replaced by a random one, every
-    session they hold is revoked (token_version), the pending code is
-    cleared, the revisor grants and host-stand devices handed out are closed
-    (_close_access_handed_out), and the address is now confirmed. Audited.
+def secure_account(db: Session, user: User) -> tuple[int, int]:
+    """The inbox owner answered "No / Not sure" to "did you create this
+    account yourself and choose the password?" (services/claim_decision.py,
+    Manoj's decision 8 Oct). Whoever set that password keeps nothing: the
+    password is replaced by a random one, every session is revoked
+    (token_version), a pending code is cleared, the address stays confirmed,
+    and the revisor grants and host-stand devices the account handed out are
+    closed (_close_access_handed_out). Returns (grants, stand links) closed.
 
-    The claim cannot tell a squatter from a real owner who never typed the
-    code, so the claimant is TOLD: the outcome is left on the instance as
-    `user._claim_result` ({"password_reset": True, "access_closed": bool})
-    for the route to put in its answer and mail (claim_notice_email).
-
-    An already-confirmed account is untouched (returns False): its owner
-    proved the inbox once, so this is the same person signing in again.
-    The caller commits and mints the session AFTER this (new token_version).
-    """
-    if getattr(user, "email_verified", False) is True:
-        return False
+    Never called on a sign-in by itself — a login link only ASKS. The caller
+    audits (auth.claim.secured), commits, and mints a new session for the
+    browser that answered when it should have one."""
     import secrets as _secrets
     user.password_hash = hash_password(_secrets.token_urlsafe(32))
     user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
     user.verification_code = None
     user.verification_code_expires = None
     user.email_verified = True
-    n_grants, n_stands = _close_access_handed_out(db, user)
-    user._claim_result = {"password_reset": True, "via": via,
-                          "access_closed": bool(n_grants or n_stands)}
-    try:
-        from app.services import audit_service
-        audit_service.record(
-            db, user, "auth.unverified_account_claimed", "user",
-            entity_id=user.id, after={"via": via, "token_version": user.token_version,
-                                      "revoked_grants": n_grants,
-                                      "revoked_stand_links": n_stands},
-            ip_address=ip_address,
-        )
-    except Exception:  # noqa: BLE001 — audit is best-effort, never block the sign-in
-        pass
-    return True
-
-
-def claim_result(user: User) -> dict:
-    """What claim_unverified_account did to this instance in this request.
-    Read it BEFORE a commit/refresh and pass it on."""
-    r = getattr(user, "_claim_result", None) or {}
-    return {"password_reset": bool(r.get("password_reset")),
-            "access_closed": bool(r.get("access_closed")),
-            "via": r.get("via") or ""}
-
-
-def account_claimed_email_html(lang: str, access_closed: bool,
-                               with_apple: bool = False) -> tuple[str, str]:
-    """(subject, html) of the ONE mail sent after a claim, to the inbox that
-    was just proven. No typed value goes in it."""
-    if lang == "da":
-        subject = "BonBox — din e-mail er bekræftet"
-        how = "med Apple" if with_apple else "med et login-link fra din e-mail"
-        lines = [
-            f"Du er netop logget ind på BonBox {how}, og din e-mailadresse er nu bekræftet.",
-            "Af sikkerhedshensyn virker kontoens tidligere adgangskode ikke længere, og andre enheder er logget ud.",
-            "Vil du logge ind med adgangskode igen, så vælg en ny under Glemt adgangskode på login-siden. "
-            "Du kan også blive ved med at logge ind med et login-link.",
-        ]
-        if access_closed:
-            lines.append("Revisoradgang og enheder med værtsskærmen, der var givet før, er også lukket. "
-                         "Inviter og forbind dem igen, hvis de var dine.")
-    else:
-        subject = "BonBox — your e-mail is confirmed"
-        how = "with Apple" if with_apple else "with a login link from your e-mail"
-        lines = [
-            f"You just signed in to BonBox {how}, and your e-mail address is now confirmed.",
-            "For your safety, the account's previous password no longer works, and other devices were signed out.",
-            "To sign in with a password again, choose a new one under Forgot password on the login page. "
-            "You can also keep signing in with a login link.",
-        ]
-        if access_closed:
-            lines.append("Revisor access and host-stand devices given before were closed too. "
-                         "Invite and pair them again if they were yours.")
-    body = "".join(
-        f'<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 12px">{line}</p>'
-        for line in lines
-    )
-    html = (
-        "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
-        "max-width:480px;margin:0 auto;padding:32px 24px;background:#fff\">"
-        f"{body}</div>"
-    )
-    return subject, html
-
-
-def send_claim_notice(user: User, result: dict) -> None:
-    """Best-effort: the one notice mail after a claim (`result` from
-    claim_result, read before the commit). Never raises."""
-    if not result.get("password_reset"):
-        return
-    try:
-        from app.services.email_service import send_email
-        from app.services.owner_language import owner_lang
-        subject, html = account_claimed_email_html(
-            owner_lang(user), bool(result.get("access_closed")),
-            with_apple=str(result.get("via") or "").startswith("apple"))
-        send_email(user.email, subject, html)
-    except Exception:  # noqa: BLE001
-        pass
+    return _close_access_handed_out(db, user)
 
 
 def create_access_token(

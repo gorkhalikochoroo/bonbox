@@ -719,8 +719,9 @@ def accountant_signup(
             # BonBox recorded it) reached the revisor — or anyone — through
             # the owner's copy-link, so nothing proves the inbox: the account
             # stays unconfirmed, and the real inbox owner's first e-mail sign-in
-            # takes it over (claim_unverified_account: password replaced,
-            # every session signed out). Otherwise the owner could make a
+            # asks them whether they made it; "No / Not sure" takes it over
+            # (services/claim_decision.py: password replaced, every session
+            # signed out). Otherwise the owner could make a
             # "confirmed" BonBox login at any address and keep its password.
             email_verified=getattr(grant, "invite_mailed_at", None) is not None,
         )

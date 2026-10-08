@@ -2625,6 +2625,30 @@ _migrations = [
     # backfill — an existing row reads "unknown", exactly as before.
     "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mailed_at TIMESTAMP",
     "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mail_held VARCHAR(32)",
+    # ── Migration (2026-10-08): account_claim_tickets — ask the inbox owner ─
+    # Net-new table backing app/models/account_claim_ticket.py: a login link on
+    # a never-confirmed account asks "did you create this account yourself?"
+    # instead of replacing the password (services/claim_decision.py). Additive:
+    # no existing table is touched, nothing references it. create_all() builds
+    # it from the model on Postgres AND SQLite before this list runs (see the
+    # floor_fixtures note above); this is the create_all-bypassed net, with the
+    # types create_all produces (GUID → VARCHAR(36)). The RLS sweep above
+    # gives it the anon deny on every boot.
+    """CREATE TABLE IF NOT EXISTS account_claim_tickets (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        token_hash VARCHAR(64) NOT NULL UNIQUE,
+        kind VARCHAR(8) NOT NULL,
+        via VARCHAR(20) NOT NULL,
+        sign_in_ref VARCHAR(36),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        answer VARCHAR(8),
+        voided_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_user_id ON account_claim_tickets (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_token_hash ON account_claim_tickets (token_hash)",
 ]
 
 
@@ -4012,6 +4036,13 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # is the wrong layer of defence here, just like /login + /register.
     "/api/auth/magic-link/request",
     "/api/auth/magic-link/verify",
+    # "Did you create this account yourself?" — answered with a single-use
+    # ticket (the page's, or the one in the notice mail), which is the only
+    # credential: no cookie is read, so CSRF is the wrong layer here too. A
+    # browser that still holds a session (maybe a stale one) must not get a
+    # 403 for it. Rate-limited per IP; services/claim_decision.py.
+    "/api/auth/claim-decision",
+    "/api/auth/claim-decision/status",
     # Stripe webhook is signed; CSRF would just block legitimate Stripe POSTs.
     # The handler verifies Stripe-Signature inside, no cookie is involved.
     "/api/billing/stripe/webhook",

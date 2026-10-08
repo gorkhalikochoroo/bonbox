@@ -797,21 +797,20 @@ def apple_auth(
             # active /oauth/* path is already guarded.
             user.apple_user_id = apple_sub
             # The link stays (decision above), but an account whose address
-            # was never confirmed may have been pre-registered by someone
-            # else: Apple just proved the inbox, so that party's password
-            # and sessions go and the address is confirmed (review, 8 Oct).
-            # A confirmed account is untouched.
-            from app.services.auth import (
-                claim_result, claim_unverified_account, send_claim_notice,
-            )
-            claim_unverified_account(db, user, via="apple_legacy",
-                                     ip_address=client_ip(request))
-            _claimed = claim_result(user)
+            # was never confirmed may have been made by the inbox owner — or
+            # pre-registered by someone else. Apple just proved the inbox:
+            # the address is confirmed and the inbox owner is ASKED whether
+            # they made it (Manoj, 8 Oct; services/claim_decision.py) —
+            # nothing is replaced until they answer. Old iOS builds cannot
+            # show the question, so it goes by the one notice mail (Keep /
+            # Secure links). A confirmed account with no open question is
+            # untouched.
+            from app.services.claim_decision import ask_inbox_owner, send_question_mail
+            _ask = ask_inbox_owner(db, user, via="apple_legacy", page_ticket=False,
+                                   ip_address=client_ip(request))
             db.commit()
             db.refresh(user)
-            # Old iOS builds read no flag: one mail tells the inbox owner
-            # their old password stopped working (review, 8 Oct).
-            send_claim_notice(user, _claimed)
+            send_question_mail(user, _ask)
 
     is_new = False
     if not user:
@@ -979,7 +978,8 @@ def verify_email(
 
     A per-ACCOUNT limit on wrong codes (review, 8 Oct), the pattern of the
     password reset ceilings: email_verified now unlocks third-party mail and
-    decides whether an e-mail-link sign-in claims the account, so the code
+    decides whether an e-mail-link sign-in asks the inbox owner whether they
+    made the account (services/claim_decision.py), so the code
     must not be brute-forceable from rotating IPs. Every wrong code is an
     audit row; _VERIFY_MAX_FAILED_PER_CODE wrong codes burn the live code;
     _VERIFY_MAX_FAILED_PER_DAY in 24 hours pause confirming (429). The
@@ -1147,6 +1147,22 @@ def update_profile(
             raise HTTPException(status_code=403, detail={
                 "code": "password_required",
                 "message": "Enter your current password to change your login email.",
+            })
+        # A login link landed here before this address was ever confirmed and
+        # the inbox owner has not yet said whether they made this account
+        # (services/claim_decision.py). Until they answer, the address stays:
+        # otherwise whoever set the password could move the account to an
+        # address of their own and out of the inbox owner's reach.
+        from app.services.claim_decision import question_open as _claim_question_open
+        if _claim_question_open(db, current_user):
+            raise HTTPException(status_code=409, detail={
+                "code": "claim_question_open",
+                "message": ("This account is waiting for an answer: did you create it yourself? "
+                            "Answer from the link in the e-mail we sent, or sign in with a login link. "
+                            "Then you can change the e-mail."),
+                "message_da": ("Kontoen venter på et svar: Har du selv oprettet den? "
+                               "Svar via linket i den mail, vi har sendt, eller log ind med et login-link. "
+                               "Så kan du ændre e-mailen bagefter."),
             })
         existing = db.query(User).filter(User.email == data.email).first()
         if existing:

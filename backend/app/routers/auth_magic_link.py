@@ -49,7 +49,10 @@ from app.config import settings
 from app.database import get_db
 from app.models.magic_link_token import MagicLinkToken
 from app.schemas.auth import MagicLinkSessionToken, Token, UserResponse
-from app.schemas.magic_link import MagicLinkRequest, MagicLinkResponse, MagicLinkVerify
+from app.schemas.magic_link import (
+    ClaimDecisionIn, ClaimDecisionResponse, ClaimStatusResponse, ClaimTicketIn,
+    MagicLinkRequest, MagicLinkResponse, MagicLinkVerify,
+)
 from app.services import audit_service
 from app.services.auth import create_access_token
 from app.services.email_service import send_email
@@ -316,15 +319,17 @@ def verify_magic_link(
         ip_address=ip,
     )
 
-    # Read before the commit/refresh: what the claim of a never-confirmed
-    # account changed (review, 8 Oct) — the app says it, and one mail does.
-    from app.services.auth import claim_result, send_claim_notice
-    claimed = claim_result(user)
+    # Read before the commit/refresh: a never-confirmed account (or one with
+    # an unanswered question) is not claimed — the inbox owner is asked
+    # whether they made it (Manoj, 8 Oct; services/claim_decision.py). The
+    # page gets the question + its 30-minute ticket; the one notice mail
+    # (sent once per question, after the commit) carries the same choice.
+    from app.services.claim_decision import pending_ask, send_question_mail
+    ask = pending_ask(user)
 
     db.commit()
     db.refresh(user)
-    if claimed["password_reset"]:
-        send_claim_notice(user, claimed)
+    send_question_mail(user, ask)
 
     # Issue session — exactly the same shape + cookie behaviour as
     # /auth/login. Local import to avoid an import cycle (auth.py also
@@ -333,6 +338,65 @@ def verify_magic_link(
 
     jwt_token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, jwt_token, request)
-    return MagicLinkSessionToken(access_token=jwt_token, user=UserResponse.model_validate(user),
-                          password_reset=claimed["password_reset"],
-                          access_closed=claimed["access_closed"])
+    return MagicLinkSessionToken(
+        access_token=jwt_token, user=UserResponse.model_validate(user),
+        claim_question=ask.question if ask else None,
+        claim_ticket=ask.page_ticket if ask else None,
+    )
+
+
+# ── "Did you create this account yourself?" — the answer ─────────────────
+# Only the ticket answers (never an account id): the page's 30-minute ticket
+# from the verify answer above, or the 7-day one in the notice mail. Both
+# endpoints are public (the ticket IS the credential), CSRF-exempt like
+# /magic-link/verify (no cookie is read), rate-limited per IP, and every
+# answer is an audit row (auth.claim.kept / auth.claim.secured).
+
+
+@router.post("/claim-decision/status", response_model=ClaimStatusResponse)
+@limiter.limit("30/hour")
+def claim_decision_status(
+    request: Request,
+    data: ClaimTicketIn,
+    db: Session = Depends(get_db),
+):
+    """Read-only: is this ticket's question still open, and which date does
+    it name? For the page the mail's links open (it asks once more before
+    anything happens, so a mail scanner opening a link changes nothing)."""
+    from app.services.claim_decision import ticket_status
+    return ClaimStatusResponse(**ticket_status(db, data.ticket))
+
+
+@router.post("/claim-decision", response_model=ClaimDecisionResponse)
+@limiter.limit("20/hour")
+def claim_decision(
+    request: Request,
+    response: Response,
+    data: ClaimDecisionIn,
+    db: Session = Depends(get_db),
+):
+    """keep — nothing changes. secure — the old password stops working,
+    every session is signed out, revisor grants and host-stand links close
+    (services/auth.secure_account). The browser that answered with the
+    page's ticket opened the login link minutes ago, so it gets a fresh
+    session; a mail link signs nobody in.
+
+    Errors: 404 unknown ticket · 409 already answered (another answer, or
+    another ticket of the account answered first) · 410 expired · 422 bad
+    body (an account id or any other field is refused)."""
+    from app.services.claim_decision import decide
+    result = decide(db, data.ticket, data.answer, ip_address=_client_ip(request))
+    db.commit()
+    out = ClaimDecisionResponse(decision=result.answer,
+                                already_decided=result.already_decided,
+                                access_closed=result.access_closed)
+    user = result.user
+    if (result.answer == "secure" and result.kind == "page"
+            and not result.already_decided and not getattr(user, "is_locked", False)):
+        from app.routers.auth import _set_auth_cookie
+        db.refresh(user)
+        jwt_token = create_access_token(str(user.id), user.token_version)
+        _set_auth_cookie(response, jwt_token, request)
+        out.access_token = jwt_token
+        out.user = UserResponse.model_validate(user)
+    return out
