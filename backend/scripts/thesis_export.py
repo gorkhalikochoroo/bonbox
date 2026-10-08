@@ -58,44 +58,10 @@ from app.services.disclosure_control import K, suppress
 from app.services.internal_accounts import EXCLUDED_ACCOUNTS  # noqa: E402
 
 # ── HUMAN_ACTIONS — the allow-list. Only these count as a real person acting.
-# DERIVED FROM THE REAL trackEvent VOCABULARY (grep of frontend/src, 16 Jul
-# 2026) — NOT guessed. An allow-list is deliberate: it can only UNDER-count
-# (miss a new human event) — the safe direction for an "is anyone really active"
-# claim. A deny-list would OVER-count (miss a new cron event) — which is exactly
-# how "70 of 71 active" happened. When the app adds a new human event, add it
-# here; a system/cron/error event stays out.
-#
-# Excluded on purpose: onboarding_welcome_shown (system shows it, not a human
-# act), logout, and every *_error / *_failed / *_cap_hit / permission_denied
-# (failures are not activity), and daily_brief.email_sent (the cron).
-HUMAN_ACTIONS: frozenset[str] = frozenset({
-    # adoption funnel
-    "signup_completed", "login_success", "onboarding_started",
-    "onboarding_step_completed", "onboarding_dismissed", "onboarding_welcome_skipped",
-    # core money actions (first + repeat value)
-    "sale_logged", "cash_transaction", "receipt_scanned", "waste_logged",
-    "smart_scan_fab_opened", "smart_scan_quickadd_opened", "smart_scan_manual_pick",
-    "smart_scan_override_opened", "gavekort_scan_quickadd_opened",
-    # cross-pillar value-moments — one per pillar. daily_close_* pre-existed
-    # (via a ternary, so an earlier literal grep missed them); the other five
-    # were added to the app 16 Jul 2026.
-    "daily_close_completed", "daily_close_draft_saved", "reservation_created",
-    "schedule_published", "inventory_adjusted", "faktura_created", "gavekort_issued",
-    # revisor handoff — a real value moment
-    "bookkeeping_export", "bookkeeping_export_send",
-    # RQ2 GOLD: the signal->decision events. insight_acted = a signal BECAME a
-    # decision; insight_dismissed = it did NOT. This is the decision-episode
-    # instrument, already instrumented in the product.
-    "insight_acted", "insight_dismissed", "insight_feedback", "insights_refreshed",
-    # AI assistant use
-    "ai_question_asked", "ai_voice_input_started",
-    # explicit intent / conversion
-    "pricing_cta_clicked", "stripe_checkout_started", "stripe_portal_opened",
-    "waitlist_joined",
-    # a plain human view (weakest signal — kept, but see note: an "active =
-    # >=1 NON-page_view action" variant is the stricter reading to report too)
-    "page_view",
-})
+# Moved to app/services/human_actions.py (Oct 2026) so the super-admin
+# fieldwork view counts "active" exactly as this export does. Same set, same
+# rationale — it lives there now.
+from app.services.human_actions import HUMAN_ACTIONS  # noqa: E402
 
 
 def _human_owner_ids(db) -> set[str]:
@@ -138,6 +104,18 @@ def collect(db) -> dict[str, dict[str, int]]:
         n = have.get(uid, 0)
         sc[f"{n} staff" if n < 3 else "3+ staff"] += 1  # coarse bands up front
     dims["staff_band"] = dict(sc)
+
+    # fieldwork attribution — round/argument of the door-visit code, never the
+    # code itself (a visit number + a date narrows to one venue). Owners whose
+    # signup carried no code are "(no ref)"; codes outside the r<round>-<arg>-
+    # <visit> pattern roll up as "other". Same suppression as every table.
+    from app.services.signup_ref import ref_prefix
+
+    sr = Counter()
+    for uid, ref in db.query(User.id, User.signup_ref).filter(User.owner_id.is_(None)):
+        if str(uid) in owners:
+            sr[ref_prefix(ref) or "(no ref)"] += 1
+    dims["signup_ref"] = dict(sr)
 
     # human activity (30d) — allow-listed events, distinct accounts
     from datetime import timedelta
