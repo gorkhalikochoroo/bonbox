@@ -582,78 +582,17 @@ class GoogleAuthRequest(BaseModel):
 @router.post("/google", response_model=Token)
 @limiter.limit("15/minute")
 def google_auth(request: Request, response: Response, data: GoogleAuthRequest, db: Session = Depends(get_db)):
-    """Sign in or register with Google. Verifies the ID token and creates/logs in the user."""
-    from google.oauth2 import id_token as google_id_token
-    from google.auth.transport import requests as google_requests
+    """Legacy Google sign-in — kept for old clients, run through the SAME
+    handler as /auth/oauth/google (security round, 8 Oct).
 
-    if not settings.GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=503, detail="Google sign-in not configured")
-
-    try:
-        idinfo = google_id_token.verify_oauth2_token(
-            data.credential,
-            google_requests.Request(),
-            settings.GOOGLE_CLIENT_ID,
-        )
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Google token")
-
-    email = idinfo.get("email")
-    if not email:
-        raise HTTPException(status_code=401, detail="Google account has no email")
-
-    # Check if user exists
-    user = db.query(User).filter(User.email == email).first()
-    is_new = False
-
-    if not user:
-        # NEW signups via Google: same disposable-email gate as /register.
-        # Existing users are exempt — login should keep working even if
-        # their domain landed on the list after their signup.
-        if _is_disposable_email(email):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
-            )
-        # Auto-register — Google already verified their email
-        is_new = True
-        name = idinfo.get("name", "")
-        user = User(
-            email=email,
-            password_hash=hash_password(secrets.token_urlsafe(32)),  # random password (won't be used)
-            business_name=name,
-            business_type="",
-            currency="DKK",
-            email_verified=True,
-            oauth_provider="google",  # mark origin so it's distinguishable from a password account
-        )
-        # Start the 14-day Pro trial for new Google sign-ups too
-        from app.services.billing import start_trial
-        start_trial(user)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-        # Welcome email
-        try:
-            send_email(user.email, "Welcome to BonBox! 🎉", _welcome_email_html(name or "there"))
-        except Exception:
-            pass
-
-        # Admin notification — skip probe / test signups
-        if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (email or "").lower():
-            try:
-                send_email(
-                    settings.ADMIN_EMAIL,
-                    _header_safe(f"New BonBox signup (Google): {name or email}"),
-                    _admin_signup_email_html(email, name, "google-oauth"),
-                )
-            except Exception:
-                pass
-
-    token = create_access_token(str(user.id), user.token_version)
-    _set_auth_cookie(response, token, request)
-    return Token(access_token=token, user=UserResponse.model_validate(user))
+    This route used to resolve the Google e-mail to ANY existing account
+    and log it in: no email_verified check, no refusal to link onto a
+    password account, no jti replay check. It now takes the credential
+    (Google's ID token) to auth_oauth.google_signin, so both routes apply
+    one set of rules and answer with one shape.
+    """
+    from app.routers.auth_oauth import google_signin
+    return google_signin(request, response, data.credential, db)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -815,6 +754,12 @@ def apple_auth(
     if not apple_sub:
         raise HTTPException(status_code=401, detail="Apple token missing sub")
 
+    from app.routers.auth_oauth import claim_is_true, refuse_unverified_email
+    from app.services.oauth_jti_cache import claim_jti
+    # Same replay guard as /auth/oauth/apple: one id_token, one sign-in.
+    if not claim_jti(claims.get("jti"), claims.get("exp")):
+        raise HTTPException(status_code=401, detail="Apple token already used (replay)")
+
     is_relay_email = bool(email) and email.lower().endswith("@privaterelay.appleid.com")
 
     # Find user by apple_user_id first (stable across email changes),
@@ -822,18 +767,42 @@ def apple_auth(
     # — that risks hijacking an existing account if someone re-uses
     # the same relay alias.
     user = db.query(User).filter(User.apple_user_id == apple_sub).first()
+    # Everything below keys on the e-mail (lookup, link, create): only on an
+    # address Apple says it verified.
+    if not user and email and not claim_is_true(claims.get("email_verified")):
+        raise refuse_unverified_email("Apple")
     if not user and email and not is_relay_email:
         user = db.query(User).filter(User.email == email).first()
         if user:
-            # Existing email-based user signing in with Apple for the
-            # first time — link the apple_user_id so future sign-ins
-            # find them by sub.
-            # NOTE (security audit 2026-06): the new /api/auth/oauth/apple
-            # endpoint refuses to link Apple onto a pre-existing PASSWORD
-            # account (account-takeover guard, Task #75). Porting that same
-            # refusal here would change this tested legacy flow, so it's a
-            # deliberate product decision left to Manoj rather than changed
-            # silently. The active /oauth/* path is already guarded.
+            # Security round 8 Oct: the same rule as /auth/oauth/apple
+            # (Task #75) — never link Apple SILENTLY onto an account that
+            # signs in with a password or magic link. The provider proves
+            # control of the inbox, not knowledge of the owner's password.
+            # Only an account that already signs in through Apple/Google is
+            # linked; anything else signs in its own way first.
+            if (user.oauth_provider or "") not in {"apple", "google"}:
+                try:
+                    from app.services import audit_service
+                    audit_service.record(
+                        db, user=user, action="auth.oauth_link_refused",
+                        entity_type="user", entity_id=user.id,
+                        after={"provider": "apple", "route": "legacy"},
+                        ip_address=getattr(request.client, "host", None),
+                    )
+                    db.commit()
+                except Exception:  # noqa: BLE001 — audit never blocks the answer
+                    db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "account_exists_login_first",
+                        "message": (
+                            "An account with this email already exists. "
+                            "Sign in with your existing method, then link "
+                            "Apple in Profile settings."
+                        ),
+                    },
+                )
             user.apple_user_id = apple_sub
             db.commit()
             db.refresh(user)
@@ -863,6 +832,9 @@ def apple_auth(
             currency="DKK",
             email_verified=True,
             apple_user_id=apple_sub,
+            # Mark the origin, as the legacy Google route always did, so a
+            # later Google sign-in on the same address may link to it.
+            oauth_provider="apple",
         )
         from app.services.billing import start_trial
         start_trial(user)

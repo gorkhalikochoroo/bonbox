@@ -6745,6 +6745,8 @@ export const da = {
     loginPasswordStuckTryMagic: "Adgangskode-login har problemer. Prøv et-klik email-link i stedet — det virker, selv når API'et er langsomt.",
     loginUseMagicLink: "Send mig et login-link",
     googleSigninFailed: "Google-login mislykkedes",
+    oauthEmailNotVerified: "E-mailadressen er ikke bekræftet hos udbyderen. Bekræft den dér, eller log ind med din BonBox-adgangskode.",
+    oauthAccountExistsLoginFirst: "Der findes allerede en konto med denne e-mail. Log ind med din adgangskode eller et login-link.",
     newToBonBox: "Ny til BonBox?",
     // Task #61 — magic-link passwordless login
     magicLinkLabel: "Send mig et login-link",

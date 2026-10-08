@@ -98,7 +98,7 @@ def _patch_verify(claims):
 
 def test_apple_new_user_creates_row_with_apple_user_id(db_session, client):
     apple_sub = "001234.abcdef1234567890.0001"
-    with _patch_verify({"sub": apple_sub, "email": "newuser@bonbox.test"}):
+    with _patch_verify({"sub": apple_sub, "email": "newuser@bonbox.test", "email_verified": "true"}):
         r = client.post("/api/auth/apple", json={
             "identity_token": "stub-jwt",
             "full_name": "Jonas Møller",
@@ -116,9 +116,9 @@ def test_apple_returning_user_links_via_sub(db_session, client):
     """Same Apple sub on second call → finds existing user, doesn't
     create a duplicate."""
     apple_sub = "001234.abcdef1234567890.0002"
-    with _patch_verify({"sub": apple_sub, "email": "second@bonbox.test"}):
+    with _patch_verify({"sub": apple_sub, "email": "second@bonbox.test", "email_verified": "true"}):
         client.post("/api/auth/apple", json={"identity_token": "x"})
-    with _patch_verify({"sub": apple_sub, "email": "second@bonbox.test"}):
+    with _patch_verify({"sub": apple_sub, "email": "second@bonbox.test", "email_verified": "true"}):
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 200
     n = db_session.query(User).filter(User.apple_user_id == apple_sub).count()
@@ -126,22 +126,62 @@ def test_apple_returning_user_links_via_sub(db_session, client):
 
 
 def test_existing_email_user_links_apple_on_first_apple_signin(db_session, client):
-    """User registered with email/password → signs in with Apple →
-    we LINK their apple_user_id, don't create a duplicate."""
+    """User whose account already signs in through Apple/Google → signs in
+    with a new Apple identity → we LINK their apple_user_id, don't create a
+    duplicate."""
     existing = User(
         email="caro@bonbox.test", password_hash=hash_password("x"),
         business_name="Caro", business_type="restaurant", currency="DKK",
+        oauth_provider="google",
     )
     db_session.add(existing); db_session.commit(); db_session.refresh(existing)
 
     apple_sub = "001234.linked.0003"
-    with _patch_verify({"sub": apple_sub, "email": "caro@bonbox.test"}):
+    with _patch_verify({"sub": apple_sub, "email": "caro@bonbox.test", "email_verified": "true"}):
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 200
     db_session.refresh(existing)
     assert existing.apple_user_id == apple_sub
     n = db_session.query(User).filter(User.email == "caro@bonbox.test").count()
     assert n == 1
+
+
+def test_password_account_is_not_linked_silently(db_session, client):
+    """Security round 8 Oct — the rule /auth/oauth/apple already applies
+    (Task #75): a PASSWORD account is never linked to an Apple identity
+    just because the e-mail matches. 409, nothing linked, nothing created."""
+    existing = User(
+        email="pw@bonbox.test", password_hash=hash_password("x"),
+        business_name="Pw", business_type="restaurant", currency="DKK",
+    )
+    db_session.add(existing); db_session.commit(); db_session.refresh(existing)
+
+    with _patch_verify({"sub": "001234.pw.0006", "email": "pw@bonbox.test", "email_verified": "true"}):
+        r = client.post("/api/auth/apple", json={"identity_token": "x"})
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "account_exists_login_first"
+    db_session.refresh(existing)
+    assert existing.apple_user_id is None
+    assert db_session.query(User).count() == 1
+
+
+def test_unverified_apple_email_is_never_looked_up_or_created(db_session, client):
+    existing = User(
+        email="victim@bonbox.test", password_hash=hash_password("x"),
+        business_name="V", business_type="cafe", currency="DKK", oauth_provider="google",
+    )
+    db_session.add(existing); db_session.commit(); db_session.refresh(existing)
+    for verified in ("false", None):
+        claims = {"sub": "001234.unv.0007", "email": "victim@bonbox.test"}
+        if verified is not None:
+            claims["email_verified"] = verified
+        with _patch_verify(claims):
+            r = client.post("/api/auth/apple", json={"identity_token": "x"})
+        assert r.status_code == 401, r.text
+        assert r.json()["detail"]["code"] == "email_not_verified"
+    db_session.refresh(existing)
+    assert existing.apple_user_id is None
+    assert db_session.query(User).count() == 1
 
 
 # ─── Privacy-relay email handling ─────────────────────────────────────
@@ -165,7 +205,7 @@ def test_privacy_relay_email_creates_new_user_not_linked_to_existing(db_session,
 
     apple_sub = "001234.relay.0004"
     relay = "xy9876@privaterelay.appleid.com"
-    with _patch_verify({"sub": apple_sub, "email": relay}):
+    with _patch_verify({"sub": apple_sub, "email": relay, "email_verified": "true"}):
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 200
     # Existing user untouched
@@ -184,9 +224,9 @@ def test_privacy_relay_returning_user_finds_by_sub(db_session, client):
     apple_user_id (which is stable), not via the relay address."""
     apple_sub = "001234.relay.0005"
     relay = "xyz9876@privaterelay.appleid.com"
-    with _patch_verify({"sub": apple_sub, "email": relay}):
+    with _patch_verify({"sub": apple_sub, "email": relay, "email_verified": "true"}):
         client.post("/api/auth/apple", json={"identity_token": "x"})
-    with _patch_verify({"sub": apple_sub, "email": relay}):
+    with _patch_verify({"sub": apple_sub, "email": relay, "email_verified": "true"}):
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 200
     n = db_session.query(User).filter(User.apple_user_id == apple_sub).count()
