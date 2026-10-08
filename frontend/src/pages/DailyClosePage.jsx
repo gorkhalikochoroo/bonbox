@@ -572,8 +572,12 @@ export default function DailyClosePage() {
   // the listed row is what there is. Gone (deleted elsewhere) or locked
   // since: not opened — the list is read again and says what the day holds.
   const openSeqRef = useRef(0);
+  // Says what came of it (round 22): "opened", "gone" (deleted since),
+  // "locked" (locked since), or undefined (overtaken by a newer open, or the
+  // page left) — the "saved somewhere else" question's "Hent den nyeste
+  // kladde" answers itself on the last two.
   const openDraftFresh = async (dc, { tab: toTab = null } = {}) => {
-    if (!dc) return;
+    if (!dc) return undefined;
     const mine = ++openSeqRef.current;
     let fresh = dc;
     // Offline: the listed row at once (the read would only stall the tap).
@@ -587,17 +591,18 @@ export default function DailyClosePage() {
       } catch (err) {
         if (err?.response?.status === 404) {
           if (mine === openSeqRef.current && pageMountedRef.current) fetchHistory();
-          return;
+          return "gone";
         }
       }
     }
-    if (mine !== openSeqRef.current || !pageMountedRef.current) return;
+    if (mine !== openSeqRef.current || !pageMountedRef.current) return undefined;
     if (fresh.is_deleted || ((fresh.status || "confirmed") === "confirmed" && (dc.status || "confirmed") !== "confirmed")) {
       fetchHistory();
-      return;
+      return fresh.is_deleted ? "gone" : "locked";
     }
     setEditDraft(fresh);
     if (toTab) setTab(toTab);
+    return "opened";
   };
   const [loading, setLoading] = useState(false);
   // Lane A — when CloseForm successfully locks a close, the parent
@@ -1952,7 +1957,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // save of the day, the lock and a delete follow it (base_save_id), so the
   // version it wrote is the form's own — never "saved somewhere else".
   // Cleared when a save built after it is answered.
+  // Round 22 — recorded in full: { id, runNo, created (it would have made the
+  // day's row), replacing (the draft the banner's "Start forfra" was tapped
+  // over, as it was) } — a save whose answer was lost MAY be the form's own,
+  // and the form asks the server before it acts on the day (releaseDayDraft).
   const lostSaveRef = useRef({});
+  // Every save id this form sent: a stored row whose last save is one of
+  // these is the form's own (the server's last_save_id).
+  const mySaveIdsRef = useRef(new Set());
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -1960,6 +1972,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   }, []);
   // "Keep my numbers" answered: the save goes now, not two seconds later.
   const sendNowRef = useRef(false);
+  // Round 22 — offline. A draft save that got no answer at all (offline, a
+  // dead connection — or stored with its answer lost) is not dropped: the
+  // same draft waits, armed with no timer (`retryArmedRef`: the draft as it
+  // was built), and goes when the page is left, when the browser says it is
+  // online again, or with the next change. It was dropped: a blip during the
+  // last edit, the page left later with the network back — that edit was on
+  // no server and on no device. Left while the browser is OFFLINE, the draft
+  // is kept on this device instead (`offlineCopyRef`, the offline queue,
+  // sent when it is online again) — a request then could only fail.
+  const retryArmedRef = useRef(null);
+  const offlineCopyRef = useRef(null);
+  // …and a take-back (Start forfra, a move) that got no answer, per day:
+  // done once online again (releaseDayDraft → retryReleases).
+  const pendingReleaseRef = useRef({});
+  const retryReleasesRef = useRef(null);
   // The day's draft was saved somewhere else after this form read it, and a
   // save of the form's was refused for it (draft_changed): nothing was
   // overwritten, and the owner is asked which wins — the newest draft, or
@@ -2997,7 +3024,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const midKey = `${pendingMove.to}|${fileBranchId || ""}`;
       if (midKey !== fromKey && (ownRowsRef.current[midKey] || sendGenRef.current[midKey])) {
         const mid = pendingMove.to;
-        releaseDayDraft(midKey, { why: "move" }).then((outcome) => {
+        releaseDayDraft(midKey, { why: "move", move: { from: mid, to: next } }).then((outcome) => {
           if (outcome === "refiled" || outcome === "none") return;
           // Said under the date, as after any move (finishMove).
           setMovedNote({ from: mid, to: next, kept: outcome === "reverted", copy: outcome === "kept" || outcome === "stuck" });
@@ -3829,6 +3856,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const [overwriteKey, setOverwriteKey] = useState(null);
   rowKeyRef.current = rowKey;
   const existingForDate = useMemo(() => {
+    // Locked on another device while this form had the day open (a save of
+    // it met the lock — round 22): the day is a locked day here too, even a
+    // draft this form saved or is continuing. Its amount once History lists
+    // the locked row; until then none is named (never "Låst med 0 kr.").
+    if (lockedRowRejected) {
+      return (existingCloses || []).find((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted
+        && (dc.status || "confirmed") === "confirmed")
+        || { date: businessDate, branch_id: fileBranchId || null, status: "confirmed", revenue_total: null };
+    }
     if (editingDate || ownDraftKeys.has(rowKey)) return null;
     const fresh = (dc) => {
       const o = rowOverrides[dc.id];
@@ -3842,7 +3878,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       && (!branchId || (dc.branch_id || null) === fileBranchId)
       // A draft this form deleted is gone, whatever History still lists.
       && !dc.is_deleted && !droppedIds.has(dc.id)) || null;
-  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey, droppedIds, rowOverrides]);
+  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey, droppedIds, rowOverrides, lockedRowRejected]);
 
   // The removal audit's B2, restored: a draft this form filed that is gone
   // from History (deleted in another tab or on another phone) is filed
@@ -3880,12 +3916,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The version the server stored: the next save is built on it.
     noteStamp(key, data.updated_at);
     const own = ownRowsRef.current[key];
+    // A save of the day before this one got no answer (round 22): it may
+    // have made the row (the list this save was built against never heard
+    // of it), or replaced the banner's draft — that is the form's too.
+    const lost = lostSaveRef.current[key];
     const id = data.id ?? own?.id ?? null;
-    const isCreated = own ? own.created : Boolean(created);
+    const isCreated = own ? own.created : (Boolean(created) || Boolean(lost?.created));
     ownRowsRef.current[key] = {
       id,
       created: isCreated,
-      before: own ? own.before : (isCreated ? null : (replacing || null)),
+      before: own ? own.before : (isCreated ? null : (replacing || lost?.replacing || null)),
     };
     // The row lives (again): a draft deleted earlier this session is filed
     // anew under the same id (the server takes the deleted row back).
@@ -3982,6 +4022,25 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       receipt_photo: b.receipt_photo || "",
     };
   };
+  /**
+   * Round 22 — the day's row as the server holds it NOW, read fresh by date
+   * (and branch), with the id of the save that wrote it last
+   * (`last_save_id`); null when nothing is stored for the day. A save whose
+   * answer was lost MAY be the form's own: before the form deletes, files
+   * back, or releases a day on which one went, it asks — and the row is its
+   * own exactly when that last save is one it sent. Throws when it cannot
+   * ask (offline): nothing is then decided as if nothing were stored.
+   */
+  const readDayFresh = async (key) => {
+    const [date, branch] = String(key).split("|");
+    const params = { from: date, to: date, with_save_id: true };
+    if (branch) params.branch_id = branch;
+    const res = await api.get("/daily-close", { params, _noRetry: true, timeout: 8000 });
+    const rows = Array.isArray(res?.data) ? res.data : [];
+    return rows.find((r) => closeRowKey(r) === key && !r.is_deleted) || null;
+  };
+  /** The stored row's last save is one this form sent. */
+  const lastSaveIsMine = (row) => Boolean(row?.last_save_id) && mySaveIdsRef.current.has(row.last_save_id);
   /** The autosave looks again; `force`: whatever it holds is sent (the row may be gone or stale). */
   const requestRefile = (force = false) => {
     if (force) lastSentRef.current = null;
@@ -4004,7 +4063,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    * that turns out to be this form's once the saves answered stays ("kept").
    * Waits for every save on its way first; what it decides is decided after.
    */
-  const releaseDayDraft = async (key, { why = "move", keep = false } = {}) => {
+  const releaseDayDraft = async (key, { why = "move", keep = false, move = null } = {}) => {
+    // A take-back of this day still waiting for the network is this one now.
+    delete pendingReleaseRef.current[key];
     const gen0 = sendGenRef.current[key] || 0;
     // Start forfra emptied the day: the draft this form made for it is off
     // the list at once — figures typed while the saves before it answer are
@@ -4022,8 +4083,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     if (why === "move" && key === rowKeyRef.current) return "none";
     if (why === "startOver" && pendingSaveRef.current?.key === key) return "refiled";
-    const own = ownRowsRef.current[key];
-    const id = own?.id || (existingCloses || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted)?.id || null;
+    let own = ownRowsRef.current[key];
     const forget = () => {
       delete ownRowsRef.current[key];
       delete serverSrcRef.current[key];
@@ -4032,10 +4092,90 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       filedScanKeysRef.current.delete(key);
       setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
     };
+    const undrop = (rid) => {
+      if (rid == null) return;
+      setDroppedIds((prev) => { if (!prev.has(rid)) return prev; const n = new Set(prev); n.delete(rid); return n; });
+    };
+    // Round 22, offline — a take-back that could not reach the server (no
+    // answer at all) is not given up: it is done once the browser is online
+    // again (retryReleases), asked first like any take-back after a save
+    // with no answer — and dropped if the day is filed again meanwhile.
+    const laterWhenOnline = (ownSnap, lostSnap) => {
+      pendingReleaseRef.current[key] = { why, keep, move, own: ownSnap || null, lost: lostSnap || null, gen: sendGenRef.current[key] || 0 };
+    };
+    // Round 22 — a save of the day got no answer (stored, perhaps, its answer
+    // lost): it MAY be the form's own, so the server is asked before anything
+    // is decided. Only an answered save made the row the form's (ownRowsRef):
+    // a lost one that had stored the photo's figures left them as the day's
+    // draft — a date move then COPIED the day and said "moved", and Start
+    // forfra kept a thrown-away Z-bon as the stored draft (or lost the draft
+    // the banner's Start forfra had replaced). The day's row is read fresh;
+    // when the save that wrote it last is one this form sent, it is the
+    // form's own and is taken back exactly as after an answered save — on
+    // that very version (`onVersion`), so a draft saved anywhere else since
+    // is never deleted or written over.
+    let onVersion = null;
+    const lost = lostSaveRef.current[key];
+    if (lost) {
+      let row;
+      try {
+        row = await readDayFresh(key);
+      } catch {
+        // Could not ask (offline): the lost save may hold the form's figures,
+        // so this is never "nothing filed". Still the day's draft — the
+        // banner shows what the list holds, and a move says the old day
+        // still has the figures — until it can ask (online again).
+        laterWhenOnline(own, lost);
+        undrop(own0?.id);
+        forget();
+        setOverwriteKey((prev) => (prev === key ? null : prev));
+        onDraftSaved?.();
+        return "stuck";
+      }
+      if (refiled()) {
+        if (key === rowKeyRef.current) requestRefile(true);
+        return "refiled";
+      }
+      if (!row) {
+        // Nothing stored for the day: the lost save never landed (or the
+        // draft was deleted elsewhere since). Nothing of the form's is there.
+        undrop(own0?.id);
+        forget();
+        setOverwriteKey((prev) => (prev === key ? null : prev));
+        onDraftSaved?.();
+        return "none";
+      }
+      if (lastSaveIsMine(row) && (row.status || "confirmed") === "draft") {
+        own = {
+          id: row.id,
+          created: own ? own.created : Boolean(lost.created),
+          before: own ? own.before : (lost.created ? null : (lost.replacing || null)),
+        };
+        ownRowsRef.current[key] = own;
+        onVersion = { base: row.updated_at || null, saveId: row.last_save_id };
+      } else {
+        // Stored, and not by a save of this form's last: the lost save never
+        // landed — the draft the banner replaced is there as it was — or the
+        // day was saved (or locked) somewhere else since. Not the form's to
+        // touch: the banner shows it as stored now.
+        const untouched = !own && Boolean(lost.replacing) && row.updated_at != null
+          && row.updated_at === lost.replacing.updated_at;
+        undrop(own0?.id);
+        undrop(row.id);
+        forget();
+        setOverwriteKey((prev) => (prev === key ? null : prev));
+        setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+        onDraftSaved?.();
+        return untouched ? "reverted" : "stuck";
+      }
+    }
+    const id = own?.id || (existingCloses || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted)?.id || null;
     if (!own) {
       // "Start over" chosen on the banner, nothing filed since: the old draft
-      // is still the day's, and the banner says so again.
+      // is still the day's, and the banner says so again — read from the
+      // server, never from a list that may be older than the day (round 22).
       setOverwriteKey((prev) => (prev === key ? null : prev));
+      onDraftSaved?.();
       return "none";
     }
     // Start forfra was decided before the day's save answered (sent while
@@ -4055,11 +4195,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // somewhere else since — another phone typed Kort 2.000 into it — is
       // never deleted with this form's figures (draft_changed; it stays).
       const delParams = {};
-      if (baseRef.current[key]) delParams.base_updated_at = baseRef.current[key];
-      if (lostSaveRef.current[key]) delParams.base_save_id = lostSaveRef.current[key].id;
+      if (onVersion) {
+        // The version the server said it holds, written by this form.
+        if (onVersion.base) delParams.base_updated_at = onVersion.base;
+        delParams.base_save_id = onVersion.saveId;
+      } else {
+        if (baseRef.current[key]) delParams.base_updated_at = baseRef.current[key];
+        if (lostSaveRef.current[key]?.id) delParams.base_save_id = lostSaveRef.current[key].id;
+      }
       forget();
       let ok = false;
       let changedElsewhere = null;
+      let noAnswer = false;
       try {
         if (Object.keys(delParams).length) await api.delete(`/daily-close/${id}`, { params: delParams });
         else await api.delete(`/daily-close/${id}`);
@@ -4067,7 +4214,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       } catch (err) {
         ok = err?.response?.status === 404;
         if (isDraftChanged(err)) changedElsewhere = err;
+        noAnswer = !err?.response;
       }
+      if (!ok && noAnswer) laterWhenOnline({ ...own, id }, lost);
       if (!ok) {
         // Not deleted (offline, refused): it is still the day's draft, and
         // the banner shows it with its amount instead of hiding it.
@@ -4102,9 +4251,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // On the version this form last saved: changed elsewhere since, the
         // revert is refused (draft_changed) — that newer draft stays, and the
         // day's banner shows it.
-        res = await api.post("/daily-close", { ...revertBody(own.before), base_updated_at: baseRef.current[key] ?? null });
-      } catch {
+        // A save of the day whose answer was lost wrote the version stored
+        // now (round 22): the revert follows it (base_save_id) — sent on the
+        // form's older version alone it was refused as "saved somewhere
+        // else" and ended stuck, the thrown-away bon left as the draft.
+        const followsLost = onVersion ? onVersion.saveId : (lostSaveRef.current[key]?.id || null);
+        res = await api.post("/daily-close", {
+          ...revertBody(own.before),
+          base_updated_at: onVersion ? onVersion.base : (baseRef.current[key] ?? null),
+          ...(followsLost ? { base_save_id: followsLost } : {}),
+        });
+      } catch (err) {
         res = null;
+        if (!err?.response) laterWhenOnline({ ...own, id }, lost);
       }
       if (!res) {
         forget();
@@ -4130,6 +4289,41 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     onDraftSaved?.();
     return "kept";
   };
+  /**
+   * Start forfra kept the day's draft (it holds what the owner typed beside
+   * the photo — the only copy): it stays the form's own, "updated the next
+   * time you save", only while the save that wrote it last is one this form
+   * sent. Saved — or locked — on another device since, it is that device's:
+   * the form lets go of it and the day's banner shows it as stored now,
+   * never this form's draft in silence (round 22). Nothing is deleted or
+   * written. The owner typing again meanwhile answers for itself (that save
+   * meets the newer version and asks).
+   */
+  const checkKeptDraft = async (key) => {
+    await savesSettled();
+    const gen0 = sendGenRef.current[key] || 0;
+    let row;
+    try {
+      row = await readDayFresh(key);
+    } catch {
+      return;
+    }
+    if (!row || lastSaveIsMine(row)) return;
+    if ((sendGenRef.current[key] || 0) !== gen0 || pendingSaveRef.current?.key === key) return;
+    // The "saved somewhere else" question is open for the day: it already
+    // says so, and the owner answers it there.
+    if (draftConflictRef.current?.key === key) return;
+    delete ownRowsRef.current[key];
+    delete serverSrcRef.current[key];
+    delete baseRef.current[key];
+    delete lostSaveRef.current[key];
+    filedScanKeysRef.current.delete(key);
+    setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
+    setOverwriteKey((prev) => (prev === key ? null : prev));
+    setDroppedIds((prev) => { if (!prev.has(row.id)) return prev; const n = new Set(prev); n.delete(row.id); return n; });
+    setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+    onDraftSaved?.();
+  };
   // "Brug dem for {to}" answered (or a Z-bon's day moved), and the new day's
   // first save landed: the figures belong to the new day only. The old day's
   // draft goes (or goes back to what it was), and the line under the date
@@ -4140,7 +4334,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // the new day filed: the move waits for that.
     if (!m || savedKey === m.fromKey) return;
     moveFromRef.current = null;
-    const outcome = await releaseDayDraft(m.fromKey, { why: "move" });
+    const outcome = await releaseDayDraft(m.fromKey, { why: "move", move: { from: m.from, to: m.to } });
     if (outcome === "refiled") return;
     setMovedNote({
       from: m.from, to: m.to,
@@ -4150,6 +4344,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       copy: outcome === "kept" || outcome === "stuck",
     });
   };
+  // Round 22, offline — the take-backs that could not reach the server, done
+  // now that the browser is online again (the "online" event): each asks
+  // the server first (the day's row read fresh — the form's own only when
+  // its last save is one this form sent) and goes on exactly that version.
+  // A day filed again meanwhile keeps what was filed. A move's note says
+  // what became true.
+  const retryReleases = async () => {
+    const all = pendingReleaseRef.current;
+    pendingReleaseRef.current = {};
+    for (const [key, p] of Object.entries(all)) {
+      if ((sendGenRef.current[key] || 0) !== p.gen) continue;
+      if (p.own) ownRowsRef.current[key] = p.own;
+      lostSaveRef.current[key] = p.lost || { id: null, runNo: 0, created: Boolean(p.own?.created), replacing: p.own?.before || null };
+      // eslint-disable-next-line no-await-in-loop
+      const outcome = await releaseDayDraft(key, { why: p.why, keep: p.keep, move: p.move });
+      if (p.move && (outcome === "deleted" || outcome === "none" || outcome === "reverted")) {
+        setMovedNote((cur) => (cur && cur.from === p.move.from && cur.to === p.move.to
+          ? { ...cur, kept: outcome === "reverted", copy: false } : cur));
+      }
+    }
+  };
+  retryReleasesRef.current = retryReleases;
   // Named when the venue has several, so "a draft for this day" says whose.
   const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
     ? (branches.find((b) => String(b.id) === String(existingForDate.branch_id))?.name || "")
@@ -4295,10 +4511,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         body.base_updated_at = baseFor(savingKey);
         saveId = newSaveId();
         body.save_id = saveId;
+        mySaveIdsRef.current.add(saveId);
         if (followsId) body.base_save_id = followsId;
         // A save of the day got no answer (it may have landed): this one
         // follows it — the version it wrote is the form's own.
-        else if (lostSaveRef.current[savingKey]) body.base_save_id = lostSaveRef.current[savingKey].id;
+        else if (lostSaveRef.current[savingKey]?.id) body.base_save_id = lostSaveRef.current[savingKey].id;
         sentNoRef.current[savingKey] = Math.max(sentNoRef.current[savingKey] || 0, runNo);
         saveIdOfRef.current.set(tracker, saveId);
         if (!keyWireRef.current[savingKey]) keyWireRef.current[savingKey] = new Set();
@@ -4327,9 +4544,36 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // Not on the server: the same draft is sent again on the next change.
         if (lastSentRef.current === sent) lastSentRef.current = null;
         // No answer at all: it may have landed — the next save follows it.
+        // Recorded in full (round 22): whether it would have made the day's
+        // row, and the draft it replaced — taking the day back later asks
+        // the server whether it landed, and then needs both.
         if (!err?.response && saveId) {
           const was = lostSaveRef.current[savingKey];
-          if (!was || was.runNo < runNo) lostSaveRef.current[savingKey] = { id: saveId, runNo };
+          if (!was || was.runNo < runNo) {
+            lostSaveRef.current[savingKey] = {
+              id: saveId, runNo,
+              created: Boolean(was?.created) || savingCreates,
+              replacing: was?.replacing || replacing || null,
+            };
+          }
+          // Still the form's latest for the day (nothing newer waiting or
+          // sent): the same draft waits for the page to be left, the
+          // network to come back, or the next change (round 22, offline).
+          if (mountedRef.current && savingKey === rowKeyRef.current && !pendingSaveRef.current
+            && (sentNoRef.current[savingKey] || 0) <= runNo) {
+            retryArmedRef.current = sent;
+            requestRefile(true);
+          }
+          // The new day of a date move, filed — perhaps. Asked, never
+          // assumed: when the save that wrote the day last is this form's,
+          // the move finishes as on an answer (the old day's draft goes);
+          // otherwise it waits for the next answered save of the day.
+          const m = moveFromRef.current;
+          if (m && savingKey !== m.fromKey) {
+            readDayFresh(savingKey)
+              .then((row) => { if (lastSaveIsMine(row)) finishMove(savingKey); })
+              .catch(() => { /* offline: the next answered save finishes it */ });
+          }
         }
         // Still best-effort for every other failure (offline, 500, flaky
         // connection) — but a 409 is not a transient error, it is the lock
@@ -4340,7 +4584,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           await draftRefused(savingKey, body, err, tracker, "draft", runNo);
         } else if (isDeletedLockedClose(err)) {
           if (savingKey === rowKeyRef.current) setDeletedLockedRow(errText(err, ""));
-        } else if (err?.response?.status === 409) setLockedRowRejected(true);
+        } else if (err?.response?.status === 409) {
+          // Locked on another device while this form had the day open (round
+          // 22): said at once — the day's "already closed and locked" banner,
+          // with the amount once History has the locked row — never the
+          // owner's next edits refused in silence until the lock tap.
+          setLockedRowRejected(true);
+          onDraftSaved?.();
+        }
       } finally {
         inflightRef.current.delete(tracker);
         keyInflightRef.current[savingKey]?.delete(tracker);
@@ -4356,6 +4607,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The day it files, for a Start forfra waiting on the saves before it.
     run.key = savingKey;
     pendingSaveRef.current = run;
+    // The same draft whose save got no answer (round 22): it waits — sent on
+    // leaving, on "online", or with the next change — never on a timer (a
+    // dead connection would be knocked every two seconds).
+    const armedOnly = retryArmedRef.current != null && retryArmedRef.current === sig;
+    retryArmedRef.current = null;
+    if (armedOnly) return undefined;
     setDraftSaving(true);
     // "Keep my numbers" (or the form's own newer save landing first): sent
     // now, not after the debounce.
@@ -4406,6 +4663,41 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     if (kept) { try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ } }
   };
+  // Offline (round 22): the draft waiting to be sent, kept on this device as
+  // a copy the offline queue sends once online — on the version this form
+  // holds (and following its own save whose answer was lost). One copy per
+  // way out, holding the latest figures. False when nothing was kept (online,
+  // or nothing waiting): the caller sends as before.
+  const keepOfflineCopy = () => {
+    if (typeof navigator === "undefined" || navigator.onLine !== false) return false;
+    const run = pendingSaveRef.current;
+    if (!run || run.key !== rowKeyRef.current || !formFilesRef.current) return false;
+    let built = null;
+    try { built = buildPayloadRef.current("draft"); } catch { built = null; }
+    if (!built) return false;
+    const payload = { ...built, base_updated_at: baseFor(run.key) };
+    const lost = lostSaveRef.current[run.key];
+    if (lost?.id) payload.base_save_id = lost.id;
+    const prev = offlineCopyRef.current;
+    if (prev && getOfflineQueue().some((it) => it.id === prev.id)) {
+      updateQueueItem(prev.id, { payload });
+    } else {
+      const item = addToOfflineQueue(payload);
+      if (!item) return false;
+      offlineCopyRef.current = { id: item.id };
+    }
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+    return true;
+  };
+  const dropOfflineCopy = () => {
+    const oc = offlineCopyRef.current;
+    if (!oc || !mountedRef.current) return;
+    offlineCopyRef.current = null;
+    // Already sent by the queue (online came while hidden): nothing to drop.
+    if (!getOfflineQueue().some((it) => it.id === oc.id)) return;
+    removeFromOfflineQueue(oc.id);
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+  };
   const dropConflictCopy = () => {
     const cc = conflictCopyRef.current;
     if (!cc || !mountedRef.current) return;
@@ -4428,10 +4720,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // owner's figures are kept on this device as a failed copy (round 21
     // review) — the autosave sends nothing over the newer draft, so they
     // existed only on screen and were gone with the form.
-    const onHide = () => { flush({ keepalive: true }); keepConflictCopy(); };
+    // Going away OFFLINE (round 22): the waiting draft is kept on this device
+    // (the offline queue sends it once online) — a request now only fails,
+    // and a closing tab leaves no JS to keep it afterwards.
+    const onHide = () => { if (!keepOfflineCopy()) flush({ keepalive: true }); keepConflictCopy(); };
     // Back (the tab shown again): the question is on screen again, and the
-    // copy kept for the way out is not a second place to answer it.
-    const onBack = () => dropConflictCopy();
+    // copy kept for the way out is not a second place to answer it — nor is
+    // the offline copy (the draft is still waiting here).
+    const onBack = () => { dropConflictCopy(); dropOfflineCopy(); };
+    // Online again: the waiting draft goes now (its copy, if any, is taken
+    // off the queue first — it would be sent twice).
+    const onOnline = () => { dropOfflineCopy(); flush(); retryReleasesRef.current?.(); };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") onHide();
       else if (document.visibilityState === "visible") onBack();
@@ -4439,11 +4738,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onHide);
     window.addEventListener("pageshow", onBack);
+    window.addEventListener("online", onOnline);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onHide);
       window.removeEventListener("pageshow", onBack);
-      flush();
+      window.removeEventListener("online", onOnline);
+      if (!keepOfflineCopy()) flush();
       keepConflictCopy();
     };
   }, []);
@@ -4467,6 +4768,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const heldSave = pendingSaveRef.current;
     clearTimeout(autoSaveRef.current);
     pendingSaveRef.current = null;
+    // A draft copy kept on this device while offline (round 22) is not sent
+    // beside the lock: the lock carries every field itself.
+    dropOfflineCopy();
     const dropHeldSave = () => {
       clearTimeout(autoSaveRef.current);
       pendingSaveRef.current = null;
@@ -4495,7 +4799,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     payload.base_updated_at = baseFor(lockKey);
     // A draft save of the day got no answer (it may have landed): the lock —
     // queued offline too — follows it; its version is the form's own.
-    if (lostSaveRef.current[lockKey]) payload.base_save_id = lostSaveRef.current[lockKey].id;
+    if (lostSaveRef.current[lockKey]?.id) payload.base_save_id = lostSaveRef.current[lockKey].id;
 
     if (!navigator.onLine) {
       // A queue write can be refused (quota, Safari private mode). Saying
@@ -4588,9 +4892,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         return;
       }
       if (err.response.status === 409) {
+        // Locked elsewhere: the day is a locked day here from now on (the
+        // banner, the form read-only), and History is read again for its
+        // amount (round 22).
+        if (lockKey === rowKeyRef.current) { setLockedRowRejected(true); onDraftSaved?.(); }
         // The amount only when this form knows it: editing a draft whose day
         // was locked elsewhere said "Locked at 0 kr.", a figure nobody locked.
-        setError(existingForDate
+        setError(existingForDate && existingForDate.revenue_total != null
           ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", {
             amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }),
           })
@@ -4922,7 +5230,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     clearTimeout(autoSaveRef.current);
     pendingSaveRef.current = null;
     if (!row) { setDraftConflict(null); onDraftSaved?.(); return; }
-    onContinueDraft?.(row);
+    // Deleted or LOCKED elsewhere since (round 22, the removal audit's #11):
+    // nothing opens, so the question is answered by the day itself — never a
+    // button that does nothing while the "already locked" banner stays
+    // hidden behind it. Locked: the day is a locked day here (its banner,
+    // with the amount once History is read again).
+    Promise.resolve(onContinueDraft?.(row)).then((outcome) => {
+      if ((outcome !== "gone" && outcome !== "locked") || !mountedRef.current) return;
+      setDraftConflict((cur) => (cur && cur.key === c.key ? null : cur));
+      if (outcome === "locked" && c.key === rowKeyRef.current) setLockedRowRejected(true);
+      onDraftSaved?.();
+    }).catch(() => { /* the open itself fell back to the listed row, or reloaded History */ });
   };
   const keepMyDraft = () => {
     const c = draftConflict;
@@ -5020,7 +5338,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           >
             {existingBranchName && <span className="font-semibold">{existingBranchName}: </span>}
             {existingLocked
-              ? t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) })
+              ? (existingForDate.revenue_total == null
+                // Locked elsewhere, History not read again yet: no amount.
+                ? t("dcDayLockedNoAmount", "This day is already locked — unlock it from History first if it needs correcting.")
+                : t("dcDayAlreadyLockedBody", "Locked at {amount} — to correct it, unlock it from History first.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) }))
               // A draft of payments only (no revenue): said as such, never
               // "Gemt med 0 kr.".
               : isPaymentsOnly(existingForDate)
@@ -5095,6 +5416,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* The day's draft changed elsewhere (a save was refused): asked on the
             scan card too — the card's figures are not filed until answered. */}
         {(scanMode === "result" || scanMode === "scanning") && draftConflictEl}
+        {/* Locked on another device (a save of the day met the lock): said on
+            the card too — its figures can no longer be filed for the day. */}
+        {(scanMode === "result" || scanMode === "scanning") && lockedRowRejected && existingBannerEl}
 
         {/* ─── SCAN BANNER (Step 0) ─── */}
         {scanMode === "idle" && (
@@ -6035,10 +6359,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   return filesSomething(savedRevenueOf(lg, sum(fv.revenue)), sum(fv.payments));
                 };
                 const photoOnly = !filesAfter(discardScans(before));
-                const dropsDraft = photoOnly && Boolean(ownRowsRef.current[rowKey]?.created);
+                // A save of the day whose answer was lost counts as the
+                // form's own (round 22): it may well have stored the photo's
+                // figures — releaseDayDraft asks the server before it acts.
+                const ownRow = ownRowsRef.current[rowKey];
+                const lostRow = ownRow ? null : lostSaveRef.current[rowKey];
+                const dropsDraft = photoOnly && Boolean(ownRow ? ownRow.created : lostRow?.created);
                 // …or, over a draft the banner's "Start forfra" replaced, that
                 // draft comes back as it was.
-                const bringsBack = photoOnly && !dropsDraft ? ownRowsRef.current[rowKey]?.before : null;
+                const bringsBack = photoOnly && !dropsDraft ? (ownRow ? ownRow.before : (lostRow?.replacing || null)) : null;
                 // …or the day's first save is still on its way (a slow
                 // connection): no row is known yet, but one is being filed —
                 // with whatever the owner typed beside the photo in it.
@@ -6180,6 +6509,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     // `keep`: a save filed while the question was open holds
                     // the owner's fields too — decided again once it answered.
                     releaseDayDraft(rowKey, { why: "startOver", keep: ownTyped });
+                  } else {
+                    // Kept as the form's own — asked, never assumed (round
+                    // 22): saved or locked on another device since, it is
+                    // that device's, and the day's banner shows it.
+                    checkKeptDraft(rowKey);
                   }
                 }
               }}
@@ -6483,9 +6817,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               1.500 into "Add category". */}
           {/* "Gemmer…" while a save is waiting or on its way; "Gemt" only once
               the server has it. */}
+          {/* Not saved — the day was locked on another device (its banner is
+              above the read-only form): the slot says so, never the step
+              counter over edits nobody saves (round 22). */}
           <span aria-live="polite" title={draftSaved && !draftSaving ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
             className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0 min-w-[3.75rem] text-right">
-            {draftSaving
+            {lockedRowRejected
+              ? (
+                <span data-testid="dc-save-slot-unsaved" title={t("dcDraftNotSavedLocked", "Not saved — the day was locked on another device")}
+                  className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
+                  <Icon name="Lock" size={13} className="shrink-0" />{t("dcDraftNotSavedShort", "Not saved")}
+                </span>
+              )
+              : draftSaving
               ? t("savingEllipsis", "Saving…")
               : draftSaved
               ? <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400"><Icon name="Check" size={13} />{t("dcDraftSavedShort", "Saved")}</span>

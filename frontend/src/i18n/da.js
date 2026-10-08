@@ -8118,6 +8118,8 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcDraftNotSavedShort: "Ikke gemt",
+    dcDraftNotSavedLocked: "Ikke gemt — dagen er låst på en anden enhed",
     dcDraftChangedPhotoGoes: "Beholder du dine tal, fjernes dens Z-bon-foto også fra dagen.",
     dcDeleteDraftBodyPaymentsOnly: "Denne kladde viser kun betalinger på {amount} — den fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
     dcDraftChangedTitle: "Kladden er gemt et andet sted",

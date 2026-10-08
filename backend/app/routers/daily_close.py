@@ -1389,6 +1389,49 @@ def _last_save_id(db, user, close_id) -> str | None:
     return sid if isinstance(sid, str) and sid else None
 
 
+def _last_save_ids(db, user, close_ids) -> dict:
+    """{str(close_id): save_id | None} for these closes, in ONE query (round
+    22): the page's own id for the save that wrote each last, as
+    _last_save_id reads it one row at a time. A page whose save got no answer
+    (stored, the answer lost) reads its day with this before it takes a
+    draft back — the row is its own exactly when the save that wrote it last
+    is one the page sent. Bounded by the rows asked for (a day: one per
+    branch); History's list never asks for it."""
+    import json as _json
+    ids = [cid for cid in close_ids if cid is not None]
+    out = {str(cid): None for cid in ids}
+    if not ids:
+        return out
+    try:
+        from app.models.audit_log import AuditLog
+        rows = (
+            db.query(AuditLog.entity_id, AuditLog.after_state)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.entity_id.in_(ids),
+                AuditLog.action.in_(("daily_close.create", "daily_close.update", "daily_close.lock")),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        return out
+    seen = set()
+    for entity_id, after_state in rows:
+        k = str(entity_id)
+        if k in seen:
+            continue
+        seen.add(k)
+        try:
+            after = _json.loads(after_state or "{}")
+        except Exception:  # noqa: BLE001
+            after = {}
+        sid = after.get("save_id") if isinstance(after, dict) else None
+        out[k] = sid if isinstance(sid, str) and sid else None
+    return out
+
+
 def _draft_changed_since(existing, base, base_save_id=None, *, db=None, user=None) -> dict | None:
     """The 412 detail when the stored DRAFT is newer than the version the
     page holds (`base`, its base_updated_at), else None.
@@ -2967,6 +3010,10 @@ def list_daily_closes(
     from_date: date = Query(None, alias="from"),
     to_date: date = Query(None, alias="to"),
     branch_id: str = Query(None),
+    # Round 22: each row's last_save_id (the page's id for the save that
+    # wrote it last). Asked for by the page when it reads ONE day fresh
+    # before taking back a draft whose save got no answer.
+    with_save_id: bool = Query(False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -2984,6 +3031,10 @@ def list_daily_closes(
     closes = q.order_by(DailyClose.date.desc()).limit(90).all()
     rows = [_to_response(dc) for dc in closes]
     _fill_email_status_from_trail(db, user, closes, rows)
+    if with_save_id:
+        sids = _last_save_ids(db, user, [dc.id for dc in closes])
+        for dc, row in zip(closes, rows):
+            row["last_save_id"] = sids.get(str(dc.id))
     return rows
 
 
@@ -4951,7 +5002,12 @@ def get_daily_close(
     ).first()
     if not dc:
         raise HTTPException(status_code=404, detail="Daily close not found")
-    return _to_response(dc)
+    out = _to_response(dc)
+    # Round 22: the page's id for the save that wrote it last — a page whose
+    # save got no answer knows the row is its own exactly when this is one
+    # of the save ids it sent.
+    out["last_save_id"] = _last_save_id(db, user, dc.id)
+    return out
 
 
 # ─── GET — PDF Kasserapport ───

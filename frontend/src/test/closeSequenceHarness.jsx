@@ -67,6 +67,30 @@
  *   the page's "the draft was changed elsewhere" choice (dc-draft-changed)
  *   is answered — "the newest" or "mine" — and checked like any step.
  *
+ * Round 22 (the "r22" variant) — the r21 variant over the round's FIXED
+ * failure model, every class of it at random: slow saves, reordered
+ * answers, a save that is STORED but whose ANSWER IS LOST (a dropped socket,
+ * a 4G handoff, the timeout — now a random slow mode beside "held" and "late
+ * answer", on date moves, the banner's and the card's Start forfra, and on
+ * leaving and coming back), the page left and opened again during a save,
+ * another device saving — or LOCKING — the day, offline. Held to:
+ *   MV / M6 with a lost answer: the stored row(s) are what the owner last saw
+ *       or chose — a day "moved" is never also left on the old date, and a
+ *       Start forfra takes the photo's draft back (or the replaced draft
+ *       comes back) though the save that filed it never answered;
+ *   LK  a day another device locked is said: once a save of this visit met
+ *       the lock, the wizard shows "Dagen er allerede lukket og låst" (with
+ *       the amount the lock holds, when it says one) — never edits refused
+ *       in silence.
+ * The stub answers a read of one day (GET /daily-close?from=&to=) with each
+ * row's last_save_id, as the backend does. OFFLINE is a random slow mode too:
+ * the browser says offline, and every request for the day's close (its saves,
+ * deletes and reads — not the photo's scan) fails with no answer and stores
+ * nothing; at the step's end the browser is online again, and the step is
+ * checked once the page's saves have settled — a Start forfra or a move
+ * taken OFFLINE is held to the same M6 / MV as any other once online (the
+ * page does the take-back then).
+ *
  * The stub server is the backend's save rule in miniature — keep it in step
  * with backend/app/routers/daily_close.py (revenue_total, the MOMS rules,
  * updated_at and the draft_changed check).
@@ -81,6 +105,9 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 export const STATS = {
   sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0, F1: 0, F3: 0, F4: 0, F6: 0, F6m: 0,
   R: 0, I1z: 0, I7: 0, conflicts: 0, newerElsewhere: 0,
+  // Round 22: answers lost (stored, never heard), MV / M6 checked on a day
+  // with one, and LK.
+  lostAnswers: 0, MVlost: 0, M6lost: 0, LK: 0, offlineSteps: 0, M6offline: 0,
 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
@@ -165,6 +192,20 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
     S.seen.set(mount, m);
   };
   S.seenBy = (mount, key) => S.seen.get(mount)?.get(key) || 0;
+  // r22 — which version of each day every mount's FORM holds: opened (a
+  // read by id) or written by its own save (answered, late, or its answer
+  // lost). A list (or a read of the day the page asks before a take-back)
+  // gives the page a version to build on (R) but never puts its figures in
+  // the boxes — so going online (the list read again) does not make a draft
+  // that landed after the form opened "the form's" for I1.
+  S.formSeen = new Map();
+  S.formSee = (mount, key, v) => {
+    if (mount == null) return;
+    const m = S.formSeen.get(mount) || new Map();
+    if ((m.get(key) || 0) < v) m.set(key, v);
+    S.formSeen.set(mount, m);
+  };
+  S.formSeenBy = (mount, key) => S.formSeen.get(mount)?.get(key) || 0;
   // Saves that landed over a version their page never received (R), saves
   // refused as draft_changed, and who wrote each row last.
   S.stale = [];
@@ -187,6 +228,23 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
     S.lastSaveId.set(key, "other-device");
     return row;
   };
+  // Round 22 — another device LOCKS the day behind the page's back: the row
+  // is confirmed (a new version), and the page's next save of it meets the
+  // lock (409). `lockHits`: every save (or lock) that met one, by visit.
+  S.lockedByOther = new Set();
+  S.lockHits = [];
+  S.otherLock = (key) => {
+    const row = S.rows.get(key);
+    if (!row || row.status !== "draft") return null;
+    row.status = "confirmed";
+    S.bump(row);
+    S.writer.set(key, "other");
+    S.lastSaveId.set(key, "other-device");
+    S.lockedByOther.add(key);
+    return row;
+  };
+  // The days a save's answer was lost on (stored, never heard).
+  S.lostKeys = new Set();
   S.serverExempt = (date) => S.exemptByDate[date] || 0;
   S.save = (body) => {
     const key = `${body.date}|${body.branch_id || ""}`;
@@ -321,10 +379,12 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
   // `drop` (round 21 review): a save reaches the server and is stored, and
   // its answer is LOST (a dropped socket, a 4G handoff, the timeout): the
   // page gets a network error with no response.
-  S.holding = { post: false, del: false, answer: false, drop: false };
+  S.holding = { post: false, del: false, answer: false, drop: false, offline: false };
   S.held = [];
   S.releaseHeld = () => { const h = S.held.splice(0); h.forEach((go) => go()); return h.length; };
-  S.remove = (id, params = null) => (S.holding.del || S.held.length
+  const offlineErr = () => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
+  S.offlineErr = offlineErr;
+  S.remove = (id, params = null) => (S.holding.offline ? offlineErr() : S.holding.del || S.held.length
     ? new Promise((res, rej) => { S.held.push(() => removeNow(id, params).then(res, rej)); })
     : removeNow(id, params));
   return S;
@@ -333,6 +393,23 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
 export function installApi(S, get, post, del = null) {
   if (del) del.mockImplementation((url, cfg) => S.remove(String(url).split("/").pop(), cfg?.params || null));
   get.mockImplementation((url, cfg) => {
+    // Offline (r22): the day's close rows cannot be read (the list, a day, a
+    // draft by id).
+    if (S.holding.offline && (url === "/daily-close" || /^\/daily-close\/(?:row|seed)/.test(String(url)))) return S.offlineErr();
+    if (url === "/daily-close" && cfg?.params && (cfg.params.from || cfg.params.to || cfg.params.branch_id)) {
+      // Round 22 — a read of one day (the page asks the server before it
+      // acts on a save whose answer was lost): its rows as stored now, each
+      // with the id of the save that wrote it last (the backend's
+      // last_save_id, from the audit row), when asked for.
+      const p = cfg.params;
+      S.dayReads = (S.dayReads || 0) + 1;
+      const hits = [...S.rows.entries()].filter(([, r]) => {
+        const d = String(r.date).slice(0, 10);
+        return (!p.from || d >= p.from) && (!p.to || d <= p.to) && (!p.branch_id || (r.branch_id || null) === p.branch_id);
+      });
+      hits.forEach(([k, r]) => S.see(S.mountNow, k, S.verOf(r)));
+      return Promise.resolve({ data: hits.map(([k, r]) => ({ ...r, ...(p.with_save_id ? { last_save_id: S.lastSaveId.get(k) || null } : {}) })) });
+    }
     if (url === "/daily-close") {
       // The list answers at once — before a save still on its way lands.
       S.listGets = (S.listGets || 0) + 1;
@@ -347,6 +424,7 @@ export function installApi(S, get, post, del = null) {
       const hit = [...S.rows.entries()].find(([, r]) => r.id === byId[1]);
       if (!hit) return Promise.reject(Object.assign(new Error("gone"), { response: { status: 404, data: {} } }));
       S.see(S.mountNow, hit[0], S.verOf(hit[1]));
+      S.formSee(S.mountNow, hit[0], S.verOf(hit[1]));
       return Promise.resolve({ data: { ...hit[1] } });
     }
     if (url === "/daily-close/prefill") return Promise.resolve({ data: S.syncedDates.has(cfg?.params?.date) ? SYNCED_DAY : EMPTY_DAY });
@@ -363,6 +441,8 @@ export function installApi(S, get, post, del = null) {
       return s ? Promise.resolve({ data: JSON.parse(JSON.stringify(s)) }) : Promise.reject(new Error("no scan stubbed"));
     }
     if (url === "/daily-close") {
+      // Offline (r22): never reaches the server — nothing stored, no answer.
+      if (S.holding.offline) return S.offlineErr();
       const copy = JSON.parse(JSON.stringify(body));
       // What the day held when the page SENT it (a held save arrives later).
       const tags = S.tagAtSend ? S.tagAtSend(copy) : {};
@@ -370,6 +450,7 @@ export function installApi(S, get, post, del = null) {
         const key = `${copy.date}|${copy.branch_id || ""}`;
         if (S.rows.get(key)?.status === "confirmed") {
           S.lockConflicts += 1;
+          S.lockHits.push({ key, mount: tags.__mount ?? null });
           return Promise.reject(Object.assign(new Error("locked"), { response: { status: 409, data: {} } }));
         }
         // The draft changed since the version this save was built on: refused,
@@ -395,6 +476,7 @@ export function installApi(S, get, post, del = null) {
         S.lastSaveId.set(key, copy.save_id || null);
         S.writer.set(key, tags.__mount != null ? tags.__mount : "page");
         S.see(tags.__mount, key, S.verOf(row));
+        S.formSee(tags.__mount, key, S.verOf(row));
         return Promise.resolve({ data: { ...row } });
       };
       // Behind anything still on its way: requests arrive in the order sent.
@@ -403,7 +485,11 @@ export function installApi(S, get, post, del = null) {
       }
       // Stored, the answer lost (a refusal still answers: nothing was stored).
       if (S.holding.drop) {
-        return arrive().then(() => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" })));
+        return arrive().then(() => {
+          S.lostKeys.add(`${copy.date}|${copy.branch_id || ""}`);
+          STATS.lostAnswers += 1;
+          return Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
+        });
       }
       // Stored at once, the answer still on its way.
       if (S.holding.answer) {
@@ -538,7 +624,10 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // "r21": the r20 variant over a slow / reordered network (answers late,
   // the list before a save lands, leaving during a save), another device
   // saving figures, and a day whose own till is payments only.
-  const r21 = variant === "r21";
+  // "r22": the r21 variant with answers LOST at random (stored, never heard)
+  // and another device LOCKING the day; MV / M6 / LK held over them.
+  const r22 = variant === "r22";
+  const r21 = variant === "r21" || r22;
   // "r20": the review variant's openings and timings, over the round-20
   // drafts (floats, own photos, a reopened sum) and another device's scan.
   const r20 = variant === "r20" || r21;
@@ -645,6 +734,25 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // (`slowLeft` steps, for a named regression).
   let slowStep = false;
   let slowLeft = 1;
+  // r22 — a step whose saves reach the server at once and lose their
+  // answers: nothing is held, so what it filed is checked like any step's
+  // (MV, M6) — the page must ask the server, not wait for an answer.
+  const lostStep = () => r22 && slowStep && S.holding.drop;
+  // r22 — a step taken OFFLINE (the browser says so; the day's requests fail
+  // and store nothing). Online again at its end: checked once settled.
+  const offlineStep = () => r22 && slowStep && S.holding.offline;
+  const setOnline = (on) => {
+    try { Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => on }); } catch { /* fixed */ }
+  };
+  const goOnline = async () => {
+    setOnline(true);
+    await act(async () => { window.dispatchEvent(new Event("online")); await new Promise((r) => setTimeout(r, 0)); });
+    await settle();
+  };
+  // A take-back (Start forfra) or a move done while offline: the page could
+  // not reach the server, so the day keeps what it stored — said by the
+  // banner / "the old day still has them" (M6, MV).
+  let emptiedOffline = false;
   // A Start forfra that left the day empty (M6), and a move answered "Brug
   // dem" (MV): checked once the page has filed what follows.
   let emptiedDay = null;
@@ -829,9 +937,13 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       const day = emptiedDay;
       const was = emptiedRow;
       const sent = emptiedSent;
+      // (Taken back offline: checked here, once online again — the page
+      // does it then, so it is held to the same rule as any take-back.)
+      if (emptiedOffline) STATS.M6offline += 1;
       emptiedDay = null;
       emptiedRow = null;
       emptiedSent = null;
+      emptiedOffline = false;
       const row = S.rows.get(`${day}|`);
       STATS.M6 += 1;
       const orig = originals.get(day);
@@ -839,6 +951,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // write): taking the page's figures back is refused (draft_changed) and
       // never forced — the stored draft is theirs, and the banner shows it.
       const othersNow = S.writer.get(`${day}|`) === "other";
+      if (r22 && S.lostKeys.has(`${day}|`)) STATS.M6lost += 1;
       // F3 (round 20) — the draft held what the owner typed beside the
       // photo (a note, Lukket af, a count, tips, staff): it is the only
       // stored copy, so it is never deleted or put back — it stays as it
@@ -849,6 +962,11 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         if (row && row.status === "draft" && !conflictShown()) {
           expect(hasText("dcDayHasDraft") || onForm(), fail("M6 Start forfra takes the photo's draft back",
             `${day}: another device's draft (${row.revenue_total}) is stored, and nothing says so`)).toBe(true);
+        }
+        // r22: another device LOCKED it — the lock stays, and the page says so.
+        if (r22 && row && row.status === "confirmed" && S.lockedByOther.has(`${day}|`) && !conflictShown()) {
+          expect(hasText("dcDayAlreadyLocked"), fail("M6 Start forfra takes the photo's draft back",
+            `${day}: another device locked the day (${row.revenue_total}), and nothing says so`)).toBe(true);
         }
       } else if (was && ownFields(sent) && (orig || createdHere.has(day))) {
         STATS.F3 += 1;
@@ -883,8 +1001,19 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       const row = S.rows.get(`${mv.from}|`);
       const onTo = onForm() && q("#close-date")?.value === mv.to;
       STATS.MV += 1;
+      if (r22 && S.lostKeys.has(`${mv.from}|`)) STATS.MVlost += 1;
       const orig = originals.get(mv.from);
-      if (orig) {
+      // r22: another device LOCKED the old day (with whatever it held): that
+      // lock stands — nothing can be taken off it — and the page never says
+      // "moved" (or "the old draft is back"): the old day still has them.
+      const lockedOld = r22 && Boolean(row) && row.status === "confirmed" && S.lockedByOther.has(`${mv.from}|`);
+      if (lockedOld) {
+        STATS.newerElsewhere += 1;
+        if (onTo) {
+          expect(!hasText("dcDateMovedFrom") && !hasText("dcDateMovedKeptOld"), fail("MV a date move moves, not copies",
+            `${mv.from} was locked elsewhere, yet the page says the figures moved (or its draft is back)`)).toBe(true);
+        }
+      } else if (orig) {
         // A draft the page replaced through the banner: the moved figures
         // leave it, and it is the draft it was — "er stadig gemt" is true.
         expect(sameDraft(row, orig), fail("MV a date move moves, not copies",
@@ -895,7 +1024,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         // it — the delete is refused (draft_changed): that version is never
         // deleted with the page's figures. It is still there, as stored.
         STATS.newerElsewhere += 1;
-        expect(Boolean(row) && row.status === "draft", fail("MV a date move moves, not copies",
+        // (r22: or another device LOCKED it — that lock stands.)
+        const lockedThere = r22 && Boolean(row) && row.status === "confirmed" && S.lockedByOther.has(`${mv.from}|`);
+        expect(Boolean(row) && (row.status === "draft" || lockedThere), fail("MV a date move moves, not copies",
           `${mv.from}: another device's version of the draft was deleted with the moved figures`)).toBe(true);
       } else if (mv.created) {
         expect(!row || row.status !== "draft", fail("MV a date move moves, not copies",
@@ -979,7 +1110,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (!date) return false;
     const key = `${date}|`;
     const row = S.rows.get(key);
-    return Boolean(row) && S.verOf(row) > S.seenBy(S.mountNow, key);
+    // (r22: the version the form holds — a list read is not an open.)
+    const seen = r22 ? S.formSeenBy(S.mountNow, key) : S.seenBy(S.mountNow, key);
+    return Boolean(row) && S.verOf(row) > seen;
   };
   // R — no save ever landed over a version its page was never given.
   const checkStale = () => {
@@ -1011,6 +1144,26 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     }
   };
 
+  // LK (r22) — another device locked the day in view, and a save of this
+  // visit met that lock (409): the page says the day is locked — never the
+  // owner's edits refused in silence — and an amount it names is the lock's.
+  const checkLockedElsewhere = () => {
+    const date = businessDayShown();
+    const key = date && `${date}|`;
+    const row = key && S.rows.get(key);
+    if (!row || row.status !== "confirmed" || !S.lockedByOther.has(key)) return;
+    if (!S.lockHits.some((h) => h.key === key && h.mount === S.mountNow)) return;
+    STATS.LK += 1;
+    expect(hasText("dcDayAlreadyLocked"), fail("LK a day locked on another device is said",
+      `${date} was locked elsewhere at ${row.revenue_total}; a save of this page met the lock, and nothing on the page says so`)).toBe(true);
+    const m = document.body.textContent.match(/dcDayAlreadyLockedBody:([−\-\d.,]+)/);
+    if (m) {
+      const said = Number(m[1].replace(/\./g, "").replace(",", ".").replace("−", "-"));
+      expect(Math.abs(said - row.revenue_total) < 0.005, fail("LK a day locked on another device is said",
+        `the page says locked at ${m[1]}, the lock holds ${row.revenue_total}`)).toBe(true);
+    }
+  };
+
   // I5 — never a page with nothing to tap.
   const noDeadEnd = () => {
     STATS.I5 += 1;
@@ -1021,19 +1174,34 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const checkpoint = async () => {
     // Whatever save is waiting goes now (the page sends it on pagehide).
     await hideAndBack();
+    // r22: this step's answers were lost — checked without walking the
+    // wizard to its review (a step change sends the day again, and an
+    // answered re-send would hide what the lost one left behind; the owner
+    // may well not move a step either).
+    let lostNow = false;
     if (slowStep) {
       // Still on their way: the next step happens before they arrive, and
       // what is stored is checked once they have. What the page shows does
       // not wait: I5 is checked here too (U3 restored — it was counted with
       // nothing checked).
       // (A named regression may keep them on their way over several steps.)
+      // r22: answers LOST — nothing is on its way (stored, never heard), so
+      // the step is checked now like any other: the page must ask the
+      // server, not wait for an answer that never comes.
+      const lost = lostStep();
+      const offline = offlineStep();
+      lostNow = lost;
       slowLeft -= 1;
       if (slowLeft <= 0) {
         slowStep = false;
-        S.holding.post = false; S.holding.del = false; S.holding.answer = false; S.holding.drop = false;
+        S.holding.post = false; S.holding.del = false; S.holding.answer = false; S.holding.drop = false; S.holding.offline = false;
+        // r22: online again — the page's waiting draft goes.
+        if (offline) await goOnline();
       }
-      noDeadEnd();
-      return;
+      if (!lost && !(offline && !slowStep)) {
+        noDeadEnd();
+        return;
+      }
     }
     // A slow step's saves (and deletes) arrive, in the order sent, and the
     // page's follow-ups run on their answers.
@@ -1048,6 +1216,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     await storedChecks();
     noDeadEnd();
     checkStale();
+    if (r22) checkLockedElsewhere();
     // The page asks which draft wins: nothing of the day is held to the
     // stored row until the owner answers (the next step does).
     if (conflictShown()) { STATS.conflicts += 1; return; }
@@ -1100,6 +1269,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     }
     if (q('[data-testid="dc-date-move"]')) return;
     if (hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked")) return;
+    if (lostNow) return;
     const date = q("#close-date").value;
     const row = S.rows.get(`${date}|`);
     // Another device's save (or a late one from the page's previous visit) is
@@ -1162,9 +1332,26 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (review && !plan && !slowStep && !S.held.length && chance(0.3)) {
       slowStep = true;
       slowLeft = 1;
+      // r22: a third of the time the saves are held, a third their answers
+      // are late, a third they are stored and their answers LOST.
+      if (r22) {
+        const how = pick(["post", "answer", "drop", "offline"]);
+        if (how === "answer") { S.holding.answer = true; label += " (slow answers)"; } else if (how === "drop") {
+          S.holding.drop = true;
+          label += " (answers lost)";
+        } else if (how === "offline") {
+          S.holding.offline = true;
+          STATS.offlineSteps += 1;
+          setOnline(false);
+          await act(async () => { window.dispatchEvent(new Event("offline")); await new Promise((r) => setTimeout(r, 0)); });
+          label += " (offline)";
+        } else {
+          S.holding.post = true; S.holding.del = true;
+          label += " (slow)";
+        }
       // r21: half the time the saves reach the server at once and only their
       // answers are late (the server stored it; the page has not heard).
-      if (r21 && chance(0.5)) { S.holding.answer = true; label += " (slow answers)"; } else {
+      } else if (r21 && chance(0.5)) { S.holding.answer = true; label += " (slow answers)"; } else {
         S.holding.post = true; S.holding.del = true;
         label += " (slow)";
       }
@@ -1213,9 +1400,10 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (q('[data-testid="dc-date-move"]')) {
       await step("use them for the new day", () => tap(/^dcDateMoveKeep/), () => {
         const from = moveOrigin;
-        if (from && !slowStep) {
+        if (from && (!slowStep || lostStep() || offlineStep())) {
           pendingMove = {
             from, to: q("#close-date")?.value, created: createdHere.has(from), filed: postedHere.has(from), posts: S.posts.length,
+            offline: offlineStep(),
           };
         }
       });
@@ -1400,7 +1588,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       M.atFirst = null;
       // A photo-only day emptied (M6) — checked once this step's requests
       // have arrived (a slow step's are checked by I1/M4 after the next).
-      if (!ownFig() && day && postedHere.has(day) && !slowStep) { emptiedDay = day; emptiedRow = wasRow; emptiedSent = sentBefore; }
+      if (!ownFig() && day && postedHere.has(day) && (!slowStep || lostStep() || offlineStep())) {
+        emptiedDay = day; emptiedRow = wasRow; emptiedSent = sentBefore; emptiedOffline = offlineStep();
+      }
       // A draft holding the owner's own fields is kept (F3): until the page
       // sends the day again, the stored row is the one filed before — its
       // photo included (the card says "Ikke gemt endnu").
@@ -1455,11 +1645,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (slowStep || q('[data-testid="dc-date-move"]') || !photosIn() || !postedHere.has(from)) return;
     pendingMove = { from, to, created: createdHere.has(from), filed: true, posts: S.posts.length, card: true };
   };
-  const moveDate = async () => {
+  const moveDate = async (target = null) => {
     if (!(await ensureForm())) return;
     const el = q("#close-date");
     if (!el || el.disabled) return;
-    const to = pick([today, yesterday, twoDaysAgo].filter((d) => d !== el.value));
+    if (target === el.value) return;
+    const to = target || pick([today, yesterday, twoDaysAgo].filter((d) => d !== el.value));
     // The day the figures were typed for (moved again before answering: still the first).
     if (!q('[data-testid="dc-date-move"]')) moveOrigin = el.value;
     const from = el.value;
@@ -1543,10 +1734,18 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (!btn || btn.disabled) return false;
     const R = readReview();
     const date = q("#close-date").value;
+    // r22: locked on another device before this tap — the tap meets that
+    // lock, and the page says so (LK); the review is not held to it.
+    const lockedBefore = r22 && S.rows.get(`${date}|`)?.status === "confirmed";
     log.push("Bekræft & lås");
     await act(async () => { fireEvent.click(btn); await new Promise((r) => setTimeout(r, 0)); });
     await settle();
     checkPosts();
+    if (lockedBefore) {
+      await settle();
+      checkLockedElsewhere();
+      return true;
+    }
     const row = S.rows.get(`${date}|`);
     if (!row || row.status !== "confirmed") return true;
     const where_ = `${date}: review ${JSON.stringify(R)} vs locked ${JSON.stringify({ revenue_total: row.revenue_total, moms_total: row.moms_total })}`;
@@ -1623,7 +1822,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const el = q(k === "rev" ? `#dc-rev-${f}` : `#dc-pay-${f}`);
     if (!el) return;
     const v = value || pick(VALUES);
-    const when = lands || pick(["beforeOpen", "afterOpen", "afterEdit"]);
+    // r22: or it is stored and its answer LOST ("lost") — the page that sent
+    // it is gone, and the next visit opens what is stored.
+    const when = lands || pick(r22 ? ["beforeOpen", "afterOpen", "afterEdit", "lost"] : ["beforeOpen", "afterOpen", "afterEdit"]);
     const full = reload == null ? chance(0.5) : reload;
     log.push(`${k}.${f}=${v}, left while it saves${full ? " (reload)" : ""}, back (lands ${when})`);
     STATS.steps += 1;
@@ -1631,9 +1832,11 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     await settle();
     typedInto(k, f, v);
     // Leaving sends the waiting save: on its way when the page is gone.
-    S.holding.post = true;
+    if (when === "lost") S.holding.drop = true;
+    else S.holding.post = true;
     await unmount();
     S.holding.post = false;
+    S.holding.drop = false;
     if (full) { try { globalThis[CLOSE_SAVES]?.clear?.(); } catch { /* none */ } }
     mount(entry);
     await loaded();
@@ -1667,6 +1870,15 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         r.notes = `${r.notes || ""}B`;
       }));
     });
+  };
+  // r22 — another device LOCKS the day in view (the draft this page holds).
+  const otherDeviceLocks = async () => {
+    await arriveAll();
+    const date = businessDayShown();
+    const key = `${date}|`;
+    const row = date && S.rows.get(key);
+    if (!row || row.status !== "draft") return;
+    await step(`another device locks ${date}`, () => { S.otherLock(key); });
   };
   // The owner types payments only (no revenue line): a till of its own.
   const payOnly = async () => {
@@ -1766,6 +1978,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     ...(review ? [[2, doubleMove]] : []),
     ...(r20 ? [[2, otherDevice], [3, photoNoteStartOver]] : []),
     ...(r21 ? [[3, payOnly], [4, payOnlyBonStartOver], [4, () => leaveDuringSave()], [3, () => otherDeviceFigures()]] : []),
+    ...(r22 ? [[2, otherDeviceLocks], [2, () => moveDate()]] : []),
     [2, reopen],
     [2, notes],
     [2, moms],
@@ -1795,11 +2008,16 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         continueDraft: () => step("Fortsæt kladden", () => tap(/^dcContinueDraft$/), onReopenLoaded),
         typeBox, toCard, shoot, answer, apply, startOver, notes, reopen, lock, arriveAll, settleAll,
         leaveDuringSave, otherDeviceFigures, resolveConflict, conflictShown, toStep,
+        // Round 22: a date picked (and "Brug dem" answered), the day's draft
+        // banner's "Start forfra", another device locking the day.
+        moveDate, otherDeviceLocks,
+        bannerStartOver: () => step("Start forfra (banner)", () => tap(/^dcStartOverDraft$/), () => startedOverHere.add(businessDayShown() || today)),
         slow: (mode = "post", steps = 1) => {
           slowStep = true;
           slowLeft = steps;
           if (mode === "answer") S.holding.answer = true;
           else if (mode === "drop") S.holding.drop = true;
+          else if (mode === "offline") { S.holding.offline = true; setOnline(false); }
           else { S.holding.post = true; S.holding.del = true; }
         },
       });
@@ -1845,6 +2063,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     thrown = e;
     throw e;
   } finally {
+    // (Never left offline for the next sequence.)
+    if (S.holding.offline) { S.holding.offline = false; setOnline(true); }
     await arriveAll();
     await unmount();
     // The page's saves still on their way after it is gone (a leaving save,

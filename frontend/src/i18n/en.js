@@ -8409,6 +8409,8 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcDraftNotSavedShort: "Not saved",
+    dcDraftNotSavedLocked: "Not saved — the day was locked on another device",
     dcDraftChangedPhotoGoes: "Keeping your numbers also takes its Z-bon photo off the day.",
     dcDeleteDraftBodyPaymentsOnly: "This kladde shows only payments of {amount} — it is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
     dcDraftChangedTitle: "The draft was saved somewhere else",
