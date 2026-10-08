@@ -192,6 +192,7 @@ describe("daily close — tap areas", () => {
     const links = SOURCE.match(/<Link to="\/profile"[^>]*>/g) || [];
     expect(links.length).toBeGreaterThanOrEqual(6);
     links.forEach((l) => expect(l).toContain("PROFILE_LINK_TAP"));
-    expect(SOURCE).toMatch(/const PROFILE_LINK_TAP = "[^"]*max-sm:min-h-10[^"]*max-sm:min-w-10/);
+    // ~13 px of text + 2 × 14 px padding ≈ 41 px tall; ~30 px + 2 × 6 px wide.
+    expect(SOURCE).toMatch(/const PROFILE_LINK_TAP = "max-sm:relative max-sm:py-3\.5 max-sm:px-1\.5 max-sm:-mx-1\.5"/);
   });
 });

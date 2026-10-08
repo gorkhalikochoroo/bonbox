@@ -57,9 +57,12 @@ import {
 
 const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
 // An inline "Profil" link in an 11–13 px note measured 28×13 px on a phone — a
-// thumb misses it. On a phone it gets a 40 px tap area and stays in the
-// sentence; from sm up it is plain inline text again.
-const PROFILE_LINK_TAP = "max-sm:inline-flex max-sm:items-center max-sm:justify-center max-sm:min-h-10 max-sm:min-w-10 max-sm:px-1";
+// thumb misses it. On a phone its box grows to ~40 px by padding alone: inline
+// vertical padding takes no line space, and the negative side margin gives
+// back the horizontal, so the sentence's lines keep their spacing (an
+// inline-flex min-height made the last line of each note stand apart).
+// `relative` lifts the link above the next note, so its padding takes the tap.
+const PROFILE_LINK_TAP = "max-sm:relative max-sm:py-3.5 max-sm:px-1.5 max-sm:-mx-1.5";
 import { saveFile } from "../utils/download";
 import { exportPieces, previousQuarter, spanDays } from "../utils/exportPieces";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
