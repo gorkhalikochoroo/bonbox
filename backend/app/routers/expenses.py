@@ -272,10 +272,12 @@ def delete_category(
     ).first()
 
     if other:
-        # Move expenses to the other category
-        db.query(Expense).filter(Expense.category_id == cat.id).update(
-            {"category_id": other.id}
-        )
+        # Move expenses to the other category — the caller's own only. The
+        # category is theirs, but an expense row of another tenant naming it
+        # is not, and was re-pointed by this bulk update (sweep, 8 Oct).
+        db.query(Expense).filter(
+            Expense.category_id == cat.id, Expense.user_id == user.id,
+        ).update({"category_id": other.id})
     else:
         # NEVER hard-delete filed bilag (Bogføringsloven §10) — that silently
         # loses receipts that feed §42 fradrag + the P&L. Move any orphaned
@@ -290,9 +292,34 @@ def delete_category(
             fallback = ExpenseCategory(user_id=user.id, name="Andet")
             db.add(fallback)
             db.flush()
-        db.query(Expense).filter(Expense.category_id == cat.id).update(
-            {"category_id": fallback.id}
-        )
+        db.query(Expense).filter(
+            Expense.category_id == cat.id, Expense.user_id == user.id,
+        ).update({"category_id": fallback.id})
+
+    # A row of ANOTHER tenant can only name this category through the old
+    # unchecked edit (PUT now refuses it). It is not re-pointed into the
+    # caller's categories; it goes back to its own owner's "Andet"
+    # (get-or-create for that owner), so the delete never fails on it and no
+    # tenant's expense keeps another tenant's category.
+    foreign_owners = [
+        uid for (uid,) in db.query(Expense.user_id)
+        .filter(Expense.category_id == cat.id, Expense.user_id != user.id)
+        .distinct().all()
+    ]
+    for uid in foreign_owners:
+        own_fallback = db.query(ExpenseCategory).filter(
+            ExpenseCategory.user_id == uid, ExpenseCategory.name == "Andet",
+        ).first()
+        if not own_fallback:
+            own_fallback = ExpenseCategory(user_id=uid, name="Andet")
+            db.add(own_fallback)
+            db.flush()
+        db.query(Expense).filter(
+            Expense.category_id == cat.id, Expense.user_id == uid,
+        ).update({"category_id": own_fallback.id})
+    if foreign_owners:
+        logger.warning("expense category delete: %d other tenant(s) had rows on it; "
+                       "moved to their own fallback", len(foreign_owners))
 
     db.delete(cat)
     db.commit()
@@ -786,6 +813,22 @@ def update_expense(
     old_is_pending = _is_pending(expense)
     old_category_id = expense.category_id
     updates = data.model_dump(exclude_unset=True)
+    # A category must be one of the caller's own — the same rule create
+    # applies (L2 there). PUT copied any id onto the expense: another
+    # tenant's category name then reached this owner's response and vendor
+    # memory (sweep, 8 Oct). A null category cannot be stored (the column is
+    # NOT NULL — it was a 500); say so instead.
+    if "category_id" in updates:
+        if updates["category_id"] is None:
+            raise HTTPException(status_code=422, detail="Choose a category for the expense")
+        owned_cat = (
+            db.query(ExpenseCategory.id)
+            .filter(ExpenseCategory.id == updates["category_id"],
+                    ExpenseCategory.user_id == user.id)
+            .first()
+        )
+        if not owned_cat:
+            raise HTTPException(status_code=404, detail="Expense category not found")
     for field, value in updates.items():
         setattr(expense, field, value)
 
@@ -876,10 +919,12 @@ def update_expense(
                 )
             if expense.category_id != old_category_id:
                 new_cat = db.query(ExpenseCategory).filter(
-                    ExpenseCategory.id == expense.category_id
+                    ExpenseCategory.id == expense.category_id,
+                    ExpenseCategory.user_id == user.id,
                 ).first()
                 old_cat = db.query(ExpenseCategory).filter(
-                    ExpenseCategory.id == old_category_id
+                    ExpenseCategory.id == old_category_id,
+                    ExpenseCategory.user_id == user.id,
                 ).first() if old_category_id else None
                 if new_cat and new_cat.name not in _UNLEARNABLE_CATEGORIES:
                     # Moving off a placeholder the SERVER chose
