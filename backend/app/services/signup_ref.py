@@ -4,8 +4,8 @@ Fieldwork, Oct 2026: Manoj leaves a printed sheet at each venue he visits. Its
 QR opens https://www.bonbox.dk/register?ref=<code>, where the code says only
 the round, the argument used at the door and the visit number ("r1-a-03"). The
 frontend keeps the code until the account exists and sends it with the
-register call or the Google/Apple completion; this module decides what is
-stored.
+register call, the Google/Apple completion or the magic-link verify (the
+mailed link carries it as &ref=); this module decides what is stored.
 
 Rules (each one is tested in tests/test_signup_ref.py):
   • The code must match [a-z0-9-]{1,24} exactly. Anything else is IGNORED,
@@ -31,7 +31,11 @@ OTHER_PREFIX = "other"
 
 # The planned door rounds (Oct 2026): round 1 = argument A (8–14 Oct), round 2
 # = argument B (15–21 Oct). The admin view always lists these two, at zero if
-# nobody has signed up from them yet, so "no signups" reads as a measured 0.
+# no account carries their code yet, so an empty round shows as a counted 0
+# rather than a missing row. Every count is a LOWER BOUND: a code only reaches
+# an account created in the browser that opened the QR (memory, or storage
+# with Analytics consent — frontend utils/signupRef.js) or through an e-mail
+# link asked for there, and only once the code-keeping build is live.
 FIELDWORK_PREFIXES = ("r1-a", "r2-b")
 
 

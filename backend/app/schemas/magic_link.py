@@ -19,9 +19,16 @@ Design notes:
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.schemas.auth import SignupRefMixin
 
-class MagicLinkRequest(BaseModel):
-    """POST /auth/magic-link/request — kick off the flow."""
+
+class MagicLinkRequest(SignupRefMixin):
+    """POST /auth/magic-link/request — kick off the flow.
+
+    `signup_ref` (optional, the door-visit code the browser kept) is only
+    carried into the mailed link as &ref=, so the tab that opens the link
+    can send it back on verify. Nothing is stored at request time.
+    """
 
     email: EmailStr
 
@@ -33,8 +40,12 @@ class MagicLinkRequest(BaseModel):
         return v
 
 
-class MagicLinkVerify(BaseModel):
+class MagicLinkVerify(SignupRefMixin):
     """POST /auth/magic-link/verify — exchange a raw token for a session.
+
+    `signup_ref` is stamped only when this verify CREATES the account
+    (services/magic_link_service.verify_token); an existing one never gains
+    or loses a ref.
 
     Length bounds:
       • 43 = exact length of base64url(secrets.token_urlsafe(32))

@@ -43,7 +43,7 @@ function PrivacyEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 27 September 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 8 October 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -72,6 +72,7 @@ function PrivacyEn() {
             <li>Password — stored as a bcrypt hash (we never store your actual password)</li>
             <li>Name (optional) — to personalize your experience</li>
             <li>Preferred language — to display BonBox in your chosen language</li>
+            <li>Campaign code from a printed flyer, if any — the short code (for example <code>r1-a-03</code>) from the QR on a BonBox flyer you signed up from, so we can count which round of visits led to accounts. It is only counted, never used to contact you, and is included in your data export. Legal basis for this one item: our legitimate interest in knowing which visits work (GDPR Article 6(1)(f)).</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Performance of contract (GDPR Article 6(1)(b)).</p>
 
@@ -297,7 +298,7 @@ function PrivacyDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privatlivspolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 27. september 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 8. oktober 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -326,6 +327,7 @@ function PrivacyDa() {
             <li>Adgangskode — gemt som en bcrypt-hash (vi gemmer aldrig selve din adgangskode)</li>
             <li>Navn (valgfrit) — for at gøre din oplevelse personlig</li>
             <li>Foretrukket sprog — for at vise BonBox på det sprog, du har valgt</li>
+            <li>Kampagnekode fra en trykt folder, hvis der er en — den korte kode (fx <code>r1-a-03</code>) fra QR-koden på en BonBox-folder, du oprettede dig fra, så vi kan tælle, hvilken besøgsrunde der førte til konti. Den bliver kun talt, bruges aldrig til at kontakte dig og er med i din dataeksport. Retsgrundlag for netop dette punkt: vores legitime interesse i at vide, hvilke besøg der virker (databeskyttelsesforordningens artikel 6, stk. 1, litra f).</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Opfyldelse af kontrakt (databeskyttelsesforordningens artikel 6, stk. 1, litra b).</p>
 

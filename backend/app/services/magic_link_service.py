@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 from app.models.magic_link_token import MagicLinkToken
 from app.models.user import User
 from app.services.auth import hash_password
+from app.services.signup_ref import apply_signup_ref
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,7 @@ def verify_token(
     db: Session,
     raw_token: str,
     used_ip: str | None = None,
+    signup_ref: str | None = None,
 ) -> User:
     """Exchange a raw magic-link token for a User.
 
@@ -242,6 +244,10 @@ def verify_token(
             role="owner",
             email_verified=True,
         )
+        # The printed door-visit code, if the link carried one — new
+        # account only, same rule as register/Google/Apple
+        # (services/signup_ref.py).
+        apply_signup_ref(user, signup_ref)
         # Start the 14-day Pro trial — parity with Google + password
         # self-signup. Magic-link users shouldn't be a second-class
         # entitlement bucket.

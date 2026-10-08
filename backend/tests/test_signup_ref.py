@@ -6,7 +6,8 @@ frontend keeps the code and sends it with the register call or the Google /
 Apple completion. These tests pin what the backend does with it:
 
   • a valid code is stored on a NEW account (register, /oauth/google,
-    /oauth/apple, legacy /google and /apple)
+    /oauth/apple, legacy /google and /apple, and the magic-link verify —
+    whose mailed link carries the code as &ref=)
   • it survives e-mail verification
   • an invalid code is ignored — the signup still succeeds, nothing stored
   • a sign-in to an existing account never adds or replaces a code
@@ -73,7 +74,7 @@ def db_session():
 
 @pytest.fixture
 def client():
-    for mod in ("app.routers.auth", "app.routers.auth_oauth"):
+    for mod in ("app.routers.auth", "app.routers.auth_oauth", "app.routers.auth_magic_link"):
         try:
             __import__(mod, fromlist=["limiter"]).limiter.reset()
         except Exception:  # noqa: BLE001
@@ -87,6 +88,15 @@ def no_mail(monkeypatch):
     """Every mail the auth router would send lands here instead."""
     sent: list[tuple] = []
     monkeypatch.setattr("app.routers.auth.send_email", lambda *a, **k: sent.append((a, k)))
+    return sent
+
+
+@pytest.fixture(autouse=True)
+def magic_mail(monkeypatch):
+    """Every magic-link mail lands here instead: (to, html)."""
+    sent: list[tuple] = []
+    monkeypatch.setattr("app.routers.auth_magic_link.send_email",
+                        lambda to, subject, html, **k: sent.append((to, html)) or True)
     return sent
 
 
@@ -295,6 +305,62 @@ def test_legacy_google_existing_account_keeps_its_ref(db_session, client):
     assert r.status_code == 200, r.text
     db_session.expire_all()
     assert db_session.query(User).filter(User.email == "legacy.old@gmail.com").first().signup_ref == "r1-a-05"
+
+
+# ── Magic link (e-mail me a link) — also a self-signup ───────────────
+
+
+def _magic_link(client, magic_mail, email, **extra):
+    """Request a link; return (token, the mailed URL)."""
+    import re
+    r = client.post("/api/auth/magic-link/request", json={"email": email, **extra})
+    assert r.status_code == 200, r.text
+    to, html = magic_mail[-1]
+    assert to == email
+    url = re.search(r'href="([^"]*/login/magic\?token=[^"]+)"', html).group(1)
+    token = re.search(r"token=([A-Za-z0-9_-]{30,})", url).group(1)
+    return token, url
+
+
+def test_magic_link_new_account_gets_ref_and_the_link_carries_it(db_session, client, magic_mail):
+    email = _email()
+    token, url = _magic_link(client, magic_mail, email, signup_ref="r1-a-07")
+    # The link is opened in whatever tab/browser the mail app picks — the
+    # code travels in it, not in that device's storage.
+    assert url.endswith("&ref=r1-a-07"), url
+    client.cookies.clear()
+    r = client.post("/api/auth/magic-link/verify", json={"token": token, "signup_ref": "r1-a-07"})
+    assert r.status_code == 200, r.text
+    u = db_session.query(User).filter(User.email == email).first()
+    assert u is not None and u.signup_ref == "r1-a-07"
+
+
+def test_magic_link_without_or_with_a_bad_ref_signs_up_and_stores_nothing(db_session, client, magic_mail):
+    for extra in ({}, {"signup_ref": "R1_A<03>"}, {"signup_ref": "a" * 300}):
+        email = _email()
+        token, url = _magic_link(client, magic_mail, email, **extra)
+        assert "ref=" not in url, url
+        client.cookies.clear()
+        r = client.post("/api/auth/magic-link/verify", json={"token": token, **extra})
+        assert r.status_code == 200, r.text
+        assert db_session.query(User).filter(User.email == email).first().signup_ref is None
+
+
+def test_magic_link_sign_in_to_existing_account_is_never_stamped(db_session, client, magic_mail):
+    for email, kept in (("ml.noref@gmail.com", None), ("ml.ref@gmail.com", "r1-a-02")):
+        db_session.add(User(
+            email=email, password_hash=hash_password("x" * 12),
+            business_name="Old", business_type="cafe", currency="DKK",
+            email_verified=True, signup_ref=kept,
+        ))
+    db_session.commit()
+    for email, kept in (("ml.noref@gmail.com", None), ("ml.ref@gmail.com", "r1-a-02")):
+        token, _ = _magic_link(client, magic_mail, email, signup_ref="r2-b-09")
+        client.cookies.clear()
+        r = client.post("/api/auth/magic-link/verify", json={"token": token, "signup_ref": "r2-b-09"})
+        assert r.status_code == 200, r.text
+        db_session.expire_all()
+        assert db_session.query(User).filter(User.email == email).first().signup_ref == kept
 
 
 # ── Schema + the owner's own copy ────────────────────────────────────

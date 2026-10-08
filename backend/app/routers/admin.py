@@ -1298,6 +1298,13 @@ def admin_signup_refs(
         "excluded_internal": excluded,
         "notes": (
             "Counts only. Steps are counted independently, not as a funnel. "
+            "LOWER BOUND: an account counts only when it was created in the "
+            "browser that opened the QR (or from an e-mail link asked for "
+            "there), while that page load lasted or with the cookie banner's "
+            "Analytics consent, and only from the day the code-keeping build "
+            "went live (check /api/health commit). Sheets handed out before "
+            "that, a QR scanned on a phone and a signup later on a laptop, or "
+            "blocked storage are lost, not zero. "
             "first_close_* exclude demo closes and include closes later deleted. "
             "onboarding_finished includes owners who skipped the wizard. "
             "staff_link_created means a link exists, not that it was sent. "

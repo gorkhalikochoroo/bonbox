@@ -90,7 +90,9 @@ describe("admin door-visit table", () => {
       by_ref: [], excluded_internal: 0,
     });
     show();
-    await waitFor(() => expect(screen.getByText("No account has been created from a code yet.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No account has been created with a kept code yet.")).toBeTruthy());
+    // A 0 is "none counted", never "none happened" — the subtitle says so.
+    expect(screen.getByText(/A lower bound: a code reaches an account only in the browser that opened the QR/)).toBeTruthy();
     expect(screen.queryByText(/left out/)).toBeNull();
   });
 

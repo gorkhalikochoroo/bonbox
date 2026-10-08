@@ -641,7 +641,7 @@ function SignupRefsSection({ t }) {
   return (
     <Section
       title={t("adminRefsTitle", "Door visits (signup codes)")}
-      subtitle={t("adminRefsSubtitle", "Accounts created from a leave-behind QR. Counts only — each step is counted on its own, not as a funnel.")}
+      subtitle={t("adminRefsSubtitle", "Accounts created from a leave-behind QR. Counts only — each step is counted on its own, not as a funnel. A lower bound: a code reaches an account only in the browser that opened the QR, and only from the day this build went live.")}
     >
       {failed && (
         <p className="text-sm text-gray-600 dark:text-gray-300">{t("adminRefsUnavailable", "Door-visit counts could not be loaded.")}</p>
@@ -668,7 +668,7 @@ function SignupRefsSection({ t }) {
                 {(!data.by_ref || data.by_ref.length === 0) && (
                   <tr>
                     <td colSpan={REF_STEPS.length + 1} className="px-2 py-2 text-gray-500 dark:text-gray-400">
-                      {t("adminRefsNone", "No account has been created from a code yet.")}
+                      {t("adminRefsNone", "No account has been created with a kept code yet.")}
                     </td>
                   </tr>
                 )}

@@ -90,6 +90,9 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const res = await api.post("/auth/login", { email, password });
+    // An existing account signed in — a kept door-visit code is not theirs
+    // to carry to a later signup in this browser.
+    clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
