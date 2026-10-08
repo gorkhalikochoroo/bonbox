@@ -318,7 +318,22 @@ function ScanButton({ onResult }) {
         toast({ message: res.data.error || t("wineLabelUnreadable"), severity: "critical" });
       }
     } catch (err) {
-      const msg = err.response?.data?.detail || t("opsWineScanFailed", "Scan failed");
+      const detail = err.response?.data?.detail;
+      // The per-account ceilings on the paid label read (429, da/en here).
+      if (detail?.code === "wine_scan_daily_cap") {
+        toast({ message: t("wineScanDailyCap", { cap: detail.cap }), severity: "notice" });
+        setScanning(false);
+        e.target.value = "";
+        return;
+      }
+      if (detail?.code === "wine_scan_minute_cap" || (err.response?.status === 429 && typeof detail !== "string")) {
+        toast({ message: t("wineScanMinuteCap"), severity: "notice" });
+        setScanning(false);
+        e.target.value = "";
+        return;
+      }
+      // A structured detail is never rendered raw (it is an object).
+      const msg = typeof detail === "string" && detail ? detail : t("opsWineScanFailed", "Scan failed");
       if (msg.includes("not configured")) {
         toast({ message: t("wineScanNotConfigured"), severity: "critical" });
       } else {

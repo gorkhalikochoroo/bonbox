@@ -8142,6 +8142,8 @@ export const da = {
     wineSaveFailed: "Kunne ikke gemme",
     wineLabelUnreadable: "Kunne ikke læse etiketten — prøv et skarpere billede",
     wineScanNotConfigured: "Etiket-scanning er ikke sat op endnu. Tilføj vinen manuelt i stedet.",
+    wineScanDailyCap: "Du har scannet {cap} etiketter det seneste døgn, og flere læser BonBox ikke på en dag. Tilføj resten i hånden, eller scan igen i morgen.",
+    wineScanMinuteCap: "For mange scanninger på et minut. Vent et øjeblik, og prøv igen.",
     dcPayInvoice: "Faktura",
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",

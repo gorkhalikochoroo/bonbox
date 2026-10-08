@@ -8433,6 +8433,8 @@ export const en = {
     wineSaveFailed: "Could not save",
     wineLabelUnreadable: "Could not read the label — try a sharper photo",
     wineScanNotConfigured: "Label scanning is not set up yet. Add the wine manually instead.",
+    wineScanDailyCap: "You have scanned {cap} labels in the last 24 hours, the most BonBox reads a day. Add the rest by hand, or scan again tomorrow.",
+    wineScanMinuteCap: "Too many scans in a minute. Wait a moment, then try again.",
     dcPayInvoice: "Faktura",
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
