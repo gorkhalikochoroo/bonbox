@@ -166,7 +166,28 @@ def source_line(dc: Any, *, danish: bool = True, currency: str = "DKK") -> str:
     # close or a reopened draft) — never presented as a scanned till.
     typed_tills = {t for t in (meta.get("typed_tills") or []) if isinstance(t, int) and not isinstance(t, bool)}
     typed_mark = " (indtastet)" if danish else " (typed in)"
-    if len(totals) >= 2:
+    # The owner typed the day's total on a day of several tills: each till's
+    # own figure (the bon's read total, or the typed one) and the correction,
+    # named separately — "Z-bon 1: 17.030,00 kr. · Z-bon 2: 4.000,00 kr. ·
+    # rettet af ejeren til 21.500,00 kr.". The till list alone put the
+    # correction on one till ("4.470,00 kr." for a bon that read 4.000).
+    read = [t for t in (meta.get("read_totals") or [])
+            if isinstance(t, (int, float)) and not isinstance(t, bool)]
+    corrected_to = (len(totals) >= 2 and len(read) == len(totals) and rev is not None
+                    and abs(sum(read) - float(rev)) >= 0.005)
+    if corrected_to:
+        scanned = [i for i in range(len(read)) if i not in typed_tills]
+        parts.append(f"{len(totals)} terminaler lagt sammen" if danish else f"{len(totals)} tills added together")
+        for i, t in enumerate(read):
+            if i in typed_tills:
+                label = "indtastet" if danish else "typed in"
+            else:
+                bon = "Z-bon" if danish else "Z-report"
+                label = bon if len(scanned) == 1 else f"{bon} {scanned.index(i) + 1}"
+            parts.append(f"{label}: {money_dk(t, currency)}")
+        parts.append(("rettet af ejeren til " if danish else "corrected by the owner to ")
+                     + money_dk(float(rev), currency))
+    elif len(totals) >= 2:
         amounts = " + ".join(money_dk(t, currency) + (typed_mark if i in typed_tills else "")
                              for i, t in enumerate(totals))
         parts.append(
@@ -197,6 +218,9 @@ def source_line(dc: Any, *, danish: bool = True, currency: str = "DKK") -> str:
     if typed:
         parts.append(("indtastet af ejeren: " if danish else "typed in by the owner: ") + _labels(typed))
     corrected = [str(k) for k in (meta.get("corrected") or []) if k]
+    if corrected_to:
+        # Said above, with the figure: "rettet af ejeren til 21.500,00 kr.".
+        corrected = [k for k in corrected if k != "revenue_total"]
     if corrected:
         parts.append(
             ("rettet af ejeren efter scanning: " if danish else "corrected by the owner after the scan: ")

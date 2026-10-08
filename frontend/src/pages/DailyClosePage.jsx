@@ -4666,18 +4666,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             {/* Payments */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400">{t("paymentsLabel")}</h3>
-              {/* ONE line for a short payments column. Every unread method
-                  used to wear an amber "missing" — Faktura and MobilePay on a
-                  card-and-cash night — when only the shortfall is known. */}
-              {!scanPayComplete && scanPaySum > 0 && scanPayTotal > 0 && (
-                <p className="text-[12px] text-gray-600 dark:text-gray-300">
-                  <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" />
-                  {t("dcScanPayShort", "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.", {
-                    sum: formatOwnerMoney(scanPaySum, currency, { decimals: GLANCE_DECIMALS }),
-                    diff: formatOwnerMoney(Math.abs(scanPayTotal - scanPaySum), currency, { decimals: GLANCE_DECIMALS }),
-                  })}
-                </p>
-              )}
               {defaultPayMethods.map(m => {
                 const val = scanResult.payments?.[m.key];
                 return (
@@ -4703,6 +4691,22 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   </div>
                 );
               })}
+              {/* ONE line for a short payments column. Every unread method
+                  used to wear an amber "missing" — Faktura and MobilePay on a
+                  card-and-cash night — when only the shortfall is known.
+                  BELOW the payment boxes: it comes and goes with the keystroke
+                  that unbalances (or balances) the column, and above them it
+                  pushed the box being typed in 48–66 px down under the caret.
+                  Nothing typed in sits below it, so it can follow every key. */}
+              {!scanPayComplete && scanPaySum > 0 && scanPayTotal > 0 && (
+                <p className="text-[12px] text-gray-600 dark:text-gray-300" data-testid="dc-scan-pay-short">
+                  <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" />
+                  {t("dcScanPayShort", "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.", {
+                    sum: formatOwnerMoney(scanPaySum, currency, { decimals: GLANCE_DECIMALS }),
+                    diff: formatOwnerMoney(Math.abs(scanPayTotal - scanPaySum), currency, { decimals: GLANCE_DECIMALS }),
+                  })}
+                </p>
+              )}
             </div>
 
             {/* Card breakdown (Fordeling) — informational brand/channel

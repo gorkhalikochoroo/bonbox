@@ -876,19 +876,49 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
   let typedTills = summed && own >= 0 && !draftRead ? [own] : [];
   // A reopened draft that was itself a sum keeps its tills on the record.
   const mt = Array.isArray(ft?.meta?.terminal_totals) ? ft.meta.terminal_totals.map(Number).filter(Number.isFinite) : [];
-  if (summed && own === 0 && mt.length > 1 && Math.abs(mt.reduce((a, v) => a + v, 0) - terminal[0]) < 0.005) {
+  const keepsDraftTills = summed && own === 0 && mt.length > 1 && Math.abs(mt.reduce((a, v) => a + v, 0) - terminal[0]) < 0.005;
+  if (keepsDraftTills) {
     terminal = [...mt, ...terminal.slice(1)];
     typedTills = (ft.meta.typed_tills || []).filter((i) => Number.isInteger(i) && i >= 0 && i < mt.length);
   }
+  // The day's total typed by the owner on a day of several tills: the
+  // difference sits on one till (typeIntoForm), so terminal_totals still add
+  // up to what is saved — but that till's figure ("4.470" for a bon that
+  // read 4.000) is on no receipt and on no screen. Each till's own figure
+  // goes beside it (read_totals: what was read, or typed, before the owner's
+  // correction of the total), and the kasserapport names the bons and the
+  // correction separately: "Z-bon 1: 17.030 · Z-bon 2: 4.000 · rettet af
+  // ejeren til 21.500" — never one till's.
+  const read = summed ? readTotalsOf(state, keepsDraftTills ? mt : null) : [];
+  const readDiffers = read.length === terminal.length && read.some((v, i) => Math.abs(v - terminal[i]) >= 0.005);
   const scans = summed ? Math.max(1, terminal.length - typedTills.length) : 1;
   return {
     kind: "zbon",
     scans,
     terminal_totals: terminal,
+    ...(readDiffers ? { read_totals: read } : {}),
     ...(typedTills.length ? { typed_tills: typedTills } : {}),
     corrected: Array.from(new Set(corrected)),
     ...(typed.length ? { typed } : {}),
   };
+}
+
+/**
+ * Each till's figure without the owner's correction of a total: the bon's
+ * own (or the typed till's lines, a reopened draft's saved total). A reopened
+ * draft that was itself a sum (`draftTills`) stands for its own tills.
+ */
+export function readTotalsOf(state, draftTills = null) {
+  const stripped = {
+    ...state,
+    entries: state.entries.map((e) => {
+      if (!hasOwn(e.edits, "revenue_total")) return e;
+      const { revenue_total: _t, ...rest } = e.edits;
+      return { ...e, edits: Object.keys(rest).length ? rest : EMPTY };
+    }),
+  };
+  const read = tillTotals(stripped);
+  return draftTills && draftTills.length > 1 ? [...draftTills, ...read.slice(1)] : read;
 }
 
 /** What the owner changed on a reopened draft since it was loaded, as record keys. */

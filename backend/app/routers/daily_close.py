@@ -1336,6 +1336,14 @@ def _clean_source_meta(meta) -> str | None:
           if isinstance(x, (int, float)) and not isinstance(x, bool)][:10]
     if tt:
         out["terminal_totals"] = tt
+    # Each till's own figure before the owner corrected the day's total (the
+    # bon's read total, or the typed till's): the kasserapport names those
+    # and the correction separately, never the correction as one till's.
+    # Kept only beside a till list of the same length.
+    rt = [round(float(x), 2) for x in (meta.get("read_totals") or [])
+          if isinstance(x, (int, float)) and not isinstance(x, bool)][:10]
+    if kind == "zbon" and len(tt) >= 2 and len(rt) == len(tt):
+        out["read_totals"] = rt
     corr = [str(x)[:40] for x in (meta.get("corrected") or []) if isinstance(x, str)][:20]
     if corr:
         out["corrected"] = corr
@@ -1513,6 +1521,7 @@ def _source_after_unlock_edit(existing, data, revenue_total, moms_total) -> str 
     tt = [x for x in (meta.get("terminal_totals") or []) if isinstance(x, (int, float))]
     if tt and abs(sum(tt) - float(revenue_total or 0)) > 0.5:
         meta.pop("terminal_totals", None)
+        meta.pop("read_totals", None)
     return _json.dumps(meta)
 
 
