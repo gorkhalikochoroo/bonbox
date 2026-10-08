@@ -4,7 +4,7 @@
 // i18n + a11y unchanged.
 import { useToast } from "../hooks/useToast";
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
@@ -467,9 +467,19 @@ export default function FakturaPage() {
 // the same Bogføringsloven §7 kreditnota dialog. Lifting the API calls
 // into one hook keeps a single source of truth for the network surface
 // and avoids drift between the two presentations.
+/** Refusals after which the owner can still deliver the faktura themselves:
+ *  BonBox will not mail for this account right now, but the faktura is
+ *  already marked sent, so the PDF + own-mail path below must still run. */
+const OWN_MAIL_FALLBACK_CODES = new Set([
+  "email_unverified",
+  "invoice_mail_daily_cap",
+  "invoice_mail_recipient_cap",
+]);
+
 function useInvoiceActions(invoice, customer, onChanged, t) {
   const toast = useToast();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   // Kreditnota dialog state — Bogføringsloven §7: a sent invoice can't
   // be deleted, only credited. The dialog explains this gravity so the
   // owner understands the action before they confirm.
@@ -495,6 +505,9 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       toast({ message: t("customerHasNoEmail"), severity: "critical" });
       return;
     }
+    // Set when BonBox refused to mail this faktura but the owner can still
+    // send it from their own mail (see OWN_MAIL_FALLBACK_CODES).
+    let ownMail = null;
     try {
       // 1. Flip status to 'sent' + lock + record sent_at (only if still draft)
       if (invoice.status === "draft") {
@@ -530,23 +543,32 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
           // The server's third-party mail rules answer with a code; say it
           // in the owner's language (the server's message is English).
           const code = detail && typeof detail === "object" ? detail.code : null;
-          const byCode =
-            code === "email_unverified"
-              ? t("sendNeedsVerifiedEmail")
-              : code === "invoice_mail_daily_cap" || code === "invoice_mail_recipient_cap"
-                ? t("invoiceMailDailyCap")
-                : null;
-          toast({
-            message:
-              byCode ||
-              (typeof detail === "string"
-                ? detail
-                : (detail?.message || t("sendFailed"))),
-            severity: "critical",
-          });
-          return;
+          if (OWN_MAIL_FALLBACK_CODES.has(code)) {
+            // Step 1 already marked the faktura sent and locked it, so
+            // stopping here would leave a "sent" faktura the customer never
+            // got (review, 8 Oct). Say why BonBox did not mail it, then
+            // continue to the PDF + own-mail path below. An unconfirmed
+            // account also gets the one tap that fixes it.
+            const unverified = code === "email_unverified";
+            ownMail = {
+              reason: unverified ? t("sendNeedsVerifiedEmail") : t("invoiceMailDailyCap"),
+              notice: unverified ? t("invoiceMailUnverifiedOwnMail") : t("invoiceMailCapOwnMail"),
+              action: unverified
+                ? { label: t("verifyEmailNowCta"), onClick: () => navigate("/verify-email") }
+                : undefined,
+            };
+          } else {
+            toast({
+              message:
+                typeof detail === "string"
+                  ? detail
+                  : (detail?.message || t("sendFailed")),
+              severity: "critical",
+            });
+            return;
+          }
         }
-        // 5xx → fall through to manual mailto fallback below
+        // 5xx (or a refusal above) → manual mailto fallback below
       }
 
       // 3. FALLBACK: download PDF + open mailto so the user can attach
@@ -559,9 +581,13 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       // owner to attach something that does not exist — so stop here and say
       // the faktura was not saved.
       if (!saved.ok) {
+        // Still say why BonBox did not mail it (and offer the fix) — the
+        // "PDF saved" notice would not be true here.
+        if (ownMail) toast({ message: ownMail.reason, severity: "warn", action: ownMail.action });
         toast({ message: t("invoicePdfSaveFailed"), severity: "critical" });
         return;
       }
+      if (ownMail) toast({ message: ownMail.notice, severity: "warn", action: ownMail.action });
       const subject = encodeURIComponent(
         `Faktura ${invoice.fakturanummer_formatted}`
       );

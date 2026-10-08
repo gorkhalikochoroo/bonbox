@@ -742,3 +742,57 @@ def test_emailing_a_week_with_nothing_published_is_refused(client, db, monkeypat
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["code"] == "no_published_shifts"
     assert sent_to == []
+
+
+# ── Owner-typed names never reach staff mail as raw HTML (review, 8 Oct) ──
+
+_EVIL = '<a href="https://evil.example">Klik</a>'
+
+
+def test_share_link_mail_escapes_the_business_and_staff_names(client, db, monkeypatch):
+    mails = []
+    monkeypatch.setattr(staff_router, "send_email", lambda **k: mails.append(k) or True)
+    owner = _owner(db)
+    owner.business_name = f"Café {_EVIL}\r\nBcc: x@evil.example"
+    db.commit()
+    anna = _staff(db, owner, name="Anna")
+    anna.name = f"{_EVIL} Hansen"
+    db.commit()
+    week = _next_monday()
+    _shift(db, owner, anna, week, "10:00", "16:00")
+    _as(owner)
+    res = client.post("/api/staff/schedules/share-with-staff",
+                      json={"week_start": week.isoformat()}, params={"lang": "da"})
+    assert res.status_code == 200, res.text
+    assert len(mails) == 1
+    html, subject = mails[0]["html"], mails[0]["subject"]
+    assert '<a href="https://evil.example">' not in html
+    assert "&lt;a href=" in html
+    assert "\r" not in subject and "\n" not in subject
+    # The portal button itself is still a real link.
+    assert '<a href="https://www.bonbox.dk/s/' in html
+
+
+def test_schedule_pdf_mail_escapes_the_business_name(client, db, monkeypatch):
+    import app.services.email_service as email_service
+
+    mails = []
+    monkeypatch.setattr(
+        email_service, "send_email_with_attachment",
+        lambda addr, subject, html, **k: (mails.append((subject, html)) or True, None),
+    )
+    owner = _owner(db)
+    owner.business_name = f"Café {_EVIL}\nBcc: x@evil.example"
+    db.commit()
+    anna = _staff(db, owner, name="Anna")
+    _shift(db, owner, anna, MONDAY, "10:00", "16:00", status="published")
+    _as(owner)
+    for lang in ("da", "en"):
+        res = client.post("/api/staff/schedules/email",
+                          json={"week_start": MONDAY.isoformat(), "lang": lang, "cc_self": False})
+        assert res.status_code == 200, res.text
+    assert len(mails) == 2
+    for subject, html in mails:
+        assert '<a href="https://evil.example">' not in html
+        assert "&lt;a href=" in html
+        assert "\n" not in subject and "\r" not in subject

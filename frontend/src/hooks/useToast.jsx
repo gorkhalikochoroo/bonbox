@@ -17,7 +17,12 @@
  * parent refetch unmounting the caller cannot take the message with it.
  *
  * API — toast(opts) where opts is a string (message) or:
- *   { message, severity? = "info" }      severity: info | success | warn | notice | critical
+ *   { message, severity? = "info", action? }
+ *     severity: info | success | warn | notice | critical
+ *     action:   { label, onClick } — one button that fixes the cause (e.g.
+ *               "Bekræft nu" on a refused send). Tapping it runs onClick
+ *               and closes the toast; a toast with an action stays up
+ *               longer, since it asks the owner to do something.
  *
  * Messages STACK rather than replace. WineListPage's handleSaveAll loops
  * handleSave, so N failing rows used to mean N stacked blocking dialogs; with
@@ -43,6 +48,8 @@ const ToastContext = createContext(null);
 
 /** How long each severity stays up. Errors carry text worth reading twice. */
 const LIFETIME_MS = { info: 4000, success: 4000, warn: 6000, notice: 6000, critical: 7000 };
+/** A toast that asks for a tap needs time to be read AND reached. */
+const ACTION_LIFETIME_MS = 12000;
 
 /**
  * useToast() → toast(opts).
@@ -95,11 +102,18 @@ export function ToastProvider({ children }) {
       const message = String(o.message ?? "").trim();
       if (!message) return;
       const severity = SEVERITY[o.severity] ? o.severity : "info";
+      const action =
+        o.action && o.action.label && typeof o.action.onClick === "function"
+          ? { label: String(o.action.label), onClick: o.action.onClick }
+          : null;
       const id = nextId.current++;
-      setItems((cur) => [...cur, { id, message, severity }]);
+      setItems((cur) => [...cur, { id, message, severity, action }]);
       timers.current.set(
         id,
-        setTimeout(() => dismiss(id), LIFETIME_MS[severity]),
+        setTimeout(
+          () => dismiss(id),
+          action ? Math.max(LIFETIME_MS[severity], ACTION_LIFETIME_MS) : LIFETIME_MS[severity],
+        ),
       );
     },
     [dismiss],
@@ -128,7 +142,7 @@ export function ToastProvider({ children }) {
             className="fixed left-0 right-0 z-[60] flex flex-col items-center gap-2 px-4 pointer-events-none"
             style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
           >
-            {items.map(({ id, message, severity }) => {
+            {items.map(({ id, message, severity, action }) => {
               const { Icon, cls } = SEVERITY[severity];
               return (
                 <div
@@ -143,6 +157,18 @@ export function ToastProvider({ children }) {
                   <p className="flex-1 text-sm text-gray-900 dark:text-gray-100 leading-snug">
                     {message}
                   </p>
+                  {action && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dismiss(id);
+                        action.onClick();
+                      }}
+                      className="shrink-0 -my-0.5 px-2.5 py-1 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-[13px] font-medium hover:bg-gray-700 dark:hover:bg-white transition"
+                    >
+                      {action.label}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => dismiss(id)}

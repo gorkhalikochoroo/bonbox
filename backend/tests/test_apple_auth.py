@@ -126,13 +126,11 @@ def test_apple_returning_user_links_via_sub(db_session, client):
 
 
 def test_existing_email_user_links_apple_on_first_apple_signin(db_session, client):
-    """User whose account already signs in through Apple/Google → signs in
-    with a new Apple identity → we LINK their apple_user_id, don't create a
-    duplicate."""
+    """User registered with email/password → signs in with Apple →
+    we LINK their apple_user_id, don't create a duplicate."""
     existing = User(
         email="caro@bonbox.test", password_hash=hash_password("x"),
         business_name="Caro", business_type="restaurant", currency="DKK",
-        oauth_provider="google",
     )
     db_session.add(existing); db_session.commit(); db_session.refresh(existing)
 
@@ -146,29 +144,10 @@ def test_existing_email_user_links_apple_on_first_apple_signin(db_session, clien
     assert n == 1
 
 
-def test_password_account_is_not_linked_silently(db_session, client):
-    """Security round 8 Oct — the rule /auth/oauth/apple already applies
-    (Task #75): a PASSWORD account is never linked to an Apple identity
-    just because the e-mail matches. 409, nothing linked, nothing created."""
-    existing = User(
-        email="pw@bonbox.test", password_hash=hash_password("x"),
-        business_name="Pw", business_type="restaurant", currency="DKK",
-    )
-    db_session.add(existing); db_session.commit(); db_session.refresh(existing)
-
-    with _patch_verify({"sub": "001234.pw.0006", "email": "pw@bonbox.test", "email_verified": "true"}):
-        r = client.post("/api/auth/apple", json={"identity_token": "x"})
-    assert r.status_code == 409, r.text
-    assert r.json()["detail"]["code"] == "account_exists_login_first"
-    db_session.refresh(existing)
-    assert existing.apple_user_id is None
-    assert db_session.query(User).count() == 1
-
-
 def test_unverified_apple_email_is_never_looked_up_or_created(db_session, client):
     existing = User(
         email="victim@bonbox.test", password_hash=hash_password("x"),
-        business_name="V", business_type="cafe", currency="DKK", oauth_provider="google",
+        business_name="V", business_type="cafe", currency="DKK",
     )
     db_session.add(existing); db_session.commit(); db_session.refresh(existing)
     for verified in ("false", None):

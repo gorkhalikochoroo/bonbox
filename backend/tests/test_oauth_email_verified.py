@@ -8,12 +8,26 @@ existing account (password accounts included) with no replay check.
 
 Providers are stubbed at the router's import site — no network.
 """
+import pytest
+
 from app.models.user import User
 from app.services.auth import hash_password
 from tests.test_oauth_signin import (  # noqa: F401 — pytest fixtures
     _apple_claims, _google_claims, _patch_apple, _patch_google, client,
     configure_oauth_env, db_session, reset_jti_cache, reset_rate_limiter,
 )
+
+
+@pytest.fixture(autouse=True)
+def sent(monkeypatch):
+    """No mail leaves a test: every send_email is recorded instead."""
+    from app.config import settings
+    from app.services import email_service
+    out = []
+    monkeypatch.setattr(email_service, "send_email",
+                        lambda to, subject, html, **kw: out.append((to, subject, html)) or True)
+    monkeypatch.setattr(settings, "ADMIN_EMAIL", "founder@bonbox.test", raising=False)
+    return out
 
 
 def _password_owner(db, email):
@@ -100,3 +114,45 @@ def test_legacy_google_still_signs_up_and_in(db_session, client):
     with _patch_google(claims):
         r2 = client.post("/api/auth/google", json={"credential": "x"})
     assert r2.status_code == 401, r2.text
+
+
+# ── Legacy POST /api/auth/google keeps its own new-signup behaviour ──
+# (review, 8 Oct): the disposable-address gate, the welcome mail and the
+# founder's signup notice — only on this route, /oauth/google unchanged.
+
+
+def test_legacy_google_refuses_a_disposable_address_on_signup(db_session, client, sent):
+    with _patch_google(_google_claims("g-legacy-d", email="x@mailinator.com")):
+        r = client.post("/api/auth/google", json={"credential": "x"})
+    assert r.status_code == 422, r.text
+    assert "real email address" in r.text
+    assert db_session.query(User).count() == 0
+    assert sent == []
+
+
+def test_legacy_google_new_signup_sends_welcome_and_admin_notice(db_session, client, sent):
+    with _patch_google(_google_claims("g-legacy-w", email="ny@cafe.dk", name="Ny <b>Café</b>")):
+        r = client.post("/api/auth/google", json={"credential": "x"})
+    assert r.status_code == 200, r.text
+    assert [to for to, _, _ in sent] == ["ny@cafe.dk", "founder@bonbox.test"]
+    assert sent[0][1].startswith("Welcome to BonBox")
+    assert "New BonBox signup (Google)" in sent[1][1]
+    # Both templates escape the Google profile name.
+    assert all("<b>Café</b>" not in html for _, _, html in sent)
+
+
+def test_legacy_google_returning_user_gets_no_mail(db_session, client, sent):
+    u = User(email="back@cafe.dk", password_hash=hash_password("x"), business_name="B",
+             business_type="cafe", currency="DKK", role="owner", oauth_provider="google")
+    db_session.add(u); db_session.commit()
+    with _patch_google(_google_claims("g-legacy-r", email="back@cafe.dk")):
+        r = client.post("/api/auth/google", json={"credential": "x"})
+    assert r.status_code == 200, r.text
+    assert sent == []
+
+
+def test_oauth_google_new_signup_still_sends_nothing(db_session, client, sent):
+    with _patch_google(_google_claims("g-new-o", email="o@cafe.dk", name="O")):
+        r = client.post("/api/auth/oauth/google", json={"id_token": "x"})
+    assert r.status_code == 200, r.text
+    assert sent == []

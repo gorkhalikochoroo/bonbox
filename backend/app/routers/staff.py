@@ -1852,11 +1852,16 @@ def share_with_staff(
                 continue
 
             portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name, member.name)}"
-            first_name = (member.name or "").split(" ")[0] or member.name or ""
+            # Owner-typed names go to an address the owner typed, under the
+            # BonBox sender: escaped in the HTML, header-safe in the subject
+            # (review, 8 Oct — the same rule as the shift and invite mails).
+            from app.services.revisor_mail import esc as _esc, header_safe as _hsafe
+            first_name = _esc((member.name or "").split(" ")[0] or member.name or "")
+            restaurant_name_html = _esc(restaurant_name)
             # DK-first niche email — restaurant/butik/værksted markets in DK
             # expect Danish.  Keep brand-locked vocabulary (vagtplan, push,
             # notifikationer) per convention_dk_terminology_lock.md.
-            subject = f"{restaurant_name} — din vagtplan er klar"
+            subject = _hsafe(f"{restaurant_name} — din vagtplan er klar")
             # Plain, branded HTML. Inlined styles so email clients render it
             # consistently (Outlook, Gmail, Apple Mail).
             html = (
@@ -1866,12 +1871,12 @@ def share_with_staff(
                 f"<h2 style=\"color:#111;margin:0 0 12px;font-size:20px;\">"
                 f"Hej {first_name},</h2>"
                 f"<p style=\"color:#333;margin:0 0 16px;\">"
-                f"{restaurant_name} har delt din vagtplan med dig. "
+                f"{restaurant_name_html} har delt din vagtplan med dig. "
                 f"Bogmærk linket — hver gang vagtplanen ændres, ser du "
                 f"opdateringen her med det samme."
                 f"</p>"
                 f"<p style=\"margin:24px 0;\">"
-                f"<a href=\"{portal_url}\" "
+                f"<a href=\"{_esc(portal_url)}\" "
                 f"style=\"display:inline-block;background:#111;color:#fff;"
                 f"padding:12px 22px;text-decoration:none;border-radius:8px;"
                 f"font-weight:600;font-size:15px;\">"
@@ -1887,7 +1892,7 @@ def share_with_staff(
                 f"</p>"
                 f"<p style=\"color:#999;font-size:12px;margin:32px 0 0;"
                 f"padding-top:16px;border-top:1px solid #eee;\">"
-                f"{restaurant_name} · sendt via BonBox</p>"
+                f"{restaurant_name_html} · sendt via BonBox</p>"
                 f"</div>"
             )
             success = send_email(to=member.email, subject=subject, html=html)
@@ -3832,6 +3837,7 @@ def email_schedule_to_staff(
     # for each recipient. Owner's free-text message goes above the
     # standard intro and is HTML-escaped.
     from html import escape
+    from app.services.revisor_mail import header_safe as _hsafe
     user_note_html = ""
     if (body.message or "").strip():
         safe = escape(body.message.strip()).replace("\n", "<br>")
@@ -3870,8 +3876,11 @@ def email_schedule_to_staff(
             continue
 
         first_name = escape((s.name or "").split(" ")[0] or s.name or "")
+        # The business name is owner-typed: escaped in the HTML footer,
+        # header-safe in the subject (review, 8 Oct).
+        biz_name_html = escape(biz_name)
         if is_danish:
-            subject = f"Vagtplan uge {body.week_start.strftime('%V')} — {biz_name}"
+            subject = _hsafe(f"Vagtplan uge {body.week_start.strftime('%V')} — {biz_name}")
             greeting = f"Hej {first_name},".strip(", ")
             intro = (
                 f"Vedhæftet finder du vagtplanen for ugen "
@@ -3879,10 +3888,10 @@ def email_schedule_to_staff(
             )
             footer = (
                 "Sendt direkte fra BonBox. "
-                f"Svar på denne mail for at kontakte {biz_name}."
+                f"Svar på denne mail for at kontakte {biz_name_html}."
             )
         else:
-            subject = f"Schedule week {body.week_start.strftime('%V')} — {biz_name}"
+            subject = _hsafe(f"Schedule week {body.week_start.strftime('%V')} — {biz_name}")
             greeting = f"Hi {first_name},".strip(", ")
             intro = (
                 f"Attached is the schedule for the week starting "
@@ -3890,7 +3899,7 @@ def email_schedule_to_staff(
             )
             footer = (
                 "Sent directly from BonBox. "
-                f"Reply to this email to reach {biz_name}."
+                f"Reply to this email to reach {biz_name_html}."
             )
 
         html = (
