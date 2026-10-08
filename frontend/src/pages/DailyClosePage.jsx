@@ -3420,6 +3420,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       && !dc.is_deleted && !droppedIds.has(dc.id)) || null;
   }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey, droppedIds]);
 
+  // The removal audit's B2, restored: a draft this form filed that is gone
+  // from History (deleted in another tab or on another phone) is filed
+  // again by the next change or step — "the same draft as last sent" kept
+  // the figures on screen off every server, and leaving lost them.
+  useEffect(() => {
+    if (!lastSentRef.current || !ownDraftKeys.has(rowKey)) return;
+    const there = (existingCloses || []).some((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted);
+    if (!there) lastSentRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingCloses]);
+
   // Every save still on its way has answered (a draft is deleted only then:
   // a save landing after the delete filed the day again).
   const savesSettled = async () => {
@@ -4752,7 +4763,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       {/* The sentence's full stop after "kr." printed
                           "du gemmer 17.130 kr.." — one stop, whatever the
                           currency's own ending. */}
-                      {t("dcScanBonVsSaved", "Z-report: {bon} · you save {saved}.", {
+                      {t("dcScanBonVsSaved", "Z-report: {bon} · you save {saved}", {
                         bon: formatOwnerMoney(cardBonGap.bon, currency, { decimals: cardBonGap.decimals }),
                         saved: formatOwnerMoney(cardSaveTotal, currency, { decimals: cardBonGap.decimals }),
                       }).replace(/\.\.$/, ".")}
@@ -4801,7 +4812,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               </div>
               {cardMoms.oneTill && !cardMoms.moved && (
                 <p className="text-[12px] text-amber-700 dark:text-amber-400" data-testid="dc-moms-one-till">
-                  {t("dcMomsOneTillRecomputed", "Only some of the tills had a MOMS line, so MOMS is worked out from the combined {saved}. If a receipt has more than one MOMS rate, tap From receipt and type the right figure.", {
+                  {t("dcMomsOneTillRecomputed", "Only some of the tills had a MOMS line, so MOMS is worked out from the combined total ({saved}). If a receipt has more than one MOMS rate, tap From receipt and type the right figure.", {
                     saved: formatOwnerMoney(cardSaveTotal, currency, { decimals: oreIfAny(cardSaveTotal) }),
                   })}
                 </p>
@@ -4871,10 +4882,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {!scanPayComplete && scanPaySum > 0 && scanPayTotal > 0 && (
                 <p className="text-[12px] text-gray-600 dark:text-gray-300" data-testid="dc-scan-pay-short">
                   <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" />
-                  {t("dcScanPayShort", "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.", {
-                    sum: formatOwnerMoney(scanPaySum, currency, { decimals: GLANCE_DECIMALS }),
-                    diff: formatOwnerMoney(Math.abs(scanPayTotal - scanPaySum), currency, { decimals: GLANCE_DECIMALS }),
-                  })}
+                  {/* Øre as the boxes have them: "31.031 kr." stood for
+                      boxes adding up to 31.030,50. One precision for both. */}
+                  {(() => {
+                    const sum = Math.round(scanPaySum * 100) / 100;
+                    const diff = Math.round(Math.abs(scanPayTotal - scanPaySum) * 100) / 100;
+                    const decimals = pairDecimals(sum, diff);
+                    return t("dcScanPayShort", "The payments add up to {sum} — {diff} short of the total. Fill in the one that's missing.", {
+                      sum: formatOwnerMoney(sum, currency, { decimals }),
+                      diff: formatOwnerMoney(diff, currency, { decimals }),
+                    });
+                  })()}
                 </p>
               )}
             </div>
@@ -5775,7 +5793,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 {!momsTyped && momsSource === "computed" && draftMoms?.followed && draftMomsMoved && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
                     <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
-                    <span>{t("dcMomsDraftFollowed", "The draft was saved with MOMS {moms} for a total of {old}. The total is now {saved}, so MOMS is worked out again from it. If the Z-report has more than one MOMS rate, tap From receipt and type the right figure.", {
+                    <span>{t("dcMomsDraftFollowed", "The draft was saved with MOMS {moms} for a total of {old} — the total is now {saved}, so MOMS is worked out again from it. If the Z-report has more than one MOMS rate, tap From receipt and type the right figure.", {
                       moms: formatOwnerMoney(draftMoms.moms, currency, { decimals: oreIfAny(draftMoms.moms) }),
                       old: formatOwnerMoney(draftMoms.total, currency, { decimals: oreIfAny(draftMoms.total) }),
                       saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
@@ -5787,7 +5805,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 {!momsTyped && momsSource === "computed" && ledgerMoms.oneTill && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="dc-review-moms-one-till">
                     <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
-                    <span>{t("dcMomsOneTillRecomputed", "Only some of the tills had a MOMS line, so MOMS is worked out from the combined {saved}. If a receipt has more than one MOMS rate, tap From receipt and type the right figure.", {
+                    <span>{t("dcMomsOneTillRecomputed", "Only some of the tills had a MOMS line, so MOMS is worked out from the combined total ({saved}). If a receipt has more than one MOMS rate, tap From receipt and type the right figure.", {
                       saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
                     })}</span>
                   </p>
@@ -6639,7 +6657,10 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
   } else if (emailStatus) {
     emailLine = (
       <div className="space-y-1">
-        {(emailStatus === "sent" || emailStatus === "partial") && recipients && (
+        {/* Said once: the status line below names who got it ("Sendt til
+            dig — revisoren er eksempeldata"). This plain line stands in only
+            while the profile it needs is still loading. */}
+        {(emailStatus === "sent" || emailStatus === "partial") && recipients && !profileLoaded && (
           <p className="text-xs text-gray-500 dark:text-gray-400">
             <Icon name="Mail" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSent", "Sent to {recipients}").replace("{recipients}", recipients)}
           </p>
@@ -6753,6 +6774,22 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   const [openId, setOpenId] = useState(null);
   // Ten at a time: 30+ cards made History a 14.000px scroll on a phone.
   const [shownCount, setShownCount] = useState(10);
+  // One precision for every card in the list, the way a ledger prints:
+  // øre on every figure of every card shown when any of them has øre —
+  // "28.469,00 kr." sat beside "20.315 kr." on the next card. Decided by all
+  // of a card's figures (the open ledger's MOMS and ex-MOMS included), never
+  // by whether it is open: "Vis detaljer" turned "28.469 kr." into
+  // "28.469,00 kr." (round 16). "Vis flere" can bring øre in for the list.
+  const listDec = useMemo(() => ((data || []).slice(0, shownCount).some((dc) => {
+    const rev = dc.revenue_breakdown || {};
+    const pay = dc.payment_breakdown || {};
+    const revLinesSum = Object.values(rev).reduce((a, v) => a + (Number(v) || 0), 0);
+    const unsplit = Object.keys(rev).length && Number(dc.revenue_total) > 0
+      ? Math.round((Number(dc.revenue_total) - revLinesSum) * 100) / 100 : 0;
+    return [dc.revenue_total, ...Object.values(rev), ...Object.values(pay), dc.cash_difference, dc.tips_total, unsplit,
+      dc.moms_total, dc.revenue_ex_moms, dc.payment_total, dc.cash_expected, dc.cash_counted]
+      .some((v) => v != null && oreDecimals(v) === LEDGER_DECIMALS);
+  }) ? LEDGER_DECIMALS : GLANCE_DECIMALS), [data, shownCount]);
   // Opened for one close (the locked day's "Åbn Historik"): show it, open
   // its details and bring it into view — once.
   useEffect(() => {
@@ -8079,6 +8116,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       {data.slice(0, shownCount).map((dc, idx) => {
         const rev = dc.revenue_breakdown || {};
         const pay = dc.payment_breakdown || {};
+        const cardDec = listDec;
         const prev = data[idx + 1]; // previous close (list sorted desc)
         const revChange = prev && prev.revenue_total > 0 && dc.revenue_total > 0
           ? Math.round(((dc.revenue_total - prev.revenue_total) / prev.revenue_total) * 100) : null;
@@ -8090,18 +8128,6 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         const revLinesSum = Object.values(rev).reduce((a, v) => a + (Number(v) || 0), 0);
         const unsplit = Object.keys(rev).length && Number(dc.revenue_total) > 0
           ? Math.round((Number(dc.revenue_total) - revLinesSum) * 100) / 100 : 0;
-        // One precision per card, decided by the card's figures alone — the
-        // ledger's included — never by whether it is open: øre on every figure
-        // when any has øre. "4.567 kr." sat beside "12.345,50 kr.", and
-        // "Vis detaljer" turned "28.469 kr." into "28.469,00 kr.".
-        // The trade-off, chosen (round 16 brief: "one precision per card"):
-        // 25 % MOMS of a whole-krone total has øre unless the total divides by
-        // 5, so most collapsed cards now read ",00" too. Deciding from the
-        // collapsed figures only would bring back "28.469 kr." in the header
-        // over "28.469,00 kr." in the open ledger — the finding itself.
-        const cardDec = [dc.revenue_total, ...Object.values(rev), ...Object.values(pay), dc.cash_difference, dc.tips_total, unsplit,
-          dc.moms_total, dc.revenue_ex_moms, dc.payment_total, dc.cash_expected, dc.cash_counted]
-          .some((v) => v != null && oreDecimals(v) === LEDGER_DECIMALS) ? LEDGER_DECIMALS : GLANCE_DECIMALS;
         return (
           <div key={dc.id} data-close-id={dc.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-20">
             <div className="flex items-start justify-between gap-3">

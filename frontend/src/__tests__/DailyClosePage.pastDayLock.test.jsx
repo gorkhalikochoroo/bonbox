@@ -103,8 +103,10 @@ describe("daily close — locking a past day", () => {
     expect(title.textContent).toMatch(new RegExp(`:${parseInt(d, 10)}\\.? `));
     expect(title.textContent).toContain(y);
     expect(title.textContent).toContain("Test");
-    // The email line of the same card.
-    expect(screen.getByText(/closeLockedEmailSent/)).toBeInTheDocument();
+    // The email line of the same card — said once (round 19): the status
+    // line names who got it, and the plain "Sendt til …" no longer repeats it.
+    expect(container.textContent).toMatch(/dcMailOwnerOnly(NoRevisor|DemoRevisor)?:/);
+    expect(screen.queryByText(/closeLockedEmailSent/)).toBeNull();
     // Tonight is not done: its "Luk dagen" is still offered, and the card
     // never claims tonight's kasserapport is locked.
     expect(screen.getByText("closeTheDayCta")).toBeInTheDocument();
