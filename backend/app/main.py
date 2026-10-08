@@ -2618,6 +2618,13 @@ _migrations = [
     # once at creation (services/signup_ref.py). Nullable, no default, no
     # backfill — every existing account is simply "no ref".
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ref VARCHAR(24)",
+    # ── Migration (2026-10-08): accountant_grants — was the invite link mailed ─
+    # Mirrors app/models/accountant_grant.py. invite_mailed_at: when the
+    # CURRENT invite link was handed to the mail server; invite_mail_held: why
+    # it was not ("email_unverified" / "send_failed"). Nullable, no default, no
+    # backfill — an existing row reads "unknown", exactly as before.
+    "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mailed_at TIMESTAMP",
+    "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mail_held VARCHAR(32)",
 ]
 
 
@@ -3256,6 +3263,9 @@ def _run_migrations():
             ok += _add("business_profiles", "demo_snapshot_json", "TEXT")
             # Mirror of users.signup_ref — the door-visit code.
             ok += _add("users", "signup_ref", "VARCHAR(24)")
+            # Mirror of the accountant_grants invite-mail columns (2026-10-08).
+            ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
+            ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

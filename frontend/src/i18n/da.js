@@ -6934,9 +6934,10 @@ export const da = {
     revisorInviteSent: "Invitation sendt. De har 7 dage til at acceptere.",
     revisorInviteNotEmailed: "Invitationen er klar, men mailen kunne ikke sendes. Kopiér linket herunder og send det til din revisor. Det virker i 7 dage.",
     revisorCopyLinkHint: "Kom den ikke frem? Send selv din revisor dette link — det virker i 7 dage.",
-    revisorInviteHeldUnverified: "Invitationen er gemt, men ikke sendt endnu: BonBox sender kun mail til andre, når din egen e-mail er bekræftet. Bekræft den, og tryk så på Send invitationen ud for din revisor herunder.",
+    revisorInviteHeldUnverified: "Invitationen er gemt, men ikke sendt endnu: BonBox sender først invitationen til din revisor, når din egen e-mail er bekræftet. Bekræft den, og tryk så på Send invitationen ud for din revisor herunder.",
     revisorCopyLinkHintUnsent: "Eller send selv din revisor dette link — det virker i 7 dage.",
     revisorSendInvitation: "Send invitationen",
+    revisorInviteRecentlySent: "Invitationen blev sendt for under 24 timer siden, så BonBox sendte den ikke igen.",
     copyLink: "Kopiér link",
     revisorPlanRequired: "Invitation af revisor kræver Starter. Opgrader for at låse skrivebeskyttet revisor-adgang op.",
     revisorAlreadyActive: "Denne revisor har allerede aktiv adgang.",
@@ -7606,7 +7607,7 @@ export const da = {
     onbRevisorStarterRequired: "Invitation af revisor kræver Starter eller højere. Opgrader eller spring over.",
     onbRevisorInviteSent: "Invitation sendt til {email}. De har 7 dage til at acceptere.",
     onbRevisorAlreadyActive: "Den revisor har allerede adgang.",
-    onbRevisorInviteHeld: "Invitationen til din revisor er gemt, men ikke sendt endnu: BonBox sender kun mail til andre, når din egen e-mail er bekræftet. Bekræft den, og tryk så på Send invitationen under Hold → Revisor.",
+    onbRevisorInviteHeld: "Invitationen til din revisor er gemt, men ikke sendt endnu: BonBox sender først invitationen til din revisor, når din egen e-mail er bekræftet. Bekræft den, og tryk så på Send invitationen under Hold → Revisor.",
     onbRevisorInviteFailed: "Kunne ikke sende invitationen. Du kan gøre det senere fra Profil.",
     // ── "Her er hvad vi har sat op til dig"-panel (Milestone 1) ──
     // Vises på sidste trin; afspejler den fundne arketype. Viser arketypens
@@ -8361,6 +8362,7 @@ export const da = {
       "Gratis read-only login til din revisor. Han ser fakturaer, dagsafslutninger, udgifter og MOMS-overblik — han kan ikke ændre noget.",
     teamRevisorChipActive: "Revisor — read-only · siden {date}",
     teamRevisorChipPending: "Revisor — inviteret · afventer accept",
+    teamRevisorChipNotMailed: "Revisor — gemt · ikke sendt endnu",
     // Task #204 P2.9 — /insights orphan → sidebar (DK).
     insightsInbox: "Indsigtsindbakke",
     // Task #204 P2.10 — bank IBAN honesty hint (DK).
@@ -8568,6 +8570,7 @@ export const da = {
     sendNeedsVerifiedEmail: "Bekræft først din egen e-mailadresse (Profil → Ikke bekræftet). BonBox sender kun mail til andre for en bekræftet konto.",
     invoiceMailDailyCap: "Du har nået dagens grænse for faktura-mails fra BonBox. Hent PDF'en og send den fra din egen e-mail, eller prøv igen i morgen.",
     verifyEmailNowCta: "Bekræft nu",
+    verifyReminderHide: "Skjul indtil videre",
     invoiceMailUnverifiedOwnMail: "BonBox sender kun faktura-mails for en bekræftet konto. PDF'en er gemt, og din egen mail åbner — vedhæft den dér. Bekræft din e-mail, så sender BonBox direkte næste gang.",
     invoiceMailCapOwnMail: "Du har nået dagens grænse for faktura-mails fra BonBox. PDF'en er gemt, og din egen mail åbner — vedhæft den dér.",
     kreditnotaReasonTooShort: "Begrundelsen skal være mindst 5 tegn — din revisor kan se den.",

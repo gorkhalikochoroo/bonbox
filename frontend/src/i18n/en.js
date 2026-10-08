@@ -7145,9 +7145,10 @@ export const en = {
     revisorInviteSent: "Invite sent. They have 7 days to accept.",
     revisorInviteNotEmailed: "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.",
     revisorCopyLinkHint: "Didn't arrive? Send your revisor this link yourself — it works for 7 days.",
-    revisorInviteHeldUnverified: "Invite saved, but not e-mailed yet: BonBox only sends mail to others once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.",
+    revisorInviteHeldUnverified: "Invite saved, but not e-mailed yet: BonBox e-mails your revisor the invitation only once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.",
     revisorCopyLinkHintUnsent: "Or send your revisor this link yourself — it works for 7 days.",
     revisorSendInvitation: "Send invitation",
+    revisorInviteRecentlySent: "This invite was e-mailed less than 24 hours ago, so BonBox didn't send it again.",
     copyLink: "Copy link",
     revisorPlanRequired: "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access.",
     revisorAlreadyActive: "This revisor already has active access.",
@@ -7888,7 +7889,7 @@ export const en = {
     onbRevisorStarterRequired: "Inviting a revisor needs Starter or higher. Upgrade or skip for now.",
     onbRevisorInviteSent: "Invite sent to {email}. They have 7 days to accept.",
     onbRevisorAlreadyActive: "That revisor already has access.",
-    onbRevisorInviteHeld: "Your revisor's invite is saved, but not e-mailed yet: BonBox only sends mail to others once your own e-mail is confirmed. Confirm it, then tap Send invitation under Team → Revisor.",
+    onbRevisorInviteHeld: "Your revisor's invite is saved, but not e-mailed yet: BonBox e-mails your revisor the invitation only once your own e-mail is confirmed. Confirm it, then tap Send invitation under Team → Revisor.",
     onbRevisorInviteFailed: "Couldn't send the invite. You can do it later from Profile.",
     // ── "Here's what we set up for you" panel (Milestone 1) ──
     // Shown on the final step; reflects the resolved archetype. Lists the
@@ -8659,6 +8660,7 @@ export const en = {
       "Free read-only login for your accountant. They see fakturaer, daily closes, expenses, MOMS overview — they can't change a single thing.",
     teamRevisorChipActive: "Revisor — read-only · since {date}",
     teamRevisorChipPending: "Revisor — invited · awaiting accept",
+    teamRevisorChipNotMailed: "Revisor — saved · not e-mailed yet",
     // Task #204 P2.9 — /insights orphan → sidebar.
     insightsInbox: "Insights inbox",
     // Task #204 P2.10 — honest bank connection state.
@@ -8871,6 +8873,7 @@ export const en = {
     sendNeedsVerifiedEmail: "Confirm your own e-mail address first (Profile → Unverified). BonBox only sends mail to others for a confirmed account.",
     invoiceMailDailyCap: "You have reached today's limit for faktura e-mails from BonBox. Download the PDF and send it from your own e-mail, or try again tomorrow.",
     verifyEmailNowCta: "Confirm now",
+    verifyReminderHide: "Hide for now",
     invoiceMailUnverifiedOwnMail: "BonBox only e-mails a faktura for a confirmed account. The PDF has been saved and your own mail is opening — attach it there. Confirm your e-mail to send straight from BonBox next time.",
     invoiceMailCapOwnMail: "You have reached today's limit for faktura e-mails from BonBox. The PDF has been saved and your own mail is opening — attach it there.",
     kreditnotaReasonTooShort: "Reason must be at least 5 characters — your accountant will see this.",

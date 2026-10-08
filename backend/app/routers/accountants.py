@@ -140,7 +140,19 @@ def _enforce_accountant_login_tier(user: User) -> None:
         )
 
 
-def _to_response(grant: AccountantGrant, owner_business_name: str | None = None) -> AccountantGrantResponse:
+def _to_response(
+    grant: AccountantGrant,
+    owner_business_name: str | None = None,
+    *,
+    with_mail_state: bool = False,
+) -> AccountantGrantResponse:
+    # The owner's view says whether a pending invite's current link was ever
+    # mailed (Team → Revisor: "saved · not e-mailed yet"). Not on the
+    # accountant's own list — they have no use for it.
+    mail_held = (
+        getattr(grant, "invite_mail_held", None)
+        if with_mail_state and grant.status == "pending" else None
+    )
     return AccountantGrantResponse(
         id=grant.id,
         accountant_user_id=grant.accountant_user_id,
@@ -155,6 +167,7 @@ def _to_response(grant: AccountantGrant, owner_business_name: str | None = None)
         last_used_at=grant.last_used_at,
         invite_token_expires_at=grant.invite_token_expires_at,
         created_at=grant.created_at,
+        mail_held=mail_held,
     )
 
 
@@ -165,7 +178,8 @@ def _invite_email_html(owner_name: str, accept_url: str, is_danish: bool) -> str
 
     `owner_name` is the owner's typed business name (up to 200 characters,
     which could be HTML or a link) going to a third party under the BonBox
-    sender — escaped, like every other revisor template.
+    sender — escaped, like every other revisor template. The revisor footer
+    (why they get this, the opt-out) is added by _send_invite_mail.
     """
     from app.services.revisor_mail import esc
     owner_name = esc(owner_name)
@@ -242,12 +256,21 @@ def _clear_accountant_client_cookie(response: Response, request: Request | None)
     )
 
 
-def _send_invite_mail(user: User, email: str, accept_url: str) -> bool:
+def _send_invite_mail(user: User, email: str, accept_url: str, profile=None) -> bool:
     """Mail the invite to the revisor. Best-effort, never raises: True only
-    when the mail server accepted it."""
+    when the mail server accepted it.
+
+    Mail to a third party, so it carries what every other revisor mail does:
+    why they get it and who set it up, a one-click opt-out (link + RFC 8058
+    headers; the opt-out is stored on the owner's profile and every revisor
+    send — this invite included — refuses that address afterwards), and the
+    owner's own (confirmed) address as Reply-To, which the footer promises."""
     try:
         from app.services.email_service import send_email
-        from app.services.revisor_mail import header_safe
+        from app.services.revisor_mail import (
+            header_safe, revisor_footer_html, revisor_unsubscribe_headers,
+            revisor_unsubscribe_url,
+        )
         owner_name = user.business_name or user.email
         is_danish = (user.currency or "DKK").upper() == "DKK"
         subject_name = header_safe(owner_name, 120)
@@ -256,12 +279,24 @@ def _send_invite_mail(user: User, email: str, accept_url: str) -> bool:
             if is_danish
             else f"{subject_name} has invited you as their accountant on BonBox"
         )
+        unsub_url = revisor_unsubscribe_url(user.id, email)
+        footer = revisor_footer_html(
+            business_name=owner_name, cvr=getattr(profile, "org_number", None),
+            unsubscribe_url=unsub_url, is_danish=is_danish,
+        )
+        # The footer goes inside the card, before its closing tag — the same
+        # splice the MOMS mail uses (revisor_footer_html escapes its fields).
+        html = _invite_email_html(owner_name, accept_url, is_danish)
+        base = html[: -len("</div>")] if html.endswith("</div>") else html
+        html = base + footer + "\n</div>"
         # `to`, not `to_email`: the wrong keyword raised a TypeError that the
         # except below swallowed, so no invite e-mail had ever been sent.
         return bool(send_email(
             to=email,
             subject=subject,
-            html=_invite_email_html(owner_name, accept_url, is_danish),
+            html=html,
+            reply_to=user.email,
+            headers=revisor_unsubscribe_headers(unsub_url),
         ))
     except Exception as e:  # noqa: BLE001
         logger.warning("accountant invite email failed: %s", e)
@@ -285,15 +320,26 @@ def invite_accountant(
     Returns the freshly-created (or refreshed) grant — same shape as
     GET /grants.
 
-    BonBox mails a third party only for an account whose own e-mail is
-    confirmed (Manoj, 8 Oct — the faktura mail and team invites already
-    follow it via revisor_mail.require_verified_sender). An unconfirmed
-    owner's invite still CREATES the grant and returns the accept link (the
-    revisor's access works, nothing is lost); only the mail is held:
-    email_sent=false, email_not_sent_reason="email_unverified". Once the
-    owner confirms, re-posting the same address (Team → Revisor → "Send
-    invitation") re-arms the pending grant and mails it, under every gate
-    below.
+    The invite is e-mailed only for an owner whose own e-mail is confirmed
+    (8 Oct — the same verified-sender gate as the faktura mail and team
+    invites, revisor_mail.require_verified_sender). That gate covers the
+    faktura mail, team invites and this invite only: the other mail to a
+    third party (the close lock's revisor copy, resend, send-to-accountant,
+    MOMS, payroll, guest and gavekort mail) does not check it — so no
+    owner-facing text may state a general "BonBox only mails others once your
+    e-mail is confirmed". Copy about the held invite speaks of the invite.
+    An unconfirmed owner's invite still CREATES the grant and returns the
+    accept link (the revisor's access works, nothing is lost); only the mail
+    is held: email_sent=false, email_not_sent_reason="email_unverified".
+
+    One live link, one mail: re-posting the address of a PENDING grant whose
+    link has not expired keeps that link (a link the owner already handed
+    over keeps working) and extends it 7 days; a new link is minted only for
+    an expired or revoked invite. That link is mailed when it never was
+    (held / failed) or last went out over 24 hours ago; otherwise nothing is
+    sent (email_not_sent_reason="recently_sent"). Once the owner confirms,
+    Team → Revisor → "Send invitation" re-posts the held row and mails it,
+    under every gate below.
     """
     _require_real_owner(user)
     _enforce_accountant_login_tier(user)
@@ -369,11 +415,27 @@ def invite_accountant(
         )
 
     now = utc_now()
+    # The link a pending invite already has stays the link: the owner may
+    # have handed it over (the copy-link fallback), and the mail below must
+    # carry the same one. Only for the same address — a grant matched through
+    # the revisor's user row under another address gets a fresh link.
+    keep_link = bool(
+        existing_grant
+        and existing_grant.status == "pending"
+        and existing_grant.invite_token
+        and existing_grant.invite_token_expires_at
+        and existing_grant.invite_token_expires_at > now
+        and (existing_grant.accountant_email or "").strip().lower() == email
+    )
     new_token = secrets.token_urlsafe(32)
     if existing_grant:
         # Re-arm a pending or revoked grant rather than inserting a
         # duplicate (UNIQUE constraint would reject anyway).
-        existing_grant.invite_token = new_token
+        if not keep_link:
+            existing_grant.invite_token = new_token
+            # A new link has not been mailed to anyone yet.
+            existing_grant.invite_mailed_at = None
+            existing_grant.invite_mail_held = None
         existing_grant.invite_token_expires_at = now + timedelta(days=_INVITE_TTL_DAYS)
         existing_grant.status = "pending"
         existing_grant.invited_at = now
@@ -413,13 +475,27 @@ def invite_accountant(
             },
         ) from e
 
-    # An unconfirmed account gets the grant but no mail to the revisor.
-    mail_held = None if sender_is_verified(user) else "email_unverified"
+    # An unconfirmed account gets the grant but no mail to the revisor. A
+    # link that already went out by mail in the last 24 hours is not mailed
+    # again ("Send invitation" twice, or the form re-posted): one invite, one
+    # mail a day — a failed send never counts, so it can be retried at once.
+    _last_mailed = getattr(grant, "invite_mailed_at", None)
+    if not sender_is_verified(user):
+        mail_held = "email_unverified"
+    elif keep_link and _last_mailed and _last_mailed > now - timedelta(hours=24):
+        mail_held = "recently_sent"
+    else:
+        mail_held = None
+    if mail_held == "email_unverified" and _last_mailed is None:
+        # Team → Revisor reads "saved · not e-mailed yet" from this, after a
+        # reload too. (A link mailed earlier stays "mailed".)
+        grant.invite_mail_held = "email_unverified"
     _invite_after = {
         "owner_user_id": str(user.id),
         "accountant_email": grant.accountant_email,
         "status": grant.status,
         "expires_at": grant.invite_token_expires_at.isoformat() if grant.invite_token_expires_at else None,
+        "link": "kept" if keep_link else "new",
     }
     if mail_held:
         _invite_after["mail_held"] = mail_held
@@ -448,9 +524,25 @@ def invite_accountant(
     # (unconfirmed account) is never attempted and says why.
     email_sent = False
     if mail_held is None:
-        email_sent = _send_invite_mail(user, email, accept_url)
+        if _profile is None:
+            # The opt-out link in the mail is stored on the owner's profile;
+            # without one it could not be kept. Every owner gets this empty
+            # shell at signup (archetype defaults) — this covers older ones.
+            _profile = BusinessProfile(user_id=user.id, company_name=user.business_name or "")
+            db.add(_profile)
+            db.commit()
+        email_sent = _send_invite_mail(user, email, accept_url, _profile)
+        # What happened to THIS link: the cooldown, the "verified" stamp at
+        # signup and the owner's list all read it.
+        if email_sent:
+            grant.invite_mailed_at = utc_now()
+            grant.invite_mail_held = None
+        elif grant.invite_mailed_at is None:
+            grant.invite_mail_held = "send_failed"
+        db.commit()
+        db.refresh(grant)
 
-    resp = _to_response(grant, owner_business_name=user.business_name)
+    resp = _to_response(grant, owner_business_name=user.business_name, with_mail_state=True)
     resp.accept_url = accept_url  # copy-link fallback (invite response only)
     resp.email_sent = email_sent
     resp.email_not_sent_reason = mail_held
@@ -497,7 +589,10 @@ def list_grants(
     grants = db.query(AccountantGrant).filter(
         AccountantGrant.owner_user_id == user.id,
     ).order_by(AccountantGrant.created_at.desc()).all()
-    return [_to_response(g, owner_business_name=user.business_name) for g in grants]
+    return [
+        _to_response(g, owner_business_name=user.business_name, with_mail_state=True)
+        for g in grants
+    ]
 
 
 @router.delete("/grants/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -618,7 +713,16 @@ def accountant_signup(
             currency="DKK",
             role="accountant",
             owner_id=None,
-            email_verified=True,  # accountant clicked a link sent to their inbox
+            # Confirmed only when THIS link was mailed to this address: then
+            # opening it proves the inbox. A link that never went out by mail
+            # (held for an unconfirmed owner, a failed send, rows from before
+            # BonBox recorded it) reached the revisor — or anyone — through
+            # the owner's copy-link, so nothing proves the inbox: the account
+            # stays unconfirmed, and the real inbox owner's first e-mail sign-in
+            # takes it over (claim_unverified_account: password replaced,
+            # every session signed out). Otherwise the owner could make a
+            # "confirmed" BonBox login at any address and keep its password.
+            email_verified=getattr(grant, "invite_mailed_at", None) is not None,
         )
         db.add(user)
         db.flush()

@@ -27,6 +27,7 @@ import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
+import RevisorInviteHeldNotice from "./RevisorInviteHeldNotice";
 import { Icon } from "./ui";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
@@ -1272,6 +1273,9 @@ export default function Layout() {
             day count + see-plans link + dismiss × on the right.
             Hidden on mobile (md-). */}
         <TrialChip />
+        {/* The onboarding wizard's revisor invite was saved, not e-mailed —
+            shown on the page the wizard landed on (router state only). */}
+        <RevisorInviteHeldNotice />
         <Outlet />
       </main>
 

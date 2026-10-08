@@ -77,10 +77,13 @@ export default function RevisorSection() {
   const [inviteLink, setInviteLink] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   // The last invite was saved but not e-mailed because the owner's own
-  // address is unconfirmed (BonBox mails others only for a confirmed account).
+  // address is unconfirmed (BonBox e-mails the invitation only once it is).
   const [inviteHeld, setInviteHeld] = useState(false);
   // Whether the last invite response said the e-mail did not leave.
   const [inviteUnsent, setInviteUnsent] = useState(false);
+  // The last re-send was not mailed because the same link went out by mail
+  // less than 24 hours ago (server: email_not_sent_reason "recently_sent").
+  const [inviteRecent, setInviteRecent] = useState(false);
   // The pending row whose "Send invitation" is in flight.
   const [resendingId, setResendingId] = useState(null);
   const ownerConfirmed = user?.email_verified === true;
@@ -130,27 +133,37 @@ export default function RevisorSection() {
   /** What the server said about one invite, in the owner's words. */
   const showInviteResult = (res) => {
     setInviteLink(res.data?.accept_url || "");
-    const unsent = res.data?.email_sent === false;
-    const held = unsent && res.data?.email_not_sent_reason === "email_unverified";
+    const reason = res.data?.email_not_sent_reason;
+    const notNow = res.data?.email_sent === false;
+    const held = notNow && reason === "email_unverified";
+    // The same link already went out by mail less than 24 hours ago: nothing
+    // was sent now, but a mail DID leave — so "Didn't arrive?" stays true.
+    const recent = notNow && reason === "recently_sent";
+    const unsent = notNow && !recent;
     setInviteUnsent(unsent);
     setInviteHeld(held);
+    setInviteRecent(recent);
     // Only claim a sent e-mail when the server says it left; otherwise the
     // copy-link below is the way to reach the revisor.
     const msg = held
-      ? t("revisorInviteHeldUnverified", "Invite saved, but not e-mailed yet: BonBox only sends mail to others once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.")
-      : unsent
-        ? t("revisorInviteNotEmailed", "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.")
-        : t("revisorInviteSent", "Invite sent. They have 7 days to accept.");
+      ? t("revisorInviteHeldUnverified", "Invite saved, but not e-mailed yet: BonBox e-mails your revisor the invitation only once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.")
+      : recent
+        ? t("revisorInviteRecentlySent", "This invite was e-mailed less than 24 hours ago, so BonBox didn't send it again.")
+        : unsent
+          ? t("revisorInviteNotEmailed", "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.")
+          : t("revisorInviteSent", "Invite sent. They have 7 days to accept.");
     setRevisorMsg(msg);
-    // A "could not e-mail" notice stays until the owner acts on it; a "sent"
-    // one fades — without wiping a later notice that replaced it.
-    if (!unsent) setTimeout(() => setRevisorMsg((m) => (m === msg ? "" : m)), 5000);
+    // A "could not e-mail" / "not again" notice stays until the owner acts on
+    // it; a "sent" one fades — without wiping a later notice that replaced it.
+    if (!notNow) setTimeout(() => setRevisorMsg((m) => (m === msg ? "" : m)), 5000);
   };
 
-  /** "Send invitation" on a pending row — after the owner confirmed their
-   *  e-mail, this mails the invite that was saved while it was unconfirmed
-   *  (and re-sends any pending one). Same endpoint and gates as the form:
-   *  the server re-arms the SAME grant (fresh 7-day link) and mails it. */
+  /** "Send invitation" on a pending row whose link was never e-mailed (held
+   *  while the owner was unconfirmed, or the mail server refused it). Same
+   *  endpoint and gates as the form: the server re-arms the SAME grant with
+   *  the SAME link (one the owner already handed over keeps working, now for
+   *  7 more days) and mails it — once; a second tap within 24 hours sends
+   *  nothing. */
   const sendInvitation = async (g) => {
     setRevisorError("");
     setRevisorMsg("");
@@ -291,7 +304,7 @@ export default function RevisorSection() {
           </Field>
         </div>
         {revisorMsg && (
-          <Message tone={inviteHeld ? "notice" : "success"}>
+          <Message tone={inviteHeld || inviteRecent ? "notice" : "success"}>
             <span data-testid={inviteHeld ? "revisor-invite-held" : undefined}>{revisorMsg}</span>
             {/* Held for an unconfirmed account: the one tap that fixes it. */}
             {inviteHeld && !ownerConfirmed && (
@@ -370,6 +383,11 @@ export default function RevisorSection() {
             {grants.map((g) => {
               const isActive = g.status === "active";
               const isPending = g.status === "pending";
+              // The server says this pending invite's link was never e-mailed
+              // (held while the owner was unconfirmed, or the mail server
+              // refused it) — true after a reload too. Older rows carry no
+              // mark and read as before.
+              const notMailed = isPending && !!g.mail_held;
               const sinceDate = g.invited_at
                 ? new Date(g.invited_at).toLocaleDateString()
                 : "";
@@ -399,9 +417,11 @@ export default function RevisorSection() {
                           ? t("teamRevisorChipActive", "Revisor — read-only · since {date}", {
                               date: sinceDate,
                             })
-                          : isPending
-                            ? t("teamRevisorChipPending", "Revisor — invited · awaiting accept")
-                            : t("revisorStatusRevoked", "Revoked")}
+                          : notMailed
+                            ? t("teamRevisorChipNotMailed", "Revisor — saved · not e-mailed yet")
+                            : isPending
+                              ? t("teamRevisorChipPending", "Revisor — invited · awaiting accept")
+                              : t("revisorStatusRevoked", "Revoked")}
                       </span>
                       {g.last_used_at && (
                         <>
@@ -413,10 +433,21 @@ export default function RevisorSection() {
                   </div>
                   {g.status !== "revoked" && (
                     <div className="flex items-center gap-1">
-                      {/* Mails the pending invite — shown once the owner's own
+                      {/* A never-mailed invite of an unconfirmed owner: the
+                          one tap that lets BonBox send it. */}
+                      {notMailed && !ownerConfirmed && (
+                        <Link
+                          to="/verify-email?now=1"
+                          className="text-xs font-semibold underline underline-offset-2 text-amber-800 dark:text-amber-200 px-1.5"
+                        >
+                          {t("verifyEmailNowCta", "Confirm now")}
+                        </Link>
+                      )}
+                      {/* Mails a never-mailed invite — once the owner's own
                           e-mail is confirmed (before that the server would
-                          hold it again). */}
-                      {isPending && ownerConfirmed && (
+                          hold it again). An invite that already went out by
+                          mail has no button: a second mail is not one tap. */}
+                      {notMailed && ownerConfirmed && (
                         <Button
                           type="button"
                           variant="secondary"

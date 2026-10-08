@@ -10,6 +10,7 @@ import api from "../services/api";
 import AppleSignInButton from "../components/AppleSignInButton";
 import { oauthErrText } from "../utils/errText";
 import { withSignupRef } from "../utils/signupRef";
+import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -181,7 +182,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const data = await login(email, password);
-      if (data.user && !data.user.email_verified && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
+      // A revisor login is never sent to the wall (utils/verifyWallRole): one
+      // made from a never-mailed invite link stays unconfirmed on purpose.
+      if (data.user && !data.user.email_verified && !verifyWallSkipsRole(data.user) && data.user.created_at && new Date(data.user.created_at) >= new Date("2026-04-13T00:00:00")) {
         navigate("/verify-email");
       } else {
         navigate("/dashboard");

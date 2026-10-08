@@ -3,6 +3,7 @@ import api from "../services/api";
 import { trackEvent } from "./useEventLog";
 import { clearStoredMode } from "../lib/appMode";
 import { withSignupRef, clearSignupRef } from "../utils/signupRef";
+import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 
 const AuthContext = createContext(null);
 
@@ -217,6 +218,9 @@ export function AuthProvider({ children }) {
   const needsEmailVerification = () => {
     if (!user) return false;
     if (user.email_verified) return false;
+    // A revisor login is read-only and cannot request or check a code (the
+    // server refuses both) — never a wall for it (utils/verifyWallRole).
+    if (verifyWallSkipsRole(user)) return false;
     // Grace: users created before the feature launch date are exempt
     if (user.created_at && new Date(user.created_at) < new Date(VERIFICATION_GRACE_DATE)) {
       return false;

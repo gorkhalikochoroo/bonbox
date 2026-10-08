@@ -140,6 +140,21 @@ class AccountantGrant(Base):
     invited_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, nullable=False,
     )
+    # When the CURRENT invite link (invite_token) was last handed to the mail
+    # server for accountant_email. NULL = this link has not been mailed (held,
+    # failed — see invite_mail_held — or a row from before this column).
+    # Drives three things: a second "Send invitation" within 24 hours mails
+    # nothing; the revisor login made from the link is stamped
+    # email_verified only when the link reached that inbox by mail; and
+    # Team → Revisor never reads "invited" for an invite nobody mailed.
+    # Reset whenever a new link is minted. (Nullable; migration 2026-10-08.)
+    invite_mailed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Why the current link has NOT been mailed: "email_unverified" (the
+    # owner's own address is unconfirmed, so BonBox held it) or "send_failed"
+    # (the mail server refused it). NULL once it is mailed, and on rows from
+    # before this column. (Nullable; migration 2026-10-08.)
+    invite_mail_held: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Updated on every accountant.login + accountant.switch_client event.
