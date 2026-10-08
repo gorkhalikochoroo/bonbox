@@ -8409,6 +8409,8 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcLockBlockedBelowFloat: "The drawer count ({counted}) is less than the float ({float}) — fix it under Cash Drawer Count.",
+    dcGoToCashCount: "Go to the count",
     dcStartOverKeepsCount: "your cash count",
     dcStartOverKeepsClosedBy: "Closed by",
     dcStartOverKeepsNote: "your note",

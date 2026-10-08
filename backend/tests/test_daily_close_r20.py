@@ -213,3 +213,39 @@ def test_a_deleted_branch_draft_is_reused_and_its_figures_are_in_the_audit(db_se
     assert before["notes"] == "Kladde før" and before["closed_by"] == "Test"
     assert json.loads(before["source_meta"])["kind"] == "zbon"
     assert before["created_at"]
+
+
+# ─── the source line for a reopened Z-bon read edited by hand ──────────
+# (the page now sends the read's own source with the change corrected —
+# DailyClosePage.r20MoneyAndData §6 — instead of null.)
+
+def test_a_reopened_read_edited_by_hand_prints_the_correction(db_session, client):
+    from app.services.close_history import source_line
+    u = _user(db_session)
+    r = client.post("/api/daily-close", headers=_auth(u), json=_body(
+        revenue_breakdown={"food": 15750, "drinks": 4250}, payment_breakdown={"card": 20000},
+        source_meta={"kind": "zbon", "scans": 1, "corrected": ["rev:food"]},
+    ))
+    assert r.status_code == 200, r.text
+    row = db_session.query(DailyClose).filter(DailyClose.user_id == u.id).one()
+    assert source_line(row) == "Z-bon (scannet) · rettet af ejeren efter scanning: Mad"
+
+
+def test_a_reopened_sum_edited_by_hand_names_each_till_and_the_correction(db_session, client):
+    from app.services.close_history import source_line
+    u = _user(db_session)
+    r = client.post("/api/daily-close", headers=_auth(u), json=_body(
+        revenue_breakdown={"food": 12000, "drinks": 4000}, payment_breakdown={"card": 16000},
+        source_meta={"kind": "zbon", "scans": 1, "terminal_totals": [12000, 4000], "typed_tills": [0],
+                     "read_totals": [10000, 4000], "corrected": ["rev:food", "revenue_total"]},
+    ))
+    assert r.status_code == 200, r.text
+    row = db_session.query(DailyClose).filter(DailyClose.user_id == u.id).one()
+    line = source_line(row)
+    assert "2 terminaler lagt sammen" in line
+    assert "indtastet: 10.000,00 kr." in line
+    assert "Z-bon: 4.000,00 kr." in line
+    assert "rettet af ejeren til 16.000,00 kr." in line
+    assert "rettet af ejeren efter scanning: Mad" in line
+    # Never one till's figure as if it were read: 12.000 is on no bon.
+    assert "12.000" not in line

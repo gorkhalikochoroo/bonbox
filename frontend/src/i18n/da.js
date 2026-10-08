@@ -8118,6 +8118,8 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcLockBlockedBelowFloat: "Optællingen ({counted}) er mindre end byttepengene ({float}) — ret den under Optælling af kassen.",
+    dcGoToCashCount: "Gå til optællingen",
     dcStartOverKeepsCount: "optællingen",
     dcStartOverKeepsClosedBy: "Lukket af",
     dcStartOverKeepsNote: "noten",

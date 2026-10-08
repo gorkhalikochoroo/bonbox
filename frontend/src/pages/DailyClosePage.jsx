@@ -3121,6 +3121,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     return null;
   }, [cashCountedNegative, scanTotalEmptied, revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale, scanResult]);
+  // The lock is held by the count against the float alone (every amount
+  // reads fine): its own reason, never "kan ikke læses".
+  const belowFloatBlocks = rejectedArea === "cash" && cashCountedNegative
+    && !isMoneyRejected(drawerCount, mLocale) && !isMoneyRejected(cashFloat, mLocale)
+    && stepSequence.includes("cash");
 
   // Taxable base = entered revenue MINUS today's exempt sales total.
   // Clamp at 0: if the user only entered a placeholder and the exempt
@@ -3321,7 +3326,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       || null;
     const photoIsOurs = Boolean(storedPhoto) && (filedPhotosRef.current.has(storedPhoto) || storedPhoto === replacedPhoto);
     const receipt_photo = receiptPhotoUrl || (photoIsOurs ? "" : null);
-    const countedNum = cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null;
+    // A drawer counted below its float is no count of the day's takings (it
+    // holds the lock until the count or the float is fixed): the draft does
+    // not file "Optalt −300" as if counted — the drawer typed stays in the box.
+    const countedNum = cashCounted && Number.isFinite(readMoney(cashCounted)) && readMoney(cashCounted) >= 0 ? readMoney(cashCounted) : null;
 
     const body = {
       date: businessDate,
@@ -3394,8 +3402,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     payloadInfo.set(body, {
       key: dayKey,
       // Read off photos still in the day: once filed, a Start forfra that
-      // leaves none has to say the source again.
-      scanSource: source_meta?.kind === "zbon" && hasScanTills(ledger),
+      // leaves none has to say the source again. So does a reopened Z-bon
+      // read filed with a hand correction: put back to what it was opened
+      // with, a null kept the stored "rettet af ejeren: Mad" for a Mad no
+      // longer changed — told again, its corrections are what they are now.
+      scanSource: source_meta?.kind === "zbon",
     });
     return body;
   };
@@ -4135,8 +4146,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // A hint that comes and goes with every keystroke above the box being
   // typed in moved that box 138–174 px under the caret on a phone; held, it
   // settles once, when the owner leaves the box.
+  // The wizard's steps hold the same way: the "two tills added together"
+  // summary sits above every step's boxes, and its "Stod kun på den ene bon"
+  // notice turned into the longer "Dine egne tal …" on the first keystroke
+  // in Kontant — the box moved 16 px under the caret on a phone. A hold is
+  // for the screen it was taken on: a step or the card left with a box still
+  // focused (no blur) never holds the next one.
   const [cardHeld, setCardHeld] = useState(null);
-  const held = scanMode === "result" ? cardHeld : null;
+  const heldHere = `${scanMode}|${step}`;
+  const held = (scanMode === "result" || scanMode === "skipped") && cardHeld?.at === heldHere ? cardHeld : null;
   const cardGapLive = (() => {
     if (!scanResult) return null;
     const hasTotal = (scanResult.revenue_total || 0) > 0;
@@ -4162,6 +4180,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     reads: tillReads,
     mergeNow: cardSaveTotal > 0 ? cardSaveTotal : null,
     mergeNames: mergeIncompleteNames,
+    // What the wizard's summary says the day saves ("Med dine rettelser …").
+    wizardNow: revenueKnown ? savedRevenue : null,
   };
   const cardShown = held || cardLive;
   const cardGap = cardShown.gap;
@@ -4174,7 +4194,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const heldMergeNow = cardShown.mergeNow;
   const heldMergeNames = cardShown.mergeNames;
   const onCardFocus = (e) => {
-    if (e.target?.tagName === "INPUT") setCardHeld({ ...cardLive, unsplitLive: String(e.target.id || "").startsWith("scan-rev-") });
+    if (e.target?.tagName === "INPUT") setCardHeld({ ...cardLive, at: heldHere, unsplitLive: String(e.target.id || "").startsWith("scan-rev-") });
   };
   const onCardBlur = (e) => { if (e.target?.tagName === "INPUT") setCardHeld(null); };
 
@@ -5527,7 +5547,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             So is a day whose draft question is still open: what was typed
             under "Fortsæt kladden / Start forfra" was never saved, and
             nothing said so. */}
-        <fieldset disabled={existingBlocks} className={"min-w-0 m-0 p-0 border-0 " + (existingBlocks ? "opacity-50 pointer-events-none select-none" : "")} aria-hidden={existingBlocks || undefined}>
+        <fieldset disabled={existingBlocks} className={"min-w-0 m-0 p-0 border-0 " + (existingBlocks ? "opacity-50 pointer-events-none select-none" : "")} aria-hidden={existingBlocks || undefined}
+          onFocus={onCardFocus} onBlur={onCardBlur}>
 
         {/* Sync indicator.
             Was the page's only blue surface — a decorative family carrying no
@@ -5644,7 +5665,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* The headline figure is a SUM of two tills — said on every step,
             including the one where it locks. See renderMergeSummary. */}
         {scanResult?.merge_info?.mode === MERGE_SUM && (
-          <div className="mb-3">{renderMergeSummary({ nowTotal: revenueKnown ? savedRevenue : null })}</div>
+          <div className="mb-3">{renderMergeSummary({ nowTotal: held ? held.wizardNow : (revenueKnown ? savedRevenue : null) })}</div>
         )}
 
         {/* Night shift indicator — this one genuinely compares against the
@@ -5910,14 +5931,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             </SectionBanner>
             <div>
               <label htmlFor="cash-counted" className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("dcDrawerCounted", "Counted in the drawer")}</label>
+              {/* Below the float: the count (and the float beside it) is the
+                  red field the lock step points back to — the hint below said
+                  so in red while both boxes stayed gray. */}
               <MoneyField id="cash-counted" locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
-                value={drawerCount} onChange={e => onDrawerChange(e.target.value)} />
+                value={drawerCount} onChange={e => onDrawerChange(e.target.value)}
+                aria-invalid={cashCountedNegative || isMoneyRejected(drawerCount, mLocale) || undefined}
+                aria-describedby={[isMoneyRejected(drawerCount, mLocale) ? "cash-counted-err" : null, cashCountedNegative ? "dc-drawer-below-float" : null].filter(Boolean).join(" ") || undefined} />
             </div>
             <div className="flex items-center justify-between gap-3">
               <label htmlFor="cash-float" className={labelClass}>{t("dcCashFloat", "Float (stays in the drawer)")}</label>
               <MoneyField id="cash-float" locale={mLocale} placeholder="0" wrapperClassName="w-36 shrink-0"
                 className="w-full h-11 px-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
-                value={cashFloat} onChange={e => onFloatChange(e.target.value)} />
+                value={cashFloat} onChange={e => onFloatChange(e.target.value)}
+                aria-invalid={cashCountedNegative || isMoneyRejected(cashFloat, mLocale) || undefined}
+                aria-describedby={[isMoneyRejected(cashFloat, mLocale) ? "cash-float-err" : null, cashCountedNegative ? "dc-drawer-below-float" : null].filter(Boolean).join(" ") || undefined} />
             </div>
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700/50 px-4 py-3 space-y-1.5 tabular-nums">
               <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
@@ -5938,7 +5966,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 </p>
               )}
               {cashCountedNegative && (
-                <p className="text-[12px] text-red-600 dark:text-red-400">
+                <p id="dc-drawer-below-float" className="text-[12px] text-red-600 dark:text-red-400">
                   {t("dcDrawerBelowFloat", "Less than the float — check the count or the float.")}
                 </p>
               )}
@@ -6547,7 +6575,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
                       <span>
                         {moneyRejected
-                          ? (rejectedArea
+                          ? (belowFloatBlocks
+                              // Every amount reads fine: the cause is the
+                              // count against the float, said with both
+                              // figures and the step to fix it on — "kan ikke
+                              // læses … det røde felt" was not true.
+                              ? (<>
+                                  {t("dcLockBlockedBelowFloat", "The drawer count ({counted}) is less than the float ({float}) — fix it under Cash Drawer Count.", {
+                                    counted: formatOwnerMoney(readMoney(drawerCount), currency, { decimals: pairDecimals(readMoney(drawerCount), readMoney(cashFloat)) }),
+                                    float: formatOwnerMoney(readMoney(cashFloat), currency, { decimals: pairDecimals(readMoney(drawerCount), readMoney(cashFloat)) }),
+                                  })}{" "}
+                                  <button type="button" data-testid="dc-go-to-cash"
+                                    onClick={() => { setStep(stepSequence.indexOf("cash") + 1); revealStepTop(); setTimeout(() => document.getElementById("cash-counted")?.focus?.(), 60); }}
+                                    className="min-h-10 underline underline-offset-2 font-medium">
+                                    {t("dcGoToCashCount", "Go to the count")}
+                                  </button>
+                                </>)
+                              : rejectedArea
                               ? t("dcLockBlockedAmountIn", "One amount under {area} can't be read — go back and fix the red field.", {
                                   area: {
                                     revenue: t("revenueLabel", "Revenue"),

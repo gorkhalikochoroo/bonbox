@@ -823,7 +823,10 @@ const lineKey = (f) => (f.startsWith("revenue.") ? `rev:${f.slice(8)}`
  * is never a Z-bon read: it is listed in typed_tills, its own lines in
  * `typed`; lines the owner changed on a photo's till are `corrected`. A
  * reopened draft with no new photo sends nothing (the server keeps what it
- * knows); a close typed by hand with no photo is "typed".
+ * knows) — unless it is a Z-bon read the owner changed by hand since it was
+ * opened: then its own source goes with the change as a correction (a sum
+ * that no longer adds up with its read totals and "revenue_total"); a close
+ * typed by hand with no photo is "typed".
  *
  * `restore`: this form filed a source read off photos for the day earlier
  * (a bon summed in and saved). With no photo left in the day the server's
@@ -855,15 +858,23 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
       // only ever adds that mark, on an unlocked close.
       const changes = own ? draftChanges(ft0, locale) : [];
       const mark = afterUnlock && changes.length ? { edited_after_unlock: true } : {};
-      if (own && own.kind === "zbon") {
-        const was = Array.isArray(own.corrected) ? own.corrected.filter((k) => typeof k === "string") : [];
-        return { ...own, corrected: Array.from(new Set([...was, ...changes])), ...mark };
-      }
+      if (own && own.kind === "zbon") return reopenedReadMeta(state, own, changes, mark);
       if (own) return { ...own, ...mark };
       if (plain) return plain;
       // A close saved before its source was recorded, with its own photo
       // (its till came back): the photo is its read. Anything else is typed.
       return ft0?.origin === TILL_DRAFT && photo ? { kind: "zbon", scans: 1, corrected: [] } : { kind: "typed" };
+    }
+    // A reopened Z-bon read changed by hand since it was opened, with no
+    // photo in the day: the change is a correction of that read, on the
+    // record. Sent as null, the server kept "Z-bon (scannet)" with nothing
+    // corrected — a revisor saw a photo reading Mad 7.000 beside 15.750
+    // "scannet". Untouched, it sends null: the server keeps its own.
+    if (own && own.kind === "zbon") {
+      const changes = draftChanges(ft0, locale);
+      if (changes.length || sumMovedOf(state, own)) {
+        return reopenedReadMeta(state, own, changes, afterUnlock && changes.length ? { edited_after_unlock: true } : {});
+      }
     }
     if (own) return null;
     return plain;
@@ -936,6 +947,41 @@ export function sourceMetaOf(state, { revenue_breakdown = {}, payment_breakdown 
     corrected: Array.from(new Set(corrected)),
     ...(typed.length ? { typed } : {}),
   };
+}
+
+/** A reopened sum's tills ([..]) and how far what it saves now is from them (0: they still add up). */
+function sumMovedOf(state, own) {
+  const mt = Array.isArray(own?.terminal_totals) ? own.terminal_totals.map(Number) : [];
+  if (mt.length < 2 || !mt.every(Number.isFinite)) return 0;
+  const diff = r2(savedTotal(state) - mt.reduce((a, v) => a + v, 0));
+  return Math.abs(diff) >= 0.005 ? diff : 0;
+}
+
+/**
+ * A reopened Z-bon read, told again: its own source with what was corrected
+ * on it then and what the owner changed since (`changes`). A reopened SUM
+ * whose tills no longer add up to what it saves (a line changed by hand)
+ * was printed "Z-bon (scannet) · lagt sammen med indtastede tal" — the list
+ * dropped, no correction said. It keeps its tills on the record: each one's
+ * read figure (read_totals, the stored ones when it has them), a list that
+ * adds up (the change on the owner's typed till, else the last), and the
+ * total named as the owner's — "Z-bon 1: … · rettet af ejeren til X".
+ */
+function reopenedReadMeta(state, own, changes, mark = {}) {
+  const was = Array.isArray(own.corrected) ? own.corrected.filter((k) => typeof k === "string") : [];
+  const out = { ...own, corrected: Array.from(new Set([...was, ...changes])), ...mark };
+  const diff = sumMovedOf(state, own);
+  if (diff) {
+    const mt = own.terminal_totals.map(Number);
+    const rt = Array.isArray(own.read_totals) ? own.read_totals.map(Number) : [];
+    const reads = rt.length === mt.length && rt.every(Number.isFinite) ? rt : mt;
+    const typedT = (own.typed_tills || []).filter((i) => Number.isInteger(i) && i >= 0 && i < mt.length);
+    const at = typedT.length === 1 ? typedT[0] : mt.length - 1;
+    out.terminal_totals = mt.map((v, i) => (i === at ? r2(v + diff) : v));
+    out.read_totals = reads;
+    out.corrected = Array.from(new Set([...out.corrected, "revenue_total"]));
+  }
+  return out;
 }
 
 /**

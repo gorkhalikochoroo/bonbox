@@ -12,6 +12,9 @@
  *  4. "" (clear the stored photo) is sent only for a photo this page filed,
  *     or the photo of the draft the banner's "Start forfra" replaced — never
  *     for a photo another device scanned since.
+ *  6. A reopened Z-bon draft edited by hand is filed as a correction of its
+ *     read, not as read off the bon; a reopened sum that no longer adds up
+ *     names each till's read figure and "revenue_total"; untouched, nothing.
  * Strings are asserted by key (t echoes key + values).
  */
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
@@ -352,5 +355,75 @@ describe("4. \"\" clears only a photo this page filed (or the replaced draft's)"
     await flush();
     expect(posted().at(-1).receipt_photo).toBe("");
     expect(rowFor(today)).toMatchObject({ revenue_total: 9000, receipt_photo: null });
+  });
+});
+
+/* ─── 6 ─────────────────────────────────────────────────────────────── */
+
+describe("6. a reopened Z-bon draft edited by hand is filed as a correction of its read", () => {
+  const ZBON = {
+    id: "seed1", date: today, branch_id: null, status: "draft", closed_by: null, notes: null,
+    revenue_total: 11250, revenue_breakdown: { food: 7000, drinks: 4250 }, payment_breakdown: { card: 11250 },
+    moms_mode: "manual", moms_total: 2250, source_meta: { kind: "zbon", scans: 1, corrected: [] },
+    receipt_photo: "u1/kasserapport/own.jpg",
+  };
+
+  // The sequences lane's repro: Fortsæt kladden → retype Mad one key at a time.
+  it("Mad 7.000 → 15.750: the record keeps its read and names the correction; back to 7.000: no correction left", async () => {
+    serve([ZBON]);
+    await mount();
+    tap(/^dcContinueDraft$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    keyIn(q("#dc-rev-food"), "15750");
+    await flush();
+    expect(posted().at(-1).source_meta).toMatchObject({ kind: "zbon", scans: 1, corrected: ["rev:food"] });
+    expect(rowFor(today).source_meta).toMatchObject({ kind: "zbon", corrected: ["rev:food"] });
+    expect(rowFor(today).receipt_photo).toBe("u1/kasserapport/own.jpg");
+    // Put back as it was read: the correction goes from the record too.
+    keyIn(q("#dc-rev-food"), "7000");
+    await flush();
+    expect(rowFor(today).source_meta).toMatchObject({ kind: "zbon", corrected: [] });
+  });
+
+  it("opened and left untouched: nothing is sent", async () => {
+    serve([ZBON]);
+    await mount();
+    tap(/^dcContinueDraft$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    await toStepWith("#dc-notes");
+    await flush();
+    expect(posted()).toHaveLength(0);
+  });
+
+  it("a note edited only: the read stays as it was (no line corrected)", async () => {
+    serve([ZBON]);
+    await mount();
+    tap(/^dcContinueDraft$/);
+    await toStepWith("#dc-notes");
+    keyIn(q("#dc-notes"), "x");
+    await flush();
+    expect(posted().at(-1).source_meta).toBeNull();
+    expect(rowFor(today).source_meta).toEqual({ kind: "zbon", scans: 1, corrected: [] });
+  });
+
+  // The summed variant: tills [10.000 (typed), 4.000], Mad 10.000 → 12.000.
+  it("a reopened sum edited by hand: each till's read figure and \"rettet af ejeren til 16.000\" on the record", async () => {
+    serve([{
+      ...ZBON, revenue_total: 14000, revenue_breakdown: { food: 10000, drinks: 4000 }, payment_breakdown: { card: 14000 },
+      moms_total: 2800, source_meta: { kind: "zbon", scans: 1, terminal_totals: [10000, 4000], typed_tills: [0], corrected: [] },
+    }]);
+    await mount();
+    tap(/^dcContinueDraft$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    keyIn(q("#dc-rev-food"), "12000");
+    await flush();
+    const meta = posted().at(-1).source_meta;
+    expect(rowFor(today).revenue_total).toBe(16000);
+    expect(meta).toMatchObject({ kind: "zbon", typed_tills: [0], read_totals: [10000, 4000] });
+    // The list adds up to what is saved (the server drops one that does not)…
+    expect(meta.terminal_totals.reduce((a, v) => a + v, 0)).toBe(16000);
+    expect(meta.terminal_totals).toEqual([12000, 4000]);
+    // …and the total is the owner's, said with the line changed.
+    expect(meta.corrected).toEqual(expect.arrayContaining(["rev:food", "revenue_total"]));
   });
 });
