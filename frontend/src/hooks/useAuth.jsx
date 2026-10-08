@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from "react";
 import api from "../services/api";
 import { trackEvent } from "./useEventLog";
 import { clearStoredMode } from "../lib/appMode";
+import { withSignupRef, clearSignupRef } from "../utils/signupRef";
 
 const AuthContext = createContext(null);
 
@@ -97,7 +98,9 @@ export function AuthProvider({ children }) {
   };
 
   const register = async (data) => {
-    const res = await api.post("/auth/register", data);
+    // withSignupRef: the leave-behind QR's code, if one is kept (utils/signupRef.js).
+    const res = await api.post("/auth/register", withSignupRef(data));
+    clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
@@ -106,7 +109,8 @@ export function AuthProvider({ children }) {
   };
 
   const googleLogin = async (credential) => {
-    const res = await api.post("/auth/google", { credential });
+    const res = await api.post("/auth/google", withSignupRef({ credential }));
+    clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
@@ -123,10 +127,11 @@ export function AuthProvider({ children }) {
    * find-or-creates the user.
    */
   const appleLogin = async (identityToken, fullName) => {
-    const res = await api.post("/auth/apple", {
+    const res = await api.post("/auth/apple", withSignupRef({
       identity_token: identityToken,
       full_name: fullName || null,
-    });
+    }));
+    clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
@@ -144,7 +149,8 @@ export function AuthProvider({ children }) {
    * any in-the-wild magic links keep working during the cut-over.
    */
   const googleOauthLogin = async (idToken) => {
-    const res = await api.post("/auth/oauth/google", { id_token: idToken });
+    const res = await api.post("/auth/oauth/google", withSignupRef({ id_token: idToken }));
+    clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);
@@ -153,10 +159,11 @@ export function AuthProvider({ children }) {
   };
 
   const appleOauthLogin = async (idToken, name) => {
-    const res = await api.post("/auth/oauth/apple", {
+    const res = await api.post("/auth/oauth/apple", withSignupRef({
       id_token: idToken,
       name: name || null,
-    });
+    }));
+    clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
     syncTimezoneIfChanged(res.data.user?.timezone);

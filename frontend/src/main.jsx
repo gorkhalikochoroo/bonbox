@@ -39,9 +39,15 @@ import './index.css'
 import App from './App.jsx'
 import { applyThemeImmediately } from './hooks/useTheme.jsx'
 
+import { captureSignupRef } from './utils/signupRef.js'
+
 // Apply saved theme to <html> BEFORE React mounts so the user never sees
 // the wrong-color flash while React boots.
 applyThemeImmediately()
+
+// A leave-behind QR (?ref=r1-a-03) can land on any page; keep the code
+// until an account exists (utils/signupRef.js). Never throws.
+captureSignupRef()
 
 // Optional Sentry init — runs only when both VITE_SENTRY_DSN env var is
 // set AND the @sentry/react package is installed. Wrapped in dynamic import
