@@ -460,22 +460,31 @@ function winnerIn(group, field) {
 function setEdit(state, entry, field, value) {
   const read = fieldOf(entry.scan, field);
   const n = num(value, state.locale);
-  // Typed back to what the photo read: it is the read again (and keeps
-  // "aflæst"), not a correction.
-  if (typeof read === "number" && n != null && Math.abs(n - read) < 0.005) {
-    const back = !Object.prototype.hasOwnProperty.call(entry.edits, field) ? state : (() => {
-      const { [field]: _gone, ...rest } = entry.edits;
-      const next = { ...entry, edits: Object.keys(rest).length ? rest : EMPTY };
-      return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
-    })();
-    if (field !== "revenue_total") return back;
-    // The total too — when the till saves that very figure without the
-    // edit. Retyped unchanged, it was filed "rettet af ejeren … omsætning i
-    // alt", pinned the total (a category raised after it was saved under it
-    // as "Rettet ned i hånden") and dropped the bon's MOMS. Typed over lines
-    // that run past the bon, the bon's figure IS a correction, and stays one.
-    const g = tillGroups(back).findIndex((grp) => grp.some((e) => e.id === entry.id));
-    if (g >= 0 && Math.abs(tillTotals(back)[g] - n) < 0.005) return back;
+  const withoutEdit = () => {
+    if (!Object.prototype.hasOwnProperty.call(entry.edits, field)) return state;
+    const { [field]: _gone, ...rest } = entry.edits;
+    const next = { ...entry, edits: Object.keys(rest).length ? rest : EMPTY };
+    return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
+  };
+  if (field === "revenue_total") {
+    // The total typed as the figure its till saves without it is no
+    // correction — whatever that figure is: the bon's own, the lines raised
+    // past it ("17.130" retyped over Mad 9.100 on a 17.030 bon), a typed
+    // close's lines, a reopened draft's saved total. Retyped unchanged it
+    // was filed "rettet af ejeren … omsætning i alt", pinned the total (a
+    // category raised after it was saved under it as "Rettet ned i hånden",
+    // one lowered again kept the day above the bon) and dropped the bon's
+    // MOMS. Typed over lines that run past the bon, the bon's figure IS a
+    // correction — without it the till saves the lines — and stays one.
+    if (n != null) {
+      const back = withoutEdit();
+      const g = tillGroups(back).findIndex((grp) => grp.some((e) => e.id === entry.id));
+      if (g >= 0 && Math.abs(tillTotals(back)[g] - n) < 0.005) return back;
+    }
+  } else if (typeof read === "number" && n != null && Math.abs(n - read) < 0.005) {
+    // Typed back to what the photo read: it is the read again (and keeps
+    // "aflæst"), not a correction.
+    return withoutEdit();
   }
   const next = { ...entry, edits: { ...entry.edits, [field]: value } };
   return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
@@ -550,7 +559,13 @@ function distribute(state, field, delta) {
  */
 export function typeIntoForm(state, field, value, { form, fromForm = false } = {}) {
   const { locale } = state;
-  const mirror = fromForm ? true : state.mirror;
+  // A box typed on the form makes the boxes the ledger's only when the
+  // ledger is the form's own (it shows them already, or it is empty and the
+  // form becomes its first till). Boxes the sales sync filled over a card
+  // stay the sync's: one box typed there does not bring the others into the
+  // tills — read as "the boxes show the tills", the day saved the typed
+  // box's till alone (3.500 for a 5.500 day, "Rettet ned i hånden").
+  const mirror = fromForm ? (state.mirror || !activeEntries(state).length) : state.mirror;
   const active = activeEntries(state);
   if (!active.length) {
     const scan = form || withField({ revenue: {}, payments: {} }, field, value, locale);

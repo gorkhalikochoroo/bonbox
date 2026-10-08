@@ -8409,6 +8409,7 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcScanNotSavedYet: "Not saved yet — what you see here is saved when you tap “Use these values” or “Continue step-by-step”.",
     dcScanSamePhotoDiscard: "It's the same photo — don't use it",
     dcScanPhotoDropped: "The new photo was not used.",
     dcScanBonN: "Receipt {n}:",

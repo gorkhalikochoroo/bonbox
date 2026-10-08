@@ -8118,6 +8118,7 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcScanNotSavedYet: "Ikke gemt endnu — det, du ser her, gemmes, når du trykker på „Brug disse tal“ eller „Fortsæt trin for trin“.",
     dcScanSamePhotoDiscard: "Det er det samme billede — brug det ikke",
     dcScanPhotoDropped: "Det nye billede blev ikke brugt.",
     dcScanBonN: "Bon {n}:",

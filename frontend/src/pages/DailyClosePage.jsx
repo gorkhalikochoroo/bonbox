@@ -1268,6 +1268,43 @@ const scanMomsKey = (s) => JSON.stringify([
   (s?.merge_info?.incompleteFields || []).includes("moms_total"),
 ]);
 
+// What a day of tills puts on the record: its total, its lines, its MOMS —
+// and whether a photo still waits on the question. The scan card compares
+// it with the filed ledger's to say "not saved yet".
+const ledgerRecordSig = (lg) => (lg ? JSON.stringify([
+  savedTotal(lg), formValues(lg), momsOf(lg).value, lg.pending.length,
+]) : null);
+
+// Two box texts that read as the same amount ("17030,0" and "17.030").
+const sameAmount = (a, b, locale) => {
+  const sa = String(a ?? "");
+  const sb = String(b ?? "");
+  if (sa === sb) return true;
+  const na = parseMoneyInput(sa, locale);
+  const nb = parseMoneyInput(sb, locale);
+  return Number.isFinite(na) && Number.isFinite(nb) && Math.abs(na - nb) < 0.005;
+};
+
+/**
+ * A box on the scan card: what the owner types stays in it, as typed, while
+ * they type. The card's boxes show the day's tills, and the tills read a
+ * keystroke that lands on a figure already there as no change at all (the
+ * bon's own 17.030 typed as "17030,0" is the read again, not a correction):
+ * the box was rewritten to "17.030", the next key went onto that text —
+ * "17.0300" — and the box turned red and held the lock. Leaving the box shows
+ * the tills' figure. A figure changed from elsewhere meanwhile (Fortryd) is
+ * shown at once: the typed text is kept only while it reads as the figure.
+ */
+function CardMoneyField({ value, onChange, onBlur, locale, ...rest }) {
+  const [typed, setTyped] = useState(null);
+  const shown = typed != null && sameAmount(typed, value, locale) ? typed : value;
+  return (
+    <MoneyField {...rest} locale={locale} value={shown}
+      onChange={(e) => { setTyped(e.target.value); onChange?.(e); }}
+      onBlur={(e) => { setTyped(null); onBlur?.(e); }} />
+  );
+}
+
 function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
@@ -1599,6 +1636,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   useEffect(() => {
     if (ledgerRef.current.locale !== mLocale) act((s) => ({ ...s, locale: mLocale }));
   }, [mLocale]);
+  // The ledger the stored draft holds (or the waiting save will send): set
+  // when the autosave files the form, and when a draft is opened. The card
+  // says "not saved yet" while what it shows differs from it — a Fortryd, a
+  // photo, a correction made on the card is filed by "Brug disse tal".
+  const filedLedgerRef = useRef(null);
   // The scan card: the tills folded with the merge rules (memoised per state).
   const scanResult = useMemo(() => cardView(ledger), [ledger]);
   // What the day saves when a card is in it: what each till saves, added up.
@@ -1752,6 +1794,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // re-saved a different MOMS the moment anything else changed.
       momsMode: dc.moms_mode === "manual" && dc.moms_total != null ? "manual" : "auto",
       momsManual: dc.moms_mode === "manual" && dc.moms_total != null ? asInput(dc.moms_total) : "",
+      gavekort: "",
+      batch: "",
     };
     // The reopened close is the day's one till now: a "draft" till with the
     // saved lines, its saved total when that is not its lines (a total above
@@ -1786,8 +1830,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // counts as a change — a note, a staff count or the MOMS alone was never
     // saved, because only the money fields were compared — and so does the
     // day's ledger (a total typed on the card moves no box).
-    editBaselineRef.current = editSignature({ rev, pay, ...loaded, cashFloat, gavekort: "", batch: "" });
+    // The baseline is what the form holds once loaded — Gavekort and Batch
+    // included (emptied below), so opening the draft is not a change.
+    editBaselineRef.current = editSignature({ rev, pay, ...loaded, cashFloat });
     editOpenLedgerRef.current = draftLedger;
+    // The stored draft is this ledger: the card says so until it moves.
+    filedLedgerRef.current = draftLedger;
     // NOTE: registerCash (the "Expected (from register)" baseline) is NOT set
     // from the saved close here — a close row can't tell us whether its stored
     // cash_expected was register- or typed-derived. Instead the prefill effect
@@ -1797,6 +1845,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setStaffCount(loaded.staff);
     setClosedBy(loaded.by);
     setNotes(loaded.notes);
+    // The salon's Gavekort solgt and the bakery's Parti/Batch are not columns
+    // of the close: the saved note already carries their line. A figure typed
+    // for another day stayed in the box, and opening this draft re-saved it
+    // with that day's "Gavekort solgt: 500,00 kr." on its kasserapport.
+    setGavekortSold(loaded.gavekort);
+    setBatchRef(loaded.batch);
     // This close's own photo, or none: a Z-bon read earlier for another day
     // stayed behind and was filed as this day's source document.
     setReceiptPhotoUrl(dc.receipt_photo || null);
@@ -1912,13 +1966,27 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // A photo thrown away with "brug det ikke" and brought back: its stored
     // image is the close's source document again.
     if (!receiptPhotoUrl) { const u = firstPhotoUrl(after); if (u) setReceiptPhotoUrl(u); }
+    // Taken back from the scan's start (the only photo was thrown away
+    // there): the question is on the card again.
+    if (cardView(after)) setScanMode("result");
   };
 
   /** "Det er det samme billede — brug det ikke": the waiting photo goes, nothing else. */
   const dropWaitingPhoto = () => {
-    const head = ledgerRef.current.pending[0];
+    const before = ledgerRef.current;
+    const head = before.pending[0];
     const after = act(dropPending);
     if (head && receiptPhotoUrl && head.scan?.image_url === receiptPhotoUrl) setReceiptPhotoUrl(firstPhotoUrl(after));
+    // The only photo in the day thrown away (the first over a typed close or
+    // a reopened draft, or a retake whose sum was taken back with Fortryd):
+    // there is no card left to show. The page went blank — no card, no form,
+    // no Fortryd — and the boxes kept the sum just taken back, which stayed
+    // the draft. Back to where the photo was taken, with the owner's own till
+    // in the boxes, filed from there; the drop stays undoable.
+    if (!cardView(after)) {
+      ownTillBack(before, after);
+      setScanMode("idle");
+    }
   };
 
   const handleFileSelect = async (rawFile) => {
@@ -2267,6 +2335,37 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setRevAmounts(pick(fv.revenue, revCats));
     setPayAmounts(pick(fv.payments, payMethods));
     if (config.hasTips) setTipsTotal(fv.tips != null && String(fv.tips).trim() !== "" ? asBox(fv.tips) : "");
+  };
+
+  // What is left of the day is the owner's own till, or nothing (Start
+  // forfra; the only photo thrown away): when the boxes showed photos they
+  // show what is left — so the next photo is asked about against the owner's
+  // own figures, never against a bon already thrown away (the same 3.000
+  // counted twice) — and the MOMS goes back with them.
+  const ownTillBack = (before, after) => {
+    // Whether the boxes show photos is not only what the tills hold right
+    // now: after Fortryd the bon is back on the question (out of the tills)
+    // while the boxes still hold the applied sum — left there, it was filed
+    // as typed and counted again by the retake.
+    const boxesShowedPhotos = before.mirror
+      && (hasScanTills(before) || before.pending.length > 0 || boxesHoldPhotosRef.current);
+    if (boxesShowedPhotos) writeBoxesFromLedger(after);
+    // The MOMS goes back with them: the owner's till's own MOMS, or worked
+    // out. A MOMS the owner typed since is theirs and stays — unless it rode
+    // on photos alone (a photo-only day, or a scan's MOMS put in the form):
+    // then it belongs to no till that is left, and was filed as "indtastet"
+    // on the next day's bon.
+    const ownerTypedMoms = momsTyped && Boolean(appliedMoms)
+      && (appliedMoms.owner || momsManual !== appliedMoms.manual);
+    const momsRodeOnPhotos = Boolean(appliedMoms?.fromScan) || (boxesShowedPhotos && !formTill(before));
+    if (boxesShowedPhotos && (!ownerTypedMoms || momsRodeOnPhotos)) {
+      const left = momsOf(after);
+      if (left.source === "typed") { setMomsMode("manual"); setMomsManual(asBox(left.value)); } else { setMomsMode("auto"); setMomsManual(""); }
+      setAppliedMoms(null);
+    } else if (momsRodeOnPhotos) {
+      setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null);
+    }
+    appliedPrefillRef.current = null;
   };
 
   const applyScanValues = (jumpToReview = false) => {
@@ -3157,7 +3256,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const [draftSaved, setDraftSaved] = useState(false);
   // A save is waiting or on its way: the step slot says "Gemmer…" until the
   // server has answered, so "Gemt" only ever means saved.
-  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSavingState, setDraftSavingState] = useState(false);
+  const draftSaving = draftSavingState;
+  // Set only when it changes: the autosave effect said "nothing to save" on
+  // every keystroke on the scan card, and each setState(false) over a false
+  // still cost a (bail-out) render of this whole form.
+  const draftSavingRef = useRef(false);
+  const setDraftSaving = (v) => {
+    if (draftSavingRef.current === v) return;
+    draftSavingRef.current = v;
+    setDraftSavingState(v);
+  };
   const autoSaveRef = useRef(null);
   // The latest render's payload builder. The 2 s timer (and the flush on
   // leaving) was set in a render that could still hold the old day's MOMS-free
@@ -3185,6 +3294,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // is saved — a change back to the opened figures too.
   const editBaselineRef = useRef(null);
   const editOpenLedgerRef = useRef(null);
+  // The draft (as JSON) the last autosave sent: the same one is not sent again.
+  const lastSentRef = useRef(null);
   // "The server told us this exact row is locked." NOT a guess from page state.
   //
   // The obvious guard here is a `dayLocked` prop fed from the page's
@@ -3215,10 +3326,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!editingDate) setFileBranchOverride(undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessDate, branchId]);
-  const [ownDraftKey, setOwnDraftKey] = useState(null);
+  // Every day (and branch) this form has saved a draft for — not only the
+  // last one answered. Two days' saves in flight answer in any order: today's
+  // slow answer landing after yesterday's made yesterday's own new draft
+  // "a draft already filed for this day", the banner covered the owner's own
+  // figures and the autosave stopped (the next edit was never saved).
+  const [ownDraftKeys, setOwnDraftKeys] = useState(() => new Set());
   const [overwriteKey, setOverwriteKey] = useState(null);
   const existingForDate = useMemo(() => {
-    if (editingDate || ownDraftKey === rowKey) return null;
+    if (editingDate || ownDraftKeys.has(rowKey)) return null;
     return (existingCloses || []).find((dc) =>
       String(dc.date || "").slice(0, 10) === businessDate
       // "All branches" picked: any branch's close for the day is the one
@@ -3226,13 +3342,25 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // a second close for that day with no branch.
       && (!branchId || (dc.branch_id || null) === fileBranchId)
       && !dc.is_deleted) || null;
-  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKey, rowKey]);
+  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey]);
   // Named when the venue has several, so "a draft for this day" says whose.
   const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
     ? (branches.find((b) => String(b.id) === String(existingForDate.branch_id))?.name || "")
     : "";
   const existingLocked = existingForDate?.status === "confirmed";
   const existingBlocks = Boolean(existingForDate) && (existingLocked || overwriteKey !== rowKey);
+
+  // The form is the day past the scan card ("skipped") — and on an empty
+  // scan card when the day is the owner's own till and nothing else: Start
+  // forfra put their figures back in the boxes, and leaving from there kept
+  // the photo's figures in the draft (24.412,50 saved under a 21.412,50
+  // form). A card with photos on it is not filed until it is applied (and
+  // says so while it differs from what is filed — dc-scan-unsaved).
+  const formIsTheDay = scanMode === "skipped"
+    || (scanMode === "idle" && Boolean(formTill(ledger)) && !hasScanTills(ledger) && !ledger.pending.length);
+  // The ledger as the autosave reads it: only while the form is the day. On
+  // the card every keystroke makes a new ledger, and none of them is saved.
+  const autosaveLedger = formIsTheDay ? ledger : null;
 
   useEffect(() => {
     // Nothing to save — and nothing a flush on leaving may send either.
@@ -3250,20 +3378,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Only auto-save if user has entered some data and is past scan UI
     // On the total that will be SAVED: a Z-bon read as a total only was
     // never autosaved, because its categories summed to zero.
-    // The form is the day past the scan card ("skipped") — and on an empty
-    // scan card when the day is the owner's own till and nothing else: Start
-    // forfra put their figures back in the boxes, and leaving from there kept
-    // the photo's figures in the draft (24.412,50 saved under a 21.412,50
-    // form). A card with photos on it is not filed until it is applied.
-    const formIsTheDay = scanMode === "skipped"
-      || (scanMode === "idle" && Boolean(formTill(ledger)) && !hasScanTills(ledger) && !ledger.pending.length);
     if (!formIsTheDay || savedRevenue === 0) return nothingToSave();
     // A reopened close not touched yet is not a save. The first change ends
     // that for good: the stored draft then holds the change, so going back to
     // the figures it was opened with is a change too — it was skipped, and
     // the server kept the version in between (a Kort of 21.000 lost).
     if (editBaselineRef.current) {
-      const untouched = ledger === editOpenLedgerRef.current && editBaselineRef.current === editSignature({
+      const untouched = autosaveLedger === editOpenLedgerRef.current && editBaselineRef.current === editSignature({
         rev: revAmounts, pay: payAmounts, cash: cashCounted, tips: tipsTotal,
         staff: staffCount, by: closedBy, notes, momsMode, momsManual,
         cashFloat, gavekort: gavekortSold, batch: batchRef,
@@ -3271,6 +3392,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (untouched) return nothingToSave();
       editBaselineRef.current = null;
       editOpenLedgerRef.current = null;
+    }
+    // The draft this form last sent, exactly: nothing to send again. "← Scan
+    // Z-bon" and "Spring over" back with nothing changed posted the same
+    // draft twice — an append-only audit row, a history refetch and a
+    // "Gemmer…/Gemt" each time. A change back to figures saved before is
+    // not this: the last draft sent holds the change in between.
+    const sig = JSON.stringify(buildPayload("draft"));
+    filedLedgerRef.current = autosaveLedger;
+    if (sig === lastSentRef.current) {
+      clearTimeout(autoSaveRef.current);
+      return nothingToSave();
     }
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
@@ -3281,14 +3413,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const run = async ({ keepalive = false } = {}) => {
       pendingSaveRef.current = null;
       savesInFlightRef.current += 1;
+      const body = buildPayloadRef.current("draft");
+      const sent = JSON.stringify(body);
+      lastSentRef.current = sent;
       try {
-        await api.post("/daily-close", buildPayloadRef.current("draft"),
+        await api.post("/daily-close", body,
           keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
-        setOwnDraftKey(savingKey);
+        setOwnDraftKeys((prev) => (prev.has(savingKey) ? prev : new Set(prev).add(savingKey)));
         onDraftSaved?.();
         setDraftSaved(true);
         setTimeout(() => setDraftSaved(false), 3000);
       } catch (err) {
+        // Not on the server: the same draft is sent again on the next change.
+        if (lastSentRef.current === sent) lastSentRef.current = null;
         // Still best-effort for every other failure (offline, 500, flaky
         // connection) — but a 409 is not a transient error, it is the lock
         // saying this row is final.
@@ -3307,10 +3444,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // autosaved — "Kladde gemt" and then lost on the next open.
   // momsTotal / exemptSalesTotal: the day's MOMS-free answer landing after
   // the save went out changes the MOMS, and that is saved too.
-  // scanMode / ledger: Fortryd and Start forfra change the day on the scan
+  // formIsTheDay / autosaveLedger: Start forfra changes the day on the scan
   // card, and "Spring over" back to the form moved no step — nothing re-ran,
   // and the draft kept the photo the owner had thrown away.
-  }, [step, scanMode, ledger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, formIsTheDay, autosaveLedger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen]);
 
   // Leaving sends the waiting save instead of dropping it: the form unmounts on
   // every tab switch and route change, and a phone can be locked or the tab
@@ -3627,12 +3765,38 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
   const cardShown = held || cardLive;
   const cardGap = cardShown.gap;
-  const cardUnsplitShown = cardShown.unsplit;
+  // The "Ikke fordelt" line sits BELOW the category boxes: typing a category
+  // moves nothing above the caret, so it follows each keystroke there (held,
+  // the lines, the unsplit figure and the total did not add up while typing).
+  // Held only for the boxes below it (the total, payments, tips).
+  const cardUnsplitShown = (held && !held.unsplitLive ? held : cardLive).unsplit;
   const heldReads = cardShown.reads;
   const heldMergeNow = cardShown.mergeNow;
   const heldMergeNames = cardShown.mergeNames;
-  const onCardFocus = (e) => { if (e.target?.tagName === "INPUT") setCardHeld(cardLive); };
+  const onCardFocus = (e) => {
+    if (e.target?.tagName === "INPUT") setCardHeld({ ...cardLive, unsplitLive: String(e.target.id || "").startsWith("scan-rev-") });
+  };
   const onCardBlur = (e) => { if (e.target?.tagName === "INPUT") setCardHeld(null); };
+
+  // The card differs from the draft that is filed (or about to be): its
+  // figures are saved by applying it, and it says so.
+  const cardUnsaved = scanMode === "result" && Boolean(scanResult) && Boolean(filedLedgerRef.current)
+    && ledgerRecordSig(ledger) !== ledgerRecordSig(filedLedgerRef.current);
+
+  // "Det nye billede blev ikke brugt · Fortryd" — on the card, or on the
+  // scan's start when the thrown-away photo was the only one in the day.
+  const droppedNote = undoStep === "drop" ? (
+    <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3" data-testid="dc-scan-dropped">
+      <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
+        <Icon name="X" size={15} />
+        {t("dcScanPhotoDropped", "The new photo was not used.")}
+      </span>
+      <button onClick={undoMerge}
+        className="min-h-10 text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
+        {t("scanMergedUndo", "Undo")}
+      </button>
+    </div>
+  ) : null;
 
   /**
    * "These numbers are a SUM of two tills" — rendered on the scan card AND on
@@ -3665,7 +3829,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           {/* Undo belongs to the scan card — by the review step the owner has
               already left the photos behind, and an undo there would silently
               un-sum numbers they have since typed over. */}
-          {withUndo && canUndoChoice && (
+          {/* Its own step only: after "brug det ikke" this Fortryd undid the
+              drop (the thrown-away photo's question came back, the sum stayed). */}
+          {withUndo && canUndoChoice && undoStep !== "drop" && (
             <button onClick={undoMerge}
               className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
               {t("scanMergedUndo", "Undo")}
@@ -3802,6 +3968,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {t("dcCloseForDate", "Kasserapport for {date}", { date: businessDateLabel })}
             </p>
             {existingBannerEl}
+            {/* The only photo thrown away with "brug det ikke": back here, and
+                as undoable as on the card. */}
+            {droppedNote}
             {!existingBlocks && (<>
             {/* The scan step's opening instruction.
                 It used to be a three-stop emerald gradient banner with a white
@@ -3991,20 +4160,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
             {!pendingScan && renderMergeSummary({ withUndo: true, nowTotal: heldMergeNow })}
             {/* The photo thrown away — as undoable as an answer. */}
-            {!pendingScan && undoStep === "drop" && (
-              <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3" data-testid="dc-scan-dropped">
-                <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
-                  <Icon name="X" size={15} />
-                  {t("dcScanPhotoDropped", "The new photo was not used.")}
-                </span>
-                <button onClick={undoMerge}
-                  className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
-                  {t("scanMergedUndo", "Undo")}
-                </button>
-              </div>
-            )}
+            {!pendingScan && droppedNote}
             {/* "Same terminal" replaced the figures — as undoable as a sum. */}
-            {!pendingScan && canUndoChoice && scanResult?.merge_info?.mode === MERGE_REPLACE && (
+            {!pendingScan && canUndoChoice && undoStep !== "drop" && scanResult?.merge_info?.mode === MERGE_REPLACE && (
               <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3">
                 <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
                   <Icon name="RefreshCw" size={15} />
@@ -4359,7 +4517,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         keystrokes means applyScanValues hands them to the
                         revenue boxes verbatim, where the page's own strict
                         parser decides. */}
-                    <MoneyField
+                    <CardMoneyField
                       id={`scan-rev-${c.key}`}
                       locale={mLocale}
                       // The field IS the flex child of the row above, so the
@@ -4399,7 +4557,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       bon's total are saved, so the box follows them — it
                       kept "17.030" beside a MOMS and a note for 17.130. The
                       bon's own figure is said on the line below. */}
-                  <MoneyField
+                  <CardMoneyField
                     id="scan-total"
                     locale={mLocale}
                     wrapperClassName="w-40 shrink-0"
@@ -4532,7 +4690,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       {readOnCard(`payments.${m.key}`, val) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
-                    <MoneyField
+                    <CardMoneyField
                       id={`scan-pay-${m.key}`}
                       locale={mLocale}
                       // The field IS the flex child of the row above, so the
@@ -4583,7 +4741,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   {readOnCard("tips", scanResult.tips) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                 </span>
                 {/* Raw string kept, same reason as the revenue field above. */}
-                <MoneyField
+                <CardMoneyField
                   locale={mLocale}
                   wrapperClassName="flex-1 min-w-0"
                   className={inputClass}
@@ -4654,6 +4812,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 {t("dcScanAnswerQuestionFirst", "Answer the question above first — is this another terminal?")}
               </button>
             )}
+            {/* What the card shows is filed when it is applied — not by a
+                Fortryd, a photo or a correction made here. Taken back with
+                Fortryd, a sum stayed in the draft while the card showed the
+                day without it, and nothing said so. Said here, beside the
+                buttons that file it, below every box (nothing moves under
+                the caret). */}
+            {cardUnsaved && (
+              <p role="status" data-testid="dc-scan-unsaved"
+                className="text-[13px] text-gray-600 dark:text-gray-300 flex items-start gap-1.5">
+                <Icon name="Info" size={14} className="shrink-0 mt-0.5" />
+                {t("dcScanNotSavedYet", "Not saved yet — what you see here is saved when you tap “Use these values” or “Continue step-by-step”.")}
+              </p>
+            )}
             <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="primary" size="lg" className="flex-1" onClick={() => applyScanValues(true)}
                 disabled={Boolean(pendingScan)}
@@ -4719,31 +4890,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // about against the owner's own figures, never against a bon
                 // already thrown away (the same 3.000 counted twice).
                 const after = act(discardScans);
-                // Whether the boxes show photos is not only what the tills
-                // hold right now: after Fortryd the bon is back on the
-                // question (out of the tills) while the boxes still hold the
-                // applied sum — left there, it was filed as typed and counted
-                // again by the retake.
-                const boxesShowedPhotos = before.mirror
-                  && (hasScanTills(before) || before.pending.length > 0 || boxesHoldPhotosRef.current);
-                if (boxesShowedPhotos) writeBoxesFromLedger(after);
+                ownTillBack(before, after);
                 setScanPhotos([]); setReceiptPhotoUrl(null);
-                // The MOMS goes back with them: the owner's till's own MOMS, or
-                // worked out. A MOMS the owner typed since is theirs and stays —
-                // unless it rode on photos alone (a photo-only day, or a scan's
-                // MOMS put in the form): then it belongs to no till that is
-                // left, and was filed as "indtastet" on the next day's bon.
-                const ownerTypedMoms = momsTyped && Boolean(appliedMoms)
-                  && (appliedMoms.owner || momsManual !== appliedMoms.manual);
-                const momsRodeOnPhotos = Boolean(appliedMoms?.fromScan) || (boxesShowedPhotos && !formTill(before));
-                if (boxesShowedPhotos && (!ownerTypedMoms || momsRodeOnPhotos)) {
-                  const left = momsOf(after);
-                  if (left.source === "typed") { setMomsMode("manual"); setMomsManual(asBox(left.value)); } else { setMomsMode("auto"); setMomsManual(""); }
-                  setAppliedMoms(null);
-                } else if (momsRodeOnPhotos) {
-                  setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null);
-                }
-                appliedPrefillRef.current = null; setScanMode("idle");
+                setScanMode("idle");
               }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}

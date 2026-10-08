@@ -10,8 +10,8 @@
 import { describe, expect, it } from "vitest";
 import { MERGE_SUM } from "../utils/dailyCloseScanMerge";
 import {
-  addScan, cardView, chooseTerminal, createTills, dropPending, lastStep, loadDraft, momsOf, needsTerminalQuestion,
-  savedTotal, sourceMetaOf, tillTotals, tillsReducer, typeIntoForm, undo,
+  addScan, cardView, chooseTerminal, createTills, detachForm, dropPending, lastStep, loadDraft, markApplied, momsOf,
+  needsTerminalQuestion, savedTotal, sourceMetaOf, tillFromForm, tillTotals, tillsReducer, typeIntoForm, undo,
 } from "../utils/closeTills";
 
 const L = "da-DK";
@@ -156,5 +156,88 @@ describe("closeTills r18 — the card's total retyped unchanged is no correction
     s = keyIn(s, "revenue_total", "21.530");
     expect(savedTotal(s)).toBe(21530);
     expect(cardView(s).revenue_total_text).toBe("21.530");
+  });
+});
+
+describe("closeTills r18 review — a total retyped as the figure its till saves is no correction", () => {
+  const TILL1 = {
+    revenue: { food: 9000, drinks: 6000, takeaway: 2030 }, revenue_total: 17030, moms_total: 3406,
+    payments: { card: 12000, cash: 4030, mobilepay: 1000 },
+  };
+  const B5000 = { revenue: { food: 3500, drinks: 1500 }, revenue_total: 5000, moms_total: 1000, payments: { card: 5000 } };
+  const BON_3000 = { revenue: { food: 2000, drinks: 1000 }, revenue_total: 3000, moms_total: 600, payments: { card: 3000 } };
+  const keyIn = (s, field, value, opts) => {
+    let out = typeIntoForm(s, field, "", opts);
+    for (let i = 1; i <= value.length; i++) out = typeIntoForm(out, field, value.slice(0, i), opts);
+    return out;
+  };
+  const totalEdits = (s) => s.entries.filter((e) => Object.prototype.hasOwnProperty.call(e.edits, "revenue_total"));
+
+  it("one till, Mad raised past the bon (17.130 in the box): retyped unchanged, then Mad lowered back — the bon's 17.030", () => {
+    let s = addScan(createTills(L), TILL1, { photo: "t1" });
+    s = keyIn(s, "revenue.food", "9.100");
+    expect(savedTotal(s)).toBe(17130);
+    s = keyIn(s, "revenue_total", "17.130");
+    expect(totalEdits(s)).toEqual([]);
+    expect(sourceMetaOf(s, { revenue_breakdown: { food: 9100, drinks: 6000, takeaway: 2030 } }).corrected).toEqual(["rev:food"]);
+    s = keyIn(s, "revenue.food", "9.000");
+    expect(savedTotal(s)).toBe(17030);
+  });
+
+  it("two tills, Mad raised on the last (17.030 + 5.100): the day's 22.130 retyped unchanged pins nothing", () => {
+    let s = addScan(createTills(L), TILL1, { photo: "t1" });
+    s = addScan(s, B5000, { photo: "t2" });
+    s = chooseTerminal(s, MERGE_SUM);
+    s = keyIn(s, "revenue.food", "12.600");
+    expect(tillTotals(s)).toEqual([17030, 5100]);
+    s = keyIn(s, "revenue_total", "22.130");
+    expect(totalEdits(s)).toEqual([]);
+    expect(cardView(s).revenue_total_text).toBeUndefined();
+    expect(sourceMetaOf(s, { revenue_breakdown: { food: 12600 } }).corrected).not.toContain("revenue_total");
+  });
+
+  it("a typed till + a bon summed: the card's 12.000 retyped unchanged, then Mad +20.000 — the total follows the lines", () => {
+    const form = tillFromForm({ revenue: { food: "9.000" }, payments: { card: "9.000" } });
+    let s = typeIntoForm(createTills(L), "revenue.food", "9.000", { fromForm: true, form });
+    s = addScan(s, BON_3000, { photo: "b", form });
+    s = chooseTerminal(s, MERGE_SUM);
+    expect(savedTotal(s)).toBe(12000);
+    s = keyIn(s, "revenue_total", "12.000");
+    expect(totalEdits(s)).toEqual([]);
+    s = keyIn(s, "revenue.food", "31.000", { fromForm: true });
+    expect(savedTotal(s)).toBe(32000);
+  });
+
+  it("a reopened draft saved above its lines (17.030 over Mad 10.000): retyped unchanged, then Mad 30.000 — 30.000", () => {
+    let s = loadDraft(createTills(L), { revenue: { food: "10.000" }, payments: { card: "17.030" }, total: 17030 });
+    s = keyIn(s, "revenue_total", "17.030");
+    expect(totalEdits(s)).toEqual([]);
+    s = keyIn(s, "revenue.food", "30.000", { fromForm: true });
+    expect(savedTotal(s)).toBe(30000);
+  });
+
+  it("a figure that is not the till's own is still a correction (one till: 16.500 under 17.030)", () => {
+    let s = addScan(createTills(L), TILL1, { photo: "t1" });
+    s = keyIn(s, "revenue_total", "16.500");
+    expect(totalEdits(s)).toHaveLength(1);
+    expect(savedTotal(s)).toBe(16500);
+  });
+});
+
+describe("closeTills r18 review — boxes the sales sync filled are not the tills", () => {
+  const T2500 = { revenue: {}, revenue_total: 2500, moms_total: 500 };
+
+  it("a box typed on a form the sync filled over a card: the boxes still do not show the tills", () => {
+    let s = markApplied(addScan(createTills(L), T2500, { photo: "t" }));
+    s = detachForm(s);
+    s = typeIntoForm(s, "revenue.food", "3.500", { fromForm: true });
+    expect(s.mirror).toBe(false);
+  });
+
+  it("the form typed into an empty day, or into the form's own till: the boxes show the tills", () => {
+    let s = typeIntoForm(createTills(L), "revenue.food", "9.000", { fromForm: true });
+    expect(s.mirror).toBe(true);
+    s = typeIntoForm(s, "revenue.drinks", "1.000", { fromForm: true });
+    expect(s.mirror).toBe(true);
   });
 });

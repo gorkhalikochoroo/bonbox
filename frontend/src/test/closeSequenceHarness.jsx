@@ -17,7 +17,11 @@
  *       holds a till with figures) is asked "another terminal?";
  *   I3  no till is counted twice: when every till's figure is known, the day
  *       saves exactly their sum;
- *   I4  a till typed by hand is never filed as a Z-bon read.
+ *   I4  a till typed by hand is never filed as a Z-bon read;
+ *   I5  no dead end: the page always shows the form, the scan card, or the
+ *       scan's start with its buttons (or the day's draft / lock banner);
+ *   I6  the scan card is what is filed for the day, or says it is not saved
+ *       yet: leaving from it never keeps a draft that differs in silence.
  *
  * The stub server is the backend's save rule in miniature — keep it in step
  * with backend/app/routers/daily_close.py (revenue_total, the MOMS rules).
@@ -29,7 +33,7 @@ import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 /** How many times each invariant was actually checked (SEQ_STATS=1 prints them). */
-export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0 };
+export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
 
@@ -238,10 +242,15 @@ async function toStep(target) {
   return where() === target;
 }
 
-/** Keystroke by keystroke: select all + Backspace, then every prefix. */
+/**
+ * Keystroke by keystroke, the way a browser types: select all + Backspace,
+ * then each key goes onto what the box shows at that moment. (Typing the
+ * prefixes instead hid a box that rewrote itself under the caret: "17030,00"
+ * ended as a red "17.0300" on the card.)
+ */
 function keyIn(el, value) {
   if (el.value !== "") fireEvent.change(el, { target: { value: "" } });
-  for (let i = 1; i <= value.length; i++) fireEvent.change(el, { target: { value: value.slice(0, i) } });
+  for (const ch of value) fireEvent.change(el, { target: { value: el.value + ch } });
 }
 
 function readReview() {
@@ -327,6 +336,7 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
     photos: new Set(),                // photo names in the day (for "the same photo")
     undo: [],                         // the ledger's steps, for Fortryd
     typedByHandOnly: {},              // per date: nothing but typed figures ever filed
+    synced: false,                    // the sales sync filled boxes on a day in play
   };
   const val = (v) => (typeof v === "number" ? v : Number(String(v ?? "").replace(/\./g, "").replace(",", ".")) || 0);
   const sumOf = (o) => Object.values(o).reduce((a, v) => a + val(v), 0);
@@ -342,12 +352,17 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
     Object.assign(M, {
       form: { rev: {}, pay: {} }, ownKind: null, ownTotal: 0, ownActive: true, atFirst: null,
       scans: [], pending: [], pageIn: false, exact: true, photos: new Set(), undo: [],
-      draftFloor: null, draftPinned: null,
+      draftFloor: null, draftPinned: null, synced: false,
     });
   };
 
   let mounted = null;
-  const mount = () => { mounted = render(<MemoryRouter><DailyClosePage /></MemoryRouter>); };
+  // The days this mount of the page filed a draft for (I6).
+  const postedHere = new Set();
+  // The day the card is for, as its date line says it: the test keeps it.
+  let shownDay = null;
+  const businessDayShown = () => q("#close-date")?.value || shownDay;
+  const mount = () => { postedHere.clear(); shownDay = today; mounted = render(<MemoryRouter><DailyClosePage /></MemoryRouter>); };
   // The page's history (the day's draft or lock) answers after the first render.
   const loaded = async () => {
     const row = S.rows.get(`${today}|`);
@@ -376,18 +391,43 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
   };
   // Tag each payload with what the day held when it was sent.
   const origPush = S.posts.push.bind(S.posts);
-  S.posts.push = (body) => origPush({
+  S.posts.push = (body) => (postedHere.add(body.date), origPush({
     ...body,
     __noPhotos: !photosIn(),
     __ownKind: M.ownKind,
     __summedOwnTyped: M.scans.length > 0 && M.ownActive && M.ownKind === "typed" && M.ownTotal > 0 && !M.pageIn,
-  });
+  }));
 
   const checkpoint = async () => {
     // Whatever save is waiting goes now (the page sends it on pagehide).
     await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
     checkPosts();
-    if (!onForm()) return;
+    // I5 — never a page with nothing to tap.
+    STATS.I5 += 1;
+    const somewhere = onForm() || Boolean(q('[data-testid="dc-scan-result-date"]')) || where() === "scanning"
+      || Boolean(findBtn(/^skipEnterManually$/)) || hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked");
+    expect(somewhere, fail("I5 no dead end", "no form, no card, no scan buttons")).toBe(true);
+    if (!onForm()) {
+      // I6 — leaving from the card: what is stored for the day is what the
+      // card shows, or the card said it is not saved yet. Held to days this
+      // page filed itself, and not over boxes the sales sync filled (those
+      // are the boxes', not a card's).
+      const total = q("#scan-total");
+      const date = businessDayShown();
+      const row = date && S.rows.get(`${date}|`);
+      // An emptied (or unreadable) total box is no figure: it is red and
+      // holds the lock until one is typed.
+      const readable = total && total.value.trim() !== "" && total.getAttribute("aria-invalid") !== "true";
+      if (readable && row && row.status === "draft" && postedHere.has(date) && !M.synced) {
+        const shown = val(total.value);
+        if (Math.abs(shown - row.revenue_total) >= 0.005) {
+          STATS.I6 += 1;
+          expect(Boolean(q('[data-testid="dc-scan-unsaved"]')),
+            fail("I6 card filed or said", `card ${total.value}, stored ${row.revenue_total}, no "ikke gemt endnu"`)).toBe(true);
+        }
+      }
+      return;
+    }
     if (q('[data-testid="dc-date-move"]')) return;
     if (hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked")) return;
     const date = q("#close-date").value;
@@ -508,6 +548,7 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
     await toStep("s1");
     const back = findBtn(/^←\s*scanZReportBack$/);
     if (!back) return false;
+    shownDay = q("#close-date")?.value || shownDay;
     await step("← scan Z-bon", () => { fireEvent.click(back); });
     return true;
   };
@@ -654,7 +695,7 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
     const el = q("#close-date");
     if (!el || el.disabled) return;
     const to = pick([today, yesterday, twoDaysAgo].filter((d) => d !== el.value));
-    await step(`date → ${to}`, () => { fireEvent.change(el, { target: { value: to } }); }, () => { if (to === twoDaysAgo) M.exact = false; });
+    await step(`date → ${to}`, () => { fireEvent.change(el, { target: { value: to } }); }, () => { if (to === twoDaysAgo) { M.exact = false; M.synced = true; } });
     await ensureForm();
   };
 
@@ -756,7 +797,7 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
       if (!el || el.disabled || el.value === twoDaysAgo) return;
       // The sync's figures join the day (the server takes the larger): no
       // till-by-till sum to hold the review to.
-      await step(`date → ${twoDaysAgo} (synced)`, () => { fireEvent.change(el, { target: { value: twoDaysAgo } }); }, () => { M.exact = false; });
+      await step(`date → ${twoDaysAgo} (synced)`, () => { fireEvent.change(el, { target: { value: twoDaysAgo } }); }, () => { M.exact = false; M.synced = true; });
       await ensureForm();
     }],
     [2, moveDate],
