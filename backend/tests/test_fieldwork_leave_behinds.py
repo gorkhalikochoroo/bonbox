@@ -120,3 +120,23 @@ def test_print_sheet_is_one_page_per_code_in_order(tmp_path):
         assert _norm(CONTENT["a"]["door"]) in text
         w, h = (float(v) for v in page.mediabox[2:])
         assert (round(w), round(h)) == (420, 595)
+
+
+def test_run_warns_sheets_wait_for_the_live_build(tmp_path):
+    """Production before the capture build ignores ?ref= — a sheet handed out
+    then is a visit lost for good. The script says so every run."""
+    import subprocess
+    import sys
+    import scripts.fieldwork_leave_behinds as mod
+
+    for needle in ("api.bonbox.dk/api/health", "bonbox_signup_ref", "lower bound"):
+        assert needle in mod.PRECONDITION, needle
+        assert needle.lower() in mod.__doc__.lower(), needle
+    out = subprocess.run(
+        [sys.executable, "-m", "scripts.fieldwork_leave_behinds",
+         "--out", str(tmp_path), "--codes", "r1-a-01"],
+        capture_output=True, text=True, timeout=120,
+        cwd=str(__import__("pathlib").Path(mod.__file__).resolve().parents[1]),
+    )
+    assert out.returncode == 0, out.stderr
+    assert mod.PRECONDITION in out.stdout

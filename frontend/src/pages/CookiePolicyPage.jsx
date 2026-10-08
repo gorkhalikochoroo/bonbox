@@ -41,7 +41,7 @@ function CookiesEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Cookie Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 26 July 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 8 October 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-6 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -73,7 +73,7 @@ function CookiesEn() {
           </p>
           <p className="mt-2">
             BonBox keeps around twenty small values in your browser's local storage. They stay on your
-            device and are not sent to us as cookies are. They fall into three groups:
+            device and are not sent to us as cookies are. They fall into four groups:
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li>
@@ -90,10 +90,20 @@ function CookiesEn() {
               <strong>Your cookie answer</strong> — <code>bonbox_cookie_consent</code>, so we do not ask
               again on every visit.
             </li>
+            <li>
+              <strong>A printed flyer's campaign code — only if you allow Analytics</strong> —{" "}
+              <code>bonbox_signup_ref</code>. If you opened BonBox from the QR code on a BonBox flyer, the
+              address ends in a short code such as <code>?ref=r1-a-03</code> (round, argument, visit). If
+              you then create an account, the code goes with it, so we can count which round of visits
+              led to accounts. Without Analytics consent the code is held only while the page is open and
+              never written to your device. With it, it is kept for up to 30 days. Either way it is removed
+              when you create an account or sign in, and withdrawing consent removes it.
+            </li>
           </ul>
           <p className="mt-2">
-            None of it is used for advertising, profiling or tracking you between sites. You can wipe all
-            of it by clearing site data for bonbox.dk in your browser.
+            None of it is used for advertising, profiling or tracking you between sites — the flyer code
+            only counts which visits led to a signup. You can wipe all of it by clearing site data for
+            bonbox.dk in your browser.
           </p>
         </section>
 
@@ -112,9 +122,10 @@ function CookiesEn() {
           <p>
             The three cookies above are strictly necessary, and under the ePrivacy Directive those do
             not require consent. You will still see a consent banner on your first visit. It is there
-            for the optional analytics category, which is switched off and has nothing behind it today —
-            no analytics tool is loaded. If we ever add one, the banner is already the gate, and
-            declining will keep it from loading.
+            for the optional analytics category, which is switched off until you turn it on. No
+            analytics tool is loaded. Turning it on lets us keep a flyer's campaign code (above) on your
+            device for up to 30 days; declining keeps it off your device. If we ever add an analytics
+            tool, the banner is already the gate, and declining will keep it from loading.
           </p>
           <p className="mt-2">
             Your answer is remembered in local storage under <code>bonbox_cookie_consent</code>. Clear
@@ -153,7 +164,7 @@ function CookiesDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Cookiepolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 26. juli 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 8. oktober 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-6 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -185,7 +196,7 @@ function CookiesDa() {
           </p>
           <p className="mt-2">
             BonBox gemmer omkring tyve små værdier i din browsers lokale lager (local storage). De bliver
-            på din enhed og sendes ikke til os, sådan som cookies gør. De falder i tre grupper:
+            på din enhed og sendes ikke til os, sådan som cookies gør. De falder i fire grupper:
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li>
@@ -202,10 +213,21 @@ function CookiesDa() {
               <strong>Dit svar om cookies</strong> — <code>bonbox_cookie_consent</code>, så vi ikke spørger
               igen ved hvert besøg.
             </li>
+            <li>
+              <strong>Kampagnekoden fra en trykt folder — kun hvis du tillader Analyse</strong> —{" "}
+              <code>bonbox_signup_ref</code>. Hvis du åbnede BonBox fra QR-koden på en BonBox-folder, slutter
+              adressen med en kort kode som <code>?ref=r1-a-03</code> (runde, argument, besøg). Opretter du
+              derefter en konto, følger koden med, så vi kan tælle, hvilken besøgsrunde der førte til
+              konti. Uden samtykke til Analyse holdes koden kun, mens siden er åben, og skrives aldrig på
+              din enhed. Med samtykke gemmes den i op til 30 dage. Den fjernes under alle omstændigheder,
+              når du opretter en konto eller logger ind, og den fjernes, hvis du trækker dit samtykke
+              tilbage.
+            </li>
           </ul>
           <p className="mt-2">
             Intet af det bruges til annoncering, profilering eller til at spore dig på tværs af
-            hjemmesider. Du kan slette det hele ved at rydde webstedsdata for bonbox.dk i din browser.
+            hjemmesider — folderkoden tæller kun, hvilke besøg der førte til en oprettelse. Du kan slette
+            det hele ved at rydde webstedsdata for bonbox.dk i din browser.
           </p>
         </section>
 
@@ -224,9 +246,11 @@ function CookiesDa() {
           <p>
             De tre cookies ovenfor er strengt nødvendige, og efter ePrivacy-direktivet kræver sådanne
             cookies ikke samtykke. Du vil alligevel se et samtykkebanner ved dit første besøg. Det er der
-            for den valgfrie kategori til analyse, som er slået fra og ikke har noget bag sig i dag — der
-            indlæses intet analyseværktøj. Hvis vi en dag tilføjer et, fungerer banneret allerede som
-            adgangskontrol, og hvis du afviser, bliver det ikke indlæst.
+            for den valgfrie kategori til analyse, som er slået fra, indtil du slår den til. Der indlæses
+            intet analyseværktøj. Slår du den til, må vi gemme kampagnekoden fra en folder (se ovenfor) på
+            din enhed i op til 30 dage; afviser du, kommer den ikke på din enhed. Hvis vi en dag tilføjer
+            et analyseværktøj, fungerer banneret allerede som adgangskontrol, og hvis du afviser, bliver
+            det ikke indlæst.
           </p>
           <p className="mt-2">
             Dit svar gemmes i det lokale lager under <code>bonbox_cookie_consent</code>. Ryd din browsers

@@ -234,6 +234,14 @@ def test_empty_database_reads_as_measured_zeros(db, client):
     assert all(v == 0 for v in body["total"].values())
 
 
+def test_notes_say_counts_are_a_lower_bound(db, client):
+    # A code is only kept in the browser that opened the QR, from the deploy
+    # onward — a 0 here is "none counted", never "none happened".
+    notes = _get(client)["notes"]
+    assert "LOWER BOUND" in notes
+    assert "/api/health" in notes
+
+
 def test_payload_carries_no_personal_data(db, client):
     people = _seed(db)
     raw = json.dumps(_get(client), ensure_ascii=False)

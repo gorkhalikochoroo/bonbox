@@ -225,6 +225,12 @@ def request_magic_link(
     # accountant-invite flow).
     frontend = (settings.FRONTEND_URL or "https://bonbox.dk").rstrip("/")
     magic_url = f"{frontend}/login/magic?token={raw_token}"
+    # A door-visit code the browser kept rides in the link (already
+    # [a-z0-9-]{1,24} from the schema, so URL-safe), because the link is
+    # often opened in another tab or browser. Verify stamps it only on a
+    # brand-new account (services/signup_ref.py).
+    if data.signup_ref:
+        magic_url += f"&ref={data.signup_ref}"
 
     # Best-effort email send. Failure is non-fatal — we already
     # committed the row, and if Resend is down for 30s the user can
@@ -269,7 +275,7 @@ def verify_magic_link(
     ip = _client_ip(request)
 
     try:
-        user = verify_token(db, data.token, used_ip=ip)
+        user = verify_token(db, data.token, used_ip=ip, signup_ref=data.signup_ref)
     except HTTPException as e:
         # Map the service-layer codes to security_event rows so a
         # spike of "expired" or "invalid" verify attempts is visible

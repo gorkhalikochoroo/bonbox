@@ -16,6 +16,21 @@ codes; a code must match the signup-ref rule and name argument a or b.
 A SCRIPT, NOT A ROUTE: pure, no database, no network, no personal data. The
 output belongs in founder-private/, never in the repo.
 
+PRECONDITION — DO NOT HAND OUT A SHEET UNTIL THE CODE-KEEPING BUILD IS LIVE.
+Production before it ignores ?ref=, and a visit whose code was dropped is lost
+for good (it does not show up later as a 0). Both halves must be deployed:
+  • backend: https://api.bonbox.dk/api/health → "commit" is the last commit
+    that changed backend/app/services/signup_ref.py, or a later one
+    (git log --format=%h -1 -- backend/app/services/signup_ref.py; then
+    git merge-base --is-ancestor <that> <health commit> && echo OK);
+  • frontend: one of the scripts www.bonbox.dk/register loads contains
+    "bonbox_signup_ref" (today it sits in the useAuth-*.js chunk, not index):
+      for a in $(curl -s https://www.bonbox.dk/register | grep -o 'assets/[^"]*\.js'); do
+        curl -s "https://www.bonbox.dk/$a" | grep -q bonbox_signup_ref && echo "LIVE $a"; done
+    No "LIVE" line = not deployed yet.
+Counts in /api/admin/signup-refs are a LOWER BOUND even then (same browser,
+from the deploy onward) — see the endpoint's notes.
+
 COPY RULES (checked against production 9ec1d6ae before writing a word):
   • The door lines and the closing line are the founder's, verbatim.
   • Every bullet is something production does today, on any plan, or is said
@@ -275,6 +290,17 @@ def _draw_page(c, code: str, size: str) -> None:
     c.showPage()
 
 
+# Printed after every run — the sheets are useless until both halves are live.
+PRECONDITION = (
+    "BEFORE HANDING OUT ANY SHEET: the code-keeping build must be live. "
+    "Check https://api.bonbox.dk/api/health ('commit' = the last signup_ref.py "
+    "commit or later) and that a script www.bonbox.dk/register loads contains "
+    "'bonbox_signup_ref' (command in this script's docstring). "
+    "Sheets handed out earlier are lost, not counted as 0. "
+    "Counts are a lower bound (same browser, from the deploy onward)."
+)
+
+
 def write_all(out_dir: str, codes: list[str], size: str = "a5",
               print_sheets: bool = False) -> list[str]:
     """One PDF per code; with print_sheets, also one multi-page file per
@@ -309,3 +335,4 @@ if __name__ == "__main__":
     written = write_all(args.out, args.codes or default_codes(), size=args.size,
                         print_sheets=args.print_sheets)
     print(f"wrote {len(written)} files to {args.out}")
+    print(PRECONDITION)

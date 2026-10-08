@@ -44,8 +44,11 @@ def _ui_language(v):
 class SignupRefMixin(BaseModel):
     """`signup_ref` — the printed door-visit code (?ref=r1-a-03) the frontend
     kept until the account existed. Optional on every request that can create
-    an account (register + the Google/Apple completions). Anything that is not
-    [a-z0-9-]{1,24} becomes None HERE, so a bad ref can never fail a signup;
+    an account: register, the Google/Apple completions (/auth/google,
+    /auth/apple, /auth/oauth/*) and the magic-link verify (plus the
+    magic-link request, which only carries it into the mailed link).
+    Anything that is not [a-z0-9-]{1,24} becomes None HERE, so a bad ref can
+    never fail a signup;
     services/signup_ref.py decides whether it is stored."""
     signup_ref: str | None = None
 

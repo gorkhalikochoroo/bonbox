@@ -39,15 +39,17 @@ import './index.css'
 import App from './App.jsx'
 import { applyThemeImmediately } from './hooks/useTheme.jsx'
 
-import { captureSignupRef } from './utils/signupRef.js'
+import { captureSignupRef, watchCookieConsentForSignupRef } from './utils/signupRef.js'
 
 // Apply saved theme to <html> BEFORE React mounts so the user never sees
 // the wrong-color flash while React boots.
 applyThemeImmediately()
 
 // A leave-behind QR (?ref=r1-a-03) can land on any page; keep the code
-// until an account exists (utils/signupRef.js). Never throws.
+// until an account exists (utils/signupRef.js) — in memory, and on the
+// device only with the cookie banner's Analytics consent. Never throws.
 captureSignupRef()
+watchCookieConsentForSignupRef()
 
 // Optional Sentry init — runs only when both VITE_SENTRY_DSN env var is
 // set AND the @sentry/react package is installed. Wrapped in dynamic import

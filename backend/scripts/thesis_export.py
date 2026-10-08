@@ -109,6 +109,9 @@ def collect(db) -> dict[str, dict[str, int]]:
     # code itself (a visit number + a date narrows to one venue). Owners whose
     # signup carried no code are "(no ref)"; codes outside the r<round>-<arg>-
     # <visit> pattern roll up as "other". Same suppression as every table.
+    # Attributed counts are a LOWER BOUND: "(no ref)" also holds door-visit
+    # signups whose code was dropped (signup in another browser, storage
+    # declined after the tab closed, or before the code-keeping deploy).
     from app.services.signup_ref import ref_prefix
 
     sr = Counter()
