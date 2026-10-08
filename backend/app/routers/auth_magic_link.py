@@ -322,8 +322,9 @@ def verify_magic_link(
     # Read before the commit/refresh: a never-confirmed account (or one with
     # an unanswered question) is not claimed — the inbox owner is asked
     # whether they made it (Manoj, 8 Oct; services/claim_decision.py). The
-    # page gets the question + its 30-minute ticket; the one notice mail
-    # (sent once per question, after the commit) carries the same choice.
+    # page gets the question + its 30-minute ticket; the notice mail (when the
+    # question opens, and again at most once a day while it stays open —
+    # sent after the commit) carries the same choice.
     from app.services.claim_decision import pending_ask, send_question_mail
     ask = pending_ask(user)
 

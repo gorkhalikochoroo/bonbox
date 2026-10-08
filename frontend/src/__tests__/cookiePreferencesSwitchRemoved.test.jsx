@@ -48,6 +48,8 @@ const lookup = (dict, key) => {
 };
 // What each language says about self-chosen settings (theme, tips).
 const THEME_WORD = { en: "theme", da: "tema", np: "थिम", vi: "giao diện", th: "ธีม", tr: "tema" };
+// The word for "language" each necessary-category text used to list.
+const LANGUAGE_WORD = { en: "language", da: "sprog", np: "भाषा", vi: "ngôn ngữ", th: "ภาษา", tr: "dil," };
 
 const mount = (ui, lang) => {
   localStorage.setItem("lang", lang);
@@ -80,6 +82,14 @@ describe.each(Object.keys(OLD_TITLE))("banner in %s", (lang) => {
     const necessary = lookup(DICT[lang], "cookieCatNecessaryDesc");
     expect(necessary).toContain(THEME_WORD[lang]);
     expect(screen.getByText(necessary)).toBeInTheDocument();
+  });
+
+  it("the necessary text does not say the language stays on the device (it is also saved on the account)", () => {
+    // AccountLanguageSync saves ui_language on the account so pushes and
+    // mails arrive in it; /privacy lists "Foretrukket sprog" as account data.
+    const necessary = lookup(DICT[lang], "cookieCatNecessaryDesc");
+    expect(necessary).not.toContain(LANGUAGE_WORD[lang]);
+    expect(necessary).toContain(THEME_WORD[lang]);
   });
 
   it("the dictionary no longer carries the switch's texts", () => {

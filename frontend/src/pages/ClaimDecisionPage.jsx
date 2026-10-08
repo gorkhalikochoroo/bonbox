@@ -27,6 +27,9 @@ export default function ClaimDecisionPage() {
   // loading | open | kept | secured | expired | decided | invalid | loadFailed
   const [state, setState] = useState("loading");
   const [createdAt, setCreatedAt] = useState("");
+  // Opened by a password reset: the owner just chose the current password,
+  // so the question names the first one (as the mail does).
+  const [afterReset, setAfterReset] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [accessClosed, setAccessClosed] = useState(false);
@@ -42,6 +45,7 @@ export default function ClaimDecisionPage() {
         const res = await api.post("/auth/claim-decision/status", { ticket });
         if (cancelled) return;
         setCreatedAt(res?.data?.question?.created_at || "");
+        setAfterReset(res?.data?.question?.after_reset === true);
         const s = res?.data?.state;
         setState(s === "open" ? "open" : s === "expired" ? "expired" : s === "decided" ? "decided" : "invalid");
       } catch (err) {
@@ -121,6 +125,7 @@ export default function ClaimDecisionPage() {
             error={error}
             preferred={preferred}
             explainKey="claimMailExplain"
+            textKey={afterReset ? "claimQuestionTextAfterReset" : "claimQuestionText"}
           />
         )}
 

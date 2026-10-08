@@ -118,6 +118,21 @@ describe("closeEmailState — a revisor copy held for an unconfirmed owner", () 
     // A 403 from Send igen on a close whose lock mail was off.
     expect(closeEmailState({ status: "skipped_preference_off", skip: "email_unverified", profile: p, ownerConfirmed: false }).kind).toBe("unverified");
   });
+  it("says what happened to the owner's own copy: sent, or failed (review, 9 Oct)", () => {
+    const sent = closeEmailState({ status: "sent", sentTo: ["login@x.dk"], skip: "email_unverified", profile: p, ownerConfirmed: false });
+    expect(sent.kind).toBe("unverified");
+    expect(sent.ownerSent).toBe(true);
+    // The owner's own copy failed too: never hidden behind the held line.
+    for (const status of ["send_failed", "failed_skipped", "queued_retry"]) {
+      expect(closeEmailState({ status, sentTo: [], skip: "email_unverified", error: "send_error: x", profile: p, ownerConfirmed: false }).kind)
+        .toBe("unverified_owner_failed");
+    }
+    // No owner copy was due (the lock mail was off): the held line alone, no "sent to you".
+    const off = closeEmailState({ status: "skipped_preference_off", skip: "email_unverified", profile: p, ownerConfirmed: false });
+    expect(off.kind).toBe("unverified");
+    expect(off.ownerSent).toBe(false);
+  });
+
   it("returns to the ordinary line once the owner is confirmed (and by default)", () => {
     expect(closeEmailState({ status: "sent", sentTo: ["login@x.dk"], error: "revisor_email_unverified", profile: p, ownerConfirmed: true }).kind).toBe("owner_only");
     expect(closeEmailState({ status: "sent", sentTo: ["login@x.dk"], error: "revisor_email_unverified", profile: p }).kind).toBe("owner_only");
@@ -137,6 +152,31 @@ describe("History", () => {
     const link = within(line).getByRole("link", { name: "verifyEmailNowCta" });
     expect(link).toHaveAttribute("href", "/verify-email?now=1");
     expect(within(line.parentElement).queryByRole("button", { name: /dcMailSendToRevisor|dcMailSendAgain/ })).toBeNull();
+  });
+
+  it("the held line says the owner's own copy went, and when", async () => {
+    await openHistory();
+    const line = await screen.findByTestId("dc-mail-held-unverified");
+    expect(line.textContent).toMatch(/dcMailHeldUnverifiedSentYou:dcMailWhen/);
+    expect(screen.queryByTestId("dc-mail-owner-copy-failed")).toBeNull();
+  });
+
+  it("a held day whose own copy failed says both, and offers no Send button", async () => {
+    // The lock's own copy failed (email_error holds the send error); Send
+    // igen then answers 403 email_unverified — the revisor is held.
+    closes = [close("H2", "2026-10-06", "confirmed", {
+      email_status: "send_failed", email_sent_to: [], email_error: "send_error: provider down",
+    })];
+    post.mockRejectedValueOnce({ response: { status: 403, data: { detail: { code: "email_unverified" } } } });
+    await openHistory();
+    fireEvent.click((await screen.findAllByRole("button", { name: /dcMailSendAgain/ }))[0]);
+    const failed = await screen.findByTestId("dc-mail-owner-copy-failed");
+    expect(failed).toHaveTextContent("dcMailOwnerCopyFailed:dcMailErrProvider");
+    const held = screen.getByTestId("dc-mail-held-unverified");
+    expect(held).toHaveTextContent("dcMailHeldUnverified");
+    expect(held.textContent).not.toMatch(/dcMailHeldUnverifiedSentYou/);
+    expect(within(held).getByRole("link", { name: "verifyEmailNowCta" })).toHaveAttribute("href", "/verify-email?now=1");
+    expect(within(held.parentElement.parentElement).queryByRole("button", { name: /dcMailSendToRevisor|dcMailSendAgain/ })).toBeNull();
   });
 
   it("once confirmed, the same day offers Send to revisor", async () => {

@@ -777,6 +777,7 @@ def apple_auth(
     # — that risks hijacking an existing account if someone re-uses
     # the same relay alias.
     user = db.query(User).filter(User.apple_user_id == apple_sub).first()
+    found_by_sub = user is not None
     # Everything below keys on the e-mail (lookup, link, create): only on an
     # address Apple says it verified.
     if not user and email and not claim_is_true(claims.get("email_verified")):
@@ -806,6 +807,21 @@ def apple_auth(
             # Secure links). A confirmed account with no open question is
             # untouched.
             from app.services.claim_decision import ask_inbox_owner, send_question_mail
+            _ask = ask_inbox_owner(db, user, via="apple_legacy", page_ticket=False,
+                                   ip_address=client_ip(request))
+            db.commit()
+            db.refresh(user)
+            send_question_mail(user, _ask)
+    elif found_by_sub:
+        # This Apple ID was linked when Apple proved the inbox. A question
+        # still unanswered is asked again: the mail goes again once the last
+        # one is a day old (lost, failed to send, or expired) — an old iOS
+        # build has no other way to answer (review, 9 Oct). Nothing else
+        # happens here; a confirmed account with no question is untouched.
+        from app.services.claim_decision import (
+            ask_inbox_owner, question_open, send_question_mail,
+        )
+        if question_open(db, user):
             _ask = ask_inbox_owner(db, user, via="apple_legacy", page_ticket=False,
                                    ip_address=client_ip(request))
             db.commit()
@@ -1654,7 +1670,20 @@ def reset_password(
     except Exception:  # noqa: BLE001 — audit is best-effort, never block the reset
         pass
 
+    # The code proves the inbox, like a login link. On an account whose
+    # address was never confirmed (or whose question is unanswered) the
+    # password and sessions are replaced above, but the revisor grants and
+    # host-stand links whoever set the first password handed out are not:
+    # the inbox owner is ASKED, by mail, whether they made the account
+    # (services/claim_decision.py) — "Nej / Ved ikke" closes them. A
+    # confirmed account with no open question is untouched (review, 9 Oct).
+    from app.services.claim_decision import ask_inbox_owner, send_question_mail
+    _ask = ask_inbox_owner(db, user, via="password_reset", page_ticket=False,
+                           ip_address=client_ip(request))
+
     db.commit()
+    db.refresh(user)
+    send_question_mail(user, _ask)
 
     # Sign the user straight in on THIS device with a fresh token at the new
     # version (the email-code holder is, by construction, the account owner).

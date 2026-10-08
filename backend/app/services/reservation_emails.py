@@ -871,10 +871,15 @@ def guest_emails_sent_by_owner_last_24h(db: Session, owner_id) -> int:
 
 def guest_email_owner_cap(db: Session, owner_id) -> int:
     """This owner's rolling-24h guest-mail ceiling: the lower one until the
-    owner's own e-mail address is confirmed."""
+    owner's own e-mail address is confirmed — and while a "did you create
+    this account?" question waits for the inbox owner's answer
+    (services/claim_decision.py: whoever set the password may still be in)."""
     verified = db.query(User.email_verified).filter(User.id == owner_id).scalar()
-    return (GUEST_EMAILS_PER_OWNER_PER_DAY if verified is True
-            else GUEST_EMAILS_PER_OWNER_PER_DAY_UNCONFIRMED)
+    if verified is True:
+        from app.services.claim_decision import question_open_for
+        if not question_open_for(db, owner_id):
+            return GUEST_EMAILS_PER_OWNER_PER_DAY
+    return GUEST_EMAILS_PER_OWNER_PER_DAY_UNCONFIRMED
 
 
 def owner_guest_mail_capped(db: Session, owner_id) -> int | None:

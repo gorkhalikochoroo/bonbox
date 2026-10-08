@@ -5300,7 +5300,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   const keyRef = useRef(null);
   // A settled null profile means the owner has no BusinessProfile row — read
   // as {} (no revisor saved), so the "Ikke sendt" lines still show.
-  const { kind, acct, demo, identity } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
+  const { kind, acct, demo, identity, ownerSent } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
     error: st.error, profile: profileLoaded ? (profile ?? {}) : null, ownerConfirmed });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
@@ -5473,13 +5473,24 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
         <Icon name="BellOff" size={13} /> {t("dcMailOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — send it from your own mail.", { email: acct || "—" })}
       </span>
     );
-  } else if (kind === "unverified") {
+  } else if (kind === "unverified" || kind === "unverified_owner_failed") {
     // The revisor got nothing: the owner's own e-mail is not confirmed yet.
-    // No Send button (it would be refused) — the one tap that fixes it.
+    // No Send button (it would be refused) — the one tap that fixes it. What
+    // happened to the owner's OWN copy is said too: it went ("Sendt til dig
+    // …"), or it failed (its own line, with the cause).
     line = (
-      <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`} data-testid="dc-mail-held-unverified">
-        <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first")}</span>
-        <Link to="/verify-email?now=1" className="text-xs font-semibold underline underline-offset-2">{t("verifyEmailNowCta", "Confirm now")}</Link>
+      <span className="inline-flex flex-col gap-1">
+        {kind === "unverified_owner_failed" && (
+          <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-1`} data-testid="dc-mail-owner-copy-failed">
+            <Icon name="AlertTriangle" size={13} /> {t("dcMailOwnerCopyFailed", "Your copy was not sent — {reason}", { reason })}
+          </span>
+        )}
+        <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`} data-testid="dc-mail-held-unverified">
+          <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {ownerSent
+            ? t("dcMailHeldUnverifiedSentYou", "Sent to you {when} — not to your revisor: confirm your e-mail first", { when: whenText })
+            : t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first")}</span>
+          <Link to="/verify-email?now=1" className="text-xs font-semibold underline underline-offset-2">{t("verifyEmailNowCta", "Confirm now")}</Link>
+        </span>
       </span>
     );
   } else if (kind === "unchanged") {

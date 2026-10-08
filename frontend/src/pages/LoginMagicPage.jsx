@@ -21,7 +21,9 @@ import ClaimQuestion from "../components/ClaimQuestion";
  *      claim_ticket: ask "Har du selv oprettet denne BonBox-konto den
  *      <dato> og valgt adgangskoden?" (components/ClaimQuestion.jsx).
  *      Ja → POST /auth/claim-decision keep → dashboard. Nej / Ved ikke →
- *      secure → "Din konto er sikret" + "Vælg en ny adgangskode". No skip:
+ *      secure → "Din konto er sikret" + "Vælg en ny adgangskode" (opens
+ *      /forgot-password with the address filled in and the code already
+ *      sent — router state, never the URL). No skip:
  *      leaving the page leaves the question open (the mail asks too).
  *   4. On error → render an inline "expired or used" message with a
  *      button back to /login (where the user can request a new link)
@@ -60,6 +62,11 @@ export default function LoginMagicPage() {
   const [answering, setAnswering] = useState(false);
   const [answerError, setAnswerError] = useState("");
   const [closedNote, setClosedNote] = useState(""); // expired / already answered
+  // The signed-in address, for "Vælg en ny adgangskode": handed to
+  // /forgot-password as router state (never in the URL), which fills it in
+  // and sends the code at once — the owner types only the code and the new
+  // password.
+  const [accountEmail, setAccountEmail] = useState("");
 
   useEffect(() => {
     // Defensive: short / empty tokens never reach the network. The
@@ -87,6 +94,7 @@ export default function LoginMagicPage() {
         if (access && typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
           try { localStorage.setItem("token", access); } catch { /* ignore */ }
         }
+        setAccountEmail(String(res?.data?.user?.email || ""));
         if (res?.data?.password_reset) {
           setAccessClosed(!!res?.data?.access_closed);
           setState("claimed");
@@ -157,6 +165,7 @@ export default function LoginMagicPage() {
       if (access && typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
         try { localStorage.setItem("token", access); } catch { /* ignore */ }
       }
+      if (res?.data?.user?.email) setAccountEmail(String(res.data.user.email));
       setAccessClosed(!!res?.data?.access_closed);
       setState("secured");
     } catch (err) {
@@ -271,7 +280,8 @@ export default function LoginMagicPage() {
               {t("magicLinkClaimedContinue")}
             </button>
             <p className="text-[13px] text-gray-500 mt-4">
-              <Link to="/forgot-password" className="underline underline-offset-2 hover:text-gray-800">
+              <Link to="/forgot-password" state={accountEmail ? { email: accountEmail } : undefined}
+                className="underline underline-offset-2 hover:text-gray-800">
                 {t("magicLinkClaimedSetPassword")}
               </Link>
             </p>
@@ -296,6 +306,7 @@ export default function LoginMagicPage() {
             )}
             <Link
               to="/forgot-password"
+              state={accountEmail ? { email: accountEmail } : undefined}
               className="inline-block bg-[#22c55e] hover:bg-[#16a34a] text-white px-5 py-2.5 rounded-lg text-[14px] font-medium transition"
             >
               {t("magicLinkClaimedSetPassword")}

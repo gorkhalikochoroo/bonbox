@@ -772,7 +772,7 @@ export const vi = {
   cookieDrawerBody: "Chọn các loại cookie BonBox được phép dùng. Lựa chọn của bạn lưu cục bộ và có thể đổi bất cứ lúc nào qua liên kết ở chân trang.",
   cookieSaveChoices: "Lưu lựa chọn",
   cookieCatNecessary: "Thiết yếu",
-  cookieCatNecessaryDesc: "Bắt buộc để ứng dụng hoạt động — phiên đăng nhập, bảo vệ CSRF và các cài đặt do bạn tự chọn (ngôn ngữ, giao diện sáng/tối, mẹo đã đóng), được giữ trên thiết bị của bạn và không dùng vào việc gì khác. Luôn bật.",
+  cookieCatNecessaryDesc: "Bắt buộc để ứng dụng hoạt động — phiên đăng nhập, bảo vệ CSRF và các cài đặt do bạn tự chọn (giao diện sáng/tối, mẹo đã đóng), được giữ trên thiết bị của bạn và không dùng vào việc gì khác. Luôn bật.",
   cookieCatAnalytics: "Phân tích",
   cookieCatAnalyticsDesc: "Giúp chúng tôi hiểu tính năng nào hữu ích và ứng dụng lỗi ở đâu. Được ghi lại theo từng tài khoản trong cơ sở dữ liệu riêng của BonBox, không bao giờ chia sẻ với công ty phân tích nào và bị xoá sau 180 ngày.",
   cookieCatMarketing: "Tiếp thị",

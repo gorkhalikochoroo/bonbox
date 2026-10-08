@@ -60,7 +60,10 @@ export function identityIsDemo(profile) {
  *         "unrecorded" (locked before the send status was kept) |
  *         "unverified" (the revisor got nothing because the owner's own
  *         e-mail is not confirmed — "Ikke sendt til revisoren — bekræft din
- *         e-mail først") | "none"
+ *         e-mail først"; `ownerSent` when the owner's own copy went: "Sendt
+ *         til dig {when} — ikke til revisoren: bekræft din e-mail først") |
+ *         "unverified_owner_failed" (the same, and the owner's own copy
+ *         failed too — both said) | "none"
  *   ownerConfirmed: the owner's own e-mail is confirmed. Only `false` turns a
  *     held send into "unverified"; once confirmed, the ordinary line takes
  *     over ("Sent to you — not to your revisor" + Send to revisor).
@@ -86,7 +89,15 @@ export function closeEmailState({ status, sentTo = [], skip = null, profile = nu
   const held = skip === "email_unverified" || error === "revisor_email_unverified";
   if (held && acct && ownerConfirmed === false && status !== "sending"
       && !profile?.accountant_opted_out) {
-    return { kind: "unverified", acct, demo, identity };
+    // Say what happened to the owner's OWN copy too (review, 9 Oct): that it
+    // went, or that it failed — never hidden behind the held line.
+    if ((status === "sent" || status === "partial") && to.length) {
+      return { kind: "unverified", ownerSent: true, acct, demo, identity };
+    }
+    if (FAILED.has(status) || status === "partial") {
+      return { kind: "unverified_owner_failed", acct, demo, identity };
+    }
+    return { kind: "unverified", ownerSent: false, acct, demo, identity };
   }
   if (skip === "unchanged" || error === "revisor_unchanged") {
     if (status === "sent" || status === "partial") return { kind: "unchanged", acct, demo, identity };

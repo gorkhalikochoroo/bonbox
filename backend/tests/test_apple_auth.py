@@ -373,3 +373,46 @@ def test_legacy_apple_sign_in_to_a_confirmed_account_sends_no_notice(db_session,
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 200, r.text
     assert sent == []
+
+
+def test_legacy_apple_sign_in_mails_an_unanswered_question_again_a_day_later(db_session, client, monkeypatch):
+    """Old iOS builds only call /auth/apple and cannot show the question: a
+    lost or expired mail must not leave them without a way to answer (review,
+    9 Oct). A later sign-in (found by the Apple ID) a day on mails it again;
+    a second one that day does not."""
+    from datetime import timedelta
+    from app.models.account_claim_ticket import AccountClaimTicket
+    from app.routers.auth import limiter as _auth_limiter
+    from app.routers.auth_magic_link import limiter as _ml_limiter
+    from app.utils.time import utc_now
+    _auth_limiter.reset()
+    _ml_limiter.reset()
+    sent = []
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, **kw: sent.append(html) or True)
+    squatter = User(
+        email="victim3@bonbox.test", password_hash=hash_password("attacker-pw-1"),
+        business_name="V", business_type="cafe", currency="DKK",
+    )
+    db_session.add(squatter); db_session.commit(); db_session.refresh(squatter)
+    claims = {"sub": "001234.claim.0005", "email": "victim3@bonbox.test", "email_verified": "true"}
+    with _patch_verify(claims):
+        assert client.post("/api/auth/apple", json={"identity_token": "x"}).status_code == 200
+    assert len(sent) == 1
+    for row in db_session.query(AccountClaimTicket).filter(AccountClaimTicket.user_id == squatter.id):
+        row.created_at = utc_now() - timedelta(days=8)
+        row.expires_at = utc_now() - timedelta(days=1)
+    db_session.commit()
+
+    with _patch_verify(claims):
+        assert client.post("/api/auth/apple", json={"identity_token": "x"}).status_code == 200
+    assert len(sent) == 2
+    ticket = _claim_mail_ticket(sent[1])
+    st = client.post("/api/auth/claim-decision/status", json={"ticket": ticket})
+    assert st.status_code == 200 and st.json()["state"] == "open"
+
+    with _patch_verify(claims):
+        assert client.post("/api/auth/apple", json={"identity_token": "x"}).status_code == 200
+    assert len(sent) == 2                                     # once a day at most
+    assert client.post("/api/auth/claim-decision",
+                       json={"ticket": ticket, "answer": "keep"}).status_code == 200

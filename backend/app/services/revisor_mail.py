@@ -594,19 +594,80 @@ INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_DA = (
 )
 
 
+# The address IS confirmed, but the inbox owner has not yet answered "did you
+# create this account yourself?" (services/claim_decision.py) — whoever set
+# the password may still hold a session. Same code as an unconfirmed address
+# (every app build handles it: nothing sent, the owner's own mail offered),
+# with a message that says what actually waits. Mirrors the profile 409.
+CLAIM_OPEN_MESSAGE_EN = (
+    "BonBox is waiting for your answer: did you create this account yourself? "
+    "Answer from the link in the e-mail we sent, or sign in with a login link. "
+    "Until then, BonBox does not send fakturaer, team invitations, supplier orders "
+    "or mail to your revisor for you."
+)
+CLAIM_OPEN_MESSAGE_DA = (
+    "BonBox venter på dit svar: Har du selv oprettet denne konto? "
+    "Svar via linket i den mail, vi har sendt, eller log ind med et login-link. "
+    "Indtil da sender BonBox ikke fakturaer, medarbejderinvitationer, leverandørordrer "
+    "eller mail til din revisor for dig."
+)
+
+
+def claim_question_pending(user: Any) -> bool:
+    """True while the account has an unanswered "did you create it?" question
+    (services/claim_decision.py). A login link (or Apple, or a reset code)
+    confirmed the address, but whoever set the password before that still
+    holds their sessions until the inbox owner answers — so the account does
+    not count as a confirmed sender yet (review, 9 Oct).
+
+    Read through the account row's own session (the request's). A row with
+    no session, or a lookup that fails, counts as pending: when BonBox cannot
+    tell, it does not mail a third party. A non-row (a test double) has no
+    tickets."""
+    from sqlalchemy.orm import object_session
+    from sqlalchemy.orm.exc import UnmappedInstanceError
+    try:
+        db = object_session(user)
+    except UnmappedInstanceError:
+        return False
+    if db is None:
+        return True
+    try:
+        from app.services.claim_decision import question_open_for
+        return question_open_for(db, user.id)
+    except Exception:  # noqa: BLE001 — fail closed: no third-party mail
+        logger.warning("claim question lookup failed for %s", getattr(user, "id", None))
+        return True
+
+
 def sender_is_verified(user: Any) -> bool:
-    """True only when the account's own address is confirmed. The non-raising
-    form, for a path that still does its work but holds the mail (the revisor
-    invite: the grant is created, nothing is e-mailed)."""
-    return getattr(user, "email_verified", False) is True
+    """True only when the account's own address is confirmed AND no "did you
+    create it?" question is waiting for the inbox owner's answer. The
+    non-raising form, for a path that still does its work but holds the mail
+    (the revisor invite: the grant is created, nothing is e-mailed)."""
+    if getattr(user, "email_verified", False) is not True:
+        return False
+    return not claim_question_pending(user)
 
 
 def require_verified_sender(user: Any, *, message: str | None = None,
                             message_da: str | None = None) -> None:
-    """403 email_unverified unless the account's own address is confirmed.
-    A surface may pass its own (true, more specific) message pair."""
-    if sender_is_verified(user):
-        return
+    """403 email_unverified unless the account's own address is confirmed
+    (and no claim question is open). A surface may pass its own (true, more
+    specific) message pair for the unconfirmed address; an open question
+    always says so instead."""
+    if getattr(user, "email_verified", False) is True:
+        if not claim_question_pending(user):
+            return
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_unverified",
+                "reason": "claim_question_open",
+                "message": CLAIM_OPEN_MESSAGE_EN,
+                "message_da": CLAIM_OPEN_MESSAGE_DA,
+            },
+        )
     raise HTTPException(
         status_code=403,
         detail={

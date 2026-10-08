@@ -32,7 +32,7 @@ export function formatClaimDate(iso, lang) {
 const PRIMARY = "bg-slate-900 hover:bg-slate-800 text-white border border-slate-900";
 const SECONDARY = "bg-white hover:bg-slate-50 text-slate-900 border border-slate-300";
 
-export default function ClaimQuestion({ createdAt, onAnswer, busy = false, error = "", preferred = "", explainKey = "claimQuestionExplain" }) {
+export default function ClaimQuestion({ createdAt, onAnswer, busy = false, error = "", preferred = "", explainKey = "claimQuestionExplain", textKey = "claimQuestionText" }) {
   const { t, lang } = useLanguage();
   const date = formatClaimDate(createdAt, lang);
   // Equal weight unless the owner already picked one in the mail.
@@ -41,7 +41,7 @@ export default function ClaimQuestion({ createdAt, onAnswer, busy = false, error
   return (
     <div className="mt-5 text-left" data-testid="claim-question">
       <p className="text-[15px] font-semibold text-gray-900 leading-snug text-center">
-        {t("claimQuestionText", { date })}
+        {t(textKey, { date })}
       </p>
       <div className="mt-5 flex flex-col gap-2.5">
         <button

@@ -25,14 +25,23 @@ they do not have the inbox.
 
 The question is OPEN while the account holds a ticket that is neither used nor
 voided. Expiry does not close it: an unanswered question is asked again on the
-next login link (no second mail — the mail goes once per question). The first
-answer voids every other ticket of the account; repeating the same answer
-with the same ticket changes nothing (idempotent); a different answer, a
-voided ticket, an expired ticket or an unknown one are refused.
+next proof of the inbox (a login link, a legacy Apple sign-in, a password
+reset). The notice mail goes when the question opens and again on such a
+proof once the newest mail is a day old (REMAIL_AFTER) — so a lost, failed or
+expired mail never leaves an old app build without a way to answer, and a
+day of sign-ins is still one mail. The first answer voids every other ticket
+of the account; repeating the same answer with the same ticket changes
+nothing (idempotent); a different answer, a voided ticket, an expired ticket
+or an unknown one are refused.
 
-While the question is open the login e-mail cannot be changed
-(routers/auth.update_profile): otherwise whoever set the password could move
-the account to another address and keep it out of the inbox owner's reach.
+While the question is open:
+  * the login e-mail cannot be changed (routers/auth.update_profile):
+    otherwise whoever set the password could move the account to another
+    address and keep it out of the inbox owner's reach;
+  * the account is NOT a confirmed sender (revisor_mail.sender_is_verified):
+    the address is confirmed, but whoever set the password still holds a
+    session, and a confirmed sender may mail fakturaer, team invitations,
+    supplier orders and the revisor. Answering opens it again (review, 9 Oct).
 """
 from __future__ import annotations
 
@@ -50,6 +59,10 @@ from app.utils.time import utc_now
 
 PAGE_TTL = timedelta(minutes=30)
 MAIL_TTL = timedelta(days=7)
+# An open question is mailed again on a new proof of the inbox once the newest
+# open mail ticket is this old: a lost / failed / expired mail is replaced,
+# and repeated sign-ins within a day are still one mail.
+REMAIL_AFTER = timedelta(hours=24)
 ANSWERS = ("keep", "secure")
 
 ASKED_ACTION = "auth.claim.asked"
@@ -99,13 +112,30 @@ def long_date(d: date, lang: str) -> str:
 
 
 def question_open(db: Session, user: User) -> bool:
+    return question_open_for(db, user.id)
+
+
+def question_open_for(db: Session, user_id) -> bool:
+    """The account `user_id` has an unanswered "did you create it?" question."""
     return (
         db.query(AccountClaimTicket.id)
-        .filter(AccountClaimTicket.user_id == user.id,
+        .filter(AccountClaimTicket.user_id == user_id,
                 AccountClaimTicket.used_at.is_(None),
                 AccountClaimTicket.voided_at.is_(None))
         .first()
         is not None
+    )
+
+
+def _newest_open_mail_at(db: Session, user: User):
+    from sqlalchemy import func
+    return (
+        db.query(func.max(AccountClaimTicket.created_at))
+        .filter(AccountClaimTicket.user_id == user.id,
+                AccountClaimTicket.kind == "mail",
+                AccountClaimTicket.used_at.is_(None),
+                AccountClaimTicket.voided_at.is_(None))
+        .scalar()
     )
 
 
@@ -131,17 +161,19 @@ class ClaimAsk:
 def ask_inbox_owner(db: Session, user: User, *, via: str, sign_in_ref=None,
                     page_ticket: bool = True,
                     ip_address: str | None = None) -> ClaimAsk | None:
-    """The inbox owner just proved this address (a login link, or Apple's
-    verified claim on the legacy route). If the address was never confirmed,
-    or an earlier question is still unanswered, confirm the address and open
-    (or re-ask) the question. Nothing else on the account changes here.
+    """The inbox owner just proved this address (a login link, Apple's
+    verified claim on the legacy route, or a password reset code). If the
+    address was never confirmed, or an earlier question is still unanswered,
+    confirm the address and open (or re-ask) the question. Nothing else on
+    the account changes here.
 
     Returns None for a confirmed account with no open question — the usual
     sign-in. Otherwise a ClaimAsk: `page_ticket` for the browser that opened
-    the link (when asked for), `mail_ticket` only when this call OPENED the
-    question (the notice mail goes once per question). The result is also
-    left on the instance (`pending_ask`) for the route. The caller commits,
-    THEN mails (the ticket mailed is the ticket stored).
+    the link (when asked for), `mail_ticket` when this call OPENED the
+    question, or re-asks one whose newest mail is REMAIL_AFTER old (a lost,
+    failed or expired mail is replaced; at most one a day). The result is
+    also left on the instance (`pending_ask`) for the route. The caller
+    commits, THEN mails (the ticket mailed is the ticket stored).
     """
     # Two links opened at the same moment ask ONE question (one mail): the
     # account row is the lock (FOR UPDATE on Postgres; SQLite serialises
@@ -161,6 +193,11 @@ def ask_inbox_owner(db: Session, user: User, *, via: str, sign_in_ref=None,
     if not already_open:
         ask.mail_ticket = _new_ticket(db, user, kind="mail", via=via, ttl=MAIL_TTL)
         _audit(db, user, ASKED_ACTION, {"via": via}, ip_address)
+    else:
+        newest = _newest_open_mail_at(db, user)
+        if newest is None or newest <= utc_now() - REMAIL_AFTER:
+            ask.mail_ticket = _new_ticket(db, user, kind="mail", via=via, ttl=MAIL_TTL)
+            _audit(db, user, ASKED_ACTION, {"via": via, "again": True}, ip_address)
     if page_ticket:
         ask.page_ticket = _new_ticket(db, user, kind="page", via=via, ttl=PAGE_TTL,
                                       sign_in_ref=sign_in_ref)
@@ -179,34 +216,54 @@ def pending_ask(user: User) -> ClaimAsk | None:
 
 
 def question_email_html(lang: str, created: date, keep_url: str, secure_url: str,
-                        with_apple: bool = False) -> tuple[str, str]:
-    """(subject, html) of the ONE mail that asks the question, to the inbox
-    that was just proven. No value anybody typed goes in it; the two links
-    open a page that asks once more before anything happens (a mail
-    scanner opening the links changes nothing)."""
+                        with_apple: bool = False, via: str | None = None) -> tuple[str, str]:
+    """(subject, html) of the mail that asks the question, to the inbox that
+    was just proven. No value anybody typed goes in it; the two links open a
+    page that asks once more before anything happens (a mail scanner opening
+    the links changes nothing).
+
+    The mail is built before any answer exists: the browser that opened a
+    login link is asked on the page at the same moment, so the text holds
+    for an owner who has already answered there too (review, 9 Oct)."""
     when = long_date(created, lang)
+    reset = via == "password_reset"
+    apple = with_apple or str(via or "").startswith("apple")
     if lang == "da":
         subject = "BonBox: Har du selv oprettet din konto?"
-        how = "med Apple" if with_apple else "med et login-link fra din e-mail"
-        intro = f"Du er netop logget ind på BonBox {how}, og din e-mailadresse er nu bekræftet."
-        question = f"Har du selv oprettet denne BonBox-konto den {when} og valgt adgangskoden?"
+        if reset:
+            intro = ("Du har netop valgt en ny adgangskode til BonBox med en kode fra din e-mail, "
+                     "og din e-mailadresse er nu bekræftet.")
+            question = f"Har du selv oprettet denne BonBox-konto den {when} og valgt den første adgangskode?"
+        else:
+            how = "med Apple" if apple else "med et login-link fra din e-mail"
+            intro = f"Du er netop logget ind på BonBox {how}, og din e-mailadresse er nu bekræftet."
+            question = f"Har du selv oprettet denne BonBox-konto den {when} og valgt adgangskoden?"
         keep_label = "Ja, det var mig"
         secure_label = "Nej / Ved ikke – sikr min konto"
         explain = ("Ja: alt forbliver, som det er. Nej / Ved ikke: den gamle adgangskode holder op "
                    "med at virke, alle enheder logges ud, og revisoradgang og værtsskærme, der er "
                    "givet, lukkes. Derefter vælger du en ny adgangskode.")
-        small = "Linkene virker i 7 dage, og kun ét svar tæller. Indtil du svarer, er kontoen, som den er."
+        small = ("Linkene virker i 7 dage, og kun ét svar tæller. Har du allerede svaret i BonBox, "
+                 "skal du ikke gøre mere – så virker linkene ikke længere. Har du ikke svaret endnu, "
+                 "er kontoen, som den er.")
     else:
         subject = "BonBox: Did you create your account yourself?"
-        how = "with Apple" if with_apple else "with a login link from your e-mail"
-        intro = f"You just signed in to BonBox {how}, and your e-mail address is now confirmed."
-        question = f"Did you create this BonBox account yourself on {when} and choose the password?"
+        if reset:
+            intro = ("You just chose a new BonBox password with a code from your e-mail, "
+                     "and your e-mail address is now confirmed.")
+            question = f"Did you create this BonBox account yourself on {when} and choose its first password?"
+        else:
+            how = "with Apple" if apple else "with a login link from your e-mail"
+            intro = f"You just signed in to BonBox {how}, and your e-mail address is now confirmed."
+            question = f"Did you create this BonBox account yourself on {when} and choose the password?"
         keep_label = "Yes, it was me"
         secure_label = "No / Not sure – secure my account"
         explain = ("Yes: everything stays as it is. No / Not sure: the old password stops working, "
                    "every device is signed out, and revisor access and host-stand devices given "
                    "out are closed. Then you choose a new password.")
-        small = "The links work for 7 days, and only one answer counts. Until you answer, the account stays as it is."
+        small = ("The links work for 7 days, and only one answer counts. If you already answered in "
+                 "BonBox, there is nothing more to do – the links then no longer work. If you have "
+                 "not answered yet, the account stays as it is.")
     p = '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 12px">{}</p>'
     btn = ('<a href="{href}" style="display:inline-block;margin:4px 6px;padding:12px 22px;'
            'border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;{style}">{label}</a>')
@@ -243,10 +300,10 @@ def send_question_mail(user: User, ask: ClaimAsk | None) -> bool:
         lang = owner_lang(user)
         subject, html = question_email_html(
             lang, date.fromisoformat(ask.question["created_at"]),
-            f"{link}&answer=keep", f"{link}&answer=secure",
-            with_apple=str(ask.via or "").startswith("apple"))
+            f"{link}&answer=keep", f"{link}&answer=secure", via=ask.via)
         return bool(send_email(user.email, subject, html))
-    except Exception:  # noqa: BLE001 — the question stays open and is asked again
+    except Exception:  # noqa: BLE001 — the question stays open; the next proof
+        # of the inbox a day on mails it again (ask_inbox_owner, REMAIL_AFTER)
         return False
 
 
@@ -329,7 +386,11 @@ def ticket_status(db: Session, raw: str) -> dict:
         state = "expired"
     else:
         state = "open"
-    return {"state": state, "decision": decision, "question": question_payload(user)}
+    question = question_payload(user)
+    # Asked after a password reset: the owner has just chosen the current
+    # password, so the page asks about the FIRST one (as the mail does).
+    question["after_reset"] = row.via == "password_reset"
+    return {"state": state, "decision": decision, "question": question}
 
 
 def decide(db: Session, raw: str, answer: str, *, ip_address: str | None = None) -> Decision:

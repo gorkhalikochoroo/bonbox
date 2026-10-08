@@ -13,8 +13,9 @@ A ticket is the only thing that can answer. Two kinds:
     page   30 minutes, handed only to the browser that just opened the login
            link (in the verify answer's body — never in a URL), bound to that
            sign-in (sign_in_ref = the magic_link_tokens row it consumed)
-    mail   7 days, in the one notice mail to the inbox, for old app builds and
-           anyone who closed the page
+    mail   7 days, in the notice mail to the inbox, for old app builds and
+           anyone who closed the page (a new one is mailed, at most once a
+           day, while the question stays open — services/claim_decision.py)
 
 Only the sha256 of the raw ticket is stored. A ticket is single-use; the first
 answer for an account voids every other open ticket of that account. The
@@ -47,7 +48,7 @@ class AccountClaimTicket(Base):
     )
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     kind: Mapped[str] = mapped_column(String(8), nullable=False)        # page | mail
-    via: Mapped[str] = mapped_column(String(20), nullable=False)        # magic_link | apple_legacy
+    via: Mapped[str] = mapped_column(String(20), nullable=False)        # magic_link | apple_legacy | password_reset
     # The magic_link_tokens row whose sign-in got this page ticket (soft link,
     # no FK). NULL for mail tickets and the legacy Apple path.
     sign_in_ref: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)

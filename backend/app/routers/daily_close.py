@@ -1095,6 +1095,21 @@ def _fire_close_auto_email(
                                      "(Profile → Unverified). Then send it from History, "
                                      "or forward this mail yourself."),
             }[skip]
+        if skip == "email_unverified" and getattr(user, "email_verified", False) is True:
+            # The address IS confirmed: held because "did you create this
+            # account yourself?" waits for an answer (revisor_mail.
+            # claim_question_pending) — say that, not "confirm your e-mail".
+            revisor_line = (
+                (f"Ikke sendt til revisoren ({acct}) — BonBox venter på dit svar: Har du selv "
+                 "oprettet denne konto? Svar via linket i den mail, vi har sendt, eller log ind "
+                 "med et login-link. Bagefter kan du sende den fra Historik, eller sende denne "
+                 "mail videre selv.")
+                if is_danish else
+                (f"Not sent to your revisor ({acct}) — BonBox is waiting for your answer: did you "
+                 "create this account yourself? Answer from the link in the e-mail we sent, or "
+                 "sign in with a login link. Then send it from History, or forward this mail "
+                 "yourself.")
+            )
         subject, html = _build_close_email_html(
             **common, audience="owner", revisor_line=revisor_line,
             correction=owner_correction,

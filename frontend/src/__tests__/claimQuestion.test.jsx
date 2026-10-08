@@ -18,6 +18,7 @@ vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({}) }));
 
 import LoginMagicPage from "../pages/LoginMagicPage";
 import ClaimDecisionPage from "../pages/ClaimDecisionPage";
+import ForgotPasswordPage from "../pages/ForgotPasswordPage";
 import { LanguageProvider } from "../hooks/useLanguage";
 
 const TOKEN = "b".repeat(43);
@@ -228,5 +229,82 @@ describe("the notice mail's links (/login/claim)", () => {
     openMailLink("keep");
     await waitFor(() => expect(screen.getByText("The question couldn't be opened right now. Try the link again in a moment.")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+describe("after \"Nej / Ved ikke\": a new password in one step (review, 9 Oct)", () => {
+  const openMagicWithReset = () =>
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={[`/login/magic?token=${TOKEN}`]}>
+          <Routes>
+            <Route path="/login/magic" element={<LoginMagicPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+  it("Choose a new password arrives with the address filled in and the code already sent", async () => {
+    post.mockImplementation((url, body) => {
+      if (url === "/auth/magic-link/verify") {
+        return verifyWithQuestion().then((r) => ({ data: { ...r.data, user: { email: "owner@cafe.dk" } } }));
+      }
+      if (url === "/auth/claim-decision") {
+        return Promise.resolve({ data: { decision: body.answer, access_token: "jwt2", user: { email: "owner@cafe.dk" } } });
+      }
+      if (url === "/auth/forgot-password") return Promise.resolve({ data: { message: "ok" } });
+      return Promise.reject(new Error(url));
+    });
+    openMagicWithReset();
+    fireEvent.click(await screen.findByRole("button", { name: "No / Not sure" }));
+    await screen.findByTestId("claim-secured");
+    const link = screen.getByText("Choose a new password").closest("a");
+    // The address never goes in the URL.
+    expect(link.getAttribute("href")).toBe("/forgot-password");
+    fireEvent.click(link);
+    // The code is on its way: only the code and the new password are left.
+    await waitFor(() => expect(screen.getByText("6-digit code")).toBeTruthy());
+    const sends = post.mock.calls.filter(([url]) => url === "/auth/forgot-password");
+    expect(sends).toEqual([["/auth/forgot-password", { email: "owner@cafe.dk" }]]);
+    expect(document.body.textContent).toContain("owner@cafe.dk");
+  });
+
+  it("the plain Forgot password page still starts empty and sends nothing by itself", async () => {
+    post.mockResolvedValue({ data: {} });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={["/forgot-password"]}>
+          <Routes><Route path="/forgot-password" element={<ForgotPasswordPage />} /></Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+    const box = await screen.findByPlaceholderText(/./, { selector: "input[type=email]" });
+    expect(box.value).toBe("");
+    vi.advanceTimersByTime(1000);
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("a question opened by a password reset (/login/claim)", () => {
+  it("asks about the FIRST password — the owner just chose the current one", async () => {
+    post.mockImplementation((url) => (url === "/auth/claim-decision/status"
+      ? Promise.resolve({ data: { state: "open", decision: null,
+        question: { created_at: "2026-10-08", has_password: true, after_reset: true } } })
+      : Promise.reject(new Error(url))));
+    openMailLink("secure");
+    await screen.findByTestId("claim-question");
+    expect(screen.getByText("Did you create this BonBox account yourself on 8 October 2026 and choose its first password?")).toBeTruthy();
+  });
+
+  it("in Danish too", async () => {
+    localStorage.setItem("lang", "da");
+    post.mockImplementation((url) => (url === "/auth/claim-decision/status"
+      ? Promise.resolve({ data: { state: "open", decision: null,
+        question: { created_at: "2026-10-08", has_password: true, after_reset: true } } })
+      : Promise.reject(new Error(url))));
+    openMailLink("keep");
+    await waitFor(() => expect(screen.getByText(
+      "Har du selv oprettet denne BonBox-konto den 8. oktober 2026 og valgt den første adgangskode?")).toBeTruthy());
   });
 });

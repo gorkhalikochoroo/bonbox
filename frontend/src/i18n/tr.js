@@ -766,7 +766,7 @@ export const tr = {
   cookieDrawerBody: "BonBox'un kullanabileceği çerez kategorilerini seçin. Tercihleriniz cihazınızda saklanır; sayfa altındaki bağlantıdan dilediğiniz zaman değiştirebilirsiniz.",
   cookieSaveChoices: "Tercihlerimi kaydet",
   cookieCatNecessary: "Zorunlu",
-  cookieCatNecessaryDesc: "Uygulamanın çalışması için gerekli — oturum, CSRF koruması ve kendi seçtiğiniz ayarlar (dil, açık/koyu tema, kapatılmış ipuçları); bunlar cihazınızda kalır ve başka hiçbir amaçla kullanılmaz. Her zaman açık.",
+  cookieCatNecessaryDesc: "Uygulamanın çalışması için gerekli — oturum, CSRF koruması ve kendi seçtiğiniz ayarlar (açık/koyu tema, kapatılmış ipuçları); bunlar cihazınızda kalır ve başka hiçbir amaçla kullanılmaz. Her zaman açık.",
   cookieCatAnalytics: "Analitik",
   cookieCatAnalyticsDesc: "Hangi özelliklerin yararlı olduğunu ve uygulamanın nerede sorun çıkardığını anlamamıza yardım eder. Hesap bazında BonBox'un kendi veritabanına kaydedilir, hiçbir analiz şirketiyle paylaşılmaz ve 180 gün sonra silinir.",
   cookieCatMarketing: "Pazarlama",

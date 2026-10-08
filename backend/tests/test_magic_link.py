@@ -1042,3 +1042,146 @@ def test_a_browser_holding_the_session_cookie_can_answer_without_a_csrf_header(e
     assert st.status_code == 200, st.text
     r = browser.post("/api/auth/claim-decision", json={"ticket": res.json()["claim_ticket"], "answer": "keep"})
     assert r.status_code == 200, r.text
+
+
+# ─── Review, 9 Oct: the question cannot get lost; reset asks too ──────
+
+
+def _backdate_open_mail(db, user_id, hours=25, expire=True):
+    """The question's mail was sent `hours` ago (and has expired)."""
+    from datetime import timedelta as _td
+    from app.models.account_claim_ticket import AccountClaimTicket
+    for row in db.query(AccountClaimTicket).filter(AccountClaimTicket.user_id == user_id,
+                                                   AccountClaimTicket.kind == "mail").all():
+        row.created_at = utc_now() - _td(hours=hours)
+        if expire:
+            row.expires_at = utc_now() - _td(seconds=1)
+    db.commit()
+
+
+def test_an_unanswered_question_is_mailed_again_a_day_later_and_only_once_a_day(client, db, email_outbox):
+    """A lost, failed or expired mail must not leave an old app build (which
+    cannot show the page question) with no way to answer: the next proof of
+    the inbox a day later mails it again — with a ticket that works — and a
+    second sign-in that day mails nothing."""
+    squatter = _squatter(db)
+    _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert len(_notices(email_outbox, "victim@bonbox.dk")) == 1
+    _backdate_open_mail(db, squatter.id)
+
+    again = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert again.status_code == 200, again.text
+    notices = _notices(email_outbox, "victim@bonbox.dk")
+    assert len(notices) == 1
+    fresh = _mail_ticket(notices[0]["html"])
+    st = client.post("/api/auth/claim-decision/status", json={"ticket": fresh})
+    assert st.status_code == 200 and st.json()["state"] == "open"
+    assert _actions(db, "auth.claim.asked") == 2           # the re-ask is audited
+
+    third = _link_signin(client, email_outbox, "victim@bonbox.dk")   # same day
+    assert third.json()["claim_question"] is not None
+    assert _notices(email_outbox, "victim@bonbox.dk") == []
+    assert _actions(db, "auth.claim.asked") == 2
+
+    # The re-mailed ticket answers.
+    assert _answer(client, fresh, "secure").status_code == 200
+
+
+def test_a_mail_that_never_arrived_is_sent_again_the_next_day(client, db, email_outbox, monkeypatch):
+    squatter = _squatter(db)
+    monkeypatch.setattr("app.services.email_service.send_email", lambda *a, **k: False)
+    _link_signin(client, email_outbox, "victim@bonbox.dk")     # the question mail fails
+    _backdate_open_mail(db, squatter.id, expire=False)         # still valid, a day old
+    sent = []
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, **k: sent.append((to, html)) or True)
+    _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert [to for to, _ in sent] == ["victim@bonbox.dk"]
+
+
+def test_the_question_mail_holds_for_an_owner_who_already_answered_on_the_page(client, db, email_outbox):
+    """The mail is sent before the page's answer exists: its words must hold
+    either way — never "until you answer" to someone who just did."""
+    from app.services.claim_decision import question_email_html
+    from datetime import date as _date
+    _s, da = question_email_html("da", _date(2026, 10, 8), "k", "s")
+    assert "Har du allerede svaret i BonBox, skal du ikke gøre mere – så virker linkene ikke længere." in da
+    assert "Har du ikke svaret endnu, er kontoen, som den er." in da
+    assert "Indtil du svarer" not in da
+    _s, en = question_email_html("en", _date(2026, 10, 8), "k", "s")
+    assert "If you already answered in BonBox, there is nothing more to do – the links then no longer work." in en
+    assert "If you have not answered yet, the account stays as it is." in en
+    assert "Until you answer" not in en
+
+
+def _reset(client, email, code="654321", pw="new-owner-pw-9"):
+    from app.routers import auth as auth_router
+    auth_router.limiter.reset()
+    return client.post("/api/auth/reset-password",
+                       json={"email": email, "reset_token": code, "new_password": pw})
+
+
+def _arm_reset(db, user, code="654321"):
+    user.reset_token = code
+    user.reset_token_expires = utc_now() + timedelta(minutes=10)
+    user.reset_attempts = 0
+    db.commit()
+
+
+def test_a_password_reset_on_an_unconfirmed_account_asks_and_secure_closes_what_was_handed_out(
+        client, db, email_outbox):
+    """Glemt adgangskode proves the inbox like a login link. It replaces the
+    password and signs every session out — but the revisor grants and
+    host-stand links whoever set the first password handed out stayed open.
+    Now the inbox owner is asked by mail; "Nej / Ved ikke" closes them."""
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    from app.services.auth import create_access_token
+    squatter = _squatter(db)
+    _revisor, g, pending, stand = _grant_and_stand(db, squatter)
+    squatter_jwt = create_access_token(str(squatter.id), squatter.token_version or 0)
+    _arm_reset(db, squatter)
+    email_outbox.clear()
+
+    r = _reset(client, "victim@bonbox.dk")
+    assert r.status_code == 200, r.text
+    assert _me(client, squatter_jwt) == 401                  # as before: sessions out
+    db.expire_all()
+    u = db.query(User).filter(User.id == squatter.id).one()
+    assert u.email_verified is True                          # the code proved the inbox
+    # Handed-out access is still open until the inbox owner answers …
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "active"
+    notices = _notices(email_outbox, "victim@bonbox.dk")
+    assert len(notices) == 1
+    html = notices[0]["html"]
+    assert "Du har netop valgt en ny adgangskode til BonBox med en kode fra din e-mail" in html
+    assert "og valgt den første adgangskode?" in html
+    ticket = _mail_ticket(html)
+    st = client.post("/api/auth/claim-decision/status", json={"ticket": ticket})
+    assert st.json()["state"] == "open" and st.json()["question"]["after_reset"] is True
+    assert _actions(db, "auth.claim.asked") == 1
+
+    # … and "Nej / Ved ikke" closes it.
+    assert _answer(client, ticket, "secure").status_code == 200
+    db.expire_all()
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "revoked"
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == pending.id).one().status == "revoked"
+    assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is False
+
+
+def test_a_password_reset_on_a_confirmed_account_asks_nothing(client, db, email_outbox):
+    owner = _make_user(db, email="owner@bonbox.dk")
+    _arm_reset(db, owner)
+    email_outbox.clear()
+    r = _reset(client, "owner@bonbox.dk")
+    assert r.status_code == 200, r.text
+    assert _notices(email_outbox, "owner@bonbox.dk") == []
+    assert _actions(db, "auth.claim.asked") == 0
+
+
+def test_a_login_link_question_page_does_not_say_after_reset(client, db, email_outbox):
+    _squatter(db)
+    _link_signin(client, email_outbox, "victim@bonbox.dk")
+    ticket = _mail_ticket(_notices(email_outbox, "victim@bonbox.dk")[0]["html"])
+    st = client.post("/api/auth/claim-decision/status", json={"ticket": ticket})
+    assert st.json()["question"]["after_reset"] is False

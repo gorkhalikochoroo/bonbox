@@ -97,10 +97,17 @@ class ClaimDecisionIn(ClaimTicketIn):
     answer: Literal["keep", "secure"]
 
 
+class ClaimStatusQuestion(ClaimQuestion):
+    """The mail's landing page: the question, plus whether a password reset
+    opened it — the owner then just chose the current password, so the page
+    asks about the first one."""
+    after_reset: bool = False
+
+
 class ClaimStatusResponse(BaseModel):
     state: Literal["open", "decided", "expired"]
     decision: Optional[Literal["keep", "secure"]] = None
-    question: ClaimQuestion
+    question: ClaimStatusQuestion
 
 
 class ClaimDecisionResponse(BaseModel):
