@@ -27,7 +27,8 @@ import {
 
 const REF_KEY = "bonbox_signup_ref";
 
-// An "Accept all" saved by this release's banner.
+// An "Accept all" saved by the 8 Oct banner — it still carries the removed
+// Preferences switch's "functional" key, which must keep loading.
 const acceptedAll = () =>
   localStorage.setItem(
     "bonbox_cookie_consent",
@@ -70,9 +71,10 @@ describe.each([
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: button }));
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
-    // The drawer opens on the current answer: all four switches on.
+    // The drawer opens on the current answer: all three switches on
+    // (necessary, analytics, marketing — no Preferences switch since 8 Oct).
     const switches = screen.getAllByRole("switch");
-    expect(switches).toHaveLength(4);
+    expect(switches).toHaveLength(3);
     for (const s of switches) expect(s.getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("dialog").textContent).toMatch(new RegExp(drawerTitle, "i"));
   });
@@ -87,11 +89,11 @@ describe("withdrawing Marketing from the footer removes the flyer code", () => {
 
     renderWithBanner(<CookiePolicyPage />, "en");
     fireEvent.click(screen.getByRole("button", { name: "Cookie settings" }));
-    await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(4));
-    // necessary, preferences, analytics, marketing (the drawer re-creates the
-    // switches on every render, so query again after the click)
-    fireEvent.click(screen.getAllByRole("switch")[3]);
-    expect(screen.getAllByRole("switch")[3].getAttribute("aria-checked")).toBe("false");
+    await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(3));
+    // necessary, analytics, marketing (the drawer re-creates the switches on
+    // every render, so query again after the click)
+    fireEvent.click(screen.getAllByRole("switch")[2]);
+    expect(screen.getAllByRole("switch")[2].getAttribute("aria-checked")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: /save my choices/i }));
 
     expect(getCookieConsent().marketing).toBe(false);
@@ -106,7 +108,7 @@ describe("landing footer", () => {
     acceptedAll();
     renderWithBanner(<FooterV2 />, "en");
     fireEvent.click(screen.getByRole("button", { name: "Cookie settings" }));
-    await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(3));
   });
 });
 

@@ -9,9 +9,18 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  * Design:
  *  • First-visit users see a banner with three actions: Accept all / Decline
  *    non-essential / Customize.
- *  • Customize opens an inline drawer with 4 categories. "Strictly necessary"
- *    is locked on (auth, CSRF, session). The other three default OFF —
- *    Datatilsynet's guidance is "consent must be opt-in, not opt-out."
+ *  • Customize opens an inline drawer with 3 categories. "Strictly necessary"
+ *    is locked on (auth, CSRF, session — and the settings the owner chooses
+ *    themselves). Analytics and Marketing default OFF — Datatilsynet's
+ *    guidance is "consent must be opt-in, not opt-out."
+ *  • There is NO "Preferences" switch (removed 8 Oct 2026, Manoj). It did
+ *    nothing: no code read getCookieConsent().functional, and theme, language,
+ *    dismissed tips and the like were stored whatever it said. Settings a
+ *    person chooses themselves are storage they asked for (ePrivacy Art. 5(3)
+ *    "strictly necessary in order to provide a service explicitly requested"),
+ *    so the banner and /cookies say that plainly instead of offering a switch
+ *    that changed nothing. An answer saved by an older banner may still carry
+ *    a "functional" key: it is read past, never needed, and never written.
  *  • Choices persist in localStorage with a version stamp so we can re-prompt
  *    if the policy changes, and a timestamp so we can re-prompt every 12
  *    months (best practice; required for some Datatilsynet interpretations).
@@ -95,9 +104,10 @@ export function getCookieConsent() {
 
   if (!parsed.choices || typeof parsed.choices !== "object") return null;
 
+  // An older answer's "functional" key (the removed Preferences switch) is
+  // ignored: the record still loads, and nothing depended on that value.
   return {
     necessary: true, // never trust stored value — always force-on
-    functional: !!parsed.choices.functional,
     analytics: !!parsed.choices.analytics,
     marketing: !!parsed.choices.marketing,
   };
@@ -149,7 +159,6 @@ function saveConsent(choices) {
   // against component bugs that try to disable strictly-necessary cookies.
   const safe = {
     necessary: true,
-    functional: !!choices.functional,
     analytics: !!choices.analytics,
     marketing: !!choices.marketing,
   };
@@ -180,7 +189,6 @@ export default function CookieConsent() {
   const [drawer, setDrawer] = useState(false); // customize drawer
   const [choices, setChoices] = useState({
     necessary: true,
-    functional: false,
     analytics: false,
     marketing: false,
   });
@@ -225,7 +233,7 @@ export default function CookieConsent() {
     // (consent banners can't be skipped under EU rules) but pre-fill with
     // everything OFF so a default Accept-All click still respects DNT.
     if (userHasDNT()) {
-      setChoices({ necessary: true, functional: false, analytics: false, marketing: false });
+      setChoices({ necessary: true, analytics: false, marketing: false });
     }
 
     // Show banner if no valid consent saved — after a beat, so a guest
@@ -270,13 +278,13 @@ export default function CookieConsent() {
   if (!open) return null;
 
   const acceptAll = () => {
-    const all = { necessary: true, functional: true, analytics: true, marketing: true };
+    const all = { necessary: true, analytics: true, marketing: true };
     saveConsent(all);
     setOpen(false);
     setDrawer(false);
   };
   const declineAll = () => {
-    const min = { necessary: true, functional: false, analytics: false, marketing: false };
+    const min = { necessary: true, analytics: false, marketing: false };
     saveConsent(min);
     setOpen(false);
     setDrawer(false);
@@ -354,7 +362,7 @@ export default function CookieConsent() {
                   </p>
                   <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
                     {t("cookieBannerBody") ||
-                      "BonBox uses essential cookies to keep you signed in. With your consent we may also use cookies to remember your preferences and to understand how the app is used."}
+                      "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. With your consent we may also use cookies to understand how the app is used."}
                   </p>
                 </div>
               </div>
@@ -417,12 +425,6 @@ export default function CookieConsent() {
                   value={true}
                   onChange={() => {}}
                   locked
-                />
-                <Category
-                  titleKey="cookieCatFunctional"
-                  descKey="cookieCatFunctionalDesc"
-                  value={choices.functional}
-                  onChange={(v) => setChoices((c) => ({ ...c, functional: v }))}
                 />
                 <Category
                   titleKey="cookieCatAnalytics"

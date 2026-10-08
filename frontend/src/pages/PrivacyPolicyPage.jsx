@@ -120,6 +120,7 @@ function PrivacyEn() {
             <li>Device type (desktop, mobile, tablet)</li>
           </ul>
           <p className="mt-1">We do not use third-party tracking cookies. We do not use Google Analytics, Meta Pixel, or similar advertising trackers.</p>
+          <p className="mt-1" data-testid="privacy-own-settings">Settings you choose yourself in BonBox (for example light/dark theme and dismissed tips) are stored on your device because they are necessary for what you asked BonBox to do. They are not used for anything else (see the <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">Cookie Policy</Link>).</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Legitimate interest (GDPR Article 6(1)(f)).</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Product analytics events</h3>
@@ -376,6 +377,7 @@ function PrivacyDa() {
             <li>Enhedstype (computer, mobil, tablet)</li>
           </ul>
           <p className="mt-1">Vi bruger ikke sporingscookies fra tredjeparter. Vi bruger ikke Google Analytics, Meta Pixel eller lignende sporingsværktøjer til annoncering.</p>
+          <p className="mt-1" data-testid="privacy-own-settings">Indstillinger, du selv vælger i BonBox (fx lyst/mørkt tema og tip, du har lukket), gemmes på din enhed, fordi de er nødvendige for det, du har bedt BonBox om. De bruges ikke til andet (se <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">cookiepolitikken</Link>).</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f).</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Hændelser til produktanalyse</h3>

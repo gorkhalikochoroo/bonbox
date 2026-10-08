@@ -83,6 +83,12 @@ function CookiesEn() {
               <strong>Settings you chose</strong> — language, currency, dark mode, which branch you are
               viewing, whether the sidebar is collapsed, your recent searches, and which tips you have
               dismissed.
+              <span className="block mt-1" data-testid="cookies-own-settings">
+                Settings you choose yourself (for example light/dark theme and dismissed tips) are stored
+                on your device because they are necessary for what you asked BonBox to do: show the app
+                the way you set it. They are not used for anything else. That is why the cookie banner
+                has no switch for them.
+              </span>
             </li>
             <li>
               <strong>Signing you in</strong> — an access token, a copy of your own account details for
@@ -225,6 +231,11 @@ function CookiesDa() {
               <strong>Indstillinger, du har valgt</strong> — sprog, valuta, mørk tilstand, hvilken afdeling
               du ser på, om sidemenuen er klappet sammen, dine seneste søgninger, og hvilke tips du har
               lukket.
+              <span className="block mt-1" data-testid="cookies-own-settings">
+                Indstillinger, du selv vælger (fx lyst/mørkt tema og tip, du har lukket), gemmes på din
+                enhed, fordi de er nødvendige for det, du har bedt BonBox om: at vise appen, som du har
+                indstillet den. De bruges ikke til andet. Derfor har cookiebanneret ingen kontakt til dem.
+              </span>
             </li>
             <li>
               <strong>Login</strong> — et adgangstoken, en kopi af dine egne kontooplysninger, som appen
