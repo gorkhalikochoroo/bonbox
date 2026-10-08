@@ -51,13 +51,46 @@ def send_whatsapp(to: str, body: str):
         print(f"Twilio send error: {e}")
 
 
+def _webhook_url() -> str:
+    """The exact public URL Twilio posts to — what its signature covers.
+    Configured (WHATSAPP_WEBHOOK_URL, else the public API base), never taken
+    from the request: behind Cloudflare/Render request.url carries the wrong
+    scheme and host, and a forged request must not choose the URL it is
+    checked against."""
+    configured = (os.getenv("WHATSAPP_WEBHOOK_URL") or "").strip()
+    if configured:
+        return configured
+    from app.services.revisor_mail import public_api_base
+    return f"{public_api_base()}/api/whatsapp/webhook"
+
+
+def _twilio_signature_ok(form_data, signature: str | None) -> bool:
+    """True only for a request signed with OUR Twilio auth token. Fails
+    closed: no token configured, no X-Twilio-Signature header, or a
+    signature that does not match → False."""
+    token = (TWILIO_TOKEN or "").strip()
+    if not token or not signature:
+        return False
+    try:
+        from twilio.request_validator import RequestValidator
+        return bool(RequestValidator(token).validate(_webhook_url(), form_data, signature))
+    except Exception:  # noqa: BLE001 — a validator failure is a refusal
+        return False
+
+
 @router.post("/webhook")
 async def whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Receive incoming WhatsApp messages from Twilio."""
+    """Receive incoming WhatsApp messages from Twilio.
+
+    The Twilio signature is checked FIRST — before anything is read or
+    written. The form's From decides whose books the bot writes to, so an
+    unsigned or forged request is refused (403), fail-closed (sweep, 8 Oct)."""
     form_data = await request.form()
+    if not _twilio_signature_ok(form_data, request.headers.get("X-Twilio-Signature")):
+        raise HTTPException(status_code=403, detail="Invalid or missing Twilio signature")
     body = form_data.get("Body", "").strip()
     from_number = form_data.get("From", "").replace("whatsapp:", "")
 
