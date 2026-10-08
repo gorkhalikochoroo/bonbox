@@ -203,11 +203,11 @@ def _owner_contact_email(profile, user) -> str:
 
 def _owner_copy_allowed(profile, address: str) -> bool:
     """False when `address` asked BonBox to stop (it is in the revisor
-    opt-out set) — an owner copy must not reach an opted-out address either."""
-    if not address:
-        return False
-    from app.services.revisor_mail import address_fingerprint, opted_out_fingerprints
-    return address_fingerprint(address) not in opted_out_fingerprints(profile)
+    opt-out set) — an owner copy must not reach an opted-out address either —
+    and False for an address the demo seeder wrote (revisor or business
+    e-mail on a demo-seeded profile). One rule: revisor_mail.owner_copy_allowed."""
+    from app.services.revisor_mail import owner_copy_allowed
+    return owner_copy_allowed(profile, address)
 
 
 def _branch_names(db: Session, user: User, closes) -> dict:
@@ -470,7 +470,10 @@ def _build_close_email_html(
         status_label = "Status"
         ready_txt = "Klar til bogføring"
         review_txt = "Gennemgås"
-        scan_note = ("Z-bon-fotoet kunne ikke hentes lige nu — kun PDF'en er vedhæftet."
+        # The revisor cannot fetch the photo; the owner can resend it.
+        scan_note = (("Z-bon-fotoet er ikke vedhæftet — ejeren kan sende det fra BonBox."
+                      if is_revisor else
+                      "Z-bon-fotoet er ikke vedhæftet — tryk Send igen i Historik for at få det med.")
                      if scan_degraded else "")
         owner_footer = "Sendt automatisk fra BonBox, da dagen blev låst."
     else:
@@ -494,7 +497,9 @@ def _build_close_email_html(
         status_label = "Status"
         ready_txt = "Ready for bookkeeping"
         review_txt = "Needs review"
-        scan_note = ("The Z-report photo couldn't be fetched right now — only the PDF is attached."
+        scan_note = (("The Z-report photo isn't attached — the owner can send it from BonBox."
+                      if is_revisor else
+                      "The Z-report photo isn't attached — tap Send again in History to include it.")
                      if scan_degraded else "")
         owner_footer = "Sent automatically from BonBox when the day was locked."
 
@@ -846,14 +851,20 @@ def _fire_close_auto_email(
     if owner_email and not _owner_copy_allowed(profile, owner_email):
         owner_email = ""
     from app.services.revisor_mail import (
-        REVISOR_DAILY_CAP, address_fingerprint, revisor_daily_cap_reached, revisor_opted_out,
-        revisor_unsubscribe_headers, revisor_unsubscribe_url,
+        REVISOR_DAILY_CAP, address_fingerprint, is_demo_revisor, revisor_daily_cap_reached,
+        revisor_opted_out, revisor_unsubscribe_headers, revisor_unsubscribe_url,
         saved_revisor_address, sender_display,
     )
+    from app.services.email_service import html_to_text
     acct = saved_revisor_address(profile)
     result["accountant_email"] = acct or None
     if not acct:
         skip = "not_saved"
+    elif is_demo_revisor(profile, acct):
+        # The demo seeder's sample revisor on a demo-seeded profile: NOT SAVED
+        # for every send — a real close locked after trying the demo must
+        # never reach an address the owner never typed.
+        skip = "demo_recipient"
     elif _is_demo_close(dc):
         skip = "demo_close"
     elif revisor_opted_out(profile, acct):
@@ -870,8 +881,27 @@ def _fire_close_auto_email(
         skip = "daily_cap"
     else:
         skip = None
-    result["accountant_skip_reason"] = skip
     include_acct = skip is None
+
+    # Unlock + re-lock with NOTHING changed: the revisor already holds these
+    # exact figures, so a "Rettet kasserapport … Tallene er de samme" is a
+    # second mail with nothing to book. Skipped (recorded on the audit row as
+    # accountant_skip_reason "unchanged"), the owner is told "uændret", and
+    # "Send igen" (explicit) still sends it. Only when EVERY line was compared
+    # (lines_known) — an older version compared on its headline figures alone
+    # still gets the marked correction.
+    trail = None
+    acct_correction = None
+    if include_acct:
+        trail = _close_audit_trail(db, user, dc)
+        acct_correction = _correction_for(trail, dc, acct, currency)
+        if (not explicit and acct_correction and acct_correction.get("lines_known")
+                and not acct_correction.get("changes")):
+            skip = "unchanged"
+            result["unchanged_since"] = acct_correction.get("prev_sent_at")
+            include_acct = False
+            acct_correction = None
+    result["accountant_skip_reason"] = skip
 
     if not owner_email and not include_acct:
         result["email_status"] = "skipped_no_recipient"
@@ -910,8 +940,8 @@ def _fire_close_auto_email(
 
     from app.services.close_kasserapport_pdf import _branch_name, close_bilagsnummer
     branch = _branch_name(db, user, dc)
-    trail = _close_audit_trail(db, user, dc)
-    acct_correction = _correction_for(trail, dc, acct, currency) if include_acct else None
+    if trail is None:
+        trail = _close_audit_trail(db, user, dc)
     owner_correction = _correction_for(trail, dc, owner_email, currency) if owner_email else None
     result["correction"] = bool(acct_correction or owner_correction)
 
@@ -952,10 +982,14 @@ def _fire_close_auto_email(
             reply_to=owner_email or user.email,
             headers=revisor_unsubscribe_headers(unsub_url),
             from_display=sender_display(business_name),
+            text=html_to_text(html),
         )))
 
     if owner_email:
         acct_sent = bool(sends and sends[0][1].get("status") == "sent")
+        from app.services.daily_close_range_export import dk_datetime
+        from app.services.revisor_mail import DEMO_RECIPIENT_MESSAGE_DA, DEMO_RECIPIENT_MESSAGE_EN
+        unchanged_when = dk_datetime(result.get("unchanged_since"), tz, danish=is_danish)
         if is_danish:
             revisor_line = {
                 # "Afleveret til mailserveren": the mail service took it; a
@@ -967,6 +1001,10 @@ def _fire_close_auto_email(
                 "opted_out": f"Revisoren ({acct}) har afmeldt mails fra BonBox og fik ikke denne.",
                 "same_as_owner": None,
                 "demo_close": "Revisoren fik ikke mailen: dagen er eksempeldata (demo).",
+                "demo_recipient": DEMO_RECIPIENT_MESSAGE_DA,
+                "unchanged": (f"Revisoren ({acct}) fik ikke en ny mail — tallene er uændrede "
+                              f"siden versionen, der blev sendt {unchanged_when or 'tidligere'}. "
+                              "Skal revisoren have den igen, så tryk Send igen i Historik."),
                 "daily_cap": (f"Revisoren ({acct}) fik ikke mailen: BonBox sender højst "
                               f"{REVISOR_DAILY_CAP} mails om dagen til revisoren, og loftet er nået. "
                               "Send den fra Historik i morgen, eller fra din egen mail."),
@@ -980,6 +1018,10 @@ def _fire_close_auto_email(
                 "opted_out": f"Your accountant ({acct}) unsubscribed from BonBox mail and didn't get this.",
                 "same_as_owner": None,
                 "demo_close": "Your accountant didn't get it: this day is sample (demo) data.",
+                "demo_recipient": DEMO_RECIPIENT_MESSAGE_EN,
+                "unchanged": (f"Your accountant ({acct}) didn't get a new mail — the figures are "
+                              f"unchanged since the version sent {unchanged_when or 'earlier'}. "
+                              "To send it again, tap Send again in History."),
                 "daily_cap": (f"Your accountant ({acct}) didn't get it: BonBox sends them at most "
                               f"{REVISOR_DAILY_CAP} mails a day and that limit is reached. "
                               "Send it from History tomorrow, or from your own mail."),
@@ -992,6 +1034,7 @@ def _fire_close_auto_email(
             user, close_id=dc.id, pdf_bytes=pdf_bytes, scan_image_bytes=scan_bytes,
             pdf_filename=pdf_filename, scan_filename=scan_filename,
             recipients=[owner_email], subject=subject, html=html, reply_to=owner_email,
+            text=html_to_text(html),
         )))
 
     # ── Aggregate, honestly ──
@@ -1001,7 +1044,11 @@ def _fire_close_auto_email(
         if r["status"] == "sent":
             sent_to.extend(r["sent_to"])
     errors = [r.get("error") for _who, r in sends if r["status"] != "sent" and r.get("error")]
-    if statuses and all(st == "sent" for st in statuses):
+    if not sends:
+        # Nothing was attempted (the revisor's copy skipped as unchanged and
+        # no owner address) — never "send_failed" for a send that never ran.
+        status = "skipped_no_recipient"
+    elif statuses and all(st == "sent" for st in statuses):
         status = "sent"
     elif sent_to:
         status = "partial"
@@ -1011,6 +1058,10 @@ def _fire_close_auto_email(
         status = "send_failed"
     result["email_status"] = status
     result["email_error"] = errors[0] if errors else None
+    if skip == "unchanged" and not result["email_error"]:
+        # Persisted with the status, so History still says "uændret" after a
+        # reload (the skip reason itself is only on the audit row).
+        result["email_error"] = "revisor_unchanged"
     result["sent_to"] = sent_to
     result["accountant_included"] = bool(include_acct and acct in sent_to)
     result["has_scan"] = any(r.get("has_scan") for _who, r in sends)
@@ -1034,6 +1085,8 @@ def _fire_close_auto_email(
             "correction": bool(acct_correction),
             "explicit": explicit,
             "accountant_skip_reason": skip,
+            "unchanged_since": (result["unchanged_since"].isoformat()
+                                if result.get("unchanged_since") else None),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
@@ -1864,8 +1917,10 @@ def _fill_email_status_from_trail(db: Session, user: User, closes, rows: list[di
 def _is_demo_close(dc) -> bool:
     """A sample close from the demo seeder (notes end in " · demo"). It is
     never mailed to a revisor: it carries the business's real name and CVR
-    over figures nobody took."""
-    return str(getattr(dc, "notes", None) or "").endswith(" · demo")
+    over figures nobody took — and it is in no period artifact either (one
+    predicate: daily_close_range_export.is_demo_close)."""
+    from app.services.daily_close_range_export import is_demo_close
+    return is_demo_close(dc)
 
 
 def _correction_for(trail: list[tuple], dc: DailyClose, address: str | None,
@@ -2012,7 +2067,8 @@ def resend_close_email(
     from sqlalchemy import or_
     from app.services.billing import effective_plan
     from app.services.revisor_mail import (
-        enforce_revisor_daily_cap, resolve_revisor_recipient, saved_revisor_address,
+        enforce_revisor_daily_cap, is_demo_revisor, resolve_revisor_recipient,
+        saved_revisor_address,
     )
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
@@ -2048,8 +2104,10 @@ def resend_close_email(
     # With a revisor saved, the send goes to them (409 when they opted out).
     # With none — an owner-only setup whose lock mail failed — "Send igen"
     # re-sends the owner's own copy; it used to answer 400 and leave the owner
-    # with "Ikke sendt" and no way forward.
-    if saved_revisor_address(profile):
+    # with "Ikke sendt" and no way forward. The demo seeder's sample revisor
+    # on a demo-seeded profile is NOT SAVED: the owner's copy only, which says
+    # why (skip "demo_recipient").
+    if saved_revisor_address(profile) and not is_demo_revisor(profile):
         acct = resolve_revisor_recipient(profile)
         target = acct
     else:
@@ -3482,11 +3540,18 @@ def _resolve_range(
     return from_date, to_date
 
 
-def _fetch_range_closes(
+def _fetch_range_closes_split(
     db: Session, *, user_id, from_date: date, to_date: date,
     branch_id: str | None,
-) -> list[DailyClose]:
-    """Tenant-scoped fetch of closes in the requested range."""
+) -> tuple[list[DailyClose], list[DailyClose]]:
+    """(closes, demo_closes) in the requested range, tenant-scoped.
+
+    ONE rule for every period artifact: a demo seeder's sample close (notes end
+    in " · demo") is EXCLUDED — from period_totals, the period mail, the send
+    to the revisor and the downloadable PDF / Excel / CSV alike. They carry
+    the business's real name and CVR over figures nobody took; September on a
+    tried-the-demo account was 25 sample days + 1 real one. Filtered here in
+    Python (the same predicate as the single-close path) — no extra query."""
     q = db.query(DailyClose).filter(
         DailyClose.user_id == user_id,
         DailyClose.is_deleted.isnot(True),
@@ -3495,7 +3560,21 @@ def _fetch_range_closes(
     )
     if branch_id:
         q = q.filter(DailyClose.branch_id == branch_id)
-    return q.order_by(DailyClose.date.asc()).all()
+    rows = q.order_by(DailyClose.date.asc()).all()
+    real = [c for c in rows if not _is_demo_close(c)]
+    demo = [c for c in rows if _is_demo_close(c)]
+    return real, demo
+
+
+def _fetch_range_closes(
+    db: Session, *, user_id, from_date: date, to_date: date,
+    branch_id: str | None,
+) -> list[DailyClose]:
+    """Tenant-scoped fetch of the REAL closes in the requested range — demo
+    closes are never part of a period artifact (_fetch_range_closes_split)."""
+    return _fetch_range_closes_split(
+        db, user_id=user_id, from_date=from_date, to_date=to_date, branch_id=branch_id,
+    )[0]
 
 
 @router.get("/export.pdf")
@@ -3754,8 +3833,10 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
     def _short(d):
         return f"{d.day}. {_MM[d.month - 1]}" if is_danish else d.strftime("%d %b")
 
+    # The owner's own copy is not addressed to the revisor by name.
+    named = bool((accountant_name or "").strip()) and not owner_copy_to
     if is_danish:
-        greeting = f"Hej {esc(accountant_name.strip())}," if (accountant_name or "").strip() else "Hej,"
+        greeting = f"Hej {esc(accountant_name.strip())}," if named else "Hej,"
         closes_word = "låst lukning" if n_conf == 1 else "låste lukninger"
         intro = (
             f"Vedhæftet er kasserapporterne for <strong>{biz}</strong> for "
@@ -3781,7 +3862,7 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
         }[fmt]
         attached = f"Vedhæftet fil: {att}" if att else ""
     else:
-        greeting = f"Hello {esc(accountant_name.strip())}," if (accountant_name or "").strip() else "Hello,"
+        greeting = f"Hello {esc(accountant_name.strip())}," if named else "Hello,"
         intro = (
             f"Attached are the daily closes for <strong>{biz}</strong> for "
             f"<strong>{period}</strong> ({n_conf} locked)."
@@ -3905,9 +3986,12 @@ def send_to_accountant(
     enforce_revisor_daily_cap(db, user)
 
     f, t = _resolve_range(from_date, to_date, user=user)
-    closes = _fetch_range_closes(
+    # Demo closes are never sent: the attachment, the body and the counts are
+    # the real days only (n_demo says how many sample days were left out).
+    closes, demo_closes = _fetch_range_closes_split(
         db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
     )
+    n_demo = len(demo_closes)
 
     business_name = _business_display_name(profile, user)
     currency = user.currency or "DKK"
@@ -3918,11 +4002,12 @@ def send_to_accountant(
     from app.services.daily_close_range_export import period_totals
     totals = period_totals(closes)
     if totals["n_confirmed"] == 0:
-        # An empty or drafts-only period is never mailed to a third party: it
-        # sent the revisor "0 låste lukninger · Omsætning 0,00 kr.".
+        # An empty, drafts-only or demo-only period is never mailed to a third
+        # party: it sent the revisor "0 låste lukninger · Omsætning 0,00 kr.".
         raise HTTPException(status_code=422, detail={
             "code": "nothing_locked",
             "n_drafts": totals["n_drafts"],
+            "n_demo": n_demo,
             "message": ("Der er ingen låste lukninger i perioden — lås dagene først."
                         if is_danish else
                         "There are no locked closes in this period — lock the days first."),
@@ -4014,7 +4099,7 @@ def send_to_accountant(
             "recipient": recipient, "cc_self": bool(cc), "cc_to": owner_addr if cc else None,
             "format": fmt,
             "filename": filename, "n_closes": totals["n_confirmed"],
-            "n_drafts": totals["n_drafts"],
+            "n_drafts": totals["n_drafts"], "n_demo": n_demo,
             "from_date": f.isoformat(), "to_date": t.isoformat(),
             "total_revenue": totals["revenue"], "total_moms": totals["moms"],
         },
@@ -4037,6 +4122,7 @@ def send_to_accountant(
         "format": fmt,
         "n_closes": totals["n_confirmed"],
         "n_drafts": totals["n_drafts"],
+        "n_demo": n_demo,
         "subject": subject,
     }
 
@@ -4103,7 +4189,7 @@ def range_counts(
     if to_date < from_date:
         from_date, to_date = to_date, from_date
     rows = (
-        db.query(DailyClose.id, DailyClose.date, DailyClose.status)
+        db.query(DailyClose.id, DailyClose.date, DailyClose.status, DailyClose.notes)
         .filter(
             DailyClose.user_id == user.id,
             DailyClose.is_deleted.isnot(True),
@@ -4114,12 +4200,18 @@ def range_counts(
         .limit(5000)
         .all()
     )
-    locked = [r for r in rows if (r.status or "confirmed") == "confirmed"]
+    # Demo closes are in no period artifact and never sent (the same rule as
+    # _fetch_range_closes_split): counted apart, so the confirm can say
+    # "N eksempeldage sendes ikke" and a demo-only range reads as empty.
+    demo = [r for r in rows if _is_demo_close(r)]
+    real = [r for r in rows if not _is_demo_close(r)]
+    locked = [r for r in real if (r.status or "confirmed") == "confirmed"]
     return {
         "from": from_date.isoformat(),
         "to": to_date.isoformat(),
         "n_locked": len(locked),
-        "n_drafts": len(rows) - len(locked),
+        "n_drafts": len(real) - len(locked),
+        "n_demo": len(demo),
         "locked": [{"id": str(r.id), "date": r.date.isoformat()} for r in locked],
     }
 

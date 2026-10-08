@@ -4608,7 +4608,15 @@ async def add_security_headers(request: Request, call_next):
     # and gets its own CSP via meta tag in index.html; this CSP scopes the API's
     # OWN responses (which are JSON only — no scripts, no embeds, no images).
     # default-src 'none' is the strictest — API responses can't render anything.
-    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    # ONE exception, scoped to one route: the e-mail opt-out page (HTML a
+    # revisor or owner opens from their inbox) gets its own policy that allows
+    # exactly its own stylesheet by hash — nothing else is loosened.
+    csp = "default-src 'none'; frame-ancestors 'none'"
+    if (request.url.path == "/api/email/unsubscribe"
+            and "text/html" in (response.headers.get("content-type") or "")):
+        from app.routers.email_unsubscribe import PAGE_CSP
+        csp = PAGE_CSP
+    response.headers["Content-Security-Policy"] = csp
     # Cache nothing for /api/admin/* — security telemetry should never be cached
     if request.url.path.startswith("/api/admin"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"

@@ -30,6 +30,26 @@ from app.models.daily_close import DailyClose, decode_breakdown
 from app.utils.csv_safe import csv_safe
 
 
+# ─── Demo closes are in no period artifact ────────────────────────────
+#
+# A demo seeder's sample close (notes end in " · demo") carries the business's
+# real name and CVR over figures nobody took. ONE rule for every period
+# artifact — the PDF, the Excel, the CSV, period_totals and therefore the
+# period mail: demo closes are EXCLUDED (never listed, never summed). The
+# router drops them when it fetches the range; every builder drops them again
+# on entry, so no caller can put sample days into a revisor's file.
+
+DEMO_NOTES_SUFFIX = " · demo"
+
+
+def is_demo_close(c) -> bool:
+    return str(getattr(c, "notes", None) or "").endswith(DEMO_NOTES_SUFFIX)
+
+
+def without_demo(closes) -> list:
+    return [c for c in (closes or []) if not is_demo_close(c)]
+
+
 # ─── Confirmed vs draft — one predicate, one label ────────────────────
 
 def _is_confirmed(c) -> bool:
@@ -233,6 +253,7 @@ def closes_to_csv_bytes(
     router derives (unlock history from the audit trail, branch names, the
     figures' source) keyed by str(close.id) / str(branch_id).
     """
+    closes = without_demo(closes)  # demo days are in no period artifact
     buf = io.StringIO()
     buf.write("﻿")
     writer = csv.writer(buf, delimiter=";")
@@ -623,7 +644,12 @@ def period_totals(closes) -> dict:
 
     LOCKED closes only. Drafts are counted (n_drafts) so every artifact can say
     "N kladder ikke medregnet", but never summed. MOMS and net are None when
-    any locked close's MOMS cannot be stated (the shared predicate)."""
+    any locked close's MOMS cannot be stated (the shared predicate).
+
+    Demo closes are never counted or summed (n_demo says how many were
+    handed in and left out)."""
+    n_demo = sum(1 for c in (closes or []) if is_demo_close(c))
+    closes = without_demo(closes)
     confirmed = [c for c in closes if _is_confirmed(c)]
     drafts = [c for c in closes if not _is_confirmed(c)]
     moms_unknown = [c for c in confirmed if moms_is_unknown(c)]
@@ -662,6 +688,7 @@ def period_totals(closes) -> dict:
         "drafts": drafts,
         "n_confirmed": len(confirmed),
         "n_drafts": len(drafts),
+        "n_demo": n_demo,
         "moms_unknown_count": len(moms_unknown),
         "revenue": _sum(g(c, "revenue_total") for c in confirmed),
         "moms": None if moms_unknown else _sum(g(c, "moms_total") for c in confirmed),
@@ -824,8 +851,10 @@ def build_daily_close_range_pdf(
       • Readiness badge: "X af Y closes klar til bogføring"
       • Footer cites Bogføringsloven §10 + Momsbekendtgørelsen §57
 
-    Localized for DKK (Danish labels), else English.
+    Localized for DKK (Danish labels), else English. Demo closes are never
+    listed or summed (without_demo).
     """
+    closes = without_demo(closes)
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -1791,6 +1820,7 @@ def build_daily_close_range_xlsx(
     from app.services.bonbox_pdf_kit import export_bilagsnummer
     from app.services.close_kasserapport_pdf import generated_local
 
+    closes = without_demo(closes)  # demo days are in no period artifact
     DA = (currency == "DKK")
     money_fmt = '#,##0.00" kr."' if DA else f'#,##0.00" {currency}"'
     totals = period_totals(closes)

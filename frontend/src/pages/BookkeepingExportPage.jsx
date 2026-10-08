@@ -12,6 +12,7 @@ import { localIso } from "../utils/dateFormat";
 import { PageHeader, Button, SectionBanner, Icon, UpgradeNudge } from "../components/ui";
 import RevisorSection from "../components/RevisorSection";
 import ProcedureCard from "../components/ProcedureCard";
+import { revisorAddress } from "../utils/closeEmail";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -173,7 +174,8 @@ export default function BookkeepingExportPage() {
       const result = await sendBundleToAccountant({
         blob,
         filename,
-        accountantEmail: businessProfile?.accountant_email || "",
+        // Never pre-fill the demo seeder's sample revisor.
+        accountantEmail: revisorAddress(businessProfile),
         accountantName: businessProfile?.accountant_name || "",
         businessName: user?.business_name || businessProfile?.company_name || "",
         fromIso: start,
@@ -188,7 +190,7 @@ export default function BookkeepingExportPage() {
           setMsg(t("bkeMsgShareOpened", "Share sheet opened — pick Mail / WhatsApp."));
         } else if (result.channel === "mailto") {
           setMsg(
-            businessProfile?.accountant_email
+            revisorAddress(businessProfile)
               ? t("bkeMsgEmailAttach", "Email opened — attach the downloaded file and send.")
               : t("bkeMsgEmailAddRevisor", "Email opened — add revisor's address on Profile to skip typing it next time."),
           );
@@ -400,8 +402,8 @@ export default function BookkeepingExportPage() {
               busy={sending}
               iconLeft={!sending && <Icon name="Send" size={14} />}
               title={
-                businessProfile?.accountant_email
-                  ? t("bkeEmailToTitle", "Email to {email}").replace("{email}", businessProfile.accountant_email)
+                revisorAddress(businessProfile)
+                  ? t("bkeEmailToTitle", "Email to {email}").replace("{email}", revisorAddress(businessProfile))
                   : t("bkeSetRevisorEmailTitle", "Set revisor's email on Profile to skip typing it")
               }
             >
@@ -409,7 +411,7 @@ export default function BookkeepingExportPage() {
             </Button>
           </div>
         </div>
-        {!businessProfile?.accountant_email && (
+        {!revisorAddress(businessProfile) && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
             {t("bkeTipPrefix", "Tip:")} <Link to="/profile" className="text-gray-700 dark:text-emerald-400 hover:underline font-medium">{t("bkeTipLink", "save your revisor's email on Profile")}</Link> {t("bkeTipSuffix", "to skip typing it every month.")}
           </p>

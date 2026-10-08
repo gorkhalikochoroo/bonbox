@@ -996,7 +996,9 @@ def test_each_lock_mail_to_the_revisor_is_counted(db_session, client, mailbox):
     cid = _lock(client, user).json()["id"]
     for i in range(3):
         _unlock(client, user, cid, reason=f"runde {i}")
-        _lock(client, user, rev=12500.0 + i)
+        # Every round changes the figures: an unchanged re-lock is (by design)
+        # not mailed to the revisor — see test_an_unchanged_relock_*.
+        _lock(client, user, rev=12510.0 + i)
     n = db_session.query(AuditLog).filter(
         AuditLog.user_id == user.id, AuditLog.action == "daily_close.revisor_lock_mail").count()
     assert n == 4 == len(_revisor_mails(mailbox))

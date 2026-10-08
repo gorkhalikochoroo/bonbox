@@ -82,6 +82,9 @@ class BusinessProfileResponse(BaseModel):
     accountant_auto_send_effective: bool = False
     accountant_opted_out: bool = False
     accountant_opted_out_at: datetime | None = None
+    # The saved revisor is demo-seeder sample data: never mailed; the pages
+    # say "Revisoren er eksempeldata — gem din egen revisors mail under Profil".
+    accountant_is_demo: bool = False
     source: str | None = None
     founded: str | None = None
     # 0-23. DK default 6 (Danish restaurant convention — service ending

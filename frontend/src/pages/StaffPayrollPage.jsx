@@ -19,6 +19,7 @@ import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
 import { isStaffMemberRole } from "../config/navManifest";
 import { contractLabel } from "../config/scheduleGrid";
+import { revisorAddress } from "../utils/closeEmail";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -327,7 +328,10 @@ export default function StaffPayrollPage() {
   // used to be a hover tooltip, which a phone never shows. Three outcomes like
   // every read here: a failed profile is never "you have no revisor email".
   const profileQ = useAsyncData(() => api.get("/business"), []);
-  const revisorEmail = String(profileQ.data?.accountant_email || "").trim().toLowerCase();
+  // The demo seeder's sample revisor is NOT SAVED (the server answers 409
+  // demo_recipient): never named here as the recipient.
+  const revisorEmail = revisorAddress(profileQ.data).toLowerCase();
+  const revisorIsDemo = Boolean(profileQ.data?.accountant_is_demo);
   const revisorName = String(profileQ.data?.accountant_name || "").trim();
   const profileKnown = !profileQ.loading && !profileQ.failed;
   const navigate = useNavigate();
@@ -704,6 +708,9 @@ export default function StaffPayrollPage() {
       } else if (detail?.code === "no_accountant_email") {
         // Taken off Profile since this page read it — say so, and read again.
         setError(t("paySendNoEmail", "Add your revisor's email under Profile to send from here."), "profile");
+        profileQ.reload();
+      } else if (err?.response?.status === 409 && detail?.code === "demo_recipient") {
+        setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."), "profile");
         profileQ.reload();
       } else if (err?.response?.status === 409 && detail?.code === "accountant_opted_out") {
         // A retry can never work: the revisor stopped BonBox mail. The file
@@ -1432,6 +1439,16 @@ export default function StaffPayrollPage() {
                   <span className="font-medium text-gray-900 dark:text-gray-100 break-all">{recipientLabel}</span>
                   {" · "}
                   {t("paySendCopyShort", "you get a copy")}
+                </>
+              ) : revisorIsDemo ? (
+                <>
+                  {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile.")}{" "}
+                  <Link
+                    to={REVISOR_EMAIL_HREF}
+                    className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+                  >
+                    {t("paySendProfileLink", "Profile")}
+                  </Link>
                 </>
               ) : (
                 fillSlots(t("paySendNeedsEmail", "Add your revisor's email under {profile} to send from here."), {

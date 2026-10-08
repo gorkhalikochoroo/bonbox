@@ -19,6 +19,7 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { Icon } from "./ui";
+import { revisorAddress } from "../utils/closeEmail";
 
 const _DISMISS_KEY = "bonbox_connections_nudge_dismissed_until";
 
@@ -71,7 +72,8 @@ export default function ConnectionsProgressCard() {
     if (!loaded) return null;
     const bank = !!(profile?.bank_account_number || profile?.iban);
     const mobilepay = !!profile?.mobilepay_number;
-    const accountantEmail = !!profile?.accountant_email;
+    // A demo seeder's sample revisor is not a revisor the owner saved.
+    const accountantEmail = !!revisorAddress(profile);
     const revisor = (grants || []).some(g => g.status === "active");
     const brief = !!prefs?.daily_brief_email_enabled;
     // `to` is where the item can ACTUALLY be completed. This card used to

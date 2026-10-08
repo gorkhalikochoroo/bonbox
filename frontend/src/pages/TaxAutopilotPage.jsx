@@ -15,6 +15,7 @@ import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
 import { formatDateClear, formatDateClearFull } from "../utils/dateFormat";
+import { revisorAddress } from "../utils/closeEmail";
 
 // The backend speaks in codes and English labels ("half_yearly", "H2 2026",
 // "Jul–Dec 2026", "2027-03-01"); an owner reads Danish.
@@ -540,7 +541,9 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
   // Before the period ends the figures are still moving: "ready to file"
   // on 30 Sep for a period that runs to 31 Dec was a false promise.
   const periodOpen = Boolean(periodEnd && periodEnd >= isoToday());
-  const accountantEmail = (businessProfile?.accountant_email || "").trim();
+  // Never the demo seeder's sample revisor — the server refuses it (409
+  // demo_recipient); with it, "Send" leads to Profile like no revisor at all.
+  const accountantEmail = revisorAddress(businessProfile);
 
   const downloadPdf = async () => {
     setDownloading(true);
@@ -609,6 +612,9 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       } else if (e?.response?.status === 400 && e?.response?.data?.detail?.code === "no_accountant_email") {
         setError(t("filingPdfNeedsAccountantEmail"));
         setTimeout(() => setError(""), 6000);
+      } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "demo_recipient") {
+        setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."));
+        setTimeout(() => setError(""), 10000);
       } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "accountant_opted_out") {
         // Never the server's English sentence to a Danish owner, and no
         // retry that can never work: the PDF button beside this downloads it.

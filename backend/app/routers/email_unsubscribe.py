@@ -92,11 +92,64 @@ _PALETTE = {
 }
 
 
+# The pages are styled by ONE <style> element (classes, no style="" attributes)
+# so a strict CSP can allow exactly that stylesheet by its hash. The API's
+# global CSP is default-src 'none', which blocked every inline style: the
+# revisor's opt-out page — the one BonBox page a revisor ever sees — rendered
+# in Times with a grey default button and no card. PAGE_CSP is applied to this
+# route only (main.add_security_headers); every other response keeps the
+# strict default.
+PAGE_CSS = (
+    f"body{{margin:0;padding:0;background:{_PALETTE['bg']};"
+    "font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;"
+    f"color:{_PALETTE['ink']};}}"
+    ".wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;"
+    "padding:24px 16px;box-sizing:border-box;}"
+    f".card{{background:{_PALETTE['card']};border:1px solid {_PALETTE['border']};"
+    "border-radius:14px;max-width:480px;width:100%;padding:36px 28px;box-sizing:border-box;"
+    "box-shadow:0 1px 2px rgba(15,23,42,.04);}"
+    f".brand{{font-size:13px;font-weight:600;color:{_PALETTE['brand_dark']};"
+    "letter-spacing:0.08em;text-transform:uppercase;margin-bottom:18px;}"
+    "h1{font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;}"
+    f".lead{{font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;}}"
+    f".note{{font-size:14px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;}}"
+    f".small{{font-size:13px;color:{_PALETTE['muted']};margin:0;}}"
+    f".fine{{font-size:12px;color:{_PALETTE['muted']};margin:18px 0 0 0;}}"
+    "form{margin:0 0 18px 0;}"
+    f"a{{color:{_PALETTE['brand_dark']};text-decoration:underline;}}"
+    f".fine a{{color:{_PALETTE['muted']};}}"
+    f".btn{{display:inline-block;border-radius:10px;font-weight:600;cursor:pointer;"
+    "font-family:inherit;}"
+    f".btn-danger{{background:{_PALETTE['danger']};color:#fff;border:0;padding:12px 24px;"
+    "font-size:15px;}"
+    f".btn-ghost{{background:#fff;color:{_PALETTE['brand_dark']};"
+    f"border:1px solid {_PALETTE['brand_dark']};padding:10px 20px;font-size:14px;}}"
+)
+
+
+def _css_hash(css: str) -> str:
+    import base64
+    import hashlib
+    return "sha256-" + base64.b64encode(hashlib.sha256(css.encode("utf-8")).digest()).decode("ascii")
+
+
+# This page's own policy: its one stylesheet (by hash), its favicon, its form
+# posting back to itself — nothing else (no scripts, no frames, no base).
+PAGE_CSP = (
+    "default-src 'none'; "
+    f"style-src '{_css_hash(PAGE_CSS)}'; "
+    "img-src https://www.bonbox.dk; "
+    "form-action 'self'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'"
+)
+
+
 def _page(title: str, body_html: str, *, lang: str = "en") -> str:
-    """Wrap inner HTML in a clean centered card.  Inline-styled so
-    the landing page doesn't need the SPA bundle to look reasonable —
-    a recipient on the bus with bad signal still sees a polished
-    confirmation, not a blank white screen waiting on JS.
+    """Wrap inner HTML in a clean centered card. Styled by PAGE_CSS (one
+    <style> element the route's CSP allows by hash) so the landing page
+    doesn't need the SPA bundle to look reasonable — a recipient on the bus
+    with bad signal still sees a polished confirmation.
 
     `lang` is the page's language: the revisor's pages are Danish and say so,
     so a screen reader reads them in a Danish voice."""
@@ -107,11 +160,12 @@ def _page(title: str, body_html: str, *, lang: str = "en") -> str:
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>{title} — BonBox</title>
   <link rel="icon" type="image/svg+xml" href="https://www.bonbox.dk/favicon.svg" />
+  <style>{PAGE_CSS}</style>
 </head>
-<body style="margin:0;padding:0;background:{_PALETTE['bg']};font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:{_PALETTE['ink']};">
-  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;">
-    <main style="background:{_PALETTE['card']};border:1px solid {_PALETTE['border']};border-radius:14px;max-width:480px;width:100%;padding:36px 28px;box-shadow:0 1px 2px rgba(15,23,42,.04);">
-      <div style="font-size:13px;font-weight:600;color:{_PALETTE['brand_dark']};letter-spacing:0.08em;text-transform:uppercase;margin-bottom:18px;">BonBox</div>
+<body>
+  <div class="wrap">
+    <main class="card">
+      <div class="brand">BonBox</div>
       {body_html}
     </main>
   </div>
@@ -123,17 +177,17 @@ def _success_page(topic_label: str) -> str:
     return _page(
         "Unsubscribed",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           You're unsubscribed.
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+        <p class="lead">
           We'll stop sending you {topic_label}. The change is already saved on your account — no further action needed.
         </p>
-        <p style="font-size:14px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
-          Changed your mind? You can turn it back on any time from your <a href="https://www.bonbox.dk/profile#notifications" style="color:{_PALETTE['brand_dark']};text-decoration:underline;">profile settings</a>.
+        <p class="note">
+          Changed your mind? You can turn it back on any time from your <a href="https://www.bonbox.dk/profile#notifications">profile settings</a>.
         </p>
-        <p style="font-size:12px;color:{_PALETTE['muted']};margin:18px 0 0 0;">
-          BonBox · GDPR-compliant · Cookies, data, complaint info → <a href="https://www.bonbox.dk/privacy" style="color:{_PALETTE['muted']};text-decoration:underline;">Privacy</a>
+        <p class="fine">
+          BonBox · GDPR-compliant · Cookies, data, complaint info → <a href="https://www.bonbox.dk/privacy">Privacy</a>
         </p>
         """,
     )
@@ -149,19 +203,19 @@ def _confirm_page(token: str, topic_label: str) -> str:
     return _page(
         "Unsubscribe",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           Unsubscribe from {topic_label}?
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+        <p class="lead">
           Click the button below to stop receiving these emails. You'll keep your BonBox account — only the emails go away.
         </p>
-        <form method="POST" action="/api/email/unsubscribe?token={safe_token}" style="margin:0 0 18px 0;">
-          <button type="submit" style="display:inline-block;background:{_PALETTE['danger']};color:#fff;border:0;border-radius:10px;padding:12px 24px;font-size:15px;font-weight:600;cursor:pointer;">
+        <form method="POST" action="/api/email/unsubscribe?token={safe_token}">
+          <button type="submit" class="btn btn-danger">
             Yes, unsubscribe me
           </button>
         </form>
-        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
-          Or <a href="https://www.bonbox.dk/profile#notifications" style="color:{_PALETTE['brand_dark']};text-decoration:underline;">manage all your email preferences</a> instead.
+        <p class="small">
+          Or <a href="https://www.bonbox.dk/profile#notifications">manage all your email preferences</a> instead.
         </p>
         """,
     )
@@ -171,14 +225,14 @@ def _expired_page() -> str:
     return _page(
         "Link expired",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           This link has expired.
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
-          Unsubscribe links live for 30 days from the email send. To turn off Daily Brief emails, sign in and toggle them off under <a href="https://www.bonbox.dk/profile#notifications" style="color:{_PALETTE['brand_dark']};text-decoration:underline;">Profile → Notifications</a>.
+        <p class="lead">
+          Unsubscribe links live for 30 days from the email send. To turn off Daily Brief emails, sign in and toggle them off under <a href="https://www.bonbox.dk/profile#notifications">Profile → Notifications</a>.
         </p>
-        <p style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
-          Trouble signing in? Email us at <a href="mailto:hello@bonbox.dk" style="color:{_PALETTE['brand_dark']};text-decoration:underline;">hello@bonbox.dk</a> — we'll unsubscribe you manually.
+        <p class="small">
+          Trouble signing in? Email us at <a href="mailto:hello@bonbox.dk">hello@bonbox.dk</a> — we'll unsubscribe you manually.
         </p>
         """,
     )
@@ -229,19 +283,19 @@ def _revisor_confirm_page(token: str, biz: str) -> str:
     return _page(
         "Afmeld kasserapporter",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           Afmeld mails fra BonBox om {b}?
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+        <p class="lead">
           Du får kasserapporter, fordi {b} har angivet dig som revisor i BonBox. Afmelder du,
           sender BonBox ikke flere mails til dig om {b}, og ejeren får besked i BonBox.
         </p>
-        <form method="POST" action="/api/email/unsubscribe?token={safe_token}" style="margin:0 0 18px 0;">
-          <button type="submit" style="display:inline-block;background:{_PALETTE['danger']};color:#fff;border:0;border-radius:10px;padding:12px 24px;font-size:15px;font-weight:600;cursor:pointer;">
+        <form method="POST" action="/api/email/unsubscribe?token={safe_token}">
+          <button type="submit" class="btn btn-danger">
             Ja, afmeld
           </button>
         </form>
-        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" class="small">
           Unsubscribe from BonBox mail about {b}: press the button above.
         </p>
         """,
@@ -260,19 +314,19 @@ def _revisor_success_page(biz: str, token: str) -> str:
     return _page(
         "Afmeldt",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           Du er afmeldt.
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+        <p class="lead">
           BonBox sender ikke flere mails til dig om {b}. Ejeren kan se i BonBox, at du har afmeldt.
           Var det en fejl, eller vil du have kasserapporterne igen, kan du fortryde her.
         </p>
-        <form method="POST" action="/api/email/unsubscribe?token={safe_token}&amp;undo=1" style="margin:0 0 18px 0;">
-          <button type="submit" style="display:inline-block;background:#fff;color:{_PALETTE['brand_dark']};border:1px solid {_PALETTE['brand_dark']};border-radius:10px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;">
+        <form method="POST" action="/api/email/unsubscribe?token={safe_token}&amp;undo=1">
+          <button type="submit" class="btn btn-ghost">
             Fortryd — send mails til mig igen
           </button>
         </form>
-        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" class="small">
           You're unsubscribed — BonBox won't mail you about {b} again. Changed your mind? Use the button above.
         </p>
         """,
@@ -286,14 +340,14 @@ def _revisor_resubscribed_page(biz: str) -> str:
     return _page(
         "Tilmeldt igen",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           Du får mails igen.
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+        <p class="lead">
           BonBox sender igen kasserapporter til dig om {b}, som ejeren har valgt.
           Hver mail har et link, hvis du vil afmelde igen.
         </p>
-        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" class="small">
           You'll get BonBox mail about {b} again. Every mail has a link to unsubscribe.
         </p>
         """,
@@ -311,16 +365,16 @@ def _revisor_expired_page(biz: str) -> str:
     return _page(
         "Linket er udløbet",
         f"""
-        <h1 style="font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;">
+        <h1>
           Linket er udløbet.
         </h1>
-        <p style="font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;">
+        <p class="lead">
           Afmeldingslinks i mails med kasserapporter virker i 180 dage. Brug linket i en nyere
           mail fra BonBox om {b} — eller skriv til
-          <a href="mailto:hello@bonbox.dk" style="color:{_PALETTE['brand_dark']};text-decoration:underline;">hello@bonbox.dk</a>,
+          <a href="mailto:hello@bonbox.dk">hello@bonbox.dk</a>,
           så stopper vi mails til dig om {b}. Du skal ikke logge ind.
         </p>
-        <p lang="en" style="font-size:13px;color:{_PALETTE['muted']};margin:0;">
+        <p lang="en" class="small">
           This link has expired. Use the link in a newer mail from BonBox, or write to hello@bonbox.dk and we will stop them.
         </p>
         """,

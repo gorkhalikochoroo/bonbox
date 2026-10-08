@@ -278,11 +278,21 @@ class BusinessProfile(Base):
         return revisor_opted_out(self)
 
     @property
+    def accountant_is_demo(self) -> bool:
+        """The saved revisor is the demo seeder's sample (on a demo-seeded
+        profile): NOT SAVED for every send path, and the pages say so."""
+        from app.services.revisor_mail import is_demo_revisor
+        return is_demo_revisor(self)
+
+    @property
     def accountant_auto_send_effective(self) -> bool:
         """Does a lock mail the revisor? Needs a saved address, the owner's
-        choice (NULL = the pre-choice behaviour, on) and no opt-out."""
+        choice (NULL = the pre-choice behaviour, on), no opt-out — and not the
+        demo seeder's sample revisor."""
         if not (self.accountant_email or "").strip():
             return False
         if self.accountant_opted_out:
+            return False
+        if self.accountant_is_demo:
             return False
         return self.accountant_auto_send is not False

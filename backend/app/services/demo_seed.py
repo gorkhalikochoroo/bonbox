@@ -277,9 +277,18 @@ def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) 
     profile.industry_code = "56.10.10"
     profile.company_type = "Anpartsselskab"
     profile.phone = "+45 33 11 22 33"
-    profile.email = "info@mirabelle.dk"
-    profile.accountant_email = "anna@revisor.dk"
+    # Only RESERVED, non-deliverable addresses (RFC 2606 ".example"): a seeded
+    # revisor at a real domain (anna@revisor.dk) with auto-send unset — read
+    # as ON — was mailed the first REAL day an owner locked after trying the
+    # demo. Auto-send is explicitly off; and every send path also treats the
+    # seeded address on a demo-tagged profile as not saved (revisor_mail).
+    from app.services.revisor_mail import (
+        DEMO_SEEDED_BUSINESS_EMAIL, DEMO_SEEDED_REVISOR_EMAIL,
+    )
+    profile.email = DEMO_SEEDED_BUSINESS_EMAIL
+    profile.accountant_email = DEMO_SEEDED_REVISOR_EMAIL
     profile.accountant_name = "Anna Hansen"
+    profile.accountant_auto_send = False
     profile.day_cutoff_hour = 4  # night-shift cutoff
     profile.source = "cvrapi.dk"
     profile.founded = "2018-03-12"

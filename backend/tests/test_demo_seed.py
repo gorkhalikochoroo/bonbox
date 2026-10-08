@@ -141,7 +141,12 @@ def test_seeded_profile_is_fully_verified(db, demo_user):
     assert profile.cvr_verified_source == "cvrapi.dk"
     assert profile.dawa_address_id  # has a DAWA UUID
     assert profile.vat_registered is True
-    assert profile.accountant_email == "anna@revisor.dk"
+    # Reserved, non-deliverable addresses only (RFC 2606) and auto-send off:
+    # demo data never mails a third party.
+    assert profile.accountant_email == "revisor@mirabelle.example"
+    assert profile.email == "info@mirabelle.example"
+    assert profile.accountant_auto_send is False
+    assert profile.accountant_auto_send_effective is False
     assert profile.accountant_name == "Anna Hansen"
 
 

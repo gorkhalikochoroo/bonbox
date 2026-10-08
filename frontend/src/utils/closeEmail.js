@@ -34,16 +34,42 @@ export function isDemoClose(close) {
   return String(close?.notes || "").endsWith(" · demo");
 }
 
+/** The revisor address a send may go to — "" when none is saved, and "" when
+ *  the saved one is the demo seeder's sample (the server treats it as NOT
+ *  SAVED on every send path: skip / 409 "demo_recipient"). Never pre-fill,
+ *  name or mail the sample address as "your revisor". */
+export function revisorAddress(profile) {
+  if (profile?.accountant_is_demo) return "";
+  return String(profile?.accountant_email || "").trim();
+}
+
 /**
  * What to say about one close's lock mail.
  *   kind: "revisor" (handed to the mail server for the revisor) | "owner_only" |
  *         "failed" | "failed_owner" (no revisor saved; the owner's own copy
  *         failed) | "opted_out" | "pref_off" | "no_recipient" | "sending" |
+ *         "unchanged" (re-locked with nothing changed: the revisor already
+ *         holds these figures, so no new mail went) |
  *         "unrecorded" (locked before the send status was kept) | "none"
+ *   demo: the saved revisor is demo-seeder sample data (never mailed).
  */
-export function closeEmailState({ status, sentTo = [], skip = null, profile = null }) {
-  const acct = String(profile?.accountant_email || "").trim().toLowerCase();
+export function closeEmailState({ status, sentTo = [], skip = null, profile = null, error = null }) {
+  const raw = String(profile?.accountant_email || "").trim().toLowerCase();
+  const demo = Boolean(profile?.accountant_is_demo) || skip === "demo_recipient";
   const to = (sentTo || []).map((x) => String(x).toLowerCase());
+  // A close that DID reach the saved address before it was known as sample
+  // data says so, honestly — every other line treats it as not saved.
+  if (status && status !== "sending" && status !== "skipped_feature_locked" && raw && to.includes(raw)) {
+    return { kind: "revisor", acct: raw, demo: false };
+  }
+  const acct = demo ? "" : raw;
+  if (skip === "unchanged" || error === "revisor_unchanged") {
+    if (status === "sent" || status === "partial") return { kind: "unchanged", acct, demo };
+  }
+  return { ...closeEmailKind({ status, to, skip, profile, acct }), demo };
+}
+
+function closeEmailKind({ status, to, skip, profile, acct }) {
   // Free: BonBox does not send — nothing to say.
   if (status === "skipped_feature_locked") return { kind: "none", acct };
   // Locked before the status was kept AND unknown to the audit trail (the
@@ -53,7 +79,6 @@ export function closeEmailState({ status, sentTo = [], skip = null, profile = nu
   // sending — it may already have gone.
   if (!status) return { kind: "unrecorded", acct };
   if (status === "sending") return { kind: "sending", acct };
-  if (acct && to.includes(acct)) return { kind: "revisor", acct };
   if (profile?.accountant_opted_out || skip === "opted_out") return { kind: "opted_out", acct };
   // "partial" = one of the two mails failed. When the revisor is not among
   // those who got it, the revisor's send FAILED (the owner's copy went) —

@@ -313,6 +313,11 @@ export default function ProfilePage() {
   const [accountantErr, setAccountantErr] = useState("");
   const { hasFeature: hasPlanFeature } = useEntitlements();
   const autoSendOnPlan = typeof hasPlanFeature === "function" ? hasPlanFeature("close_auto_email") : false;
+  // The form still holds the demo seeder's sample revisor (the server marks
+  // it accountant_is_demo and never mails it).
+  const accountantFormIsDemo = Boolean(businessProfile?.accountant_is_demo)
+    && accountantForm.accountant_email.trim().toLowerCase()
+      === String(businessProfile?.accountant_email || "").trim().toLowerCase();
 
   // Task #49 — Revisor read-only access.  State + handlers now live in
   // <RevisorSection /> on /team (Task #204 P2.8).  ProfilePage keeps
@@ -395,8 +400,10 @@ export default function ProfilePage() {
           accountant_email: res.data.accountant_email || "",
           accountant_name: res.data.accountant_name || "",
           // A profile saved before the choice existed (null) keeps what it
-          // did — on — and now SHOWS it ticked.
-          accountant_auto_send: res.data.accountant_auto_send ?? Boolean(res.data.accountant_email),
+          // did — on — and now SHOWS it ticked. The demo seeder's sample
+          // revisor is never mailed, so it never shows ticked.
+          accountant_auto_send: res.data.accountant_is_demo ? false
+            : (res.data.accountant_auto_send ?? Boolean(res.data.accountant_email)),
         });
         setPaymentForm({
           bank_reg_number: res.data.bank_reg_number || "",
@@ -1134,7 +1141,8 @@ export default function ProfilePage() {
                     setAccountantForm({
                       accountant_email: profile.accountant_email || "",
                       accountant_name: profile.accountant_name || "",
-                      accountant_auto_send: profile.accountant_auto_send ?? Boolean(profile.accountant_email),
+                      accountant_auto_send: profile.accountant_is_demo ? false
+                        : (profile.accountant_auto_send ?? Boolean(profile.accountant_email)),
                     });
                   }
                   api.get("/auth/me").then((res) => {
@@ -1319,7 +1327,7 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field
                     label={t("accountantNameLabel") || "Accountant name (optional)"}
-                    hint={t("accountantNameHint") || 'Used in the email greeting ("Hej Anna,").'}
+                    hint={t("accountantNameHint") || 'Used in the mail greeting exactly as you type it ("Hej Anna Hansen,").'}
                   >
                     <input
                       type="text"
@@ -1352,14 +1360,22 @@ export default function ProfilePage() {
                     />
                   </Field>
                 </div>
+                {/* The demo seeder's sample revisor: BonBox never mails it —
+                    said here, where the owner can replace it. */}
+                {accountantFormIsDemo && (
+                  <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2" role="status" data-testid="accountant-demo-notice">
+                    <Icon name="Info" size={16} className="shrink-0 mt-0.5" />
+                    <span>{t("accountantIsDemoNotice", "This revisor is sample data from the demo — BonBox never mails it. Type your own revisor's e-mail above and save.")}</span>
+                  </p>
+                )}
                 {/* The revisor's lock mail — an explained, explicit choice:
                     what is sent, when, to whom, and how they can stop it. */}
-                <label className={`flex items-start gap-3 rounded-xl p-3 border border-gray-200 dark:border-gray-700 ${accountantForm.accountant_email.trim() && autoSendOnPlan ? "cursor-pointer" : "opacity-60"}`}>
+                <label className={`flex items-start gap-3 rounded-xl p-3 border border-gray-200 dark:border-gray-700 ${accountantForm.accountant_email.trim() && autoSendOnPlan && !accountantFormIsDemo ? "cursor-pointer" : "opacity-60"}`}>
                   <input
                     type="checkbox"
                     className="mt-1 h-4 w-4 rounded accent-gray-900 dark:accent-gray-100"
-                    checked={Boolean(accountantForm.accountant_auto_send) && Boolean(accountantForm.accountant_email.trim())}
-                    disabled={!accountantForm.accountant_email.trim() || !autoSendOnPlan}
+                    checked={Boolean(accountantForm.accountant_auto_send) && Boolean(accountantForm.accountant_email.trim()) && !accountantFormIsDemo}
+                    disabled={!accountantForm.accountant_email.trim() || !autoSendOnPlan || accountantFormIsDemo}
                     onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_auto_send: e.target.checked }))}
                   />
                   <span className="text-sm text-gray-800 dark:text-gray-100">

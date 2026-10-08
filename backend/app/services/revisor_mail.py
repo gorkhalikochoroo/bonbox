@@ -71,6 +71,74 @@ def saved_revisor_address(profile: Any) -> str:
     return ((getattr(profile, "accountant_email", None) or "") if profile else "").strip().lower()
 
 
+# ─── Demo data never mails a third party ─────────────────────────────────
+#
+# The demo seeder used to write a deliverable revisor (anna@revisor.dk) with
+# auto-send unset (read as ON) and a real-domain business e-mail
+# (info@mirabelle.dk): the first REAL day an owner locked after trying the
+# demo went to an address the owner never typed. The seeder now writes only
+# reserved, non-deliverable addresses (RFC 2606 ".example") with auto-send
+# off — and for profiles seeded BEFORE that, every send path treats the seeded
+# address on a demo-tagged profile as NOT SAVED. The allow-list holds the old
+# and the new seeded values; the demo_seed module writes the new ones from
+# here, so the two cannot drift.
+DEMO_SEEDED_REVISOR_EMAIL = "revisor@mirabelle.example"
+DEMO_SEEDED_BUSINESS_EMAIL = "info@mirabelle.example"
+DEMO_SEEDED_REVISOR_ADDRESSES = frozenset({"anna@revisor.dk", DEMO_SEEDED_REVISOR_EMAIL})
+DEMO_SEEDED_BUSINESS_ADDRESSES = frozenset({"info@mirabelle.dk", DEMO_SEEDED_BUSINESS_EMAIL})
+DEMO_PROFILE_SUFFIX = " · demo"
+
+DEMO_RECIPIENT_MESSAGE_DA = "Revisoren er eksempeldata — gem din egen revisors mail under Profil."
+DEMO_RECIPIENT_MESSAGE_EN = "The revisor is sample data — save your own revisor's e-mail on Profile."
+
+
+def is_demo_profile(profile: Any) -> bool:
+    """The per-user demo seeder tags the profile it writes: its
+    cvr_verified_source ends in " · demo"."""
+    return bool(profile) and str(
+        getattr(profile, "cvr_verified_source", None) or "").endswith(DEMO_PROFILE_SUFFIX)
+
+
+def is_demo_revisor(profile: Any, address: str | None = None) -> bool:
+    """True when `address` (default: the saved revisor address) is one the
+    demo seeder wrote, on a demo-seeded profile. Such an address is NOT SAVED
+    for every send path: never mailed, skip reason "demo_recipient"."""
+    addr = (address if address is not None else saved_revisor_address(profile)).strip().lower()
+    return bool(addr) and addr in DEMO_SEEDED_REVISOR_ADDRESSES and is_demo_profile(profile)
+
+
+def is_demo_seeded_address(profile: Any, address: str | None) -> bool:
+    """Any address the demo seeder wrote (revisor or business e-mail), on a
+    demo-seeded profile — an owner COPY never goes there either."""
+    addr = (address or "").strip().lower()
+    return bool(addr) and is_demo_profile(profile) and (
+        addr in DEMO_SEEDED_REVISOR_ADDRESSES or addr in DEMO_SEEDED_BUSINESS_ADDRESSES)
+
+
+def owner_copy_allowed(profile: Any, address: str | None) -> bool:
+    """May the owner's own copy go to `address`? Not when it is empty, not
+    when that address asked BonBox to stop (it is in the revisor opt-out set),
+    and not when it is an address the demo seeder wrote."""
+    addr = (address or "").strip().lower()
+    if not addr:
+        return False
+    if is_demo_seeded_address(profile, addr):
+        return False
+    return address_fingerprint(addr) not in opted_out_fingerprints(profile)
+
+
+def demo_recipient_error() -> HTTPException:
+    """409 demo_recipient — the saved revisor is the demo seeder's sample."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "demo_recipient",
+            "message": DEMO_RECIPIENT_MESSAGE_EN,
+            "message_da": DEMO_RECIPIENT_MESSAGE_DA,
+        },
+    )
+
+
 # Every address that opted out is remembered — one at/email pair forgot
 # revisor A the moment revisor B opted out, and A got mail again when the owner
 # switched back. `accountant_opted_out_email` holds a comma list of address
@@ -136,6 +204,7 @@ def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
     """The only address a revisor send may go to, or an HTTPException.
 
     400 no_accountant_email  — nothing saved
+    409 demo_recipient       — the saved address is the demo seeder's sample
     422 recipient_not_saved  — body named a different address
     409 accountant_opted_out — the revisor stopped BonBox mail
     """
@@ -148,6 +217,9 @@ def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
                 "message": "Save your revisor's e-mail on Profile first.",
             },
         )
+    if is_demo_revisor(profile, saved):
+        # Sample data, not a revisor the owner chose: never mailed.
+        raise demo_recipient_error()
     if override:
         o = str(override).strip().lower()
         if o and o != saved:
@@ -399,6 +471,8 @@ def send_file_to_revisor(
         reply_to=reply_to,
         from_display=from_display,
         headers=revisor_unsubscribe_headers(unsubscribe_url) if unsubscribe_url else None,
+        # A text/plain part from the same html — multipart/alternative.
+        text=email_service.html_to_text(html_revisor),
     )
     owner_copied = False
     owner = (owner_email or "").strip().lower()
@@ -410,6 +484,7 @@ def send_file_to_revisor(
                 attachment_bytes=attachment_bytes,
                 attachment_filename=attachment_filename,
                 attachment_mime=attachment_mime,
+                text=email_service.html_to_text(html_owner),
             )
             owner_copied = bool(ok2)
         except Exception as e:  # noqa: BLE001

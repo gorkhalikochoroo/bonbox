@@ -1,6 +1,8 @@
 import base64
+import html as _html
 import logging
 import os
+import re
 from typing import Any, Iterable
 
 import resend
@@ -10,6 +12,46 @@ resend.api_key = os.getenv("RESEND_API_KEY", "")
 FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "BonBox <noreply@bonbox.dk>")
 
 logger = logging.getLogger("bonbox.email")
+
+
+_TAG_BLOCK = re.compile(r"<(style|script|head)\b[^>]*>.*?</\1\s*>", re.I | re.S)
+_LINK = re.compile(r"<a\b[^>]*?href=(['\"])(.*?)\1[^>]*>(.*?)</a\s*>", re.I | re.S)
+_CELL_GAP = re.compile(r"</t[dh]\s*>\s*<t[dh]\b[^>]*>", re.I)
+_LINE = re.compile(r"<br\s*/?>|</(tr|li)\s*>", re.I)
+_PARA = re.compile(r"</(p|div|h[1-6]|table|ul|ol)\s*>", re.I)
+_ITEM = re.compile(r"<li\b[^>]*>", re.I)
+_ANY_TAG = re.compile(r"<[^>]+>")
+
+
+def html_to_text(html: str | None) -> str:
+    """The text/plain part of a mail, from the SAME html (so the two parts
+    can never say different things): one line per paragraph/row, table cells
+    joined with " | ", links as "label (url)", entities decoded. Some revisor
+    mail clients and spam filters prefer multipart/alternative."""
+    s = str(html or "")
+    s = _TAG_BLOCK.sub("", s)
+
+    def _link(m):
+        url = _html.unescape(m.group(2) or "").strip()
+        label = _ANY_TAG.sub("", m.group(3) or "").strip()
+        label_txt = _html.unescape(label)
+        if not url or url == label_txt:
+            return label or url
+        return f"{label} ({url})" if label else url
+
+    s = _LINK.sub(_link, s)
+    s = _CELL_GAP.sub(" | ", s)
+    s = _ITEM.sub("- ", s)
+    s = _LINE.sub("\n", s)
+    s = _PARA.sub("\n\n", s)
+    s = _ANY_TAG.sub("", s)
+    s = _html.unescape(s).replace("\xa0", " ")
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in s.splitlines()]
+    out: list[str] = []
+    for ln in lines:
+        if ln or (out and out[-1]):
+            out.append(ln)
+    return "\n".join(out).strip() + "\n"
 
 
 def send_email(
@@ -75,12 +117,14 @@ def send_email_with_attachment(
     cc: Iterable[str] | None = None,
     from_display: str | None = None,
     headers: dict[str, str] | None = None,
+    text: str | None = None,
 ) -> tuple[bool, str | None]:
     """Send an email with a single binary attachment via Resend.
 
     `from_display` ('"Mirabelle ApS via BonBox" <noreply@…>') names the café in
     the revisor's inbox; `headers` carries List-Unsubscribe for a third-party
-    recipient. Both optional.
+    recipient. Both optional. `text` adds a text/plain part (multipart/
+    alternative) — the revisor mails pass html_to_text(html).
 
     Returns (ok, error_reason). Used by the Send-to-accountant flow so
     BonBox can email the kasserapport directly to the accountant
@@ -119,6 +163,8 @@ def send_email_with_attachment(
                 }
             ],
         }
+        if text:
+            payload["text"] = text
         if reply_to:
             payload["reply_to"] = reply_to
         if cc:
@@ -183,11 +229,13 @@ def send_close_notification(
     cc: Iterable[str] | None = None,
     headers: dict[str, str] | None = None,
     from_display: str | None = None,
+    text: str | None = None,
 ) -> dict[str, Any]:
     """L4 defense — service-layer entitlement check + multi-attachment send.
 
     `headers` (List-Unsubscribe for the revisor's copy) and `from_display`
-    ('"Mirabelle ApS via BonBox" <noreply@…>') are optional.
+    ('"Mirabelle ApS via BonBox" <noreply@…>') are optional. `text` adds a
+    text/plain part (the router passes html_to_text(html)).
 
     Returns a dict the router includes in the lock response so the
     frontend can render an honest status badge:
@@ -288,6 +336,8 @@ def send_close_notification(
         "html": html,
         "attachments": attachments,
     }
+    if text:
+        payload["text"] = text
     if reply_to:
         payload["reply_to"] = reply_to
     if headers:

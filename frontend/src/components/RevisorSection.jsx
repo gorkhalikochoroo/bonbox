@@ -127,6 +127,11 @@ export default function RevisorSection() {
         setRevisorError(
           t("revisorAlreadyActive", "This revisor already has active access."),
         );
+      } else if (detail?.code === "demo_recipient") {
+        // The demo seeder's sample revisor: no invite mail goes there.
+        setRevisorError(
+          t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."),
+        );
       } else {
         setRevisorError(
           errText(err, t("revisorInviteFailed", "Could not send the invite. Try again.")),

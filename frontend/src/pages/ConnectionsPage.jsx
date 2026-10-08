@@ -37,6 +37,7 @@ import { errText } from "../utils/errText";
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { Button, Card, Icon, PageHeader } from "../components/ui";
+import { revisorAddress } from "../utils/closeEmail";
 
 /**
  * Single connection card primitive. Shared layout so the page reads as
@@ -696,7 +697,8 @@ export default function ConnectionsPage() {
   // data later, it lives next to the card definition, not inside the
   // card primitive.
   const derived = useMemo(() => {
-    const accountantEmail = profile?.accountant_email || "";
+    // The demo seeder's sample revisor is never mailed — not "Sending to …".
+    const accountantEmail = revisorAddress(profile);
     const referenceIban = profile?.bank_account_number || profile?.iban || "";
     const mobilepay = profile?.mobilepay_number || "";
 

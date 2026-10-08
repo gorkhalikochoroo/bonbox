@@ -52,7 +52,7 @@ import {
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 import {
   closeEmailState, emailErrorKey, newSendKey, resendCloseEmail, sentWhen, filenameFromResponse,
-  announceCloseEmail, CLOSE_EMAIL_EVENT, isDemoClose,
+  announceCloseEmail, CLOSE_EMAIL_EVENT, isDemoClose, revisorAddress,
 } from "../utils/closeEmail";
 
 const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
@@ -4979,6 +4979,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                           // The owner's copy goes to the LOGIN address (the
                           // server never mails the unverified Profile e-mail).
                           const owner = user?.email || "";
+                          // The demo seeder's sample revisor is never mailed
+                          // — never named as "your revisor" either.
+                          if (businessProfile?.accountant_is_demo) return t("autoEmailToDemoRevisor", "To {owner}. The revisor is sample data — save your own revisor's e-mail on Profile.", { owner });
                           const acct = businessProfile?.accountant_email || "";
                           if (!acct) return t("autoEmailToNoRevisor", "To {owner}. No revisor e-mail is saved — add it on Profile if they should get it too.", { owner });
                           if (businessProfile?.accountant_opted_out) return t("autoEmailToOptedOut", "To {owner}. Your revisor ({acct}) has unsubscribed from BonBox mail and won't get it.", { owner, acct });
@@ -5281,8 +5284,8 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   const keyRef = useRef(null);
   // A settled null profile means the owner has no BusinessProfile row — read
   // as {} (no revisor saved), so the "Ikke sendt" lines still show.
-  const { kind, acct } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
-    profile: profileLoaded ? (profile ?? {}) : null });
+  const { kind, acct, demo } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
+    error: st.error, profile: profileLoaded ? (profile ?? {}) : null });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
   // The lock card and the History row render the same close, each with its
@@ -5337,6 +5340,9 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
             : t("dcMailAlreadyBodyNoWhen", "It has already been sent. Send it again?"),
           confirmLabel: t("dcMailSendAgain", "Send again"),
           cancelLabel: t("cancel", "Cancel"),
+          // A mail to a third party cannot be called back: focus on Cancel,
+          // Enter does not send.
+          irreversible: true,
         });
         if (ok) { setBusy(false); return send(true); }
       } else if (status === 409 && code === "accountant_opted_out") {
@@ -5344,6 +5350,9 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
         setErr(t("dcMailOptedOutErr", "Your revisor has unsubscribed from BonBox mail. Download the PDF and send it from your own mail."));
       } else if (status === 409 && code === "demo_close") {
         setErr(t("dcMailDemoClose", "This is a sample day (demo data) — it is never sent to your revisor."));
+      } else if (status === 409 && code === "demo_recipient") {
+        setSt((s0) => ({ ...s0, skip: "demo_recipient" }));
+        setErr(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."));
       } else if (status === 409 && code === "in_progress") {
         setErr(t("dcMailInProgress", "It is being sent right now (from another tab or button). Wait a moment — it will not go twice."));
       } else if (status === 429) {
@@ -5371,6 +5380,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
       message: t("dcMailUnrecordedConfirmBody", "The kasserapport for {day} goes to {email}. BonBox has no record of whether it was sent when the day was locked — your revisor may already have it.", { day, email: acct }),
       confirmLabel: t("dcMailSendToRevisor", "Send to revisor"),
       cancelLabel: t("cancel", "Cancel"),
+      irreversible: true,
     });
     if (ok) await send(false);
   };
@@ -5435,14 +5445,27 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
         <Icon name="BellOff" size={13} /> {t("dcMailOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — send it from your own mail.", { email: acct || "—" })}
       </span>
     );
+  } else if (kind === "unchanged") {
+    // Re-locked with nothing changed: the revisor already holds these exact
+    // figures, so BonBox sent them no "Rettet" mail. Send again stays here.
+    line = (
+      <span className={`${textCls} text-gray-700 dark:text-gray-300 inline-flex items-center gap-2 flex-wrap`}>
+        <span className="inline-flex items-center gap-1"><Icon name="CheckCircle2" size={13} /> {t("dcMailUnchanged", "Locked again unchanged — your revisor already has these figures, so no new mail was sent")}</span>
+        {acct && btn(t("dcMailSendAgain", "Send again"))}
+      </span>
+    );
   } else if (kind === "owner_only") {
     line = (
       <span className={`${textCls} text-gray-700 dark:text-gray-300 inline-flex items-center gap-2 flex-wrap`}>
         <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {acct
           ? t("dcMailOwnerOnly", "Sent to you {when} — not to your revisor", { when: whenText })
-          : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
+          : demo
+            ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you {when} — the revisor is sample data", { when: whenText })
+            : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
         {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
-          <Link to="/profile" className="text-xs font-semibold underline">{t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
+          <Link to="/profile" className="text-xs font-semibold underline">{demo
+            ? t("dcRevisorIsDemoCta", "Save your own revisor on Profile")
+            : t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
         )}
       </span>
     );
@@ -5736,6 +5759,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   const profileQ = useAsyncData(() => api.get("/business"), []);
   const businessProfile = profileQ.data;
   const profileKnown = !profileQ.loading && !profileQ.failed;
+  // The address a send may go to. The demo seeder's sample revisor is NOT
+  // SAVED for every send (the server refuses it: 409 demo_recipient) — it is
+  // never pre-filled, named as "your revisor" or mailed from here.
+  const revisorEmail = revisorAddress(businessProfile);
+  const revisorIsDemo = Boolean(businessProfile?.accountant_is_demo);
   // Plan caps from /billing/me — drives the cap-aware preset
   // buttons (Free=7d / Starter=31d / Pro=full year). Defaults to
   // 366 (the hard ceiling) so before /billing/me responds the UI
@@ -5810,7 +5838,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     const d = r?.data;
     if (!d || typeof d.n_locked !== "number") return null;
     const out = { key: `${from}|${to}`, nLocked: d.n_locked, nDrafts: d.n_drafts || 0,
-      locked: Array.isArray(d.locked) ? d.locked : [] };
+      nDemo: d.n_demo || 0, locked: Array.isArray(d.locked) ? d.locked : [] };
     // A late answer for a range the owner already left never overwrites
     // the current one.
     if (out.key === latestRangeKey.current) setRangeServer(out);
@@ -5824,9 +5852,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // What a send to the revisor actually counts: LOCKED closes. The confirm
   // said "4 lukninger" where the mail said "3 låste" — and a drafts-only
   // range could mail the revisor a "0,00 kr." bundle.
-  const cachedInRange = useMemo(
+  // Demo (sample) closes are in no period export and never sent: counted
+  // apart, the same rule as the server's range-counts (n_demo).
+  const cachedAllInRange = useMemo(
     () => data.filter(dc => dc.date >= activeRange.from && dc.date <= activeRange.to),
     [data, activeRange],
+  );
+  const cachedInRange = useMemo(
+    () => cachedAllInRange.filter(dc => !isDemoClose(dc)),
+    [cachedAllInRange],
   );
   const lockedInRange = useMemo(
     () => (serverCounts ? serverCounts.locked
@@ -5835,6 +5869,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   );
   const lockedRangeCount = serverCounts ? serverCounts.nLocked : lockedInRange.length;
   const draftRangeCount = serverCounts ? serverCounts.nDrafts : cachedInRange.length - lockedInRange.length;
+  const demoRangeCount = serverCounts ? serverCounts.nDemo : cachedAllInRange.length - cachedInRange.length;
   // Count closes that match the chosen range — gives the user
   // confidence ("Export 14 closes for this range") before they tap.
   const rangeCount = lockedRangeCount + draftRangeCount;
@@ -6019,7 +6054,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       const result = await sendDailyCloseRangeToAccountant({
         blob, filename,
         // Never pre-fill an address that asked BonBox to stop.
-        accountantEmail: businessProfile?.accountant_opted_out ? "" : (businessProfile?.accountant_email || ""),
+        accountantEmail: businessProfile?.accountant_opted_out ? "" : revisorEmail,
         accountantName: businessProfile?.accountant_name || "",
         businessName: businessProfile?.company_name || user?.business_name || "",
         fromIso: activeRange.from,
@@ -6037,7 +6072,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           setSendStatus(t("sentViaShare", "Share sheet opened — pick Mail / WhatsApp"));
         } else if (result.channel === "mailto") {
           setSendStatus(
-            businessProfile?.accountant_email
+            revisorEmail
               ? (t("sentViaMailto", "Email opened — attach the downloaded PDF and send"))
               : (t("sentViaMailtoNoTo", "Email opened — add revisor address, attach PDF, send")),
           );
@@ -6062,7 +6097,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     setSendStatus("");
     setSendIssue(null);
     const fmt = accountantFmt; // honour the user's saved choice
-    const acct = businessProfile?.accountant_email;
+    // Never the demo seeder's sample revisor (revisorAddress → "").
+    const acct = revisorEmail;
     const optedOut = Boolean(businessProfile?.accountant_opted_out);
 
     if (acct && !optedOut && directSendEntitled === false) {
@@ -6085,12 +6121,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // server at this moment — never from History's 90-row cache.
       let nLocked = lockedRangeCount;
       let nDrafts = draftRangeCount;
+      let nDemo = demoRangeCount;
       try {
         const fresh = await fetchRangeCounts(activeRange.from, activeRange.to);
-        if (fresh) { nLocked = fresh.nLocked; nDrafts = fresh.nDrafts; }
+        if (fresh) { nLocked = fresh.nLocked; nDrafts = fresh.nDrafts; nDemo = fresh.nDemo || 0; }
       } catch { /* the server refuses an empty period on its own */ }
       if (nLocked === 0) {
-        setExportError(t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor."));
+        setExportError(nDemo > 0
+          ? t("dcSendOnlyDemo", "This period only has sample days (demo data) — they are never sent to your revisor. Lock your real days first.")
+          : t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor."));
         return;
       }
       const closesTxt = nLocked === 1
@@ -6100,16 +6139,23 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         : nDrafts === 1
           ? t("dcSendDraftLeftOne", " · 1 draft is not counted")
           : t("dcSendDraftLeftMany", " · {n} drafts are not counted", { n: nDrafts });
+      // Sample days are named as left out — the revisor gets only real days.
+      const demoTxt = nDemo <= 0 ? ""
+        : nDemo === 1
+          ? t("dcSendDemoLeftOne", " · 1 sample day (demo) is not sent")
+          : t("dcSendDemoLeftMany", " · {n} sample days (demo) are not sent", { n: nDemo });
       // The copy goes to the login address — the same one the server uses.
       const ownerCopy = (user?.email || "").trim() || t("dcYourOwnMail", "your own mail");
       const ok = await confirm({
         title: t("dcSendConfirmTitle", "Send to your revisor?"),
         message: t("dcSendConfirmBody", "{format} for {from} – {to} ({closes}{drafts}) goes to {email}. You get a copy at {owner}.", {
           format: FMT_LABEL[fmt] || fmt, from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
-          closes: closesTxt, drafts: draftsTxt, email: acct, owner: ownerCopy,
+          closes: closesTxt, drafts: draftsTxt + demoTxt, email: acct, owner: ownerCopy,
         }),
         confirmLabel: t("sendToAccountantBtn", "Send to revisor"),
         cancelLabel: t("cancel", "Cancel"),
+        // A mail to a third party cannot be called back: focus on Cancel.
+        irreversible: true,
       });
       if (!ok) return;
       setSendingToAccountant(true);
@@ -6149,7 +6195,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         }
         let message;
         if (status === 422 && detail?.code === "nothing_locked") {
-          message = t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.");
+          message = detail?.n_demo > 0
+            ? t("dcSendOnlyDemo", "This period only has sample days (demo data) — they are never sent to your revisor. Lock your real days first.")
+            : t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.");
+        } else if (status === 409 && detail?.code === "demo_recipient") {
+          message = t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile.");
         } else if (status === 409 && detail?.code === "accountant_opted_out") {
           message = t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail.");
         } else if (status === 429) {
@@ -6724,8 +6774,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 disabled={!!exportingFmt || sendingToAccountant || lockedRangeCount === 0 || overCap}
                 className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-gray-700 dark:disabled:text-gray-300 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
-                  businessProfile?.accountant_email
-                    ? `${t("sendToTooltip", "Send to")} ${businessProfile.accountant_email}`
+                  revisorEmail
+                    ? `${t("sendToTooltip", "Send to")} ${revisorEmail}`
                     : (t("sendToAccountantTooltipNoEmail", "Send to revisor — set their email on Profile to skip typing it"))
                 }
               >
@@ -6741,7 +6791,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             business HAS closed before, explain WHY it's empty and offer a
             one-tap jump to the most recent close. Without this, "0 closes" +
             greyed buttons reads as a broken report. */}
-        {rangeCount === 0 && data.length > 0 && (
+        {rangeCount === 0 && data.length > 0 && demoRangeCount === 0 && (
           <div className="mt-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 text-[11px] text-gray-600 dark:text-gray-300 flex flex-wrap items-center gap-x-2 gap-y-1">
             <Icon name="Lightbulb" size={14} className="shrink-0 text-gray-400 dark:text-gray-500" />
             <span className="flex-1">
@@ -6782,7 +6832,17 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
         {/* Who a send goes to — on the screen, not in a hover tooltip a
             phone cannot show. */}
-        {profileKnown && businessProfile?.accountant_email && rangeCount > 0 && (
+        {/* The saved revisor is the demo seeder's sample: say so — Send
+            opens the owner's own mail, never to the sample address. */}
+        {profileKnown && revisorIsDemo && (
+          <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-revisor-demo">
+            <Icon name="Info" size={12} className="inline align-text-bottom mr-1" />
+            {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile.")}{" "}
+            <Link to="/profile" className="font-semibold underline">{t("profileLinkLabel", "Profile")}</Link>
+          </p>
+        )}
+
+        {profileKnown && revisorEmail && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
             {businessProfile?.accountant_opted_out
               ? t("dcSendToLineOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.", { email: businessProfile.accountant_email })
@@ -6803,6 +6863,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         {rangeCount > 0 && lockedRangeCount === 0 && (
           <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
             {t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.")}
+          </p>
+        )}
+
+        {/* Sample days are in no export and never reach the revisor. */}
+        {demoRangeCount > 0 && (
+          <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400" data-testid="dc-range-demo">
+            {demoRangeCount === 1
+              ? t("dcRangeDemoOne", "1 sample day (demo data) in this period is not in the export and is never sent to your revisor.")
+              : t("dcRangeDemoMany", "{n} sample days (demo data) in this period are not in the export and are never sent to your revisor.", { n: demoRangeCount })}
           </p>
         )}
 
@@ -7074,9 +7143,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     {t("edit", "Edit")}
                   </Button>
                 )}
+                {/* "Del" (share sheet with a text summary) — never "Send": on
+                    this card "Send" only ever means mail to the revisor. */}
                 <Button size="sm" variant="secondary" onClick={() => shareDc(dc)} busy={sharing === dc.id}
-                  iconLeft={sharing === dc.id ? null : <Icon name="Send" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
-                  {t("send", "Send")}
+                  iconLeft={sharing === dc.id ? null : <Icon name="Share2" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
+                  {t("dcShareClose", "Share")}
                 </Button>
                 <Button size="sm" variant="secondary"
                   onClick={() => downloadPdf(dc.id, dc.date, (dc.status || "confirmed") !== "confirmed")}
@@ -7150,7 +7221,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 what follows is a marked correction carrying this reason. */}
             {(() => {
               const row = (data || []).find((r) => r.id === unlockId);
-              const acct = String(businessProfile?.accountant_email || "").trim().toLowerCase();
+              const acct = revisorEmail.toLowerCase();
               const got = acct && (row?.email_sent_to || []).map((x) => String(x).toLowerCase()).includes(acct);
               if (!row || !got) return null;
               const w = sentWhen(row.email_sent_at);
@@ -7165,7 +7236,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               return (
                 <p data-testid="dc-unlock-revisor-note" className="text-[13px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-4">
                   {auto
-                    ? t("dcUnlockRevisorHasAuto", "Your revisor ({email}) already has the locked version ({when}). When you lock it again, they automatically get a corrected kasserapport — marked \"Rettet\" and with the reason you write here.", { email: acct, when })
+                    ? t("dcUnlockRevisorHasAuto", "Your revisor ({email}) already has the locked version ({when}). If you change something and lock it again, they automatically get a corrected kasserapport — marked \"Rettet\" and with the reason you write here. Locked again unchanged, no new mail is sent.", { email: acct, when })
                     : t("dcUnlockRevisorHas", "Your revisor ({email}) already has the locked version ({when}). When you send it again after the correction, it is marked \"Rettet kasserapport\" and carries the reason you write here.", { email: acct, when })}
                 </p>
               );
