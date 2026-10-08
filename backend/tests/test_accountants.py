@@ -983,3 +983,242 @@ def test_unconfirmed_owner_still_meets_every_invite_gate(client, db, monkeypatch
     assert res.status_code == 429 and res.json()["detail"]["code"] == "revisor_daily_cap"
     assert db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).count() == 0
     assert sent == []
+
+
+# ─── Review fixes (8 Oct): one mail per invite, one live link, an honest
+# "verified", and a held invite the owner can see ─────────────────────────
+
+
+def _invite(client, email="revisor@example.dk", name="Anna Hansen"):
+    res = client.post("/api/accountants/invite", json={"email": email, "name": name})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_send_invitation_twice_after_confirming_mails_once(client, db, monkeypatch):
+    """Every tap used to re-arm the grant and mail again. After confirming,
+    the held invite is mailed once; a second tap within 24 hours sends
+    nothing and says why."""
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    _invite(client)
+    owner.email_verified = True
+    db.commit()
+
+    first = _invite(client)
+    second = _invite(client)
+    assert first["email_sent"] is True
+    assert second["email_sent"] is False
+    assert second["email_not_sent_reason"] == "recently_sent"
+    assert [m["to"] for m in sent] == ["revisor@example.dk"]  # exactly one mail
+
+
+def test_a_mailed_invite_can_be_mailed_again_after_24_hours(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    _invite(client)
+    grant = db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).one()
+    grant.invite_mailed_at = utc_now() - timedelta(hours=25)
+    db.commit()
+    again = _invite(client)
+    assert again["email_sent"] is True
+    assert len(sent) == 2
+
+
+def test_a_failed_send_can_be_retried_at_once(client, db, monkeypatch):
+    """The cooldown counts mails the server accepted — not attempts."""
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, *, reply_to=None, headers=None: False)
+    failed = _invite(client)
+    assert failed["email_sent"] is False and failed["email_not_sent_reason"] is None
+    sent = _capture_sends(monkeypatch)
+    retry = _invite(client)
+    assert retry["email_sent"] is True
+    assert len(sent) == 1
+
+
+def test_the_held_link_the_owner_shared_still_works_after_send_invitation(client, db, monkeypatch):
+    """The held notice says: share this link now, or confirm and tap Send
+    invitation. Doing both must not kill the link already handed over."""
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    held = _invite(client)
+    shared_url = held["accept_url"]
+    owner.email_verified = True
+    db.commit()
+
+    mailed = _invite(client)
+    assert mailed["email_sent"] is True
+    assert mailed["accept_url"] == shared_url
+    assert shared_url.rsplit("/", 1)[1] in sent[0]["html"]  # the mail carries the same link
+
+    _override_user(None)
+    res = client.post("/api/accountants/signup", json={
+        "invite_token": shared_url.rsplit("/", 1)[1], "password": "revisorpw123",
+    })
+    assert res.status_code == 200, res.text
+    grant = db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).one()
+    db.refresh(grant)
+    assert grant.status == "active"
+
+
+def test_an_expired_or_revoked_invite_gets_a_new_link(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    _capture_sends(monkeypatch)
+    first = _invite(client)
+    grant = db.query(AccountantGrant).filter(AccountantGrant.id == first["id"]).one()
+    grant.invite_token_expires_at = utc_now() - timedelta(minutes=1)
+    db.commit()
+    renewed = _invite(client)
+    assert renewed["accept_url"] != first["accept_url"]
+    assert renewed["email_sent"] is True  # a new link is mailed, no cooldown
+
+    res = client.delete(f"/api/accountants/grants/{first['id']}")
+    assert res.status_code == 204
+    again = _invite(client)
+    assert again["accept_url"] not in (first["accept_url"], renewed["accept_url"])
+    assert again["email_sent"] is True
+
+
+def test_invite_mail_says_why_and_how_to_stop(client, db, monkeypatch):
+    """The invite is mail to a third party: the same footer + one-click
+    opt-out as every other revisor mail, and the owner as Reply-To (the
+    footer says "reply to reach the owner")."""
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        "app.services.email_service.send_email",
+        lambda to, subject, html, *, reply_to=None, headers=None: sent.append(
+            {"to": to, "html": html, "reply_to": reply_to, "headers": headers or {}}) or True,
+    )
+    _invite(client)
+    m = sent[0]
+    assert "/api/email/unsubscribe?token=" in m["html"]
+    assert "afmelde dem her" in m["html"]
+    assert m["headers"]["List-Unsubscribe"].startswith("<") and "unsubscribe?token=" in m["headers"]["List-Unsubscribe"]
+    assert m["headers"]["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+    assert m["reply_to"] == owner.email
+
+
+def test_invite_opt_out_link_stops_the_next_invite(client, db, monkeypatch, engine_and_session):
+    """The footer's promise holds: the link records the opt-out on the
+    owner's profile, and the next invite to that address is refused."""
+    import re
+    from app.models.business_profile import BusinessProfile
+    # The opt-out handler opens its own session; point it at this test DB.
+    monkeypatch.setattr("app.routers.email_unsubscribe.SessionLocal", engine_and_session[1])
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    sent = _capture_sends(monkeypatch)
+    _invite(client)
+    assert db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).count() == 1
+    token = re.search(r"unsubscribe\?token=([^'\"&]+)", sent[0]["html"]).group(1)
+    import html as _html
+    token = _html.unescape(token)
+    _override_user(None)
+    res = client.post(f"/api/email/unsubscribe?token={token}")
+    assert res.status_code == 200, res.text
+    _override_user(owner)
+    grant_id = db.query(AccountantGrant).filter(AccountantGrant.owner_user_id == owner.id).one().id
+    client.delete(f"/api/accountants/grants/{grant_id}")
+    res = client.post("/api/accountants/invite", json={"email": "revisor@example.dk"})
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "accountant_opted_out"
+    assert len(sent) == 1
+
+
+def test_a_held_invite_self_accepted_by_the_inviter_is_not_a_verified_login(client, db, monkeypatch):
+    """No link ever reached the revisor's inbox, so the login made from it
+    is not 'verified': the real inbox owner's first e-mail link takes the
+    account over (password replaced, every session signed out)."""
+    from app.services import magic_link_service
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    _capture_sends(monkeypatch)
+    held = _invite(client, email="victim@regnskab.dk")
+    _override_user(None)
+    res = client.post("/api/accountants/signup", json={
+        "invite_token": held["accept_url"].rsplit("/", 1)[1],
+        "password": "inviter-chosen-pw",
+    })
+    assert res.status_code == 200, res.text
+    acct = db.query(User).filter(User.email == "victim@regnskab.dk").one()
+    assert acct.email_verified is False
+    tv_before = int(acct.token_version or 0)
+
+    raw, _row = magic_link_service.create_token(db, "victim@regnskab.dk")
+    user = magic_link_service.verify_token(db, raw)
+    db.commit()
+    db.refresh(acct)
+    assert user.id == acct.id
+    assert acct.email_verified is True
+    assert not verify_password("inviter-chosen-pw", acct.password_hash)
+    assert int(acct.token_version or 0) == tv_before + 1
+
+
+def test_a_mailed_invite_accepted_from_the_inbox_is_a_verified_login(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    _capture_sends(monkeypatch)
+    mailed = _invite(client, email="anna@regnskab.dk")
+    assert mailed["email_sent"] is True
+    _override_user(None)
+    res = client.post("/api/accountants/signup", json={
+        "invite_token": mailed["accept_url"].rsplit("/", 1)[1], "password": "revisorpw123",
+    })
+    assert res.status_code == 200, res.text
+    assert db.query(User).filter(User.email == "anna@regnskab.dk").one().email_verified is True
+
+
+def test_a_failed_send_accepted_from_the_copy_link_is_not_verified(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, *, reply_to=None, headers=None: False)
+    unsent = _invite(client, email="pia@regnskab.dk")
+    _override_user(None)
+    res = client.post("/api/accountants/signup", json={
+        "invite_token": unsent["accept_url"].rsplit("/", 1)[1], "password": "revisorpw123",
+    })
+    assert res.status_code == 200, res.text
+    assert db.query(User).filter(User.email == "pia@regnskab.dk").one().email_verified is False
+
+
+def test_grants_list_says_which_pending_invites_were_never_mailed(client, db, monkeypatch):
+    """Team → Revisor must not read 'invited · awaiting accept' for an
+    invite nobody mailed — after a reload too."""
+    owner = _owner(db, plan="starter", verified=False)
+    _override_user(owner)
+    _capture_sends(monkeypatch)
+    _invite(client)
+    rows = client.get("/api/accountants/grants").json()
+    assert rows[0]["mail_held"] == "email_unverified"
+
+    owner.email_verified = True
+    db.commit()
+    _invite(client)
+    rows = client.get("/api/accountants/grants").json()
+    assert rows[0]["mail_held"] is None
+
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, *, reply_to=None, headers=None: False)
+    _invite(client, email="other@regnskab.dk")
+    by_email = {r["accountant_email"]: r for r in client.get("/api/accountants/grants").json()}
+    assert by_email["other@regnskab.dk"]["mail_held"] == "send_failed"
+    assert by_email["revisor@example.dk"]["mail_held"] is None
+
+
+def test_migration_and_sqlite_mirror_carry_the_invite_mail_columns():
+    import inspect
+    import app.main as m
+    src = inspect.getsource(m)
+    assert "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mailed_at TIMESTAMP" in src
+    assert "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mail_held VARCHAR(32)" in src
+    assert '_add("accountant_grants", "invite_mailed_at", "TIMESTAMP")' in src
+    assert '_add("accountant_grants", "invite_mail_held", "VARCHAR(32)")' in src

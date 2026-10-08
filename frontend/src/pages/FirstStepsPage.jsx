@@ -30,6 +30,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { Button, Icon } from "../components/ui";
 import { errText } from "../utils/errText";
 import { publicUrl } from "../utils/publicUrl";
+import RevisorInviteHeldNotice from "../components/RevisorInviteHeldNotice";
 
 const FIELD =
   "w-full min-h-[44px] px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400";
@@ -133,6 +134,9 @@ export default function FirstStepsPage() {
           </Link>
         </div>
       </header>
+      {/* The wizard's revisor invite was saved, not e-mailed (unconfirmed
+          owner) — said here, after the redirect, not only inside the wizard. */}
+      <RevisorInviteHeldNotice />
 
       <main className="flex-1 w-full flex justify-center px-4 sm:px-6 py-8 sm:py-12">
         <div className="w-full max-w-xl animate-fadeIn">

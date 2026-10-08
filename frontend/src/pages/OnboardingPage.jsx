@@ -784,6 +784,11 @@ export default function OnboardingPage() {
   /** Optionally send a revisor invite, then complete onboarding. */
   const sendInviteAndFinish = async () => {
     const email = (revisor.email || "").trim().toLowerCase();
+    // The invite was saved but not e-mailed (unconfirmed owner). The wizard
+    // unmounts on finish, so the notice travels with the redirect
+    // (RevisorInviteHeldNotice on the landing page) — otherwise it was on
+    // screen for one round-trip and the owner never learned it.
+    let inviteHeld = false;
     if (email) {
       if (!canInviteRevisor) {
         // UI already shows the UpgradeNudge — never silently swallow.
@@ -804,10 +809,13 @@ export default function OnboardingPage() {
           name: (revisor.name || "").trim() || null,
         });
         // An unconfirmed account's invite is saved but not e-mailed (BonBox
-        // mails others only for a confirmed account): say so, never "sent",
-        // and finish the wizard as usual — it is not an error.
+        // e-mails the invitation only once the owner's own e-mail is
+        // confirmed — this invite, not every mail): say so, never "sent",
+        // and finish the wizard as usual — it is not an error. ("recently_sent"
+        // = the same link went out by mail under 24 hours ago: it was sent.)
         const held = res?.data?.email_sent === false
           && res?.data?.email_not_sent_reason === "email_unverified";
+        inviteHeld = held;
         setRevisorMsg(held ? t("onbRevisorInviteHeld") : t("onbRevisorInviteSent", { email }));
       } catch (err) {
         const detail = err?.response?.data?.detail;
@@ -830,7 +838,7 @@ export default function OnboardingPage() {
     }
     // Land on the archetype's firstWin (quickest win) instead of an empty
     // dashboard. routeForFeature() degrades to /dashboard for unknown keys.
-    await finishOnboarding(finishRoute());
+    await finishOnboarding(finishRoute(), inviteHeld ? { revisorInviteHeld: true } : undefined);
   };
 
   /** Where the wizard's finish lands. An archetype whose first win is the
@@ -847,7 +855,7 @@ export default function OnboardingPage() {
    *  the "Finish" action passes the resolved archetype's firstWin route so
    *  the owner lands on their quickest win instead of an empty dashboard.
    *  `dest` is validated against our known routes by the caller. */
-  const finishOnboarding = async (dest = "/dashboard") => {
+  const finishOnboarding = async (dest = "/dashboard", navState) => {
     setFinishing(true);
     try {
       await api.post("/auth/onboarding/complete");
@@ -859,7 +867,11 @@ export default function OnboardingPage() {
       // destination. Next /auth/me will reveal the real state.
     } finally {
       setFinishing(false);
-      navigate(typeof dest === "string" && dest.startsWith("/") ? dest : "/dashboard", { replace: true });
+      navigate(
+        typeof dest === "string" && dest.startsWith("/") ? dest : "/dashboard",
+        // Only a held revisor invite carries state (shown after the redirect).
+        navState ? { replace: true, state: navState } : { replace: true },
+      );
     }
   };
 

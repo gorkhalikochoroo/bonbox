@@ -28,6 +28,7 @@ import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
 import VerifyEmailReminder from "./VerifyEmailReminder";
+import RevisorInviteHeldNotice from "./RevisorInviteHeldNotice";
 import { Icon } from "./ui";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
@@ -1276,6 +1277,9 @@ export default function Layout() {
         {/* "Bekræft din e-mail" — quiet, only while the owner has skipped the
             verification wall (7 days); never on the day's close. */}
         <VerifyEmailReminder />
+        {/* The onboarding wizard's revisor invite was saved, not e-mailed —
+            shown on the page the wizard landed on (router state only). */}
+        <RevisorInviteHeldNotice />
         <Outlet />
       </main>
 

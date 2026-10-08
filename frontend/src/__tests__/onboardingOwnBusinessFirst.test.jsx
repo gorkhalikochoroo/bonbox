@@ -228,7 +228,11 @@ describe("step 4 — an unconfirmed owner's invite is saved, not mailed (8 Oct)"
     expect(screen.queryByText("onbRevisorInviteSent")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(h.post).toHaveBeenCalledWith("/auth/onboarding/complete");
-    expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
+    // The wizard unmounts on finish: the held state travels with the
+    // redirect so the landing page can say it (RevisorInviteHeldNotice).
+    expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", {
+      replace: true, state: { revisorInviteHeld: true },
+    });
   });
 
   it("a confirmed owner's mailed invite still says sent", async () => {
@@ -243,5 +247,7 @@ describe("step 4 — an unconfirmed owner's invite is saved, not mailed (8 Oct)"
     await waitFor(() => expect(h.navigate).toHaveBeenCalled());
     expect(screen.getByText("onbRevisorInviteSent")).toBeInTheDocument();
     expect(screen.queryByText("onbRevisorInviteHeld")).toBeNull();
+    // A mailed invite carries nothing past the redirect.
+    expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
   });
 });

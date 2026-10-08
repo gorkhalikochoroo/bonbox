@@ -75,8 +75,17 @@ class AccountantGrantResponse(BaseModel):
     email_sent: Optional[bool] = None
     # Invite response only: why no e-mail was attempted. "email_unverified" =
     # the owner's own address is not confirmed, so BonBox held the mail (the
-    # grant and accept_url are still there). None when a send was attempted.
+    # grant and accept_url are still there). "recently_sent" = this same link
+    # was mailed less than 24 hours ago, so it was not mailed again (the link
+    # is unchanged and still works). None when a send was attempted.
     email_not_sent_reason: Optional[str] = None
+    # Owner's list + invite response: the current invite link of a PENDING
+    # grant has not been e-mailed, and why — "email_unverified" (held for an
+    # unconfirmed owner) or "send_failed". None when it was mailed, for an
+    # active/revoked grant, and for rows from before BonBox recorded it.
+    # Team → Revisor shows "saved · not e-mailed yet" from it, after a reload
+    # too, instead of "invited · awaiting accept".
+    mail_held: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
