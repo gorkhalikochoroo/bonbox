@@ -806,9 +806,12 @@ export default function ProfilePage() {
       const code = detail?.code;
       setError(code === "password_required"
         ? t("profileEmailPwWrong", "That password isn't right. Signed up with Google, Apple or a login link? Set a password with “Forgot?” on the login page first.")
-        // 429: the login e-mail was changed a few times today — the server
-        // words it in both languages.
-        : (code === "email_change_daily_cap" && (lang === "da" ? detail.message_da : detail.message))
+        // 429: the login e-mail was changed a few times today; 409: a login
+        // link asked "did you create this account yourself?" and nobody has
+        // answered yet, so the address stays put — the server words both in
+        // both languages.
+        : ((code === "email_change_daily_cap" || code === "claim_question_open")
+            && (lang === "da" ? detail.message_da : detail.message))
           || errText(err, t("failedToUpdateProfile")));
     }
     setSaving(false);

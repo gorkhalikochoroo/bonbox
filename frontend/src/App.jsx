@@ -346,6 +346,7 @@ function lazyRetry(importFn) {
 const LandingPage = lazyRetry(() => import("./pages/LandingPage"));
 const LoginPage = lazyRetry(() => import("./pages/LoginPage"));
 const LoginMagicPage = lazyRetry(() => import("./pages/LoginMagicPage"));
+const ClaimDecisionPage = lazyRetry(() => import("./pages/ClaimDecisionPage"));
 const RegisterPage = lazyRetry(() => import("./pages/RegisterPage"));
 const ContactPage = lazyRetry(() => import("./pages/ContactPage"));
 const TermsPage = lazyRetry(() => import("./pages/TermsPage"));
@@ -648,6 +649,10 @@ function AppRoutes() {
             credential; the page POSTs to /auth/magic-link/verify on
             mount and redirects to /dashboard on success. */}
         <Route path="/login/magic" element={<LoginMagicPage />} />
+        {/* The two links in the "did you create this account yourself?" mail
+            (backend services/claim_decision.py). Opening one changes nothing;
+            the page asks once more and only a tap answers. */}
+        <Route path="/login/claim" element={<ClaimDecisionPage />} />
         <Route path="/register" element={<WithGoogleAuth><RegisterPage /></WithGoogleAuth>} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/verify-email" element={<VerifyEmailRoute />} />
