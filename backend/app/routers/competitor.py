@@ -4,7 +4,9 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
@@ -21,10 +23,60 @@ from app.services.competitor_service import (
     add_price_check, delete_competitor, discover_nearby,
 )
 from app.services.menu_extractor import extract_menu_from_image
+from app.utils.client_ip import client_ip
+from slowapi import Limiter
 
 logger = logging.getLogger("bonbox.competitor")
 
 router = APIRouter()
+_limiter = Limiter(key_func=client_ip)
+
+
+# ── Google Places lookups: a per-account ceiling ──────────────────────────
+# /discover and /cuisine-market make a paid Google Places Nearby Search on the
+# platform key. competitor_service caches the answers (12 h, by rounded
+# location / keyword / radius), so only a cache MISS reaches Google — and
+# only those are counted here, per account, from audit_logs (sweep, 8 Oct).
+PLACES_LOOKUP_ACTION = "competitor.places_lookup"
+PLACES_LOOKUPS_PER_DAY = 30
+
+
+def _places_lookup_ceiling(db: Session, user: User):
+    """A callable for discover_nearby(before_google_call=…): 429 at the daily
+    ceiling, 503 when the count fails; otherwise the call is counted first."""
+    def _check() -> None:
+        from app.models.audit_log import AuditLog
+        from app.utils.time import utc_now
+        try:
+            n = (
+                db.query(func.count(AuditLog.id))
+                .filter(AuditLog.user_id == user.id,
+                        AuditLog.action == PLACES_LOOKUP_ACTION,
+                        AuditLog.created_at >= utc_now() - timedelta(days=1))
+                .scalar() or 0
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("places lookup count failed (user=%s)", user.id)
+            raise HTTPException(status_code=503, detail={
+                "code": "places_lookup_unavailable",
+                "message": "Couldn't scan right now. Try again in a minute.",
+                "message_da": "Kunne ikke søge lige nu. Prøv igen om et minut.",
+            })
+        if n >= PLACES_LOOKUPS_PER_DAY:
+            raise HTTPException(status_code=429, detail={
+                "code": "places_lookup_daily_cap",
+                "cap": PLACES_LOOKUPS_PER_DAY,
+                "message": (f"BonBox has looked up nearby places {PLACES_LOOKUPS_PER_DAY} times for you "
+                            "in the last 24 hours, the most it does a day. Searches you already ran "
+                            "still show; try a new one tomorrow."),
+                "message_da": (f"BonBox har slået steder i nærheden op {PLACES_LOOKUPS_PER_DAY} gange for dig "
+                               "det seneste døgn, og flere gør BonBox ikke på en dag. Søgninger, du "
+                               "allerede har lavet, vises stadig; prøv en ny i morgen."),
+            })
+        from app.services import audit_service
+        audit_service.record(db, user, PLACES_LOOKUP_ACTION, "competitor")
+        db.commit()
+    return _check
 
 
 # Common menu items per vertical — populated when the user has nothing in
@@ -183,7 +235,9 @@ def competitor_insights(
 
 
 @router.get("/discover")
+@_limiter.limit("10/minute")
 def discover(
+    request: Request,
     keyword: Optional[str] = Query(None),
     radius: int = Query(1500, ge=500, le=5000),
     db: Session = Depends(get_db),
@@ -200,7 +254,8 @@ def discover(
         Competitor.user_id == current_user.id, Competitor.place_id.isnot(None)
     ).all()
     tracked_ids = {r[0] for r in tracked}
-    result = discover_nearby(lat, lon, keyword, radius)
+    result = discover_nearby(lat, lon, keyword, radius,
+                             before_google_call=_places_lookup_ceiling(db, current_user))
     # Mark already-tracked places
     for p in result.get("places", []):
         p["already_tracked"] = p.get("place_id", "") in tracked_ids
@@ -208,7 +263,9 @@ def discover(
 
 
 @router.get("/cuisine-market")
+@_limiter.limit("10/minute")
 def cuisine_market(
+    request: Request,
     radius: int = Query(3000, ge=500, le=10000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -275,10 +332,13 @@ def cuisine_market(
     # without a type constraint.
     bt = (current_user.business_type or "").lower()
     use_type = bt if bt in {"restaurant", "cafe", "bar", "bakery"} else None
+    _ceiling = _places_lookup_ceiling(db, current_user)
     try:
         result = discover_nearby(lat, lon, cuisine, radius, place_type=use_type) \
             if "place_type" in discover_nearby.__code__.co_varnames \
-            else discover_nearby(lat, lon, cuisine, radius)
+            else discover_nearby(lat, lon, cuisine, radius, before_google_call=_ceiling)
+    except HTTPException:
+        raise  # the per-account ceiling (429/503) — said, not swallowed
     except Exception as e:  # noqa: BLE001
         logger.warning("cuisine_market discover failed: %s", e)
         return {

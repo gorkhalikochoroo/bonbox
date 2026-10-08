@@ -9329,6 +9329,7 @@ export const da = {
     opsCloseExportFailed: "Kunne ikke eksportere. Prøv igen.",
     opsCloseShareFailed: "Kunne ikke starte delingen. Hent PDF'en i stedet.",
     opsCmpDiscoverFailed: "Kunne ikke finde virksomheder i nærheden",
+    cmpPlacesDailyCap: "BonBox har slået steder i nærheden op {cap} gange for dig det seneste døgn, og flere gør BonBox ikke på en dag. Søgninger, du allerede har lavet, vises stadig; prøv en ny i morgen.",
     opsCmpExtractFailed: "Kunne ikke aflæse menuen.",
     opsCmpExtractFailedRetry: "Kunne ikke aflæse menuen. Prøv igen.",
     opsCmpImportFailed: "Kunne ikke importere. Prøv igen.",

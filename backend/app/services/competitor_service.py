@@ -5,7 +5,10 @@ Google Places API for nearby business discovery (with OSM fallback).
 Manual price tracking + comparison analytics.
 """
 
+import copy
 import logging
+import threading
+import time
 from datetime import date
 from math import radians, cos, sin, asin, sqrt
 
@@ -33,12 +36,77 @@ def _haversine(lat1, lon1, lat2, lon2):
 
 # ── Google Places Discovery ─────────────────────────────────
 
-def discover_nearby(lat: float, lon: float, keyword: str = None, radius: int = 1500) -> dict:
-    """Discover nearby businesses — Google Places first, OSM fallback."""
+# The Nearby Search type filter every lookup sends (part of the cache key).
+_GOOGLE_PLACES_TYPES = "restaurant|cafe|bar|bakery|food|meal_delivery|meal_takeaway"
+
+# Process-local cache of Google results (sweep, 8 Oct): every /discover and
+# /cuisine-market request used to make one paid Nearby Search on the platform
+# key. Nearby businesses do not change by the hour, so a venue reloading its
+# page — or two venues on the same street (≈100 m cells) — cost one call per
+# PLACES_CACHE_TTL_SECONDS. Only Google answers are kept (the OSM fallback is
+# free); copies go in and out, so a caller's "already_tracked" marks never
+# reach the cached rows another venue is served.
+PLACES_CACHE_TTL_SECONDS = 12 * 3600
+_PLACES_CACHE_MAX = 2000
+_places_cache: dict[tuple, tuple[float, dict]] = {}
+_places_cache_lock = threading.Lock()
+
+
+def _now_seconds() -> float:
+    return time.monotonic()
+
+
+def places_cache_key(lat: float, lon: float, keyword: str | None, radius: int) -> tuple:
+    return (round(float(lat), 3), round(float(lon), 3),
+            (keyword or "").strip().lower(), int(radius), _GOOGLE_PLACES_TYPES)
+
+
+def _cached_places(key: tuple) -> dict | None:
+    with _places_cache_lock:
+        hit = _places_cache.get(key)
+        if hit is None:
+            return None
+        stored_at, result = hit
+        if _now_seconds() - stored_at >= PLACES_CACHE_TTL_SECONDS:
+            _places_cache.pop(key, None)
+            return None
+        return copy.deepcopy(result)
+
+
+def _store_places(key: tuple, result: dict) -> None:
+    with _places_cache_lock:
+        if len(_places_cache) >= _PLACES_CACHE_MAX:
+            # Drop the oldest entries first; the cache is a cost bound, not a store.
+            for k, _ in sorted(_places_cache.items(), key=lambda kv: kv[1][0])[: _PLACES_CACHE_MAX // 10 or 1]:
+                _places_cache.pop(k, None)
+        _places_cache[key] = (_now_seconds(), copy.deepcopy(result))
+
+
+def _reset_places_cache_for_tests() -> None:
+    with _places_cache_lock:
+        _places_cache.clear()
+
+
+def discover_nearby(lat: float, lon: float, keyword: str = None, radius: int = 1500,
+                    *, before_google_call=None) -> dict:
+    """Discover nearby businesses — Google Places first, OSM fallback.
+
+    A cached Google answer for the same rounded location / keyword / radius
+    is served without a call. `before_google_call`, when given, runs right
+    before a call that WILL reach Google (a cache miss with a key set): the
+    caller's per-account ceiling — it may raise to stop the call."""
     api_key = settings.GOOGLE_PLACES_API_KEY
     if api_key:
+        key = places_cache_key(lat, lon, keyword, radius)
+        cached = _cached_places(key)
+        if cached is not None:
+            return cached
+        if before_google_call is not None:
+            before_google_call()
         try:
-            return _search_google_places(lat, lon, keyword, radius, api_key)
+            result = _search_google_places(lat, lon, keyword, radius, api_key)
+            _store_places(key, result)
+            return copy.deepcopy(result)
         except Exception as e:
             logger.warning(f"Google Places failed, falling back to OSM: {e}")
 
@@ -53,7 +121,7 @@ def _search_google_places(lat: float, lon: float, keyword: str, radius: int, api
     params = {
         "location": f"{lat},{lon}",
         "radius": radius,
-        "type": "restaurant|cafe|bar|bakery|food|meal_delivery|meal_takeaway",
+        "type": _GOOGLE_PLACES_TYPES,
         "key": api_key,
     }
     if keyword:

@@ -109,8 +109,13 @@ export default function CompetitorPage({ embedded = false }) {
       setPlaces(res.data.places || []);
       setDiscoverSource(res.data.source || "");
       if (res.data.error) setDiscoverError(res.data.error);
-    } catch {
-      setDiscoverError(t("opsCmpDiscoverFailed", "Failed to discover nearby businesses"));
+    } catch (err) {
+      // 429: the per-account daily ceiling on new Google look-ups (searches
+      // already run are still served from the cache).
+      const code = err?.response?.data?.detail?.code;
+      setDiscoverError(code === "places_lookup_daily_cap"
+        ? t("cmpPlacesDailyCap", { cap: err.response.data.detail.cap })
+        : t("opsCmpDiscoverFailed", "Failed to discover nearby businesses"));
     }
     setDiscoverLoading(false);
   };

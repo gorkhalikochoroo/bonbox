@@ -9658,6 +9658,7 @@ export const en = {
     opsCloseExportFailed: "Could not export. Please try again.",
     opsCloseShareFailed: "Could not start the share. Please try the PDF download instead.",
     opsCmpDiscoverFailed: "Failed to discover nearby businesses",
+    cmpPlacesDailyCap: "BonBox has looked up nearby places {cap} times for you in the last 24 hours, the most it does a day. Searches you already ran still show; try a new one tomorrow.",
     opsCmpExtractFailed: "Extraction failed.",
     opsCmpExtractFailedRetry: "Extraction failed. Try again.",
     opsCmpImportFailed: "Couldn't import. Try again.",
