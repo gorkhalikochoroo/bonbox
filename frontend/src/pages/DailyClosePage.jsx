@@ -1398,6 +1398,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // line on the payments step (editing payAmounts.cash must NOT move the
   // register baseline).
   const [registerCash, setRegisterCash] = useState(null);
+  // What the sales sync itself wrote into the revenue / payment boxes, so a
+  // new day can take it back out. Only a box still holding exactly that figure
+  // is the sync's — one the owner typed over (or a scan or a draft filled) is
+  // theirs and stays.
+  const salesFillRef = useRef(null);
 
   // Edit-resync guard. When the owner unlocks + edits an existing close
   // (editDraft), the [branchId, businessDate]-keyed prefill effect re-fires
@@ -1640,6 +1645,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setScanPhotos([]);
     applyPendingScans([]);
     setMergeUndo(null);
+    // The boxes hold the saved close now, not a sales sync.
+    salesFillRef.current = null;
     // Every field takes the SAVED value, empty included: a field the close
     // never had kept whatever this form held before, and the next save
     // filed it under the edited day.
@@ -2113,6 +2120,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The scan's figures replace the previous scan's outright: merging kept a
     // first photo's Drikkevarer/Kontant/MobilePay under a re-scan that read
     // only Mad and Kort (22.060 paid against a 17.030 Z-bon).
+    // The boxes are the Z-bon's from here on, not the day's sales sync.
+    salesFillRef.current = null;
     setRevAmounts(newRev);
     // Fill payments — match against current template methods + extras
     const newPay = {};
@@ -2203,6 +2212,34 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const [prefillStatus, setPrefillStatus] = useState("idle"); // idle | ok | failed
 
   useEffect(() => {
+    // Everything this effect derived belongs to the day (and branch) it was
+    // fetched for. Changing the date kept the previous day's: the sync card
+    // and the review's "Dagens udgifter" showed 26 Sep's −4.250 on a 1 Aug
+    // with no expenses, and the register's cash, the POS variance and the
+    // computed split followed the old day the same way. So it is cleared the
+    // moment the key changes, before the new day's answer is in.
+    let stale = false;
+    setPrefill(null);
+    setRegisterCash(null);
+    setSplitMeta(null);
+    setPrefillStatus("idle");
+    const synced = salesFillRef.current;
+    salesFillRef.current = null;
+    if (synced) {
+      // The old day's sales in the boxes, untouched since the sync put them
+      // there: gone with the day. Typed figures are not touched.
+      const unsync = (prev, fill) => {
+        if (!fill) return prev;
+        let changed = false;
+        const next = { ...prev };
+        Object.entries(fill).forEach(([k, v]) => {
+          if (next[k] === v) { delete next[k]; changed = true; }
+        });
+        return changed ? next : prev;
+      };
+      setPayAmounts((prev) => unsync(prev, synced.pay));
+      setRevAmounts((prev) => unsync(prev, synced.rev));
+    }
     const fetchPrefill = async () => {
       setPrefillLoading(true);
       try {
@@ -2215,6 +2252,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // keys for the computed split (restaurant food/drinks/takeaway, etc.).
         if (branchType) params.branch_type = branchType;
         const res = await api.get("/daily-close/prefill", { params });
+        // The owner has moved on (another date or branch) while this was in
+        // flight: an older answer landing after a newer one must not write the
+        // day the owner left over the day they are on.
+        if (stale) return;
         // Apply night shift cutoff from business profile.
         // `?? DEFAULT_CLOSE_CUTOFF_HOUR`, never `|| 0`: a MISSING day_cutoff_hour
         // is not a configured midnight. The old `|| 0` silently moved a venue
@@ -2294,6 +2335,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 }
               });
               setPayAmounts(newPay);
+              salesFillRef.current = { ...salesFillRef.current, pay: newPay };
             }
             // Revenue prefill. Single-category verticals get the whole total in
             // the one category. Multi-category verticals get an HONEST computed
@@ -2305,12 +2347,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             const split = res.data.category_split;
             if (defaultRevCats.length === 1 || branchType === "general") {
               const firstCat = defaultRevCats[0]?.key;
-              if (salesTotal > 0 && firstCat) setRevAmounts({ [firstCat]: String(salesTotal) });
+              if (salesTotal > 0 && firstCat) {
+                const next = { [firstCat]: String(salesTotal) };
+                setRevAmounts(next);
+                salesFillRef.current = { ...salesFillRef.current, rev: next };
+              }
               setSplitMeta(null);
             } else if (split && split.categories && Object.keys(split.categories).length > 0) {
               const next = {};
               Object.entries(split.categories).forEach(([k, v]) => { next[k] = asBox(v); });
               setRevAmounts(next);
+              salesFillRef.current = { ...salesFillRef.current, rev: next };
               setSplitMeta({
                 source: split.source,
                 confidence: split.confidence,
@@ -2326,6 +2373,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         }
         setPrefillStatus("ok");
       } catch {
+        // A failure for a day the owner has already left says nothing about
+        // the day they are on.
+        if (stale) return;
         // Manual entry still works — but say so. Failing closed and QUIET
         // meant the POS cross-check just wasn't there, which looks identical
         // to "this date had no sales".
@@ -2334,6 +2384,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       setPrefillLoading(false);
     };
     fetchPrefill();
+    return () => { stale = true; };
   }, [fileBranchId, branchType, businessDate]);
 
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + readMoney0(v), 0), [revAmounts, mLocale]);
@@ -2506,6 +2557,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         if (!cancelled) { setExemptSalesTotal(0); setExemptStatus("failed"); }
       }
     };
+    // The day before's MOMS-free total must not shape this day's MOMS while
+    // this day's answer is on its way.
+    setExemptSalesTotal(0);
     setExemptStatus("loading");
     fetchExempt();
     return () => { cancelled = true; };
@@ -4451,6 +4505,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         const next = {};
                         Object.entries(splitMeta.categories).forEach(([k, v]) => { next[k] = asBox(v); });
                         setRevAmounts(next);
+                        salesFillRef.current = { ...salesFillRef.current, rev: next };
                       }}
                     >
                       {t("dcResetToComputed", "Reset to computed split")}
