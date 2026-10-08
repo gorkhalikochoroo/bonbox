@@ -1480,6 +1480,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // A ref, not state, for the same reason as editLoadedRef above: it has to be
   // true synchronously, before the in-flight fetch resolves.
   const dateChosenRef = useRef(false);
+  // Figures the owner typed for one day, with the date since moved to another:
+  // { from, to } until the owner says which day they belong to. A date
+  // correction is legitimate, so the figures stay — but they are not filed as
+  // the new day's draft on a timer (the autosave did, within two seconds, once
+  // the new day's sync no longer replaced them).
+  const [dateMove, setDateMove] = useState(null);
+  // Only while the form is still on the day it was moved to.
+  const dateMoveOpen = dateMove && dateMove.to === businessDate ? dateMove : null;
   // A day named by the link that opened the page (see DailyClosePage).
   const presetHandledRef = useRef(null);
   useEffect(() => {
@@ -1601,6 +1609,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     editLoadedRef.current = true;
     boxFillEpochRef.current += 1;
     formSeedOffRef.current = false;
+    setDateMove(null);
     // An edited close is filed against ITS OWN date, never today — mark the
     // date as chosen before the prefill for that date can resolve.
     if (dc.date) {
@@ -2214,6 +2223,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The boxes are the Z-bon's from here on, not the day's sales sync.
     salesFillRef.current = null;
     boxFillEpochRef.current += 1;
+    // The Z-bon's figures now, not ones typed for another day.
+    setDateMove(null);
     setRevAmounts(newRev);
     // Fill payments — match against current template methods + extras
     const newPay = {};
@@ -2292,6 +2303,90 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setScanMode("skipped");
     setStep(jumpToReview ? totalSteps : 1);
     revealStepTop();
+  };
+
+  // What the day's computed split says, for the hint above the categories and
+  // "Nulstil til beregnet fordeling": null for a single-category vertical,
+  // the owner's own historical mix when there is enough history, "none" (a
+  // calm first-time line) when there is not.
+  const splitMetaFrom = (data) => {
+    if (defaultRevCats.length === 1 || branchType === "general") return null;
+    const split = data?.category_split;
+    if (split && split.categories && Object.keys(split.categories).length > 0) {
+      return {
+        source: split.source,
+        confidence: split.confidence,
+        sampleSize: split.sample_size,
+        categories: split.categories,
+      };
+    }
+    return { source: "none" };
+  };
+
+  // The day's sales sync written into the boxes. Payment methods the venue's
+  // list lacks are added. Revenue: a single-category vertical gets the whole
+  // total in its one category; a multi-category one gets the HONEST computed
+  // split ("beregnet fordeling") from the owner's own historical mix when the
+  // backend has enough confirmed closes — the owner confirms or corrects —
+  // and blank categories when there is no signal (never an invented split).
+  // `replace`: the boxes become exactly the sync's, emptied where the sync has
+  // nothing — the owner chose the day's POS figures over what they had typed.
+  const fillBoxesFromSync = (data, { replace = false } = {}) => {
+    const payPrefill = data?.suggested_prefill?.payment_breakdown || {};
+    if (Object.keys(payPrefill).length > 0) {
+      const newPay = {};
+      // Add any payment methods from data that aren't in the default list
+      const existingKeys = new Set(defaultPayMethods.map(m => m.key));
+      Object.entries(payPrefill).forEach(([k, v]) => {
+        newPay[k] = asBox(v);
+        if (!existingKeys.has(k) && k !== "other") {
+          setPayMethods(prev => {
+            if (prev.find(m => m.key === k)) return prev;
+            return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "Coins" }];
+          });
+        }
+      });
+      setPayAmounts(newPay);
+      salesFillRef.current = { ...salesFillRef.current, pay: newPay };
+    } else if (replace) {
+      setPayAmounts({});
+    }
+    const salesTotal = data?.suggested_prefill?.revenue_total || 0;
+    const split = data?.category_split;
+    let nextRev = null;
+    if (defaultRevCats.length === 1 || branchType === "general") {
+      const firstCat = defaultRevCats[0]?.key;
+      if (salesTotal > 0 && firstCat) nextRev = { [firstCat]: String(salesTotal) };
+    } else if (split && split.categories && Object.keys(split.categories).length > 0) {
+      nextRev = {};
+      Object.entries(split.categories).forEach(([k, v]) => { nextRev[k] = asBox(v); });
+    }
+    if (nextRev) {
+      setRevAmounts(nextRev);
+      salesFillRef.current = { ...salesFillRef.current, rev: nextRev };
+    } else if (replace) {
+      setRevAmounts({});
+    }
+  };
+
+  // The owner moves the date (the picker, "Reset to today"). Figures they
+  // typed for the old day stay — but are held back from the autosave until
+  // they say which day they belong to (dateMove). A Z-bon's or a loaded
+  // close's figures keep their own guard; the sync's own figures go with
+  // their day as before.
+  const moveDate = (next) => {
+    if (!next) return;
+    dateChosenRef.current = true;
+    if (next === businessDate) return;
+    const synced = salesFillRef.current;
+    const owners = (boxes, fill) => Object.entries(boxes || {}).some(([k, v]) =>
+      String(v ?? "").trim() !== "" && !(fill && fill[k] === v));
+    const typed = !scanResultRef.current && !editLoadedRef.current
+      && (owners(revAmounts, synced?.rev) || owners(payAmounts, synced?.pay));
+    // Moved again before answering: the figures are still the first day's.
+    const from = dateMoveOpen?.from ?? businessDate;
+    setDateMove(typed && from !== next ? { from, to: next } : null);
+    setBusinessDate(next);
   };
 
   // Prefill from real data
@@ -2417,6 +2512,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               salesCount > 0 && regCash != null ? Number(regCash) : null,
             );
           }
+          // The computed split's hint and "Nulstil til beregnet fordeling"
+          // follow the day's answer, not whether the boxes could be filled:
+          // inside the fill gate below they vanished on every day whose boxes
+          // already held the owner's or a Z-bon's figures. Not on an edited
+          // close (as before): its own split is the saved one.
+          if (!editLoadedRef.current) setSplitMeta(splitMetaFrom(res.data));
           // Auto-fill payment methods + revenue from sales data — but ONLY
           // for a brand-new close. When the owner unlocked + is editing an
           // existing close (editLoadedRef), this sales-sync would clobber the
@@ -2424,56 +2525,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // we skip the writes. `prefill` is still set above so the
           // informational sync banner + expenses summary keep rendering.
           if (!editLoadedRef.current && !boxesTaken && boxFillEpochRef.current === fillEpoch) {
-            // Auto-fill payment methods from sales data
-            const payPrefill = res.data.suggested_prefill?.payment_breakdown || {};
-            if (Object.keys(payPrefill).length > 0) {
-              const newPay = {};
-              // Add any payment methods from data that aren't in the default list
-              const existingKeys = new Set(defaultPayMethods.map(m => m.key));
-              Object.entries(payPrefill).forEach(([k, v]) => {
-                newPay[k] = asBox(v);
-                if (!existingKeys.has(k) && k !== "other") {
-                  setPayMethods(prev => {
-                    if (prev.find(m => m.key === k)) return prev;
-                    return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "Coins" }];
-                  });
-                }
-              });
-              setPayAmounts(newPay);
-              salesFillRef.current = { ...salesFillRef.current, pay: newPay };
-            }
-            // Revenue prefill. Single-category verticals get the whole total in
-            // the one category. Multi-category verticals get an HONEST computed
-            // split ("beregnet fordeling") from the owner's own historical mix
-            // when the backend has enough confirmed closes — the owner confirms
-            // or corrects (confirm-and-correct). When there's no signal we leave
-            // categories BLANK and show a calm one-liner (never invent a split).
-            const salesTotal = res.data.suggested_prefill?.revenue_total || 0;
-            const split = res.data.category_split;
-            if (defaultRevCats.length === 1 || branchType === "general") {
-              const firstCat = defaultRevCats[0]?.key;
-              if (salesTotal > 0 && firstCat) {
-                const next = { [firstCat]: String(salesTotal) };
-                setRevAmounts(next);
-                salesFillRef.current = { ...salesFillRef.current, rev: next };
-              }
-              setSplitMeta(null);
-            } else if (split && split.categories && Object.keys(split.categories).length > 0) {
-              const next = {};
-              Object.entries(split.categories).forEach(([k, v]) => { next[k] = asBox(v); });
-              setRevAmounts(next);
-              salesFillRef.current = { ...salesFillRef.current, rev: next };
-              setSplitMeta({
-                source: split.source,
-                confidence: split.confidence,
-                sampleSize: split.sample_size,
-                categories: split.categories,
-              });
-            } else {
-              // Multi-category vertical with not enough history → blank fields +
-              // a calm first-time hint (splitMeta.source === "none").
-              setSplitMeta({ source: "none" });
-            }
+            fillBoxesFromSync(res.data);
           }
         }
         setPrefillStatus("ok");
@@ -3064,6 +3116,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // real barrier; this only stops the timer knocking every two seconds after
     // the server has already said no for this row.
     if (lockedRowRejected || existingBlocks) return nothingToSave();
+    // Typed for another day, and not yet confirmed for this one: not filed
+    // as this day's draft until the owner answers (dateMove).
+    if (dateMoveOpen) return nothingToSave();
     // Only auto-save if user has entered some data and is past scan UI
     // On the total that will be SAVED: a Z-bon read as a total only was
     // never autosaved, because its categories summed to zero.
@@ -3108,7 +3163,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // autosaved — "Kladde gemt" and then lost on the next open.
   // momsTotal / exemptSalesTotal: the day's MOMS-free answer landing after
   // the save went out changes the MOMS, and that is saved too.
-  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal]);
+  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal, dateMoveOpen]);
 
   // Leaving sends the waiting save instead of dropping it: the form unmounts on
   // every tab switch and route change, and a phone can be locked or the tab
@@ -4425,7 +4480,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           <input id="close-date" type="date" value={businessDate}
             disabled={Boolean(editingDate)}
             max={businessTodayIso(cutoffHour)}
-            onChange={e => { if (e.target.value) { dateChosenRef.current = true; setBusinessDate(e.target.value); } }}
+            onChange={e => moveDate(e.target.value)}
             className="px-3 py-1.5 min-h-10 max-sm:h-11 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== businessTodayIso(cutoffHour) && (
             <span className="text-[11px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
@@ -4439,12 +4494,52 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             </span>
           )}
           {businessDate !== businessTodayIso(cutoffHour) && !editingDate && (
-            <button onClick={() => { dateChosenRef.current = true; setBusinessDate(businessTodayIso(cutoffHour)); }}
+            <button onClick={() => moveDate(businessTodayIso(cutoffHour))}
               className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
               {t("resetToToday", "Reset to today")}
             </button>
           )}
         </div>
+
+        {/* Figures typed for another day, the date since moved: one amber
+            line, asked before anything is filed for the new day. "Brug dem"
+            keeps them (a date correction); "Hent … salg" puts the new day's
+            POS figures in their place — offered only when there are some. */}
+        {dateMoveOpen && !existingBlocks && (() => {
+          const dayName = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "long" });
+          const from = dayName(dateMoveOpen.from);
+          const to = dayName(dateMoveOpen.to);
+          // "1. augusts salg" / "1. marts' salg"; "1 August's sales".
+          const toGen = dateLocale().startsWith("da") ? (/[sxz]$/i.test(to) ? `${to}'` : `${to}s`) : `${to}'s`;
+          const sp = prefill?.suggested_prefill;
+          const daySync = Boolean(prefill) && (Object.keys(sp?.payment_breakdown || {}).length > 0 || Number(sp?.revenue_total) > 0);
+          return (
+            <div role="group" aria-labelledby="dc-date-move-q" data-testid="dc-date-move"
+              className="mb-4 rounded-xl px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <p id="dc-date-move-q" className="flex-1 basis-64 min-w-0 text-[13px] text-amber-900 dark:text-amber-100 flex items-start gap-1.5">
+                <Icon name="CalendarClock" size={14} className="shrink-0 mt-0.5" />
+                <span>
+                  {daySync
+                    ? t("dcDateMoveTyped", "You typed figures for {from}. Use them for {to}, or fetch {toGen} sales from your POS?", { from, to, toGen })
+                    : t("dcDateMoveTypedNoSync", "You typed figures for {from}. Use them for {to}?", { from, to })}
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" className="min-h-10" onClick={() => setDateMove(null)}>
+                  {t("dcDateMoveKeep", "Use them for {to}", { to })}
+                </Button>
+                {daySync && (
+                  <Button size="sm" variant="secondary" className="min-h-10" onClick={() => {
+                    fillBoxesFromSync(prefill, { replace: true });
+                    setDateMove(null);
+                  }}>
+                    {t("dcDateMoveFetch", "Fetch {toGen} sales", { toGen })}
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {existingBannerEl}
 
