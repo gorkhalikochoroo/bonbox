@@ -594,11 +594,14 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
     and log it in: no email_verified check, no refusal to link onto a
     password account, no jti replay check. It now takes the credential
     (Google's ID token) to auth_oauth.google_signin, so both routes apply
-    one set of rules and answer with one shape.
+    one set of rules and answer with one shape. legacy=True keeps this
+    route's own new-signup behaviour: the disposable-address gate, the
+    welcome mail and the admin signup notice.
     """
     from app.routers.auth_oauth import google_signin
     return google_signin(
-        request, response, data.credential, db, signup_ref=data.signup_ref,
+        request, response, data.credential, db,
+        legacy=True, signup_ref=data.signup_ref,
     )
 
 
@@ -781,35 +784,17 @@ def apple_auth(
     if not user and email and not is_relay_email:
         user = db.query(User).filter(User.email == email).first()
         if user:
-            # Security round 8 Oct: the same rule as /auth/oauth/apple
-            # (Task #75) — never link Apple SILENTLY onto an account that
-            # signs in with a password or magic link. The provider proves
-            # control of the inbox, not knowledge of the owner's password.
-            # Only an account that already signs in through Apple/Google is
-            # linked; anything else signs in its own way first.
-            if (user.oauth_provider or "") not in {"apple", "google"}:
-                try:
-                    from app.services import audit_service
-                    audit_service.record(
-                        db, user=user, action="auth.oauth_link_refused",
-                        entity_type="user", entity_id=user.id,
-                        after={"provider": "apple", "route": "legacy"},
-                        ip_address=getattr(request.client, "host", None),
-                    )
-                    db.commit()
-                except Exception:  # noqa: BLE001 — audit never blocks the answer
-                    db.rollback()
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "account_exists_login_first",
-                        "message": (
-                            "An account with this email already exists. "
-                            "Sign in with your existing method, then link "
-                            "Apple in Profile settings."
-                        ),
-                    },
-                )
+            # Existing email-based user signing in with Apple for the
+            # first time — link the apple_user_id so future sign-ins
+            # find them by sub. Only on an address Apple verified (above),
+            # i.e. by someone who controls that inbox.
+            # NOTE (security audit 2026-06, re-checked 8 Oct): the new
+            # /api/auth/oauth/apple endpoint refuses to link Apple onto a
+            # pre-existing PASSWORD account (account-takeover guard, Task
+            # #75). Porting that same refusal here would change this tested
+            # legacy flow (old iOS builds), so it's a deliberate product
+            # decision left to Manoj rather than changed silently. The
+            # active /oauth/* path is already guarded.
             user.apple_user_id = apple_sub
             db.commit()
             db.refresh(user)
@@ -1384,7 +1369,16 @@ def reset_password(
     cookie for the device completing the reset so the legitimate user is
     signed straight in. Mirrors sign_out_all.
     """
-    user = db.query(User).filter(User.email == data.email).first()
+    # Row lock (review, 8 Oct): read-compare-increment of reset_attempts must
+    # be one step, or a burst of parallel guesses (many IPs, one account) all
+    # read the same count and each writes the same +1 — the 5-guess burn and
+    # the 24h ceiling seeded from it would not hold. FOR UPDATE serialises
+    # the requests for this account until each one commits or rolls back.
+    # (SQLite has no row locks and ignores it; it serialises writers anyway.)
+    user = (
+        db.query(User).filter(User.email == data.email)
+        .with_for_update().first()
+    )
     # Use a single generic error so we don't leak whether the email exists,
     # whether a token was issued, or whether it matched.
     invalid = HTTPException(status_code=400, detail="Invalid or expired reset code")
@@ -1725,7 +1719,24 @@ _EXPORT_SKIPPED_TABLES = {"users", "audit_logs", "security_events", "error_logs"
 _EXPORT_SECRET_EXACT = {
     "token", "auth", "credentials", "verification_code", "join_code",
     "consent_state", "short_code",
+    # tickets.qr_payload: the signed entry JWT — whoever holds it gets in.
+    "qr_payload",
 }
+
+# A staff-portal link carries its capability token in the path
+# (/s/<token>, /s/<business>/<token>, /s/<business>/<staff>/<token>) and the
+# mails that hold one are stored whole in notification_log.body. The token
+# column itself is never exported, so the copy inside a stored mail is cut
+# out too: the link reads https://www.bonbox.dk/s/[removed].
+_PORTAL_LINK_RE = re.compile(
+    r"""(?:(https?://[^\s"'<>/]+)|(?<=[\s"'=(>])|^)/s/[^\s"'<>]+"""
+)
+
+
+def _redact_portal_links(text: str) -> str:
+    if "/s/" not in text:
+        return text
+    return _PORTAL_LINK_RE.sub(lambda m: (m.group(1) or "") + "/s/[removed]", text)
 
 
 def _is_secret_column(col) -> bool:
@@ -1753,8 +1764,8 @@ def _export_cell(value):
     if isinstance(value, (_dt, _date)):
         return value.isoformat()
     if isinstance(value, (dict, list)):
-        return _json.dumps(value, ensure_ascii=False, default=str)
-    return str(value)
+        return _redact_portal_links(_json.dumps(value, ensure_ascii=False, default=str))
+    return _redact_portal_links(str(value))
 
 
 def _export_owned_tables(db: Session, writer, uid) -> None:
@@ -1811,7 +1822,14 @@ def _write_csv_section(writer, title: str, headers: list, rows: list):
 
 
 @router.get("/export-data")
+# The complete record reads every owned table (~85 queries) into memory in
+# one request; production is one worker with a 15-connection pool. 3/minute
+# per IP is plenty for an owner and keeps a loop on this GET from tying up
+# the pool (review, 8 Oct). No body, so the slowapi/future-annotations
+# gotcha does not apply.
+@limiter.limit("3/minute")
 def export_all_data(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1822,7 +1840,22 @@ def export_all_data(
     khata, loans, budgets, staffing rules, business profile, …) followed by
     the complete record — one section per table the account-deletion walk
     covers, every column except credentials (_export_owned_tables).
+
+    Owner only. Members are refused by member_read_guard; a revisor in an
+    accountant-view session is refused here (review, 8 Oct): the export is
+    the data subject's Art. 15/20 copy — guests' phones and allergy notes,
+    staff addresses and tax cards, staff chat — and a revisor's grant is for
+    the books, which the accountant exports already cover.
     """
+    if getattr(current_user, "_is_accountant_view", False):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "export_owner_only",
+                "message": "Only the account owner can download the full data export.",
+                "message_da": "Kun ejeren af kontoen kan hente den fulde dataeksport.",
+            },
+        )
     uid = current_user.id
     buf = io.StringIO()
     w = csv.writer(buf)

@@ -94,6 +94,26 @@ describe("useToast", () => {
     expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it("an action button runs its fix and closes the toast", () => {
+    // The refused-send case (review, 8 Oct): "Bekræft nu" on the toast must
+    // take the owner to the fix, not leave them reading a dead end.
+    const onClick = vi.fn();
+    withProvider([
+      { message: "Confirm your e-mail first", severity: "warn", action: { label: "Confirm now", onClick } },
+    ]);
+    fireEvent.click(screen.getByText("fire0"));
+    fireEvent.click(screen.getByText("Confirm now"));
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Confirm your e-mail first")).toBeNull();
+  });
+
+  it("a toast without an action shows no extra button", () => {
+    withProvider([{ message: "Plain", severity: "warn", action: { label: "", onClick: () => {} } }]);
+    fireEvent.click(screen.getByText("fire0"));
+    const card = screen.getByText("Plain").parentElement;
+    expect(card.querySelectorAll("button").length).toBe(1); // only Dismiss
+  });
+
   it("does not throw when used outside the provider", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     // No <ToastProvider> — mirrors useConfirm()'s stray-import guarantee.

@@ -133,3 +133,26 @@ def test_correct_code_still_resets(db_session, client, mails):
     assert r.status_code == 200, r.text
     db_session.refresh(user)
     assert user.reset_attempts == 0 and user.reset_token is None
+
+
+def test_the_account_row_is_locked_before_the_guess_is_counted(db_session, client, mails, monkeypatch):
+    """Review, 8 Oct: parallel wrong guesses (many IPs, one account) must not
+    all read the same reset_attempts and each write the same +1. The lookup
+    that reads the counter takes a row lock (SELECT … FOR UPDATE on
+    Postgres), so the requests for one account are counted one at a time."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.orm import Query
+
+    _make_user(db_session)
+    _forgot(client)
+    locked = []
+    real = Query.with_for_update
+
+    def spy(self, *a, **kw):
+        q = real(self, *a, **kw)
+        locked.append(str(q.statement.compile(dialect=postgresql.dialect())))
+        return q
+
+    monkeypatch.setattr(Query, "with_for_update", spy)
+    assert _wrong(client).status_code == 400
+    assert any("FROM users" in sql and "FOR UPDATE" in sql for sql in locked), locked

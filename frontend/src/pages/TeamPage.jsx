@@ -251,6 +251,16 @@ export default function TeamPage() {
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
           {error}
+          {/* An unconfirmed owner's invite is refused (403 email_unverified):
+              give them the one tap that fixes it, not just the reason. */}
+          {error === t("sendNeedsVerifiedEmail") && (
+            <Link
+              to="/verify-email"
+              className="ml-2 inline-flex items-center font-semibold underline underline-offset-2"
+            >
+              {t("verifyEmailNowCta")}
+            </Link>
+          )}
         </div>
       )}
 

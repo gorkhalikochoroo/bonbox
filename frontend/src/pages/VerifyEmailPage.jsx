@@ -5,7 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 
-export default function VerifyEmailPage() {
+export default function VerifyEmailPage({ sendOnArrival = false }) {
   const { user, setEmailVerified } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -16,9 +16,26 @@ export default function VerifyEmailPage() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const inputRefs = useRef([]);
 
-  // Start 60-second cooldown on mount (code was just sent during registration)
+  // A fresh signup was mailed a code at registration: start the 60-second
+  // resend cooldown. An owner who came here on purpose (created before the
+  // grace date, or skipped at signup) was mailed nothing — send one now, so
+  // "We sent a 6-digit code" is true. The ref keeps it to ONE mail even when
+  // React runs the effect twice.
+  const arrivalSent = useRef(false);
   useEffect(() => {
-    setResendCooldown(60);
+    if (!sendOnArrival) {
+      setResendCooldown(60);
+      return;
+    }
+    if (arrivalSent.current) return;
+    arrivalSent.current = true;
+    api
+      .post("/auth/resend-verification")
+      .then(() => setResendCooldown(60))
+      .catch((err) => {
+        setError(err?.response?.status === 429 ? t("tooManyResendAttempts") : t("couldNotResendCode"));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Countdown timer for resend

@@ -377,11 +377,15 @@ def oauth_google(
 
 def google_signin(
     request: Request, response: Response, id_token: str, db: Session,
-    *, signup_ref: Optional[str] = None,
+    *, legacy: bool = False, signup_ref: Optional[str] = None,
 ) -> Token:
     """The Google sign-in itself — shared by /oauth/google and the legacy
     /auth/google route, so both apply the same rules (verified e-mail, no
     silent link to a password account, jti replay, locked accounts).
+
+    legacy=True (POST /auth/google only) keeps what that route always did on
+    a NEW signup and /oauth/google never did: the disposable-address gate
+    (422, as /register), the welcome mail and the founder's signup notice.
 
     signup_ref — the printed door-visit code either route's body carried
     (SignupRefMixin, already cleaned). Stamped on a NEW account only; a
@@ -455,6 +459,15 @@ def google_signin(
 
     # ── Step 3: self-register ────────────────────────────────────────
     if not user:
+        if legacy:
+            # The legacy route's own gate, kept: same rule as /register.
+            # Existing accounts are exempt (they never reach this step).
+            from app.routers.auth import _is_disposable_email
+            if _is_disposable_email(email):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
+                )
         is_new = True
         user = User(
             email=email,
@@ -504,6 +517,26 @@ def google_signin(
 
     db.commit()
     db.refresh(user)
+
+    if legacy and is_new:
+        # What the legacy route always sent on a new signup (never fatal).
+        from app.routers.auth import _admin_signup_email_html, _welcome_email_html
+        from app.services.email_service import send_email
+        from app.services.revisor_mail import header_safe
+        from app.config import settings
+        try:
+            send_email(user.email, "Welcome to BonBox! 🎉", _welcome_email_html(name or "there"))
+        except Exception:  # noqa: BLE001
+            pass
+        if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (email or "").lower():
+            try:
+                send_email(
+                    settings.ADMIN_EMAIL,
+                    header_safe(f"New BonBox signup (Google): {name or email}"),
+                    _admin_signup_email_html(email, name, "google-oauth"),
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     from app.routers.auth import _set_auth_cookie
 

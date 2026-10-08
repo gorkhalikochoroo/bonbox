@@ -97,3 +97,101 @@ def test_export_includes_the_missing_tables_and_no_credentials(db_session, clien
     assert "'=HYPERLINK" in text or "\t=HYPERLINK" in text
     # The readable summary is still on top, unchanged.
     assert text.index("=== Profile ===") < text.index("=== Complete record")
+
+
+# ── Review, 8 Oct ────────────────────────────────────────────────────
+
+
+def test_export_carries_no_portal_token_inside_stored_mails_and_no_ticket_jwt(db_session, client):
+    """staff_links.token was filtered, but the same token rode out inside
+    notification_log.body (the staff_link_shared / schedule mails are stored
+    whole) and tickets.qr_payload is the signed entry JWT. Neither leaves."""
+    from app.models.booking import Booking
+    from app.models.event import Event
+    from app.models.staff import NotificationLog
+    from app.models.ticket import Ticket
+
+    me = _user(db_session, "me2@example.com")
+    staff = StaffMember(user_id=me.id, name="Mette Jensen")
+    db_session.add(staff); db_session.flush()
+    token = "PortalTok3n_abcdefghijklmnop"
+    html = (f'<p>Hej Mette,</p><a href="https://www.bonbox.dk/s/cafe-x/mette/{token}">Åbn</a>'
+            f' or https://www.bonbox.dk/s/{token} and /s/cafe-x/{token}')
+    db_session.add(NotificationLog(user_id=me.id, staff_id=staff.id, channel="email",
+                                   event_type="staff_link_shared", subject="Café — din vagtplan",
+                                   body=html))
+    ev = Event(user_id=me.id, name="Vinaften", event_date=date(2026, 11, 1))
+    db_session.add(ev); db_session.flush()
+    bk = Booking(event_id=ev.id, organizer_user_id=me.id, customer_email="g@example.com",
+                 customer_name="Gæst", ticket_lines=[], total_amount_dkk=200)
+    db_session.add(bk); db_session.flush()
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOiJ4In0.SIGNATURE-ENTRY-JWT"
+    db_session.add(Ticket(booking_id=bk.id, event_id=ev.id, tier_label="Std",
+                          tier_price_dkk=200, qr_payload=jwt))
+    db_session.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: me
+    r = client.get("/api/auth/export-data")
+    assert r.status_code == 200, r.text
+    text = r.text
+    assert token not in text
+    assert jwt not in text and "SIGNATURE-ENTRY-JWT" not in text
+    secs = _sections(text)
+    # The rows themselves are still in the export — only the keys are cut.
+    assert "notification_log" in secs and "tickets" in secs
+    assert "qr_payload" not in secs["tickets"][0]
+    assert "https://www.bonbox.dk/s/[removed]" in text
+    assert "Hej Mette" in text and "Vinaften" in text
+
+
+def test_redaction_leaves_ordinary_text_alone():
+    red = auth_router._redact_portal_links
+    assert red("1/s/2 kr/s/stk") == "1/s/2 kr/s/stk"
+    assert red("https://example.com/docs/s/x") == "https://example.com/docs/s/x"
+    assert red('href="/s/a/b/TOKEN"') == 'href="/s/[removed]"'
+    assert red("/s/TOKEN") == "/s/[removed]"
+
+
+def test_revisor_session_cannot_download_the_owners_full_export(db_session, client):
+    """An accountant-view session resolves to the OWNER's identity; the full
+    Art. 15/20 export (guest allergies, staff addresses, chat) is the data
+    subject's, not the revisor's — 403, nothing exported."""
+    from fastapi import Depends, Request
+    from app.database import get_db
+    from app.models.accountant_grant import AccountantGrant
+    from app.services.auth import _resolve_accountant_view
+    from app.utils.time import utc_now
+
+    owner = _user(db_session, "owner3@example.com")
+    rev = User(email="revisor3@example.com", password_hash=hash_password("revisorpw123"),
+               business_name="Rev", business_type="", currency="DKK", role="accountant",
+               email_verified=True)
+    db_session.add(rev); db_session.commit(); db_session.refresh(rev)
+    db_session.add(AccountantGrant(accountant_user_id=rev.id, accountant_email=rev.email,
+                                   owner_user_id=owner.id, granted_by=owner.id, status="active",
+                                   invited_at=utc_now(), activated_at=utc_now()))
+    db_session.add(DailyClose(user_id=owner.id, date=date(2026, 10, 7), revenue_total=777))
+    db_session.commit()
+
+    def _resolve(request: Request, db=Depends(get_db)):
+        return _resolve_accountant_view(rev, request, db)
+
+    app.dependency_overrides[get_current_user] = _resolve
+    r = client.get("/api/auth/export-data", headers={"X-Client-ID": str(owner.id)})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "export_owner_only"
+    assert "777" not in r.text
+    # The owner's own session still gets it. (This test shares one ORM session
+    # across requests, so drop the per-request marker the delegation put on
+    # the identity-mapped owner row; production opens a session per request.)
+    owner.__dict__.pop("_is_accountant_view", None)
+    app.dependency_overrides[get_current_user] = lambda: owner
+    r2 = client.get("/api/auth/export-data")
+    assert r2.status_code == 200 and "777" in r2.text
+
+
+def test_export_is_rate_limited(db_session, client):
+    me = _user(db_session, "rl@example.com")
+    app.dependency_overrides[get_current_user] = lambda: me
+    codes = [client.get("/api/auth/export-data").status_code for _ in range(4)]
+    assert codes[:3] == [200, 200, 200] and codes[3] == 429, codes
