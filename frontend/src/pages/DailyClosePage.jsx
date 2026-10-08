@@ -1425,6 +1425,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // is the sync's — one the owner typed over (or a scan or a draft filled) is
   // theirs and stays.
   const salesFillRef = useRef(null);
+  // Moves each time something other than the sync fills the boxes: the owner
+  // typing, a Z-bon applied, a saved close loaded. A sync answer that lands
+  // after such a fill is the day's POS figures, not the owner's — it must not
+  // write over them.
+  const boxFillEpochRef = useRef(0);
 
   // Edit-resync guard. When the owner unlocks + edits an existing close
   // (editDraft), the [branchId, businessDate]-keyed prefill effect re-fires
@@ -1594,6 +1599,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // re-fires when we set businessDate below) does NOT clobber the saved
     // payment/revenue breakdown. See registerCash / editLoadedRef notes.
     editLoadedRef.current = true;
+    boxFillEpochRef.current += 1;
     // An edited close is filed against ITS OWN date, never today — mark the
     // date as chosen before the prefill for that date can resolve.
     if (dc.date) {
@@ -2168,6 +2174,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // only Mad and Kort (22.060 paid against a 17.030 Z-bon).
     // The boxes are the Z-bon's from here on, not the day's sales sync.
     salesFillRef.current = null;
+    boxFillEpochRef.current += 1;
     setRevAmounts(newRev);
     // Fill payments — match against current template methods + extras
     const newPay = {};
@@ -2288,6 +2295,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       setPayAmounts((prev) => unsync(prev, synced.pay));
       setRevAmounts((prev) => unsync(prev, synced.rev));
     }
+    // The other half: the new day's sync writes only into a form that holds
+    // nothing but the old sync's own figures (taken out above) or nothing at
+    // all. A Z-bon applied, a draft loaded or a figure typed — before this
+    // request, or while it is on its way — is the owner's, and stays. Moving
+    // the date onto a sales day replaced a Z-bon's Mad 9.000 / Kort 12.000
+    // with the POS's 1.100 / 1.250, under the bon's 17.030 total, and the
+    // kasserapport then called every line an owner correction.
+    const ownBox = (boxes, fill) => Object.entries(boxes || {}).some(([k, v]) =>
+      String(v ?? "").trim() !== "" && !(fill && fill[k] === v));
+    const boxesTaken = ownBox(revAmounts, synced?.rev) || ownBox(payAmounts, synced?.pay);
+    const fillEpoch = boxFillEpochRef.current;
     const fetchPrefill = async () => {
       setPrefillLoading(true);
       try {
@@ -2366,7 +2384,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // saved breakdown (e.g. cash 400/card 500/mp 170 → card 1850), so
           // we skip the writes. `prefill` is still set above so the
           // informational sync banner + expenses summary keep rendering.
-          if (!editLoadedRef.current) {
+          if (!editLoadedRef.current && !boxesTaken && boxFillEpochRef.current === fillEpoch) {
             // Auto-fill payment methods from sales data
             const payPrefill = res.data.suggested_prefill?.payment_breakdown || {};
             if (Object.keys(payPrefill).length > 0) {
@@ -2433,6 +2451,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     };
     fetchPrefill();
     return () => { stale = true; };
+  // The boxes are read as they stand when the day changes; they are not a key.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileBranchId, branchType, businessDate]);
 
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + readMoney0(v), 0), [revAmounts, mLocale]);
@@ -2874,11 +2894,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       revenue_breakdown,
       payment_breakdown,
       // A typed figure goes as typed — 0 included (`|| null` nulled it, and
-      // the server put its own figure under the owner's "0,00"). Anything
-      // else goes as the auto figure it is: never "manual" over a number
-      // nobody typed, which the kasserapport would print as "indtastet".
+      // the server put its own figure under the owner's "0,00"). The bon's own
+      // MOMS (still fitting the total, box emptied or Auto tapped) goes as the
+      // bon's, the way applying the scan sends it: "manual" with source_meta
+      // "zbon" is what the kasserapport prints "fra Z-bon" and the server keeps
+      // as is. Sent as "auto" it was labelled "beregnet af BonBox", and the
+      // server's stale-auto rule could swap 2.906 for 3.406. Anything else
+      // goes as the auto figure it is: never "manual" over a number nobody
+      // typed or read, which the kasserapport would print as "indtastet".
       moms_total: momsTyped ? momsTotal : (momsTotal || null),
-      moms_mode: momsTyped ? "manual" : "auto",
+      moms_mode: (momsTyped || momsSource === "scanned") ? "manual" : "auto",
       tips_total: tipsTotal && Number.isFinite(readMoney(tipsTotal)) ? readMoney(tipsTotal) : null,
       tips_staff_count: staffCount ? parseInt(staffCount) : null,
       cash_counted: countedNum,
@@ -2928,6 +2953,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // server has answered, so "Gemt" only ever means saved.
   const [draftSaving, setDraftSaving] = useState(false);
   const autoSaveRef = useRef(null);
+  // The latest render's payload builder. The 2 s timer (and the flush on
+  // leaving) was set in a render that could still hold the old day's MOMS-free
+  // total: a date move posted 1 Jun's draft with 25 Sep's 5.000 subtracted
+  // (MOMS 2.426 saved, 3.426 on the review). The save sends what the form
+  // holds when it goes.
+  const buildPayloadRef = useRef(buildPayload);
+  buildPayloadRef.current = buildPayload;
   // The save the 2 s debounce is holding. Leaving the form (another tab,
   // another page, the phone locked) CANCELLED it, so an edit made just before
   // leaving never reached the server. Leaving now sends it instead.
@@ -3012,7 +3044,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       pendingSaveRef.current = null;
       savesInFlightRef.current += 1;
       try {
-        await api.post("/daily-close", buildPayload("draft"),
+        await api.post("/daily-close", buildPayloadRef.current("draft"),
           keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
         setOwnDraftKey(savingKey);
         onDraftSaved?.();
@@ -3035,7 +3067,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return () => clearTimeout(autoSaveRef.current);
   // closedBy / notes / staff / MOMS typed on the review step were never
   // autosaved — "Kladde gemt" and then lost on the next open.
-  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue]);
+  // momsTotal / exemptSalesTotal: the day's MOMS-free answer landing after
+  // the save went out changes the MOMS, and that is saved too.
+  }, [step, revAmounts, payAmounts, cashCounted, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, lockedRowRejected, existingBlocks, businessDate, fileBranchId, savedRevenue, momsTotal, exemptSalesTotal]);
 
   // Leaving sends the waiting save instead of dropping it: the form unmounts on
   // every tab switch and route change, and a phone can be locked or the tab
@@ -4638,7 +4672,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <label htmlFor={`dc-rev-${cat.key}`} className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, cat)}</label>
                 <MoneyField id={`dc-rev-${cat.key}`} locale={mLocale} placeholder="0" className={inputClass}
                   value={revAmounts[cat.key] || ""}
-                  onChange={e => setRevAmounts({ ...revAmounts, [cat.key]: e.target.value })} />
+                  onChange={e => { boxFillEpochRef.current += 1; setRevAmounts({ ...revAmounts, [cat.key]: e.target.value }); }} />
               </div>
             ))}
             <div className="flex gap-2">
@@ -4677,7 +4711,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <label htmlFor={`dc-pay-${m.key}`} className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</label>
                 <MoneyField id={`dc-pay-${m.key}`} locale={mLocale} placeholder="0" className={inputClass}
                   value={payAmounts[m.key] || ""}
-                  onChange={e => setPayAmounts({ ...payAmounts, [m.key]: e.target.value })} />
+                  onChange={e => { boxFillEpochRef.current += 1; setPayAmounts({ ...payAmounts, [m.key]: e.target.value }); }} />
               </div>
             ))}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700">

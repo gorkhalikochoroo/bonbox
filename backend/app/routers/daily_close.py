@@ -1677,10 +1677,23 @@ def create_daily_close(
     # the sum — 2.000 saved where 3.406 is owed. An auto figure that equals
     # the sum's MOMS while the saved revenue is not the sum is stale: it is
     # recomputed from what is saved. A scanned or manual MOMS is kept.
+    #
+    # Unless it is ALSO the MOMS of the saved revenue less the day's MOMS-free
+    # sales — the page's own figure: 17.030 − 2.500 MOMS-free = 14.530, which
+    # happened to be the category sum too, and 2.906 was swapped for 3.406.
+    try:
+        exempt = float(data.exempt_sales_total or 0)
+    except (TypeError, ValueError):
+        exempt = 0.0
+    exempt_fits = (
+        sent_moms is not None and exempt > 0
+        and abs(float(sent_moms) - _moms_of(max(0.0, revenue_total - exempt))) < 0.02
+    )
     if (
         sent_moms is not None and moms_mode == "auto" and vat_rate > 0
         and breakdown_sum > 0 and abs(revenue_total - breakdown_sum) > 0.5
         and abs(float(sent_moms) - _moms_of(breakdown_sum)) < 0.02
+        and not exempt_fits
     ):
         sent_moms = None
     if sent_moms is not None:

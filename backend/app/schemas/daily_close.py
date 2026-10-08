@@ -63,6 +63,10 @@ class DailyCloseCreate(BaseModel):
     # Where the figures came from — see DailyClose.source_meta. A small dict;
     # the router keeps only the known keys and bounds them.
     source_meta: dict | None = None
+    # The day's MOMS-free sales the page took off the taxable base. Read only
+    # to tell the page's own auto MOMS from a stale one (see the router); not
+    # stored. No bounds — an informational number must never 422 a lock.
+    exempt_sales_total: float | None = None
 
 
 class DailyCloseUnlock(BaseModel):

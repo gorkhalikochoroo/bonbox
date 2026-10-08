@@ -252,8 +252,11 @@ describe("daily close — an empty \"Fra kvittering\" box is not a typed 0 (must
     expect(container.textContent).toContain("momsFromZReport");
     expect(container.textContent).toContain("dcMomsManualEmpty:3.406 kr.");
     const payload = await lockedPayload();
-    expect(payload.moms_mode).toBe("auto");
+    // The bon's figure goes as the bon's ("manual" + source_meta zbon → "fra
+    // Z-bon"), never as "beregnet af BonBox" — see r15ReviewFixes.
+    expect(payload.moms_mode).toBe("manual");
     expect(payload.moms_total).toBe(3406);
+    expect(payload.source_meta.kind).toBe("zbon");
   });
 
   it("the reviewer's path: partial read, total corrected to 18.000, Fra kvittering left empty", async () => {
