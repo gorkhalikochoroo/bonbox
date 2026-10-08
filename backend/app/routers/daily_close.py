@@ -178,6 +178,10 @@ def _to_response(dc: DailyClose) -> dict:
         "unlocked_at": getattr(dc, "unlocked_at", None),
         "is_deleted": dc.is_deleted,
         "created_at": dc.created_at,
+        # The version of the row: the page sends it back as base_updated_at
+        # with its next draft save, so a draft changed elsewhere since is
+        # never overwritten in silence (create_daily_close, round 21).
+        "updated_at": getattr(dc, "updated_at", None),
         "receipt_photo": getattr(dc, "receipt_photo", None),
         # Where the figures came from (Z-bon or typed, the tills added
         # together, which of them were typed). A reopened draft that was itself
@@ -1346,6 +1350,78 @@ def _dead_draft_figures(dead) -> dict:
     }
 
 
+DRAFT_CHANGED = "draft_changed"
+
+
+def _naive_utc(ts):
+    """A datetime as the naive UTC the columns hold (an aware one converted)."""
+    from datetime import timezone as _tz
+    if ts is None:
+        return None
+    if ts.tzinfo is not None:
+        ts = ts.astimezone(_tz.utc).replace(tzinfo=None)
+    return ts
+
+
+def _last_save_id(db, user, close_id) -> str | None:
+    """The page's own id for the save that wrote this close last (its
+    `save_id`, kept on the daily_close create / update / lock audit row), or
+    None. Read only when a page says its save follows one of its own still on
+    its way (base_save_id)."""
+    import json as _json
+    try:
+        from app.models.audit_log import AuditLog
+        row = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.entity_id == close_id,
+                AuditLog.action.in_(("daily_close.create", "daily_close.update", "daily_close.lock")),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .first()
+        )
+        after = _json.loads(row.after_state or "{}") if row is not None else {}
+    except Exception:  # noqa: BLE001
+        return None
+    sid = after.get("save_id") if isinstance(after, dict) else None
+    return sid if isinstance(sid, str) and sid else None
+
+
+def _draft_changed_since(existing, base, base_save_id=None, *, db=None, user=None) -> dict | None:
+    """The 412 detail when the stored DRAFT is newer than the version the
+    page holds (`base`, its base_updated_at), else None.
+
+    Only a live draft is checked — a locked row keeps its own 409 — and only
+    when the page sent a base: an older app build sends none and saves as it
+    always did. A base equal to (or newer than) the stored version is the
+    page's own latest. The detail carries the stored draft, so the page can
+    show it and offer it.
+
+    `base_save_id`: the page's own save still on its way when this one went
+    (the page was going away — no time to wait for its answer). When the
+    stored version is the one THAT save wrote, it is the page's own and this
+    save follows it; anyone else's version in between is still refused."""
+    if existing is None or base is None:
+        return None
+    if (getattr(existing, "status", None) or "confirmed") != "draft":
+        return None
+    stored = _naive_utc(getattr(existing, "updated_at", None))
+    if stored is None or stored <= _naive_utc(base):
+        return None
+    if base_save_id and db is not None and user is not None and _last_save_id(db, user, existing.id) == base_save_id:
+        return None
+    from fastapi.encoders import jsonable_encoder
+    return {
+        "code": DRAFT_CHANGED,
+        "message": ("Kladden for denne dag er gemt et andet sted, efter du åbnede den. "
+                    "Intet er overskrevet — hent den nyeste kladde, eller behold dine tal."),
+        "updated_at": stored.isoformat(),
+        "current": jsonable_encoder(_to_response(existing)),
+    }
+
+
 def _clean_source_meta(meta) -> str | None:
     """Keep only the known, bounded keys of the client's source description
     (see DailyClose.source_meta) and store it as JSON text."""
@@ -1665,6 +1741,21 @@ def create_daily_close(
         )
         .first()
     )
+
+    # A draft that changed since the page opened it is never replaced in
+    # silence (round 21). Every save sends every field, so a page holding an
+    # older copy — a save from its previous visit landed after it listed the
+    # day, or another phone saved since — filed that copy over the newer
+    # draft: a note typed on it erased a Kort 2.000 already stored. The page
+    # says which version it holds (base_updated_at, the updated_at it last
+    # read or was answered with); an older one is refused with its own code,
+    # never the locked-row 409 (to every client a 409 here means "locked —
+    # already in the books") and never the 423. The page then asks the owner:
+    # the newer draft, or theirs (sent again on the newer base). No base (an
+    # older app build) saves as it always did.
+    _changed = _draft_changed_since(existing, data.base_updated_at, data.base_save_id, db=db, user=user)
+    if _changed is not None:
+        raise HTTPException(status_code=412, detail=_changed)
 
     # Revenue total: when the OCR detected a bottom-line total
     # (revenue_total_override) AND the user didn't fully reconcile the
@@ -2031,6 +2122,9 @@ def create_daily_close(
                 # rest of what the kasserapport prints (_lock_doc_fields).
                 **_lock_lines(data),
                 **(_lock_doc_fields(existing) if status == "confirmed" else {}),
+                # The page's id for this save: the save it sends next, while
+                # this one is still on its way, follows it (base_save_id).
+                **({"save_id": data.save_id} if data.save_id else {}),
             },
             ip_address=getattr(request.client, "host", None) if request.client else None,
         )
@@ -2172,6 +2266,7 @@ def create_daily_close(
             "closed_by": data.closed_by, "branch_id": data.branch_id,
             **(_lock_lines(data) if status == "confirmed" else {}),
             **(_lock_doc_fields(dc) if status == "confirmed" else {}),
+            **({"save_id": data.save_id} if data.save_id else {}),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )

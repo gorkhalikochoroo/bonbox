@@ -105,6 +105,9 @@ const shoot = async (key, name) => {
   await waitFor(() => expect(q('[data-testid="dc-scan-result-date"]')).not.toBeNull());
 };
 const toStepWith = async (sel) => {
+  // Round 21: "Fortsæt kladden" opens the draft as it is stored now (read by
+  // id — one round trip), so the form is waited for before walking it.
+  await waitFor(() => expect(q("#close-date")).not.toBeNull());
   for (let i = 0; i < 8 && !q(sel); i++) {
     const next = btn(/^next\s*→$/);
     if (!next) break;

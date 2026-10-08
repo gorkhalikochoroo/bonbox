@@ -66,6 +66,27 @@ export function isDeletedLockedClose(err) {
   return Boolean(d && typeof d === "object" && d.code === DELETED_LOCKED_CLOSE);
 }
 
+/* The day's draft was saved somewhere else (another phone or tab, or the
+   page's own previous visit) after this copy was built: the server refused
+   it (412, detail.code "draft_changed") and wrote nothing. Nothing of THIS
+   copy is in the books, and the stored draft is newer — never "already
+   saved", never sent over it in silence. It stays, failed, with the newer
+   version's stamp (conflictStamp): "keep mine" sends it again on that. */
+export const DRAFT_CHANGED = "draft_changed";
+/** Said on the window when a copy is kept outside the page's own sync (the page shows it at once). */
+export const QUEUE_CHANGED_EVENT = "bonbox-dc-queue-changed";
+export const QUEUE_ERR_DRAFT_CHANGED = "draft_changed";
+export function isDraftChanged(err) {
+  const d = err?.response?.data?.detail;
+  return Boolean(d && typeof d === "object" && d.code === DRAFT_CHANGED);
+}
+/** The stored draft's version from a draft_changed refusal (null when it gave none). */
+export function draftChangedStamp(err) {
+  const d = err?.response?.data?.detail;
+  if (!d || typeof d !== "object") return null;
+  return d.updated_at || d.current?.updated_at || null;
+}
+
 /** Classify an HTTP status into one of the reason codes above. */
 function reasonForStatus(status) {
   return typeof status === "number" && status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED;
@@ -123,6 +144,26 @@ export function addToOfflineQueue(payload) {
     ts: Date.now(),
     id: newId(),
     state: QUEUE_WAITING_NETWORK,
+  };
+  const q = getOfflineQueue();
+  q.push(item);
+  return writeOfflineQueue(q) ? item : null;
+}
+
+/**
+ * Keep a copy the server refused as a FAILED item straight away — a draft
+ * save that met draft_changed after its form was gone (the page was left):
+ * the owner's last change exists only here now. Returns the item, or null
+ * when storage refused.
+ */
+export function addFailedToOfflineQueue(payload, patch = {}) {
+  const item = {
+    payload,
+    ts: Date.now(),
+    id: newId(),
+    state: QUEUE_FAILED,
+    lastTriedTs: Date.now(),
+    ...patch,
   };
   const q = getOfflineQueue();
   q.push(item);
@@ -259,6 +300,23 @@ export async function syncOfflineQueue(post) {
           state: QUEUE_FAILED,
           errorCode: QUEUE_ERR_DELETED_LOCKED,
           errorDetail: errText(err, ""),
+          httpStatus: status,
+          lastTriedTs: Date.now(),
+        });
+        continue;
+      }
+      // The day's draft changed since this copy was made (another phone, the
+      // wizard): nothing was written, and the stored draft is the newer one.
+      // Never "already saved" (that would offer to throw away the only copy
+      // of this version) — failed, with the newer version's stamp, so the
+      // owner can keep theirs or remove it.
+      if (isDraftChanged(err)) {
+        remaining.push({
+          ...item,
+          state: QUEUE_FAILED,
+          errorCode: QUEUE_ERR_DRAFT_CHANGED,
+          conflictStamp: draftChangedStamp(err),
+          errorDetail: null,
           httpStatus: status,
           lastTriedTs: Date.now(),
         });

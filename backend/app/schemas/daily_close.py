@@ -67,6 +67,19 @@ class DailyCloseCreate(BaseModel):
     # to tell the page's own auto MOMS from a stale one (see the router); not
     # stored. No bounds — an informational number must never 422 a lock.
     exempt_sales_total: float | None = None
+    # The version of the stored draft this save was built on: the updated_at
+    # the page last read for the day (opened, or answered by its own save).
+    # A live draft stored LATER than this was changed elsewhere since, and is
+    # not overwritten: 412 with detail.code "draft_changed" (round 21). None —
+    # an older app build — saves as before. A date-time far in the past says
+    # "the page knew of no row for this day".
+    base_updated_at: datetime.datetime | None = None
+    # The page's own id for this save (kept on its audit row), and — a save
+    # sent while the page was going away, with another of its saves still on
+    # its way — that save's id: the version that save wrote is the page's own
+    # and does not refuse this one. Anyone else's version still does.
+    save_id: str | None = Field(None, max_length=64)
+    base_save_id: str | None = Field(None, max_length=64)
 
 
 class DailyCloseUnlock(BaseModel):
