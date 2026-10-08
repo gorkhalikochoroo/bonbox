@@ -99,8 +99,8 @@ function CookiesEn() {
               got in BonBox: e-mail confirmed, setup finished, first daily close, staff link made and
               opened, active in the last 7 days. We note which venue we left each flyer at, so the
               numbers for one code show how far that venue's account got. Only the founder sees them.
-              The code itself is never used to contact anyone and is never shared. On accounts, the
-              code is deleted on 31 January 2027.
+              The code itself is never used to contact anyone and is never shared. It is deleted 12
+              months after you create your account, or earlier if you delete your account.
               <span className="block mt-1">
                 Before you have an account: without Marketing consent, the code is held only while the
                 page is open and is never written to your device. If you ask for an e-mail sign-in link,
@@ -238,7 +238,8 @@ function CookiesDa() {
               medarbejderlink lavet og åbnet, aktiv inden for de seneste 7 dage. Vi noterer, hvilket sted
               vi har afleveret hver folder, så tallene for én kode viser, hvor langt det steds konto er
               nået. Kun stifteren ser dem. Selve koden bruges aldrig til at kontakte nogen og deles
-              aldrig med andre. På kontiene slettes koden den 31. januar 2027.
+              aldrig med andre. Koden slettes 12 måneder efter, at du har oprettet din konto, eller
+              tidligere, hvis du sletter kontoen.
               <span className="block mt-1">
                 Før du har en konto: Uden samtykke til Markedsføring huskes koden kun, mens siden er åben,
                 og gemmes aldrig på din enhed. Beder du om et login-link på e-mail, sættes koden på

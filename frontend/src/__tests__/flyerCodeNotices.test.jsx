@@ -25,6 +25,11 @@
  * used "for nothing but the counts described above". The checks below assert
  * the thesis wording is ABSENT from both pages in every UI language (np, vi,
  * th and tr read the English document) and from every locale's cookie keys.
+ *
+ * 8 Oct, Manoj's decision 2: the code is kept on an account for 12 months
+ * after signup, not until a fixed date (backend SIGNUP_REF_RETENTION_DAYS =
+ * 365, cleared by the nightly maintenance). Both pages and the /privacy
+ * retention row say so; "31 January 2027" is no longer promised anywhere.
  */
 import { render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -53,14 +58,16 @@ const STAGES = {
     "active in the last 7 days", "one code is one visit", "never used to contact",
     "We note which venue we left each flyer at", "how far that venue's account got",
     "Only the founder sees them",
-    "31 January 2027", "e-mail sign-in link, the code is added to that link", "allow Marketing",
+    "deleted 12 months after you create your account, or earlier if you delete your account",
+    "e-mail sign-in link, the code is added to that link", "allow Marketing",
   ],
   da: [
     "e-mail bekræftet", "opsætning færdig", "første daglige lukning (kasserapport)",
     "medarbejderlink lavet og åbnet", "aktiv inden for de seneste 7 dage", "én kode er ét besøg",
     "aldrig til at kontakte", "Vi noterer, hvilket sted vi har afleveret hver folder",
     "hvor langt det steds konto er nået", "Kun stifteren ser dem",
-    "31. januar 2027", "login-link på e-mail, sættes koden på linket", "tillader Markedsføring",
+    "slettes 12 måneder efter, at du har oprettet din konto, eller tidligere, hvis du sletter kontoen",
+    "login-link på e-mail, sættes koden på linket", "tillader Markedsføring",
   ],
 };
 
@@ -73,6 +80,8 @@ const UNTRUE = [
   "Analytics consent", "samtykke til Analyse", "Turning Analytics on", "Slår du Analyse til",
   "første dagsafslutning", "(round, argument, visit)", "(runde, argument, besøg)",
   "du oprettede dig fra", "holdes koden kun", "skrives aldrig på", "kommer den ikke på din enhed",
+  // Manoj's decision 2 (8 Oct): no fixed end date any more — 12 months after signup.
+  "31 January 2027", "31. januar 2027", "2027",
 ];
 
 beforeEach(() => localStorage.clear());
@@ -151,9 +160,9 @@ describe("CookiePolicyPage — the Analytics category", () => {
 
 describe("PrivacyPolicyPage — how long the flyer code stays on the account", () => {
   it.each([
-    ["en", "Deleted on 31 January 2027, or earlier if you delete your account"],
-    ["da", "Slettes den 31. januar 2027 eller tidligere, hvis du sletter din konto"],
-  ])("lang=%s has a retention row with an end date", (lang, row) => {
+    ["en", "Campaign code from a printed flyer (on the account)Deleted 12 months after you create your account, or earlier if you delete your account"],
+    ["da", "Kampagnekode fra en trykt folder (på kontoen)Slettes 12 måneder efter, at du har oprettet din konto, eller tidligere, hvis du sletter kontoen"],
+  ])("lang=%s has a retention row: 12 months after the account is created", (lang, row) => {
     expect(textAt(PrivacyPolicyPage, lang)).toContain(row);
   });
 });

@@ -149,9 +149,9 @@ def purge_old_error_logs(days: int = ERROR_LOG_RETENTION_DAYS) -> int:
 
 
 def purge_expired_signup_refs() -> int:
-    """Clear door-visit codes from accounts once their retention date has
-    passed (services/signup_ref.py SIGNUP_REF_DELETE_ON — the date /privacy
-    promises). Returns the number of accounts cleared."""
+    """Clear the door-visit code from every account created more than 12
+    months ago (services/signup_ref.py SIGNUP_REF_RETENTION_DAYS — what
+    /privacy promises). Returns the number of accounts cleared."""
     from app.services.signup_ref import purge_signup_refs
 
     db: Session = SessionLocal()
@@ -197,8 +197,8 @@ def daily_maintenance() -> dict:
     except Exception as e:  # noqa: BLE001
         summary["error_log_retention_error"] = str(e)
 
-    # Door-visit codes: /privacy says they are deleted from accounts on
-    # 31 January 2027. A no-op before that date.
+    # Door-visit codes: /privacy says each is deleted 12 months after the
+    # account was created. Clears only accounts past that point.
     try:
         summary["signup_refs_deleted"] = purge_expired_signup_refs()
     except Exception as e:  # noqa: BLE001
