@@ -21,6 +21,10 @@ was already stored (sequences lane, seeds 30015 / 30672 / 31176 / 40947 /
 4. A draft of payments only (revenue 0) is stored with its payments.
 5. The revisor's source line for a summed day whose category the owner
    raised on one till names each bon's own read figure and the correction.
+6. GDPR: the close.restored audit row (a deleted draft's notes, Lukket af,
+   photo path) is kept by account erasure under the audit trail's legal hold
+   — the same as every other daily_close audit row — never purged with the
+   account's closes.
 """
 from __future__ import annotations
 
@@ -372,3 +376,35 @@ def test_a_category_raised_on_a_summed_day_names_each_bon_and_the_correction(db_
     assert "Z-bon 1: 14.000,00 kr. · Z-bon 2: 2.000,00 kr. · rettet af ejeren til 16.500,00 kr." in line
     # Never the raised till's figure as if a bon had printed it.
     assert "2.500" not in line
+
+
+# ─── 6. GDPR: erasure and the close.restored audit row ─────────────────
+
+def test_erasure_keeps_the_close_restored_audit_row_under_the_legal_hold(db_session, client):
+    """close.restored `before` holds a deleted draft's notes, Lukket af and
+    photo path (round 20). Account erasure keeps audit_logs — the legal hold
+    of auth.delete_account (_ERASURE_RETAINED_TABLES; Postgres rules make the
+    table append-only) — exactly as it keeps the daily_close.create / update
+    rows, which already hold Lukket af. The closes themselves are erased."""
+    u = _user(db_session, email="erase-r21@cafe.dk")
+    uid = u.id
+    b = Branch(id=uuid.uuid4(), user_id=u.id, name="Nørrebro", business_type="restaurant", is_default=True)
+    db_session.add(b); db_session.commit()
+    first = client.post("/api/daily-close", headers=_auth(u), json=_body(
+        branch_id=str(b.id), closed_by="Test", notes="Kladde før", receipt_photo="u1/kasserapport/bon.jpg")).json()
+    assert client.delete(f"/api/daily-close/{first['id']}", headers=_auth(u)).status_code == 204
+    assert client.post("/api/daily-close", headers=_auth(u), json=_body(branch_id=str(b.id))).status_code == 200
+    restored = db_session.query(AuditLog).filter(AuditLog.action == "close.restored").one()
+    assert json.loads(restored.before_state)["notes"] == "Kladde før"
+
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    assert r.status_code == 200, r.text
+    db_session.expire_all()
+    assert db_session.query(User).filter(User.id == uid).first() is None
+    assert db_session.query(DailyClose).filter(DailyClose.user_id == uid).count() == 0
+    # Kept, pseudonymous (no user row behind the id), with the other close
+    # audit rows of the same retention basis.
+    kept = {a.action for a in db_session.query(AuditLog).filter(AuditLog.user_id == uid).all()}
+    assert "close.restored" in kept
+    assert {"daily_close.create", "close.deleted"} <= kept
