@@ -279,7 +279,7 @@ export default function BudgetPage() {
               <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{t("bgtOverallBudget", "Overall Budget")}</span>
-                  <span className="text-sm font-semibold text-gray-800 dark:text-white">
+                  <span className="text-sm font-semibold tabular-nums text-gray-800 dark:text-white">
                     {moneyNoUnit(summary.total_spent)} / {formatOwnerMoney(summary.total_budget, currency)}
                   </span>
                 </div>
@@ -360,7 +360,7 @@ export default function BudgetPage() {
                             {cat.status === "red" ? t("bgtBadgeOver", "Over") : cat.status === "yellow" ? t("bgtBadgeWarning", "Warning") : t("bgtBadgeOk", "OK")}
                           </span>
                         </div>
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                        <span className="text-sm tabular-nums text-gray-500 dark:text-gray-400">
                           <span className={`font-semibold ${sc.text}`}>{moneyNoUnit(cat.spent)}</span>
                           {cat.limit_amount > 0 && <span> / {formatOwnerMoney(cat.limit_amount, currency)}</span>}
                         </span>

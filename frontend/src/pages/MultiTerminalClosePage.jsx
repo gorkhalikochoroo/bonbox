@@ -709,7 +709,7 @@ function ReviewView({ aggregated, currency, t, onBack, onSend, sending }) {
               <span className={`text-xs ${isHeader ? "font-bold text-gray-800 dark:text-white" : "text-gray-600 dark:text-gray-300"}`}>
                 {row.label}
               </span>
-              <span className={`text-xs font-mono ${
+              <span className={`text-xs font-mono tabular-nums ${
                 isFlagged
                   ? "text-amber-700 dark:text-amber-300 font-bold"
                   : isHeader

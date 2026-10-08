@@ -134,7 +134,7 @@ export default function AiPanelV2() {
                     <div className="mb-1 text-[12px] min-[1041px]:text-[10.5px] font-semibold uppercase tracking-[0.13em] text-slate-400">
                       {t("landingV2.ai.metricLabel", "Revenue last week")}
                     </div>
-                    <div className="font-display text-[24px] font-bold tracking-[-0.02em] text-slate-900">
+                    <div className="font-display text-[24px] font-bold tracking-[-0.02em] tabular-nums text-slate-900">
                       {t("landingV2.ai.metricValue", "62.480")}
                       <span className="text-[13px] font-medium text-slate-500">
                         {" "}

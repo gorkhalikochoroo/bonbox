@@ -79,7 +79,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
             <span className="text-gray-500 dark:text-gray-400">
               {tax.inclusive ? inclLabel : "Subtotal"}
             </span>
-            <span className="font-semibold text-gray-700 dark:text-gray-200">
+            <span className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
               {formatOwnerMoney(tax.inclusive ? num : amountExclTax, currencyCode, { decimals: 2 })}
             </span>
           </div>
@@ -87,7 +87,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
             <span className="text-gray-500 dark:text-gray-400">
               {taxName} ({pct}%)
             </span>
-            <span className="font-semibold text-gray-900 dark:text-gray-100">
+            <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">
               {formatOwnerMoney(taxAmount, currencyCode, { decimals: 2 })}
             </span>
           </div>
@@ -95,7 +95,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
             <span className="text-gray-500 dark:text-gray-400 font-medium">
               {tax.inclusive ? exclLabel : "Total"}
             </span>
-            <span className="font-bold text-gray-800 dark:text-gray-100">
+            <span className="font-bold tabular-nums text-gray-800 dark:text-gray-100">
               {formatOwnerMoney(tax.inclusive ? amountExclTax : amountInclTax, currencyCode, { decimals: 2 })}
             </span>
           </div>
@@ -105,7 +105,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
           <span className="text-gray-500 dark:text-gray-400">
             {type === "expenses" ? vat.expensesSection : vat.salesSection} ({vatFreeLabel})
           </span>
-          <span className="font-bold text-gray-800 dark:text-gray-100">
+          <span className="font-bold tabular-nums text-gray-800 dark:text-gray-100">
             {formatOwnerMoney(num, currencyCode, { decimals: 2 })}
           </span>
         </div>

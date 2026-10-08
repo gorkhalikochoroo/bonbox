@@ -319,7 +319,7 @@ export default function HeroV2() {
               <span className="bg-red-500" style={{ width: "18%" }} />
               <span className="bg-bb-green" style={{ width: "82%" }} />
             </div>
-            <div className="mt-[9px] flex justify-between gap-3 text-[12px]">
+            <div className="mt-[9px] flex justify-between gap-3 text-[12px] tabular-nums">
               <span className="text-red-700">
                 {t("landingV2HeroCardExpensesLegend", "40.718 kr. to expenses")}
               </span>

@@ -117,7 +117,7 @@ export default function GavekortV2() {
                     {t("landingV2.gavekort.sold.label", "Gavekort sold")}
                   </span>
                 </div>
-                <div className="font-display text-[30px] font-extrabold tracking-[-0.03em] text-slate-900">
+                <div className="font-display text-[30px] font-extrabold tracking-[-0.03em] tabular-nums text-slate-900">
                   {t("landingV2.gavekort.sold.amount", "300,00 kr.")}
                 </div>
                 <div className="mt-1 text-[12.5px] text-slate-500">
@@ -162,7 +162,7 @@ export default function GavekortV2() {
                 />
 
                 <div className="flex items-baseline gap-[5px]">
-                  <span className="font-display text-[44px] font-extrabold leading-none tracking-[-0.035em] text-[#F5F1E8]">
+                  <span className="font-display text-[44px] font-extrabold leading-none tracking-[-0.035em] tabular-nums text-[#F5F1E8]">
                     {t("landingV2.gavekort.card.value", "300")}
                   </span>
                   <span className="text-[15px] text-[#A8A196]">

@@ -387,7 +387,7 @@ export default function PersonalPage() {
           {overBudgetCats.map(({ cat, limit, spent, over }) => (
             <div key={cat} className="flex items-center justify-between text-sm">
               <span className="text-red-600 dark:text-red-400 font-medium">{catLabel(cat)}</span>
-              <span className="text-red-600 dark:text-red-400">
+              <span className="text-red-600 dark:text-red-400 tabular-nums">
                 {formatOwnerMoney(spent, currency)} / {formatOwnerMoney(limit, currency)}
                 <span className="ml-2 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-xs font-bold">
                   +{formatOwnerMoney(over, currency)} {t("over")}
@@ -405,7 +405,7 @@ export default function PersonalPage() {
           {nearBudgetCats.map(({ cat, limit, spent, pct }) => (
             <div key={cat} className="flex items-center justify-between text-sm">
               <span className="text-amber-600 dark:text-amber-400 font-medium">{catLabel(cat)}</span>
-              <span className="text-amber-600 dark:text-amber-400">
+              <span className="text-amber-600 dark:text-amber-400 tabular-nums">
                 {formatOwnerMoney(spent, currency)} / {formatOwnerMoney(limit, currency)}
                 <span className="ml-2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded text-xs font-bold">
                   {pct}% {t("used")}
@@ -510,7 +510,7 @@ export default function PersonalPage() {
                 {Object.entries(incomeByCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
                   <div key={cat} className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 dark:text-gray-400">{catLabel(cat)}</span>
-                    <span className="font-medium text-emerald-600 dark:text-gray-300">+{formatOwnerMoney(amt, currency)}</span>
+                    <span className="font-medium tabular-nums text-emerald-600 dark:text-gray-300">+{formatOwnerMoney(amt, currency)}</span>
                   </div>
                 ))}
               </div>
@@ -529,7 +529,7 @@ export default function PersonalPage() {
                   <div key={cat}>
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="text-gray-600 dark:text-gray-400">{catLabel(cat)}</span>
-                      <span className={`font-medium ${exceeded ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
+                      <span className={`font-medium tabular-nums ${exceeded ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
                         {formatOwnerMoney(amt, currency)}{limit > 0 ? ` / ${formatOwnerMoney(limit, currency)}` : ""}
                         {exceeded && <span className="ml-1 text-xs text-red-500 font-bold">{t("over").toUpperCase()}</span>}
                       </span>
@@ -574,7 +574,7 @@ export default function PersonalPage() {
                   <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div className="h-full bg-purple-500 rounded-full" style={{ width: `${(amt / totalSpent) * 100}%` }} />
                   </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-24 text-right">{formatOwnerMoney(amt, currency)}</span>
+                  <span className="text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300 w-24 text-right">{formatOwnerMoney(amt, currency)}</span>
                 </div>
               ))}
             </div>
@@ -597,19 +597,19 @@ export default function PersonalPage() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("iOweBorrowed")}</span>
-            <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{formatOwnerMoney(totalBorrowed, currency)}</span>
+            <span className="text-sm font-bold tabular-nums text-orange-600 dark:text-orange-400">{formatOwnerMoney(totalBorrowed, currency)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("owedToMeLent")}</span>
-            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatOwnerMoney(totalLent, currency)}</span>
+            <span className="text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400">{formatOwnerMoney(totalLent, currency)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("loanEmiPaid")}</span>
-            <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{formatOwnerMoney(totalLoanPayments, currency)}</span>
+            <span className="text-sm font-bold tabular-nums text-gray-700 dark:text-gray-300">{formatOwnerMoney(totalLoanPayments, currency)}</span>
           </div>
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("netBalance")}</span>
-            <span className={`text-sm font-bold ${loanNetBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+            <span className={`text-sm font-bold tabular-nums ${loanNetBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {loanNetBalance >= 0 ? "+" : ""}{formatOwnerMoney(loanNetBalance, currency)}
             </span>
           </div>
@@ -619,7 +619,7 @@ export default function PersonalPage() {
               {loanSummary.persons.slice(0, 3).map((p, i) => (
                 <div key={i} className="flex justify-between text-xs">
                   <span className="text-gray-600 dark:text-gray-400">{p.name}</span>
-                  <span className={`font-medium ${p.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}>
+                  <span className={`font-medium tabular-nums ${p.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}>
                     {p.net >= 0 ? "+" : ""}{formatOwnerMoney(Number(p.net), currency)}
                   </span>
                 </div>
@@ -778,7 +778,7 @@ export default function PersonalPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{e.description}</td>
-                    <td className={`px-6 py-4 text-sm font-semibold ${income ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>
+                    <td className={`px-6 py-4 text-sm font-semibold tabular-nums ${income ? "text-emerald-600 dark:text-gray-300" : "text-red-500 dark:text-red-400"}`}>
                       {/* decimals: 2 — this is a LEDGER row, one real entry the
                           owner reconciles against a receipt or a bank line.
                           The default 0 turns 347,50 kr. into "348 kr." and
