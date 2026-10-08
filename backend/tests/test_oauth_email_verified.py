@@ -142,8 +142,12 @@ def test_legacy_google_new_signup_sends_welcome_and_admin_notice(db_session, cli
 
 
 def test_legacy_google_returning_user_gets_no_mail(db_session, client, sent):
+    # A Google-made account is always confirmed (both Google routes create it
+    # with email_verified=True); the silent link now also requires that
+    # (test_profile_email_change: a changed, unconfirmed address never links).
     u = User(email="back@cafe.dk", password_hash=hash_password("x"), business_name="B",
-             business_type="cafe", currency="DKK", role="owner", oauth_provider="google")
+             business_type="cafe", currency="DKK", role="owner", oauth_provider="google",
+             email_verified=True)
     db_session.add(u); db_session.commit()
     with _patch_google(_google_claims("g-legacy-r", email="back@cafe.dk")):
         r = client.post("/api/auth/google", json={"credential": "x"})

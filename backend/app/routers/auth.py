@@ -796,6 +796,14 @@ def apple_auth(
             # decision left to Manoj rather than changed silently. The
             # active /oauth/* path is already guarded.
             user.apple_user_id = apple_sub
+            # The link stays (decision above), but an account whose address
+            # was never confirmed may have been pre-registered by someone
+            # else: Apple just proved the inbox, so that party's password
+            # and sessions go and the address is confirmed (review, 8 Oct).
+            # A confirmed account is untouched.
+            from app.services.auth import claim_unverified_account
+            claim_unverified_account(db, user, via="apple_legacy",
+                                     ip_address=client_ip(request))
             db.commit()
             db.refresh(user)
 
@@ -1008,9 +1016,24 @@ def resend_verification(
     if current_user.email_verified:
         return {"message": "Email already verified"}
 
+    # A per-account ceiling (the per-IP limiter above is per minute only):
+    # the address is unconfirmed — possibly someone else's — so the account
+    # may mail it a few codes a day, not a loop of them (review, 8 Oct).
+    # Counted from audit rows like forgot-password; fail-open on a counting
+    # error, as there, so a real owner can still get their code.
+    _sent = _reset_events_24h(db, current_user, _VERIFY_CODE_SENT_ACTION)
+    if _sent is not None and _sent >= _VERIFY_CODES_PER_DAY:
+        raise HTTPException(status_code=429, detail={
+            "code": "verification_resend_daily_cap",
+            "message": "Too many codes today. Use the last code we sent, or try again tomorrow.",
+            "message_da": "For mange koder i dag. Brug den seneste kode, vi sendte, eller prøv igen i morgen.",
+            "cap": _VERIFY_CODES_PER_DAY,
+        })
+
     code = _generate_verification_code()
     current_user.verification_code = code
     current_user.verification_code_expires = utc_now() + timedelta(minutes=30)
+    _reset_audit(db, current_user, _VERIFY_CODE_SENT_ACTION, request)
     db.commit()
 
     email_sent = send_email(
@@ -1058,6 +1081,7 @@ def update_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    _send_code_to_new_email = None
     if data.business_name is not None:
         current_user.business_name = data.business_name
     if data.business_type is not None:
@@ -1079,13 +1103,36 @@ def update_profile(
         existing = db.query(User).filter(User.email == data.email).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
+        # Each change mails a code to the new (unproven) address: a few a
+        # day per account, counted from audit rows; fail-open on a counting
+        # error like the other ceilings here.
+        _changes = _reset_events_24h(db, current_user, _EMAIL_CHANGED_ACTION)
+        if _changes is not None and _changes >= _EMAIL_CHANGES_PER_DAY:
+            raise HTTPException(status_code=429, detail={
+                "code": "email_change_daily_cap",
+                "message": "The login e-mail can be changed a few times a day. Try again tomorrow.",
+                "message_da": "Login-e-mailen kan ændres et par gange om dagen. Prøv igen i morgen.",
+                "cap": _EMAIL_CHANGES_PER_DAY,
+            })
         current_user.email = data.email
+        # The new address is NOT confirmed (review, 8 Oct). Keeping
+        # email_verified=True let an owner who confirmed once switch to any
+        # address and still pass the verified-sender rule (faktura mail,
+        # team invites), and let a later Google sign-in for that address
+        # land in this account. It is unconfirmed until the code mailed to
+        # it below is entered.
+        current_user.email_verified = False
+        _new_code = _generate_verification_code()
+        current_user.verification_code = _new_code
+        current_user.verification_code_expires = utc_now() + timedelta(minutes=30)
         try:
             from app.services import audit_service
-            audit_service.record(db, current_user, "auth.email_changed", "user",
+            audit_service.record(db, current_user, _EMAIL_CHANGED_ACTION, "user",
                                  entity_id=current_user.id)
         except Exception:  # noqa: BLE001 — audit is best-effort, never block the change
             pass
+        _reset_audit(db, current_user, _VERIFY_CODE_SENT_ACTION, request)
+        _send_code_to_new_email = _new_code
     if data.analytics_opt_out is not None:
         current_user.analytics_opt_out = bool(data.analytics_opt_out)
     if data.timezone is not None:
@@ -1112,6 +1159,16 @@ def update_profile(
         current_user.ui_language = data.ui_language  # whitelisted by UserUpdate
     db.commit()
     db.refresh(current_user)
+    if _send_code_to_new_email:
+        # After the commit: the code mailed is the code stored. Same mail as
+        # /resend-verification sends.
+        if not send_email(
+            current_user.email,
+            f"BonBox — Your verification code is {_send_code_to_new_email}",
+            _verification_email_html(_send_code_to_new_email),
+        ):
+            logger.warning("Failed to send the verification code for a changed e-mail (user %s)",
+                           current_user.id)
     return current_user
 
 
@@ -1202,6 +1259,15 @@ _RESET_MAX_FAILED = 5
 _RESET_ISSUED_ACTION = "auth.reset_code_issued"
 _RESET_FAILED_ACTION = "auth.reset_code_failed"
 _RESET_LOCKED_ACTION = "auth.reset_locked"
+
+
+# Verification codes mailed after signup (resend, or a changed login e-mail)
+# and login e-mail changes: per-account daily ceilings, counted from audit
+# rows like the reset codes below (review, 8 Oct).
+_VERIFY_CODE_SENT_ACTION = "auth.verification_code_sent"
+_VERIFY_CODES_PER_DAY = 5
+_EMAIL_CHANGED_ACTION = "auth.email_changed"
+_EMAIL_CHANGES_PER_DAY = 3
 
 
 def _reset_events_24h(db: Session, user: User, action: str) -> int | None:

@@ -227,7 +227,7 @@ const SECTIONS = [
 
 export default function ProfilePage() {
   const [theme, setTheme] = useTheme();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const confirm = useConfirm();
   // Task #55 — "Run onboarding again" link. Resets the user's
   // onboarding_completed_at to null then navigates to /onboarding.
@@ -714,7 +714,13 @@ export default function ProfilePage() {
     try {
       const res = await api.post("/email/test-digest");
       setEmailMsg(res.data.sent ? `${t("digestSentTo")} ${res.data.to}!` : t("digestFailedToSend"));
-    } catch { setEmailMsg(t("failedToSendTest")); }
+    } catch (err) {
+      // 429: the test-mail ceiling (one per 10 minutes, five a day) — say
+      // which, in the owner's language (the server sends both).
+      const d = err?.response?.data?.detail;
+      const capped = err?.response?.status === 429 && d && typeof d === "object";
+      setEmailMsg((capped && (lang === "da" ? d.message_da : d.message)) || t("failedToSendTest"));
+    }
     setSendingTest(false);
     setTimeout(() => setEmailMsg(""), 4000);
   };
@@ -796,10 +802,14 @@ export default function ProfilePage() {
       setSuccess(t("profileUpdated"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      const code = err?.response?.data?.detail?.code;
+      const detail = err?.response?.data?.detail;
+      const code = detail?.code;
       setError(code === "password_required"
         ? t("profileEmailPwWrong", "That password isn't right. Signed up with Google, Apple or a login link? Set a password with “Forgot?” on the login page first.")
-        : errText(err, t("failedToUpdateProfile")));
+        // 429: the login e-mail was changed a few times today — the server
+        // words it in both languages.
+        : (code === "email_change_daily_cap" && (lang === "da" ? detail.message_da : detail.message))
+          || errText(err, t("failedToUpdateProfile")));
     }
     setSaving(false);
   };

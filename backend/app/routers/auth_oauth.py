@@ -256,6 +256,12 @@ def oauth_apple(
             # account already authenticates via OAuth — those owners
             # have already proven email control to us once.
             already_oauth = (user.oauth_provider or "") in {"apple", "google"}
+            # ...and only while that account's address is CONFIRMED. A
+            # changed login e-mail is unconfirmed until its code is entered
+            # (PATCH /auth/profile): without this, an account could switch
+            # to somebody else's address and catch that person's later
+            # sign-in here (review, 8 Oct).
+            already_oauth = already_oauth and getattr(user, "email_verified", False) is True
             if not already_oauth:
                 _audit(
                     db, user, "auth.oauth_link_refused", ip, "apple",
@@ -437,6 +443,12 @@ def google_signin(
             # password-or-magic-link account.  See the matching block in
             # oauth_apple above for the full reasoning.
             already_oauth = (user.oauth_provider or "") in {"apple", "google"}
+            # ...and only while that account's address is CONFIRMED. A
+            # changed login e-mail is unconfirmed until its code is entered
+            # (PATCH /auth/profile): without this, an account could switch
+            # to somebody else's address and catch that person's later
+            # sign-in here (review, 8 Oct).
+            already_oauth = already_oauth and getattr(user, "email_verified", False) is True
             if not already_oauth:
                 _audit(
                     db, user, "auth.oauth_link_refused", ip, "google",
