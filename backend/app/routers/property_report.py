@@ -34,7 +34,7 @@ from app.routers.auth import get_current_user
 from app.services import audit_service
 from app.services.channel_defaults import channel_label_map
 from app.services.tax_service import _get_vat_rate
-from app.services.tz_utils import business_day_window, business_today_local
+from app.services.tz_utils import business_day_window, business_day_window_local, business_today_local
 
 router = APIRouter()
 log = logging.getLogger("bonbox.property_report")
@@ -179,17 +179,24 @@ def property_financial_report(
     # CEST sale on report_date=2026-05-24 + cutoff=6 correctly falls in
     # the 2026-05-23 window.
     start_dt, end_dt = business_day_window(user, report_date)
+    # A Sale carries no time of day — only its business date, the date the
+    # business day's window opens on (business_day_window_local: cutoff on
+    # that date → cutoff the next). So one business day is exactly the sales
+    # dated with it. Turning the UTC window into calendar dates
+    # (Sale.date >= start.date(), Sale.date <= end.date()) made it D..D+1
+    # INCLUSIVE: every sale dated D+1 was counted in D as well, so the close
+    # page's MOMS-free figure for D — and the server check that trusts it —
+    # borrowed the next day's MOMS-free sales. Same rule as
+    # /daily-close/prefill and _register_cash_for_date.
+    business_date = business_day_window_local(user, report_date)[0].date()
 
     try:
-        # All sales for this user touching the [start, end) window.
-        # Use date filter on the date column (which is just a date, not timestamp)
-        # PLUS exclude soft-deletes — never returns wrong totals.
+        # All of this business day's sales, soft-deletes excluded.
         rows = (
             db.query(Sale)
             .filter(
                 Sale.user_id == user.id,
-                Sale.date >= start_dt.date(),
-                Sale.date <= end_dt.date(),
+                Sale.date == business_date,
                 Sale.is_deleted.isnot(True),
             )
             .all()

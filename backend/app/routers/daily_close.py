@@ -137,6 +137,19 @@ def _today_scan_count(db: Session, user: User) -> int:
 
 # ─── Helpers ───
 
+def _source_meta_of(dc: DailyClose) -> dict | None:
+    """The stored source description as a dict (see _clean_source_meta), or None."""
+    import json as _json
+    raw = getattr(dc, "source_meta", None)
+    if not raw:
+        return None
+    try:
+        meta = _json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return None
+    return meta if isinstance(meta, dict) else None
+
+
 def _to_response(dc: DailyClose) -> dict:
     """Convert DailyClose ORM to response dict with decoded breakdowns."""
     return {
@@ -166,6 +179,11 @@ def _to_response(dc: DailyClose) -> dict:
         "is_deleted": dc.is_deleted,
         "created_at": dc.created_at,
         "receipt_photo": getattr(dc, "receipt_photo", None),
+        # Where the figures came from (Z-bon or typed, the tills added
+        # together, which of them were typed). A reopened draft that was itself
+        # a sum keeps its tills on the revisor's record when another bon is
+        # added to it, instead of filing the whole draft as one typed till.
+        "source_meta": _source_meta_of(dc),
         "cash_float": float(dc.cash_float) if getattr(dc, "cash_float", None) is not None else None,
         # The lasting lock-mail status — History reads it after a reload.
         "email_status": getattr(dc, "email_status", None),
