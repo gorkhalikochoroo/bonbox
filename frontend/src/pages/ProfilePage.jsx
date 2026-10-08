@@ -2202,7 +2202,7 @@ function ProfileIdentity({ user, t }) {
             </span>
           ) : (
             <Link
-              to="/verify-email"
+              to="/verify-email?now=1"
               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-medium hover:bg-amber-100 dark:hover:bg-amber-950/60 transition shrink-0"
               title={t("profEmailVerifyCtaTitle", "Click to verify your email")}
             >

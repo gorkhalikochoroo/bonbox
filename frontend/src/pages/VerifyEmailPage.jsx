@@ -1,14 +1,20 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { errText } from "../utils/errText";
+import { clearVerifySkip, rememberVerifySkip } from "../utils/verifySkip";
 
 export default function VerifyEmailPage() {
   const { user, setEmailVerified } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Opened on purpose later (the "Bekræft din e-mail" reminder / Profile's
+  // chip link here with ?now=1): the signup code has long expired, so the
+  // resend button is ready at once instead of a 60-second wait.
+  const openedLater = new URLSearchParams(location.search).get("now") === "1";
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -18,8 +24,8 @@ export default function VerifyEmailPage() {
 
   // Start 60-second cooldown on mount (code was just sent during registration)
   useEffect(() => {
-    setResendCooldown(60);
-  }, []);
+    if (!openedLater) setResendCooldown(60);
+  }, [openedLater]);
 
   // Countdown timer for resend
   useEffect(() => {
@@ -95,6 +101,7 @@ export default function VerifyEmailPage() {
     try {
       await api.post("/auth/verify-email", { code: fullCode });
       setSuccess(t("emailVerifiedOk"));
+      clearVerifySkip(user?.id);
       setEmailVerified();
       setTimeout(() => navigate("/dashboard"), 1200);
     } catch (err) {
@@ -302,13 +309,18 @@ export default function VerifyEmailPage() {
             {/* Skip for now */}
             <button
               onClick={() => {
-                sessionStorage.setItem("skip_email_verify", "1");
+                // Remembered for 7 days on this account, not just this
+                // session; a quiet reminder stays in the app meanwhile.
+                rememberVerifySkip(user?.id);
                 navigate("/dashboard");
               }}
               className="w-full mt-5 text-sm text-gray-500 hover:text-gray-300 transition py-2"
             >
               {t("verifySkipForNow", "Skip for now")}
             </button>
+            <p className="-mt-1 text-center text-[11px] text-gray-500">
+              {t("verifySkipRemembered", "Skip, and for the next 7 days you'll see a small reminder instead of this page.")}
+            </p>
 
             {/* Help text */}
             <div className="mt-4 p-4 bg-white/[0.03] border border-white/10 rounded-xl">

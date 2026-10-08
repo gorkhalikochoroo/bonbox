@@ -8,6 +8,7 @@ import { GoogleLogin } from "@react-oauth/google";
 // Task #65 — Apple Sign-In button (web). Self-renders nothing when
 // VITE_APPLE_CLIENT_ID is unset, so dev builds stay quiet.
 import AppleSignInButton from "../components/AppleSignInButton";
+import { rememberVerifySkip } from "../utils/verifySkip";
 
 /* Inline SVG — growth / rocket scene for registration */
 function RegisterIllustration() {
@@ -266,7 +267,7 @@ export default function RegisterPage() {
     if (!isNative && !form.business_type) { setError(t("pleaseSelectType")); return; }
     setLoading(true);
     try {
-      await register(submitData);
+      const res = await register(submitData);
 
       // If the user accepted a CVR auto-fill suggestion, persist it
       // to BusinessProfile NOW (the auth session is active immediately
@@ -293,6 +294,9 @@ export default function RegisterPage() {
       // On native apps, skip email verification and go straight to dashboard
       if (isNative) {
         sessionStorage.setItem("skip_email_verify", "1");
+        // …and for the next 7 days, so the wall does not meet them on the
+        // app's next launch either (utils/verifySkip).
+        rememberVerifySkip(res?.user?.id);
         navigate("/dashboard");
       } else {
         navigate("/verify-email");
