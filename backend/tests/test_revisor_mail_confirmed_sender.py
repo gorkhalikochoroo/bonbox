@@ -247,3 +247,22 @@ def test_a_wall_confirming_would_not_fix_is_named_first(db_session, client, whic
     assert r.status_code == 400, (which, r.text)
     assert r.json()["detail"]["code"] == "no_accountant_email"
     assert sender.call_count == 0
+
+
+# ═══ The general refusal names mail to the revisor too ═══════════════════
+
+
+def test_the_general_refusal_names_what_waits_including_the_revisor():
+    """sendNeedsVerifiedEmail's server twin: specific, never a general claim
+    (guest, shift and gavekort mail still go out for an unconfirmed account)."""
+    from app.services import revisor_mail
+    en = revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_EN
+    da = revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_DA
+    for w in ("fakturaer", "team invitations", "supplier orders", "mail to your revisor"):
+        assert w in en, w
+    for w in ("fakturaer", "medarbejderinvitationer", "leverandørordrer", "mail til din revisor"):
+        assert w in da, w
+    for text in (en, da):
+        low = text.lower()
+        assert "mail to others" not in low and "mail til andre" not in low
+        assert "no one" not in low and "ingen andre" not in low

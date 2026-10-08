@@ -563,17 +563,19 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
 
 # Names what the gate holds back, and only that (RELEASE_GATE 5, review
 # 8 Oct): guest, shift and gavekort mail still go out for an unconfirmed
-# account, so a general "BonBox mails no one else" is untrue. (Mail to the
-# revisor is held too — require_verified_revisor_sender below.)
+# account, so a general "BonBox mails no one else" is untrue. What waits:
+# fakturaer, team invitations, supplier orders (order autopilot) and mail to
+# the revisor (require_verified_revisor_sender below, and the held invite).
+# The frontend's sendNeedsVerifiedEmail (en/da) says the same.
 VERIFY_EMAIL_FIRST_MESSAGE_EN = (
     "Confirm your own e-mail address first (Profile → Unverified). "
-    "Until it is confirmed, BonBox does not e-mail fakturaer, team invitations "
-    "or supplier orders for you."
+    "Until it is confirmed, BonBox does not send fakturaer, team invitations, "
+    "supplier orders or mail to your revisor for you."
 )
 VERIFY_EMAIL_FIRST_MESSAGE_DA = (
     "Bekræft først din egen e-mailadresse (Profil → Ikke bekræftet). "
-    "Indtil den er bekræftet, sender BonBox ikke fakturaer, medarbejderinvitationer "
-    "eller leverandørordrer på mail for dig."
+    "Indtil den er bekræftet, sender BonBox ikke fakturaer, medarbejderinvitationer, "
+    "leverandørordrer eller mail til din revisor for dig."
 )
 # The faktura refusal leads with what still works. An OLD app (an open tab,
 # the bundled iOS build) shows the server's message as it is, after it has

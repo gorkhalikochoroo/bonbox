@@ -240,9 +240,10 @@ def test_the_unverified_refusal_names_the_pdf_way_forward(client, db):
 
 
 def test_the_general_refusal_claims_only_what_is_gated():
-    """RELEASE_GATE 5 (claims are true): guest, revisor, shift and gavekort
-    mail still go out for an unconfirmed account, so the refusal must not
-    say BonBox mails no one else — it names what it holds back."""
+    """RELEASE_GATE 5 (claims are true): guest, shift and gavekort mail
+    still go out for an unconfirmed account, so the refusal must not say
+    BonBox mails no one else — it names what it holds back (mail to the
+    revisor is held too since 8 Oct: test_revisor_mail_confirmed_sender)."""
     from app.services import revisor_mail
     for text in (revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_EN, revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_DA):
         low = text.lower()
