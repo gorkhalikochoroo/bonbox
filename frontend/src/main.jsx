@@ -47,7 +47,9 @@ applyThemeImmediately()
 
 // A leave-behind QR (?ref=r1-a-03) can land on any page; keep the code
 // until an account exists (utils/signupRef.js) — in memory, and on the
-// device only with the cookie banner's Analytics consent. Never throws.
+// device only with the cookie banner's Analytics consent. Only a fieldwork
+// code (or a "test-NN" QR test code) is kept; any other ?ref= — a
+// directory's or newsletter's tag — is ignored. Never throws.
 captureSignupRef()
 watchCookieConsentForSignupRef()
 

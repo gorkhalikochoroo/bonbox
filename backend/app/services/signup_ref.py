@@ -12,9 +12,14 @@ Rules (each one is tested in tests/test_signup_ref.py):
     never an error — a bad ref must not cost a signup.
   • It is written once, when the account is created. A sign-in to an existing
     account never adds or replaces one, so the first attribution stands.
-  • It carries no personal data: it is a code Manoj printed, not a name, an
-    e-mail or a venue. Counts per code are read by the super-admin view and
-    the thesis export; no endpoint returns a ref next to a person.
+  • It is a short code, not a name or e-mail — but once stored on an account
+    it is pseudonymous personal data about that account; never return it
+    next to an account outside the user's own export. Counts per code are
+    read by the super-admin view and the thesis export; no endpoint returns
+    a ref next to a person.
+  • The frontend keeps only codes matching _FIELDWORK_RE below, or a QR test
+    code "test-NN" (utils/signupRef.js); this module's rule stays the wider
+    [a-z0-9-]{1,24}, so a test code is stored and rolls up under "other".
 """
 from __future__ import annotations
 

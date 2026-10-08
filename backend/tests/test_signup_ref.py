@@ -165,6 +165,14 @@ def test_prefix_is_round_and_argument():
     assert ref_prefix(None) is None
 
 
+def test_qr_test_code_is_kept_and_rolls_up_under_other():
+    # The frontend (utils/signupRef.js) keeps only fieldwork codes and
+    # "test-NN"; a test code must be stored here and never count as a round.
+    assert clean_signup_ref("test-01") == "test-01"
+    assert ref_prefix("test-01") == "other"
+    assert ref_prefix("test-99") == "other"
+
+
 # ── Register + e-mail verification ───────────────────────────────────
 
 

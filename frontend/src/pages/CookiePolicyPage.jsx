@@ -94,15 +94,18 @@ function CookiesEn() {
               <strong>A printed flyer's campaign code — only if you allow Analytics</strong> —{" "}
               <code>bonbox_signup_ref</code>. If you opened BonBox from the QR code on a BonBox flyer, the
               address ends in a short code such as <code>?ref=r1-a-03</code> (round, argument, visit). If
-              you then create an account, the code goes with it, so we can count which round of visits
-              led to accounts. Without Analytics consent the code is held only while the page is open and
+              you then create an account, the code is kept with that account. BonBox uses it to count,
+              per printed code (one code is one visit), how many accounts were created and how far they
+              got in BonBox: e-mail confirmed, setup finished, first daily close, staff link made and
+              opened, active in the last 7 days. BonBox sees this only as numbers per code; the code is
+              never used to contact anyone and is never shared. Without Analytics consent the code is held only while the page is open and
               never written to your device. With it, it is kept for up to 30 days. Either way it is removed
               when you create an account or sign in, and withdrawing consent removes it.
             </li>
           </ul>
           <p className="mt-2">
-            None of it is used for advertising, profiling or tracking you between sites — the flyer code
-            only counts which visits led to a signup. You can wipe all of it by clearing site data for
+            None of it is used for advertising or to track you between sites, and the flyer code is used
+            for nothing but the counts described above. You can wipe all of it by clearing site data for
             bonbox.dk in your browser.
           </p>
         </section>
@@ -122,8 +125,11 @@ function CookiesEn() {
           <p>
             The three cookies above are strictly necessary, and under the ePrivacy Directive those do
             not require consent. You will still see a consent banner on your first visit. It is there
-            for the optional analytics category, which is switched off until you turn it on. No
-            analytics tool is loaded. Turning it on lets us keep a flyer's campaign code (above) on your
+            for the optional analytics category. Its switch starts off, but BonBox's own usage events
+            for signed-in accounts (see "Product analytics events" in our{" "}
+            <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</Link>)
+            are recorded until you decline Analytics in the banner or pause them in Profile. No
+            third-party analytics tool is loaded. Turning Analytics on lets us keep a flyer's campaign code (above) on your
             device for up to 30 days; declining keeps it off your device. If we ever add an analytics
             tool, the banner is already the gate, and declining will keep it from loading.
           </p>
@@ -217,16 +223,19 @@ function CookiesDa() {
               <strong>Kampagnekoden fra en trykt folder — kun hvis du tillader Analyse</strong> —{" "}
               <code>bonbox_signup_ref</code>. Hvis du åbnede BonBox fra QR-koden på en BonBox-folder, slutter
               adressen med en kort kode som <code>?ref=r1-a-03</code> (runde, argument, besøg). Opretter du
-              derefter en konto, følger koden med, så vi kan tælle, hvilken besøgsrunde der førte til
-              konti. Uden samtykke til Analyse holdes koden kun, mens siden er åben, og skrives aldrig på
+              derefter en konto, gemmes koden sammen med kontoen. BonBox bruger den til at tælle, pr.
+              trykt kode (én kode er ét besøg), hvor mange konti der blev oprettet, og hvor langt de er
+              nået i BonBox: e-mail bekræftet, opsætning færdig, første dagsafslutning, medarbejderlink
+              lavet og åbnet, aktiv inden for de seneste 7 dage. BonBox ser det kun som tal pr. kode;
+              koden bruges aldrig til at kontakte nogen og deles ikke med andre. Uden samtykke til Analyse holdes koden kun, mens siden er åben, og skrives aldrig på
               din enhed. Med samtykke gemmes den i op til 30 dage. Den fjernes under alle omstændigheder,
               når du opretter en konto eller logger ind, og den fjernes, hvis du trækker dit samtykke
               tilbage.
             </li>
           </ul>
           <p className="mt-2">
-            Intet af det bruges til annoncering, profilering eller til at spore dig på tværs af
-            hjemmesider — folderkoden tæller kun, hvilke besøg der førte til en oprettelse. Du kan slette
+            Intet af det bruges til annoncering eller til at spore dig på tværs af hjemmesider, og
+            folderkoden bruges ikke til andet end optællingen ovenfor. Du kan slette
             det hele ved at rydde webstedsdata for bonbox.dk i din browser.
           </p>
         </section>
@@ -246,8 +255,11 @@ function CookiesDa() {
           <p>
             De tre cookies ovenfor er strengt nødvendige, og efter ePrivacy-direktivet kræver sådanne
             cookies ikke samtykke. Du vil alligevel se et samtykkebanner ved dit første besøg. Det er der
-            for den valgfrie kategori til analyse, som er slået fra, indtil du slår den til. Der indlæses
-            intet analyseværktøj. Slår du den til, må vi gemme kampagnekoden fra en folder (se ovenfor) på
+            for den valgfrie kategori til analyse. Kontakten starter slået fra, men BonBox' egne
+            brugshændelser for indloggede konti (se "Hændelser til produktanalyse" i vores{" "}
+            <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">privatlivspolitik</Link>)
+            registreres, indtil du afviser Analyse i banneret eller sætter dem på pause under Profil.
+            Der indlæses intet analyseværktøj fra tredjeparter. Slår du Analyse til, må vi gemme kampagnekoden fra en folder (se ovenfor) på
             din enhed i op til 30 dage; afviser du, kommer den ikke på din enhed. Hvis vi en dag tilføjer
             et analyseværktøj, fungerer banneret allerede som adgangskontrol, og hvis du afviser, bliver
             det ikke indlæst.

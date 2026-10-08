@@ -3612,7 +3612,7 @@ export const da = {
     cookieCatFunctional: "Præferencer",
     cookieCatFunctionalDesc: "Husker små valg som tema og afviste tip, så du ikke ser dem igen.",
     cookieCatAnalytics: "Analyse",
-    cookieCatAnalyticsDesc: "Hjælper os med at forstå hvilke funktioner der er nyttige, og hvor appen fejler. Kun aggregeret — aldrig koblet til dine salgsdata.",
+    cookieCatAnalyticsDesc: "Hjælper os med at forstå hvilke funktioner der er nyttige, og hvor appen fejler. Kun aggregeret — aldrig koblet til dine salgsdata. Det lader os også gemme koden fra QR-koden på en af vores trykte foldere på enheden i op til 30 dage, så en oprettelse kan tælles med det besøg.",
     cookieCatMarketing: "Markedsføring",
     cookieCatMarketingDesc: "Lader os måle hvilke kanaler der sender BonBox-interesserede besøgende. Slået fra som standard.",
     cookieSettings: "Cookieindstillinger",

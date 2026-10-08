@@ -3748,7 +3748,7 @@ export const en = {
     cookieCatFunctional: "Preferences",
     cookieCatFunctionalDesc: "Remembers small choices like theme and dismissed tips so you don't see them again.",
     cookieCatAnalytics: "Analytics",
-    cookieCatAnalyticsDesc: "Helps us understand which features are useful and where the app breaks. Aggregate only — never tied to your sales data.",
+    cookieCatAnalyticsDesc: "Helps us understand which features are useful and where the app breaks. Aggregate only — never tied to your sales data. It also lets us keep the code from the QR on one of our printed flyers on this device for up to 30 days, so a signup can be counted against that visit.",
     cookieCatMarketing: "Marketing",
     cookieCatMarketingDesc: "Lets us measure which channels send us BonBox-curious people. Off by default.",
     cookieSettings: "Cookie settings",

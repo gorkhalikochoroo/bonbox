@@ -22,17 +22,28 @@
  *   Listed on /cookies and /privacy.
  *
  * Rules:
- *   • Only [a-z0-9-]{1,24} is kept — anything else is ignored, silently.
+ *   • Only a fieldwork code is kept: r<round>-<argument>-<visit> ("r1-a-03"),
+ *     the same pattern as _FIELDWORK_RE in backend/app/services/signup_ref.py,
+ *     or a QR test code "test-NN" (the backend accepts it and rolls it up
+ *     under "other", so it never counts as a door visit). Anything else —
+ *     a directory's or newsletter's ?ref=site — is ignored, silently: not
+ *     kept, not stored, not sent. (The backend's own rule stays the wider
+ *     [a-z0-9-]{1,24}; every code allowed here passes it.)
  *   • First code wins while it is fresh (30 days); a second QR does not
  *     replace it, matching "never overwrite" on the server.
- *   • It is a code, never personal data. Storage failures (private mode,
- *     blocked storage) are swallowed — a lost ref must never cost a signup.
+ *   • A short code, not a name or e-mail — but once stored on an account it
+ *     is pseudonymous personal data about that account; never return it next
+ *     to an account outside the user's own export. Storage failures (private
+ *     mode, blocked storage) are swallowed — a lost ref must never cost a
+ *     signup.
  */
 import { getCookieConsent } from "../components/CookieConsent";
 
 const KEY = "bonbox_signup_ref";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const REF_RE = /^[a-z0-9-]{1,24}$/;
+// r1-a-03 (round 1–99, argument a–z, visit 1–999) — mirrors the backend's
+// _FIELDWORK_RE — or test-01 … test-99 for checking a QR end to end.
+const REF_RE = /^(?:r\d{1,2}-[a-z]-\d{1,3}|test-\d{2})$/;
 const CONSENT_EVENT = "bonbox-cookie-consent-changed";
 
 // This page load's code: { ref, at } or null.
