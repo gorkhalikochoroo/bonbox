@@ -636,6 +636,11 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         // retry that can never work: the PDF button beside this downloads it.
         setError(t("filingPdfOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. Download the PDF and send it from your own mail."));
         setTimeout(() => setError(""), 10000);
+      } else if (e?.response?.status === 403 && e?.response?.data?.detail?.code === "email_unverified") {
+        // Mail to the revisor waits for the owner's own confirmed e-mail.
+        // Nothing was mailed; the PDF button beside this still downloads it.
+        setError(t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"));
+        setTimeout(() => setError(""), 15000);
       } else if (e?.response?.status === 429) {
         setError(t("filingPdfDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Download the PDF and send it from your own mail, or try tomorrow."));
         setTimeout(() => setError(""), 10000);
@@ -721,6 +726,10 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         {error && (
           <div className="mb-3 text-xs px-3 py-2 rounded-md bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200/70 dark:border-red-800/60">
             {error}
+            {/* Held for an unconfirmed owner: the one tap that fixes it. */}
+            {error === t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first") && (
+              <>{" "}<Link to="/verify-email?now=1" className="font-semibold underline underline-offset-2 whitespace-nowrap" data-testid="filing-send-verify-now">{t("verifyEmailNowCta", "Confirm now")}</Link></>
+            )}
           </div>
         )}
 

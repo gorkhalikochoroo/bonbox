@@ -57,13 +57,19 @@ export function identityIsDemo(profile) {
  *         failed) | "opted_out" | "pref_off" | "no_recipient" | "sending" |
  *         "unchanged" (re-locked with nothing changed: the revisor already
  *         holds these figures, so no new mail went) |
- *         "unrecorded" (locked before the send status was kept) | "none"
+ *         "unrecorded" (locked before the send status was kept) |
+ *         "unverified" (the revisor got nothing because the owner's own
+ *         e-mail is not confirmed — "Ikke sendt til revisoren — bekræft din
+ *         e-mail først") | "none"
+ *   ownerConfirmed: the owner's own e-mail is confirmed. Only `false` turns a
+ *     held send into "unverified"; once confirmed, the ordinary line takes
+ *     over ("Sent to you — not to your revisor" + Send to revisor).
  *   demo: the saved revisor is demo-seeder sample data (never mailed).
  *   identity: the business is still the demo's sample company — a real
  *     revisor is saved but gets nothing until the owner fixes Profile. No
  *     send button is offered (acct is ""), the row says why.
  */
-export function closeEmailState({ status, sentTo = [], skip = null, profile = null, error = null }) {
+export function closeEmailState({ status, sentTo = [], skip = null, profile = null, error = null, ownerConfirmed = true }) {
   const raw = String(profile?.accountant_email || "").trim().toLowerCase();
   const demo = Boolean(profile?.accountant_is_demo) || skip === "demo_recipient";
   const identity = !demo && Boolean(raw) && (identityIsDemo(profile) || skip === "demo_identity");
@@ -74,6 +80,14 @@ export function closeEmailState({ status, sentTo = [], skip = null, profile = nu
     return { kind: "revisor", acct: raw, demo: false, identity: false };
   }
   const acct = demo || identity ? "" : raw;
+  // Held for an unconfirmed owner: the lock's skip "email_unverified", the
+  // marker persisted on the close (so History says it after a reload), or a
+  // 403 from Send igen. Said plainly while the address is still unconfirmed.
+  const held = skip === "email_unverified" || error === "revisor_email_unverified";
+  if (held && acct && ownerConfirmed === false && status !== "sending"
+      && !profile?.accountant_opted_out) {
+    return { kind: "unverified", acct, demo, identity };
+  }
   if (skip === "unchanged" || error === "revisor_unchanged") {
     if (status === "sent" || status === "partial") return { kind: "unchanged", acct, demo, identity };
   }

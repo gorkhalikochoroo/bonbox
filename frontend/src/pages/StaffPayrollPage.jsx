@@ -722,6 +722,10 @@ export default function StaffPayrollPage() {
         // A retry can never work: the revisor stopped BonBox mail. The file
         // still exists — offer it, in the owner's language.
         setError(t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail."), "download");
+      } else if (err?.response?.status === 403 && detail?.code === "email_unverified") {
+        // Mail to the revisor waits for the owner's own confirmed e-mail.
+        // Nothing was mailed: "Bekræft nu", or the PDF for the owner's own mail.
+        setError(t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"), "verify");
       } else if (err?.response?.status === 429 && detail?.code === "revisor_daily_cap") {
         setError(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."), "download");
       } else {
@@ -1537,6 +1541,19 @@ export default function StaffPayrollPage() {
                     {t("paySetEmail", "Set your revisor's email")}
                     <Icon name="ChevronRight" size={14} />
                   </Link>
+                )}
+                {error.action === "verify" && (
+                  <span className="inline-flex flex-wrap items-center gap-x-3">
+                    <Link to="/verify-email?now=1" data-testid="pay-send-verify-now" className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                      {t("verifyEmailNowCta", "Confirm now")}
+                      <Icon name="ChevronRight" size={14} />
+                    </Link>
+                    <button type="button" onClick={generatePdf}
+                      className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                      {t("payDownloadToSendYourself", "Download the PDF")}
+                      <Icon name="ChevronRight" size={14} />
+                    </button>
+                  </span>
                 )}
                 {error.action === "download" && (
                   <button type="button" onClick={generatePdf}

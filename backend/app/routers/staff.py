@@ -7520,9 +7520,14 @@ def send_payroll_to_accountant(
     # The SAVED revisor address only (a body override must equal it), opt-out
     # honoured, daily ceiling per account — services/revisor_mail.py.
     from app.services.revisor_mail import (
-        enforce_revisor_daily_cap, esc, header_safe, resolve_revisor_recipient,
+        enforce_revisor_daily_cap, esc, header_safe, require_verified_revisor_sender,
+        resolve_revisor_recipient,
     )
     recipient = resolve_revisor_recipient(profile, body.accountant_email, user=user)
+    # Mail to the revisor needs the owner's own e-mail confirmed: 403
+    # email_unverified before the PDF is rendered or anything is mailed (no
+    # revisor mail, no "Kopi:"). The payroll PDF still downloads.
+    require_verified_revisor_sender(user)
     enforce_revisor_daily_cap(db, user)
 
     # Reuse the PDF rendering pipeline — exact same bytes the

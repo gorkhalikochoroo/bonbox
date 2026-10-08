@@ -810,7 +810,8 @@ def _fire_close_auto_email(
             "accountant_skip_reason": None | "not_saved" | "auto_send_off" |
                                       "opted_out" | "same_as_owner" | "daily_cap" |
                                       "demo_recipient" | "demo_close" |
-                                      "demo_identity" | "unchanged",
+                                      "demo_identity" | "unchanged" |
+                                      "email_unverified",
             "correction": bool,              # marked "Rettet kasserapport"
             "has_scan", "scan_degraded", "pdf_hash", "push_status",
             "bank_drop", "upgrade_hint",
@@ -890,6 +891,7 @@ def _fire_close_auto_email(
         REVISOR_DAILY_CAP, address_fingerprint, is_demo_identity, is_demo_revisor,
         revisor_daily_cap_reached, revisor_opted_out, revisor_unsubscribe_headers,
         revisor_unsubscribe_url, saved_revisor_address, sender_display,
+        sender_is_verified,
     )
     from app.services.email_service import html_to_text
     acct = saved_revisor_address(profile)
@@ -916,6 +918,13 @@ def _fire_close_auto_email(
         skip = "same_as_owner"
     elif not explicit and not getattr(profile, "accountant_auto_send_effective", True):
         skip = "auto_send_off"
+    elif not sender_is_verified(user):
+        # Mail to the revisor needs the owner's own e-mail confirmed (Manoj,
+        # 8 Oct). The lock and the owner's own copy still happen; that copy
+        # and the card say "Ikke sendt til revisoren — bekræft din e-mail
+        # først". Explicit too: "Send igen" refuses earlier (403) — this is
+        # the backstop, never a revisor mail from an unconfirmed account.
+        skip = "email_unverified"
     elif not explicit and revisor_daily_cap_reached(db, user):
         # The lock mail counts towards the per-account ceiling on mail to a
         # third party, like every other revisor send. At the cap the revisor
@@ -1061,6 +1070,9 @@ def _fire_close_auto_email(
                 "daily_cap": (f"Revisoren ({acct}) fik ikke mailen: BonBox sender højst "
                               f"{REVISOR_DAILY_CAP} mails om dagen til revisoren, og loftet er nået. "
                               "Send den fra Historik i morgen, eller fra din egen mail."),
+                "email_unverified": (f"Ikke sendt til revisoren ({acct}) — bekræft din e-mail først "
+                                     "(Profil → Ikke bekræftet). Bagefter kan du sende den "
+                                     "fra Historik, eller sende denne mail videre selv."),
             }[skip]
         else:
             revisor_line = {
@@ -1079,6 +1091,9 @@ def _fire_close_auto_email(
                 "daily_cap": (f"Your accountant ({acct}) didn't get it: BonBox sends them at most "
                               f"{REVISOR_DAILY_CAP} mails a day and that limit is reached. "
                               "Send it from History tomorrow, or from your own mail."),
+                "email_unverified": (f"Not sent to your revisor ({acct}) — confirm your e-mail first "
+                                     "(Profile → Unverified). Then send it from History, "
+                                     "or forward this mail yourself."),
             }[skip]
         subject, html = _build_close_email_html(
             **common, audience="owner", revisor_line=revisor_line,
@@ -1116,6 +1131,10 @@ def _fire_close_auto_email(
         # Persisted with the status, so History still says "uændret" after a
         # reload (the skip reason itself is only on the audit row).
         result["email_error"] = "revisor_unchanged"
+    if skip == "email_unverified" and not result["email_error"]:
+        # Likewise: History says "Ikke sendt til revisoren — bekræft din
+        # e-mail først" after a reload, not "Sent to you — not to your revisor".
+        result["email_error"] = "revisor_email_unverified"
     result["sent_to"] = sent_to
     result["accountant_included"] = bool(include_acct and acct in sent_to)
     result["has_scan"] = any(r.get("has_scan") for _who, r in sends)
@@ -2285,7 +2304,8 @@ def resend_close_email(
     from app.services.billing import effective_plan
     from app.services.revisor_mail import (
         enforce_revisor_daily_cap, is_demo_identity, is_demo_revisor,
-        resolve_revisor_recipient, saved_revisor_address,
+        require_verified_revisor_sender, resolve_revisor_recipient,
+        saved_revisor_address,
     )
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
@@ -2328,6 +2348,11 @@ def resend_close_email(
     if (saved_revisor_address(profile) and not is_demo_revisor(profile)
             and not is_demo_identity(profile, user)):
         acct = resolve_revisor_recipient(profile, user=user)
+        # Mail to the revisor needs the owner's own e-mail confirmed: 403
+        # email_unverified before anything is claimed or mailed — no revisor
+        # mail and no second owner copy (the lock already sent that one). The
+        # PDF stays downloadable from History.
+        require_verified_revisor_sender(user)
         target = acct
     else:
         acct = None
@@ -4245,7 +4270,8 @@ def send_to_accountant(
     """
     from app.services.billing import has_feature, effective_plan
     from app.services.revisor_mail import (
-        enforce_revisor_daily_cap, header_safe, resolve_revisor_recipient,
+        enforce_revisor_daily_cap, header_safe, require_verified_revisor_sender,
+        resolve_revisor_recipient,
     )
     if not has_feature(user, "direct_accountant_email"):
         raise HTTPException(
@@ -4305,6 +4331,11 @@ def send_to_accountant(
                         if is_danish else
                         "There are no locked closes in this period — lock the days first."),
         })
+    # Mail to the revisor needs the owner's own e-mail confirmed: 403
+    # email_unverified before anything is built or mailed (no revisor mail,
+    # no "Kopi:"). After the walls confirming would not fix; the page offers
+    # the download + own mail.
+    require_verified_revisor_sender(user)
 
     bilagsnummer = _range_bilagsnummer(f, t)
     extras = _range_extras(db, user, closes)

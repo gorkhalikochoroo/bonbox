@@ -405,6 +405,11 @@ def tax_filing_send_to_accountant(
     n_demo = demo_rows_in_period(db, user.id, p_start, p_end)
     if n_demo:
         raise demo_in_period_error(n_demo)
+    # Mail to the revisor needs the owner's own e-mail confirmed: 403
+    # email_unverified before the PDF is built or anything is mailed (no
+    # revisor mail, no "Kopi:"). The PDF button beside Send still downloads it.
+    from app.services.revisor_mail import require_verified_revisor_sender
+    require_verified_revisor_sender(user)
     enforce_revisor_daily_cap(db, user)
 
     business_name = (

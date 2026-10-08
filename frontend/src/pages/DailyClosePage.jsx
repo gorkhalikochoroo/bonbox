@@ -4992,6 +4992,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                           // demo's sample company: nothing goes to them yet.
                           if (businessProfile?.identity_is_demo) return t("autoEmailToDemoIdentity", "To {owner}. Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.", { owner });
                           if (businessProfile?.accountant_opted_out) return t("autoEmailToOptedOut", "To {owner}. Your revisor ({acct}) has unsubscribed from BonBox mail and won't get it.", { owner, acct });
+                          // Mail to the revisor waits for the owner's own
+                          // confirmed e-mail (the server: skip
+                          // "email_unverified") — said before Lås too.
+                          if ((businessProfile?.accountant_auto_send_effective ?? true) && user?.email_verified === false) return t("autoEmailToUnverified", "To {owner}. Not to your revisor ({acct}) — confirm your e-mail first.", { owner, acct });
                           // An older server has no such field and mails a saved revisor on lock.
                           if (businessProfile?.accountant_auto_send_effective ?? true) return t("autoEmailToBoth", "To {owner} and your revisor {acct}: the kasserapport as a PDF.", { owner, acct });
                           return t("autoEmailToOwnerOnly", "To {owner}. Your revisor ({acct}) only gets it when you tap Send — you can change that on Profile.", { owner, acct });
@@ -5277,6 +5281,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    is no background retry and nothing here says there is. */
 function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoaded = false, compact = false, onSent = null, canSend = true }) {
   const confirm = useConfirm();
+  const { user } = useAuth();
+  // Send igen answered 403 email_unverified: the server's word wins over the
+  // session's copy of the user (a team login sees its OWN email_verified).
+  const [heldByServer, setHeldByServer] = useState(false);
+  const ownerConfirmed = !heldByServer && user?.email_verified === true;
   const [st, setSt] = useState(() => ({
     status: ritual?.email_status ?? close.email_status ?? null,
     error: ritual?.email_error ?? close.email_error ?? null,
@@ -5292,7 +5301,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   // A settled null profile means the owner has no BusinessProfile row — read
   // as {} (no revisor saved), so the "Ikke sendt" lines still show.
   const { kind, acct, demo, identity } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
-    error: st.error, profile: profileLoaded ? (profile ?? {}) : null });
+    error: st.error, profile: profileLoaded ? (profile ?? {}) : null, ownerConfirmed });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
   // The lock card and the History row render the same close, each with its
@@ -5365,6 +5374,11 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
         setErr(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
       } else if (status === 409 && code === "in_progress") {
         setErr(t("dcMailInProgress", "It is being sent right now (from another tab or button). Wait a moment — it will not go twice."));
+      } else if (status === 403 && code === "email_unverified") {
+        // Mail to the revisor waits for the owner's own confirmed e-mail.
+        // Nothing was sent; the line below says so with "Bekræft nu".
+        setHeldByServer(true);
+        setSt((s0) => ({ ...s0, skip: "email_unverified" }));
       } else if (status === 429) {
         setErr(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."));
       } else if (status === 400 && code === "no_accountant_email") {
@@ -5457,6 +5471,15 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
     line = (
       <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-1`}>
         <Icon name="BellOff" size={13} /> {t("dcMailOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — send it from your own mail.", { email: acct || "—" })}
+      </span>
+    );
+  } else if (kind === "unverified") {
+    // The revisor got nothing: the owner's own e-mail is not confirmed yet.
+    // No Send button (it would be refused) — the one tap that fixes it.
+    line = (
+      <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`} data-testid="dc-mail-held-unverified">
+        <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first")}</span>
+        <Link to="/verify-email?now=1" className="text-xs font-semibold underline underline-offset-2">{t("verifyEmailNowCta", "Confirm now")}</Link>
       </span>
     );
   } else if (kind === "unchanged") {
@@ -6261,7 +6284,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           return;
         }
         let message;
-        if (status === 422 && detail?.code === "nothing_locked") {
+        let verify = false;
+        if (status === 403 && detail?.code === "email_unverified") {
+          // Nothing was mailed — not the revisor, not a copy. The owner's own
+          // mail still works (the button below), and "Bekræft nu" opens BonBox's.
+          message = t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first");
+          verify = true;
+        } else if (status === 422 && detail?.code === "nothing_locked") {
           message = detail?.n_demo > 0
             ? t("dcSendOnlyDemo", "This period only has sample days (demo data) — they are never sent to your revisor. Lock your real days first.")
             : t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.");
@@ -6285,7 +6314,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         } else {
           message = errText(e, t("dcSendFailedDirect", "BonBox couldn't send it. Nothing was sent."));
         }
-        setSendIssue({ message, fmt });
+        setSendIssue({ message, fmt, verify });
         return;
       } finally {
         setSendingToAccountant(false);
@@ -6977,7 +7006,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
         {sendIssue && (
           <div className="mt-2 px-3 py-2 rounded-lg text-xs bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200" role="alert">
-            <p className="flex items-start gap-2"><Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" /> <span>{sendIssue.message}</span></p>
+            <p className="flex items-start gap-2"><Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" /> <span>{sendIssue.message}{sendIssue.verify && (
+              <>{" "}<Link to="/verify-email?now=1" className="font-semibold underline underline-offset-2 whitespace-nowrap" data-testid="dc-send-verify-now">{t("verifyEmailNowCta", "Confirm now")}</Link></>
+            )}</span></p>
             <div className="flex flex-wrap gap-2 mt-2">
               <Button size="sm" variant="secondary" className="border border-amber-300 dark:border-amber-700 max-sm:h-10"
                 onClick={() => sendViaOwnMail(sendIssue.fmt)} iconLeft={<Icon name="Mail" size={13} />}>
@@ -7319,7 +7350,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               // when that switch is off (skipped_preference_off).
               const auto = businessProfile?.accountant_auto_send_effective
                 && directSendEntitled === true
-                && user?.auto_email_on_close !== false;
+                && user?.auto_email_on_close !== false
+                // …and only from a confirmed owner (skip "email_unverified").
+                && user?.email_verified !== false;
               return (
                 <p data-testid="dc-unlock-revisor-note" className="text-[13px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-4">
                   {auto

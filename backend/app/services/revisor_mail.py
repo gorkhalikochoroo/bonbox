@@ -562,8 +562,9 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
 #   the revisor cap — fail-open on a counting error, for the same reason.
 
 # Names what the gate holds back, and only that (RELEASE_GATE 5, review
-# 8 Oct): guest, revisor-report, shift and gavekort mail still go out for an
-# unconfirmed account, so a general "BonBox mails no one else" is untrue.
+# 8 Oct): guest, shift and gavekort mail still go out for an unconfirmed
+# account, so a general "BonBox mails no one else" is untrue. (Mail to the
+# revisor is held too — require_verified_revisor_sender below.)
 VERIFY_EMAIL_FIRST_MESSAGE_EN = (
     "Confirm your own e-mail address first (Profile → Unverified). "
     "Until it is confirmed, BonBox does not e-mail fakturaer, team invitations "
@@ -612,6 +613,40 @@ def require_verified_sender(user: Any, *, message: str | None = None,
             "message_da": message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA,
         },
     )
+
+
+# ─── Mail to the revisor: a confirmed owner only (Manoj, 8 Oct) ───────────
+#
+# Every mail BonBox sends a revisor needs the owner's own e-mail confirmed:
+# the invite (accountants.invite_accountant, held — the grant is still made),
+# the lock mail's revisor copy (daily_close._fire_close_auto_email: skip
+# "email_unverified", the lock and the owner's own copy still happen), and the
+# owner's explicit sends — "Send igen", the period bundle, the
+# MOMS-angivelse and the lønningsliste — which answer 403 email_unverified
+# BEFORE anything is mailed (no revisor mail, no "Kopi:" of a mail that never
+# went). The file itself is never held back: every one of those screens
+# downloads it for the owner's own mail.
+#
+# The message leads with what happened, in the words the Daily close card
+# uses, and says what still works. An OLD app (an open tab, the bundled iOS
+# build) shows the server's message as it is.
+REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_EN = (
+    "Not sent to your revisor — confirm your e-mail first (Profile → Unverified). "
+    "Until then, download the file and send it from your own e-mail."
+)
+REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_DA = (
+    "Ikke sendt til revisoren — bekræft din e-mail først (Profil → Ikke bekræftet). "
+    "Indtil da kan du hente filen og sende den fra din egen e-mail."
+)
+
+
+def require_verified_revisor_sender(user: Any) -> None:
+    """403 email_unverified for an owner-initiated send to the revisor while
+    the account's own e-mail is unconfirmed. Call it after the checks that
+    confirming would not fix (no revisor saved, sample data, opt-out), so the
+    owner is not sent to confirm only to meet another wall."""
+    require_verified_sender(user, message=REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_EN,
+                            message_da=REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_DA)
 
 
 def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | None:
