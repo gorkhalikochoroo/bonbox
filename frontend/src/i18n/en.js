@@ -8455,6 +8455,7 @@ export const en = {
     payDownloadToSendYourself: "Download the PDF",
     filingPdfOptedOut: "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. Download the PDF and send it from your own mail.",
     filingPdfDailyCap: "BonBox has sent your revisor the most mails it sends in a day. Download the PDF and send it from your own mail, or try tomorrow.",
+    filingPdfDemoInPeriod: "The period holds {n} sample (demo) entries. BonBox doesn't send your revisor a VAT return built from sample data — clear the sample data on Profile first.",
     rangePresetPrevMonth: "Last month",
     dcMailWhen: "{date} at {time}",
     dcMailUnknownOutcome: "We couldn't confirm whether it was sent. Check your own inbox (you get a copy) before sending again.",

@@ -470,10 +470,11 @@ def _build_close_email_html(
         status_label = "Status"
         ready_txt = "Klar til bogføring"
         review_txt = "Gennemgås"
-        # The revisor cannot fetch the photo; the owner can resend it.
+        # The revisor cannot fetch the photo, so their copy says who can send
+        # it; the owner's copy keeps saying what happened.
         scan_note = (("Z-bon-fotoet er ikke vedhæftet — ejeren kan sende det fra BonBox."
                       if is_revisor else
-                      "Z-bon-fotoet er ikke vedhæftet — tryk Send igen i Historik for at få det med.")
+                      "Z-bon-fotoet kunne ikke hentes lige nu — kun PDF'en er vedhæftet.")
                      if scan_degraded else "")
         owner_footer = "Sendt automatisk fra BonBox, da dagen blev låst."
     else:
@@ -499,7 +500,7 @@ def _build_close_email_html(
         review_txt = "Needs review"
         scan_note = (("The Z-report photo isn't attached — the owner can send it from BonBox."
                       if is_revisor else
-                      "The Z-report photo isn't attached — tap Send again in History to include it.")
+                      "The Z-report photo couldn't be fetched right now — only the PDF is attached.")
                      if scan_degraded else "")
         owner_footer = "Sent automatically from BonBox when the day was locked."
 
@@ -883,20 +884,23 @@ def _fire_close_auto_email(
         skip = None
     include_acct = skip is None
 
-    # Unlock + re-lock with NOTHING changed: the revisor already holds these
-    # exact figures, so a "Rettet kasserapport … Tallene er de samme" is a
-    # second mail with nothing to book. Skipped (recorded on the audit row as
+    # Unlock + re-lock with NOTHING changed: the revisor already holds this
+    # exact kasserapport, so a "Rettet kasserapport … Tallene er de samme" is
+    # a second mail with nothing to book. Skipped (recorded on the audit row as
     # accountant_skip_reason "unchanged"), the owner is told "uændret", and
     # "Send igen" (explicit) still sends it. Only when EVERY line was compared
-    # (lines_known) — an older version compared on its headline figures alone
-    # still gets the marked correction.
+    # (lines_known) AND everything else the kasserapport prints — Drikkepenge,
+    # byttepenge, Lukket af, notes, source, photo — matches the held version
+    # (same_document). An older version without that record, or any printed
+    # difference, still gets the marked correction.
     trail = None
     acct_correction = None
     if include_acct:
         trail = _close_audit_trail(db, user, dc)
         acct_correction = _correction_for(trail, dc, acct, currency)
         if (not explicit and acct_correction and acct_correction.get("lines_known")
-                and not acct_correction.get("changes")):
+                and not acct_correction.get("changes")
+                and acct_correction.get("same_document")):
             skip = "unchanged"
             result["unchanged_since"] = acct_correction.get("prev_sent_at")
             include_acct = False
@@ -1274,6 +1278,82 @@ def _lock_lines(data) -> dict:
     }
 
 
+def _content_signature(dc) -> str:
+    """A digest of everything the kasserapport prints for this close EXCEPT
+    the lock time: the figures and lines, MOMS mode, the cash section (expected,
+    counted, float, difference), Drikkepenge (total + how many shared them),
+    Lukket af, notes, the figures' source and the Z-bon photo.
+
+    A re-lock is "unchanged" for the revisor only when this matches the version
+    they hold — _figure_changes compares the money a correction table lists,
+    and missed a tips-only, float-only or notes-only correction, so the revisor
+    kept an outdated kasserapport while the owner read "tallene er uændrede".
+    Lines are folded the way _figure_changes folds them ('Food' = 'food', a
+    zero line = no line), so a wizard round-trip does not read as a change.
+    No query: the row is already loaded."""
+    import hashlib
+    import json as _json
+
+    def _n(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+
+    def _lines(raw):
+        out: dict = {}
+        for k, v in decode_breakdown(raw).items():
+            key = str(k).strip().lower()
+            out[key] = round(out.get(key, 0.0) + (_n(v) or 0.0), 2)
+        return {k: v for k, v in sorted(out.items()) if abs(v) > 0.004}
+
+    def _t(v):
+        return (str(v).strip() or None) if v is not None else None
+
+    canon = {
+        "rev": _lines(getattr(dc, "revenue_categories", None)),
+        "pay": _lines(getattr(dc, "payment_categories", None)),
+        "revenue_total": _n(getattr(dc, "revenue_total", None)),
+        "payment_total": _n(getattr(dc, "payment_total", None)),
+        "moms_total": _n(getattr(dc, "moms_total", None)),
+        "revenue_ex_moms": _n(getattr(dc, "revenue_ex_moms", None)),
+        "moms_mode": getattr(dc, "moms_mode", None),
+        "cash_expected": _n(getattr(dc, "cash_expected", None)),
+        "cash_counted": _n(getattr(dc, "cash_counted", None)),
+        "cash_difference": _n(getattr(dc, "cash_difference", None)),
+        "cash_float": _n(getattr(dc, "cash_float", None)),
+        # No tips and 0 tips print the same (no Drikkepenge section).
+        "tips_total": _n(getattr(dc, "tips_total", None)) or 0.0,
+        "tips_staff_count": int(getattr(dc, "tips_staff_count", None) or 0),
+        "closed_by": _t(getattr(dc, "closed_by", None)),
+        "notes": _t(getattr(dc, "notes", None)),
+        "source": getattr(dc, "source_meta", None),
+        "photo": getattr(dc, "receipt_photo", None),
+        "branch_id": str(getattr(dc, "branch_id", None) or "") or None,
+    }
+    raw = _json.dumps(canon, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _lock_doc_fields(dc) -> dict:
+    """What a lock audit row records about the rest of the kasserapport, from
+    the row as stored: the Drikkepenge and cash-section figures a correction
+    mail lists (_figure_changes), and the signature of everything printed
+    (_content_signature) that decides "unchanged"."""
+    def _n(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+    return {
+        "tips_total": _n(getattr(dc, "tips_total", None)),
+        "tips_staff_count": getattr(dc, "tips_staff_count", None),
+        "cash_float": _n(getattr(dc, "cash_float", None)),
+        "cash_expected": _n(getattr(dc, "cash_expected", None)),
+        "doc_sig": _content_signature(dc),
+    }
+
+
 def _source_after_unlock_edit(existing, data, revenue_total, moms_total) -> str | None:
     """The source description for a reopened (unlocked) close that the owner
     edits by hand, or None to leave it as it is.
@@ -1637,6 +1717,9 @@ def create_daily_close(
         # · 2 terminaler lagt sammen: 5.000 + 7.500") then sat beside a
         # corrected total it no longer adds up to.
         _src_after_unlock = _source_after_unlock_edit(existing, data, revenue_total, moms_total)
+        # Read before the update: a seeded day the owner typed real figures
+        # into stops being sample data (_notes_to_store).
+        _notes = _notes_to_store(existing, data, revenue_total)
         # Update existing
         existing.revenue_categories = encode_breakdown(data.revenue_breakdown)
         existing.revenue_total = revenue_total
@@ -1652,7 +1735,7 @@ def create_daily_close(
         existing.tips_staff_count = data.tips_staff_count
         existing.tips_per_person = tips_per_person
         existing.status = status
-        existing.notes = data.notes
+        existing.notes = _notes
         existing.closed_by = data.closed_by
         # Only overwrite the photo if the caller provided one — owners
         # editing a draft without re-uploading the photo shouldn't lose
@@ -1698,8 +1781,10 @@ def create_daily_close(
                 "payment_total": payment_total, "moms_total": moms_total,
                 "cash_difference": cash_difference, "closed_by": data.closed_by,
                 # The lines too: a later correction mail compares every line,
-                # not only the headline figures (_figure_changes).
+                # not only the headline figures (_figure_changes) — and the
+                # rest of what the kasserapport prints (_lock_doc_fields).
                 **_lock_lines(data),
+                **(_lock_doc_fields(existing) if status == "confirmed" else {}),
             },
             ip_address=getattr(request.client, "host", None) if request.client else None,
         )
@@ -1746,7 +1831,7 @@ def create_daily_close(
         tips_staff_count=data.tips_staff_count,
         tips_per_person=tips_per_person,
         status=status,
-        notes=data.notes,
+        notes=_notes_to_store(None, data, revenue_total),
         closed_by=data.closed_by,
         closed_at=utc_now() if status == "confirmed" else None,
         receipt_photo=data.receipt_photo,
@@ -1768,6 +1853,7 @@ def create_daily_close(
             "moms_total": moms_total, "cash_difference": cash_difference,
             "closed_by": data.closed_by, "branch_id": data.branch_id,
             **(_lock_lines(data) if status == "confirmed" else {}),
+            **(_lock_doc_fields(dc) if status == "confirmed" else {}),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
@@ -1923,6 +2009,64 @@ def _is_demo_close(dc) -> bool:
     return is_demo_close(dc)
 
 
+def _strip_demo_marker(notes):
+    """The notes without the demo seeder's " · demo" marker; the seeder's own
+    text ("sample") goes with it."""
+    from app.services.daily_close_range_export import DEMO_NOTES_SUFFIX
+    text = str(notes or "")
+    if not text.endswith(DEMO_NOTES_SUFFIX):
+        return notes
+    rest = text[: -len(DEMO_NOTES_SUFFIX)].strip()
+    return None if (not rest or rest.lower() == "sample") else rest
+
+
+def _notes_to_store(existing, data, revenue_total) -> str | None:
+    """The notes a save writes. Whether a close is sample data is decided by
+    the " · demo" marker alone — and that keeps the day out of every period
+    artifact and every send. The wizard loads a seeded day's notes into the
+    form ("Fortsæt kladden", or Lås op → Rediger) and saves them back, so an
+    owner who typed that day's REAL Z-bon figures and locked it had them left
+    out of the revisor's month without a word.
+
+    The marker is kept only on a seeded row saved with its figures unchanged
+    (a demo user clicking through). Real figures on a seeded day, or a marker
+    arriving on a row that is no longer sample data (the wizard still holds
+    it after an auto-save stripped it), are the owner's own: stripped. The
+    API never writes a new marker — only the seeder does."""
+    notes = getattr(data, "notes", None)
+    if not _is_demo_close(data):
+        return notes
+    if existing is not None and _is_demo_close(existing) and _same_figures(existing, data, revenue_total):
+        return notes
+    return _strip_demo_marker(notes)
+
+
+def _same_figures(existing, data, revenue_total) -> bool:
+    """Does this save carry the figures `existing` already holds? Revenue,
+    every revenue and payment line (folded like _figure_changes), counted
+    cash and Drikkepenge."""
+    def _r(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+
+    def _lines(d):
+        out: dict = {}
+        for k, v in (d or {}).items():
+            key = str(k).strip().lower()
+            out[key] = round(out.get(key, 0.0) + (_r(v) or 0.0), 2)
+        return {k: v for k, v in out.items() if abs(v) > 0.004}
+
+    return (
+        _r(existing.revenue_total) == _r(revenue_total)
+        and _lines(decode_breakdown(existing.revenue_categories)) == _lines(data.revenue_breakdown)
+        and _lines(decode_breakdown(existing.payment_categories)) == _lines(data.payment_breakdown)
+        and _r(existing.cash_counted) == _r(data.cash_counted)
+        and (_r(existing.tips_total) or 0.0) == (_r(data.tips_total) or 0.0)
+    )
+
+
 def _correction_for(trail: list[tuple], dc: DailyClose, address: str | None,
                     currency: str) -> dict | None:
     """The correction block for the next mail to `address`, or None when that
@@ -1956,12 +2100,17 @@ def _correction_for(trail: list[tuple], dc: DailyClose, address: str | None,
             reasons.append(r)
         who = actor_display(t[2].get("unlocked_by"), danish=(currency or "DKK") == "DKK") or who
     changes, lines_known = _figure_changes(before, dc, currency)
+    # The held version's signature of everything printed: "the same document"
+    # only when it was recorded and matches. A lock row from before it was
+    # recorded is never assumed equal.
+    held_sig = before.get("doc_sig")
     return {
         "prev_sent_at": prev_at,
         "unlock_reason": "; ".join(reasons[-3:]),
         "unlocked_by": who,
         "changes": changes,
         "lines_known": lines_known,
+        "same_document": bool(held_sig) and held_sig == _content_signature(dc),
     }
 
 
@@ -1989,12 +2138,30 @@ def _figure_changes(before: dict, dc: DailyClose, currency: str) -> tuple[list[t
         ("moms_total", "Salgsmoms", "Salgsmoms"),
         ("cash_counted", "Optalt kontant", "Counted cash"),
         ("cash_difference", "Kassedifference", "Cash difference"),
+        # Recorded since the lock row carries them (_lock_doc_fields); an
+        # older row without them is not compared on them.
+        ("cash_expected", "Forventet kontant", "Expected cash"),
+        ("cash_float", "Byttepenge", "Float"),
     ):
         if key not in before:
             continue
         o, n = _r(before.get(key)), _r(getattr(dc, key, None))
         if o != n:
             out.append((label_da if da else label_en, money_dk(o, currency), money_dk(n, currency)))
+
+    # Drikkepenge: no tips and 0 tips print the same (no section), so they
+    # compare equal; how many shared them only matters when there are tips.
+    if "tips_total" in before:
+        o_t = _r(before.get("tips_total")) or 0.0
+        n_t = _r(getattr(dc, "tips_total", None)) or 0.0
+        if abs(o_t - n_t) > 0.004:
+            out.append(("Drikkepenge" if da else "Tips",
+                        money_dk(o_t, currency), money_dk(n_t, currency)))
+        o_c = int(before.get("tips_staff_count") or 0)
+        n_c = int(getattr(dc, "tips_staff_count", None) or 0)
+        if (o_t or n_t) and o_c != n_c:
+            out.append(("Drikkepenge delt mellem" if da else "Tips shared by",
+                        str(o_c) if o_c else "—", str(n_c) if n_c else "—"))
 
     lines_known = "payment_breakdown" in before and "revenue_breakdown" in before
     if lines_known:

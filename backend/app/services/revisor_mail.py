@@ -79,14 +79,20 @@ def saved_revisor_address(profile: Any) -> str:
 # demo went to an address the owner never typed. The seeder now writes only
 # reserved, non-deliverable addresses (RFC 2606 ".example") with auto-send
 # off — and for profiles seeded BEFORE that, every send path treats the seeded
-# address on a demo-tagged profile as NOT SAVED. The allow-list holds the old
-# and the new seeded values; the demo_seed module writes the new ones from
-# here, so the two cannot drift.
+# address as NOT SAVED: the reserved one always, the old deliverable one on a
+# demo-seeded profile (tagged " · demo", or still carrying the seeder's
+# revisor — the tag is lost on a register save / CVR re-verify, and the shared
+# demo account never had it). The allow-list holds the old and the new seeded
+# values; the demo_seed module writes the new ones from here, so the two
+# cannot drift.
 DEMO_SEEDED_REVISOR_EMAIL = "revisor@mirabelle.example"
 DEMO_SEEDED_BUSINESS_EMAIL = "info@mirabelle.example"
 DEMO_SEEDED_REVISOR_ADDRESSES = frozenset({"anna@revisor.dk", DEMO_SEEDED_REVISOR_EMAIL})
 DEMO_SEEDED_BUSINESS_ADDRESSES = frozenset({"info@mirabelle.dk", DEMO_SEEDED_BUSINESS_EMAIL})
 DEMO_PROFILE_SUFFIX = " · demo"
+DEMO_SEEDED_REVISOR_NAME = "Anna Hansen"
+# RFC 2606 reserved — never deliverable, so never a real revisor or owner.
+DEMO_RESERVED_ADDRESSES = frozenset({DEMO_SEEDED_REVISOR_EMAIL, DEMO_SEEDED_BUSINESS_EMAIL})
 
 DEMO_RECIPIENT_MESSAGE_DA = "Revisoren er eksempeldata — gem din egen revisors mail under Profil."
 DEMO_RECIPIENT_MESSAGE_EN = "The revisor is sample data — save your own revisor's e-mail on Profile."
@@ -99,20 +105,59 @@ def is_demo_profile(profile: Any) -> bool:
         getattr(profile, "cvr_verified_source", None) or "").endswith(DEMO_PROFILE_SUFFIX)
 
 
+def _seeded_revisor_still_saved(profile: Any) -> bool:
+    """The demo seeder's revisor is still on the profile: its name AND one of
+    its addresses. Nobody types "Anna Hansen <anna@revisor.dk>" — this holds
+    whatever cvr_verified_source says."""
+    return bool(profile) and (
+        str(getattr(profile, "accountant_name", None) or "").strip() == DEMO_SEEDED_REVISOR_NAME
+        and saved_revisor_address(profile) in DEMO_SEEDED_REVISOR_ADDRESSES)
+
+
+def is_demo_seeded_profile(profile: Any) -> bool:
+    """A profile the demo seeder wrote — tagged, OR still carrying the
+    seeder's revisor. The " · demo" tag alone is not enough: saving the
+    owner's own company from the register (BusinessLookup → PUT /business
+    with source "cvrapi.dk") and a CVR re-verify both replace
+    cvr_verified_source, and the shared demo account was seeded without the
+    tag — and each of those kept anna@revisor.dk with auto-send NULL (on)."""
+    return is_demo_profile(profile) or _seeded_revisor_still_saved(profile)
+
+
 def is_demo_revisor(profile: Any, address: str | None = None) -> bool:
     """True when `address` (default: the saved revisor address) is one the
-    demo seeder wrote, on a demo-seeded profile. Such an address is NOT SAVED
-    for every send path: never mailed, skip reason "demo_recipient"."""
+    demo seeder wrote: the reserved ".example" one always (it can never be a
+    real revisor), the old deliverable one on any demo-seeded profile. Such an
+    address is NOT SAVED for every send path: never mailed, skip reason
+    "demo_recipient"."""
     addr = (address if address is not None else saved_revisor_address(profile)).strip().lower()
-    return bool(addr) and addr in DEMO_SEEDED_REVISOR_ADDRESSES and is_demo_profile(profile)
+    if not addr or addr not in DEMO_SEEDED_REVISOR_ADDRESSES:
+        return False
+    return addr in DEMO_RESERVED_ADDRESSES or is_demo_seeded_profile(profile)
 
 
 def is_demo_seeded_address(profile: Any, address: str | None) -> bool:
-    """Any address the demo seeder wrote (revisor or business e-mail), on a
-    demo-seeded profile — an owner COPY never goes there either."""
+    """Any address the demo seeder wrote (revisor or business e-mail) — the
+    reserved ones always, the old ones on a demo-seeded profile. An owner
+    COPY never goes there either."""
     addr = (address or "").strip().lower()
-    return bool(addr) and is_demo_profile(profile) and (
-        addr in DEMO_SEEDED_REVISOR_ADDRESSES or addr in DEMO_SEEDED_BUSINESS_ADDRESSES)
+    if not addr or addr not in (DEMO_SEEDED_REVISOR_ADDRESSES | DEMO_SEEDED_BUSINESS_ADDRESSES):
+        return False
+    return addr in DEMO_RESERVED_ADDRESSES or is_demo_seeded_profile(profile)
+
+
+def drop_seeded_revisor(profile: Any) -> bool:
+    """The demo tag is about to be replaced (the owner saved their own company
+    from the register, or re-verified the CVR): the seeder's sample revisor
+    must not outlive it. Clears the address and switches auto-send off — on a
+    user action, never as a data migration. True when it changed anything."""
+    if not profile or not is_demo_revisor(profile):
+        return False
+    profile.accountant_email = None
+    profile.accountant_auto_send = False
+    if str(getattr(profile, "accountant_name", None) or "").strip() == DEMO_SEEDED_REVISOR_NAME:
+        profile.accountant_name = None
+    return True
 
 
 def owner_copy_allowed(profile: Any, address: str | None) -> bool:
@@ -125,6 +170,50 @@ def owner_copy_allowed(profile: Any, address: str | None) -> bool:
     if is_demo_seeded_address(profile, addr):
         return False
     return address_fingerprint(addr) not in opted_out_fingerprints(profile)
+
+
+def demo_rows_in_period(db, user_id, period_start, period_end) -> int:
+    """How many demo seeder rows (" · demo" marker) fall in an inclusive
+    period: sample closes, and sample expenses (they feed købsmoms)."""
+    from sqlalchemy import func
+    from app.models.daily_close import DailyClose
+    from app.models.expense import Expense
+    n_closes = (
+        db.query(func.count(DailyClose.id))
+        .filter(DailyClose.user_id == user_id, DailyClose.is_deleted.isnot(True),
+                DailyClose.date >= period_start, DailyClose.date <= period_end,
+                DailyClose.notes.like("% · demo"))
+        .scalar()
+    ) or 0
+    n_expenses = (
+        db.query(func.count(Expense.id))
+        .filter(Expense.user_id == user_id, Expense.is_deleted.isnot(True),
+                Expense.date >= period_start, Expense.date <= period_end,
+                Expense.description.like("% · demo"))
+        .scalar()
+    ) or 0
+    return int(n_closes) + int(n_expenses)
+
+
+def demo_in_period_error(n_demo: int) -> HTTPException:
+    """422 demo_in_period — a filing built partly from sample data is never
+    mailed to a third party under the business's real name and CVR."""
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "demo_in_period",
+            "n_demo": int(n_demo),
+            "message": (
+                f"The period holds {n_demo} sample (demo) entries. BonBox doesn't send "
+                "your revisor a VAT return built from sample data — clear the sample "
+                "data on Profile first."
+            ),
+            "message_da": (
+                f"Perioden indeholder {n_demo} eksempelposter (demo). BonBox sender ikke "
+                "revisoren en momsangivelse med eksempeldata — ryd demodata under Profil først."
+            ),
+        },
+    )
 
 
 def demo_recipient_error() -> HTTPException:

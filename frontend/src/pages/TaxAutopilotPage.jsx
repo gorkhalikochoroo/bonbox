@@ -615,6 +615,11 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "demo_recipient") {
         setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."));
         setTimeout(() => setError(""), 10000);
+      } else if (e?.response?.status === 422 && e?.response?.data?.detail?.code === "demo_in_period") {
+        // Sample (demo) days or expenses in the period: never mailed to the
+        // revisor as a momsangivelse — the way out is Ryd demodata on Profile.
+        setError(t("filingPdfDemoInPeriod", "The period holds {n} sample (demo) entries. BonBox doesn't send your revisor a VAT return built from sample data — clear the sample data on Profile first.", { n: e.response.data.detail.n_demo }));
+        setTimeout(() => setError(""), 10000);
       } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "accountant_opted_out") {
         // Never the server's English sentence to a Danish owner, and no
         // retry that can never work: the PDF button beside this downloads it.

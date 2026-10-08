@@ -395,6 +395,16 @@ def tax_filing_send_to_accountant(
         enforce_revisor_daily_cap, resolve_revisor_recipient,
     )
     recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    # Demo data never mails a third party: the filing sums every close and
+    # expense in the period (the same _calc_vat as the Tax screen), so a period
+    # holding the demo seeder's sample days or expenses would reach the revisor
+    # as a momsangivelse under the real CVR — and disagree with the period
+    # kasserapport, which leaves sample days out. Refused, never trimmed: the
+    # screen, the PDF and the mail keep showing the same numbers.
+    from app.services.revisor_mail import demo_in_period_error, demo_rows_in_period
+    n_demo = demo_rows_in_period(db, user.id, p_start, p_end)
+    if n_demo:
+        raise demo_in_period_error(n_demo)
     enforce_revisor_daily_cap(db, user)
 
     business_name = (

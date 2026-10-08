@@ -451,4 +451,7 @@ def test_a_missing_z_bon_photo_is_worded_for_who_reads_it():
     _s, own = _build_close_email_html(**common, audience="owner")
     assert "Z-bon-fotoet er ikke vedhæftet — ejeren kan sende det fra BonBox." in rev
     assert "kunne ikke hentes lige nu" not in rev
-    assert "tryk Send igen i Historik" in own
+    # The owner's copy keeps the line it had: History shows no "Send igen" on
+    # a close that was handed to the mail server, so it names no button.
+    assert "Z-bon-fotoet kunne ikke hentes lige nu — kun PDF'en er vedhæftet." in own
+    assert "Send igen" not in own

@@ -349,6 +349,11 @@ async def reverify_profile(
 
     # Always bump the verified-at timestamp + source — even if nothing
     # changed, the "fresh check" itself is valuable info for the UI.
+    # The re-verify replaces a " · demo" tag: the demo seeder's sample
+    # revisor must not outlive it (it would be mailed on the next lock).
+    from app.services.revisor_mail import drop_seeded_revisor
+    if drop_seeded_revisor(profile):
+        changed.append("accountant_email")
     profile.cvr_verified_at = utc_now()
     profile.cvr_verified_source = fresh.get("source", "cvrapi.dk")
 
@@ -472,6 +477,11 @@ def save_profile(
     # verified. Manual entries leave cvr_verified_at = NULL so the UI
     # shows the "Re-verify with CVR" prompt.
     if (data.source or "").lower() in ("cvrapi.dk", "virk.dk", "companies_house"):
+        # The owner's own company from the register replaces a " · demo"
+        # tag: the demo seeder's sample revisor goes with it (still the
+        # seeded address after this save = the owner did not type one).
+        from app.services.revisor_mail import drop_seeded_revisor
+        drop_seeded_revisor(profile)
         profile.cvr_verified_at = utc_now()
         profile.cvr_verified_source = data.source
 

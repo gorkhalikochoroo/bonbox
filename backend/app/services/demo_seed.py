@@ -283,11 +283,11 @@ def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) 
     # demo. Auto-send is explicitly off; and every send path also treats the
     # seeded address on a demo-tagged profile as not saved (revisor_mail).
     from app.services.revisor_mail import (
-        DEMO_SEEDED_BUSINESS_EMAIL, DEMO_SEEDED_REVISOR_EMAIL,
+        DEMO_SEEDED_BUSINESS_EMAIL, DEMO_SEEDED_REVISOR_EMAIL, DEMO_SEEDED_REVISOR_NAME,
     )
     profile.email = DEMO_SEEDED_BUSINESS_EMAIL
     profile.accountant_email = DEMO_SEEDED_REVISOR_EMAIL
-    profile.accountant_name = "Anna Hansen"
+    profile.accountant_name = DEMO_SEEDED_REVISOR_NAME
     profile.accountant_auto_send = False
     profile.day_cutoff_hour = 4  # night-shift cutoff
     profile.source = "cvrapi.dk"

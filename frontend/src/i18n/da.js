@@ -8164,6 +8164,7 @@ export const da = {
     payDownloadToSendYourself: "Hent PDF'en",
     filingPdfOptedOut: "Din revisor har afmeldt mails fra BonBox, så BonBox sender den ikke. Hent PDF'en, og send den fra din egen mail.",
     filingPdfDailyCap: "BonBox har sendt det højeste antal mails til din revisor i dag. Hent PDF'en, og send den fra din egen mail, eller prøv igen i morgen.",
+    filingPdfDemoInPeriod: "Perioden indeholder {n} eksempelposter (demo). BonBox sender ikke revisoren en momsangivelse med eksempeldata — ryd demodata under Profil først.",
     rangePresetPrevMonth: "Forrige måned",
     dcMailWhen: "{date} kl. {time}",
     dcMailUnknownOutcome: "Vi kunne ikke bekræfte, om den blev sendt. Tjek din egen indbakke (du får en kopi), før du sender igen.",
