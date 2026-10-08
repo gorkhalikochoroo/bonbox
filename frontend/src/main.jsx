@@ -39,16 +39,18 @@ import '@fontsource/inter/latin-700.css'
 // the Google Fonts <link> the handoff specifies — vercel.json sets
 // font-src 'self' data:, so a CDN font request is blocked outright in
 // production and the page would silently fall back to Inter.
-// Display face: Hanken Grotesk. Text face: Inter Tight.
+// Display face: Hanken Grotesk. Text face: Inter (--font-text in index.css).
+// Inter Tight, the handoff's text face, was dropped on 8 Oct 2026: it was a
+// third family on the landing, /join and the staff portal, cost ~67 KB on a
+// first visit to the landing, put the cookie banner (Inter) in a different
+// face from the page under it, and had no 700 loaded, so the staff portal's
+// 37 bold requests rendered as 600. Inter is already the app's face.
 // Same subset rule as Inter above: the latin file only.
 import '@fontsource/hanken-grotesk/latin-400.css'
 import '@fontsource/hanken-grotesk/latin-500.css'
 import '@fontsource/hanken-grotesk/latin-600.css'
 import '@fontsource/hanken-grotesk/latin-700.css'
 import '@fontsource/hanken-grotesk/latin-800.css'
-import '@fontsource/inter-tight/latin-400.css'
-import '@fontsource/inter-tight/latin-500.css'
-import '@fontsource/inter-tight/latin-600.css'
 import '@fontsource/inter/latin-800.css'
 
 import './index.css'

@@ -48,7 +48,10 @@
   --color-bb-green-icon: #F0FDF4;
 
   --font-display: "Hanken Grotesk", system-ui, sans-serif;
-  --font-text: "Inter Tight", "Inter", system-ui, sans-serif;
+  /* Inter, not the handoff's Inter Tight (dropped 8 Oct 2026 — see main.jsx):
+     one text face from the landing through /register, /join, the staff
+     portal and the app. Weights 400/500/600/700/800 are loaded there. */
+  --font-text: "Inter", system-ui, sans-serif;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
