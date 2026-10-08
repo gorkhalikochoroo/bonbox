@@ -1001,6 +1001,14 @@ export function readTotalsOf(state, draftTills = null) {
   const stripped = {
     ...state,
     entries: state.entries.map((e) => {
+      // A scanned till read what its bon printed — every edit on it is the
+      // owner's correction, not only a typed total (round 21). A category
+      // raised on a summed day lands on one till's lines (distribute); left
+      // in, that till "read" 2.500 for a bon that printed 2.000, no
+      // read_totals were sent, and the revisor's line put the owner's
+      // correction on that till. A typed or reopened till keeps its own
+      // lines: they are its read figure.
+      if (e.origin === TILL_SCAN && e.edits !== EMPTY && Object.keys(e.edits).length) return { ...e, edits: EMPTY };
       if (!hasOwn(e.edits, "revenue_total")) return e;
       const { revenue_total: _t, ...rest } = e.edits;
       return { ...e, edits: Object.keys(rest).length ? rest : EMPTY };

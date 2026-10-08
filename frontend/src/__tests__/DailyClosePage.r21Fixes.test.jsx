@@ -16,6 +16,7 @@
  *     the delete question say "kun betalinger", never "0 kr.".
  *  4. The photo filed is recorded when its save is SENT: Start forfra while
  *     that save is on its way clears it ("").
+ *  6. The scan card never blames the bons for the owner's own correction.
  * Strings are asserted by key (t echoes key + values).
  */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -510,5 +511,37 @@ describe("4. the photo filed is recorded when its save is sent", () => {
     const afterStartOver = posted().filter((b) => b.revenue_breakdown?.food === 3000 && !b.revenue_total_override);
     expect(afterStartOver.at(-1).receipt_photo).toBe("");
     expect(rowFor()).toMatchObject({ revenue_total: 3000, receipt_photo: null, source_meta: { kind: "typed" } });
+  });
+});
+
+/* ─── 6 ─────────────────────────────────────────────────────────────── */
+
+describe("6. the scan card never blames the bons for the owner's own correction", () => {
+  const BON_14000 = { revenue: { food: 10000, drinks: 4000 }, revenue_total: 14000, moms_total: 2800, payments: { card: 14000 } };
+  const BON_2000 = { revenue: { food: 1500, drinks: 500 }, revenue_total: 2000, moms_total: 400, payments: { card: 2000 } };
+
+  it("two bons summed, Mad raised by 500 on the card: \"Med dine rettelser …\" — never \"the bons' categories\"", async () => {
+    serve();
+    await mount();
+    await shootStub(BON_14000, "a.jpg");
+    await shootStub(BON_2000, "b.jpg");
+    tap(/^scanSecondTotalSum/);
+    await settle();
+    keyIn(q("#scan-rev-food"), "12.000");
+    fireEvent.blur(q("#scan-rev-food"));
+    await settle();
+    expect(text()).toContain("dcScanTillsOverBonEdited:500 kr.");
+    expect(text()).not.toContain("dcScanTillsOverBon:");
+  });
+
+  it("the bons' own categories over their totals (no correction): said so, with the remedy", async () => {
+    serve();
+    await mount();
+    await shootStub({ revenue: { food: 3000 }, revenue_total: 2500, payments: { card: 2500 } }, "a.jpg");
+    await shootStub(BON_2000, "b.jpg");
+    tap(/^scanSecondTotalSum/);
+    await settle();
+    expect(text()).toContain("dcScanTillsOverBon:500 kr.");
+    expect(text()).not.toContain("dcScanTillsOverBonEdited");
   });
 });

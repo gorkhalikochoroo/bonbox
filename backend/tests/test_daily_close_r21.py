@@ -19,6 +19,8 @@ was already stored (sequences lane, seeds 30015 / 30672 / 31176 / 40947 /
 3. Two devices: B saves between A's open and A's edit — A is refused, and A
    saving again on B's version (the owner's "keep mine") goes through.
 4. A draft of payments only (revenue 0) is stored with its payments.
+5. The revisor's source line for a summed day whose category the owner
+   raised on one till names each bon's own read figure and the correction.
 """
 from __future__ import annotations
 
@@ -349,3 +351,24 @@ def test_a_draft_of_payments_only_is_stored(db_session, client):
     assert out["revenue_total"] == 0 and out["payment_total"] == 1234.5
     assert out["payment_breakdown"] == {"mobilepay": 1234.5}
     assert out["status"] == "draft" and out["receipt_photo"] is None
+
+
+# ─── 5. the revisor's source line for a category raised on one till ────
+
+def test_a_category_raised_on_a_summed_day_names_each_bon_and_the_correction(db_session, client):
+    from app.services.close_history import source_line
+    u = _user(db_session)
+    # What the page now sends (closeTills.readTotalsOf drops every edit on a
+    # scanned till): the bons read 14.000 and 2.000, the day saves 16.500.
+    r = client.post("/api/daily-close", headers=_auth(u), json=_body(
+        revenue_breakdown={"food": 11500, "drinks": 5000}, payment_breakdown={"card": 16500},
+        revenue_total_override=16500,
+        source_meta={"kind": "zbon", "scans": 2, "terminal_totals": [14000, 2500],
+                     "read_totals": [14000, 2000], "corrected": ["rev:food"]},
+    ))
+    assert r.status_code == 200, r.text
+    row = _stored(db_session, u)
+    line = source_line(row)
+    assert "Z-bon 1: 14.000,00 kr. · Z-bon 2: 2.000,00 kr. · rettet af ejeren til 16.500,00 kr." in line
+    # Never the raised till's figure as if a bon had printed it.
+    assert "2.500" not in line

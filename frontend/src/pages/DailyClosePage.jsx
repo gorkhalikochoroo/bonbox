@@ -5563,9 +5563,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     {scanResult.revenue_total_text
                       ? t("dcScanBonVsSavedTyped", "You corrected the total yourself.")
                       : scanResult.merge_info?.mode === MERGE_SUM
-                        ? t("dcScanTillsOverBon", "The tills' categories add up to {diff} more than their Z-report totals.", {
-                            diff: formatOwnerMoney(cardBonGap.diff, currency, { decimals: cardBonGap.decimals }),
-                          })
+                        // On a summed day the excess is usually the owner's own
+                        // category correction (the card says "Med dine rettelser
+                        // gemmer dagen …" just above): it is said as theirs —
+                        // never blamed on the bons. Only when the tills still
+                        // save what they did when added are the bons' own
+                        // categories over their totals.
+                        ? (Math.abs(cardSaveTotal - (scanResult.merge_info.terminalTotals || []).reduce((a, v) => a + (Number(v) || 0), 0)) >= 0.01
+                          ? t("dcScanTillsOverBonEdited", "With your corrections the categories add up to {diff} more than the Z-reports' totals.", {
+                              diff: formatOwnerMoney(cardBonGap.diff, currency, { decimals: cardBonGap.decimals }),
+                            })
+                          : t("dcScanTillsOverBon", "The categories add up to {diff} more than the Z-reports' totals. If the Z-reports are right, fix a category.", {
+                              diff: formatOwnerMoney(cardBonGap.diff, currency, { decimals: cardBonGap.decimals }),
+                            }))
                         : t("dcScanLinesOverBon", "The categories add up to {diff} more than the Z-report's total. If the Z-report is right, fix a category.", {
                             diff: formatOwnerMoney(cardBonGap.diff, currency, { decimals: cardBonGap.decimals }),
                           })}
