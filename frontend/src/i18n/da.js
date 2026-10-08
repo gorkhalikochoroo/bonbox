@@ -8563,6 +8563,8 @@ export const da = {
     noInvoicesYetHint: "Tryk + Ny faktura ovenfor for at lave din første. Kunder kan udfyldes automatisk fra CVR — ingen manuel indtastning af adresse eller CVR-nummer.",
     noInvoicesConnHint: "Eller gør din opsætning færdig først",
     invoiceSentDirect: "✓ Faktura sendt på e-mail til",
+    sendNeedsVerifiedEmail: "Bekræft først din egen e-mailadresse (Profil → Ikke bekræftet). BonBox sender kun mail til andre for en bekræftet konto.",
+    invoiceMailDailyCap: "Du har nået dagens grænse for faktura-mails fra BonBox. Hent PDF'en og send den fra din egen e-mail, eller prøv igen i morgen.",
     kreditnotaReasonTooShort: "Begrundelsen skal være mindst 5 tegn — din revisor kan se den.",
     kreditnotaReasonTooLong: "Begrundelsen er for lang (maks. 200 tegn).",
     voidFailed: "Kunne ikke oprette kreditnota — prøv igen.",

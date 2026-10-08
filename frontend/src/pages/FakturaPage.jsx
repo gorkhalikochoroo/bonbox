@@ -527,11 +527,21 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
         const status = sendErr.response?.status;
         if (status && status >= 400 && status < 500 && status !== 402) {
           const detail = sendErr.response?.data?.detail;
+          // The server's third-party mail rules answer with a code; say it
+          // in the owner's language (the server's message is English).
+          const code = detail && typeof detail === "object" ? detail.code : null;
+          const byCode =
+            code === "email_unverified"
+              ? t("sendNeedsVerifiedEmail")
+              : code === "invoice_mail_daily_cap" || code === "invoice_mail_recipient_cap"
+                ? t("invoiceMailDailyCap")
+                : null;
           toast({
             message:
-              typeof detail === "string"
+              byCode ||
+              (typeof detail === "string"
                 ? detail
-                : (detail?.message || t("sendFailed")),
+                : (detail?.message || t("sendFailed"))),
             severity: "critical",
           });
           return;

@@ -5,8 +5,9 @@ Plan gating: Starter and above. Free tier gets a 402 if they hit any of
 these routes — frontend should hide the menu items for Free, but we
 still enforce server-side as defense in depth.
 """
-from __future__ import annotations
-
+# NOTE: no `from __future__ import annotations` — /send-email carries a
+# slowapi @limiter.limit, and with string annotations FastAPI demotes the
+# Pydantic body to a query parameter (every call → 422).
 from typing import Optional
 from uuid import UUID
 
@@ -28,8 +29,11 @@ from app.services.email_service import send_email_with_attachment
 from app.services.invoice_service import InvoiceService
 from app.services.invoice_pdf import render_invoice_pdf
 from fastapi.responses import Response
+from slowapi import Limiter
+from app.utils.client_ip import client_ip
 
 router = APIRouter()
+limiter = Limiter(key_func=client_ip)
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────
@@ -294,6 +298,7 @@ class InvoiceSendEmailRequest(BaseModel):
 
 
 @router.post("/{invoice_id}/send-email")
+@limiter.limit("10/minute")
 def send_invoice_email(
     invoice_id: UUID,
     body: InvoiceSendEmailRequest,
@@ -315,7 +320,17 @@ def send_invoice_email(
     reaches the business owner directly (not noreply@bonbox.dk).
 
     Audited via the existing audit_service (`invoice.email_sent`).
+
+    Mail to a third party under BonBox's sender, so the shared rules apply
+    (services/revisor_mail): the account's own e-mail must be confirmed
+    (403 email_unverified), a daily ceiling on faktura mails and on distinct
+    recipient addresses (429), and every interpolated value is escaped.
     """
+    from app.services.revisor_mail import (
+        enforce_invoice_mail_ceiling, esc, header_safe, require_verified_sender,
+    )
+    require_verified_sender(user)
+
     inv = (
         db.query(Invoice)
         .filter(Invoice.id == invoice_id, Invoice.user_id == user.id)
@@ -345,6 +360,7 @@ def send_invoice_email(
                 "message": "Customer has no email. Add one in Customers, or pass `to` in the request.",
             },
         )
+    enforce_invoice_mail_ceiling(db, user, recipient)
 
     # Render the PDF (uses the existing pipeline — byte-identical to
     # what /pdf returns, so the customer sees exactly what the owner
@@ -373,8 +389,9 @@ def send_invoice_email(
         or "BonBox"
     )
 
-    # Subject + body (HTML, never trust user input — escape the
-    # personal message)
+    # Subject + body. The subject is a header (CR/LF stripped, bounded);
+    # every value that reaches the HTML is escaped below — the business and
+    # customer names are text the owner typed, not markup.
     if is_danish:
         if is_credit:
             subject = f"Kreditnota {fakturanr} fra {biz_name}"
@@ -420,12 +437,12 @@ def send_invoice_email(
     amt_str = f"{amt_str} {inv.currency or 'DKK'}"
 
     due_str = inv.due_date.isoformat() if inv.due_date else "—"
+    subject = header_safe(subject, 200)
 
     # User message (escaped) — only rendered if present
     user_note_html = ""
     if (body.message or "").strip():
-        from html import escape
-        safe = escape(body.message.strip()).replace("\n", "<br>")
+        safe = esc(body.message.strip()).replace("\n", "<br>")
         user_note_html = (
             "<div style='margin:16px 0;padding:12px;background:#f9fafb;"
             "border-left:3px solid #10b981;color:#374151;font-size:14px;"
@@ -437,16 +454,16 @@ def send_invoice_email(
     html = (
         "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
         "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
-        f"<p>{greeting}</p>"
-        f"<p>{intro}</p>"
+        f"<p>{esc(greeting)}</p>"
+        f"<p>{esc(intro)}</p>"
         f"{user_note_html}"
         "<table style='border-collapse:collapse;margin:16px 0;'>"
-        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{amount_label}</td>"
-        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{amt_str}</td></tr>"
-        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{due_label}</td>"
-        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{due_str}</td></tr>"
+        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{esc(amount_label)}</td>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{esc(amt_str)}</td></tr>"
+        f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{esc(due_label)}</td>"
+        f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{esc(due_str)}</td></tr>"
         "</table>"
-        f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{footer}</p>"
+        f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{esc(footer)}</p>"
         "</div>"
     )
 

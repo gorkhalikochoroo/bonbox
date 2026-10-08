@@ -549,6 +549,123 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
         )
 
 
+# ─── Other mail to a third party: the same rules ────────────────────────
+#
+# A faktura to a customer and a team invite go out from noreply@bonbox.dk
+# (DKIM + DMARC aligned) to an address the owner typed — the same exposure
+# the revisor rules above close. Booking confirmations and password resets
+# share that sending reputation, so these paths get:
+#
+# * a verified sender: the account's own e-mail must be confirmed before
+#   BonBox mails anybody else on its behalf (a throw-away signup cannot);
+# * a daily ceiling counted from audit_logs (the repo's usage counter), like
+#   the revisor cap — fail-open on a counting error, for the same reason.
+
+VERIFY_EMAIL_FIRST_MESSAGE_EN = (
+    "Confirm your own e-mail address first (Profile → Unverified). "
+    "BonBox only sends mail to others for a confirmed account."
+)
+VERIFY_EMAIL_FIRST_MESSAGE_DA = (
+    "Bekræft først din egen e-mailadresse (Profil → Ikke bekræftet). "
+    "BonBox sender kun mail til andre for en bekræftet konto."
+)
+
+
+def require_verified_sender(user: Any) -> None:
+    """403 email_unverified unless the account's own address is confirmed."""
+    if getattr(user, "email_verified", False) is True:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "code": "email_unverified",
+            "message": VERIFY_EMAIL_FIRST_MESSAGE_EN,
+            "message_da": VERIFY_EMAIL_FIRST_MESSAGE_DA,
+        },
+    )
+
+
+def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | None:
+    """The `after` payloads of this account's audit rows for `actions` in the
+    last `hours`, newest first, each with its row time under "_at". None when
+    the query itself failed (the caller decides; the caps fail open)."""
+    try:
+        import json
+        from app.models.audit_log import AuditLog
+        from app.utils.time import utc_now
+        since = utc_now() - timedelta(hours=hours)
+        rows = (
+            db.query(AuditLog.after_state, AuditLog.created_at)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.action.in_(tuple(actions)),
+                AuditLog.created_at >= since,
+            )
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+        out: list[dict] = []
+        for after_state, created_at in rows:
+            try:
+                payload = json.loads(after_state) if after_state else {}
+            except (TypeError, ValueError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload["_at"] = created_at
+            out.append(payload)
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("third-party mail count failed: %s", e)
+        return None
+
+
+INVOICE_MAIL_ACTION = "invoice.email_sent"
+# Distinct customer addresses one account may mail a faktura to in 24 hours.
+# A café's real invoicing is a handful a day; the ceiling is what stops the
+# endpoint from mailing a list.
+INVOICE_MAIL_RECIPIENT_DAILY_CAP = 20
+# All faktura mails in 24 hours, resends to the same customer included.
+INVOICE_MAIL_DAILY_CAP = 40
+
+
+def enforce_invoice_mail_ceiling(db, user, recipient: str) -> None:
+    """429 when this account reached its daily faktura-mail ceiling: too many
+    mails, or a NEW address after `INVOICE_MAIL_RECIPIENT_DAILY_CAP` distinct
+    ones. Mailing a customer already mailed today stays allowed under the
+    total."""
+    rows = third_party_sends(db, user, (INVOICE_MAIL_ACTION,))
+    if rows is None:
+        return
+    if len(rows) >= INVOICE_MAIL_DAILY_CAP:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "invoice_mail_daily_cap",
+                "message": (
+                    f"BonBox sends at most {INVOICE_MAIL_DAILY_CAP} faktura mails a day. "
+                    "Try again tomorrow, or download the PDF and send it from your own e-mail."
+                ),
+                "cap": INVOICE_MAIL_DAILY_CAP,
+            },
+        )
+    seen = {str(r.get("to") or "").strip().lower() for r in rows} - {""}
+    addr = (recipient or "").strip().lower()
+    if addr not in seen and len(seen) >= INVOICE_MAIL_RECIPIENT_DAILY_CAP:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "invoice_mail_recipient_cap",
+                "message": (
+                    f"BonBox mails a faktura to at most {INVOICE_MAIL_RECIPIENT_DAILY_CAP} "
+                    "different addresses a day. Try again tomorrow, or download the PDF "
+                    "and send it from your own e-mail."
+                ),
+                "cap": INVOICE_MAIL_RECIPIENT_DAILY_CAP,
+            },
+        )
+
+
 # ─── Opt-out link (the revisor is a third party: they must be able to stop) ──
 
 REVISOR_TOPIC = "revisor_mail"
