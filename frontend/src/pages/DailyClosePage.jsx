@@ -5466,7 +5466,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
           : demo
             ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you {when} — the revisor is sample data", { when: whenText })
             : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
-        {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : !demoDay && (
+        {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
           <Link to="/profile" className="text-xs font-semibold underline">{demo
             ? t("dcRevisorIsDemoCta", "Save your own revisor on Profile")
             : t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
@@ -6065,10 +6065,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       const result = await sendDailyCloseRangeToAccountant({
         blob, filename,
         accountantEmail: toAddr,
-        // The name only with its address: with no recipient (the demo's
-        // sample revisor, or none saved) the owner picks who gets it, and
-        // the greeting must not name the sample revisor.
-        accountantName: toAddr ? (businessProfile?.accountant_name || "") : "",
+        // Never the demo's sample revisor's name (revisorEmail is "" for
+        // it) — a real revisor keeps theirs, also when they opted out of
+        // BonBox mail and the owner sends this from their own mail instead.
+        accountantName: revisorEmail ? (businessProfile?.accountant_name || "") : "",
         businessName: businessProfile?.company_name || user?.business_name || "",
         fromIso: activeRange.from,
         toIso: activeRange.to,

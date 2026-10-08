@@ -325,11 +325,16 @@ def _close_subject(dc: DailyClose, business_name: str, *, is_danish: bool,
     biz = header_safe(business_name, 120)
     if branch:
         biz = f"{biz} · {header_safe(branch, 60)}"
+    # A demo seeder's sample day says so first, in the inbox list too — as
+    # its attachment's "EKSEMPEL …" file name does. A forwarded copy must not
+    # read as a real kasserapport under the business's name.
+    demo = _is_demo_close(dc)
     if is_danish:
         lead = "Rettet kasserapport" if correction else "Kasserapport"
-        return f"{lead} {_DA_WEEKDAY_SHORT[d.weekday()]} {d.strftime('%d.%m.%Y')} — {biz}"
+        return (("EKSEMPEL: " if demo else "")
+                + f"{lead} {_DA_WEEKDAY_SHORT[d.weekday()]} {d.strftime('%d.%m.%Y')} — {biz}")
     lead = "Corrected kasserapport" if correction else "Kasserapport"
-    return f"{lead} {d.strftime('%a %d %b %Y')} — {biz}"
+    return ("SAMPLE: " if demo else "") + f"{lead} {d.strftime('%a %d %b %Y')} — {biz}"
 
 
 def _signed_money(v, currency: str) -> str:
@@ -553,6 +558,20 @@ def _build_close_email_html(
             f"<tr><td colspan='2' style='padding:0 0 4px 0;color:#6b7280;font-size:13px;'>"
             f"{esc(_cash_diff_words(cash_diff, currency, is_danish))}</td></tr>"
         )
+    # A sample day says so right under the intro, in the kasserapport's own
+    # banner words — not only in the last row of the table.
+    demo_html = ""
+    if _is_demo_close(dc):
+        demo_txt_banner = (
+            "EKSEMPELDATA (DEMO) — ikke et bilag. Tallene er lavet af BonBox' demo "
+            "og må ikke bogføres." if is_danish else
+            "SAMPLE DATA (DEMO) — not a voucher. The figures were made by BonBox's "
+            "demo and must not be booked.")
+        demo_html = (
+            "<div style='margin:12px 0;padding:10px 12px;border-left:3px solid #b45309;"
+            "background:#fffbeb;color:#78350f;font-size:13px;font-weight:600;'>"
+            f"{demo_txt_banner}</div>"
+        )
     status_html = ""
     if verdict.get("locked") and _is_demo_close(dc):
         # The attached kasserapport says "Eksempel — ikke til bogføring" in
@@ -594,6 +613,7 @@ def _build_close_email_html(
         "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
         f"<p>{greeting}</p>"
         f"<p>{intro}</p>"
+        f"{demo_html}"
         f"{correction_html}"
         # An explicit size: a client in quirks mode does not pass the body's
         # 14px into a table, and the figures came out larger than the text.

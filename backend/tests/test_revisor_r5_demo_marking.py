@@ -174,6 +174,28 @@ def test_the_owners_lock_mail_for_a_demo_day_says_example_not_klar():
     plain = _flat(re.sub(r"<[^>]+>", " ", html))
     assert "Eksempel — ikke til bogføring" in plain
     assert "Klar til bogføring" not in plain and "bilagsnr." not in plain
+    # The inbox list and the top of the body say so too — not only the last
+    # table row: the subject leads with EKSEMPEL (as the file name does) and
+    # the kasserapport's demo banner sits right under the intro.
+    assert _s == "EKSEMPEL: Kasserapport fre. 25.09.2026 — Mirabelle ApS"
+    assert DEMO_BANNER in plain
+    assert plain.index("er låst af Lars") < plain.index(DEMO_BANNER) < plain.index("Omsætning")
+    _s_en, html_en = _build_close_email_html(
+        business_name="Mirabelle ApS", dc=dc, currency="DKK", closed_by="Lars",
+        has_scan=False, scan_degraded=False, is_danish=False,
+        attachment_name="SAMPLE Kasserapport Mirabelle ApS 2026-09-25.pdf",
+        audience="owner", bilagsnummer="", doc_id="abc")
+    assert _s_en.startswith("SAMPLE: Kasserapport ")
+    assert "SAMPLE DATA (DEMO) — not a voucher." in html_en
+    # A real day's subject and body are unchanged.
+    real = _close(date(2026, 9, 25), 1000.0, 200.0, notes="rigtig dag")
+    s_real, html_real = _build_close_email_html(
+        business_name="Mirabelle ApS", dc=real, currency="DKK", closed_by="Lars",
+        has_scan=False, scan_degraded=False, is_danish=True,
+        attachment_name="Kasserapport Mirabelle ApS 2026-09-25.pdf",
+        audience="owner", bilagsnummer="KR-20260925", doc_id="abc")
+    assert s_real == "Kasserapport fre. 25.09.2026 — Mirabelle ApS"
+    assert "EKSEMPEL" not in html_real and "EKSEMPELDATA" not in html_real
 
 
 def test_locking_a_demo_day_sends_the_owner_the_eksempel_document(db_session, client, mailbox):
@@ -207,6 +229,8 @@ def test_locking_a_demo_day_sends_the_owner_the_eksempel_document(db_session, cl
     assert "KASSERAPPORT — EKSEMPEL" in txt and "KLAR TIL BOGFØRING" not in txt
     plain = _flat(re.sub(r"<[^>]+>", " ", owner[0]["html"]))
     assert "Eksempel — ikke til bogføring" in plain and "bilagsnr." not in plain
+    assert owner[0]["subject"].startswith("EKSEMPEL: Kasserapport ")
+    assert DEMO_BANNER in plain
 
 
 # ─── 2. The sample revisor's name never greets the real one ──────────────
@@ -287,6 +311,86 @@ def test_on_a_demo_profile_a_typed_name_and_a_sample_address_keep_their_name(db_
     # Moving to the OTHER sample address is still the sample revisor: kept.
     r2 = _put(client, user2, accountant_email="revisor@mirabelle.example")
     assert r2.json()["accountant_name"] == "Anna Hansen"
+
+
+# A name-first save must not un-fence the old seed address. On a profile
+# without the " · demo" tag (the shared demo account, or a tag lost before
+# r4) anna@revisor.dk is fenced only while "Anna Hansen" sits beside it; the
+# demo notice asks the owner to type their own revisor's NAME and mail.
+
+
+def _assert_still_fenced(db_session, client, user, mailbox):
+    from fastapi import HTTPException
+    from app.services.revisor_mail import resolve_revisor_recipient
+    prof = client.get("/api/business", headers=_auth(user)).json()
+    assert prof["accountant_is_demo"] is True
+    assert prof["accountant_auto_send_effective"] is False
+    assert prof["accountant_email"] != "anna@revisor.dk"
+    p = db_session.query(BusinessProfile).filter_by(user_id=user.id).first()
+    db_session.refresh(p)
+    with pytest.raises(HTTPException) as exc:
+        resolve_revisor_recipient(p)
+    assert exc.value.status_code == 409 and exc.value.detail["code"] == "demo_recipient"
+    # A real lock, then an explicit resend: nothing to the sample address.
+    r = _lock(client, user)
+    assert r.status_code == 200, r.text
+    assert r.json()["close_ritual"]["accountant_skip_reason"] == "demo_recipient"
+    rr = client.post(f"/api/daily-close/{r.json()['id']}/resend-email",
+                     json={"key": f"rename-{user.id}", "force": True}, headers=_auth(user))
+    assert rr.status_code == 200, rr.text
+    assert rr.json()["close_ritual"]["accountant_skip_reason"] == "demo_recipient"
+    assert all("anna@revisor.dk" not in m["to"] for m in mailbox.sent)
+    assert all("revisor@mirabelle.example" not in m["to"] for m in mailbox.sent)
+
+
+def test_renaming_the_untagged_sample_revisor_keeps_its_address_fenced(db_session, client, mailbox):
+    from tests.test_revisor_r4_review import _shared_demo_profile
+    user = _make_user(db_session)
+    _shared_demo_profile(db_session, user)
+    # The exact payload ProfilePage.saveAccountant sends: the sample address
+    # echoed back, the owner's own revisor's name typed first.
+    r = _put(client, user, accountant_email="anna@revisor.dk", accountant_name="Pia Jensen",
+             accountant_auto_send=False)
+    assert r.status_code == 200, r.text
+    assert r.json()["accountant_name"] == "Pia Jensen"
+    assert r.json()["accountant_email"] == "revisor@mirabelle.example"
+    _assert_still_fenced(db_session, client, user, mailbox)
+    # Then the owner types the real address: their typed name stays, and the
+    # real revisor is mailed from now on.
+    r2 = _put(client, user, accountant_email="pia@realrevisor.dk", accountant_name="Pia Jensen",
+              accountant_auto_send=True)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["accountant_name"] == "Pia Jensen"
+    assert r2.json()["accountant_is_demo"] is False
+
+
+def test_a_raw_name_only_put_leaves_the_sample_address_fenced(db_session, client, mailbox):
+    """No accountant_email in the body, auto-send left NULL (on): the next
+    real lock used to mail anna@revisor.dk."""
+    from tests.test_revisor_r4_review import _shared_demo_profile
+    user = _make_user(db_session)
+    _shared_demo_profile(db_session, user)
+    r = _put(client, user, accountant_name="Pia Jensen")
+    assert r.status_code == 200, r.text
+    assert r.json()["accountant_auto_send"] is None
+    _assert_still_fenced(db_session, client, user, mailbox)
+
+
+def test_a_tagged_profile_rename_and_a_real_anna_are_left_as_they_are(db_session, client):
+    # Tagged: the tag already fences the address — nothing is rewritten.
+    user = _make_user(db_session)
+    _demo_profile(db_session, user)
+    r = _put(client, user, accountant_email="anna@revisor.dk", accountant_name="Pia Jensen")
+    assert r.status_code == 200, r.text
+    assert r.json()["accountant_email"] == "anna@revisor.dk"
+    assert r.json()["accountant_is_demo"] is True
+    # A real revisor called Anna at anna@revisor.dk (never the seeded pair):
+    # renaming them touches nothing.
+    user2 = _make_user(db_session, email="b@cafe.dk")
+    _make_profile(db_session, user2, accountant_email="anna@revisor.dk", accountant_name="Anna")
+    r2 = _put(client, user2, accountant_email="anna@revisor.dk", accountant_name="Anna Berg")
+    assert r2.json()["accountant_email"] == "anna@revisor.dk"
+    assert r2.json()["accountant_is_demo"] is False
 
 
 # ─── 3. Period PDF polish ─────────────────────────────────────────────

@@ -441,6 +441,10 @@ def save_profile(
     # lock. The address is checked here, and a NEW address only mails the
     # revisor on lock when the owner ticked that choice in the same save.
     changes = data.model_dump(exclude_unset=True)
+    # Decided BEFORE this save touches anything: is the saved revisor the
+    # demo seeder's sample? (Used below so a rename cannot un-fence it.)
+    from app.services.revisor_mail import is_demo_revisor as _is_demo_revisor
+    was_demo_revisor = profile is not None and _is_demo_revisor(profile)
     if "accountant_email" in changes:
         addr = (changes.get("accountant_email") or "").strip().lower() or None
         if addr and not _ACCOUNTANT_EMAIL_RE.fullmatch(addr):
@@ -478,6 +482,21 @@ def save_profile(
     if profile:
         for field, value in changes.items():
             setattr(profile, field, value)
+        # On a profile without the " · demo" tag (the shared demo account, or
+        # a tag lost to a register save / CVR re-verify) the old deliverable
+        # seed address (anna@revisor.dk) is fenced only while the seeded NAME
+        # sits beside it. An owner who typed their own revisor's name first
+        # (as the demo notice asks) and kept the sample address would have
+        # turned it into "their revisor" — mailed on lock, resend, period,
+        # MOMS, payroll and invite. The sample address stays sample: it is
+        # stored as the reserved one, which is never mailed whatever the name.
+        from app.services.revisor_mail import (
+            DEMO_SEEDED_REVISOR_ADDRESSES as _SEEDED, DEMO_SEEDED_REVISOR_EMAIL as _RESERVED,
+            saved_revisor_address as _saved_addr,
+        )
+        if (was_demo_revisor and _saved_addr(profile) in _SEEDED
+                and not _is_demo_revisor(profile)):
+            profile.accountant_email = _RESERVED
     else:
         full = data.model_dump()
         full.update(changes)

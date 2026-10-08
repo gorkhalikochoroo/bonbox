@@ -7,7 +7,10 @@
  *    sendes aldrig til revisoren" under the owner-only copy line, which stays.
  * 3. A real day in the same list keeps its send button.
  * 4. The own-mail fallback never greets the sample revisor by name when it
- *    has no recipient.
+ *    has no recipient; a real revisor who opted out keeps their name (only
+ *    the address is not pre-filled).
+ * 5. With the sample revisor, a demo day keeps the "save your own revisor on
+ *    Profile" link — it is a link, not a send.
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -149,6 +152,23 @@ describe("a locked demo day in History", () => {
     expect(within(real).getByRole("button", { name: /dcMailSendToRevisor/ })).toBeInTheDocument();
   });
 
+  it("with the sample revisor, the Profile link stays — and still no send button", async () => {
+    profile = { accountant_email: "anna@revisor.dk", accountant_name: "Anna Hansen",
+      accountant_is_demo: true, company_name: "Mirabelle ApS" };
+    closes = [close("D1", "2026-10-06", "confirmed", {
+      notes: "sample · demo", email_status: "sent", email_sent_to: ["login@x.dk"],
+      email_sent_at: "2026-10-06T21:12:00",
+    })];
+    await openHistory();
+    await screen.findByTestId("dc-mail-demo-day");
+    const c = card("D1");
+    expect(within(c).getByText(/dcMailOwnerOnlyDemoRevisor:/)).toBeInTheDocument();
+    // The way to replace the sample revisor is a link, not a send.
+    const link = within(c).getByRole("link", { name: "dcRevisorIsDemoCta" });
+    expect(link).toHaveAttribute("href", "/profile");
+    expect(within(c).queryByRole("button", { name: /dcMailSendToRevisor|dcMailSendAgain/ })).toBeNull();
+  });
+
   it("a seeded day nobody sent (no status) shows the chip and no send line", async () => {
     closes = [close("D1", "2026-10-06", "confirmed", { notes: "sample · demo", email_status: null })];
     await openHistory();
@@ -179,6 +199,18 @@ describe("own-mail fallback with the sample revisor", () => {
     fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
     await waitFor(() => expect(ownMail).toHaveBeenCalled());
     expect(ownMail.mock.calls[0][0].accountantEmail).toBe("pia@realrevisor.dk");
+    expect(ownMail.mock.calls[0][0].accountantName).toBe("Pia Jensen");
+  });
+
+  it("a real revisor who opted out is not pre-filled but is still greeted by name", async () => {
+    profile = { accountant_email: "pia@realrevisor.dk", accountant_name: "Pia Jensen",
+      accountant_opted_out: true, company_name: "Mirabelle ApS" };
+    closes = [close("O1", "2026-10-06", "confirmed", { email_status: "sent", email_sent_to: ["login@x.dk"] })];
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePreset7d" }));
+    fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
+    await waitFor(() => expect(ownMail).toHaveBeenCalled());
+    expect(ownMail.mock.calls[0][0].accountantEmail).toBe("");
     expect(ownMail.mock.calls[0][0].accountantName).toBe("Pia Jensen");
   });
 });
