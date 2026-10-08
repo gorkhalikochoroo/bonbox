@@ -403,13 +403,19 @@ def _revisor_opt_out(user_id, fingerprint: str | None, request: Request, *, undo
     was minted for. Recorded even when the owner has since saved another
     address: switching back must not restart mail to someone who said stop."""
     from app.models.business_profile import BusinessProfile
-    from app.services.revisor_mail import record_opt_out, remove_opt_out
+    from app.services.revisor_mail import (
+        opt_out_fingerprints_for, record_opt_out, remove_opt_out,
+    )
     db: Session = SessionLocal()
     try:
         p = db.query(BusinessProfile).filter(BusinessProfile.user_id == user_id).first()
         if not p or not fingerprint:
             return
-        changed = remove_opt_out(p, fingerprint) if undo else record_opt_out(p, fingerprint)
+        # The token's address and, for an older token minted on a "+tag"
+        # address, its mailbox too: the opt-out stops the same inbox.
+        changed = False
+        for fp in opt_out_fingerprints_for(p, fingerprint):
+            changed = (remove_opt_out(p, fp) if undo else record_opt_out(p, fp)) or changed
         if not changed:
             return  # idempotent
         owner = db.query(User).filter(User.id == user_id).first()

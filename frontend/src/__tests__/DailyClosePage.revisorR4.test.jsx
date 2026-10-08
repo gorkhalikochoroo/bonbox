@@ -124,7 +124,9 @@ describe("closeEmailState with a demo revisor and an unchanged re-lock", () => {
 
 describe("a demo-seeded revisor in History", () => {
   it("is said to be sample data, and Send never mails or pre-fills it", async () => {
-    profile = { ...profile, accountant_is_demo: true };
+    // What the server really returns for a seeded profile: the sample
+    // revisor AND the sample company.
+    profile = { ...profile, accountant_is_demo: true, identity_is_demo: true };
     await openHistory();
     expect(await screen.findByTestId("dc-revisor-demo")).toHaveTextContent("dcRevisorIsDemo");
     // Never "Send goes to anna@revisor.dk".

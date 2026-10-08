@@ -903,7 +903,7 @@ def _fire_close_auto_email(
         skip = "demo_recipient"
     elif _is_demo_close(dc):
         skip = "demo_close"
-    elif is_demo_identity(profile):
+    elif is_demo_identity(profile, user):
         # A REAL day and a real revisor — but the business is still the demo
         # seeder's sample company: the mail, its From, its footer and the
         # kasserapport would name "Mirabelle ApS (CVR 39842851)". A revisor
@@ -2326,8 +2326,8 @@ def resend_close_email(
     # why (skip "demo_recipient"). So is a real revisor while the business is
     # still the demo's sample company (skip "demo_identity").
     if (saved_revisor_address(profile) and not is_demo_revisor(profile)
-            and not is_demo_identity(profile)):
-        acct = resolve_revisor_recipient(profile)
+            and not is_demo_identity(profile, user)):
+        acct = resolve_revisor_recipient(profile, user=user)
         target = acct
     else:
         acct = None
@@ -4003,9 +4003,14 @@ class SendToAccountantRequest(BaseModel):
 _PERIOD_SEND_REPLAY = timedelta(minutes=10)
 
 
-def _period_send_replay(db: Session, user: User, key: str | None) -> dict | None:
+def _period_send_replay(db: Session, user: User, key: str | None, *,
+                        f: date, t: date, fmt: str,
+                        branch_id: str | None = None) -> dict | None:
     """The response of an earlier period send with the same key (audit row,
-    last 10 minutes, this account only), or None."""
+    last 10 minutes, this account only), or None. The key answers only for
+    the send it was minted for: the same period, format and branch. The same
+    key on another one is 409 send_key_reused — never "sent" for a period
+    that was not mailed."""
     if not key:
         return None
     import json as _json
@@ -4027,6 +4032,18 @@ def _period_send_replay(db: Session, user: User, key: str | None) -> dict | None
         except Exception:  # noqa: BLE001
             continue
         if isinstance(a, dict) and a.get("send_key") == key:
+            same = (a.get("from_date") == f.isoformat() and a.get("to_date") == t.isoformat()
+                    and a.get("format") == fmt
+                    # Rows written before the branch was recorded carry none.
+                    and ("branch_id" not in a or (a.get("branch_id") or None) == (branch_id or None)))
+            if not same:
+                raise HTTPException(status_code=409, detail={
+                    "code": "send_key_reused",
+                    "message": ("That send key belongs to another period or format. "
+                                "Nothing was sent — try again."),
+                    "message_da": ("Den nøgle hører til en anden periode eller et andet "
+                                   "format. Intet er sendt — prøv igen."),
+                })
             return {
                 "ok": True, "replayed": True,
                 "sent_to": a.get("recipient"), "cc_self": bool(a.get("cc_self")),
@@ -4245,8 +4262,13 @@ def send_to_accountant(
             },
         )
 
+    f, t = _resolve_range(from_date, to_date, user=user)
+
     # The same tap again: answer with what happened — never a second mail.
-    replay = _period_send_replay(db, user, body.key)
+    # Only for the SAME send (period, format, branch): a key reused for
+    # another one is refused (409 send_key_reused), never answered "sent".
+    replay = _period_send_replay(db, user, body.key, f=f, t=t, fmt=body.fmt,
+                                 branch_id=branch_id)
     if replay is not None:
         return replay
 
@@ -4255,10 +4277,8 @@ def send_to_accountant(
     ).first()
 
     # The saved revisor address, and nothing else.
-    recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    recipient = resolve_revisor_recipient(profile, body.accountant_email, user=user)
     enforce_revisor_daily_cap(db, user)
-
-    f, t = _resolve_range(from_date, to_date, user=user)
     # Demo closes are never sent: the attachment, the body and the counts are
     # the real days only (n_demo says how many sample days were left out).
     closes, demo_closes = _fetch_range_closes_split(
@@ -4376,6 +4396,7 @@ def send_to_accountant(
             "filename": filename, "n_closes": totals["n_confirmed"],
             "n_drafts": totals["n_drafts"], "n_demo": n_demo,
             "from_date": f.isoformat(), "to_date": t.isoformat(),
+            "branch_id": branch_id or None,
             "total_revenue": totals["revenue"], "total_moms": totals["moms"],
             # The tap's key and what it answered, so a retry replays it.
             "send_key": body.key, "subject": subject,

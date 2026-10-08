@@ -7513,7 +7513,7 @@ def send_payroll_to_accountant(
     from app.services.revisor_mail import (
         enforce_revisor_daily_cap, esc, header_safe, resolve_revisor_recipient,
     )
-    recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    recipient = resolve_revisor_recipient(profile, body.accountant_email, user=user)
     enforce_revisor_daily_cap(db, user)
 
     # Reuse the PDF rendering pipeline — exact same bytes the

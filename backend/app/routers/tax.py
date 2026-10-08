@@ -394,7 +394,7 @@ def tax_filing_send_to_accountant(
     from app.services.revisor_mail import (
         enforce_revisor_daily_cap, resolve_revisor_recipient,
     )
-    recipient = resolve_revisor_recipient(profile, body.accountant_email)
+    recipient = resolve_revisor_recipient(profile, body.accountant_email, user=user)
     # Demo data never mails a third party: the filing sums every close and
     # expense in the period (the same _calc_vat as the Tax screen), so a period
     # holding the demo seeder's sample days or expenses would reach the revisor

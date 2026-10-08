@@ -277,7 +277,7 @@ def invite_accountant(
         # The demo seeder's sample revisor is not a person the owner chose:
         # no invite mail goes there (409 demo_recipient).
         raise demo_recipient_error()
-    if is_demo_identity(_profile):
+    if is_demo_identity(_profile, user):
         # The invite would introduce the sample company (Mirabelle ApS) to a
         # real revisor: nothing goes out until the owner's own company is
         # saved (409 demo_identity).

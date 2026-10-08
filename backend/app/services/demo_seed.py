@@ -316,6 +316,77 @@ def _load_snapshot(profile) -> dict | None:
     return snap if isinstance(snap, dict) else None
 
 
+# The sample company's own contact details. No real owner shares them, so a
+# save that merely echoes them (the company form sends every field) still
+# resets them — unlike, say, an industry the register can return for the
+# owner's own company too.
+_SAMPLE_CONTACT_FIELDS = (
+    "address", "city", "zipcode", "phone", "email", "vat_number", "founded",
+    "dawa_address_id",
+)
+
+
+def _restore_field(profile, field: str, before: dict) -> None:
+    """One seeded field back to what the owner had before the seed (the
+    snapshot's value), else empty — NULL, or the column's own default."""
+    if field in before:
+        setattr(profile, field, _from_json_value(before[field]))
+        return
+    col = BusinessProfile.__table__.columns[field]
+    d = getattr(col.default, "arg", None) if col.default is not None else None
+    setattr(profile, field, None if (d is None or callable(d)) else d)
+
+
+def _seeded_identity_fields(profile, *, street_guard: bool = False) -> list[str]:
+    """The identity fields that still hold what the demo seeder wrote. With
+    `street_guard` the city and zipcode count only beside the sample street
+    (an owner's own street in "København K" keeps its city)."""
+    import re
+    from app.services.revisor_mail import (
+        DEMO_SEEDED_BUSINESS_ADDRESSES, DEMO_SEEDED_CVR, seeded_street,
+    )
+    values = _seeded_profile_values()
+    street = seeded_street(profile)
+    out = []
+    for f in _IDENTITY_FIELDS:
+        v = getattr(profile, f, None)
+        if f == "email":
+            # The old seeds wrote info@mirabelle.dk.
+            seeded = (v or "").strip().lower() in DEMO_SEEDED_BUSINESS_ADDRESSES
+        elif f == "vat_number":
+            seeded = re.sub(r"\D", "", v or "") == DEMO_SEEDED_CVR
+        elif street_guard and f == "address":
+            seeded = street
+        elif street_guard and f in ("city", "zipcode"):
+            seeded = street and v == values[f]
+        else:
+            seeded = v == values[f]
+        if seeded:
+            out.append(f)
+    return out
+
+
+def restore_seeded_identity(profile, *, keep=(), street_guard: bool = False) -> list[str]:
+    """Every identity field that still holds the seeded value goes back to
+    what the owner had there before the seed (demo_snapshot_json), else
+    empty. ONE rule for "Ryd demodata" and for the Profile save that replaces
+    the sample company with the owner's own — the second used to set the
+    owner's pre-seed address, phone and e-mail to NULL (and keep the sample's
+    company type and VAT flag), and the clear after it then dropped the
+    snapshot that still held them.
+
+    `keep`: fields the owner just saved. A seeded-looking value there is the
+    owner's (an industry the register returned for their own company) — the
+    sample company's contact details excepted. Returns the fields reset."""
+    snap = _load_snapshot(profile)
+    before = (snap or {}).get("fields") or {}
+    fields = [f for f in _seeded_identity_fields(profile, street_guard=street_guard)
+              if f not in keep or f in _SAMPLE_CONTACT_FIELDS]
+    for f in fields:
+        _restore_field(profile, f, before)
+    return fields
+
+
 def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) -> None:
     """Set up the BusinessProfile to look fully verified.
 
@@ -427,8 +498,8 @@ def _reset_seeded_profile(db: Session, user: User) -> dict:
     Returns {"business_profile_reset": 0|1, "kept": [...]} — "kept" names
     what survived ("identity", "revisor", "bank") so the page can say so."""
     from app.services.revisor_mail import (
-        DEMO_SEEDED_BUSINESS_ADDRESSES, DEMO_SEEDED_COMPANY_NAME, is_demo_identity,
-        is_demo_profile, is_demo_revisor,
+        DEMO_SEEDED_COMPANY_NAME, DEMO_SEEDED_REVISOR_ADDRESSES, is_demo_identity,
+        is_demo_profile, is_demo_revisor, saved_revisor_address,
     )
     out = {"business_profile_reset": 0, "kept": []}
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
@@ -440,41 +511,34 @@ def _reset_seeded_profile(db: Session, user: User) -> dict:
         return out  # never seeded here (or seeded before snapshots, and fixed)
     before = (snap or {}).get("fields") or {}
     values = _seeded_profile_values()
-
-    def _restore(field):
-        if field in before:
-            setattr(profile, field, _from_json_value(before[field]))
-        else:
-            col = BusinessProfile.__table__.columns[field]
-            d = getattr(col.default, "arg", None) if col.default is not None else None
-            setattr(profile, field, None if (d is None or callable(d)) else d)
+    # Decided BEFORE the stamp goes: the " · demo" tag is what fences the old
+    # deliverable seed address (anna@revisor.dk) beside a name the owner
+    # typed. Read after the restore, that address counted as "your revisor"
+    # and the next lock mailed it.
+    demo_rev = is_demo_revisor(profile)
 
     # The sample company — only while the identity IS still the sample's. An
     # owner who saved their own company keeps all of it (a register lookup can
     # return "Restauranter" or "cvrapi.dk" too: those are theirs now).
     if is_demo_identity(profile):
-        for f in _IDENTITY_FIELDS:
-            v = getattr(profile, f, None)
-            # The business e-mail: the old seeds wrote info@mirabelle.dk.
-            seeded = ((v or "").strip().lower() in DEMO_SEEDED_BUSINESS_ADDRESSES
-                      if f == "email" else v == values[f])
-            if seeded:
-                _restore(f)
+        restore_seeded_identity(profile)
     # The " · demo" verification stamp — back to what the owner had.
     if tagged:
         for f in _STAMP_FIELDS:
-            _restore(f)
-    # The sample revisor (reserved address) — back to the owner's, else empty.
-    if is_demo_revisor(profile):
+            _restore_field(profile, f, before)
+    # The sample revisor — back to the owner's, else empty.
+    if demo_rev:
         for f in _REVISOR_FIELDS:
-            _restore(f)
-        if is_demo_revisor(profile):  # a snapshot can never hold the sample
-            profile.accountant_email = None
-            profile.accountant_auto_send = None
-            profile.accountant_name = None
+            _restore_field(profile, f, before)
+    # A seeded address never survives the clear as "your revisor", whatever
+    # name sits beside it (a snapshot can never hold the sample either).
+    if saved_revisor_address(profile) in DEMO_SEEDED_REVISOR_ADDRESSES:
+        profile.accountant_email = None
+        profile.accountant_auto_send = None
+        profile.accountant_name = None
     # The night-shift cutoff the demo set.
     if getattr(profile, "day_cutoff_hour", None) == values["day_cutoff_hour"]:
-        _restore("day_cutoff_hour")
+        _restore_field(profile, "day_cutoff_hour", before)
     profile.demo_snapshot_json = None
 
     # The signup name the echoed sample company overwrote.

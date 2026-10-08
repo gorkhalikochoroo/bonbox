@@ -8,7 +8,10 @@
  *   1. closeEmailState reads the identity: no send address, `identity` set.
  *   2. History: a real day under the sample company says why the revisor got
  *      nothing and links to Profile — no "Send til revisor" button.
- *   3. The period panel names it and Send goes nowhere (no confirm, no POST).
+ *   3. The period panel names it and BonBox's Send goes nowhere (no confirm,
+ *      no POST). The owner's own mail stays open where it was before (no
+ *      revisor, the sample revisor, an opted-out revisor, the Free plan) —
+ *      never pre-filled with the revisor while the identity is the sample's.
  *   4. A real identity keeps its send button (unchanged).
  *   5. "Ryd eksempeldata" asks first and says what goes and what stays.
  */
@@ -22,6 +25,7 @@ const confirmMock = vi.fn();
 const ownMail = vi.fn();
 let closes = [];
 let profile = {};
+let entitled = true;
 vi.mock("../services/api", () => ({
   default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
 }));
@@ -41,7 +45,7 @@ vi.mock("../hooks/useLanguage", () => ({
   }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
+  useEntitlements: () => ({ hasFeature: () => entitled, minPlanForFeature: () => null, isReady: true }),
 }));
 vi.mock("../components/BranchSelector", () => ({
   useBranch: () => ({ branchId: null, branchType: "restaurant", hasMultiBranch: false }),
@@ -79,6 +83,7 @@ beforeEach(() => {
   ownMail.mockReset();
   ownMail.mockResolvedValue({ ok: true, channel: "mailto" });
   profile = { ...SAMPLE_CO };
+  entitled = true;
   closes = [];
   window.URL.createObjectURL = () => "blob:http://localhost/x";
   window.URL.revokeObjectURL = () => {};
@@ -173,6 +178,53 @@ describe("the period panel under the sample company", () => {
     expect(confirmMock).not.toHaveBeenCalled();
     expect(ownMail).not.toHaveBeenCalled();
     expect(post.mock.calls.some(([u]) => String(u).includes("send-to-accountant"))).toBe(false);
+  });
+
+  // Only BonBox's own send is fenced: every path that ends in the owner's
+  // own mail app downloads the file as before — with no recipient filled in.
+  const ownMailCase = async () => {
+    closes = [close("R1", "2026-10-06", "confirmed", { notes: "rigtig dag", email_status: "sent", email_sent_to: ["login@x.dk"] })];
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePreset7d" }));
+    fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
+    await waitFor(() => expect(ownMail).toHaveBeenCalledTimes(1));
+    expect(ownMail.mock.calls[0][0].accountantEmail).toBe("");
+    expect(ownMail.mock.calls[0][0].accountantName).toBe("");
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(post.mock.calls.some(([u]) => String(u).includes("send-to-accountant"))).toBe(false);
+  };
+
+  it("with the sample revisor, Send opens the owner's own mail with no recipient", async () => {
+    profile = { accountant_email: "anna@revisor.dk", accountant_name: "Anna Hansen",
+      accountant_is_demo: true, identity_is_demo: true, company_name: "Mirabelle ApS" };
+    await ownMailCase();
+  });
+
+  it("with no revisor saved, Send opens the owner's own mail", async () => {
+    profile = { company_name: "Mirabelle ApS", identity_is_demo: true };
+    await ownMailCase();
+  });
+
+  it("with an opted-out revisor, Send opens the owner's own mail", async () => {
+    profile = { ...SAMPLE_CO, accountant_opted_out: true };
+    await ownMailCase();
+  });
+
+  it("on Free, Send opens the owner's own mail — never pre-filled with the revisor", async () => {
+    entitled = false;
+    await ownMailCase();
+  });
+
+  it("a real identity on Free still pre-fills the revisor (unchanged)", async () => {
+    entitled = false;
+    profile = { ...SAMPLE_CO, identity_is_demo: false, company_name: "Testcafé ApS" };
+    closes = [close("R1", "2026-10-06", "confirmed", { notes: "rigtig dag", email_status: "sent", email_sent_to: ["login@x.dk"] })];
+    await openHistory();
+    fireEvent.click(screen.getByRole("button", { name: "rangePreset7d" }));
+    fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
+    await waitFor(() => expect(ownMail).toHaveBeenCalledTimes(1));
+    expect(ownMail.mock.calls[0][0].accountantEmail).toBe("pia@realrevisor.dk");
+    expect(ownMail.mock.calls[0][0].accountantName).toBe("Pia Jensen");
   });
 
   it("a real identity's send carries a key and the server's demo_identity answer is worded", async () => {

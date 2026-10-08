@@ -295,9 +295,30 @@ class BusinessProfile(Base):
     def identity_is_demo(self) -> bool:
         """The business identity is still the demo seeder's sample company
         (Mirabelle ApS): BonBox sends a revisor nothing under it, and the
-        pages say "Ret navn, CVR og adresse under Profil"."""
+        pages say "Ret navn, CVR og adresse under Profil". Read with the
+        owner's account, like every send path: a signup name still holding
+        "Mirabelle ApS" (copied there by older builds) is the name the mails
+        would carry."""
         from app.services.revisor_mail import is_demo_identity
-        return is_demo_identity(self)
+        return is_demo_identity(self, self._fence_owner())
+
+    def _fence_owner(self):
+        """The owner's User row for the identity fence — the one a route set
+        (`fence_user`), else the one already in this row's session (an
+        identity-map hit, no query, on every request: get_current_user
+        loaded it). None for a row outside a session."""
+        u = self.__dict__.get("fence_user")
+        if u is not None:
+            return u
+        from sqlalchemy.orm import object_session
+        sess = object_session(self)
+        if sess is None or self.user_id is None:
+            return None
+        try:
+            from app.models.user import User
+            return sess.get(User, self.user_id)
+        except Exception:  # noqa: BLE001 — the fence falls back to the profile alone
+            return None
 
     @property
     def accountant_auto_send_effective(self) -> bool:

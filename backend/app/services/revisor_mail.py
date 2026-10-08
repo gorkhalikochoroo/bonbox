@@ -158,26 +158,59 @@ def seeded_street(profile: Any) -> bool:
             and zipcode in ("", DEMO_SEEDED_ZIPCODE))
 
 
-def is_demo_identity(profile: Any) -> bool:
-    """The business identity on the profile is still the demo seeder's sample
-    company — so nothing may go to a revisor under it.
+def _is_sample_name(name: Any) -> bool:
+    return " ".join(str(name or "").split()).casefold() == DEMO_SEEDED_COMPANY_NAME.casefold()
+
+
+def _own_verified_cvr(profile: Any) -> bool:
+    """The profile carries a register-verified CVR of the owner's own — not
+    the sample's, and not the demo seeder's " · demo" stamp."""
+    if not profile or getattr(profile, "cvr_verified_at", None) is None:
+        return False
+    if is_demo_profile(profile):
+        return False
+    cvr = _digits(getattr(profile, "org_number", None))
+    return bool(cvr) and cvr != DEMO_SEEDED_CVR
+
+
+def signup_name_is_sample(profile: Any, user: Any) -> bool:
+    """The account's business name (users.business_name) is still the sample
+    company's. Builds before round 6 copied the Profile's company_name there
+    on every save while the demo was seeded, and with no pre-seed snapshot
+    "Ryd demodata" cannot know the owner's own name. It is the name every
+    revisor mail falls back to when the profile has none (subject, From,
+    footer, the kasserapport) and the one the revisor invite always carries.
+    A register-verified CVR of the owner's own outranks it."""
+    if user is None or not _is_sample_name(getattr(user, "business_name", None)):
+        return False
+    return not _own_verified_cvr(profile)
+
+
+def is_demo_identity(profile: Any, user: Any = None) -> bool:
+    """The business identity is still the demo seeder's sample company — so
+    nothing may go to a revisor under it.
 
     * the " · demo" tag (every per-user seed writes it), or
     * the sample street address with the sample name or CVR beside it (a tag
       lost to a register save that echoed the sample company), or
     * the sample CVR carrying a verification stamp (the shared demo account
-      and a re-verified sample: no real owner is verified under it).
+      and a re-verified sample: no real owner is verified under it), or
+    * with `user`: the account's business name is still "Mirabelle ApS"
+      (signup_name_is_sample) — every send path passes the user, so the fence
+      reads the name the mail would carry, not the profile alone.
 
-    The sample name and CVR alone, unverified and with no sample address, are
-    not enough: that is a business the owner typed in themselves."""
-    if not profile:
-        return False
-    if is_demo_profile(profile):
-        return True
-    cvr = seeded_cvr(profile)
-    if seeded_street(profile) and (cvr or seeded_company_name(profile)):
-        return True
-    return cvr and getattr(profile, "cvr_verified_at", None) is not None
+    The sample name and CVR alone on the profile, unverified and with no
+    sample address, are not enough: that is a business the owner typed in
+    themselves."""
+    if profile:
+        if is_demo_profile(profile):
+            return True
+        cvr = seeded_cvr(profile)
+        if seeded_street(profile) and (cvr or seeded_company_name(profile)):
+            return True
+        if cvr and getattr(profile, "cvr_verified_at", None) is not None:
+            return True
+    return signup_name_is_sample(profile, user)
 
 
 def demo_identity_error() -> HTTPException:
@@ -379,6 +412,24 @@ def record_opt_out(profile: Any, fingerprint: str) -> bool:
     return True
 
 
+def opt_out_fingerprints_for(profile: Any, fingerprint: str | None) -> list[str]:
+    """The fingerprints one opt-out (or its undo) covers: the token's own and,
+    for a token minted on a "+tag" address before tokens were bound to the
+    mailbox, that address's mailbox too — read from the saved address the
+    token was minted for. Then "pia+bonbox@" opting out stops "pia@" and
+    every other tag, not only the exact address."""
+    fp = (fingerprint or "").strip().lower()
+    if not fp:
+        return []
+    out = [fp]
+    saved = saved_revisor_address(profile)
+    if saved and address_fingerprint(saved) == fp:
+        mfp = address_fingerprint(mailbox_address(saved))
+        if mfp not in out:
+            out.append(mfp)
+    return out
+
+
 def remove_opt_out(profile: Any, fingerprint: str) -> bool:
     """The revisor's own undo. False when that fingerprint was not opted out."""
     fps = opted_out_fingerprints(profile)
@@ -392,7 +443,8 @@ def remove_opt_out(profile: Any, fingerprint: str) -> bool:
     return True
 
 
-def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
+def resolve_revisor_recipient(profile: Any, override: str | None = None, *,
+                              user: Any = None) -> str:
     """The only address a revisor send may go to, or an HTTPException.
 
     400 no_accountant_email  — nothing saved
@@ -413,7 +465,7 @@ def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
     if is_demo_revisor(profile, saved):
         # Sample data, not a revisor the owner chose: never mailed.
         raise demo_recipient_error()
-    if is_demo_identity(profile):
+    if is_demo_identity(profile, user):
         # A real revisor, but the sender would be the sample company and CVR.
         raise demo_identity_error()
     if override:
@@ -533,9 +585,14 @@ def public_api_base() -> str:
 
 def revisor_unsubscribe_url(user_id: Any, address: str) -> str:
     from app.utils.email_unsubscribe_token import make_unsubscribe_token
+    # Bound to the MAILBOX ("pia+bonbox@" → "pia@"): an opt-out made from a
+    # "+tag" address must also stop the plain one, and every other tag —
+    # _address_opted_out checks both an address and its mailbox. (Tokens
+    # already issued carry the raw address's fingerprint: the opt-out handler
+    # records the mailbox's too — opt_out_fingerprints_for.)
     token = make_unsubscribe_token(
         str(user_id), REVISOR_TOPIC, ttl_days=180,
-        extra={"r": address_fingerprint(address)},
+        extra={"r": address_fingerprint(mailbox_address(address))},
     )
     return f"{public_api_base()}/api/email/unsubscribe?token={token}"
 

@@ -179,8 +179,9 @@ describe("a locked demo day in History", () => {
 
 describe("own-mail fallback with the sample revisor", () => {
   it("opens with no recipient AND no sample name in the greeting", async () => {
+    // A seeded profile: the server says the company is the sample's too.
     profile = { accountant_email: "anna@revisor.dk", accountant_name: "Anna Hansen",
-      accountant_is_demo: true, company_name: "Mirabelle ApS" };
+      accountant_is_demo: true, identity_is_demo: true, company_name: "Mirabelle ApS" };
     closes = [close("O1", "2026-10-06", "confirmed", { email_status: "sent", email_sent_to: ["login@x.dk"] })];
     await openHistory();
     fireEvent.click(screen.getByRole("button", { name: "rangePreset7d" }));

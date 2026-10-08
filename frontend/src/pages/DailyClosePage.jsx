@@ -5795,9 +5795,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // never pre-filled, named as "your revisor" or mailed from here.
   const revisorEmail = revisorAddress(businessProfile);
   const revisorIsDemo = Boolean(businessProfile?.accountant_is_demo);
-  // The business is still the demo's sample company (Mirabelle ApS): Send
-  // goes nowhere — not by BonBox (409 demo_identity), not via the owner's own
-  // mail either — until Profile holds the owner's own name, CVR and address.
+  // The business is still the demo's sample company (Mirabelle ApS): BonBox
+  // sends the revisor nothing (409 demo_identity) until Profile holds the
+  // owner's own name, CVR and address. The owner's own mail stays open — it
+  // is not BonBox sending — but never pre-filled with the revisor.
   const identityDemo = Boolean(businessProfile?.identity_is_demo);
   // Plan caps from /billing/me — drives the cap-aware preset
   // buttons (Free=7d / Starter=31d / Pro=full year). Defaults to
@@ -6089,15 +6090,17 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // to Danish since the recipient is typically a DK accountant.
       const lang = (user?.language === "en") ? "en" : "da";
 
-      // Never pre-fill an address that asked BonBox to stop.
-      const toAddr = businessProfile?.accountant_opted_out ? "" : revisorEmail;
+      // Never pre-fill an address that asked BonBox to stop — nor the
+      // revisor at all while the business is still the sample company: the
+      // file names "Mirabelle ApS", so the owner picks who gets it.
+      const toAddr = businessProfile?.accountant_opted_out || identityDemo ? "" : revisorEmail;
       const result = await sendDailyCloseRangeToAccountant({
         blob, filename,
         accountantEmail: toAddr,
         // Never the demo's sample revisor's name (revisorEmail is "" for
         // it) — a real revisor keeps theirs, also when they opted out of
         // BonBox mail and the owner sends this from their own mail instead.
-        accountantName: revisorEmail ? (businessProfile?.accountant_name || "") : "",
+        accountantName: revisorEmail && !identityDemo ? (businessProfile?.accountant_name || "") : "",
         businessName: businessProfile?.company_name || user?.business_name || "",
         fromIso: activeRange.from,
         toIso: activeRange.to,
@@ -6114,7 +6117,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           setSendStatus(t("sentViaShare", "Share sheet opened — pick Mail / WhatsApp"));
         } else if (result.channel === "mailto") {
           setSendStatus(
-            revisorEmail
+            // What the mail app was opened with: no address pre-filled (none
+            // saved, opted out, or the business still the sample company)
+            // says "add the address".
+            toAddr
               ? (t("sentViaMailto", "Email opened — attach the downloaded PDF and send"))
               : (t("sentViaMailtoNoTo", "Email opened — add revisor address, attach PDF, send")),
           );
@@ -6138,14 +6144,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     setExportError("");
     setSendStatus("");
     setSendIssue(null);
-    if (identityDemo) {
-      setExportError(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
-      return;
-    }
     const fmt = accountantFmt; // honour the user's saved choice
     // Never the demo seeder's sample revisor (revisorAddress → "").
     const acct = revisorEmail;
     const optedOut = Boolean(businessProfile?.accountant_opted_out);
+
+    if (identityDemo && acct && !optedOut && directSendEntitled !== false) {
+      // A real revisor, but the business is still the sample company: BonBox
+      // sends nothing (the server: 409 demo_identity). Only THIS send is
+      // fenced — no revisor, the sample revisor, an opted-out revisor and the
+      // Free plan's own-mail path download the file as before (never
+      // pre-filled with the revisor while the identity is the sample's).
+      setExportError(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
+      return;
+    }
 
     if (acct && !optedOut && directSendEntitled === false) {
       // Free: BonBox does not send. No "goes to {email}. You get a copy."
@@ -6890,7 +6902,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         {/* Who a send goes to — on the screen, not in a hover tooltip a
             phone cannot show. */}
         {/* The saved revisor is the demo seeder's sample: say so — Send
-            opens the owner's own mail, never to the sample address. */}
+            opens the owner's own mail, never to the sample address. The
+            business still the sample company: BonBox sends the revisor
+            nothing, and the owner's own mail is not pre-filled with them. */}
         {profileKnown && identityDemo && (
           <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-identity-demo">
             <Icon name="AlertTriangle" size={12} className="inline align-text-bottom mr-1" />

@@ -375,40 +375,34 @@ async def reverify_profile(
 
 def _drop_sample_identity_leftovers(profile, changes: dict) -> bool:
     """After a save on a profile that held the demo's sample company: when
-    the name and the CVR are now the owner's own, clear what still belongs to
-    the sample. True when it ran."""
-    from app.services.demo_seed import _seeded_profile_values
+    the name and the CVR are now the owner's own, what still belongs to the
+    sample goes back to what the owner had before the seed (the snapshot),
+    else empty. True when it ran."""
+    from app.services.demo_seed import restore_seeded_identity
     from app.services.revisor_mail import (
-        DEMO_SEEDED_BUSINESS_ADDRESSES, DEMO_SEEDED_CVR, drop_seeded_revisor,
-        is_demo_profile, seeded_company_name, seeded_street,
+        DEMO_SEEDED_CVR, drop_seeded_revisor, is_demo_profile, seeded_company_name,
     )
     # The two fields the owner edits. (The VAT number is not on the form: the
-    # sample's "DK39842851" is a leftover, cleared below.)
+    # sample's "DK39842851" is a leftover, reset below.)
     if seeded_company_name(profile) or re.sub(r"\D", "", profile.org_number or "") == DEMO_SEEDED_CVR:
         return False  # still (partly) the sample: nothing goes to a revisor yet
-    seeded = _seeded_profile_values()
+    # The sample revisor FIRST, while the " · demo" tag still fences it: the
+    # old deliverable seed address (anna@revisor.dk) beside a name the owner
+    # typed is the sample only because of that tag — cleared after it, it
+    # became "your revisor" and every send path mailed it.
+    drop_seeded_revisor(profile)
     if is_demo_profile(profile):
         # Not replaced by a register save (that writes its own source): the
         # owner typed the company — not verified against the register.
         profile.cvr_verified_at = None
         profile.cvr_verified_source = None
-    if seeded_street(profile):
-        profile.address = None
-        if (profile.city or "") == seeded["city"]:
-            profile.city = None
-        if (profile.zipcode or "") == seeded["zipcode"]:
-            profile.zipcode = None
-    for f in ("phone", "founded", "dawa_address_id"):
-        if getattr(profile, f, None) == seeded[f]:
-            setattr(profile, f, None)
-    if (profile.email or "").strip().lower() in DEMO_SEEDED_BUSINESS_ADDRESSES:
-        profile.email = None
-    if re.sub(r"\D", "", profile.vat_number or "") == DEMO_SEEDED_CVR:
-        profile.vat_number = None
-    if "source" not in changes and (profile.source or "") == seeded["source"]:
-        profile.source = None
-    drop_seeded_revisor(profile)
+    # Every identity field still holding the sample's value: the owner's own
+    # pre-seed value back (address, phone, e-mail …), else empty — and the
+    # sample's industry, company type and VAT flag too, unless this save set
+    # them. The snapshot stays for "Ryd demodata" (the night-shift cutoff).
+    restore_seeded_identity(profile, keep=set(changes), street_guard=True)
     return True
+
 
 _ACCOUNTANT_EMAIL_RE = re.compile(r"[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}")
 
@@ -424,6 +418,9 @@ def get_profile(
     ).first()
     if not profile:
         return None
+    # identity_is_demo reads the account's name too (the signup name older
+    # builds overwrote with the sample company's).
+    profile.fence_user = user
     return profile
 
 
@@ -572,6 +569,18 @@ def save_profile(
     if was_demo_identity:
         _drop_sample_identity_leftovers(profile, changes)
 
+    # Whatever this save did to the " · demo" stamp: a revisor address that
+    # was the demo's sample before it stays the sample after it — never
+    # "your revisor" because the tag that fenced it went (stored as the
+    # reserved address, which no send path mails).
+    if was_demo_revisor:
+        from app.services.revisor_mail import (
+            DEMO_SEEDED_REVISOR_ADDRESSES, DEMO_SEEDED_REVISOR_EMAIL, saved_revisor_address,
+        )
+        if (saved_revisor_address(profile) in DEMO_SEEDED_REVISOR_ADDRESSES
+                and not _is_demo_revisor(profile)):
+            profile.accountant_email = DEMO_SEEDED_REVISOR_EMAIL
+
     # Also update user's business_name if company_name provided — never with
     # the sample company's name: the Profile forms echo company_name on every
     # save, and the demo's "Mirabelle ApS" replaced the owner's signup name
@@ -581,6 +590,7 @@ def save_profile(
 
     db.commit()
     db.refresh(profile)
+    profile.fence_user = user
     return profile
 
 
