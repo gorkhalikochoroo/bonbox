@@ -1665,6 +1665,137 @@ def set_monthly_goal(
 
 
 # ============================================================
+# The ownership walk — shared by erasure (Art. 17) and export (Art. 15/20)
+# ============================================================
+def _user_fk_columns(table):
+    """Column names in `table` that are a ForeignKey to users.id."""
+    cols = []
+    for col in table.columns:
+        for fk in col.foreign_keys:
+            if fk.column.table.name == "users":
+                cols.append(col.name)
+    return cols
+
+
+def _owned_by_uid_predicate(table, uid, _seen=None):
+    """SQL predicate selecting the rows of `table` that belong to `uid`.
+
+    Direct case: any users.id-FK column == uid. Orphan-child case: a
+    table with NO users.id FK (e.g. inventory_logs → inventory_items)
+    is still tenant-owned through its parent, and its parent FK may lack
+    ON DELETE CASCADE — so deleting the parent first would FK-violate.
+    We recurse through every non-users FK and match rows whose parent
+    row is itself owned by uid (… IN (SELECT pk FROM parent WHERE
+    parent_is_owned_by_uid)). Returns None if no ownership path exists
+    (a truly global/shared table — left untouched). Cycle-guarded.
+    """
+    from sqlalchemy import or_ as _or, select as _select
+
+    _seen = _seen or set()
+    if table.name in _seen:
+        return None
+    _seen = _seen | {table.name}
+
+    clauses = [table.c[c] == uid for c in _user_fk_columns(table)]
+    for col in table.columns:
+        for fk in col.foreign_keys:
+            parent = fk.column.table
+            if parent.name == "users" or parent.name == table.name:
+                continue
+            parent_pred = _owned_by_uid_predicate(parent, uid, _seen)
+            if parent_pred is None:
+                continue
+            parent_pk = list(parent.primary_key.columns)
+            if len(parent_pk) != 1:
+                continue
+            clauses.append(col.in_(_select(parent_pk[0]).where(parent_pred)))
+    if not clauses:
+        return None
+    return _or(*clauses)
+
+
+# Tables the erasure keeps (legal hold) — not part of the walk, so not part
+# of the walk's export either. Mirrors delete_account's own sets, which
+# tests/test_delete_account_completeness.py reads from its source.
+_EXPORT_SKIPPED_TABLES = {"users", "audit_logs", "security_events", "error_logs"}
+
+# Credential columns never leave the server, not even to their owner: a
+# stolen export must not sign anybody in, open a staff portal or a bank
+# consent, or redeem a gavekort.
+_EXPORT_SECRET_EXACT = {
+    "token", "auth", "credentials", "verification_code", "join_code",
+    "consent_state", "short_code",
+}
+
+
+def _is_secret_column(col) -> bool:
+    name = col.name.lower()
+    if name in _EXPORT_SECRET_EXACT:
+        return True
+    if name.endswith(("_hash", "_enc", "_token")):
+        return True
+    if "password" in name or "secret" in name:
+        return True
+    try:
+        if col.type.python_type is bytes:
+            return True
+    except Exception:  # noqa: BLE001 — custom types (GUID) have no python_type
+        pass
+    return False
+
+
+def _export_cell(value):
+    """A stored value → one CSV cell (csv_safe is applied by the writer)."""
+    import json as _json
+    from datetime import date as _date, datetime as _dt
+    if value is None:
+        return ""
+    if isinstance(value, (_dt, _date)):
+        return value.isoformat()
+    if isinstance(value, (dict, list)):
+        return _json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def _export_owned_tables(db: Session, writer, uid) -> None:
+    """Art. 15/20 completeness: every row the erasure walk would delete —
+    one section per table, every column except credentials. Driven by
+    Base.metadata, so a new user-owned table is exported the day it is
+    added, exactly as it is erased."""
+    from app.database import Base as _Base
+
+    writer.writerow([])
+    writer.writerow(["=== Complete record: every table BonBox holds for this account ==="])
+    for table in _Base.metadata.sorted_tables:
+        if table.name in _EXPORT_SKIPPED_TABLES:
+            continue
+        predicate = _owned_by_uid_predicate(table, uid)
+        if predicate is None:
+            continue
+        cols = [c for c in table.columns if not _is_secret_column(c)]
+        try:
+            with db.begin_nested():
+                from sqlalchemy import select as _select
+                stmt = _select(*cols).where(predicate)
+                pk = list(table.primary_key.columns)
+                if pk and pk[0] in cols:
+                    stmt = stmt.order_by(pk[0])
+                rows = db.execute(stmt).fetchall()
+        except Exception:  # noqa: BLE001 — say so, never drop a table silently
+            logger.warning("export-data: could not read table %s", table.name)
+            writer.writerow([])
+            writer.writerow([f"=== table: {table.name} (could not be read — contact support) ==="])
+            continue
+        if not rows:
+            continue
+        _write_csv_section(
+            writer, f"table: {table.name} ({len(rows)} rows)",
+            [c.name for c in cols],
+            [[_export_cell(v) for v in row] for row in rows],
+        )
+
+
+# ============================================================
 # GDPR: Right to Data Portability (Article 20)
 # ============================================================
 def _write_csv_section(writer, title: str, headers: list, rows: list):
@@ -1686,9 +1817,11 @@ def export_all_data(
 ):
     """GDPR Article 20 — Export all user data as a single CSV file.
 
-    Returns every piece of data BonBox stores about the user:
-    profile, sales, expenses, inventory, cash book, waste logs,
-    khata, loans, budgets, staffing rules, business profile, etc.
+    Returns every piece of data BonBox stores about the user: a readable
+    summary (profile, sales, expenses, inventory, cash book, waste logs,
+    khata, loans, budgets, staffing rules, business profile, …) followed by
+    the complete record — one section per table the account-deletion walk
+    covers, every column except credentials (_export_owned_tables).
     """
     uid = current_user.id
     buf = io.StringIO()
@@ -1880,6 +2013,12 @@ def export_all_data(
             str(pc.created_at),
         ] for pc in pay_conns])
 
+    # --- Everything else: the same walk the erasure uses ---
+    # The sections above are the readable summary; this part makes the
+    # export complete (daily closes, kasserapport, staff, schedules, hours,
+    # reservations, customers, invoices, events, gavekort, chat, …).
+    _export_owned_tables(db, w, uid)
+
     # Return as downloadable CSV
     buf.seek(0)
     return StreamingResponse(
@@ -1964,58 +2103,16 @@ def delete_account(
     _ERASURE_DEFERRED_TABLES = {"bank_connections", "mobilepay_connections"}
 
     from app.database import Base as _Base
-    from sqlalchemy import or_ as _or, select as _select
 
-    def _user_fk_columns(table):
-        """Column names in `table` that are a ForeignKey to users.id."""
-        cols = []
-        for col in table.columns:
-            for fk in col.foreign_keys:
-                if fk.column.table.name == "users":
-                    cols.append(col.name)
-        return cols
-
-    def _owned_by_uid_predicate(table, _seen=None):
-        """SQL predicate selecting the rows of `table` that belong to `uid`.
-
-        Direct case: any users.id-FK column == uid. Orphan-child case: a
-        table with NO users.id FK (e.g. inventory_logs → inventory_items)
-        is still tenant-owned through its parent, and its parent FK may lack
-        ON DELETE CASCADE — so deleting the parent first would FK-violate.
-        We recurse through every non-users FK and match rows whose parent
-        row is itself owned by uid (… IN (SELECT pk FROM parent WHERE
-        parent_is_owned_by_uid)). Returns None if no ownership path exists
-        (a truly global/shared table — left untouched). Cycle-guarded.
-        """
-        _seen = _seen or set()
-        if table.name in _seen:
-            return None
-        _seen = _seen | {table.name}
-
-        clauses = [table.c[c] == uid for c in _user_fk_columns(table)]
-        for col in table.columns:
-            for fk in col.foreign_keys:
-                parent = fk.column.table
-                if parent.name == "users" or parent.name == table.name:
-                    continue
-                parent_pred = _owned_by_uid_predicate(parent, _seen)
-                if parent_pred is None:
-                    continue
-                parent_pk = list(parent.primary_key.columns)
-                if len(parent_pk) != 1:
-                    continue
-                clauses.append(col.in_(_select(parent_pk[0]).where(parent_pred)))
-        if not clauses:
-            return None
-        return _or(*clauses)
-
+    # The ownership walk is module-level (_owned_by_uid_predicate) so the
+    # GDPR export reads exactly the rows this erasure deletes.
     # Children-before-parents: sorted_tables is parents-first, so reverse it.
     for table in reversed(_Base.metadata.sorted_tables):
         if table.name == "users":
             continue
         if table.name in _ERASURE_RETAINED_TABLES or table.name in _ERASURE_DEFERRED_TABLES:
             continue
-        predicate = _owned_by_uid_predicate(table)
+        predicate = _owned_by_uid_predicate(table, uid)
         if predicate is None:
             continue  # global/shared table with no ownership path — keep
         try:
