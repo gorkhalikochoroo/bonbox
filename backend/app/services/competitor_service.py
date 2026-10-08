@@ -48,6 +48,14 @@ _GOOGLE_PLACES_TYPES = "restaurant|cafe|bar|bakery|food|meal_delivery|meal_takea
 # reach the cached rows another venue is served.
 PLACES_CACHE_TTL_SECONDS = 12 * 3600
 _PLACES_CACHE_MAX = 2000
+# What may NOT be served from that cache as it was stored (review, 8 Oct):
+#   • distance_m — measured from the FIRST requester's exact point; the cell
+#     is ~100 m and shared across venues, so a hit is re-measured from the
+#     caller's own lat/lon and re-sorted;
+#   • open_now — true at fetch time only; after OPEN_NOW_FRESH_SECONDS a hit
+#     says "unknown" (None — the page then shows no Open/Closed chip) rather
+#     than a 10:00 "Open" at 21:00.
+OPEN_NOW_FRESH_SECONDS = 10 * 60
 _places_cache: dict[tuple, tuple[float, dict]] = {}
 _places_cache_lock = threading.Lock()
 
@@ -61,16 +69,38 @@ def places_cache_key(lat: float, lon: float, keyword: str | None, radius: int) -
             (keyword or "").strip().lower(), int(radius), _GOOGLE_PLACES_TYPES)
 
 
-def _cached_places(key: tuple) -> dict | None:
+def _cached_places_entry(key: tuple) -> tuple[float, dict] | None:
+    """(age in seconds, a copy) of a live cache entry, else None."""
     with _places_cache_lock:
         hit = _places_cache.get(key)
         if hit is None:
             return None
         stored_at, result = hit
-        if _now_seconds() - stored_at >= PLACES_CACHE_TTL_SECONDS:
+        age = _now_seconds() - stored_at
+        if age >= PLACES_CACHE_TTL_SECONDS:
             _places_cache.pop(key, None)
             return None
-        return copy.deepcopy(result)
+        return age, copy.deepcopy(result)
+
+
+def _cached_places(key: tuple) -> dict | None:
+    entry = _cached_places_entry(key)
+    return None if entry is None else entry[1]
+
+
+def _as_seen_from(result: dict, lat: float, lon: float, age: float) -> dict:
+    """A cached answer made true for THIS caller, now: distances from the
+    caller's own point (and the list re-sorted by them); open_now dropped
+    once it is older than OPEN_NOW_FRESH_SECONDS."""
+    places = result.get("places") or []
+    for p in places:
+        p_lat, p_lon = p.get("latitude"), p.get("longitude")
+        if p_lat and p_lon:
+            p["distance_m"] = round(_haversine(lat, lon, p_lat, p_lon))
+        if age >= OPEN_NOW_FRESH_SECONDS:
+            p["open_now"] = None
+    places.sort(key=lambda p: p.get("distance_m") or 99999)
+    return result
 
 
 def _store_places(key: tuple, result: dict) -> None:
@@ -98,9 +128,10 @@ def discover_nearby(lat: float, lon: float, keyword: str = None, radius: int = 1
     api_key = settings.GOOGLE_PLACES_API_KEY
     if api_key:
         key = places_cache_key(lat, lon, keyword, radius)
-        cached = _cached_places(key)
-        if cached is not None:
-            return cached
+        entry = _cached_places_entry(key)
+        if entry is not None:
+            age, cached = entry
+            return _as_seen_from(cached, lat, lon, age)
         if before_google_call is not None:
             before_google_call()
         try:

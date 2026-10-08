@@ -23,6 +23,39 @@ const PRICE_LABELS = ["", "$", "$$", "$$$", "$$$$"];
 // page chrome (outer gutters + PageHeader) and surfaces the header's
 // "+ Add Manually" action as a compact inline button instead, so the hub
 // owns the shell without losing the action.
+/**
+ * One Google Maps photo in the scan picker. The image comes through BonBox
+ * (GET /competitors/:id/photo/:ref, owner-scoped) as a blob — never a Google
+ * URL, so the Places key never reaches the browser (security review, 8 Oct).
+ * A photo that can't load leaves a plain grey tile; the tile still scans.
+ */
+export function CompetitorPhotoThumb({ competitorId, photoRef }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    if (!competitorId || !photoRef) return undefined;
+    let url = null;
+    let cancelled = false;
+    api.get(`/competitors/${competitorId}/photo/${encodeURIComponent(photoRef)}`, { responseType: "blob" })
+      .then((r) => {
+        if (cancelled || !r?.data) return;
+        try {
+          url = URL.createObjectURL(r.data);
+          setSrc(url);
+        } catch { /* no object URLs here — keep the grey tile */ }
+      })
+      .catch(() => { /* keep the grey tile */ });
+    return () => {
+      cancelled = true;
+      if (url) {
+        try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+      }
+    };
+  }, [competitorId, photoRef]);
+  return src
+    ? <img src={src} alt="" className="w-full h-full object-cover" />
+    : <div className="w-full h-full bg-gray-100 dark:bg-gray-800" aria-hidden="true" />;
+}
+
 export default function CompetitorPage({ embedded = false }) {
   const toast = useToast();
   const { user } = useAuth();
@@ -950,7 +983,7 @@ export default function CompetitorPage({ embedded = false }) {
                             className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-gray-300 focus:border-gray-300 transition group relative"
                             title={t("scanMenuTapToScan", "Tap to scan this photo")}
                           >
-                            <img src={p.view_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            <CompetitorPhotoThumb competitorId={scanCompId} photoRef={p.photo_reference} />
                             {/* On a phone this whole overlay used to be
                                 permanently invisible: `opacity-0
                                 group-hover:opacity-100` with no hover guard,

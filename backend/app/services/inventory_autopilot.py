@@ -817,17 +817,24 @@ def _format_order_email(
     Plain, no-fluff layout: business name → date → table → total.
     Reply-to is set by the caller to user.email so the supplier
     can reply directly to the owner.
+
+    Every typed value (item name, unit, supplier name, business name) is
+    escaped with revisor_mail.esc, the one mail escape, and the subject is
+    header-safe: the mail goes to a third party under the BonBox sender
+    (review, 8 Oct; tests/test_inventory_autopilot_mail_relay.py).
     """
-    business_name = getattr(user, "business_name", None) or "BonBox"
+    from app.services.revisor_mail import esc, header_safe
+    raw_business_name = getattr(user, "business_name", None) or "BonBox"
+    business_name = esc(raw_business_name)
     today_iso = date.today().isoformat()
-    safe_name = supplier_name or "Supplier"
+    safe_name = esc(supplier_name or "Supplier")
 
     rows_html: list[str] = []
     total = 0.0
     for it in items:
-        name = (it.get("name") or "").strip()[:120]
+        name = esc((it.get("name") or "").strip()[:120])
         qty = _safe_float(it.get("qty"), 0.0)
-        unit = (it.get("unit") or "pieces")[:20]
+        unit = esc((it.get("unit") or "pieces")[:20])
         cost = _safe_float(it.get("cost_per_unit"), 0.0)
         line = qty * cost
         total += line
@@ -838,7 +845,7 @@ def _format_order_email(
             f"<td style='padding:6px 12px;border-bottom:1px solid #eee;text-align:right'>{line:.2f} {currency}</td></tr>"
         )
 
-    subject = f"Order from {business_name} — {today_iso}"
+    subject = header_safe(f"Order from {raw_business_name} — {today_iso}")
     html = (
         f"<div style='font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#222;max-width:640px'>"
         f"<p>Hi {safe_name},</p>"

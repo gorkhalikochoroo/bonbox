@@ -116,9 +116,18 @@ def detect_expense_alerts(user: User, db: Session) -> list[dict]:
 
 
 def build_alert_html(alerts: list[dict], business_name: str) -> str:
-    """Build HTML email for expense alerts."""
+    """Build HTML email for expense alerts.
+
+    The business name and every alert message (which carries owner-typed
+    category names and expense descriptions) go through revisor_mail.esc:
+    the mail goes to user.email, which may be an unconfirmed address someone
+    else owns (review, 8 Oct). The messages stay raw in alerts-preview JSON —
+    the app renders them as text."""
     if not alerts:
         return ""
+    from app.services.revisor_mail import esc
+    business_name = esc(business_name)
+    n_alerts = len(alerts)
 
     alert_rows = ""
     for a in alerts:
@@ -133,7 +142,7 @@ def build_alert_html(alerts: list[dict], business_name: str) -> str:
 
         alert_rows += f"""
         <div style="padding:16px;background:{bg};border-radius:12px;margin-bottom:12px;border-left:4px solid {color}">
-          <p style="margin:0;font-size:15px;color:#1e293b"><strong>{icon} {a['message']}</strong></p>
+          <p style="margin:0;font-size:15px;color:#1e293b"><strong>{icon} {esc(a['message'])}</strong></p>
         </div>"""
 
     return f"""
@@ -147,7 +156,7 @@ def build_alert_html(alerts: list[dict], business_name: str) -> str:
         <span style="color:white;font-size:24px">⚠️</span>
       </div>
       <h1 style="margin:12px 0 4px;font-size:20px;color:#1e293b">Expense Alert - {business_name}</h1>
-      <p style="margin:0;font-size:14px;color:#94a3b8">{len(alerts)} alert(s) need your attention</p>
+      <p style="margin:0;font-size:14px;color:#94a3b8">{n_alerts} alert(s) need your attention</p>
     </div>
 
     {alert_rows}

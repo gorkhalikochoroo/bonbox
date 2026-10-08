@@ -2266,6 +2266,19 @@ def _queue_guest_email(background_tasks: BackgroundTasks, user: User, r: Reserva
                 cap = None
             if cap is not None:
                 return reservation_emails.owner_cap_notice(cap)
+            # The per-mailbox bound on owner-initiated guest mail (review,
+            # 8 Oct): already mailed this address enough today. When it is
+            # THIS booking's own per-reservation cap that is full, that cap
+            # answers at send time as it always has (logged "capped").
+            try:
+                own_full = (reservation_emails.guest_emails_sent_last_24h(db, user.id, r.id)
+                            >= reservation_emails.GUEST_EMAILS_PER_RESERVATION_PER_DAY)
+                box_cap = None if own_full else \
+                    reservation_emails.mailbox_guest_mail_capped(db, user.id, r.guest_email)
+            except Exception:  # noqa: BLE001 — deliver() re-checks and refuses
+                box_cap = None
+            if box_cap is not None:
+                return reservation_emails.address_cap_notice(box_cap)
         background_tasks.add_task(reservation_emails.run_venue_change,
                                   str(r.id), str(user.id), change, **kw)
     except Exception:  # noqa: BLE001

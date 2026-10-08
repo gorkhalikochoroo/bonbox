@@ -254,3 +254,11 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class MagicLinkSessionToken(Token):
+    """/auth/magic-link/verify: the Token shape plus what an e-mail-link
+    sign-in changed on an account whose address was never confirmed
+    (services/auth.claim_unverified_account) — so the app can say so."""
+    password_reset: bool = False
+    access_closed: bool = False

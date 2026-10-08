@@ -327,9 +327,11 @@ def send_invoice_email(
     recipient addresses (429), and every interpolated value is escaped.
     """
     from app.services.revisor_mail import (
+        INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_DA, INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_EN,
         enforce_invoice_mail_ceiling, esc, header_safe, require_verified_sender,
     )
-    require_verified_sender(user)
+    require_verified_sender(user, message=INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_EN,
+                            message_da=INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_DA)
 
     inv = (
         db.query(Invoice)

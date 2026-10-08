@@ -634,3 +634,90 @@ def test_magic_link_leaves_a_confirmed_account_untouched(client, db, email_outbo
     assert (u.token_version or 0) == old_tv
     assert db.query(AuditLog).filter(
         AuditLog.action == "auth.unverified_account_claimed").count() == 0
+
+
+# ─── What the claim closes, and what the claimant is told (review, 8 Oct) ──
+# The claim replaced the password and bumped token_version, but a revisor
+# grant or a host-stand device the pre-registering party set up stayed live —
+# a squatter's revisor JWT still opened the books after the hand-over. Both
+# are now closed by the claim, and the person who just clicked the link is
+# told what changed (password_reset in the answer + one notice mail): the
+# claim cannot tell a squatter from a real owner who never typed the code,
+# and a real owner's old password silently stopping was a dead end.
+
+
+def _grant_and_stand(db, owner):
+    import secrets as _s
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    revisor = User(email="revisor@example.dk", password_hash=hash_password("rev-pw-1"),
+                   business_name="", business_type="", currency="DKK", role="accountant",
+                   email_verified=True)
+    db.add(revisor); db.commit(); db.refresh(revisor)
+    g = AccountantGrant(accountant_user_id=revisor.id, accountant_email=revisor.email,
+                        owner_user_id=owner.id, granted_by=owner.id, status="active",
+                        invited_at=utc_now(), activated_at=utc_now())
+    pending = AccountantGrant(accountant_email="pending@example.dk", owner_user_id=owner.id,
+                              granted_by=owner.id, status="pending",
+                              invite_token="pending-token-abc", invited_at=utc_now())
+    stand = StandLink(user_id=owner.id, token=_s.token_urlsafe(24), active=True)
+    db.add_all([g, pending, stand]); db.commit()
+    return revisor, g, pending, stand
+
+
+def test_claim_closes_revisor_grants_and_stand_devices(client, db, email_outbox):
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    from app.services.auth import create_access_token
+    squatter = _make_user(db, email="victim@bonbox.dk", email_verified=False,
+                          password_hash=hash_password("attacker-pw-1"))
+    revisor, g, pending, stand = _grant_and_stand(db, squatter)
+    revisor_jwt = create_access_token(str(revisor.id), revisor.token_version or 0)
+    hdr = {"Authorization": f"Bearer {revisor_jwt}"}
+    assert client.post(f"/api/accountants/switch-client/{squatter.id}", headers=hdr).status_code == 200
+
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["password_reset"] is True
+    assert body["access_closed"] is True
+
+    db.expire_all()
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "revoked"
+    p = db.query(AccountantGrant).filter(AccountantGrant.id == pending.id).one()
+    assert p.status == "revoked" and p.invite_token is None and p.revoked_at is not None
+    assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is False
+    # The pre-registering party's revisor login no longer opens these books.
+    assert client.post(f"/api/accountants/switch-client/{squatter.id}", headers=hdr).status_code == 403
+    row = db.query(AuditLog).filter(AuditLog.action == "auth.unverified_account_claimed").one()
+    import json as _json
+    after = _json.loads(row.after_state)
+    assert after["revoked_grants"] == 2 and after["revoked_stand_links"] == 1
+
+
+def test_the_claimant_gets_one_notice_mail(client, db, email_outbox):
+    _make_user(db, email="victim@bonbox.dk", email_verified=False,
+               password_hash=hash_password("attacker-pw-1"))
+    res = _link_signin(client, email_outbox, "victim@bonbox.dk")
+    assert res.status_code == 200, res.text
+    assert res.json()["password_reset"] is True
+    assert res.json()["access_closed"] is False
+    notices = [m for m in email_outbox if m["to"] == "victim@bonbox.dk" and "token=" not in m["html"]]
+    assert len(notices) == 1
+    assert "Forgot password" in notices[0]["html"] or "Glemt adgangskode" in notices[0]["html"]
+
+
+def test_a_confirmed_account_gets_no_reset_flag_and_keeps_its_access(client, db, email_outbox):
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    owner = _make_user(db, email="owner@bonbox.dk")   # confirmed
+    _revisor, g, _pending, stand = _grant_and_stand(db, owner)
+    res = _link_signin(client, email_outbox, "owner@bonbox.dk")
+    assert res.status_code == 200, res.text
+    assert res.json()["password_reset"] is False
+    assert res.json()["access_closed"] is False
+    db.expire_all()
+    assert db.query(AccountantGrant).filter(AccountantGrant.id == g.id).one().status == "active"
+    assert db.query(StandLink).filter(StandLink.id == stand.id).one().active is True
+    # Only the link mail itself — no claim notice.
+    assert [m for m in email_outbox if "token=" not in m["html"]] == []

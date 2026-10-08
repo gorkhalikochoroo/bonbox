@@ -135,6 +135,10 @@ def _owner(db, plan: str = "pro", *, email_suffix: str = "") -> User:
         currency="DKK",
         plan=plan,
         role="owner",
+        # A confirmed owner: /autopilot/apply mails suppliers only for a
+        # confirmed account (review, 8 Oct — the unconfirmed refusal is
+        # tested in test_inventory_autopilot_mail_relay.py).
+        email_verified=True,
     )
     db.add(u)
     db.commit()

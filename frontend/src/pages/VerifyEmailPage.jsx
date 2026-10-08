@@ -116,7 +116,14 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       setTimeout(() => navigate("/dashboard"), 1200);
     } catch (err) {
       const detail = errText(err, t("verificationFailed"));
-      if (err.response?.status === 429) {
+      // Per-account limits on wrong codes (backend verify_email): said in
+      // the owner's language, with what to do next.
+      const errCode = err.response?.data?.detail?.code;
+      if (errCode === "verification_paused") {
+        setError(t("verifyEmailPaused"));
+      } else if (errCode === "verification_code_burned") {
+        setError(t("verifyCodeBurned"));
+      } else if (err.response?.status === 429) {
         setError(t("tooManyAttempts"));
       } else {
         setError(detail);
@@ -138,7 +145,9 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       setSuccess(t("newCodeSent"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      if (err.response?.status === 429) {
+      if (err.response?.data?.detail?.code === "verification_paused") {
+        setError(t("verifyEmailPaused"));
+      } else if (err.response?.status === 429) {
         setError(t("tooManyResendAttempts"));
       } else {
         setError(t("couldNotResendCode"));

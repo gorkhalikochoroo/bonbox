@@ -48,7 +48,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.magic_link_token import MagicLinkToken
-from app.schemas.auth import Token, UserResponse
+from app.schemas.auth import MagicLinkSessionToken, Token, UserResponse
 from app.schemas.magic_link import MagicLinkRequest, MagicLinkResponse, MagicLinkVerify
 from app.services import audit_service
 from app.services.auth import create_access_token
@@ -252,7 +252,7 @@ def request_magic_link(
 
 @router.post(
     "/magic-link/verify",
-    response_model=Token,
+    response_model=MagicLinkSessionToken,
 )
 @limiter.limit("30/hour")
 def verify_magic_link(
@@ -316,8 +316,15 @@ def verify_magic_link(
         ip_address=ip,
     )
 
+    # Read before the commit/refresh: what the claim of a never-confirmed
+    # account changed (review, 8 Oct) — the app says it, and one mail does.
+    from app.services.auth import claim_result, send_claim_notice
+    claimed = claim_result(user)
+
     db.commit()
     db.refresh(user)
+    if claimed["password_reset"]:
+        send_claim_notice(user, claimed)
 
     # Issue session — exactly the same shape + cookie behaviour as
     # /auth/login. Local import to avoid an import cycle (auth.py also
@@ -326,4 +333,6 @@ def verify_magic_link(
 
     jwt_token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, jwt_token, request)
-    return Token(access_token=jwt_token, user=UserResponse.model_validate(user))
+    return MagicLinkSessionToken(access_token=jwt_token, user=UserResponse.model_validate(user),
+                          password_reset=claimed["password_reset"],
+                          access_closed=claimed["access_closed"])

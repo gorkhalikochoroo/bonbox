@@ -81,6 +81,17 @@ GUEST_EMAILS_PER_RESERVATION_PER_DAY = 5
 # was never confirmed gets the lower ceiling.
 GUEST_EMAILS_PER_OWNER_PER_DAY = 300
 GUEST_EMAILS_PER_OWNER_PER_DAY_UNCONFIRMED = 100
+# Guest mails from ONE venue to ONE mailbox per rolling 24 h, before an
+# OWNER-INITIATED mail (moved / request confirmed / cancelled by the venue)
+# is held back (review, 8 Oct). Every guest mail to that mailbox counts; the
+# owner-initiated ones are the ones held, because manual bookings take any
+# address and cost nothing: 20 bookings × 5 moves put 100 mails a day into a
+# stranger's inbox under the per-owner total alone. A real guest with one
+# booking gets at most 5 a day anyway (the per-reservation cap).
+GUEST_MAILS_PER_MAILBOX_PER_DAY = 5
+OWNER_INITIATED_GUEST_EVENTS = frozenset({
+    "guest_moved", "guest_request_confirmed", "guest_cancelled_by_venue",
+})
 
 # ── NotificationLog.event_type (the column is VARCHAR(50)) ────────────
 GUEST_CONFIRMATION = "guest_confirmation"
@@ -873,6 +884,72 @@ def owner_guest_mail_capped(db: Session, owner_id) -> int | None:
     return cap if guest_emails_sent_by_owner_last_24h(db, owner_id) >= cap else None
 
 
+def guest_mails_to_mailbox_last_24h(db: Session, owner_id, email: str | None) -> int:
+    """Guest mails this venue DELIVERED in the last 24 hours about bookings
+    whose guest address is the same mailbox as `email` (services/mailbox.py
+    folds "+tags" and Gmail dots). The log row carries no address, so the
+    booking it names supplies it."""
+    since = utc_now() - timedelta(days=1)
+    keys = [k for (k,) in (
+        db.query(NotificationLog.dedup_key)
+        .filter(
+            NotificationLog.user_id == owner_id,
+            NotificationLog.channel == "email",
+            NotificationLog.status == "sent",
+            NotificationLog.event_type.in_(GUEST_EVENTS),
+            NotificationLog.created_at >= since,
+        )
+        .all()
+    ) if k]
+    if not keys:
+        return 0
+    prefix = _ledger_key("")
+    ids = set()
+    for k in keys:
+        if k.startswith(prefix):
+            try:
+                ids.add(uuid.UUID(k[len(prefix):]))
+            except ValueError:
+                continue
+    if not ids:
+        return 0
+    address_by_id = {
+        str(rid): addr for rid, addr in (
+            db.query(Reservation.id, Reservation.guest_email)
+            .filter(Reservation.user_id == owner_id, Reservation.id.in_(ids))
+            .all()
+        )
+    }
+    addresses = [address_by_id.get(k[len(prefix):]) for k in keys if k.startswith(prefix)]
+    return count_same_mailbox(addresses, email)
+
+
+def mailbox_guest_mail_capped(db: Session, owner_id, email: str | None) -> int | None:
+    """The bound when this venue has reached it for this mailbox, else None.
+    Raises when the count fails — the caller decides (deliver() refuses)."""
+    n = guest_mails_to_mailbox_last_24h(db, owner_id, email)
+    return GUEST_MAILS_PER_MAILBOX_PER_DAY if n >= GUEST_MAILS_PER_MAILBOX_PER_DAY else None
+
+
+def address_cap_notice(cap: int) -> dict:
+    """The owner's answer when the guest was not e-mailed because this venue
+    already mailed that address `cap` times today. The change is saved."""
+    return {
+        "code": "guest_email_address_cap",
+        "cap": int(cap),
+        "message": (
+            f"Saved. The guest was not e-mailed: BonBox has already sent {cap} e-mails to this "
+            "guest's address for your venue in the last 24 hours, the most it sends. "
+            "Let the guest know yourself."
+        ),
+        "message_da": (
+            f"Gemt. Gæsten fik ingen e-mail: BonBox har allerede sendt {cap} e-mails til denne "
+            "gæsts adresse for dit sted det seneste døgn, og flere sender BonBox ikke. "
+            "Giv selv gæsten besked."
+        ),
+    }
+
+
 def owner_cap_notice(cap: int) -> dict:
     """What the owner's edit / status answer carries when the guest was not
     e-mailed because the venue reached its daily guest-mail ceiling. The
@@ -916,6 +993,10 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
             if not capped and owner_guest_mail_capped(db, owner_id) is not None:
                 # The venue's own daily ceiling, across all its bookings.
                 capped, reason = True, "owner_capped"
+            if (not capped and event_type in OWNER_INITIATED_GUEST_EVENTS
+                    and mailbox_guest_mail_capped(db, owner_id, to) is not None):
+                # One stranger's inbox: the per-mailbox bound.
+                capped, reason = True, "address_capped"
         except Exception:  # noqa: BLE001 — couldn't check → don't send
             capped, reason = True, "cap_check_error"
         if capped:

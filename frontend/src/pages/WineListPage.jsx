@@ -864,6 +864,7 @@ function SommelierTab({ currency }) {
 
       <div className="flex gap-2">
         <input type="text" value={query} onChange={e => setQuery(e.target.value)}
+          maxLength={300}
           onKeyDown={e => e.key === "Enter" && handleSearch()}
           placeholder={t("wineSommelierAskPlaceholder")}
           className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />

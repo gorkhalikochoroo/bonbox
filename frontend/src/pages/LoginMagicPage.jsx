@@ -36,8 +36,13 @@ export default function LoginMagicPage() {
   // tolerate either case so a future refactor doesn't break us.
   const auth = useAuth() || {};
 
-  const [state, setState] = useState("verifying"); // verifying | success | error
+  const [state, setState] = useState("verifying"); // verifying | success | claimed | error
   const [errorCode, setErrorCode] = useState("");
+  // The link confirmed an address that had never been confirmed: the
+  // account's old password was replaced and other devices signed out
+  // (backend claim_unverified_account, review 8 Oct). Said here, not
+  // silently — the owner stays on this page until they tap on.
+  const [accessClosed, setAccessClosed] = useState(false);
 
   useEffect(() => {
     // Defensive: short / empty tokens never reach the network. The
@@ -64,6 +69,11 @@ export default function LoginMagicPage() {
         // the backend just set.
         if (access && typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
           try { localStorage.setItem("token", access); } catch { /* ignore */ }
+        }
+        if (res?.data?.password_reset) {
+          setAccessClosed(!!res?.data?.access_closed);
+          setState("claimed");
+          return;
         }
         setState("success");
         // Force a fresh /auth/me round-trip on the next page so the
@@ -108,6 +118,8 @@ export default function LoginMagicPage() {
     ? (t("magicLinkVerifying") || "Signing you in…")
     : state === "success"
     ? (t("magicLinkSuccess") || "You're in. Redirecting…")
+    : state === "claimed"
+    ? t("magicLinkClaimedTitle")
     : errorCode === "expired"
     ? (t("magicLinkExpired") || "This link has expired.")
     : errorCode === "used"
@@ -120,6 +132,8 @@ export default function LoginMagicPage() {
     ? (t("magicLinkVerifyingSub") || "Hang tight, this takes a second.")
     : state === "success"
     ? ""
+    : state === "claimed"
+    ? t("magicLinkClaimedBody")
     : (t("magicLinkErrorSub") || "Request a new link and we'll get you in.");
 
   return (
@@ -144,7 +158,7 @@ export default function LoginMagicPage() {
             </svg>
           </div>
         )}
-        {state === "success" && (
+        {(state === "success" || state === "claimed") && (
           <div className="flex justify-center mb-4">
             <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -170,6 +184,28 @@ export default function LoginMagicPage() {
           <p className="text-[14px] text-gray-500 mt-2 leading-relaxed">
             {sub}
           </p>
+        )}
+
+        {state === "claimed" && (
+          <div className="mt-5" data-testid="magic-link-claimed">
+            {accessClosed && (
+              <p className="text-[14px] text-gray-500 leading-relaxed mb-4">
+                {t("magicLinkClaimedAccessClosed")}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/dashboard"; }}
+              className="inline-block bg-[#22c55e] hover:bg-[#16a34a] text-white px-5 py-2.5 rounded-lg text-[14px] font-medium transition"
+            >
+              {t("magicLinkClaimedContinue")}
+            </button>
+            <p className="text-[13px] text-gray-500 mt-4">
+              <Link to="/forgot-password" className="underline underline-offset-2 hover:text-gray-800">
+                {t("magicLinkClaimedSetPassword")}
+              </Link>
+            </p>
+          </div>
         )}
 
         {state === "error" && (

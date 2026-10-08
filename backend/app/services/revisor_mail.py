@@ -561,13 +561,33 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
 # * a daily ceiling counted from audit_logs (the repo's usage counter), like
 #   the revisor cap — fail-open on a counting error, for the same reason.
 
+# Names what the gate holds back, and only that (RELEASE_GATE 5, review
+# 8 Oct): guest, revisor-report, shift and gavekort mail still go out for an
+# unconfirmed account, so a general "BonBox mails no one else" is untrue.
 VERIFY_EMAIL_FIRST_MESSAGE_EN = (
     "Confirm your own e-mail address first (Profile → Unverified). "
-    "BonBox only sends mail to others for a confirmed account."
+    "Until it is confirmed, BonBox does not e-mail fakturaer, team invitations "
+    "or supplier orders for you."
 )
 VERIFY_EMAIL_FIRST_MESSAGE_DA = (
     "Bekræft først din egen e-mailadresse (Profil → Ikke bekræftet). "
-    "BonBox sender kun mail til andre for en bekræftet konto."
+    "Indtil den er bekræftet, sender BonBox ikke fakturaer, medarbejderinvitationer "
+    "eller leverandørordrer på mail for dig."
+)
+# The faktura refusal leads with what still works. An OLD app (an open tab,
+# the bundled iOS build) shows the server's message as it is, after it has
+# already locked the faktura as sent, and its "Profile → Unverified" path can
+# be a dead end there (review, 8 Oct) — the PDF from the owner's own mail is
+# the way forward that works in every build.
+INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_EN = (
+    "BonBox did not e-mail this faktura: your own e-mail address is not confirmed yet. "
+    "Download the PDF and send it from your own e-mail, or confirm your address "
+    "(Profile → Unverified) and send it again."
+)
+INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_DA = (
+    "BonBox har ikke mailet denne faktura: din egen e-mailadresse er ikke bekræftet endnu. "
+    "Hent PDF'en og send den fra din egen e-mail, eller bekræft din adresse "
+    "(Profil → Ikke bekræftet) og send den igen."
 )
 
 
@@ -578,16 +598,18 @@ def sender_is_verified(user: Any) -> bool:
     return getattr(user, "email_verified", False) is True
 
 
-def require_verified_sender(user: Any) -> None:
-    """403 email_unverified unless the account's own address is confirmed."""
+def require_verified_sender(user: Any, *, message: str | None = None,
+                            message_da: str | None = None) -> None:
+    """403 email_unverified unless the account's own address is confirmed.
+    A surface may pass its own (true, more specific) message pair."""
     if sender_is_verified(user):
         return
     raise HTTPException(
         status_code=403,
         detail={
             "code": "email_unverified",
-            "message": VERIFY_EMAIL_FIRST_MESSAGE_EN,
-            "message_da": VERIFY_EMAIL_FIRST_MESSAGE_DA,
+            "message": message or VERIFY_EMAIL_FIRST_MESSAGE_EN,
+            "message_da": message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA,
         },
     )
 

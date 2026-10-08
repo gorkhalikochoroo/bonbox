@@ -295,3 +295,45 @@ def test_legacy_apple_link_leaves_a_confirmed_account_untouched(db_session, clie
     db_session.refresh(owner)
     assert verify_password("owner-pw-1", owner.password_hash)
     assert (owner.token_version or 0) == old_tv
+
+
+def test_legacy_apple_claim_tells_the_inbox_owner_by_mail(db_session, client, monkeypatch):
+    """Old iOS builds read no flag from the answer, so the one notice mail is
+    how the inbox owner learns the old password stopped working (review,
+    8 Oct)."""
+    from app.routers.auth import limiter as _auth_limiter
+    _auth_limiter.reset()   # the per-IP limiter is not what is under test
+    sent = []
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, **kw: sent.append((to, subject, html)) or True)
+    squatter = User(
+        email="victim2@bonbox.test", password_hash=hash_password("attacker-pw-1"),
+        business_name="V", business_type="cafe", currency="DKK",
+    )
+    db_session.add(squatter); db_session.commit()
+    with _patch_verify({"sub": "001234.claim.0003", "email": "victim2@bonbox.test",
+                        "email_verified": "true"}):
+        r = client.post("/api/auth/apple", json={"identity_token": "x"})
+    assert r.status_code == 200, r.text
+    assert len(sent) == 1
+    to, subject, html = sent[0]
+    assert to == "victim2@bonbox.test"
+    assert "med Apple" in html and "Glemt adgangskode" in html
+
+
+def test_legacy_apple_sign_in_to_a_confirmed_account_sends_no_notice(db_session, client, monkeypatch):
+    from app.routers.auth import limiter as _auth_limiter
+    _auth_limiter.reset()   # the per-IP limiter is not what is under test
+    sent = []
+    monkeypatch.setattr("app.services.email_service.send_email",
+                        lambda to, subject, html, **kw: sent.append(to) or True)
+    owner = User(
+        email="real2@bonbox.test", password_hash=hash_password("owner-pw-1"),
+        business_name="R", business_type="cafe", currency="DKK", email_verified=True,
+    )
+    db_session.add(owner); db_session.commit()
+    with _patch_verify({"sub": "001234.claim.0004", "email": "real2@bonbox.test",
+                        "email_verified": "true"}):
+        r = client.post("/api/auth/apple", json={"identity_token": "x"})
+    assert r.status_code == 200, r.text
+    assert sent == []

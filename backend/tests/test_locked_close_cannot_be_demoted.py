@@ -77,6 +77,12 @@ def db_session():
 
 @pytest.fixture
 def client():
+    # The per-IP limiter on POST /api/daily-close (30/minute) is not what is
+    # under test, and every TestClient shares one "testclient" address: run
+    # after other daily-close files in the same minute, this file used to
+    # meet a 429 (full-suite batch, 8 Oct). Start each test with it empty.
+    from app.routers.daily_close import _limiter as _close_limiter
+    _close_limiter.reset()
     yield TestClient(app)
     app.dependency_overrides.clear()
 

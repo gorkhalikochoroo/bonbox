@@ -4543,6 +4543,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const gSkip = resp?.data?.guest_email_skipped;
       if (gSkip?.code === "guest_email_owner_cap") {
         toast({ severity: "notice", message: t("rsvpGuestMailOwnerCap", { cap: gSkip.cap }) });
+      } else if (gSkip?.code === "guest_email_address_cap") {
+        // This guest's address was already mailed enough today (per-mailbox bound).
+        toast({ severity: "notice", message: t("rsvpGuestMailAddressCap", { cap: gSkip.cap }) });
       }
       if (finishFirst) {
         toast({
@@ -4919,6 +4922,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const gSkip = res?.data?.guest_email_skipped;
       if (gSkip?.code === "guest_email_owner_cap") {
         toast({ severity: "notice", message: t("rsvpGuestMailOwnerCap", { cap: gSkip.cap }) });
+      } else if (gSkip?.code === "guest_email_address_cap") {
+        // This guest's address was already mailed enough today (per-mailbox bound).
+        toast({ severity: "notice", message: t("rsvpGuestMailAddressCap", { cap: gSkip.cap }) });
       }
       setEditRes(null);
       setSelected(null);

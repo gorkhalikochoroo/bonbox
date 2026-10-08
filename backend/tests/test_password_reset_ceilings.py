@@ -74,10 +74,33 @@ def test_codes_per_day_ceiling(db_session, client, mails):
         _forgot(client)
         _skip_cooldown(db_session, user)
     assert len(mails) == 5
-    _forgot(client)  # the sixth: same answer, no mail
-    assert len(mails) == 5
+    _forgot(client)  # the sixth: same answer, no CODE mail
+    codes = [m for m in mails if "reset code is" in m["subject"]]
+    assert len(codes) == 5
     n = db_session.query(AuditLog).filter(AuditLog.action == "auth.reset_code_issued").count()
     assert n == 5
+
+
+def test_over_the_code_ceiling_the_owner_is_told_once(db_session, client, mails):
+    """Review, 8 Oct: anyone who knows the address could use up the day's
+    five codes in ~10 minutes; the owner's own reset then silently did
+    nothing for 24 hours. The first over-cap request sends the owner ONE
+    notice (reset paused, a login link still works); the generic answer and
+    the no-code rule stay."""
+    user = _make_user(db_session)
+    for _ in range(5):
+        _forgot(client)
+        _skip_cooldown(db_session, user)
+    for _ in range(3):
+        _forgot(client)
+        _skip_cooldown(db_session, user)
+    notices = [m for m in mails if "reset code is" not in m["subject"]]
+    assert len(notices) == 1, [m["subject"] for m in mails]
+    n = notices[0]
+    assert n["to"] == "owner@example.com"
+    assert "login link" in n["html"] or "login-link" in n["html"]
+    assert "24" in n["html"]
+    assert len([m for m in mails if "reset code is" in m["subject"]]) == 5
 
 
 def test_wrong_guess_counter_is_carried_across_a_reissue(db_session, client, mails):

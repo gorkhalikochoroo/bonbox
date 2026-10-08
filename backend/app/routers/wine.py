@@ -29,7 +29,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -1071,16 +1071,55 @@ h2{{font-size:15px;color:#722f37;text-transform:uppercase;letter-spacing:2px;bor
 # ── AI Sommelier ─────────────────────────────────────────────
 
 class SommelierQuery(BaseModel):
-    query: str  # e.g. "Something fruity under 400 DKK"
+    # e.g. "Something fruity under 400 DKK". Bounded: it goes into a paid
+    # prompt on the platform key (review, 8 Oct).
+    query: str = Field(..., max_length=300)
+
+
+# The AI answer is a paid Anthropic call on the platform key, with the whole
+# wine list in the prompt. Like the label scan: an explicit per-IP limiter and
+# a per-account daily ceiling counted from audit_logs (review, 8 Oct). At the
+# ceiling — or when the count fails — the owner still gets an answer: the free
+# keyword match below, never an error.
+SOMMELIER_AI_ACTION = "wine.sommelier_ai"
+SOMMELIER_AI_PER_DAY = 60
+
+
+def _sommelier_ai_allowed(db: Session, user: User) -> bool:
+    """True when this account may make one more AI call today; the call is
+    counted first (so parallel requests count too)."""
+    from app.models.audit_log import AuditLog
+    try:
+        n = int(
+            db.query(func.count(AuditLog.id))
+            .filter(AuditLog.user_id == user.id,
+                    AuditLog.action == SOMMELIER_AI_ACTION,
+                    AuditLog.created_at >= utc_now() - timedelta(days=1))
+            .scalar() or 0
+        )
+    except Exception:  # noqa: BLE001 — couldn't count → the free answer
+        logger.warning("sommelier count failed (user=%s)", user.id)
+        return False
+    if n >= SOMMELIER_AI_PER_DAY:
+        return False
+    from app.services import audit_service
+    audit_service.record(db, user, SOMMELIER_AI_ACTION, "wine")
+    db.commit()
+    return True
 
 
 @router.post("/sommelier")
+@_limiter.limit("10/minute")
 def ai_sommelier(
+    request: Request,
     body: SommelierQuery,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """AI sommelier — natural language search across current stock."""
+    """AI sommelier — natural language search across current stock.
+
+    The AI path runs within SOMMELIER_AI_PER_DAY per account; past it the
+    keyword match answers."""
     wines = (
         db.query(Wine)
         .filter(Wine.user_id == user.id, Wine.is_deleted.isnot(True), Wine.stock_qty > 0)
@@ -1092,8 +1131,9 @@ def ai_sommelier(
     query = body.query.lower()
     currency = user.currency or "DKK"
 
-    # If Claude API available, use it for smart matching
-    if settings.ANTHROPIC_API_KEY:
+    # If Claude API available, use it for smart matching — within the
+    # account's daily ceiling.
+    if settings.ANTHROPIC_API_KEY and _sommelier_ai_allowed(db, user):
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
