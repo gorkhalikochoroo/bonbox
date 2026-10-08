@@ -8409,6 +8409,7 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcDraftChangedPhotoGoes: "Keeping your numbers also takes its Z-bon photo off the day.",
     dcDeleteDraftBodyPaymentsOnly: "This kladde shows only payments of {amount} — it is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
     dcDraftChangedTitle: "The draft was saved somewhere else",
     dcDraftChangedBody: "The draft for {date} was saved somewhere else after you opened it (another phone or tab — or just before you left the page). The saved draft has {amount} — nothing was overwritten. Load the newest draft, or keep your numbers and they are saved over it.",

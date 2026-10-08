@@ -215,6 +215,30 @@ const PLANS = [
     A.expect(row.receipt_photo || null).toBe(null);
     A.expect(A.S.posts.some((b) => b.receipt_photo === photoUrl("p1-b4000.jpg"))).toBe(true);
   }],
+  // Round 21 review — a save's answer lost on the way back (stored): the
+  // form's next save and its lock follow it (base_save_id), never "saved
+  // somewhere else" over the owner's own figures.
+  ["review — Kort 2.000 stored but its answer lost: the next note is saved on it, nobody asked", 21601, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    A.slow("drop", 1);
+    await A.typeBox("pay", "card", "2.000");
+    A.expect(stored(A.S).payment_breakdown).toEqual({ card: 2000 });
+    await A.notes();
+    A.expect(A.S.refused.length).toBe(0);
+    A.expect(A.conflictShown()).toBe(false);
+    A.expect(stored(A.S).payment_breakdown).toEqual({ card: 2000 });
+    A.expect(stored(A.S).notes).toBeTruthy();
+  }],
+  ["review — the lost answer, then the lock: locked on it, never refused", 21602, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    A.slow("drop", 1);
+    await A.typeBox("rev", "drinks", "1.500");
+    await A.lock();
+    A.expect(A.S.refused.length).toBe(0);
+    A.expect(stored(A.S)).toMatchObject({ status: "confirmed", revenue_total: 4500 });
+  }],
 ];
 
 // Found by this variant while round 21 was built (each broke an earlier cut

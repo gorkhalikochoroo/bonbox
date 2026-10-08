@@ -8118,6 +8118,7 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcDraftChangedPhotoGoes: "Beholder du dine tal, fjernes dens Z-bon-foto også fra dagen.",
     dcDeleteDraftBodyPaymentsOnly: "Denne kladde viser kun betalinger på {amount} — den fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
     dcDraftChangedTitle: "Kladden er gemt et andet sted",
     dcDraftChangedBody: "Kladden for {date} er gemt et andet sted, efter du åbnede den (en anden telefon eller fane — eller lige før du forlod siden). Den gemte kladde har {amount} — intet er overskrevet. Hent den nyeste kladde, eller behold dine tal, så gemmes de oven på den.",

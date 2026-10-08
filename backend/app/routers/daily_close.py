@@ -1422,6 +1422,53 @@ def _draft_changed_since(existing, base, base_save_id=None, *, db=None, user=Non
     }
 
 
+def _claim_draft_version(db, existing, data, user) -> None:
+    """Hold the stored draft at the version just checked until this save
+    commits (round 21 review). The check above reads the row without a lock
+    and the ORM's UPDATE has no version condition: two saves built on the
+    same version both passed it on Postgres (READ COMMITTED), the second
+    waited on the first's row lock and then wrote over it — both answered
+    200, and the version in between was lost with nobody told (the page's
+    own older save landing after its newer one, or another phone's).
+
+    A compare-and-set: UPDATE … SET updated_at = <stored> WHERE id = … AND
+    updated_at = <stored>. It changes nothing, takes the row lock (held to
+    this save's commit), and touches no row when another save committed a
+    newer version first — that version is then read and checked like the
+    first one (refused 412 draft_changed, or, when it is the page's own save
+    still on its way that this one follows — base_save_id — claimed in its
+    turn). A row locked or deleted meanwhile is left to the save's own rules
+    (the locked-row 409)."""
+    for _ in range(3):
+        stamp = existing.updated_at
+        hit = (
+            db.query(DailyClose)
+            .filter(DailyClose.id == existing.id, DailyClose.updated_at == stamp)
+            .update({DailyClose.updated_at: stamp}, synchronize_session=False)
+        )
+        if hit:
+            return
+        db.refresh(existing)
+        if (getattr(existing, "status", None) or "confirmed") != "draft" or existing.is_deleted:
+            return
+        if existing.updated_at == stamp:
+            # No newer version — the stamp did not compare equal as stored
+            # (a legacy value): never a refusal for that; the row lock alone.
+            db.query(DailyClose).filter(DailyClose.id == existing.id).with_for_update().first()
+            return
+        changed = _draft_changed_since(existing, data.base_updated_at, data.base_save_id, db=db, user=user)
+        if changed is not None:
+            raise HTTPException(status_code=412, detail=changed)
+    from fastapi.encoders import jsonable_encoder
+    raise HTTPException(status_code=412, detail={
+        "code": DRAFT_CHANGED,
+        "message": ("Kladden for denne dag er gemt et andet sted, efter du åbnede den. "
+                    "Intet er overskrevet — hent den nyeste kladde, eller behold dine tal."),
+        "updated_at": _naive_utc(existing.updated_at).isoformat() if existing.updated_at else None,
+        "current": jsonable_encoder(_to_response(existing)),
+    })
+
+
 def _clean_source_meta(meta) -> str | None:
     """Keep only the known, bounded keys of the client's source description
     (see DailyClose.source_meta) and store it as JSON text."""
@@ -1756,6 +1803,11 @@ def create_daily_close(
     _changed = _draft_changed_since(existing, data.base_updated_at, data.base_save_id, db=db, user=user)
     if _changed is not None:
         raise HTTPException(status_code=412, detail=_changed)
+    # …and checked atomically: the version just checked is held until this
+    # save commits (a concurrent save of the same version is refused).
+    if (existing is not None and data.base_updated_at is not None
+            and (getattr(existing, "status", None) or "confirmed") == "draft"):
+        _claim_draft_version(db, existing, data, user)
 
     # Revenue total: when the OCR detected a bottom-line total
     # (revenue_total_override) AND the user didn't fully reconcile the
@@ -2051,6 +2103,10 @@ def create_daily_close(
         # Read before the update: a seeded day the owner typed real figures
         # into stops being sample data (_notes_to_store).
         _notes = _notes_to_store(existing, data, revenue_total)
+        # The photo the row held before this save: one it clears or replaces
+        # (another phone's bon, saved over by the owner's "Behold mine tal")
+        # stays traceable in the audit row.
+        _photo_before = getattr(existing, "receipt_photo", None)
         # Update existing
         existing.revenue_categories = encode_breakdown(data.revenue_breakdown)
         existing.revenue_total = revenue_total
@@ -2112,7 +2168,11 @@ def create_daily_close(
             action=_audit_action,
             entity_type="daily_close",
             entity_id=existing.id,
-            before={"status": existing_status, "revenue_total": float(existing.revenue_total or 0)},
+            before={
+                "status": existing_status, "revenue_total": float(existing.revenue_total or 0),
+                **({"receipt_photo": _photo_before}
+                   if _photo_before and _photo_before != existing.receipt_photo else {}),
+            },
             after={
                 "status": status, "revenue_total": revenue_total,
                 "payment_total": payment_total, "moms_total": moms_total,
@@ -4934,6 +4994,11 @@ def daily_close_pdf(
 def delete_daily_close(
     close_id: str,
     request: Request,
+    # Round 21 review — the version of the draft the page holds (and its own
+    # save still on its way, when an answer was lost): the same draft_changed
+    # rule as a save. Absent (History, an older app build): as before.
+    base_updated_at: datetime | None = Query(None),
+    base_save_id: str | None = Query(None, max_length=64),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -4956,6 +5021,14 @@ def delete_daily_close(
                 "message": "This close is locked. Unlock it first, then delete.",
             },
         )
+    # A draft the page created and now takes back (Start forfra on a day of
+    # photos only, a date move) that was saved somewhere else since — another
+    # phone typed Kort 2.000 into it — is never deleted in silence: refused
+    # (412 draft_changed, with the stored draft), and the page shows it.
+    if not dc.is_deleted:
+        _changed = _draft_changed_since(dc, base_updated_at, base_save_id, db=db, user=user)
+        if _changed is not None:
+            raise HTTPException(status_code=412, detail=_changed)
     dc.is_deleted = True
     dc.deleted_at = utc_now()
     # L7 — every delete leaves an audit trail (who, when, which date).

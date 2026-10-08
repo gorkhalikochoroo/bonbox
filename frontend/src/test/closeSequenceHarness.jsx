@@ -290,13 +290,25 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
     return prev;
   };
   // DELETE /daily-close/{id}: a draft goes (soft-deleted: off the list); a
-  // locked close is refused.
+  // locked close is refused. Round 21 review — the page's version rides
+  // along (base_updated_at / base_save_id): a draft saved since by anyone
+  // else is refused as draft_changed, as a save is (delete_daily_close).
   S.deletes = [];
+  S.refusedDeletes = [];
   S.dead = new Map();
-  const removeNow = (id) => {
+  const removeNow = (id, params = null) => {
     const entry = [...S.rows.entries()].find(([, r]) => r.id === id);
     if (!entry) return Promise.reject(Object.assign(new Error("gone"), { response: { status: 404, data: {} } }));
     if (entry[1].status === "confirmed") return Promise.reject(Object.assign(new Error("locked"), { response: { status: 409, data: {} } }));
+    const newer = params && params.base_updated_at != null
+      ? S.changedSince({ date: entry[1].date, branch_id: entry[1].branch_id, base_updated_at: params.base_updated_at, base_save_id: params.base_save_id || null })
+      : null;
+    if (newer) {
+      S.refusedDeletes.push({ id, base: params.base_updated_at, stored: newer.updated_at });
+      return Promise.reject(Object.assign(new Error("draft changed"), {
+        response: { status: 412, data: { detail: { code: "draft_changed", updated_at: newer.updated_at, current: { ...newer } } } },
+      }));
+    }
     S.rows.delete(entry[0]);
     S.dead.set(entry[0], id);
     S.deletes.push(id);
@@ -306,17 +318,20 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
   // `held` and reaches the server — in the order sent — on releaseHeld().
   // `answer` (round 21): a save reaches the server at once, and its ANSWER
   // waits in `held` (the server stored it; the page has not heard yet).
-  S.holding = { post: false, del: false, answer: false };
+  // `drop` (round 21 review): a save reaches the server and is stored, and
+  // its answer is LOST (a dropped socket, a 4G handoff, the timeout): the
+  // page gets a network error with no response.
+  S.holding = { post: false, del: false, answer: false, drop: false };
   S.held = [];
   S.releaseHeld = () => { const h = S.held.splice(0); h.forEach((go) => go()); return h.length; };
-  S.remove = (id) => (S.holding.del || S.held.length
-    ? new Promise((res, rej) => { S.held.push(() => removeNow(id).then(res, rej)); })
-    : removeNow(id));
+  S.remove = (id, params = null) => (S.holding.del || S.held.length
+    ? new Promise((res, rej) => { S.held.push(() => removeNow(id, params).then(res, rej)); })
+    : removeNow(id, params));
   return S;
 }
 
 export function installApi(S, get, post, del = null) {
-  if (del) del.mockImplementation((url) => S.remove(String(url).split("/").pop()));
+  if (del) del.mockImplementation((url, cfg) => S.remove(String(url).split("/").pop(), cfg?.params || null));
   get.mockImplementation((url, cfg) => {
     if (url === "/daily-close") {
       // The list answers at once — before a save still on its way lands.
@@ -385,6 +400,10 @@ export function installApi(S, get, post, del = null) {
       // Behind anything still on its way: requests arrive in the order sent.
       if (S.holding.post || S.held.length) {
         return new Promise((res, rej) => { S.held.push(() => arrive().then(res, rej)); });
+      }
+      // Stored, the answer lost (a refusal still answers: nothing was stored).
+      if (S.holding.drop) {
+        return arrive().then(() => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" })));
       }
       // Stored at once, the answer still on its way.
       if (S.holding.answer) {
@@ -653,9 +672,13 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // The photos this mount of the page filed (F4: "" only ever clears one of
   // these, or the photo of the draft the banner's Start forfra replaced).
   const filedPhotosHere = new Set();
+  // r21 review — the photos of versions the owner chose "Behold mine tal"
+  // over in this mount (shown the other version, its amount and that its
+  // photo goes): "" may clear those — by the owner's choice, never in silence.
+  const keptOverHere = new Set();
   const mount = (entry = "/daily-close") => {
     postedHere.clear(); createdHere.clear(); emptiedDay = null; pendingMove = null;
-    startedOverHere.clear(); originals.clear(); filedPhotosHere.clear();
+    startedOverHere.clear(); originals.clear(); filedPhotosHere.clear(); keptOverHere.clear();
     // A new visit: a new mount of the page, knowing only what it is given.
     S.mountNow += 1;
     shownDay = today; mounted = render(<MemoryRouter initialEntries={[entry]}><DailyClosePage /></MemoryRouter>);
@@ -693,7 +716,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       if (body.receipt_photo === "" && body.__storedPhoto) {
         STATS.F4 += 1;
         const replaced = body.__replacedPhoto || null;
-        expect(body.__filedHere.includes(body.__storedPhoto) || body.__storedPhoto === replaced,
+        expect(body.__filedHere.includes(body.__storedPhoto) || body.__storedPhoto === replaced
+          || (r21 && (body.__keptOver || []).includes(body.__storedPhoto)),
           fail("F4 \"\" never clears another device's photo", `${body.date}: "" sent over ${body.__storedPhoto} (this page filed ${body.__filedHere.join(", ") || "none"}; replaced draft's ${replaced})`)).toBe(true);
       }
       // F1 — a reopened draft's count goes with the float it was counted
@@ -736,6 +760,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // What the server held for the day when the page sent it (F4).
       __storedPhoto: S.rows.get(`${body.date}|${body.branch_id || ""}`)?.receipt_photo || null,
       __filedHere: [...filedPhotosHere],
+      __keptOver: [...keptOverHere],
       __replacedPhoto: startedOverHere.has(body.date)
         ? (originals.get(body.date) || S.rows.get(`${body.date}|${body.branch_id || ""}`))?.receipt_photo || null : null,
       __loadedFloat: M.loadedCash ? M.loadedCash.float : null,
@@ -780,7 +805,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // (M6): its own photo is its own (round 21 — a slow revert landing
       // while the next photo's card is open).
       const orig = originals.get(date);
-      if (orig?.receipt_photo && sameDraft(row, orig)) allowed.add(orig.receipt_photo);
+      if (r21 && orig?.receipt_photo && sameDraft(row, orig)) allowed.add(orig.receipt_photo);
       expect(allowed.has(row.receipt_photo), fail("M4b no stored photo of a bon no longer in the day",
         `${date} stores ${row.receipt_photo}; photos in the day: ${[...allowed].join(", ") || "none"}`)).toBe(true);
     }
@@ -865,6 +890,13 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         expect(sameDraft(row, orig), fail("MV a date move moves, not copies",
           `${mv.from}: the draft the page replaced should be back as it was ${brief(orig)}, stored ${brief(row)} after the figures went to ${mv.to}`)).toBe(true);
         if (onTo) expect(hasText("dcDateMovedKeptOld"), fail("MV a date move moves, not copies", "nothing says the old day's draft is still there")).toBe(true);
+      } else if (mv.created && S.writer.get(`${mv.from}|`) === "other") {
+        // r21 review: another device saved the old day since the page made
+        // it — the delete is refused (draft_changed): that version is never
+        // deleted with the page's figures. It is still there, as stored.
+        STATS.newerElsewhere += 1;
+        expect(Boolean(row) && row.status === "draft", fail("MV a date move moves, not copies",
+          `${mv.from}: another device's version of the draft was deleted with the moved figures`)).toBe(true);
       } else if (mv.created) {
         expect(!row || row.status !== "draft", fail("MV a date move moves, not copies",
           `${mv.from} still holds the draft this page made (${row?.revenue_total}) after the figures went to ${mv.to}`)).toBe(true);
@@ -957,6 +989,14 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     expect(false, fail("R no stale overwrite",
       `${s0.date}: a save from visit ${s0.mount} landed over version ${s0.version} (written by ${s0.writer}) that visit was never given (it had ${s0.seen}); that version held ${JSON.stringify(s0.was)}`)).toBe(true);
   };
+  // The page going away (pagehide: whatever save is waiting goes now) — and,
+  // since the owner goes on using it, coming back (pageshow), as a browser
+  // says it: a page that is still being tapped was shown again (round 21
+  // review — what the page keeps for a page left for good goes on return).
+  const hideAndBack = async () => {
+    await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
+    await act(async () => { window.dispatchEvent(new Event("pageshow")); await new Promise((r) => setTimeout(r, 0)); });
+  };
   // r21 — everything on its way arrives (in the order sent), and whatever the
   // page asks to send on an answer (a save filed again) goes too: the stored
   // row is checked once the network is quiet.
@@ -965,7 +1005,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       const n0 = S.posts.length + S.deletes.length + S.refused.length;
       if (S.held.length) await act(async () => { S.releaseHeld(); await new Promise((r) => setTimeout(r, 0)); });
       await settle();
-      await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
+      await hideAndBack();
       await settle();
       if (!S.held.length && n0 === S.posts.length + S.deletes.length + S.refused.length) break;
     }
@@ -980,7 +1020,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   };
   const checkpoint = async () => {
     // Whatever save is waiting goes now (the page sends it on pagehide).
-    await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
+    await hideAndBack();
     if (slowStep) {
       // Still on their way: the next step happens before they arrive, and
       // what is stored is checked once they have. What the page shows does
@@ -990,7 +1030,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       slowLeft -= 1;
       if (slowLeft <= 0) {
         slowStep = false;
-        S.holding.post = false; S.holding.del = false; S.holding.answer = false;
+        S.holding.post = false; S.holding.del = false; S.holding.answer = false; S.holding.drop = false;
       }
       noDeadEnd();
       return;
@@ -1562,6 +1602,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // version is known to this visit now (R — saved over by choice).
       const key = `${businessDayShown()}|`;
       S.see(S.mountNow, key, S.offered.get(`${S.mountNow}|${key}`) || 0);
+      // Its photo goes with it when the page has none (the banner says so).
+      if (S.rows.get(key)?.receipt_photo && q('[data-testid="dc-draft-changed-photo"]')) keptOverHere.add(S.rows.get(key).receipt_photo);
       await step("Behold mine tal", () => tap(/^dcDraftChangedKeep/));
     }
     return true;
@@ -1756,7 +1798,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         slow: (mode = "post", steps = 1) => {
           slowStep = true;
           slowLeft = steps;
-          if (mode === "answer") S.holding.answer = true; else { S.holding.post = true; S.holding.del = true; }
+          if (mode === "answer") S.holding.answer = true;
+          else if (mode === "drop") S.holding.drop = true;
+          else { S.holding.post = true; S.holding.del = true; }
         },
       });
       return { steps: log.length, log };

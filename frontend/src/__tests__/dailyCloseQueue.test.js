@@ -374,11 +374,40 @@ describe("a queued copy refused as draft_changed (round 21)", () => {
     expect(q[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "2026-06-05T21:00:00" });
   });
 
-  it("a later sync tries it again and keeps it failed while the draft is still newer", async () => {
+  // Round 21 review — expectation changed from "a later sync tries it again":
+  // re-posted as it was, a copy re-created a day whose newer draft had been
+  // deleted on the other phone (no row, no version check). It waits for the
+  // owner's "Behold mine tal" — kept, never sent by a sync, never dropped.
+  it("a later sync never sends it: it stays failed, with its stamp, until the owner keeps it", async () => {
     addFailedToOfflineQueue({ date: "2026-06-05", status: "draft" }, { errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
     const post = vi.fn().mockRejectedValue(draftChanged("b"));
     const res = await syncOfflineQueue(post);
+    expect(post).not.toHaveBeenCalled();
+    expect(res.synced).toBe(0);
+    expect(res.remaining).toHaveLength(1);
+    expect(res.remaining[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+    expect(getOfflineQueue()[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+  });
+
+  it("the newer draft deleted on the other phone: the sync does not re-create the day — and the copies behind it still go", async () => {
+    addFailedToOfflineQueue({ date: "2026-06-05", status: "draft", notes: "A" }, { errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+    addToOfflineQueue({ date: "2026-06-06", status: "confirmed" });
+    // The server would take anything now (the day's row is gone).
+    const post = vi.fn().mockResolvedValue({ data: { id: "x" } });
+    const res = await syncOfflineQueue(post);
     expect(post).toHaveBeenCalledTimes(1);
-    expect(res.remaining[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "b" });
+    expect(post.mock.calls[0][0].date).toBe("2026-06-06");
+    expect(res.synced).toBe(1);
+    const left = getOfflineQueue();
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, payload: { notes: "A" } });
+  });
+
+  it("any other failed copy is still tried again by the sync", async () => {
+    addFailedToOfflineQueue({ date: "2026-06-05", status: "confirmed" }, { errorCode: "server" });
+    const post = vi.fn().mockResolvedValue({ data: { id: "x" } });
+    const res = await syncOfflineQueue(post);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(res.remaining).toHaveLength(0);
   });
 });

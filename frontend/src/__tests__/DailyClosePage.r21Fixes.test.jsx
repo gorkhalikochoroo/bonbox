@@ -217,7 +217,8 @@ describe("2. a draft changed elsewhere is never overwritten in silence", () => {
     phoneB();
     tap(/^dcContinueDraft$/);
     await toStepWith("#dc-pay-card");
-    expect(get).toHaveBeenCalledWith("/daily-close/seed1");
+    // (Never retried, never held long — round 21 review: offline it stalled ~26 s.)
+    expect(get).toHaveBeenCalledWith("/daily-close/seed1", expect.objectContaining({ _noRetry: true }));
     expect(q("#dc-pay-card").value).toBe("2.000");
   });
 

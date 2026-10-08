@@ -278,6 +278,15 @@ export async function syncOfflineQueue(post) {
       remaining.push(item);
       continue;
     }
+    // A copy refused as draft_changed waits for the OWNER, never the network
+    // (round 21 review): it goes only on their "Behold mine tal" (the page's
+    // keepQueuedCopy, on the newer version it met). Re-posted here as it was,
+    // it re-created a day whose newer draft had been deleted on the other
+    // phone since (no row → no version to check), with nobody asked.
+    if (item.state === QUEUE_FAILED && item.errorCode === QUEUE_ERR_DRAFT_CHANGED) {
+      remaining.push(item);
+      continue;
+    }
 
     let resp;
     try {
