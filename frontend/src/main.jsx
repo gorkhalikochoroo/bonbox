@@ -15,25 +15,41 @@ import { createRoot } from 'react-dom/client'
 // 500 medium UI labels, 600 buttons + section headings, 700 H2/H1,
 // 800 hero. Each weight is ~15-20 KB woff2 = ~80 KB total, but cached
 // immutably so the cost is paid once per build hash.
-import '@fontsource/inter/400.css'
-import '@fontsource/inter/500.css'
-import '@fontsource/inter/600.css'
-import '@fontsource/inter/700.css'
+//
+// SUBSETS (8 Oct 2026): the latin file only, never the all-subset
+// `@fontsource/<family>/<weight>.css`. That file also carries the Cyrillic,
+// Greek, Vietnamese and latin-ext @font-face rules — and for Hanken, whose
+// Cyrillic files are under Vite's 4 KB inline limit, the font data itself,
+// base64'd into the stylesheet that must load before anything paints.
+// latin covers Danish (æ ø å é ü) and the Western punctuation (– — … € −).
+// A character it lacks (Ł, Š, ğ, Cyrillic, Greek) is drawn by the next font
+// in the stack, the system font, per character.
+//
+// Do NOT add latin-ext-<weight>.css beside these: fontsource's per-subset
+// files carry no unicode-range, so the browser treats latin-ext as a second
+// full copy of the face and downloads it for every page (measured: the
+// landing went from 10 to 20 font files). If latin-ext is ever needed, it
+// wants its own @font-face with the unicode-range from the all-subset file.
+import '@fontsource/inter/latin-400.css'
+import '@fontsource/inter/latin-500.css'
+import '@fontsource/inter/latin-600.css'
+import '@fontsource/inter/latin-700.css'
 
 // Landing design system (design_handoff_bonbox_landing). Self-hosted, NOT
 // the Google Fonts <link> the handoff specifies — vercel.json sets
 // font-src 'self' data:, so a CDN font request is blocked outright in
 // production and the page would silently fall back to Inter.
 // Display face: Hanken Grotesk. Text face: Inter Tight.
-import '@fontsource/hanken-grotesk/400.css'
-import '@fontsource/hanken-grotesk/500.css'
-import '@fontsource/hanken-grotesk/600.css'
-import '@fontsource/hanken-grotesk/700.css'
-import '@fontsource/hanken-grotesk/800.css'
-import '@fontsource/inter-tight/400.css'
-import '@fontsource/inter-tight/500.css'
-import '@fontsource/inter-tight/600.css'
-import '@fontsource/inter/800.css'
+// Same subset rule as Inter above: the latin file only.
+import '@fontsource/hanken-grotesk/latin-400.css'
+import '@fontsource/hanken-grotesk/latin-500.css'
+import '@fontsource/hanken-grotesk/latin-600.css'
+import '@fontsource/hanken-grotesk/latin-700.css'
+import '@fontsource/hanken-grotesk/latin-800.css'
+import '@fontsource/inter-tight/latin-400.css'
+import '@fontsource/inter-tight/latin-500.css'
+import '@fontsource/inter-tight/latin-600.css'
+import '@fontsource/inter/latin-800.css'
 
 import './index.css'
 import App from './App.jsx'
