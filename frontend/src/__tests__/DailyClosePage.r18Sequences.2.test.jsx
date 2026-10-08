@@ -50,10 +50,14 @@ describe("daily close — seeded owner sequences (2/5)", () => {
     window.URL.createObjectURL = () => "blob:http://localhost/preview";
     window.URL.revokeObjectURL = () => {};
   });
-  afterAll(() => {
+  afterAll(async () => {
     // eslint-disable-next-line no-console
     if (env.SEQ_STATS) console.log("sequence checks", JSON.stringify(STATS));
-  });
+    // The page's own timers (the 60 ms scroll to the date after a draft
+    // opens, the 3 s "Gemt" after a save) run out before the test
+    // environment goes.
+    await new Promise((r) => setTimeout(r, 3200));
+  }, 10000);
   for (let seed = FROM; seed < FROM + COUNT; seed++) {
     it(`seed ${seed}`, async () => {
       localStorage.clear();

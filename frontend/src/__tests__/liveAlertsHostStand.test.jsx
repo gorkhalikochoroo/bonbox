@@ -39,6 +39,7 @@ vi.mock("../utils/sound", () => ({
   playChime: vi.fn(),
   playUrgent: vi.fn(),
   unlockSound: vi.fn(),
+  prepareSoundWhenIdle: vi.fn(() => () => {}),
 }));
 
 import api from "../services/api";

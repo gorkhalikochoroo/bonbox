@@ -47,7 +47,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "./useAuth";
 import { useLanguage } from "./useLanguage";
-import { playCancel, playChime, playUrgent, unlockSound } from "../utils/sound";
+import { playCancel, playChime, playUrgent, prepareSoundWhenIdle, unlockSound } from "../utils/sound";
 import { useGuestSurface } from "../lib/guestSurface";
 import { RESERVATIONS_CHANGED_EVENT, alertSoundFor } from "../lib/liveAlertKinds";
 
@@ -159,7 +159,11 @@ export function LiveAlertsProvider({ children }) {
     const onGesture = () => unlockSound();
     window.addEventListener("pointerdown", onGesture, { passive: true });
     window.addEventListener("keydown", onGesture);
+    // The clips are built while the browser is idle, not inside the first
+    // tap after an app load (it froze that tap for 0,3–0,7 s at 4x CPU).
+    const cancelPrepare = prepareSoundWhenIdle();
     return () => {
+      cancelPrepare();
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
     };

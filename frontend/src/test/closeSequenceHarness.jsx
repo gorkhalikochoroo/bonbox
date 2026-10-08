@@ -62,18 +62,30 @@ export const BONS = {
     payments: { card: 12000, cash: 4030, mobilepay: 1000 },
   }),
   b5000: bon({ revenue: { food: 3500, drinks: 1500 }, revenue_total: 5000, moms_total: 1000, payments: { card: 5000 } }),
+  // Read as a total and a MOMS only: applied, it leaves every box empty.
+  t2500: bon({ revenue_total: 2500, moms_total: 500 }),
   // A detail page: lines, no total of its own — fills the till before it.
   page: bon({ revenue: { takeaway: 450 }, payments: { mobilepay: 450 } }),
 };
-const BON_KEYS = ["b3000", "b4000", "b1500", "b12000", "till1", "b5000"];
+const BON_KEYS = ["b3000", "b4000", "b1500", "b12000", "till1", "b5000", "t2500"];
 const bonTotal = (b) => (b.revenue_total != null ? b.revenue_total : null);
 
 /* ─── the stubbed server: the backend's save rule ───────────────────── */
 
 const EMPTY_DAY = { has_data: false, day_cutoff_hour: 6, sales: { total: 0, count: 0 }, expenses: { total: 0, count: 0 } };
+// A day the POS synced: its sales fill boxes nobody has typed in.
+const SYNCED_DAY = {
+  has_data: true,
+  day_cutoff_hour: 6,
+  sales: { total: 5000, count: 7, by_payment_method: { card: 5000 }, by_item: {} },
+  expenses: { total: 0, count: 0, by_category: {} },
+  gavekort: { redeemed: 0, tender: 0 },
+  suggested_prefill: { revenue_total: 5000, payment_breakdown: { card: 5000 }, cash_expected: 0 },
+  category_split: { source: "history", confidence: "high", sample_size: 12, categories: { food: 3000, drinks: 2000 } },
+};
 
-export function createServer({ exemptByDate = {}, rows = [] } = {}) {
-  const S = { rows: new Map(), exemptByDate, posts: [], nextScan: null, seq: 0, lockConflicts: 0 };
+export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } = {}) {
+  const S = { rows: new Map(), exemptByDate, syncedDates: new Set(syncedDates), posts: [], nextScan: null, seq: 0, lockConflicts: 0 };
   rows.forEach((r) => S.rows.set(`${r.date}|${r.branch_id || ""}`, r));
   S.serverExempt = (date) => S.exemptByDate[date] || 0;
   S.save = (body) => {
@@ -149,7 +161,7 @@ export function createServer({ exemptByDate = {}, rows = [] } = {}) {
 export function installApi(S, get, post) {
   get.mockImplementation((url, cfg) => {
     if (url === "/daily-close") return Promise.resolve({ data: [...S.rows.values()].map((r) => ({ ...r })) });
-    if (url === "/daily-close/prefill") return Promise.resolve({ data: EMPTY_DAY });
+    if (url === "/daily-close/prefill") return Promise.resolve({ data: S.syncedDates.has(cfg?.params?.date) ? SYNCED_DAY : EMPTY_DAY });
     if (url === "/property-report") {
       const ex = S.serverExempt(cfg?.params?.date);
       return Promise.resolve({ data: { totals: { total_revenue: ex, taxable_sales: 0 } } });
@@ -295,7 +307,7 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
     seededRows.push(draftRow);
   }
   if (opening === "momsfri") exemptByDate[today] = 2000;
-  const S = givenS || createServer({ exemptByDate, rows: seededRows });
+  const S = givenS || createServer({ exemptByDate, rows: seededRows, syncedDates: [twoDaysAgo] });
   installApi(S, get, post);
 
   const log = [];
@@ -642,7 +654,7 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
     const el = q("#close-date");
     if (!el || el.disabled) return;
     const to = pick([today, yesterday, twoDaysAgo].filter((d) => d !== el.value));
-    await step(`date → ${to}`, () => { fireEvent.change(el, { target: { value: to } }); });
+    await step(`date → ${to}`, () => { fireEvent.change(el, { target: { value: to } }); }, () => { if (to === twoDaysAgo) M.exact = false; });
     await ensureForm();
   };
 
@@ -732,6 +744,20 @@ export async function runSequence(seed, page, { S: givenS, get, post } = {}) {
       if (!M.photos.size || !(await toCard()) || where() !== "card") return;
       await shoot("b3000", { same: true });
       await apply("steps");
+    }],
+    // A bon read as a total only, applied, then the date moved onto a day
+    // the POS synced: its sales fill the empty boxes under the card.
+    [1, async () => {
+      if (!(await toCard()) || where() !== "idle") return;
+      await shoot("t2500");
+      if (q('[data-testid="dc-terminal-question"]')) { await answer("drop"); await apply("steps"); return; }
+      await apply("steps");
+      const el = q("#close-date");
+      if (!el || el.disabled || el.value === twoDaysAgo) return;
+      // The sync's figures join the day (the server takes the larger): no
+      // till-by-till sum to hold the review to.
+      await step(`date → ${twoDaysAgo} (synced)`, () => { fireEvent.change(el, { target: { value: twoDaysAgo } }); }, () => { M.exact = false; });
+      await ensureForm();
     }],
     [2, moveDate],
     [2, reopen],

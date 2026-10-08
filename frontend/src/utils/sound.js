@@ -191,6 +191,39 @@ function element(kind) {
 }
 
 /**
+ * Build the three clips before anyone needs them — one per idle moment,
+ * nothing played, no gesture needed. The synthesis (sample by sample at
+ * 44,1 kHz: 33–37 ms on a desktop, 120+ ms on a slow phone) ran inside the
+ * first tap after an app load, on whatever page that tap was, and held it.
+ * The gesture still primes them (unlockSound); it no longer builds them.
+ * Returns a cancel function.
+ */
+export function prepareSoundWhenIdle() {
+  if (typeof window === "undefined" || typeof Audio === "undefined") return () => {};
+  const ric = typeof window.requestIdleCallback === "function" ? window.requestIdleCallback.bind(window) : null;
+  const kinds = ["chime", "cancel", "urgent"].filter((k) => !_els[k]);
+  let handle = null;
+  let cancelled = false;
+  const next = () => {
+    if (cancelled || !kinds.length) return;
+    const run = () => {
+      handle = null;
+      if (cancelled) return;
+      element(kinds.shift());
+      next();
+    };
+    handle = ric ? ric(run, { timeout: 5000 }) : setTimeout(run, 1000);
+  };
+  next();
+  return () => {
+    cancelled = true;
+    if (handle == null) return;
+    if (ric) window.cancelIdleCallback?.(handle);
+    else clearTimeout(handle);
+  };
+}
+
+/**
  * Turn a play() rejection into an audibility verdict.
  *
  * Only an autoplay refusal means the host will not hear the next alert.

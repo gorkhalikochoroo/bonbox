@@ -2683,10 +2683,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // counts for that till, and comes back out when it is lowered. The boxes
   // show the same tills' lines, so the review, the card and the payload read
   // one number. With no card (a close typed by hand) it is the categories.
-  const savedRevenue = useMemo(
-    () => (scanResult ? ledgerSaved : Math.max(0, revenueTotal)),
-    [scanResult, ledgerSaved, revenueTotal],
-  );
+  // Boxes the sales sync filled while a card is in the day (a total-only bon
+  // applied, then the date moved onto a synced day) are not the tills' lines:
+  // the server saves the larger of them and the tills' figure, and so does
+  // the review (it showed the bon's 4.000 while 5.000 was saved). A total the
+  // owner typed is the figure either way.
+  const savedRevenue = useMemo(() => {
+    if (!scanResult) return Math.max(0, revenueTotal);
+    if (ledger.mirror) return ledgerSaved;
+    if (String(scanResult.revenue_total_text ?? "").trim() !== "") return ledgerSaved;
+    return Math.max(ledgerSaved, revenueTotal);
+  }, [scanResult, ledgerSaved, revenueTotal, ledger.mirror]);
   // A total read off the Z-bon IS revenue, split by category or not: a
   // total-only read said "can't be checked" while it locked 17.030.
   const revenueKnown = hasRevenueEntry || savedRevenue > 0;
@@ -2912,6 +2919,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // corrected total, a category raised past the bon, one till of two, or a
   // page whose MOMS belongs to no total anybody read: worked out, and said.
   const ledgerMoms = useMemo(() => momsOf(ledger), [ledger]);
+  // The tills' figure is the day's — or boxes the sales sync filled over a
+  // card raised it, and a bon's MOMS then belongs to another total.
+  const tillsAreTheDay = !scanResult || Math.abs(savedRevenue - ledgerSaved) < 0.005;
   const momsFor = (total) => {
     const base = Math.max(0, Math.round((total - exemptSalesTotal) * 100) / 100);
     return base > 0 && vatRate > 0 ? Math.round((base * vatRate / vatDivisor) * 100) / 100 : 0;
@@ -2925,11 +2935,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // one-till figure while the UI printed "Auto-calculated: Revenue × 25% /
     // 125%", a computation that had not happened. A corrected total (or a
     // category raised past the bon's total) makes it stale the same way.
-    const scannedMoms = ledgerMoms.source === "zbon" && ledgerMoms.value > 0 ? ledgerMoms.value : null;
+    const scannedMoms = ledgerMoms.source === "zbon" && ledgerMoms.value > 0 && tillsAreTheDay ? ledgerMoms.value : null;
     if (scannedMoms) return scannedMoms;
     return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [momsTyped, momsManual, ledgerMoms, taxableBase]);
+  }, [momsTyped, momsManual, ledgerMoms, taxableBase, tillsAreTheDay]);
 
   // WHICH of the two "auto" paths produced that number — because the caption
   // underneath used to assert the multiplication either way. The comment above
@@ -2945,10 +2955,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // "recomputed": the bon had a MOMS, but for another total — said in words.
   const momsSource = useMemo(() => {
     if (momsTyped) return "manual";
-    const scannedMoms = ledgerMoms.source === "zbon" && ledgerMoms.value > 0 ? ledgerMoms.value : null;
-    if (!scannedMoms && ledgerMoms.recomputed) return "recomputed";
+    const scannedMoms = ledgerMoms.source === "zbon" && ledgerMoms.value > 0 && tillsAreTheDay ? ledgerMoms.value : null;
+    if (!scannedMoms && (ledgerMoms.recomputed || (ledgerMoms.source === "zbon" && !tillsAreTheDay))) return "recomputed";
     return scannedMoms ? "scanned" : "computed";
-  }, [momsTyped, ledgerMoms]);
+  }, [momsTyped, ledgerMoms, tillsAreTheDay]);
   const revenueExMoms = useMemo(() => Math.round((savedRevenue - momsTotal) * 100) / 100, [savedRevenue, momsTotal]);
 
   // The bon's MOMS put in as "Fra kvittering" follows the total once the total
@@ -2965,7 +2975,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const moved = Math.abs(savedRevenueSeenRef.current - savedRevenue) >= 0.005;
     savedRevenueSeenRef.current = savedRevenue;
     if (!moved || momsMode !== "manual") return;
-    if (ledgerMoms.source === "auto" && ledgerMoms.recomputed) {
+    if ((ledgerMoms.source === "auto" && ledgerMoms.recomputed) || (ledgerMoms.source === "zbon" && !tillsAreTheDay)) {
       if (Math.abs(readMoney0(momsManual) - Number(scanResult.moms_total)) < 0.005) {
         setMomsMode("auto");
         setMomsManual("");
@@ -3026,7 +3036,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // On a day of several tills it is sent whatever the card's box holds:
     // an emptied total left the tills' 21.030 in the review while the server
     // saved the categories' 17.030 (with the 21.030's MOMS).
+    // And whenever the boxes do not show the tills (filled by the sales sync):
+    // the server's max(boxes, tills) is then the figure the review shows.
     const revenue_total_override = (ocrTotal && ocrTotal > 0) || (scanResult && severalTills && ledgerSaved > 0)
+      || (scanResult && !ledger.mirror && ledgerSaved > 0)
       ? ledgerSaved : null;
     // Only override when the user actually scanned with the toggle —
     // otherwise leave null and let the user's account-level
