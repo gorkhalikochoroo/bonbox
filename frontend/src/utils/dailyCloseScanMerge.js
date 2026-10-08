@@ -35,7 +35,7 @@ export const MERGE_SUM = "sum";
 
 /* Keys a POS export uses for "the big number at the bottom" when it lands
    inside the revenue/payments bucket rather than in revenue_total. */
-const TOTAL_KEYS = ["total", "grand_total", "revenue_total", "total_revenue"];
+export const TOTAL_KEYS = ["total", "grand_total", "revenue_total", "total_revenue"];
 
 /* Fields that describe ONE terminal and cannot be added together: a card
    breakdown, a note-by-note drawer count, a per-clerk split, the POS provider
