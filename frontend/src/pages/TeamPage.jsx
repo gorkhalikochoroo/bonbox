@@ -107,6 +107,16 @@ export default function TeamPage() {
 
   const isOwner = permissions?.is_owner;
 
+  // The server's third-party mail rules answer with a code — say it in the
+  // owner's language (the server's own message is English).
+  const inviteErrText = (err, fallback) => {
+    const code = err?.response?.data?.detail?.code;
+    if (code === "email_unverified") return t("sendNeedsVerifiedEmail");
+    if (code === "team_invite_invitee_cap" || code === "team_invite_cooldown") return t("teamInviteMailCap");
+    if (code === "team_invite_daily_cap") return t("teamInviteDailyCap");
+    return errText(err, fallback);
+  };
+
   const handleInvite = async () => {
     if (!email.trim()) return;
     setInviting(true);
@@ -118,7 +128,7 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(errText(err, t("teamInviteFailed")));
+      setError(inviteErrText(err, t("teamInviteFailed")));
     }
     setInviting(false);
   };
@@ -130,7 +140,7 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(errText(err, t("teamResendFailed")));
+      setError(inviteErrText(err, t("teamResendFailed")));
     }
   };
 

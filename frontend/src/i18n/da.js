@@ -3485,6 +3485,8 @@ export const da = {
     teamInviteSend: "Send invitation",
     teamInviteFailed: "Kunne ikke invitere",
     teamResendFailed: "Kunne ikke sende igen",
+    teamInviteMailCap: "BonBox har lige sendt personen en invitation. Bed dem tjekke spam-mappen, eller prøv igen senere.",
+    teamInviteDailyCap: "Du har nået dagens grænse for invitationer. Prøv igen i morgen.",
     teamRevokeFailed: "Kunne ikke tilbagekalde",
     teamUpdateRoleFailed: "Kunne ikke opdatere rolle",
     teamRemoveFailed: "Kunne ikke fjerne",

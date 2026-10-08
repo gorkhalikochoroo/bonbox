@@ -587,7 +587,8 @@ def require_verified_sender(user: Any) -> None:
 
 def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | None:
     """The `after` payloads of this account's audit rows for `actions` in the
-    last `hours`, newest first, each with its row time under "_at". None when
+    last `hours`, newest first, each with its row time under "_at" and its
+    action under "_action". None when
     the query itself failed (the caller decides; the caps fail open)."""
     try:
         import json
@@ -595,7 +596,7 @@ def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | Non
         from app.utils.time import utc_now
         since = utc_now() - timedelta(hours=hours)
         rows = (
-            db.query(AuditLog.after_state, AuditLog.created_at)
+            db.query(AuditLog.after_state, AuditLog.created_at, AuditLog.action)
             .filter(
                 AuditLog.user_id == user.id,
                 AuditLog.action.in_(tuple(actions)),
@@ -605,7 +606,7 @@ def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | Non
             .all()
         )
         out: list[dict] = []
-        for after_state, created_at in rows:
+        for after_state, created_at, action in rows:
             try:
                 payload = json.loads(after_state) if after_state else {}
             except (TypeError, ValueError):
@@ -613,6 +614,7 @@ def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | Non
             if not isinstance(payload, dict):
                 payload = {}
             payload["_at"] = created_at
+            payload["_action"] = action
             out.append(payload)
         return out
     except Exception as e:  # noqa: BLE001
