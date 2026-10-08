@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.services.admin_security import require_super_admin
 from app.services.auth import get_current_user
 from app.services.digest_service import build_digest_data, build_digest_html
 from app.services.alert_service import detect_expense_alerts, build_alert_html
@@ -107,10 +108,16 @@ def test_welcome(user: User = Depends(get_current_user)):
 
 @router.post("/run-digest")
 def run_digest_now(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    admin: User = Depends(require_super_admin),
 ):
-    """Trigger the daily digest job for all users (admin-like trigger)."""
+    """Trigger the daily digest job for ALL users — platform admin only.
+
+    It mails every opted-in account, so it sits behind require_super_admin
+    (allowlist + role + verified + account age, audited; anyone else gets the
+    guard's generic 404). It depended on get_current_user alone: any signup
+    could mail every BonBox user, up to the global per-IP limit (review,
+    8 Oct). No frontend calls this route; the job itself still runs directly
+    with `python -m app.jobs.daily_digest_job`."""
     from app.jobs.daily_digest_job import run_daily_digest
     run_daily_digest()
     return {"status": "done"}
