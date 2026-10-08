@@ -6966,6 +6966,8 @@ export const en = {
     loginPasswordStuckTryMagic: "Password sign-in is having trouble. Try the one-click email link instead — it works even when the API is slow.",
     loginUseMagicLink: "Send me a sign-in link",
     googleSigninFailed: "Google sign-in failed",
+    oauthEmailNotVerified: "That account's e-mail address isn't verified with the provider. Verify it there, or sign in with your BonBox password.",
+    oauthAccountExistsLoginFirst: "An account with this e-mail already exists. Sign in with your password or a login link.",
     newToBonBox: "New to BonBox?",
     // Task #61 — magic-link passwordless login
     magicLinkLabel: "Email me a sign-in link",

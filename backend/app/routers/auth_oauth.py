@@ -142,6 +142,31 @@ def _audit(
         logger.warning("oauth audit write failed (%s): %s", action, e)
 
 
+def claim_is_true(value) -> bool:
+    """A provider's boolean claim: Apple sends "true"/"false" strings or
+    bools; Google sends a bool (or a string from older libraries)."""
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return value is True
+
+
+def refuse_unverified_email(provider: str) -> HTTPException:
+    """401 when the provider does not vouch for the address. No lookup,
+    link or account is ever made on an e-mail the provider calls
+    unverified — that is the account-linking hole (an assertion about an
+    unproven address resolving to an existing BonBox account)."""
+    return HTTPException(
+        status_code=401,
+        detail={
+            "code": "email_not_verified",
+            "message": (
+                f"Your {provider} account's e-mail address is not verified. "
+                f"Verify it with {provider}, or sign in with your BonBox password."
+            ),
+        },
+    )
+
+
 # ── Endpoints ────────────────────────────────────────────────────────
 
 
@@ -181,7 +206,7 @@ def oauth_apple(
 
     sub = claims.get("sub")
     email = (claims.get("email") or "").strip().lower() or None
-    email_verified = bool(claims.get("email_verified"))
+    email_verified = claim_is_true(claims.get("email_verified"))
 
     if not sub:
         raise HTTPException(status_code=401, detail="Apple token missing sub")
@@ -213,6 +238,11 @@ def oauth_apple(
 
     was_linked = False
     is_new = False
+
+    # Everything below keys on the e-mail (lookup, link, create): only on
+    # an address Apple says it verified.
+    if not user and email and not email_verified:
+        raise refuse_unverified_email("Apple")
 
     # ── Step 2: lookup by email + link ───────────────────────────────
     if not user and email and not is_relay_email:
@@ -266,10 +296,9 @@ def oauth_apple(
             business_type="",
             currency="DKK",
             role="owner",
-            # Email_verified follows what Apple says. Apple ALWAYS
-            # verifies emails before handing one to us, even relay
-            # addresses (which they own), so this is effectively True.
-            email_verified=email_verified or True,
+            # Only reached with Apple's email_verified claim true (an
+            # unverified address was refused above).
+            email_verified=True,
             apple_sub=sub,
             apple_user_id=sub,
             oauth_provider="apple",
@@ -343,10 +372,25 @@ def oauth_google(
       • No privacy-relay branch (Google doesn't have an equivalent).
       • Email is ALWAYS present from Google (refuse the token if not).
     """
+    return google_signin(request, response, data.id_token, db, signup_ref=data.signup_ref)
+
+
+def google_signin(
+    request: Request, response: Response, id_token: str, db: Session,
+    *, signup_ref: Optional[str] = None,
+) -> Token:
+    """The Google sign-in itself — shared by /oauth/google and the legacy
+    /auth/google route, so both apply the same rules (verified e-mail, no
+    silent link to a password account, jti replay, locked accounts).
+
+    signup_ref — the printed door-visit code either route's body carried
+    (SignupRefMixin, already cleaned). Stamped on a NEW account only; a
+    sign-in or a link never gains or replaces one.
+    """
     ip = _client_ip(request)
 
     try:
-        claims = verify_google_token(data.id_token)
+        claims = verify_google_token(id_token)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -355,7 +399,7 @@ def oauth_google(
 
     sub = claims.get("sub")
     email = (claims.get("email") or "").strip().lower() or None
-    email_verified = bool(claims.get("email_verified"))
+    email_verified = claim_is_true(claims.get("email_verified"))
     name = claims.get("name") or ""
 
     if not sub:
@@ -376,6 +420,10 @@ def oauth_google(
 
     # ── Step 1: lookup by sub ────────────────────────────────────────
     user = db.query(User).filter(User.google_sub == sub).first()
+
+    # Steps 2 and 3 key on the e-mail: only on one Google says it verified.
+    if not user and not email_verified:
+        raise refuse_unverified_email("Google")
 
     # ── Step 2: lookup by email + link ───────────────────────────────
     if not user:
@@ -415,13 +463,13 @@ def oauth_google(
             business_type="",
             currency="DKK",
             role="owner",
-            email_verified=email_verified or True,
+            email_verified=True,  # only reached with Google's claim true
             google_sub=sub,
             oauth_provider="google",
         )
         # New account only — a sign-in or a link never gains or replaces a
         # ref (services/signup_ref.py).
-        apply_signup_ref(user, data.signup_ref)
+        apply_signup_ref(user, signup_ref)
         try:
             from app.services.billing import start_trial
 
