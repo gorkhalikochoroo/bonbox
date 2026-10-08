@@ -3807,6 +3807,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const body = buildPayloadRef.current("draft");
       const sent = JSON.stringify(body);
       lastSentRef.current = sent;
+      // A source read off photos (or a reopened read told with a hand
+      // correction) is on its way: from now on the day is told again what it
+      // is. Marked when it is SENT — marked on the answer, a change put back
+      // while it was on its way sent null, and the server kept the
+      // correction ("rettet af ejeren: Kort") for a Kort no longer changed.
+      if (payloadInfo.get(body)?.scanSource) filedScanKeysRef.current.add(savingKey);
       let answered;
       const tracker = new Promise((r) => { answered = r; });
       inflightRef.current.add(tracker);
@@ -6954,7 +6960,8 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
   // The same clock as every send line on this page (sentWhen: "06.31").
   const closedAt = sentWhen(close.closed_at)?.time || "—";
   const closedBy = close.closed_by || (t("staffShort", "Staff"));
-  const recipients = (close.email_sent_to?.length ? close.email_sent_to : (ritual.sent_to || [])).join(", ");
+  const recipientsList = close.email_sent_to?.length ? close.email_sent_to : (ritual.sent_to || []);
+  const recipients = recipientsList.join(", ");
 
   // Local dismiss state for bank-drop — POST to backend so the
   // dismissal sticks across reloads/devices.
@@ -6962,14 +6969,18 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
   const emailStatus = ritual.email_status ?? close.email_status;
   // Whether CloseEmailStatus's own line names the recipients (the same state
   // it reads): only then is the plain "Sendt til …" line a repeat.
-  const { kind: mailKind } = closeEmailState({
+  const { kind: mailKind, acct: mailAcct } = closeEmailState({
     status: emailStatus ?? null,
-    sentTo: close.email_sent_to?.length ? close.email_sent_to : (ritual.sent_to || []),
+    sentTo: recipientsList,
     skip: ritual.accountant_skip_reason ?? null,
     error: ritual.email_error ?? close.email_error ?? null,
     profile: profileLoaded ? (profile ?? {}) : null,
   });
-  const statusNamesWho = profileLoaded && (mailKind === "owner_only" || mailKind === "revisor");
+  // The revisor line names the revisor's address only: when the owner's own
+  // copy went too, the plain line is what names the owner's address — left
+  // out, the card never said the owner got one (removal audit U4).
+  const statusNamesWho = profileLoaded && (mailKind === "owner_only"
+    || (mailKind === "revisor" && recipientsList.every((a) => String(a).toLowerCase() === mailAcct)));
 
   const handleBankDropDone = async () => {
     setBankDropDone(true);  // optimistic

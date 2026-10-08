@@ -56,7 +56,7 @@ import { businessTodayIso, dateLocale } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 /** How many times each invariant was actually checked (SEQ_STATS=1 prints them). */
-export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0, F3: 0 };
+export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0, F1: 0, F3: 0, F4: 0, F6: 0 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
 
@@ -296,9 +296,11 @@ function where() {
 const onForm = () => Boolean(q("#close-date"));
 const STEPS = ["s1", "s2", "s3", "s4", "review"];
 
-async function toStep(target) {
+async function toStepAt(target, visit = null) {
   for (let i = 0; i < 10; i++) {
     const at = where();
+    // Every step walked past is looked at (F1: the cash step's boxes).
+    visit?.(at);
     if (at === target) return true;
     const a = STEPS.indexOf(at);
     const b = STEPS.indexOf(target);
@@ -354,11 +356,31 @@ const DRAFTS = [
     moms_mode: "auto", moms_total: 4882.5, source_meta: { kind: "typed" }, kind: "draft" },
 ];
 
+// Round 20 (the "r20" variant): drafts counted with a float other than this
+// device's (and one saved before floats were kept), a Z-bon read with its
+// own photo, and a reopened SUM of a typed till and a bon — the reviewers'
+// repros for items 1, 4 and 6. This device remembers DEVICE_FLOAT.
+const DRAFTS_R20 = [
+  { ...DRAFTS[0], cash_counted: 1504.75, cash_float: 1000 },
+  { ...DRAFTS[1], receipt_photo: "u1/kasserapport/seed-own.jpg", cash_counted: 980, cash_float: 500 },
+  { ...DRAFTS[4], cash_counted: 3000, cash_float: null },
+  { revenue_total: 14000, revenue_breakdown: { food: 10000, drinks: 4000 }, payment_breakdown: { card: 14000 },
+    moms_mode: "auto", moms_total: 2800, kind: "draftZbon",
+    source_meta: { kind: "zbon", scans: 1, terminal_totals: [10000, 4000], typed_tills: [0], corrected: [] } },
+];
+const DEVICE_FLOAT = 1500;
+const FLOAT_KEY = "bonbox.dc.cashFloat.v1";
+/** Another device's scan of the day, landing on the server behind the page's back (F4). */
+const OTHER_PHOTO = "u1/kasserapport/other-device.jpg";
+
 const VALUES = ["750", "2.000", "9.000", "5.000", "14.000", "1.234,50", "3.000", "12.000"];
 
 export async function runSequence(seed, page, { S: givenS, get, post, del = null } = {}, { variant = null } = {}) {
   const { DailyClosePage } = page;
-  const review = variant === "review";
+  // "r20": the review variant's openings and timings, over the round-20
+  // drafts (floats, own photos, a reopened sum) and another device's scan.
+  const r20 = variant === "r20";
+  const review = variant === "review" || r20;
   const rnd = mulberry32(seed * 7919 + 13);
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const chance = (p) => rnd() < p;
@@ -368,13 +390,15 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const exemptByDate = { [yesterday]: 2000 };
   if (chance(0.3)) exemptByDate[today] = pick([2000, 750, 1500]);
 
-  const opening = review
+  const opening = r20
+    ? pick(["draft", "draft", "draft", "bannerScan", "scan", "typed"])
+    : review
     ? pick(["bannerTyped", "bannerScan", "bannerScan", "typed", "scan", "draft"])
     : pick(["typed", "typed", "scan", "draft", "draft", "momsfri"]);
   const seededRows = [];
   let draftRow = null;
   if (opening === "draft" || opening === "bannerTyped" || opening === "bannerScan") {
-    const d = pick(DRAFTS);
+    const d = pick(r20 ? DRAFTS_R20 : DRAFTS);
     draftRow = { id: "seed1", date: today, branch_id: null, status: "draft", closed_by: "Test", notes: "Test", ...d };
     delete draftRow.kind;
     // Saved by the page on this very day: an auto MOMS already has the day's
@@ -389,6 +413,15 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   if (opening === "momsfri") exemptByDate[today] = 2000;
   const S = givenS || createServer({ exemptByDate, rows: seededRows, syncedDates: [twoDaysAgo] });
   installApi(S, get, post, del);
+  // This device's remembered float (r20: not the one the seeded drafts were
+  // counted with).
+  if (r20) { try { localStorage.setItem(FLOAT_KEY, String(DEVICE_FLOAT)); } catch { /* private mode */ } }
+  const deviceFloat = () => {
+    let v = null;
+    try { v = localStorage.getItem(FLOAT_KEY); } catch { /* private mode */ }
+    const n = Number(v ?? 1000);
+    return Number.isFinite(n) ? n : 1000;
+  };
 
   const log = [];
   const fail = (inv, msg) => `[seed ${seed}] ${inv}: ${msg}\n  steps: ${log.join(" → ")}`;
@@ -409,6 +442,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     typedByHandOnly: {},              // per date: nothing but typed figures ever filed
     synced: false,                    // the sales sync filled boxes on a day in play
     draftPhoto: null,                 // the reopened draft's own stored photo
+    loadedCash: null,                 // F1: the reopened draft's count { drawer, float }
+    zbonLoaded: null,                 // F6: the reopened Z-bon read's lines as opened
+    otherPhotos: {},                  // F4: per date, another device's photo on the server
   };
   const val = (v) => (typeof v === "number" ? v : Number(String(v ?? "").replace(/\./g, "").replace(",", ".")) || 0);
   const sumOf = (o) => Object.values(o).reduce((a, v) => a + val(v), 0);
@@ -425,6 +461,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       form: { rev: {}, pay: {} }, ownKind: null, ownTotal: 0, ownActive: true, atFirst: null,
       scans: [], pending: [], pageIn: false, exact: true, photos: new Set(), undo: [],
       draftFloor: null, draftPinned: null, synced: false, draftPhoto: null,
+      loadedCash: null, zbonLoaded: null,
     });
   };
 
@@ -443,8 +480,16 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // A Start forfra that left the day empty (M6), and a move answered "Brug
   // dem" (MV): checked once the page has filed what follows.
   let emptiedDay = null;
-  // …and the row as it stood when Start forfra was tapped (F3).
+  // …and the row as it stood when Start forfra was tapped, and the page's
+  // last draft for the day as SENT (a slow save may still be on its way) (F3).
   let emptiedRow = null;
+  let emptiedSent = null;
+  // The page's last draft sent per day, and a running count of sends.
+  const lastSent = {};
+  let sendSeq = 0;
+  // The owner's own fields on a draft — what Start forfra must never delete.
+  const ownFields = (r) => Boolean(r) && Boolean(r.notes || r.closed_by || r.cash_counted != null
+    || r.tips_total != null || r.tips_staff_count != null);
   // Drafts Start forfra kept because they hold the owner's own fields
   // (F3): until the next save for the day, the stored row is the one filed
   // before — its photo included.
@@ -454,9 +499,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // The day the card is for, as its date line says it: the test keeps it.
   let shownDay = null;
   const businessDayShown = () => q("#close-date")?.value || shownDay;
+  // The photos this mount of the page filed (F4: "" only ever clears one of
+  // these, or the photo of the draft the banner's Start forfra replaced).
+  const filedPhotosHere = new Set();
   const mount = () => {
     postedHere.clear(); createdHere.clear(); emptiedDay = null; pendingMove = null;
-    startedOverHere.clear(); originals.clear();
+    startedOverHere.clear(); originals.clear(); filedPhotosHere.clear();
     shownDay = today; mounted = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
   };
   // The page's history (the day's draft or lock) answers after the first render.
@@ -467,13 +515,45 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   };
   const unmount = async () => { if (mounted) { mounted.unmount(); mounted = null; } await settle(); };
 
+  // F1 — walking past the cash step of a reopened draft: the drawer and the
+  // float are the ones it was counted with (cash_counted + cash_float), never
+  // this device's float.
+  const visitStep = (at) => {
+    if (at !== "s3" || !M.loadedCash) return;
+    const drawer = q("#cash-counted");
+    const float = q("#cash-float");
+    if (!drawer || !float) return;
+    STATS.F1 += 1;
+    expect(Math.abs(val(drawer.value) - M.loadedCash.drawer) < 0.005 && Math.abs(val(float.value) - M.loadedCash.float) < 0.005,
+      fail("F1 a reopened draft keeps its float", `step 3 shows drawer ${drawer.value} / float ${float.value}, counted ${M.loadedCash.drawer} / ${M.loadedCash.float}`)).toBe(true);
+  };
+  const toStep = (target) => toStepAt(target, visitStep);
+
   /* ─── the checks after every step ─── */
   let lastPostCount = 0;
   const checkPosts = () => {
     // I4 — every payload sent since the last check: a till typed by hand is
     // never filed as a Z-bon read.
     for (const body of S.posts.slice(lastPostCount)) {
-      if (body.__other) continue;
+      // F4 — "" clears only a photo this page filed, or the photo of the
+      // draft the banner's Start forfra replaced: never another device's.
+      if (body.receipt_photo === "" && body.__storedPhoto) {
+        STATS.F4 += 1;
+        const replaced = body.__replacedPhoto || null;
+        expect(body.__filedHere.includes(body.__storedPhoto) || body.__storedPhoto === replaced,
+          fail("F4 \"\" never clears another device's photo", `${body.date}: "" sent over ${body.__storedPhoto} (this page filed ${body.__filedHere.join(", ") || "none"}; replaced draft's ${replaced})`)).toBe(true);
+      }
+      // F1 — a reopened draft's count goes with the float it was counted
+      // with, never this device's.
+      if (body.cash_counted != null && body.__loadedFloat != null && !(body.__other && originals.has(body.date))) {
+        STATS.F1 += 1;
+        expect(Math.abs(Number(body.cash_float) - body.__loadedFloat) < 0.005, fail("F1 a reopened draft keeps its float",
+          `${body.date}: cash_counted ${body.cash_counted} sent with float ${body.cash_float}, counted with ${body.__loadedFloat}`)).toBe(true);
+      }
+      // U2 restored (round 19's I4 skipped every other day's payload): only
+      // a draft filed back as it was (a revert) carries nothing of the day
+      // on screen.
+      if (body.__other && originals.has(body.date)) continue;
       const meta = body.source_meta;
       if (body.__noPhotos && body.__ownKind === "typed") {
         STATS.I4 += 1;
@@ -487,18 +567,29 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     lastPostCount = S.posts.length;
   };
   // Tag each payload with what the day held when it was sent.
-  S.tagAtSend = (body) => ({
-    // A save for another day than the one on screen (a moved day's draft
-    // filed back as it was) carries nothing of the day on screen.
-    __other: body.date !== businessDayShown(),
-    __noPhotos: !photosIn(),
-    __ownKind: M.ownKind,
-    __summedOwnTyped: M.scans.length > 0 && M.ownActive && M.ownKind === "typed" && M.ownTotal > 0 && !M.pageIn,
-  });
+  S.tagAtSend = (body) => {
+    lastSent[body.date] = body;
+    return {
+      __seq: ++sendSeq,
+      // A save for another day than the one on screen (a moved day's draft
+      // filed back as it was) carries nothing of the day on screen.
+      __other: body.date !== businessDayShown(),
+      __noPhotos: !photosIn(),
+      __ownKind: M.ownKind,
+      __summedOwnTyped: M.scans.length > 0 && M.ownActive && M.ownKind === "typed" && M.ownTotal > 0 && !M.pageIn,
+      // What the server held for the day when the page sent it (F4).
+      __storedPhoto: S.rows.get(`${body.date}|${body.branch_id || ""}`)?.receipt_photo || null,
+      __filedHere: [...filedPhotosHere],
+      __replacedPhoto: startedOverHere.has(body.date)
+        ? (originals.get(body.date) || S.rows.get(`${body.date}|${body.branch_id || ""}`))?.receipt_photo || null : null,
+      __loadedFloat: M.loadedCash ? M.loadedCash.float : null,
+    };
+  };
   const origPush = S.posts.push.bind(S.posts);
   S.posts.push = (body) => {
     const key = `${body.date}|${body.branch_id || ""}`;
     postedHere.add(body.date);
+    if (body.receipt_photo && body.receipt_photo !== M.draftPhoto) filedPhotosHere.add(body.receipt_photo);
     if (!S.rows.has(key)) createdHere.add(body.date);
     // A draft this page wrote over (the banner's "Start forfra"): the row as
     // it was, which taking the page's figures off the day must give back.
@@ -523,7 +614,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // A draft Start forfra kept (F3): the stored row is the one filed
       // before, until the next save for the day replaces it.
       const kept = keptDrafts.get(date);
-      if (kept && !S.posts.slice(kept.posts).some((b) => b.date === date)) allowed.add(kept.photo);
+      if (kept && !S.posts.some((b) => b.date === date && b.__seq > kept.seq)) kept.photos.forEach((ph) => allowed.add(ph));
+      // Another device scanned the day (F4): its photo is the day's too.
+      if (M.otherPhotos[date]) allowed.add(M.otherPhotos[date]);
       expect(allowed.has(row.receipt_photo), fail("M4b no stored photo of a bon no longer in the day",
         `${date} stores ${row.receipt_photo}; photos in the day: ${[...allowed].join(", ") || "none"}`)).toBe(true);
     }
@@ -546,8 +639,10 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (emptiedDay) {
       const day = emptiedDay;
       const was = emptiedRow;
+      const sent = emptiedSent;
       emptiedDay = null;
       emptiedRow = null;
+      emptiedSent = null;
       const row = S.rows.get(`${day}|`);
       STATS.M6 += 1;
       const orig = originals.get(day);
@@ -556,9 +651,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // stored copy, so it is never deleted or put back — it stays as it
       // was filed until the next save updates it. (Expectation changed from
       // round 19's "always taken back": that deleted the owner's note.)
-      const ownFields = (r) => Boolean(r) && Boolean(r.notes || r.closed_by || r.cash_counted != null
-        || r.tips_total != null || r.tips_staff_count != null);
-      if (was && ownFields(was) && (orig || createdHere.has(day))) {
+      if (was && ownFields(sent) && (orig || createdHere.has(day))) {
         STATS.F3 += 1;
         expect(Boolean(row) && row.status === "draft" && row.id === was.id && (row.notes || null) === (was.notes || null)
           && (row.closed_by || null) === (was.closed_by || null) && Math.abs(Number(row.revenue_total) - Number(was.revenue_total)) < 0.005,
@@ -566,7 +659,6 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
           `${day}: the draft holding ${JSON.stringify({ notes: was.notes, closed_by: was.closed_by, cash_counted: was.cash_counted })} should stay as filed, stored ${brief(row)}`)).toBe(true);
         expect(hasText("dcDayHasDraft"), fail("F3 Start forfra never deletes the owner's own fields",
           `${day}: the kept draft is this page's own, yet the banner covers it`)).toBe(false);
-        keptDrafts.set(day, { photo: was.receipt_photo || null, posts: S.posts.length });
       } else if (orig) {
         // A draft the page replaced through the banner: back as it was, and
         // the banner shows it — never the thrown-away photo's figures.
@@ -626,17 +718,54 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       && !q('[data-testid="dc-date-move"]')) {
       checkStoredRow(date, S.rows.get(`${date}|`));
     }
+    // F6 — a reopened Z-bon read changed by hand, no photo in the day: every
+    // line that differs from the read as it was opened is on the record as
+    // corrected (never "read off the bon"), nothing else is said corrected,
+    // and a reopened sum's tills still add up to what is stored.
+    const z = M.zbonLoaded;
+    const zrow = z && z.date === date && S.rows.get(`${date}|`);
+    if (zrow && postedHere.has(date) && !photosIn() && M.ownKind === "draftZbon" && zrow.status === "draft"
+      && !hasText("dcDayHasDraft") && !S.held.length) {
+      const changed = [];
+      [["revenue_breakdown", "rev"], ["payment_breakdown", "pay"]].forEach(([b, k]) => {
+        const keys = new Set([...Object.keys(z[b] || {}), ...Object.keys(zrow[b] || {})]);
+        keys.forEach((x) => {
+          if (Math.abs((Number(zrow[b]?.[x]) || 0) - (Number(z[b]?.[x]) || 0)) >= 0.005) changed.push(`${k}:${x}`);
+        });
+      });
+      const meta = zrow.source_meta || {};
+      STATS.F6 += 1;
+      const where6 = `${date}: lines changed ${JSON.stringify(changed)}, stored ${JSON.stringify(meta)}`;
+      expect(meta.kind, fail("F6 a hand-edited Z-bon read is filed as corrected", where6)).toBe("zbon");
+      changed.forEach((k) => expect(meta.corrected || [], fail("F6 a hand-edited Z-bon read is filed as corrected", where6)).toContain(k));
+      const may = new Set([...z.corrected, ...changed, "revenue_total"]);
+      (meta.corrected || []).forEach((k) => expect(may.has(k), fail("F6 a hand-edited Z-bon read is filed as corrected", `${k} said corrected — ${where6}`)).toBe(true));
+      const tt = meta.terminal_totals || [];
+      if (tt.length > 1) {
+        expect(Math.abs(tt.reduce((a, v) => a + v, 0) - zrow.revenue_total) < 0.5,
+          fail("F6 a hand-edited Z-bon read is filed as corrected", `the tills no longer add up to the stored total — ${where6}`)).toBe(true);
+      }
+    }
   };
 
+  // I5 — never a page with nothing to tap.
+  const noDeadEnd = () => {
+    STATS.I5 += 1;
+    const somewhere = onForm() || Boolean(q('[data-testid="dc-scan-result-date"]')) || where() === "scanning"
+      || Boolean(findBtn(/^skipEnterManually$/)) || hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked");
+    expect(somewhere, fail("I5 no dead end", "no form, no card, no scan buttons")).toBe(true);
+  };
   const checkpoint = async () => {
     // Whatever save is waiting goes now (the page sends it on pagehide).
     await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
     if (slowStep) {
       // Still on their way: the next step happens before they arrive, and
-      // what is stored is checked once they have.
+      // what is stored is checked once they have. What the page shows does
+      // not wait: I5 is checked here too (U3 restored — it was counted with
+      // nothing checked).
       slowStep = false;
       S.holding.post = false; S.holding.del = false;
-      STATS.I5 += 1;
+      noDeadEnd();
       return;
     }
     // A slow step's saves (and deletes) arrive, in the order sent, and the
@@ -647,11 +776,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     }
     checkPosts();
     await storedChecks();
-    // I5 — never a page with nothing to tap.
-    STATS.I5 += 1;
-    const somewhere = onForm() || Boolean(q('[data-testid="dc-scan-result-date"]')) || where() === "scanning"
-      || Boolean(findBtn(/^skipEnterManually$/)) || hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked");
-    expect(somewhere, fail("I5 no dead end", "no form, no card, no scan buttons")).toBe(true);
+    noDeadEnd();
     if (!onForm()) {
       // I6 — leaving from the card: what is stored for the day is what the
       // card shows, or the card said it is not saved yet. Held to days this
@@ -668,7 +793,17 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // Nor over the day's own old draft, put back as it was (nothing of the
       // page's is stored for the day then).
       const putBack = originals.has(date) && sameDraft(row, originals.get(date));
-      if (readable && row && row.status === "draft" && postedHere.has(date) && !M.synced && !hasText("dcDayHasDraft") && !putBack) {
+      if (hasText("dcDayHasDraft")) {
+        // U3 restored (round 19 skipped it): under the banner the card files
+        // nothing — and the banner's amount is the draft that IS stored.
+        const m = document.body.textContent.match(/dcDayHasDraftBody:([−\-\d.,]+)/);
+        if (m && row && row.status === "draft") {
+          STATS.I6 += 1;
+          const banner = Number(m[1].replace(/\./g, "").replace(",", ".").replace("−", "-"));
+          expect(Math.abs(banner - row.revenue_total) < 0.005, fail("I6 the banner is the stored draft",
+            `banner ${m[1]}, stored ${row.revenue_total}`)).toBe(true);
+        }
+      } else if (readable && row && row.status === "draft" && postedHere.has(date) && !M.synced && !putBack) {
         const shown = val(total.value);
         if (Math.abs(shown - row.revenue_total) >= 0.005) {
           STATS.I6 += 1;
@@ -777,6 +912,19 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (row) {
       M.draftPhoto = row.receipt_photo || null;
       M.ownKind = row.source_meta?.kind === "zbon" ? "draftZbon" : "draft";
+      // F1: the count as it was saved, with the float it was counted with
+      // (this device's only when the row has none).
+      if (row.cash_counted != null) {
+        const float = row.cash_float != null ? Number(row.cash_float) : deviceFloat();
+        M.loadedCash = { drawer: r2(Number(row.cash_counted) + float), float };
+      }
+      // F6: the Z-bon read's lines as it was opened.
+      if (row.source_meta?.kind === "zbon") {
+        M.zbonLoaded = {
+          date, revenue_breakdown: { ...(row.revenue_breakdown || {}) }, payment_breakdown: { ...(row.payment_breakdown || {}) },
+          corrected: [...(row.source_meta.corrected || [])],
+        };
+      }
       M.form = { rev: { ...(row.revenue_breakdown || {}) }, pay: { ...(row.payment_breakdown || {}) } };
       const lines = r2(sumOf(M.form.rev));
       const t = r2(Number(row.revenue_total) || 0);
@@ -922,6 +1070,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const day = businessDayShown();
     const rowAtTap = day && S.rows.get(`${day}|`);
     const wasRow = rowAtTap ? JSON.parse(JSON.stringify(rowAtTap)) : null;
+    const sentBefore = day ? lastSent[day] || null : null;
     await step("Start forfra", async () => { fireEvent.click(btn); for (let i = 0; i < 5 && where() === "card"; i++) await settle(); }, () => {
       const a = M.atFirst;
       M.undo.push({ kind: "discard", snap: snap() });
@@ -931,7 +1080,13 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       M.atFirst = null;
       // A photo-only day emptied (M6) — checked once this step's requests
       // have arrived (a slow step's are checked by I1/M4 after the next).
-      if (!ownFig() && day && postedHere.has(day) && !slowStep) { emptiedDay = day; emptiedRow = wasRow; }
+      if (!ownFig() && day && postedHere.has(day) && !slowStep) { emptiedDay = day; emptiedRow = wasRow; emptiedSent = sentBefore; }
+      // A draft holding the owner's own fields is kept (F3): until the page
+      // sends the day again, the stored row is the one filed before — its
+      // photo included (the card says "Ikke gemt endnu").
+      if (!ownFig() && day && postedHere.has(day) && ownFields(sentBefore)) {
+        keptDrafts.set(day, { photos: [sentBefore.receipt_photo, wasRow?.receipt_photo].filter(Boolean), seq: sendSeq });
+      }
     });
   };
 
@@ -1022,7 +1177,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (!asked) return;
     const fetch = findBtn(/^dcDateMoveFetch/);
     if (fetch && chance(0.5)) {
-      await step("Hent … salg", () => { fireEvent.click(fetch); }, () => { M.form = { rev: {}, pay: {} }; M.ownKind = null; M.ownTotal = 0; });
+      await step("Hent … salg", () => { fireEvent.click(fetch); }, () => { M.form = { rev: {}, pay: {} }; M.ownKind = null; M.ownTotal = 0; M.loadedCash = null; });
       // Nothing moved: the first day's draft is still its own.
       if (originBefore && !slowStep && !S.held.length) {
         const row = S.rows.get(`${origin}|`);
@@ -1081,6 +1236,32 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     // M4 / M4b on the locked kasserapport itself.
     checkStoredRow(date, row);
     return true;
+  };
+
+  // r20 — another device scans the day (its photo lands on the server
+  // behind the page's back), on a draft that holds no photo: the page must
+  // never clear it with "" (F4).
+  const otherDevice = async () => {
+    await arriveAll();
+    const date = businessDayShown();
+    const row = date && S.rows.get(`${date}|`);
+    if (!row || row.status !== "draft" || row.receipt_photo) return;
+    await step(`another device scans ${date}`, () => { row.receipt_photo = OTHER_PHOTO; }, () => { M.otherPhotos[date] = OTHER_PHOTO; });
+  };
+  // r20 — the sequences lane's repro (item 3): a photo-only day, the owner's
+  // own note typed on the review, back to the card, Start forfra (F3).
+  const photoNoteStartOver = async () => {
+    if (!(await toCard())) return;
+    if (where() === "idle" && !photosIn()) {
+      await shoot(pick(BON_KEYS));
+      if (q('[data-testid="dc-terminal-question"]')) await answer("sum");
+    }
+    // The photo's figures filed (step by step), then the note on the review.
+    if (where() === "card" && !q('[data-testid="dc-terminal-question"]')) await apply("steps");
+    if (!onForm()) return;
+    await notes();
+    if (!(await toCard()) || where() !== "card") return;
+    await startOver();
   };
 
   /* ─── motifs: short chains an owner actually walks ─── */
@@ -1159,6 +1340,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     }],
     [2, moveDate],
     ...(review ? [[2, doubleMove]] : []),
+    ...(r20 ? [[2, otherDevice], [3, photoNoteStartOver]] : []),
     [2, reopen],
     [2, notes],
     [2, moms],
