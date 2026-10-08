@@ -57,6 +57,21 @@ class UserRegister(BaseModel):
     # Default empty string keeps the field optional for legitimate clients.
     website: str = Field(default="", max_length=200)
 
+    # The app's language when the owner signed up ("da", "en", …). Optional:
+    # an older client that omits it gets the browser's / the currency's
+    # language for the signup mails instead. Same whitelist as UserUpdate —
+    # but a value outside it is DROPPED, not refused: a language hint must
+    # never be the reason a signup fails.
+    ui_language: str | None = None
+
+    @field_validator("ui_language", mode="before")
+    @classmethod
+    def _signup_ui_language_ok(cls, v):
+        try:
+            return _ui_language(v)
+        except ValueError:
+            return None
+
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:

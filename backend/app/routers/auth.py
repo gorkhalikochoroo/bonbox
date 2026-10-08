@@ -180,36 +180,25 @@ def _clear_auth_cookie(response: Response, request: Request | None = None) -> No
     )
 
 
-def _welcome_email_html(name: str) -> str:
-    return f"""\
-<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
-  <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:#16a34a;border-radius:14px;padding:12px 14px">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
-    </div>
-    <h1 style="font-size:22px;color:#1e293b;margin:12px 0 4px">Welcome to BonBox!</h1>
-    <p style="color:#64748b;font-size:14px;margin:0">Your smart business companion</p>
-  </div>
-  <p style="font-size:15px;color:#334155;line-height:1.6">
-    Hi <strong>{name}</strong>,
-  </p>
-  <p style="font-size:15px;color:#334155;line-height:1.6">
-    Your account is ready. Here's what you can do:
-  </p>
-  <ul style="font-size:14px;color:#475569;line-height:1.8;padding-left:20px">
-    <li>Log sales & expenses in seconds</li>
-    <li>Track inventory & waste</li>
-    <li>Get smart staffing suggestions</li>
-    <li>Generate PDF reports</li>
-    <li>Snap receipts with your camera</li>
-  </ul>
-  <div style="text-align:center;margin:28px 0">
-    <a href="https://bonbox.dk/dashboard" style="background:#16a34a;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;display:inline-block">Open BonBox →</a>
-  </div>
-  <p style="font-size:13px;color:#94a3b8;text-align:center;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:16px">
-    Questions? Reply to this email or visit <a href="https://bonbox.dk/contact" style="color:#16a34a;text-decoration:none">bonbox.dk/contact</a>
-  </p>
-</div>"""
+def _welcome_email_html(name: str, lang: str = "en") -> str:
+    """The welcome mail's html in `lang` ("da" | "en"). The copy, the plain-
+    text part and the escaping live in services/signup_mail.welcome_mail."""
+    from app.services.signup_mail import welcome_mail
+    return welcome_mail(name, lang)[1]
+
+
+def _send_welcome_mail(to: str, name: str, lang: str) -> bool:
+    """Send the welcome mail (html + text part) in `lang`."""
+    from app.services.signup_mail import welcome_mail
+    subject, html, text = welcome_mail(name, lang)
+    return send_email(to, subject, html, text=text)
+
+
+def _send_verification_mail(to: str, code: str, lang: str) -> bool:
+    """Send the 6-digit verification code (html + text part) in `lang`."""
+    from app.services.signup_mail import verification_mail
+    subject, html, text = verification_mail(code, lang)
+    return send_email(to, subject, html, text=text)
 
 
 def _admin_signup_email_html(email: str, business_name: str, business_type: str) -> str:
@@ -235,30 +224,11 @@ def _admin_signup_email_html(email: str, business_name: str, business_type: str)
 </div>"""
 
 
-def _verification_email_html(code: str) -> str:
-    return f"""\
-<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:0;background:#0f172a">
-  <div style="padding:32px 24px">
-    <div style="text-align:center;margin-bottom:24px">
-      <div style="display:inline-block;background:rgba(255,255,255,0.1);border-radius:14px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1)">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#22c55e" stroke-width="2"/></svg>
-      </div>
-      <h1 style="font-size:22px;color:#ffffff;margin:12px 0 4px">Verify your email</h1>
-      <p style="color:#94a3b8;font-size:14px;margin:0">Enter this code in the app to verify your email</p>
-    </div>
-    <div style="text-align:center;margin:28px 0">
-      <span style="display:inline-block;font-size:36px;font-weight:700;letter-spacing:10px;color:#22c55e;background:rgba(34,197,94,0.1);padding:18px 36px;border-radius:16px;border:2px dashed rgba(34,197,94,0.4)">{code}</span>
-    </div>
-    <p style="font-size:13px;color:#64748b;text-align:center;margin-top:24px">
-      This code expires in 30 minutes.<br>If you didn't create an account, ignore this email.
-    </p>
-    <div style="border-top:1px solid rgba(255,255,255,0.1);margin-top:28px;padding-top:16px;text-align:center">
-      <p style="font-size:12px;color:#475569;margin:0">
-        <span style="color:#94a3b8">Bon</span><span style="color:#22c55e">Box</span> — Your smart business companion
-      </p>
-    </div>
-  </div>
-</div>"""
+def _verification_email_html(code: str, lang: str = "en") -> str:
+    """The verification mail's html in `lang` ("da" | "en") — built by
+    services/signup_mail.verification_mail with its text part."""
+    from app.services.signup_mail import verification_mail
+    return verification_mail(code, lang)[1]
 
 
 def _generate_verification_code() -> str:
@@ -493,6 +463,10 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
         business_name=data.business_name,
         business_type=data.business_type,
         currency=data.currency,
+        # The app's language at signup (validated). Saved now so the very
+        # first mails — and the pushes after them — are in the language the
+        # owner signed up in; AccountLanguageSync keeps it current after.
+        ui_language=data.ui_language,
         email_verified=False,
         verification_code=verification_code,
         verification_code_expires=utc_now() + timedelta(minutes=30),
@@ -536,23 +510,22 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     if _looks_machine_generated(data.email):
         _audit_signup(db, request, "signup_flagged_random_pattern", data.email)
 
+    # The signup's language: the app's language it was made in, else the
+    # browser's, else the currency (services/signup_mail.signup_mail_lang).
+    from app.services.signup_mail import signup_mail_lang
+    mail_lang = signup_mail_lang(
+        data.ui_language, request.headers.get("accept-language"), user.currency,
+    )
+
     # Send verification email (non-blocking — don't fail registration if email fails)
     try:
-        send_email(
-            user.email,
-            f"BonBox — Your verification code is {verification_code}",
-            _verification_email_html(verification_code),
-        )
+        _send_verification_mail(user.email, verification_code, mail_lang)
     except Exception:
         logger.warning(f"Failed to send verification email to user {user.id}")
 
     # Send welcome email (non-blocking)
     try:
-        send_email(
-            user.email,
-            "Welcome to BonBox!",
-            _welcome_email_html(user.business_name or "there"),
-        )
+        _send_welcome_mail(user.email, user.business_name or "", mail_lang)
     except Exception:
         pass
 
@@ -624,9 +597,10 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
         db.commit()
         db.refresh(user)
 
-        # Welcome email
+        # Welcome email — in the browser's language, else the currency's
         try:
-            send_email(user.email, "Welcome to BonBox! 🎉", _welcome_email_html(name or "there"))
+            from app.services.signup_mail import mail_lang_for_user
+            _send_welcome_mail(user.email, name or "", mail_lang_for_user(user, request))
         except Exception:
             pass
 
@@ -864,7 +838,8 @@ def apple_auth(
         # Apple won't forward unpredictably.
         if not is_relay_email:
             try:
-                send_email(user.email, "Welcome to BonBox! 🎉", _welcome_email_html(full_name or "there"))
+                from app.services.signup_mail import mail_lang_for_user
+                _send_welcome_mail(user.email, full_name or "", mail_lang_for_user(user, request))
             except Exception:
                 pass
 
@@ -1037,10 +1012,9 @@ def resend_verification(
     current_user.verification_code_expires = utc_now() + timedelta(minutes=30)
     db.commit()
 
-    email_sent = send_email(
-        current_user.email,
-        f"BonBox — Your verification code is {code}",
-        _verification_email_html(code),
+    from app.services.signup_mail import mail_lang_for_user
+    email_sent = _send_verification_mail(
+        current_user.email, code, mail_lang_for_user(current_user, request),
     )
     if not email_sent:
         logger.warning(f"Failed to resend verification email to {current_user.email}")

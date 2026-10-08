@@ -257,9 +257,12 @@ export default function RegisterPage() {
       return;
     }
     // On native iOS, default business fields (Apple 3.1.1 compliance)
+    // `ui_language` — the language this form is shown in. The server writes
+    // the verification code and welcome mails in it (a Danish signup used to
+    // get both in English) and saves it as the account's app language.
     const submitData = isNative
-      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard" }
-      : form;
+      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang }
+      : { ...form, ui_language: lang };
     if (!isNative && !form.business_type) { setError(t("pleaseSelectType")); return; }
     setLoading(true);
     try {
