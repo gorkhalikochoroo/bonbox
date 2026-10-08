@@ -245,6 +245,9 @@ export function cardView(state) {
     const multi = activeEntries(state).length > 1;
     if (!multi && groups[0][0].origin !== TILL_SCAN) {
       const e = groups[0][0];
+      // A photo waits on "another terminal or the same?": the owner's own
+      // till is "the one on screen", as the form's side of the question.
+      if (state.pending.length) return formSideScan(e, locale, true);
       const card = e.floor != null || e.scan.revenue_total_text != null;
       return card ? formSideScan(e, locale, false) : null;
     }
@@ -412,6 +415,16 @@ function winnerIn(group, field) {
 }
 
 function setEdit(state, entry, field, value) {
+  const read = fieldOf(entry.scan, field);
+  const n = num(value, state.locale);
+  // Typed back to what the photo read: it is the read again (and keeps
+  // "aflæst"), not a correction.
+  if (field !== "revenue_total" && typeof read === "number" && n != null && Math.abs(n - read) < 0.005) {
+    if (!Object.prototype.hasOwnProperty.call(entry.edits, field)) return state;
+    const { [field]: _gone, ...rest } = entry.edits;
+    const next = { ...entry, edits: Object.keys(rest).length ? rest : EMPTY };
+    return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
+  }
   const next = { ...entry, edits: { ...entry.edits, [field]: value } };
   return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
 }

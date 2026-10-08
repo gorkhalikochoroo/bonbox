@@ -32,16 +32,37 @@ import {
 } from "../utils/dailyCloseQueue";
 import {
   headlineTotal,
-  mergeScans,
-  needsTerminalChoice,
-  closeSaveTotal,
-  overBonNow,
   scanBonTotal,
   scanSaveTotal,
-  MERGE_FILL,
   MERGE_REPLACE,
   MERGE_SUM,
+  TOTAL_KEYS,
 } from "../utils/dailyCloseScanMerge";
+import {
+  addScan,
+  cardView,
+  chooseTerminal,
+  createTills,
+  dateMoved,
+  detachForm,
+  discardScans,
+  formTill,
+  formValues,
+  hasScanTills,
+  hydrateScan,
+  isDuplicateScan,
+  lastStep,
+  loadDraft,
+  markApplied,
+  momsOf,
+  oneSidedLines,
+  savedTotal,
+  sourceMetaOf,
+  tillFromForm,
+  tillTotals,
+  typeIntoForm,
+  undo as undoTill,
+} from "../utils/closeTills";
 import { DEFAULT_CLOSE_CUTOFF_HOUR, findConfirmedCloseFor, resolveCutoffHour } from "../utils/dailyCloseDay";
 import {
   buildShareMessage,
@@ -1539,7 +1560,38 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       setStep(1);
     }
   }, [manualRequest, scanMode]);
-  const [scanResult, setScanResult] = useState(null);
+  // ─── The day's tills — ONE place (utils/closeTills) ─────────────────
+  //
+  // The scan card used to be its own state (one merged scan) beside the
+  // form's boxes, and the figures were folded back and forth between the two
+  // ("← Scan Z-bon" folded the form into the card, "Brug disse tal" copied
+  // the card into the form, a new photo seeded the form as the first side).
+  // Every round fixed one fold and opened another: Start forfra after an
+  // applied sum left the bon in the boxes, the next photo took them as the
+  // owner's own till, and the same bon was counted twice.
+  //
+  // Now the day is a ledger of tills, each with its own figures and the
+  // owner's edits on top. The card is a view of it (scanResult below), the
+  // boxes are written from it when they show it, and every edit — on the card
+  // or on the form — goes into it. The ref mirrors the state because
+  // handleFileSelect is awaited in a loop (several photos in one pick).
+  const [ledger, setLedger] = useState(() => createTills(mLocale));
+  const ledgerRef = useRef(ledger);
+  const act = (fn, ...args) => {
+    const next = fn(ledgerRef.current, ...args);
+    if (next !== ledgerRef.current) {
+      ledgerRef.current = next;
+      setLedger(next);
+    }
+    return next;
+  };
+  useEffect(() => {
+    if (ledgerRef.current.locale !== mLocale) act((s) => ({ ...s, locale: mLocale }));
+  }, [mLocale]);
+  // The scan card: the tills folded with the merge rules (memoised per state).
+  const scanResult = useMemo(() => cardView(ledger), [ledger]);
+  // What the day saves when a card is in it: what each till saves, added up.
+  const ledgerSaved = useMemo(() => savedTotal(ledger), [ledger]);
   const [scanPhotos, setScanPhotos] = useState([]); // [{url, name}]
   // First scanned Z-report photo URL (Supabase signed URL or local path).
   // Persisted on the close row as receipt_photo so the owner can re-view
@@ -1611,8 +1663,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // payment/revenue breakdown. See registerCash / editLoadedRef notes.
     editLoadedRef.current = true;
     boxFillEpochRef.current += 1;
-    formSeedOffRef.current = false;
-    boxesFromScanRef.current = false;
     setDateMove(null);
     // An edited close is filed against ITS OWN date, never today — mark the
     // date as chosen before the prefill for that date can resolve.
@@ -1662,31 +1712,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         return extra.length ? [...prev, ...extra] : prev;
       });
     }
-    // A saved total above its category sum was a scanned or corrected total;
-    // carry it back as the owner's figure, or the next save reverts it.
-    // The saved close is the only "scan" there is now — a photo read before
-    // it (abandoned, or for another day) must not come back behind
-    // "← Scan Z-bon" with its own numbers.
-    const catSum = Object.values(dc.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    let draftScan = null;
-    if (Math.abs(Number(dc.revenue_total) - catSum) > 0.005 && Number(dc.revenue_total) > 0) {
-      // Only a total BELOW its lines must have been typed by the owner (a
-      // read total is never under the lines it carries). One above them is
-      // what the Z-bon said — it came back labelled "din rettede total" and
-      // was saved as the owner's own figure next time.
-      const ownerSet = Number(dc.revenue_total) < catSum;
-      draftScan = {
-        revenue_total: Number(dc.revenue_total),
-        ...(ownerSet ? { revenue_total_text: asInput(dc.revenue_total) } : {}),
-        // Not read off a photo in this session: the card must not call these
-        // figures a read ("0/8 felter fundet", "Vi kunne ikke aflæse…").
-        from_draft: true,
-      };
-    }
-    applyScanResult(draftScan);
     setScanPhotos([]);
-    applyPendingScans([]);
-    setMergeUndo(null);
     // The boxes hold the saved close now, not a sales sync.
     salesFillRef.current = null;
     // Every field takes the SAVED value, empty included: a field the close
@@ -1703,13 +1729,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       momsMode: dc.moms_mode === "manual" && dc.moms_total != null ? "manual" : "auto",
       momsManual: dc.moms_mode === "manual" && dc.moms_total != null ? asInput(dc.moms_total) : "",
     };
+    // The reopened close is the day's one till now: a "draft" till with the
+    // saved lines, its saved total when that is not its lines (a total above
+    // them was the Z-bon's — the card's floor; one below them was typed), its
+    // MOMS and the source it was saved with. It is never a Z-bon read ("0/8
+    // felter fundet", "aflæst"), and a photo read before it (abandoned, or
+    // for another day) does not come back behind "← Scan Z-bon".
+    const draftLedger = act(loadDraft, {
+      revenue: rev,
+      payments: pay,
+      tips: config.hasTips ? loaded.tips : null,
+      total: Number(dc.revenue_total),
+      totalText: asInput(dc.revenue_total),
+      moms: loaded.momsMode === "manual" ? loaded.momsManual : null,
+      meta: dc.source_meta && typeof dc.source_meta === "object" ? dc.source_meta : null,
+    });
     setCashCounted(loaded.cash);
     setDrawerCount(drawerFrom(loaded.cash, cashFloat));
     setMomsMode(loaded.momsMode);
     setMomsManual(loaded.momsManual);
     // The saved MOMS is the form's: going back to the card and applying it
     // again dropped a typed MOMS to Auto.
-    setAppliedMoms({ key: scanMomsKey(draftScan), manual: loaded.momsManual, owner: false });
+    setAppliedMoms({ key: scanMomsKey(cardView(draftLedger)), manual: loaded.momsManual, owner: false });
     setDraftMoms(loaded.momsMode === "manual" && Number(dc.revenue_total) > 0
       ? { moms: Number(dc.moms_total), total: Number(dc.revenue_total), followed: false }
       : null);
@@ -1758,7 +1799,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!smartScanPrefill) return;
     // Hydrate the scanResult — backend extracted_data uses the same
     // schema as /daily-close/scan-report (the same service powers both).
-    setScanResult(smartScanPrefill);
+    act(hydrateScan, smartScanPrefill);
     setScanMode("result");
     setStep(1);
     setSmartScanVerifyState(Array.isArray(smartScanVerifyHints) ? smartScanVerifyHints : []);
@@ -1793,12 +1834,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   //
   // Both refs mirror their state because handleFileSelect is awaited in that
   // loop — the closure values would be one file stale.
-  const [pendingScans, setPendingScans] = useState([]);
-  const pendingScansRef = useRef([]);
-  const applyPendingScans = (next) => {
-    pendingScansRef.current = next;
-    setPendingScans(next);
-  };
+  const pendingScans = useMemo(() => ledger.pending.map((p) => p.scan), [ledger]);
   const pendingScan = pendingScans[0] || null;
   // The question mounts at the TOP of the scan card, but the photo that raises
   // it comes from "+ Tilføj" at the BOTTOM — and the scan spinner collapses the
@@ -1824,46 +1860,29 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingScan, scanMode]);
-  // One level of undo for a terminal choice, so a wrong tap is catchable
-  // before anything is locked. It restores the unanswered queue too — an undo
-  // means "I answered that wrong", so the question has to come back.
-  const [mergeUndo, setMergeUndo] = useState(null);
-  const scanResultRef = useRef(null);
-  const applyScanResult = (next) => {
-    scanResultRef.current = next;
-    setScanResult(next);
-  };
-  useEffect(() => { scanResultRef.current = scanResult; }, [scanResult]);
+  // Fortryd: exactly one step back on the ledger — a sum, a "same
+  // terminal", or a page added since — so a wrong tap is catchable before
+  // anything is locked. It restores the unanswered queue too: an undo means
+  // "I answered that wrong", so the question comes back.
+  const undoStep = lastStep(ledger);
+  const canUndoChoice = undoStep === "sum" || undoStep === "replace" || undoStep === "page";
 
   /** The owner answered "another terminal" (sum) or "same terminal" (replace). */
   const resolveTerminalChoice = (mode) => {
-    const [head, ...rest] = pendingScansRef.current;
-    if (!head) return;
-    setMergeUndo({ scan: scanResultRef.current, pending: pendingScansRef.current });
-    // mLocale, not a default: these buckets can hold the owner's own
-    // keystrokes from the scan-review boxes, so the sum has to read them in
-    // the account's notation or it adds 1,50 where 1.500,50 was corrected in.
-    let merged = mergeScans(scanResultRef.current, head, mode, mLocale);
-    // Everything still queued that is NOT ambiguous against the new state
-    // folds in straight away. We only ever ask when the question is real, so a
-    // batch of "one till photo + two detail pages" costs exactly one tap.
-    const waiting = [...rest];
-    while (waiting.length && !needsTerminalChoice(merged, waiting[0], mLocale)) {
-      merged = mergeScans(merged, waiting.shift(), MERGE_FILL, mLocale);
-    }
-    applyScanResult(merged);
-    applyPendingScans(waiting);
+    // Whatever is still queued and NOT ambiguous against the new day folds in
+    // straight away (closeTills.chooseTerminal): one till photo plus two
+    // detail pages costs exactly one tap.
+    act(chooseTerminal, mode);
   };
 
   const undoMerge = () => {
-    if (!mergeUndo) return;
-    applyScanResult(mergeUndo.scan);
-    applyPendingScans(mergeUndo.pending);
-    setMergeUndo(null);
+    if (canUndoChoice) act(undoTill);
   };
 
   const handleFileSelect = async (rawFile) => {
     if (!rawFile) return;
+    // The photo as the camera roll knows it: picked again, it is the same photo.
+    const photoRef = `${rawFile.name || ""}|${rawFile.size ?? ""}|${rawFile.lastModified ?? ""}`;
     setScanMode("scanning");
     setScanError("");
     // Commit 3 — reset per-scan chip + conflict state so the new scan's
@@ -1886,44 +1905,29 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       });
       // Add thumbnail (use the resized file so the preview matches what
       // the backend actually saw)
+      const before = ledgerRef.current;
+      // The same photo read the same way is already in the day: never a
+      // second till. Nothing is added, and the owner is told why.
+      if (isDuplicateScan(before, { photo: photoRef, scan: res.data })) {
+        setScanError(t("dcScanSamePhoto", "That photo is already in today's close — nothing was added."));
+        setScanMode(cardView(before) ? "result" : "idle");
+        return;
+      }
       const thumbUrl = URL.createObjectURL(file);
       setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name }]);
-      // Merge with existing results — unless the merge is ambiguous, in which
-      // case nothing is merged until the owner says which it is. Reading the
-      // ref (not the closure) matters: several files are awaited in a loop.
-      let current = scanResultRef.current;
-      // No scan yet, but the form already holds the day's figures — a draft
-      // reopened with "Fortsæt kladden" whose categories add up to its total,
-      // or a close typed by hand. Those figures are "the one on screen": a
-      // second Z-bon then silently became the whole close (17.130 replaced by
-      // 4.000, autosaved over the draft) with no question and no Fortryd.
-      // The form is the first side now, marked as not read off a photo.
-      let seeded = null;
-      if (!current && !pendingScansRef.current.length) {
-        seeded = formAsScan();
-      } else if (current?.from_draft && !current.merge_info?.formFields && !pendingScansRef.current.length) {
-        // A reopened draft's own card (its total above its lines) is the form
-        // too: its lines — and the MOMS the form holds — are the owner's.
-        seeded = asFormSide(current);
-      }
-      if (seeded) {
-        current = seeded;
-        applyScanResult(seeded);
-        // The MOMS the owner typed is on the card now, and a sum adds the
-        // bon's to it: applying takes the card's figure — not the typed one
+      // Before the day's first photo the form is the truth: a close typed by
+      // hand, or a reopened draft, becomes the first till ("the one on
+      // screen") — so a second Z-bon is asked about instead of silently
+      // becoming the whole close. An untouched POS sync is not a till.
+      // Whether to ask, to queue behind a question already open, or to fill
+      // in a page: closeTills.addScan.
+      const form = hasScanTills(before) ? undefined : formAsTill();
+      act(addScan, res.data, { photo: photoRef, form });
+      if (form?.moms_total != null) {
+        // The MOMS the owner typed is on their till now, and a sum adds the
+        // bon's to it: applying takes the day's figure — not the typed one
         // alone as "typed since the last apply" (3.000 under 21.130).
-        if (formMomsIn(seeded)) {
-          setAppliedMoms((prev) => ({ ...(prev || {}), manual: momsManual, owner: false, fromScan: false }));
-        }
-      }
-      // Once ANY scan is waiting on the owner, every later scan waits behind
-      // it. Merging a straggler into the numbers while an unanswered question
-      // sits on top of them would mean answering that question about a state
-      // the owner never saw.
-      if (pendingScansRef.current.length || (current && needsTerminalChoice(current, res.data, mLocale))) {
-        applyPendingScans([...pendingScansRef.current, res.data]);
-      } else {
-        applyScanResult(mergeScans(current, res.data, MERGE_FILL, mLocale));
+        setAppliedMoms((prev) => ({ ...(prev || {}), manual: momsManual, owner: false, fromScan: false }));
       }
       // Capture the durable storage URL — first scan wins so editing
       // a draft and re-scanning doesn't churn the persisted reference.
@@ -1938,7 +1942,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // "OCR scanning failed" is no longer what a Dane reads when the photo
       // simply did not come through.
       setScanError(errText(err, t("dcScanFailed", "We couldn't read that photo. Take another one, or type the numbers in yourself.")));
-      setScanMode(scanResult ? "result" : "idle"); // keep results if we already have some
+      setScanMode(cardView(ledgerRef.current) ? "result" : "idle"); // keep results if we already have some
     }
   };
 
@@ -1951,13 +1955,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     heroHandledRef.current = heroScanFiles;
     onHeroConsumed?.();
     if (editingDate) return;
-    // In the wizard the card's scan is behind the form — a Mad corrected on
-    // Trin 1 lives only in the form until "← Scan Z-bon" folds it in. A photo
-    // from the hero went straight in, so the sum (and "Brug disse tal")
-    // dropped that correction. Fold it in first, once for all the files.
-    // With no scan yet, a close typed by hand is the first side the same way
-    // (handleFileSelect seeds it from the form before it asks).
-    if (scanMode === "skipped" && scanResultRef.current) applyScanResult(foldFormIntoScan(scanResultRef.current));
+    // A Mad corrected on Trin 1 is already in the ledger (every box edit goes
+    // there), so a photo from the hero sums with it; with no photo yet, a
+    // close typed by hand is the first till (handleFileSelect).
     (async () => { for (const f of heroScanFiles.files) await handleFileSelect(f); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heroScanFiles]);
@@ -2179,86 +2179,53 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     };
   }, [scanResult, terminalsForConfirm]);
 
-  // The form's figures, written back into the scan card. A figure the scanner
-  // read and nobody changed stays the scanner's number (and keeps "aflæst");
-  // anything typed comes over as typed; a box the owner emptied stays empty.
-  const foldFormIntoScan = (scan) => {
-    const fold = (read, form) => {
+  // The form as a till, the moment the day's first photo comes in: what the
+  // owner typed or a reopened draft holds — not the sales sync's own
+  // untouched figures — with the MOMS they typed. Null when the form holds
+  // nothing of the owner's (closeTills.tillFromForm). `o` overrides a box
+  // that has just been typed into (state is one render behind).
+  const formAsTill = (o = {}) => tillFromForm({
+    revenue: o.rev || revAmounts,
+    payments: o.pay || payAmounts,
+    tips: config.hasTips ? (o.tips !== undefined ? o.tips : tipsTotal) : null,
+    moms: momsTyped ? readMoney(momsManual) : null,
+    synced: salesFillRef.current,
+    locale: mLocale,
+  });
+  // A box the owner typed in on the form: the ledger takes it — into their
+  // own till, or the till it belongs to — so the card, the saved total, the
+  // revisor's source and Start forfra all see the same figure. Nothing is
+  // folded back later.
+  const typeInForm = (field, value, o = {}) => {
+    act(typeIntoForm, field, value, { fromForm: true, form: formAsTill(o) || undefined });
+  };
+  // The boxes written from the ledger: after Start forfra, what is left is
+  // the owner's own till (or nothing) — never the photos' figures.
+  const writeBoxesFromLedger = (lg) => {
+    const fv = formValues(lg);
+    const pick = (src, list) => {
       const out = {};
-      Object.entries(form || {}).forEach(([k, v]) => {
-        if (String(v ?? "").trim() === "") return;
-        const r = read?.[k];
-        out[k] = typeof r === "number" && Math.abs(readMoney(v) - r) < 0.005 ? r : v;
+      list.forEach((c) => { if (src[c.key] != null && String(src[c.key]).trim() !== "") out[c.key] = asBox(src[c.key]); });
+      Object.entries(src).forEach(([k, v]) => {
+        if (!TOTAL_KEYS.includes(k) && v != null && String(v).trim() !== "" && !(k in out)) out[k] = asBox(v);
       });
       return out;
     };
-    const tipsRead = typeof scan.tips === "number" && Math.abs(readMoney(tipsTotal) - scan.tips) < 0.005;
-    return {
-      ...scan,
-      revenue: fold(scan.revenue, revAmounts),
-      payments: fold(scan.payments, payAmounts),
-      ...(config.hasTips ? { tips: String(tipsTotal).trim() === "" ? null : (tipsRead ? scan.tips : tipsTotal) } : {}),
-    };
-  };
-
-  // The form as the first side of a scan, when there is no scan yet: what the
-  // owner typed or a reopened draft holds. Not the sales sync's own figures —
-  // a Z-bon over the POS's numbers replaces them as it always has, with no
-  // question. `from_draft` keeps it from ever reading as a Z-bon: no "Z-bon:"
-  // total, no confidence, no "aflæst", no "mangler". Null when the form holds
-  // nothing of the owner's.
-  // "Start forfra" on the scan card, when the figures still in the form came
-  // from a scan applied before (the photo just thrown away): the next photo
-  // is a fresh start, not a second till against them. Off again once the
-  // owner types or a close loads. Never when the form's figures are the
-  // owner's own (a typed close, a reopened draft) — "Start forfra" leaves
-  // those boxes as they are, and the next photo asked nothing and replaced
-  // them: the C4 overwrite, one tap away.
-  const formSeedOffRef = useRef(false);
-  // The boxes hold an applied scan's figures (applyScanValues), untouched by
-  // the owner since.
-  const boxesFromScanRef = useRef(false);
-  // A card whose first side is the form — a seed, a reopened draft's card, or
-  // a sum or page added to one: the form's figures are on it.
-  const cardHasFormSide = (scan) => Boolean(scan?.from_draft || scan?.merge_info?.formFirst
-    || (scan?.merge_info?.formFields || []).length);
-  // The form's side of a card: every line it carries, and the MOMS the owner
-  // typed (or the reopened draft holds), written down as the form's — a sum
-  // adds the bon's MOMS to it instead of dropping it to Auto, and nothing of
-  // it reads as a Z-bon read.
-  const asFormSide = (scan) => {
-    const fields = [];
-    ["revenue", "payments"].forEach((bucket) => Object.entries(scan[bucket] || {}).forEach(([k, v]) => {
-      if (v != null && String(v).trim() !== "") fields.push(`${bucket}.${k}`);
-    }));
-    if (scan.tips != null && String(scan.tips).trim() !== "") fields.push("tips");
-    let out = scan;
-    if (momsTyped && scan.moms_total == null) {
-      out = { ...out, moms_total: Math.round(readMoney(momsManual) * 100) / 100 };
-      fields.push("moms_total");
-    }
-    if (!fields.length) return out;
-    const prev = out.merge_info || {};
-    const union = (a) => Array.from(new Set([...(a || []), ...fields]));
-    return { ...out, merge_info: { ...prev, formFields: union(prev.formFields), typedFields: union(prev.typedFields) } };
-  };
-  const formAsScan = () => {
-    if (formSeedOffRef.current) return null;
-    const synced = salesFillRef.current;
-    const owners = (boxes, fill) => Object.entries(boxes || {}).some(([k, v]) =>
-      String(v ?? "").trim() !== "" && !(fill && fill[k] === v));
-    if (!owners(revAmounts, synced?.rev) && !owners(payAmounts, synced?.pay)) return null;
-    // What the form saves now; a close typed as payments only has no revenue
-    // line yet, and its payments are the figure on screen.
-    const total = revenueTotal > 0 ? revenueTotal : paymentTotal;
-    if (!(total > 0)) return null;
-    return asFormSide(foldFormIntoScan({ revenue: {}, payments: {}, revenue_total: Math.round(total * 100) / 100, from_draft: true }));
+    salesFillRef.current = null;
+    boxFillEpochRef.current += 1;
+    setRevAmounts(pick(fv.revenue, revCats));
+    setPayAmounts(pick(fv.payments, payMethods));
+    if (config.hasTips) setTipsTotal(fv.tips != null && String(fv.tips).trim() !== "" ? asBox(fv.tips) : "");
   };
 
   const applyScanValues = (jumpToReview = false) => {
-    if (!scanResult) return;
-    const r = scanResult.revenue || {};
-    const p = scanResult.payments || {};
+    const lg = ledgerRef.current;
+    const card = cardView(lg);
+    if (!card) return;
+    // What the boxes show: the tills' lines added up (the card's own lines).
+    const fv = formValues(lg);
+    const r = fv.revenue || {};
+    const p = fv.payments || {};
     // Fill revenue — match against current template cats + any extras from OCR
     const newRev = {};
     revCats.forEach(c => { if (r[c.key]) newRev[c.key] = asBox(r[c.key]); });
@@ -2269,11 +2236,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The boxes are the Z-bon's from here on, not the day's sales sync.
     salesFillRef.current = null;
     boxFillEpochRef.current += 1;
-    const formSide = cardHasFormSide(scanResult);
-    // A scan's figures from here on — unless the card still carries the
-    // form's (a sum or a page added to them): then "Start forfra" must not
-    // treat what stays in the boxes as the photo's.
-    boxesFromScanRef.current = !formSide;
+    // The owner's own till is in the day (a typed close, a reopened draft).
+    const formSide = Boolean(formTill(lg));
+    // The boxes show the ledger from here on: Start forfra writes them back.
+    act(markApplied);
     // The Z-bon's figures now, not ones typed for another day. A card that
     // still carries the form's lines carries those very figures: the question
     // stays, and nothing is filed for this day until it is answered.
@@ -2286,7 +2252,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setPayAmounts(newPay);
     // Fill tips (only for types that have tips). Z-reports often show
     // tips as negative (paid out) — keep the sign for accountant clarity.
-    if (config.hasTips && scanResult.tips) setTipsTotal(asBox(scanResult.tips));
+    if (config.hasTips && fv.tips) setTipsTotal(asBox(fv.tips));
     // If OCR detected MOMS, switch to manual mode with the scanned value —
     // UNLESS that number covers only one of the tills we just summed.
     //
@@ -2299,28 +2265,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // kasserapport. Leaving momsMode on "auto" derives it from the SUMMED
     // revenue instead, which is right for a standard-rate day and, when it
     // isn't, is a number the owner can see and override.
-    const mergeIncomplete = scanResult.merge_info?.incompleteFields || [];
     // Once per figure (scanMomsKey). Back on the card and "Brug disse tal"
     // again is the same figure: the form keeps the MOMS it has — a reopened
     // draft's typed MOMS was dropped to Auto. A MOMS the owner typed since
     // the last apply is theirs and stays even when the figure moves.
-    const momsKey = scanMomsKey(scanResult);
+    const momsKey = scanMomsKey(card);
     const ownerTypedMoms = Boolean(appliedMoms) && momsTyped
       && (appliedMoms.owner || momsManual !== appliedMoms.manual);
     let nextManual = momsMode === "manual" ? momsManual : "";
     if (!appliedMoms || (appliedMoms.key !== momsKey && !ownerTypedMoms)) {
-      // Not when the owner corrected the total: that scanned MOMS belongs to
-      // the old figure, and manual mode pinned it (16.450 saved with 16.540's
-      // MOMS). Auto recomputes from the corrected total. Nor when the lines
-      // on the card add up past the bon's total — that is what gets saved.
-      const willSave = closeSaveTotal(scanResult, Object.values(newRev).reduce((a, v) => a + readMoney0(v), 0), mLocale);
-      if (formMomsOnCard(scanResult)) {
-        // The owner's own MOMS (with the bon's added on a sum): theirs, kept
-        // as typed — never dropped to Auto, never called the Z-bon's.
-        nextManual = asBox(scanResult.moms_total);
-        setMomsMode("manual");
-      } else if (!mergeIncomplete.includes("moms_total") && scanMomsFits(scanResult, willSave)) {
-        nextManual = asBox(scanResult.moms_total);
+      // The day's MOMS by the ledger's one rule: the tills' own MOMS added
+      // up when EVERY till's is known — the owner's typed MOMS on their till
+      // (kept as theirs, never dropped to Auto, never called the Z-bon's), or
+      // a bon's MOMS that still belongs to what that till saves. A corrected
+      // total, a category raised past the bon, one till of two: worked out.
+      const lm = momsOf(lg);
+      if (lm.source !== "auto") {
+        nextManual = asBox(lm.value);
         setMomsMode("manual");
       } else {
         // This scan carries no MOMS of its own (none read, one till of two, or
@@ -2340,7 +2301,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // earnings, and the full payment-method split. Pre-populate the
     // cash-drawer step and drop the clerk summary into notes so the
     // owner spots schedule mismatches before locking the close.
-    const pf = scanResult.prefill;
+    const pf = card.prefill;
     if (pf && appliedPrefillRef.current !== pf) {
       appliedPrefillRef.current = pf;
       // Step 3 — Cash drawer counted total (from denomination math)
@@ -2353,7 +2314,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Notes — per-clerk earnings + any kasserapport notes
       const noteParts = [];
       if (pf.per_clerk_notes) noteParts.push(pf.per_clerk_notes);
-      if (scanResult.claude_notes) noteParts.push(scanResult.claude_notes);
+      if (card.claude_notes) noteParts.push(card.claude_notes);
       if (noteParts.length > 0) {
         setNotes(prev => prev ? prev + "\n" + noteParts.join("\n") : noteParts.join("\n"));
       }
@@ -2392,7 +2353,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // `replace`: the boxes become exactly the sync's, emptied where the sync has
   // nothing — the owner chose the day's POS figures over what they had typed.
   const fillBoxesFromSync = (data, { replace = false } = {}) => {
-    boxesFromScanRef.current = false;
+    // The sync is not a till: the boxes no longer show the ledger.
+    act(detachForm);
     const payPrefill = data?.suggested_prefill?.payment_breakdown || {};
     if (Object.keys(payPrefill).length > 0) {
       const newPay = {};
@@ -2449,11 +2411,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const filled = (v) => String(v ?? "").trim() !== "";
     const typedExtras = filled(drawerCount) || filled(cashCounted) || filled(tipsTotal)
       || filled(gavekortSold) || momsTyped;
-    const typed = !scanResultRef.current && !editLoadedRef.current
+    const typed = !cardView(ledgerRef.current) && !editLoadedRef.current
       && (owners(revAmounts, synced?.rev) || owners(payAmounts, synced?.pay) || typedExtras);
     // Moved again before answering: the figures are still the first day's.
     const from = dateMoveOpen?.from ?? businessDate;
     setDateMove(typed && from !== next ? { from, to: next } : null);
+    // The tills move with the date (closeTills.dateMoved never changes them);
+    // the question above is what decides which day they are filed for.
+    act(dateMoved, next);
     setBusinessDate(next);
   };
 
@@ -2654,11 +2619,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // Mirrors the server exactly: the owner's typed total, else the larger of
   // the category sum and the scanned total. A partly read Z-bon (Mad 10.000,
   // total 17.030) saved 17.030 while MOMS and the day check ran on 10.000.
-  // A sum's categories raised past their bons count on top of the bons'
-  // totals — and come back out when they are lowered (closeSaveTotal).
+  // With tills in the day it is the ledger's figure — what each till saves,
+  // added up (closeTills.savedTotal): a category raised past one till's bon
+  // counts for that till, and comes back out when it is lowered. The boxes
+  // show the same tills' lines, so the review, the card and the payload read
+  // one number. With no card (a close typed by hand) it is the categories.
   const savedRevenue = useMemo(
-    () => closeSaveTotal(scanResult, revenueTotal, mLocale),
-    [scanResult, revenueTotal, mLocale],
+    () => (scanResult ? ledgerSaved : Math.max(0, revenueTotal)),
+    [scanResult, ledgerSaved, revenueTotal],
   );
   // A total read off the Z-bon IS revenue, split by category or not: a
   // total-only read said "can't be checked" while it locked 17.030.
@@ -2719,8 +2687,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const scanTotalNow = scanResult ? (headlineTotal(scanResult, mLocale) || 0) : 0;
   // The total the scan card SAVES (its total box shows it): a typed total, or
   // the larger of the printed total and the card's lines (closeSaveTotal).
-  const cardSaveTotal = !scanResult ? 0
-    : closeSaveTotal(scanResult, Object.values(scanResult.revenue || {}).reduce((a, v) => a + readMoney0(v), 0), mLocale);
+  const cardSaveTotal = !scanResult ? 0 : ledgerSaved;
+
   const scanLinesAddUp = (bucket, lines, total = scanTotalNow) => total > 0
     && Math.abs(lines.reduce((a, c) => a + readMoney0(bucket?.[c.key]), 0) - total) < 1;
   // The categories against the printed total (lines that add up to it ARE
@@ -2859,37 +2827,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return Math.max(0, Math.round((savedRevenue - exemptSalesTotal) * 100) / 100);
   }, [savedRevenue, exemptSalesTotal]);
 
-  // The scanned MOMS belongs to the total it was read with, and is the day's
-  // MOMS only while THAT is the total being saved. A corrected total, a
-  // category corrected by hand past the bon's total (17.130 saved with
-  // 17.030's 3.406), or one till of two summed — each leaves it describing
-  // another figure. One rule, read by the review, the card and the save.
-  // The form's own MOMS on the card (typed, or a reopened draft's — with the
-  // bon's added on a sum): the owner's figure, never the Z-bon's.
+  // The day's MOMS by ONE rule, read off the tills (closeTills.momsOf): the
+  // tills' own MOMS added up when EVERY till's MOMS is known — the owner's
+  // typed MOMS on their own till, or a bon's MOMS that still belongs to the
+  // total that till saves — else worked out from the saved total. A
+  // corrected total, a category raised past the bon, one till of two, or a
+  // page whose MOMS belongs to no total anybody read: worked out, and said.
+  const ledgerMoms = useMemo(() => momsOf(ledger), [ledger]);
+  // The form's own MOMS on a card (typed, or a reopened draft's): never a read.
   const formMomsIn = (scan) => (scan?.merge_info?.formFields || []).includes("moms_total");
-  const formMomsOnCard = (scan) => formMomsIn(scan)
-    && !(scan.merge_info?.incompleteFields || []).includes("moms_total")
-    && Number.isFinite(Number(scan.moms_total));
-  const scanMomsFits = (scan, total) => {
-    if (!(Number(scan?.moms_total) > 0) || scan.revenue_total_text) return false;
-    if ((scan.merge_info?.incompleteFields || []).includes("moms_total")) return false;
-    if (formMomsIn(scan)) return false;
-    // Known to be unknown (mergeScans wrote the null): a page or a till added
-    // to a typed close or a reopened draft. Its MOMS belongs to no total
-    // anybody read — falling through to revenue_total made a MOMS-only page
-    // "fit" the typed 17.130, and 800 was filed "fra Z-bon" on it.
-    if (Object.prototype.hasOwnProperty.call(scan, "bon_total") && scan.bon_total == null) return false;
-    // A sum's MOMS belongs to the bons' printed totals (bon_total), not to a
-    // till that saves more than its bon (a category raised by hand).
-    const bon = Number(scan.bon_total ?? scan.revenue_total);
-    return !(bon > 0) || Math.abs(total - bon) < 0.5;
-  };
-  // A bon MOMS that no longer fits, but is a real figure (not one till of two,
-  // not the form's own).
-  const scanMomsMoved = (scan, total) => Number(scan?.moms_total) > 0
-    && !(scan.merge_info?.incompleteFields || []).includes("moms_total")
-    && !formMomsIn(scan)
-    && !scanMomsFits(scan, total);
   const momsFor = (total) => {
     const base = Math.max(0, Math.round((total - exemptSalesTotal) * 100) / 100);
     return base > 0 && vatRate > 0 ? Math.round((base * vatRate / vatDivisor) * 100) / 100 : 0;
@@ -2897,17 +2843,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
   const momsTotal = useMemo(() => {
     if (momsTyped) return readMoney0(momsManual);
-    // Same guard as applyScanValues: a scanned MOMS that covers one of two
+    // Same rule as applyScanValues: a scanned MOMS that covers one of two
     // summed tills is not "the MOMS from the receipt". Without this, flipping
     // the toggle back to Auto did NOT recover — this branch returned the
     // one-till figure while the UI printed "Auto-calculated: Revenue × 25% /
     // 125%", a computation that had not happened. A corrected total (or a
     // category raised past the bon's total) makes it stale the same way.
-    const scannedMoms = scanMomsFits(scanResult, savedRevenue) ? Number(scanResult.moms_total) : null;
+    const scannedMoms = ledgerMoms.source === "zbon" && ledgerMoms.value > 0 ? ledgerMoms.value : null;
     if (scannedMoms) return scannedMoms;
     return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [momsTyped, momsManual, scanResult, taxableBase, savedRevenue]);
+  }, [momsTyped, momsManual, ledgerMoms, taxableBase]);
 
   // WHICH of the two "auto" paths produced that number — because the caption
   // underneath used to assert the multiplication either way. The comment above
@@ -2923,11 +2869,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // "recomputed": the bon had a MOMS, but for another total — said in words.
   const momsSource = useMemo(() => {
     if (momsTyped) return "manual";
-    const scannedMoms = scanMomsFits(scanResult, savedRevenue) ? scanResult.moms_total : null;
-    if (!scannedMoms && scanMomsMoved(scanResult, savedRevenue)) return "recomputed";
+    const scannedMoms = ledgerMoms.source === "zbon" && ledgerMoms.value > 0 ? ledgerMoms.value : null;
+    if (!scannedMoms && ledgerMoms.recomputed) return "recomputed";
     return scannedMoms ? "scanned" : "computed";
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [momsTyped, scanResult, savedRevenue]);
+  }, [momsTyped, ledgerMoms]);
   const revenueExMoms = useMemo(() => Math.round((savedRevenue - momsTotal) * 100) / 100, [savedRevenue, momsTotal]);
 
   // The bon's MOMS put in as "Fra kvittering" follows the total once the total
@@ -2944,7 +2889,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const moved = Math.abs(savedRevenueSeenRef.current - savedRevenue) >= 0.005;
     savedRevenueSeenRef.current = savedRevenue;
     if (!moved || momsMode !== "manual") return;
-    if (scanMomsMoved(scanResult, savedRevenue)) {
+    if (ledgerMoms.source === "auto" && ledgerMoms.recomputed) {
       if (Math.abs(readMoney0(momsManual) - Number(scanResult.moms_total)) < 0.005) {
         setMomsMode("auto");
         setMomsManual("");
@@ -2998,14 +2943,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Sending it always (instead of only-when-empty) is what makes the
     // "skip — total saves correctly either way" banner promise true.
     const ocrTotal = scanResult?.revenue_total;
-    // A summed day's categories raised past their bons ride on top of the
-    // bons' totals (overBonNow) — the server's max(breakdown, override) then
-    // saves what the review shows, and lowering them again takes it back out.
-    const revenue_total_override = ocrTotal && ocrTotal > 0
-      ? (scanResult?.revenue_total_text
-        ? Number(ocrTotal)
-        : Math.round((Number(ocrTotal) + overBonNow(scanResult, revenueTotal)) * 100) / 100)
-      : null;
+    // What the tills save, added up (the ledger) — the figure the review
+    // shows. The server's max(breakdown, override) then saves exactly it: a
+    // till's categories raised past its bon count for that till, and lowering
+    // them again takes it back out.
+    const revenue_total_override = ocrTotal && ocrTotal > 0 ? ledgerSaved : null;
     // Only override when the user actually scanned with the toggle —
     // otherwise leave null and let the user's account-level
     // prices_include_moms preference apply.
@@ -3032,54 +2974,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     const notesWithExtras = [notes, ...extraNoteParts].filter(Boolean).join("\n") || null;
 
-    // Where the figures came from, for the revisor's kasserapport: read off a
-    // Z-bon (and how many tills were added together), typed, and which lines
-    // the owner changed after the scan. A reopened draft with no new scan
-    // sends nothing, so the server keeps what it already knows.
-    const readScan = scanResult && !scanResult.from_draft ? scanResult : null;
-    let source_meta = null;
-    if (readScan) {
-      const mi = readScan.merge_info || {};
-      const summed = mi.mode === MERGE_SUM;
-      // The form's side (a close typed by hand, a reopened draft) is never a
-      // Z-bon read on the revisor's page. On a sum its till is marked typed
-      // (typed_tills); a line only the form carried is listed as typed — on a
-      // sum, one both sides carried is part typed, part read, and the till
-      // mark says so. "2 terminaler lagt sammen" printed a typed 17.130 as
-      // the second scanned till.
-      const formLines = new Set(mi.formFields || []);
-      const oneSided = new Set(mi.incompleteFields || []);
-      const lineKey = (f) => (f.startsWith("revenue.") ? `rev:${f.slice(8)}`
-        : f.startsWith("payments.") ? `pay:${f.slice(9)}` : f === "moms_total" ? "moms" : f);
-      const stillSaved = (key) => (key.startsWith("rev:") ? revenue_breakdown[key.slice(4)] != null
-        : key.startsWith("pay:") ? payment_breakdown[key.slice(4)] != null
-        : key === "moms" ? momsTyped
-        : key === "tips" ? Boolean(tipsTotal && Number.isFinite(readMoney(tipsTotal))) : false);
-      const typed = [...formLines].filter((f) => !summed || oneSided.has(f)).map(lineKey).filter(stillSaved);
-      const formTill = summed && Boolean(mi.formFirst);
-      const corrected = [];
-      const near = (a, b) => Math.abs(readMoney0(a) - readMoney0(b)) < 0.005;
-      Object.entries(readScan.revenue || {}).forEach(([k, v]) => {
-        if (formLines.has(`revenue.${k}`)) return;
-        if (v != null && v !== "" && !near(v, revenue_breakdown[k] ?? 0)) corrected.push(`rev:${k}`);
-      });
-      Object.entries(readScan.payments || {}).forEach(([k, v]) => {
-        if (formLines.has(`payments.${k}`)) return;
-        if (v != null && v !== "" && !near(v, payment_breakdown[k] ?? 0)) corrected.push(`pay:${k}`);
-      });
-      if (readScan.revenue_total_text) corrected.push("revenue_total");
-      source_meta = {
-        kind: "zbon",
-        // Photos, not tills: the form's till was typed.
-        scans: Math.max(1, (Number(mi.scans) || 1) - (formTill ? 1 : 0)),
-        terminal_totals: summed ? (mi.terminalTotals || []).map(Number).filter(Number.isFinite) : [],
-        ...(formTill ? { typed_tills: [0] } : {}),
-        corrected,
-        ...(typed.length ? { typed } : {}),
-      };
-    } else if (!scanResult && !receiptPhotoUrl) {
-      source_meta = { kind: "typed" };
-    }
+    // Where the figures came from, for the revisor's kasserapport — read off
+    // the tills (closeTills.sourceMetaOf): read off a Z-bon (and the tills
+    // added together), typed, and which lines the owner changed after a
+    // photo. A typed till is never a Z-bon read: it is listed in typed_tills,
+    // its own lines in `typed`. A reopened draft with no new photo sends
+    // nothing, so the server keeps what it already knows.
+    const source_meta = sourceMetaOf(ledger, {
+      revenue_breakdown,
+      payment_breakdown,
+      momsTyped,
+      tipsSaved: Boolean(tipsTotal && Number.isFinite(readMoney(tipsTotal))),
+      photo: receiptPhotoUrl,
+    });
     const countedNum = cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null;
 
     return {
@@ -3454,8 +3361,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    * out on purpose — they are not money lines the owner types.
    */
   const mergeIncompleteNames = useMemo(() => {
-    const fields = scanResult?.merge_info?.incompleteFields || [];
-    if (!fields.length) return { read: [], own: [] };
+    // Lines only some tills carried (closeTills.oneSidedLines).
+    const sides = oneSidedLines(ledger, { listMoms: true });
+    if (!sides.read.length && !sides.own.length) return { read: [], own: [] };
     const label = (f) => {
       if (f === "moms_total") return vatName;
       if (f === "tips") return t("tipsLabel", "Tips");
@@ -3480,11 +3388,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // bon's: "Stod kun på den ene bon: Kontant" named a figure on no bon. It
     // is still not added up — the new bon's cash, say, is in no line — so it
     // is named on its own line, in words that do not call it a bon's.
-    return {
-      read: names(fields.filter((f) => !typedOnCard.has(f))),
-      own: names(fields.filter((f) => typedOnCard.has(f))),
-    };
-  }, [scanResult, typedOnCard, revCats, payMethods, vatName, t]);
+    return { read: names(sides.read), own: names(sides.own) };
+  }, [ledger, revCats, payMethods, vatName, t]);
   const mergeIncompleteLabels = mergeIncompleteNames.read;
   const mergeIncompleteOwnLabels = mergeIncompleteNames.own;
 
@@ -3516,7 +3421,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const cardMomsApplied = Boolean(scanResult) && Boolean(appliedMoms) && appliedMoms.key === scanMomsKey(scanResult);
   const cardMoms = (() => {
     const bon = Number(scanResult?.moms_total);
-    const fits = scanMomsFits(scanResult, cardSaveTotal);
+    const fits = ledgerMoms.source === "zbon";
     // The form's MOMS is what applying leaves: the figure already applied, or
     // one the owner typed (kept even when a new figure arrives).
     const formKept = momsTyped && Boolean(appliedMoms)
@@ -3527,11 +3432,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // The bon's own figure under a total that moved off it follows the total.
       if (!(isBon && !fits)) return { value: kept, read: isBon && fits, moved: false };
     }
-    // The form's own MOMS (plus the bon's on a sum): what applying leaves,
-    // and nobody read it off a photo.
-    if (formMomsOnCard(scanResult)) return { value: bon, read: false, moved: false };
-    if (fits) return { value: bon, read: true, moved: false };
-    return { value: momsFor(cardSaveTotal), read: false, moved: scanMomsMoved(scanResult, cardSaveTotal) };
+    // The form's own MOMS (plus the bons' on a sum, when every till's is
+    // known): what applying leaves, and nobody read it off a photo.
+    if (ledgerMoms.source === "typed") return { value: ledgerMoms.value, read: false, moved: false };
+    if (fits) return { value: ledgerMoms.value, read: true, moved: false };
+    return { value: momsFor(cardSaveTotal), read: false, moved: ledgerMoms.recomputed };
   })();
 
   /**
@@ -3565,7 +3470,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           {/* Undo belongs to the scan card — by the review step the owner has
               already left the photos behind, and an undo there would silently
               un-sum numbers they have since typed over. */}
-          {withUndo && mergeUndo && (
+          {withUndo && canUndoChoice && (
             <button onClick={undoMerge}
               className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
               {t("scanMergedUndo", "Undo")}
@@ -3816,6 +3721,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
               {t("dcCloseForDate", "Kasserapport for {date}", { date: businessDateLabel })}
             </p>
+            {/* A photo that could not be read, or one already in the day, is
+                said here too — on the card it was added from. */}
+            {scanError && (
+              <p role="status" className="text-[13px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+                {scanError}
+              </p>
+            )}
             {/* ─── "Another terminal, or a better photo?" ───────────────
                 The only question we ask, asked only when it is real: both
                 scans carry a headline total, so the numbers either ADD UP
@@ -3827,7 +3739,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // What each card SAVES — the figure "du gemmer" on the card —
               // not its printed total: a Mad corrected to 9.500 on a 17.030
               // bon is 17.530 on screen, and the sum must carry it.
-              const existingTotal = scanSaveTotal(scanResult, mLocale) ?? headlineTotal(scanResult, mLocale);
+              const existingTotal = ledgerSaved;
               const incomingTotal = scanSaveTotal(pendingScan, mLocale) ?? headlineTotal(pendingScan, mLocale);
               return (
                 <div ref={terminalQRef} tabIndex={-1} role="group" aria-labelledby="dc-terminal-q"
@@ -3873,11 +3785,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
             {!pendingScan && renderMergeSummary({ withUndo: true, nowTotal: cardSaveTotal > 0 ? cardSaveTotal : null })}
             {/* "Same terminal" replaced the figures — as undoable as a sum. */}
-            {!pendingScan && mergeUndo && scanResult?.merge_info?.mode === MERGE_REPLACE && (
+            {!pendingScan && canUndoChoice && scanResult?.merge_info?.mode === MERGE_REPLACE && (
               <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3">
                 <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
                   <Icon name="RefreshCw" size={15} />
-                  {t("scanReplacedWithNew", "Using the new photo ({total})", { total: formatOwnerMoney(scanSaveTotal(scanResult, mLocale) || 0, currency, { decimals: GLANCE_DECIMALS }) })}
+                  {t("scanReplacedWithNew", "Using the new photo ({total})", { total: formatOwnerMoney(ledgerSaved, currency, { decimals: oreIfAny(ledgerSaved) }) })}
                 </span>
                 <button onClick={undoMerge}
                   className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
@@ -4244,15 +4156,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                       value={asBox(val)}
                       placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
-                      onChange={e => {
-                        setScanResult(prev => ({
-                          ...prev,
-                          revenue: { ...prev.revenue, [c.key]: e.target.value }
-                        }));
-                      }} />
+                      onChange={e => act(typeIntoForm, `revenue.${c.key}`, e.target.value)} />
                   </div>
                 );
               })}
+
               {/* Money on this card goes through formatOwnerMoney. It used to
                   be a bare `toLocaleString() + currency code`, which uses the
                   BROWSER locale: a Danish owner on an English phone read
@@ -4282,21 +4190,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     wrapperClassName="w-40 shrink-0"
                     className={`${inputClass} font-semibold`}
                     value={scanResult.revenue_total_text ?? asBox(cardSaveTotal > 0 ? cardSaveTotal : scanResult.revenue_total)}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      const n = readMoney(v);
-                      setScanResult((prev) => {
-                        // The printed figure, kept once the owner types over
-                        // it: the card says how far the saved total is off it.
-                        const bon = scanBonTotal(prev, mLocale);
-                        return {
-                          ...prev,
-                          ...(bon != null ? { bon_total: bon } : {}),
-                          revenue_total_text: v,
-                          revenue_total: Number.isFinite(n) && n > 0 ? n : null,
-                        };
-                      });
-                    }}
+                    // The printed figure is kept once the owner types over it
+                    // (bon_total): the card says how far the saved total is
+                    // off it. On a day of several tills the difference goes
+                    // to the owner's own till, or the last.
+                    onChange={(e) => act(typeIntoForm, "revenue_total", e.target.value)}
                   />
                 </div>
                 {cardBonGap && (
@@ -4414,12 +4312,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       className={inputClass}
                       value={asBox(val)}
                       placeholder=""
-                      onChange={e => {
-                        setScanResult(prev => ({
-                          ...prev,
-                          payments: { ...prev.payments, [m.key]: e.target.value }
-                        }));
-                      }} />
+                      onChange={e => act(typeIntoForm, `payments.${m.key}`, e.target.value)} />
                   </div>
                 );
               })}
@@ -4467,9 +4360,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   className={inputClass}
                   value={asBox(scanResult.tips)}
                   placeholder={!scanResult.tips ? t("dcNotOnReceipt", "not on the receipt") : ""}
-                  onChange={e => {
-                    setScanResult(prev => ({ ...prev, tips: e.target.value }));
-                  }} />
+                  onChange={e => act(typeIntoForm, "tips", e.target.value)} />
               </div>
             </div>
             )}
@@ -4559,6 +4450,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 </button>
               )}
               <button onClick={async () => {
+                const before = ledgerRef.current;
                 // A figure the owner typed on the card is a string (a read is
                 // a number): one tap threw those corrections away unasked.
                 const typed = (v) => typeof v === "string" && v.trim() !== "";
@@ -4569,28 +4461,50 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 const corrected = scanResult && (severalPhotos || scanResult.revenue_total_text != null || typed(scanResult.tips)
                   || [...Object.values(scanResult.revenue || {}), ...Object.values(scanResult.payments || {})].some(typed));
                 if (corrected) {
+                  // What stays is said: the owner's own till comes back, whole.
+                  const own = formTill(before);
+                  const ownTotal = own ? tillTotals(discardScans(before))[0] || 0 : 0;
+                  const total = formatOwnerMoney(ownTotal, currency, { decimals: oreIfAny(ownTotal) });
+                  const photos = scanPhotos.length;
                   const ok = await askConfirm({
                     title: t("dcScanStartOverTitle", "Start over?"),
-                    message: severalPhotos
-                      ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
-                          count: Math.max(scanPhotos.length, scanResult?.merge_info?.scans || 0, 2),
-                        })
-                      : t("dcScanStartOverBody", "The photo and your corrections on the card will be gone."),
+                    message: own
+                      ? (photos > 1
+                        ? t("dcScanStartOverKeepsOwnMany", "All {count} photos — and what you corrected on them — go. Your own figures ({total}) come back.", { count: photos, total })
+                        : t("dcScanStartOverKeepsOwn", "The photo — and what you corrected on it — goes. Your own figures ({total}) come back.", { total }))
+                      : severalPhotos
+                        ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
+                            count: Math.max(photos, 2),
+                          })
+                        : t("dcScanStartOverBody", "The photo and your corrections on the card will be gone."),
                     confirmLabel: t("startOver", "Start over"),
                     cancelLabel: t("cancel", "Cancel"),
                     destructive: true,
                   });
                   if (!ok) return;
                 }
-                // What a scan put in the form goes with it; the owner's own
-                // figures (a typed close, a reopened draft, a MOMS typed by
-                // hand) stay, and stay the first side of the next photo.
-                const boxesFromScan = boxesFromScanRef.current;
-                const momsFromScan = boxesFromScan || Boolean(appliedMoms?.fromScan);
-                applyScanResult(null); setScanPhotos([]); setReceiptPhotoUrl(null); applyPendingScans([]); setMergeUndo(null);
-                if (momsFromScan) { setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null); }
+                // Every photo and its corrections go; the owner's own till (a
+                // typed close, a reopened draft) stays exactly as it was
+                // (closeTills.discardScans). When the boxes showed the photos'
+                // figures they show what is left — so the next photo is asked
+                // about against the owner's own figures, never against a bon
+                // already thrown away (the same 3.000 counted twice).
+                const after = act(discardScans);
+                const boxesShowedPhotos = before.mirror && hasScanTills(before);
+                if (boxesShowedPhotos) writeBoxesFromLedger(after);
+                setScanPhotos([]); setReceiptPhotoUrl(null);
+                // The MOMS goes back with them: the owner's till's own MOMS, or
+                // worked out. A MOMS the owner typed since is theirs and stays.
+                const ownerTypedMoms = momsTyped && Boolean(appliedMoms)
+                  && (appliedMoms.owner || momsManual !== appliedMoms.manual);
+                if (boxesShowedPhotos && !ownerTypedMoms) {
+                  const left = momsOf(after);
+                  if (left.source === "typed") { setMomsMode("manual"); setMomsManual(asBox(left.value)); } else { setMomsMode("auto"); setMomsManual(""); }
+                  setAppliedMoms(null);
+                } else if (appliedMoms?.fromScan && !ownerTypedMoms) {
+                  setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null);
+                }
                 appliedPrefillRef.current = null; setScanMode("idle");
-                formSeedOffRef.current = boxesFromScan;
               }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
                 {t("startOver", "Start over")}
@@ -4902,9 +4816,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       onClick={() => {
                         const next = {};
                         Object.entries(splitMeta.categories).forEach(([k, v]) => { next[k] = asBox(v); });
+                        // With photos in the day the boxes are their tills'
+                        // figures: the split goes into the ledger like any
+                        // typed change. Without, it is the sync's own split.
+                        if (hasScanTills(ledgerRef.current)) {
+                          new Set([...Object.keys(revAmounts), ...Object.keys(next)]).forEach((k) => {
+                            if ((revAmounts[k] ?? "") !== (next[k] ?? "")) act(typeIntoForm, `revenue.${k}`, next[k] ?? "", { fromForm: true });
+                          });
+                        } else {
+                          act(detachForm);
+                        }
                         setRevAmounts(next);
                         salesFillRef.current = { ...salesFillRef.current, rev: next };
-                        boxesFromScanRef.current = false;
                       }}
                     >
                       {t("dcResetToComputed", "Reset to computed split")}
@@ -4954,7 +4877,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <label htmlFor={`dc-rev-${cat.key}`} className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, cat)}</label>
                 <MoneyField id={`dc-rev-${cat.key}`} locale={mLocale} placeholder="0" className={inputClass}
                   value={revAmounts[cat.key] || ""}
-                  onChange={e => { boxFillEpochRef.current += 1; formSeedOffRef.current = false; boxesFromScanRef.current = false; setRevAmounts({ ...revAmounts, [cat.key]: e.target.value }); }} />
+                  onChange={e => {
+                    boxFillEpochRef.current += 1;
+                    const next = { ...revAmounts, [cat.key]: e.target.value };
+                    setRevAmounts(next);
+                    typeInForm(`revenue.${cat.key}`, e.target.value, { rev: next });
+                  }} />
               </div>
             ))}
             <div className="flex gap-2">
@@ -4993,7 +4921,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <label htmlFor={`dc-pay-${m.key}`} className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</label>
                 <MoneyField id={`dc-pay-${m.key}`} locale={mLocale} placeholder="0" className={inputClass}
                   value={payAmounts[m.key] || ""}
-                  onChange={e => { boxFillEpochRef.current += 1; formSeedOffRef.current = false; boxesFromScanRef.current = false; setPayAmounts({ ...payAmounts, [m.key]: e.target.value }); }} />
+                  onChange={e => {
+                    boxFillEpochRef.current += 1;
+                    const next = { ...payAmounts, [m.key]: e.target.value };
+                    setPayAmounts(next);
+                    typeInForm(`payments.${m.key}`, e.target.value, { pay: next });
+                  }} />
               </div>
             ))}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
@@ -5113,7 +5046,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             <div>
               <label htmlFor="dc-tips-total" className={labelClass}><Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("totalTipsLabel", "Total Tips")}</label>
               <MoneyField id="dc-tips-total" locale={mLocale} placeholder="0" className={inputClass}
-                value={tipsTotal} onChange={e => setTipsTotal(e.target.value)} />
+                value={tipsTotal} onChange={e => {
+                  setTipsTotal(e.target.value);
+                  if (config.hasTips) typeInForm("tips", e.target.value, { tips: e.target.value });
+                }} />
             </div>
             <div>
               <label htmlFor="dc-staff-count" className={labelClass}><Icon name="Users" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("staffCountLabel", "Staff Count")}</label>
@@ -5581,11 +5517,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             // read Z-bon and its photo away without asking.
             <Button variant="ghost" size="lg" onClick={() => {
               if (scanResult) {
-                // The card shows what the form holds NOW. It showed the scan
-                // as first read — a reopened draft's card was empty — and
-                // "Brug disse tal" then copied that over the typed categories
-                // and payments, and autosaved the loss.
-                applyScanResult(foldFormIntoScan(scanResult));
+                // The card shows what the form holds NOW — every box edit is
+                // already in the ledger, nothing is folded back.
                 setScanMode("result");
                 return;
               }
@@ -5610,12 +5543,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // A total the owner typed is saved exactly; only an OCR figure
               // competes with the breakdown via max().
               const ownerSet = Boolean(scanResult?.revenue_total_text) && ocrTotal > 0;
+              // What the tills save, added up — the same figure as the
+              // payload's override and the review's total.
+              const willSave = savedRevenue;
+              const usingOverride = ocrTotal > 0 && (ownerSet ? ocrTotal !== revenueTotal : willSave - revenueTotal >= 0.005);
+              const summedDay = scanResult?.merge_info?.mode === MERGE_SUM;
               // A summed day's categories raised past their bons, on top of
-              // the bons' totals — the same rule as the payload's override.
-              const overBon = !ownerSet && ocrTotal > 0 ? overBonNow(scanResult, revenueTotal) : 0;
-              const overrideTotal = Math.round((ocrTotal + overBon) * 100) / 100;
-              const willSave = ownerSet ? ocrTotal : (overrideTotal > revenueTotal ? overrideTotal : revenueTotal);
-              const usingOverride = ocrTotal > 0 && (ownerSet ? ocrTotal !== revenueTotal : overrideTotal > revenueTotal);
+              // the bons' totals.
+              const overBon = summedDay && !ownerSet && ocrTotal > 0 ? Math.max(0, Math.round((willSave - ocrTotal) * 100) / 100) : 0;
+
               // The other direction had no note: categories raised past the
               // bon's total are what is saved, and "Gemmer total" said nothing.
               // No bon known (a reopened draft's saved total) is no "Z-bon".
@@ -5683,6 +5619,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         {ownerSet
                           // The owner typed this total — "from the receipt" was untrue.
                           ? t("dcSavesYourTotal", "(your corrected total — the categories add up to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })
+
                           // A sum the tills' corrected categories moved off
                           // the bons: the bons' figure, the amount and which
                           // way, then the split — three figures that add up.
