@@ -14,6 +14,13 @@
  *  1. Another device locks the day while the page is open: the autosave's
  *     409 shows the day's lock banner at once (its amount once History is
  *     read again), the form is read-only, the slot says "Ikke gemt".
+ *  2. "Kladden er gemt et andet sted": raised by a lock TAP it is brought
+ *     into view and takes focus, and the lock's area says why nothing was
+ *     locked; raised by an autosave it never takes the caret — the slot says
+ *     "Ikke gemt" and brings it into view on a tap.
+ *  3. After a two-till sum, the day's own split typed afterwards is never
+ *     "ikke lagt sammen", and nothing above the box moves while the focus
+ *     goes from box to box.
  *
  * OFFLINE (the fixed failure model's last class): a draft save that got no
  * answer waits — sent when the page is left or the browser is online again —
@@ -339,6 +346,120 @@ describe("confusing 1 — another device locks the day while the page is open", 
     for (let i = 0; i < 8; i++) await settle();
     expect(q('[data-testid="dc-draft-changed"]')).toBeNull();
     expect(text()).toContain("dcDayAlreadyLocked");
+  });
+});
+
+/* ─── confusing 2: "Kladden er gemt et andet sted" off-screen ────────── */
+
+describe("confusing 2 — the draft saved somewhere else is said where the owner is", () => {
+  it("an autosave refused on Trin 5: the slot says \"Ikke gemt\" (never \"5/5\"), the caret stays in Noter; a tap on it brings the question into view", async () => {
+    serve([DRAFT]);
+    await mount();
+    tap(/^dcContinueDraft$/);
+    await toStepWith("#dc-notes");
+    S.otherSave(KEY, (r) => { r.notes = "B"; });
+    const notes = q("#dc-notes");
+    act(() => { notes.focus(); });
+    keyIn(notes, "x");
+    await flush();
+    const card = q('[data-testid="dc-draft-changed"]');
+    expect(card).not.toBeNull();
+    const slot = q('[data-testid="dc-save-slot-unsaved"]');
+    expect(slot).not.toBeNull();
+    expect(slot.textContent).toContain("dcDraftNotSavedShort");
+    expect(text()).not.toMatch(/\b5\/5\b/);
+    // Nothing took the caret.
+    expect(document.activeElement).toBe(notes);
+    expect(scrolled).not.toContain(card);
+    fireEvent.click(slot);
+    expect(scrolled).toContain(card);
+    expect(document.activeElement).toBe(card);
+  });
+
+  it("a lock refused (412): the question is brought into view and takes focus, and the lock's area says why nothing was locked", async () => {
+    serve([DRAFT]);
+    await mount();
+    tap(/^dcContinueDraft$/);
+    await toStepWith("#dc-notes");
+    S.otherSave(KEY, (r) => { r.notes = "B"; });
+    tap(/confirmAndLock/);
+    for (let i = 0; i < 6; i++) await settle();
+    const card = q('[data-testid="dc-draft-changed"]');
+    expect(card).not.toBeNull();
+    expect(rowFor()).toMatchObject({ status: "draft", notes: "B" });
+    await waitFor(() => expect(scrolled).toContain(card));
+    expect(document.activeElement).toBe(card);
+    const why = q('[data-testid="dc-lock-not-done"]');
+    expect(why).not.toBeNull();
+    expect(why.textContent).toContain("dcLockNotDoneDraftChanged");
+    // Answered: the reason goes with the question.
+    tap(/^dcDraftChangedKeepLock$/);
+    for (let i = 0; i < 6; i++) await settle();
+    expect(q('[data-testid="dc-lock-not-done"]')).toBeNull();
+    expect(rowFor()).toMatchObject({ status: "confirmed", revenue_total: 3000 });
+  });
+});
+
+/* ─── confusing 3: a two-till sum, then the day's own split ──────────── */
+
+describe("confusing 3 — after a sum, the day's split is never \"ikke lagt sammen\", and nothing above the box moves box to box", () => {
+  // The desktop lane's repro: 17.030 (Kort 12.000) + 5.000 (Kontant 5.000),
+  // "En terminal mere", "Fortsæt trin for trin", the categories typed.
+  const summedWizard = async () => {
+    serve();
+    await mount();
+    await shootStub({ revenue_total: 17030, moms_total: 3406, payments: { card: 12000 } }, "a.jpg");
+    S.nextScan = { raw_text: "BON", ocr_available: true, revenue: {}, revenue_total: 5000, payments: { cash: 5000 }, image_url: photoUrl("b.jpg") };
+    const input = [...document.querySelectorAll('input[type="file"]')].at(-1);
+    fireEvent.change(input, { target: { files: [new File(["b"], "b.jpg", { type: "image/jpeg", lastModified: 1 })] } });
+    await waitFor(() => expect(q('[data-testid="dc-terminal-question"]')).not.toBeNull());
+    tap(/^scanSecondTotalSum/);
+    tap(/^continueStepByStep$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+  };
+  /** Every block (div/p) above the box, with its text: what could move it. */
+  const above = (input) => [...document.querySelectorAll("fieldset div, fieldset p")]
+    // eslint-disable-next-line no-bitwise
+    .filter((el) => !el.contains(input) && (el.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING))
+    .map((el) => `${el.tagName}:${el.children.length ? "" : el.textContent}`)
+    .join("¦");
+  /** Focus moves from one box straight to the next (Tab): blur with relatedTarget, then focus. */
+  const tabTo = (from, to) => {
+    act(() => {
+      fireEvent.blur(from, { relatedTarget: to });
+      fireEvent.focus(to, { relatedTarget: from });
+    });
+  };
+
+  it("Mad, Drikkevarer and Takeaway typed box to box: nothing above the next box changes, and no line names them", async () => {
+    await summedWizard();
+    const food = q("#dc-rev-food");
+    const drinks = q("#dc-rev-drinks");
+    const takeaway = q("#dc-rev-takeaway");
+    act(() => { fireEvent.focus(food); });
+    keyIn(food, "14000");
+    const beforeDrinks = above(drinks);
+    tabTo(food, drinks);
+    expect(above(drinks)).toBe(beforeDrinks);
+    keyIn(drinks, "5000");
+    const beforeTakeaway = above(takeaway);
+    tabTo(drinks, takeaway);
+    expect(above(takeaway)).toBe(beforeTakeaway);
+    keyIn(takeaway, "3030");
+    // Left: the summary settles once — and names none of the day's split.
+    act(() => { fireEvent.blur(takeaway); });
+    expect(text()).not.toContain("scanMergedIncompleteOwn");
+  });
+
+  it("MobilePay, a payment no bon had, typed after the sum: never \"ikke lagt sammen\" on the review either", async () => {
+    await summedWizard();
+    keyIn(q("#dc-rev-food"), "14000");
+    keyIn(q("#dc-rev-drinks"), "5000");
+    keyIn(q("#dc-rev-takeaway"), "3030");
+    await toStepWith("#dc-pay-mobilepay");
+    keyIn(q("#dc-pay-mobilepay"), "5030");
+    await toStepWith("#dc-notes");
+    expect(text()).not.toContain("scanMergedIncompleteOwn");
   });
 });
 

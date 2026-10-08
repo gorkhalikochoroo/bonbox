@@ -811,7 +811,21 @@ export function oneSidedLines(state, { listMoms = false } = {}) {
   const card = cardView(state);
   if (!card || tillGroups(state).length < 2) return { read: [], own: [] };
   const typed = new Set(card.merge_info?.typedFields || []);
-  const fields = (card.merge_info?.incompleteFields || []).filter((f) => f !== "moms_total" || listMoms);
+  // A line the owner typed in the DAY's box after the sum (the overlay) that
+  // no till carries of its own — read off its bon, or on the owner's till
+  // from before the photo — is the day's split of the total, spread over the
+  // tills (distribute), not a till's figure the new bon might also hold.
+  // There is nothing left to add up: "ikke lagt sammen: Drikkevarer,
+  // Takeaway, MobilePay" named the very split that made the review add up
+  // (round 22). A line a till does carry (Kontant read on one bon, retyped
+  // after the sum) is still named.
+  const onATill = (f) => activeEntries(state).some((e) => {
+    const v = fieldOf(e.scan, f);
+    return v != null && String(v).trim() !== "";
+  });
+  const dayTyped = (f) => hasOwn(state.overlay, f) && !onATill(f);
+  const fields = (card.merge_info?.incompleteFields || [])
+    .filter((f) => (f !== "moms_total" || listMoms) && !dayTyped(f));
   return { read: fields.filter((f) => !typed.has(f)), own: fields.filter((f) => typed.has(f)) };
 }
 

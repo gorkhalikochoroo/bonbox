@@ -5105,10 +5105,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const heldReads = cardShown.reads;
   const heldMergeNow = cardShown.mergeNow;
   const heldMergeNames = cardShown.mergeNames;
+  // Focus moving straight on from one box to the next (Tab, a tap on the
+  // next box) keeps the hold (round 22): released on the blur and taken again
+  // on the focus, a line the box just left added ("ikke lagt sammen: …",
+  // "Med dine rettelser …") appeared above the box now focused and pushed it
+  // down 20–52 px. It settles once focus leaves the boxes (Næste, a tap
+  // outside) — or the step changes.
   const onCardFocus = (e) => {
-    if (e.target?.tagName === "INPUT") setCardHeld({ ...cardLive, at: heldHere, unsplitLive: String(e.target.id || "").startsWith("scan-rev-") });
+    if (e.target?.tagName !== "INPUT") return;
+    const unsplitLive = String(e.target.id || "").startsWith("scan-rev-");
+    setCardHeld((prev) => (prev && prev.moving && prev.at === heldHere
+      ? { ...prev, moving: false, unsplitLive }
+      : { ...cardLive, at: heldHere, unsplitLive }));
   };
-  const onCardBlur = (e) => { if (e.target?.tagName === "INPUT") setCardHeld(null); };
+  const onCardBlur = (e) => {
+    if (e.target?.tagName !== "INPUT") return;
+    const next = e.relatedTarget;
+    if (next && next.tagName === "INPUT" && e.currentTarget?.contains?.(next)) {
+      setCardHeld((prev) => (prev ? { ...prev, moving: true } : prev));
+      return;
+    }
+    setCardHeld(null);
+  };
 
   // The card differs from the draft that is filed (or about to be): its
   // figures are saved by applying it, and it says so.
@@ -5221,6 +5239,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // (sent again on that newer version, saved over it). Never decided in
   // silence either way.
   const conflictHere = Boolean(draftConflict) && draftConflict.key === rowKey;
+  // The question is rendered at the top of the wizard (or the card), and on
+  // the review step that is 500–1.200 px above Noter and "Bekræft & lås":
+  // a refused lock changed only the off-screen card (round 22). Raised by a
+  // lock TAP it is brought into view and takes focus (nothing is being
+  // typed); raised by an autosave it never steals the caret — the fixed
+  // save slot says "Ikke gemt" and brings it into view on a tap.
+  const draftConflictBoxRef = useRef(null);
+  const showDraftConflict = () => {
+    const el = draftConflictBoxRef.current;
+    el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    el?.focus?.({ preventScroll: true });
+  };
+  useEffect(() => {
+    if (!conflictHere || draftConflict?.via !== "lock") return undefined;
+    if (typeof window.requestAnimationFrame === "function") {
+      const raf = window.requestAnimationFrame(showDraftConflict);
+      return () => window.cancelAnimationFrame?.(raf);
+    }
+    const timer = setTimeout(showDraftConflict, 0);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftConflict, conflictHere]);
   const reloadNewestDraft = () => {
     const c = draftConflict;
     if (!c) return;
@@ -5299,7 +5339,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return formatOwnerMoney(Number(cur.revenue_total) || 0, currency, { decimals: oreDecimals(cur.revenue_total) });
   })();
   const draftConflictEl = conflictHere ? (
-    <div data-testid="dc-draft-changed" className="mb-4">
+    <div data-testid="dc-draft-changed" className="mb-4 rounded-xl focus:outline-none" ref={draftConflictBoxRef} tabIndex={-1}>
       <SectionBanner severity="warn" icon="AlertTriangle"
         title={t("dcDraftChangedTitle", "The draft was saved somewhere else")}>
         {conflictFigure
@@ -6817,12 +6857,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               1.500 into "Add category". */}
           {/* "Gemmer…" while a save is waiting or on its way; "Gemt" only once
               the server has it. */}
-          {/* Not saved — the day was locked on another device (its banner is
-              above the read-only form): the slot says so, never the step
-              counter over edits nobody saves (round 22). */}
+          {/* Not saved — the day's draft was saved somewhere else (the question
+              is open; a tap brings it into view), or the day was locked on
+              another device (its banner is above the read-only form): the
+              slot says so, never the step counter over edits nobody saves
+              (round 22). The hit area is 40 px; the negative margin keeps the
+              row's height, so nothing moves. */}
           <span aria-live="polite" title={draftSaved && !draftSaving ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
             className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0 min-w-[3.75rem] text-right">
-            {lockedRowRejected
+            {conflictHere && !draftSaving
+              ? (
+                <button type="button" data-testid="dc-save-slot-unsaved" onClick={showDraftConflict}
+                  aria-label={t("dcDraftNotSavedWhy", "Not saved — the draft was saved somewhere else. Show the question")}
+                  className="inline-flex items-center gap-1 min-h-10 -my-2 px-1 -mx-1 font-medium text-amber-700 dark:text-amber-400 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded">
+                  <Icon name="AlertTriangle" size={13} className="shrink-0" />{t("dcDraftNotSavedShort", "Not saved")}
+                </button>
+              )
+              : lockedRowRejected
               ? (
                 <span data-testid="dc-save-slot-unsaved" title={t("dcDraftNotSavedLocked", "Not saved — the day was locked on another device")}
                   className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
@@ -7513,6 +7564,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               </div>
             )}
 
+            {/* The lock was refused because the day's draft was saved somewhere
+                else (round 22): said HERE, beside the button that was tapped —
+                it changed only the question at the top of the wizard. */}
+            {!error && conflictHere && draftConflict.via === "lock" && (
+              <SectionBanner severity="warn" icon="AlertTriangle">
+                <span data-testid="dc-lock-not-done">
+                  {t("dcLockNotDoneDraftChanged", "Not locked: the draft was saved somewhere else after you opened it. Choose in the question above which numbers count.")}
+                </span>
+                <button type="button" onClick={showDraftConflict}
+                  className="block mt-1 min-h-10 font-semibold underline underline-offset-2 text-left">
+                  {t("dcShowQuestion", "Show the question")}
+                </button>
+              </SectionBanner>
+            )}
             {error && (
               <SectionBanner severity="critical" icon="AlertCircle">
                 {error}

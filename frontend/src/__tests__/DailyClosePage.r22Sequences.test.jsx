@@ -26,8 +26,10 @@
  *          silence (finding 4);
  * and the same class on the other paths the rule covers (a replaced draft
  * moved, the new day's save of a move losing its answer, the newest draft
- * locked elsewhere, leaving and coming back). FOUND: seeds this variant
- * failed while the round was built (each fails on dfb46ddb too).
+ * locked elsewhere, leaving and coming back — 22009 / 22010 pass on dfb46ddb
+ * too and pin it). FOUND: seeds this variant failed while the round was
+ * built — 9157, 9204, 9259 and 9293 fail on dfb46ddb; 9474 pins the
+ * harness's rule that a day locked elsewhere is never said "moved".
  * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r22Sequences.test.jsx
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -207,10 +209,9 @@ const PLANS = [
   }],
 ];
 
-// Found by this variant while round 22 was built (each fails on the round-21
-// page, and the first two broke an earlier cut of the fixes): the lock met
-// while the scan card is open, a kept draft another device saved since, a
-// day locked elsewhere and then moved from.
+// Found by this variant while round 22 was built: the lock met while the
+// scan card is open, a kept draft another device saved since, a day locked
+// elsewhere and then moved from, Start forfra offline.
 const FOUND = [
   ["a day locked elsewhere, met by a save while the scan card is open: said on the card (LK)", 9157],
   ["a lost answer's re-send meets another device's lock on the way to the card: said there (LK)", 9204],
