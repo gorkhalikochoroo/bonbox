@@ -50,6 +50,16 @@ def without_demo(closes) -> list:
     return [c for c in (closes or []) if not is_demo_close(c)]
 
 
+def strip_demo_marker(notes):
+    """The notes without the demo seeder's " · demo" marker; the seeder's own
+    text ("sample") goes with it. Notes without the marker come back as is."""
+    text = str(notes or "")
+    if not text.endswith(DEMO_NOTES_SUFFIX):
+        return notes
+    rest = text[: -len(DEMO_NOTES_SUFFIX)].strip()
+    return None if (not rest or rest.lower() == "sample") else rest
+
+
 # ─── Confirmed vs draft — one predicate, one label ────────────────────
 
 def _is_confirmed(c) -> bool:
@@ -871,7 +881,9 @@ def build_daily_close_range_pdf(
     DA = (currency == "DKK")
 
     L = {
-        "title":       "Kasserapport" if DA else "Daily Close",
+        # Plural — the same word as the running header and the file name
+        # ("Kasserapporter … .pdf"); page 1 used to say "Kasserapport".
+        "title":       "Kasserapporter" if DA else "Daily Closes",
         "period":      "Periode" if DA else "Period",
         "closes":      "lukninger" if DA else "closes",
         "close_one":   "lukning" if DA else "close",
@@ -921,6 +933,9 @@ def build_daily_close_range_pdf(
             "payments do not match revenue"
         ),
         "relocked":    "genlåst" if DA else "relocked",
+        # Under a locked day's status when its own kasserapport says
+        # GENNEMGÅS — the band names the day, the row says it too.
+        "row_review":  "gennemgås" if DA else "needs review",
         "src_title":   ("Kilde, salgsmoms og historik pr. dag" if DA
                         else "Source, VAT and history per day"),
         "src_summary": "Kilde" if DA else "Source",
@@ -1154,10 +1169,9 @@ def build_daily_close_range_pdf(
         ))
 
         if not closes_sorted:
+            # The statutory footer is drawn in the page footer (footer_note).
             story.append(Spacer(1, 6))
             story.append(Paragraph(L["no_closes"], note))
-            story.append(Spacer(1, 12))
-            story.append(Paragraph(L["footer_law"], note))
             return story
 
         # ─── KPI band (only sums CONFIRMED — drafts excluded so totals are
@@ -1289,7 +1303,7 @@ def build_daily_close_range_pdf(
 
         table_data = [[
             _H(L["h_date"], head_left), _H(L["h_bilag"], head_left),
-            _H(L["h_rev"]), _H(escape_pdf_text(moms_heading)), _H(L["h_net"]),
+            _H(L["h_rev"]), _H(_two_line_head(moms_heading)), _H(L["h_net"]),
             _H(L["h_cash"]), _H(L["h_card"]), _H(L["h_mobilepay"]), _H(L["h_gift"]),
             _H(L["h_other"]), _H(L["h_diff"]), _H(L["h_status"], head_center),
         ]]
@@ -1344,6 +1358,9 @@ def build_daily_close_range_pdf(
             # the Excel and the CSV do (the details are in the block below).
             if hist.get(str(getattr(c, "id", "") or "")):
                 status_txt += _small(L["relocked"])
+            if status == "confirmed" and id(c) not in ready_ids:
+                status_txt += (f"<br/><font name='Helvetica-Bold' size='6' "
+                               f"color='{AMBER.hexval()}'>{L['row_review']}</font>")
             status_cell = Paragraph(status_txt, status_style)
             # Two branches on the same day are two rows: name the branch under
             # the date (the CSV and Excel carry an Afdeling column), or the
@@ -1702,28 +1719,28 @@ def build_daily_close_range_pdf(
             ("TOPPADDING", (0, 0), (-1, -1), 6),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ]))
-        story.append(badge)
-
         # ─── Signature line (two-person control, Bogføringsloven §10) ─────
         # The revisor expects a signed cash report: who counted the drawer +
         # who approved it for booking, with a date. Kept to a single quiet
-        # line so it never crowds the landscape body.
-        story.append(Spacer(1, 14))
-        story.append(Paragraph(
-            f"<font color='#6b7280' size='8'>"
-            f"{L['sig_counted']}: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
-            f"{L['sig_approved']}: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
-            f"{L['sig_date']}: ____________</font>",
-            note,
-        ))
+        # line so it never crowds the landscape body — and kept WITH the
+        # verdict band, so a page never holds the signature line alone.
+        story.append(KeepTogether([
+            badge,
+            Spacer(1, 14),
+            Paragraph(
+                f"<font color='#6b7280' size='8'>"
+                f"{L['sig_counted']}: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                f"{L['sig_approved']}: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                f"{L['sig_date']}: ____________</font>",
+                note,
+            ),
+        ]))
 
         # ─── Footer ──────────────────────────────────────────────────────
-        story.append(Spacer(1, 6))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=4))
-        story.append(Paragraph(
-            L["footer_law"] if all_standard_rate else L["footer_law_mixed"], note,
-        ))
-
+        # The statutory line ("Opbevares i 5 år …") is drawn in the page
+        # footer beside Dokument-id / Side x af y (footer_note below): as the
+        # body's last paragraph it spilled onto an empty page 2 on a short
+        # period — a page holding nothing but that sentence.
         return story
 
     # ─── 2-pass render with the accountant-grade provenance footer ───────
@@ -1742,7 +1759,7 @@ def build_daily_close_range_pdf(
     # the renderer. The id is the period's stable Dokument-id, the same word
     # the kasserapport uses (it said "Doc-hash" here).
     running = " · ".join(p for p in (
-        f"{L['title']}er" if DA else f"{L['title']}s",
+        L["title"],
         business_name or "",
         f"{_date_short(from_date)} – {_date_short(to_date)}",
         f"{L['bilag_label']} {bilagsnummer}" if bilagsnummer else "",
@@ -1762,7 +1779,20 @@ def build_daily_close_range_pdf(
         hash_label="Dokument-id" if DA else "Document ID",
         running_header=running,
         running_header_page_no=True,
+        footer_note=(L["footer_law"] if all_standard_auto(closes_sorted, currency)
+                     else L["footer_law_mixed"]),
     )
+
+
+def _two_line_head(label: str) -> str:
+    """'Salgsmoms (25 %)' as a two-line column header — 'Salgsmoms' over
+    '(25 %)' — so a narrow column never breaks it mid-parenthesis ('Salgsmoms
+    (25' / '%)'). Escaped; a label without a parenthesis is one line."""
+    from app.services.bonbox_pdf_kit import escape_pdf_text
+    head, sep, rest = (label or "").partition(" (")
+    if not sep:
+        return escape_pdf_text(label or "")
+    return f"{escape_pdf_text(head)}<br/>({escape_pdf_text(rest).replace(' ', '&nbsp;')}"
 
 
 # ─── XLSX ─────────────────────────────────────────────────────────────

@@ -368,8 +368,10 @@ def _changes_table(changes, is_danish: bool) -> str:
                 + (f"… og {len(changes) - 12} linjer mere (se kasserapporten)" if is_danish
                    else f"… and {len(changes) - 12} more lines (see the kasserapport)")
                 + "</td></tr>")
+    # "Ændret:" in its own block — the text part ran it into the header
+    # ("Ændret:Linje | Før | Nu").
     return (
-        ("Ændret:" if is_danish else "Changed:")
+        "<div>" + ("Ændret:" if is_danish else "Changed:") + "</div>"
         + "<table style='border-collapse:collapse;margin:4px 0 2px 0;font-size:13px;color:#78350f;'>"
         f"<tr><td style='{th.format(a='left')}'>{head[0]}</td>"
         f"<td style='{th.format(a='right')}'>{head[1]}</td>"
@@ -552,7 +554,16 @@ def _build_close_email_html(
             f"{esc(_cash_diff_words(cash_diff, currency, is_danish))}</td></tr>"
         )
     status_html = ""
-    if verdict.get("locked"):
+    if verdict.get("locked") and _is_demo_close(dc):
+        # The attached kasserapport says "Eksempel — ikke til bogføring" in
+        # the band's place; the mail never says Klar over sample figures.
+        demo_txt = ("Eksempel — ikke til bogføring" if is_danish
+                    else "Sample — not for bookkeeping")
+        status_html = (
+            f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{status_label}</td>"
+            f"<td style='padding:4px 0;text-align:right;color:#92400e;font-weight:600;'>{demo_txt}</td></tr>"
+        )
+    elif verdict.get("locked"):
         if verdict.get("ready"):
             status_html = (
                 f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{status_label}</td>"
@@ -584,7 +595,9 @@ def _build_close_email_html(
         f"<p>{greeting}</p>"
         f"<p>{intro}</p>"
         f"{correction_html}"
-        "<table style='border-collapse:collapse;margin:16px 0;'>"
+        # An explicit size: a client in quirks mode does not pass the body's
+        # 14px into a table, and the figures came out larger than the text.
+        "<table style='border-collapse:collapse;margin:16px 0;font-size:14px;line-height:1.5;'>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_rev}</td>"
         f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(rev)}</td></tr>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_moms}</td>"
@@ -954,7 +967,10 @@ def _fire_close_auto_email(
         closed_by=dc.closed_by, has_scan=bool(scan_bytes),
         scan_degraded=scan_degraded, is_danish=is_danish,
         attachment_name=pdf_filename, tz=tz, branch=branch,
-        bilagsnummer=close_bilagsnummer(dc, branch), doc_id=doc_id,
+        # A sample close is no voucher: its kasserapport has no bilag number,
+        # and the mail does not name one either.
+        bilagsnummer=("" if _is_demo_close(dc) else close_bilagsnummer(dc, branch)),
+        doc_id=doc_id,
     )
 
     from app.services.email_service import send_close_notification
@@ -2012,12 +2028,8 @@ def _is_demo_close(dc) -> bool:
 def _strip_demo_marker(notes):
     """The notes without the demo seeder's " · demo" marker; the seeder's own
     text ("sample") goes with it."""
-    from app.services.daily_close_range_export import DEMO_NOTES_SUFFIX
-    text = str(notes or "")
-    if not text.endswith(DEMO_NOTES_SUFFIX):
-        return notes
-    rest = text[: -len(DEMO_NOTES_SUFFIX)].strip()
-    return None if (not rest or rest.lower() == "sample") else rest
+    from app.services.daily_close_range_export import strip_demo_marker
+    return strip_demo_marker(notes)
 
 
 def _notes_to_store(existing, data, revenue_total) -> str | None:
@@ -2147,7 +2159,11 @@ def _figure_changes(before: dict, dc: DailyClose, currency: str) -> tuple[list[t
             continue
         o, n = _r(before.get(key)), _r(getattr(dc, key, None))
         if o != n:
-            out.append((label_da if da else label_en, money_dk(o, currency), money_dk(n, currency)))
+            # The cash difference keeps its sign ("+25,00 kr."), as the KPI
+            # row above it and the History card print it.
+            _m = ((lambda v: _signed_money(v, currency)) if key == "cash_difference"
+                  else (lambda v: money_dk(v, currency)))
+            out.append((label_da if da else label_en, _m(o), _m(n)))
 
     # Drikkepenge: no tips and 0 tips print the same (no section), so they
     # compare equal; how many shared them only matters when there are tips.
@@ -3967,7 +3983,7 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
                           message: str | None, is_danish: bool,
                           attachment_name: str = "", accountant_name: str | None = None,
                           cvr: str | None = None, unsubscribe_url: str | None = None,
-                          owner_copy_to: str | None = None) -> str:
+                          owner_copy_to: str | None = None, bilagsnummer: str = "") -> str:
     """HTML body for the period mail to the revisor.
 
     Its figures are `period_totals` — the SAME function the attached PDF, Excel
@@ -4027,7 +4043,10 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
             "xlsx": "Excel — én række pr. dag; totalerne tæller kun låste lukninger.",
             "csv":  "CSV — semikolon og decimalkomma, åbner direkte i dansk Excel.",
         }[fmt]
-        attached = f"Vedhæftet fil: {att}" if att else ""
+        # The period voucher number the attachment carries (KRP-…), as the
+        # lock mail names the day's KR-… number.
+        attached = (f"Vedhæftet fil: {att}"
+                    + (f" (bilagsnr. {esc(bilagsnummer)})" if bilagsnummer else "")) if att else ""
     else:
         greeting = f"Hello {esc(accountant_name.strip())}," if named else "Hello,"
         intro = (
@@ -4051,7 +4070,8 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
             "xlsx": "Excel — one row per day; totals count locked closes only.",
             "csv":  "CSV — semicolon separated, one row per day.",
         }[fmt]
-        attached = f"Attached file: {att}" if att else ""
+        attached = (f"Attached file: {att}"
+                    + (f" (voucher no. {esc(bilagsnummer)})" if bilagsnummer else "")) if att else ""
 
     moms_note = ""
     if total_moms is None:
@@ -4084,7 +4104,7 @@ def _accountant_email_body(*, business_name: str, from_date: date, to_date: date
         f"<p>{intro}</p>"
         + (f"<p style='color:#92400e;font-size:13px;'>{draft_note}</p>" if draft_note else "")
         + f"{user_note_html}"
-        "<table style='border-collapse:collapse;margin:16px 0;'>"
+        "<table style='border-collapse:collapse;margin:16px 0;font-size:14px;line-height:1.5;'>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_rev}</td>"
         f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{_fmt(totals['revenue'])}</td></tr>"
         f"<tr><td style='padding:4px 16px 4px 0;color:#6b7280;'>{kpi_label_moms}</td>"
@@ -4220,6 +4240,8 @@ def send_to_accountant(
         attachment_name=filename,
         accountant_name=getattr(profile, "accountant_name", None),
         cvr=getattr(profile, "org_number", None),
+        # Named only for the files that print it (the CSV carries none).
+        bilagsnummer=(bilagsnummer if fmt in ("pdf", "xlsx") else ""),
     )
     html = _accountant_email_body(**body_args, unsubscribe_url=unsub_url)
     html_owner = _accountant_email_body(**body_args, owner_copy_to=recipient)

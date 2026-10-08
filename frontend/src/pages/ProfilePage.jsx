@@ -76,6 +76,10 @@ const PROFILE_BUSINESS_TYPES = [
    the same height, radius, and focus colour. The old hand-rolled
    class strings drifted between sections (e.g. rounded-lg vs
    rounded-xl) which made the page feel inconsistent at a glance. */
+/* The demo seeder's sample revisor name (backend revisor_mail
+   DEMO_SEEDED_REVISOR_NAME). Replacing the sample address clears it. */
+const DEMO_REVISOR_NAME = "Anna Hansen";
+
 const INPUT_CLASS =
   "w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 " +
   "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm " +
@@ -521,7 +525,10 @@ export default function ProfilePage() {
       };
       const res = await api.put("/business", payload);
       setBusinessProfile(res.data);
-      setAccountantForm((f) => ({ ...f, accountant_auto_send: res.data?.accountant_auto_send ?? false }));
+      // The server clears the demo seeder's sample name when the sample
+      // address is replaced — the form shows what was saved.
+      setAccountantForm((f) => ({ ...f, accountant_auto_send: res.data?.accountant_auto_send ?? false,
+        accountant_name: res.data?.accountant_name || "" }));
       setAccountantMsg(t("accountantSaved") || "Accountant contact saved");
       setTimeout(() => setAccountantMsg(""), 3000);
     } catch (err) {
@@ -1327,13 +1334,13 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field
                     label={t("accountantNameLabel") || "Accountant name (optional)"}
-                    hint={t("accountantNameHint") || 'Used in the mail greeting exactly as you type it ("Hej Anna Hansen,").'}
+                    hint={t("accountantNameHint") || 'Used in the mail greeting exactly as you type it ("Hej Pia Jensen,").'}
                   >
                     <input
                       type="text"
                       value={accountantForm.accountant_name}
                       onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_name: e.target.value }))}
-                      placeholder="Anna Hansen"
+                      placeholder="Pia Jensen"
                       maxLength={150}
                       className={INPUT_CLASS}
                       autoComplete="off"
@@ -1347,13 +1354,21 @@ export default function ProfilePage() {
                       // owner ticks it for this revisor, explicitly.
                       onChange={(e) => {
                         const v = e.target.value;
+                        const savedAddr = String(businessProfile?.accountant_email || "").toLowerCase();
                         setAccountantForm((f) => ({
                           ...f, accountant_email: v,
-                          accountant_auto_send: v.trim().toLowerCase() === String(businessProfile?.accountant_email || "").toLowerCase()
+                          accountant_auto_send: v.trim().toLowerCase() === savedAddr
                             ? f.accountant_auto_send : false,
+                          // Leaving the demo's sample address: its sample name
+                          // goes too, so the real revisor is never greeted by
+                          // it (the server clears it on save as well).
+                          accountant_name: businessProfile?.accountant_is_demo
+                            && v.trim().toLowerCase() !== savedAddr
+                            && f.accountant_name.trim() === DEMO_REVISOR_NAME
+                            ? "" : f.accountant_name,
                         }));
                       }}
-                      placeholder="anna@revisor.dk"
+                      placeholder="navn@revisorfirma.dk"
                       maxLength={254}
                       className={INPUT_CLASS}
                       autoComplete="off"
@@ -1365,7 +1380,7 @@ export default function ProfilePage() {
                 {accountantFormIsDemo && (
                   <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2" role="status" data-testid="accountant-demo-notice">
                     <Icon name="Info" size={16} className="shrink-0 mt-0.5" />
-                    <span>{t("accountantIsDemoNotice", "This revisor is sample data from the demo — BonBox never mails it. Type your own revisor's e-mail above and save.")}</span>
+                    <span>{t("accountantIsDemoNotice", "This revisor is sample data from the demo — BonBox never mails it. Type your own revisor's name and e-mail above and save.")}</span>
                   </p>
                 )}
                 {/* The revisor's lock mail — an explained, explicit choice:
@@ -1382,7 +1397,7 @@ export default function ProfilePage() {
                     <span className="font-medium">{t("accountantAutoSendLabel", "Send the kasserapport to my revisor automatically when a day is locked")}</span>
                     <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {autoSendOnPlan
-                        ? t("accountantAutoSendExplain", "What: the day's kasserapport as a PDF (plus the Z-bon photo if you scanned one). When: the moment the day is locked. To: {email}. You get a copy. Your revisor can unsubscribe with one click, and you'll see it here. Unticked, your revisor only gets what you send with Send.", { email: accountantForm.accountant_email.trim() || "—" })
+                        ? t("accountantAutoSendExplain", "What: the day's kasserapport as a PDF (plus the Z-bon photo if you scanned one). When: the moment the day is locked. To: {email}. You get a copy. Your revisor can unsubscribe with one click, and you'll see it here. Unticked, your revisor only gets what you send with Send.", { email: (!accountantFormIsDemo && accountantForm.accountant_email.trim()) || "—" })
                         : t("accountantAutoSendFreeNote", "Automatic sending on lock is on Starter. On your plan you send it yourself from History or the period export.")}
                     </span>
                   </span>

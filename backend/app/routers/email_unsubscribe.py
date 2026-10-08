@@ -280,15 +280,18 @@ def _revisor_confirm_page(token: str, biz: str) -> str:
     import html as _html
     safe_token = _html.escape(token)
     b = _html.escape(biz) or "denne virksomhed"
+    # The opt-out stops EVERY revisor mail (resolve_revisor_recipient on each
+    # path) — the page names all of them, not only the kasserapporter.
     return _page(
-        "Afmeld kasserapporter",
+        "Afmeld mails fra BonBox",
         f"""
         <h1>
           Afmeld mails fra BonBox om {b}?
         </h1>
         <p class="lead">
-          Du får kasserapporter, fordi {b} har angivet dig som revisor i BonBox. Afmelder du,
-          sender BonBox ikke flere mails til dig om {b}, og ejeren får besked i BonBox.
+          Du får mails fra BonBox, fordi {b} har angivet dig som revisor i BonBox. Afmelder du,
+          sender BonBox ikke flere mails til dig om {b} — hverken kasserapporter, momsangivelser
+          eller lønlister — og ejeren får besked i BonBox.
         </p>
         <form method="POST" action="/api/email/unsubscribe?token={safe_token}">
           <button type="submit" class="btn btn-danger">
@@ -319,7 +322,7 @@ def _revisor_success_page(biz: str, token: str) -> str:
         </h1>
         <p class="lead">
           BonBox sender ikke flere mails til dig om {b}. Ejeren kan se i BonBox, at du har afmeldt.
-          Var det en fejl, eller vil du have kasserapporterne igen, kan du fortryde her.
+          Var det en fejl, eller vil du have mailene igen, kan du fortryde her.
         </p>
         <form method="POST" action="/api/email/unsubscribe?token={safe_token}&amp;undo=1">
           <button type="submit" class="btn btn-ghost">
@@ -344,7 +347,8 @@ def _revisor_resubscribed_page(biz: str) -> str:
           Du får mails igen.
         </h1>
         <p class="lead">
-          BonBox sender igen kasserapporter til dig om {b}, som ejeren har valgt.
+          BonBox sender igen mails til dig om {b} — kasserapporter, momsangivelser og
+          lønlister, som ejeren har valgt.
           Hver mail har et link, hvis du vil afmelde igen.
         </p>
         <p lang="en" class="small">

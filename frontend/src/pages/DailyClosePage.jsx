@@ -5393,7 +5393,11 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   // sends, a saved revisor, and a real day — never a seeded demo close.
   if (kind === "unrecorded" && (!acct || !canSend || isDemoClose(close))) return null;
   const reason = t(emailErrorKey(st.error), "unknown error");
-  const btn = (label, onClick = () => send(false)) => (
+  // A sample (demo) day is never sent to the revisor — the server refuses
+  // every send of it (409 demo_close). No button offers one: the row says
+  // so instead, under whatever it says about the owner's own copy.
+  const demoDay = isDemoClose(close);
+  const btn = (label, onClick = () => send(false)) => demoDay ? null : (
     <button type="button" onClick={onClick} disabled={busy}
       className="text-xs px-2.5 min-h-8 max-sm:min-h-10 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg font-semibold disabled:opacity-50 inline-flex items-center gap-1">
       <Icon name="Send" size={12} /> {busy ? t("sendingBtn", "Sending…") : label}
@@ -5462,7 +5466,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
           : demo
             ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you {when} — the revisor is sample data", { when: whenText })
             : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
-        {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
+        {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : !demoDay && (
           <Link to="/profile" className="text-xs font-semibold underline">{demo
             ? t("dcRevisorIsDemoCta", "Save your own revisor on Profile")
             : t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
@@ -5494,6 +5498,11 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   return (
     <div className="space-y-1">
       {line}
+      {demoDay && kind !== "revisor" && (
+        <p className={`${textCls} text-gray-600 dark:text-gray-400 flex items-center gap-1`} data-testid="dc-mail-demo-day">
+          <Icon name="Info" size={13} className="shrink-0" /> {t("dcMailDemoDayNever", "Sample day — never sent to your revisor")}
+        </p>
+      )}
       {err && <p className="text-xs text-red-600 dark:text-red-400" role="alert">{err}</p>}
     </div>
   );
@@ -6051,11 +6060,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // to Danish since the recipient is typically a DK accountant.
       const lang = (user?.language === "en") ? "en" : "da";
 
+      // Never pre-fill an address that asked BonBox to stop.
+      const toAddr = businessProfile?.accountant_opted_out ? "" : revisorEmail;
       const result = await sendDailyCloseRangeToAccountant({
         blob, filename,
-        // Never pre-fill an address that asked BonBox to stop.
-        accountantEmail: businessProfile?.accountant_opted_out ? "" : revisorEmail,
-        accountantName: businessProfile?.accountant_name || "",
+        accountantEmail: toAddr,
+        // The name only with its address: with no recipient (the demo's
+        // sample revisor, or none saved) the owner picks who gets it, and
+        // the greeting must not name the sample revisor.
+        accountantName: toAddr ? (businessProfile?.accountant_name || "") : "",
         businessName: businessProfile?.company_name || user?.business_name || "",
         fromIso: activeRange.from,
         toIso: activeRange.to,
@@ -6977,6 +6990,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     <span className="text-[11px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg font-semibold inline-flex items-center gap-1"><Icon name="Lock" size={11} /> {t("dcStatusLocked", "Locked")}</span>
                   ) : (
                     <span className="text-[11px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg font-semibold inline-flex items-center gap-1"><Icon name="Pencil" size={11} /> {t("dcStatusDraft", "Draft")}</span>
+                  )}
+                  {/* A demo seeder's sample day — the owner (and an invited
+                      revisor) can tell it from a real one at a glance; its
+                      kasserapport says EKSEMPEL too. */}
+                  {isDemoClose(dc) && (
+                    <span data-testid="dc-demo-chip" title={t("dcDemoChipTitle", "Sample data from the demo — not for bookkeeping")}
+                      className="text-[11px] px-1.5 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg font-semibold">
+                      {t("dcDemoChip", "Sample")}
+                    </span>
                   )}
                 </div>
                 {dc.closed_by && <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">{t("dcClosedBy", "Closed by {name}", { name: dc.closed_by })}</p>}

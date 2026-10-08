@@ -35,14 +35,16 @@ from app.services.bonbox_pdf_kit import escape_pdf_text
 
 
 def close_filename(business_name: str, d, *, locked: bool = True,
-                   branch: str | None = None) -> str:
+                   branch: str | None = None, demo: bool = False) -> str:
     """'Kasserapport Mirabelle ApS 2026-09-25.pdf' — business + date, safe
     characters. A draft says so in its name: a kladde mailed on and opened a
     week later is identified by its filename alone. Two branches closing the
     same day get two names ('… Mirabelle ApS Vesterbro 2026-09-04.pdf'), never
-    one name a revisor reads as a duplicate."""
+    one name a revisor reads as a duplicate. A demo sample close is prefixed
+    'EKSEMPEL' — first in the name, so no folder listing files it as a day."""
     from app.services.revisor_mail import safe_name_part
-    lead = "Kasserapport" if locked else "Kasserapport KLADDE"
+    lead = ("EKSEMPEL Kasserapport" if demo
+            else "Kasserapport" if locked else "Kasserapport KLADDE")
     who = safe_name_part(business_name)
     if branch:
         who = f"{who} {safe_name_part(branch, 30)}"
@@ -219,7 +221,10 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
         sale_vmin = sale_vmax = exp_vmin = exp_vmax = None
 
     branch = _branch_name(db, user, dc)
-    bilagsnummer = close_bilagsnummer(dc, branch)
+    from app.services.daily_close_range_export import is_demo_close
+    is_demo = is_demo_close(dc)
+    # A sample close is not a voucher: it carries no bilag number.
+    bilagsnummer = "" if is_demo else close_bilagsnummer(dc, branch)
 
     # ── The document's claims — derived once, in kasserapport_claims ──
     profile_name = getattr(profile, "company_name", None) if profile else None
@@ -303,9 +308,11 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
         # Draft vs locked is the document's single most important fact: a
         # draft exports, marked KLADDE, under a banner saying the figures can
         # still change, with no assurance band and a kladde filename.
+        head_right = (f"{date_str}<br/>{L['bilag_no']} {bilagsnummer}" if bilagsnummer
+                      else date_str)
         head_table = Table(
             [[Paragraph(claims["title"], h1),
-              Paragraph(f"{date_str}<br/>{L['bilag_no']} {bilagsnummer}", h_period)]],
+              Paragraph(head_right, h_period)]],
             colWidths=[96 * mm, 70 * mm],
         )
         head_table.setStyle(TableStyle([
@@ -532,9 +539,10 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
                 story.append(t)
 
         # ─── Notes ───
-        if dc.notes:
+        # claims["notes"]: the demo seeder's marker is not the owner's note.
+        if claims["notes"]:
             story.append(Paragraph(L["notes"], section_title))
-            story.append(Paragraph(escape_pdf_text(dc.notes).replace("\n", "<br/>"), meta))
+            story.append(Paragraph(escape_pdf_text(claims["notes"]).replace("\n", "<br/>"), meta))
 
         # ─── History — unlock / relock, from the append-only audit trail ───
         if history_events:
@@ -590,6 +598,33 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
                 # draft says "Ikke låst", which is the true statement.
                 Paragraph(claims["footer"], foot),
             ]))
+        elif claims["demo_verdict"]:
+            # A sample close: no KLAR / GENNEMGÅS — the band's place says what
+            # the document is, and keeps the footer with it.
+            story.append(Spacer(1, 3 * mm))
+            demo_band = Table(
+                [[Paragraph(
+                    f"<font name='Helvetica-Bold' color='{colors.HexColor('#92400e').hexval()}'"
+                    f" size='9.5'>{claims['demo_verdict']}</font>",
+                    val,
+                )]],
+                colWidths=[166 * mm],
+            )
+            demo_band.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fef3c7")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("ROUNDEDCORNERS", [4, 4, 4, 4]),
+            ]))
+            story.append(KeepTogether([
+                demo_band,
+                Spacer(1, 3 * mm),
+                HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
+                           spaceBefore=2, spaceAfter=3),
+                Paragraph(claims["footer"], foot),
+            ]))
         else:
             story.append(Spacer(1, 4 * mm))
             story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER,
@@ -601,7 +636,8 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     generated_at_str = generated_local(tz, danish=DA)
     running = (
         f"{claims['title']} · {claims['business_name']} · "
-        f"{dc.date.strftime('%d.%m.%Y')} · {L['bilag_no']} {bilagsnummer}"
+        f"{dc.date.strftime('%d.%m.%Y')}"
+        + (f" · {L['bilag_no']} {bilagsnummer}" if bilagsnummer else "")
     )
     pdf = render_with_doc_hash(
         _story,
@@ -624,7 +660,7 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     return {
         "pdf": pdf,
         "filename": close_filename(claims["business_name"], dc.date, locked=claims["is_locked"],
-                                   branch=branch),
+                                   branch=branch, demo=is_demo),
         "doc_id": doc_id,
         "bilagsnummer": bilagsnummer,
     }

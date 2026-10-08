@@ -260,6 +260,7 @@ def render_with_doc_hash(
     hash_label: str | None = None,
     running_header: str = "",
     running_header_page_no: bool = False,
+    footer_note: str = "",
 ) -> bytes:
     """Render a reportlab story with the accountant-grade provenance footer —
     the SINGLE reusable 2-pass renderer that kills the copy-paste hazard.
@@ -294,6 +295,11 @@ def render_with_doc_hash(
     after the first, so a page 2 is never an unidentifiable sheet.
     `running_header_page_no` appends "Side x af y" to it (the period export:
     a loose page names its business, period, bilag number AND its place).
+
+    `footer_note` — a one-line statutory note (the period export's "Opbevares
+    i 5 år efter bogføringsloven …") drawn in the bottom margin just above the
+    provenance line, on every page. As the body's last paragraph it could
+    spill onto a page of its own; in the margin it never needs one.
 
     `pagesize[0]` is used for the page width so the footer positions correctly
     for BOTH portrait (A4) and landscape (landscape(A4)) documents.
@@ -351,6 +357,12 @@ def render_with_doc_hash(
                 head += (f" · Side {page_num} af {total_pages}" if is_danish
                          else f" · Page {page_num} of {total_pages}")
             canv.drawString(left_margin, page_height - 12 * mm, head)
+        if footer_note:
+            # Above the provenance line (y=10mm), inside the ≥18mm bottom
+            # margin — never on the body's last line, never on its own page.
+            canv.setFont("Helvetica-Oblique", 7)
+            canv.setFillColor(_c.HexColor("#6b7280"))
+            canv.drawString(left_margin, 14 * mm, footer_note)
         canv.setFont("Helvetica", 6.8)
         canv.setFillColor(_c.HexColor("#94a3b8"))
         # Right edge of content = page_width − right margin (NOT a hardcoded

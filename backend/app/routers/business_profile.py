@@ -457,6 +457,23 @@ def save_profile(
             changes["accountant_auto_send"] = False
         if not addr:
             changes["accountant_auto_send"] = None
+        # The demo seeder's sample revisor NAME must not outlive its address:
+        # an owner who replaces the sample e-mail (as the demo notice tells
+        # them to) kept "Anna Hansen", and every mail to their REAL revisor
+        # opened "Hej Anna Hansen,". When the saved address moves away from a
+        # seeded one and the name is still the seeded name — whether the form
+        # echoed it or a raw PUT left it alone — the name is cleared and the
+        # mails greet "Hej,". A name the owner typed is never touched.
+        from app.services.revisor_mail import (
+            DEMO_SEEDED_REVISOR_ADDRESSES, DEMO_SEEDED_REVISOR_NAME, is_demo_revisor,
+        )
+        if (profile is not None and addr != prev
+                and addr not in DEMO_SEEDED_REVISOR_ADDRESSES
+                and is_demo_revisor(profile)):
+            name_after = (changes["accountant_name"] if "accountant_name" in changes
+                          else getattr(profile, "accountant_name", None))
+            if (name_after or "").strip() == DEMO_SEEDED_REVISOR_NAME:
+                changes["accountant_name"] = None
 
     if profile:
         for field, value in changes.items():

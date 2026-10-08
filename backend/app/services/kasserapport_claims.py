@@ -193,6 +193,17 @@ def close_labels(currency: str) -> dict[str, str]:
                                "this is not the final kasserapport for the day."),
         "not_locked":    "Ikke låst" if DA else "Not locked",
         "closed_label":  "Lukket" if DA else "Closed",
+        # ── Demo marking ──
+        # A demo seeder's sample close prints the business's real name and CVR
+        # over figures nobody took: it says so in the title, in the banner
+        # slot and in the place of the readiness band, and it claims no bilag.
+        "demo_mark":     "EKSEMPEL" if DA else "SAMPLE",
+        "demo_banner":   ("EKSEMPELDATA (DEMO) — ikke et bilag. Tallene er lavet af "
+                          "BonBox' demo og må ikke bogføres.") if DA
+                         else ("SAMPLE DATA (DEMO) — not a voucher. The figures were "
+                               "made by BonBox's demo and must not be booked."),
+        "demo_verdict":  "Eksempel — ikke til bogføring" if DA
+                         else "Sample — not for bookkeeping",
         # ── Arithmetic integrity ──
         "lines_sum":     "Linjer i alt" if DA else "Lines total",
         # The value IS (total − lines), so the label says exactly that. "÷" was
@@ -742,15 +753,23 @@ def build_close_claims(
     has_bilag: bool = False,
     bilagsnummer: str = "",
     tz: Any = None,
+    demo: bool | None = None,
 ) -> dict:
     """Everything the kasserapport asserts about `dc`, already rendered.
 
     Money values come back as display strings via the one shared formatter
     (``1.234,56 kr.``), or ``"—"`` where a figure is not known. Nothing in the
     returned structure is a placeholder to be filled in by the renderer.
+
+    `demo` (default: the one predicate, is_demo_close) marks a demo seeder's
+    sample close: titled EKSEMPEL, the demo banner in the draft-banner slot,
+    no readiness verdict, no retention note, and the seeder's marker never
+    printed as the owner's note.
     """
     DA = (currency or "").upper() == "DKK"
     L = close_labels(currency)
+    from app.services.daily_close_range_export import is_demo_close, strip_demo_marker
+    is_demo = is_demo_close(dc) if demo is None else bool(demo)
 
     def fmt(v: Any) -> str:
         return money_dk(v, currency)
@@ -914,7 +933,9 @@ def build_close_claims(
     # NOT done. The heading follows the body, so GENNEMGÅS can never sit over
     # a list of passes.
     assurance = None
-    if is_locked:
+    # A sample close gets no verdict at all: "KLAR TIL BOGFØRING" over figures
+    # nobody took is the one thing it must never say (demo_verdict instead).
+    if is_locked and not is_demo:
         checks: list[dict] = []
 
         if moms_unknown_reason:
@@ -1058,9 +1079,10 @@ def build_close_claims(
     elif not is_locked:
         footer_parts.append(L["not_locked"])
     footer_parts.append(L["footer_use"])
-    if is_locked:
+    if is_locked and not is_demo:
         # The retention duty, on the document a revisor files. Without a §
         # number: the 2022 act renumbered it, and a wrong citation is worse.
+        # A sample close is no voucher, so it claims no retention duty.
         footer_parts.append(L["retention"])
 
     close_date = getattr(dc, "date", None)
@@ -1071,9 +1093,20 @@ def build_close_claims(
         "danish": DA,
         "currency": currency,
         "is_locked": is_locked,
-        "title": L["title"] if is_locked else f"{L['title']} — {L['draft_mark']}",
-        "draft_banner": None if is_locked else L["draft_banner"],
-        "draft_mark": None if is_locked else L["draft_mark"],
+        "is_demo": is_demo,
+        "title": (f"{L['title']} — {L['demo_mark']}" if is_demo
+                  else L["title"] if is_locked else f"{L['title']} — {L['draft_mark']}"),
+        # The demo banner uses the draft banner's slot (the amber band).
+        "draft_banner": (L["demo_banner"] if is_demo
+                         else None if is_locked else L["draft_banner"]),
+        "draft_mark": (L["demo_mark"] if is_demo
+                       else None if is_locked else L["draft_mark"]),
+        # Said where the readiness band would be — never KLAR / GENNEMGÅS.
+        "demo_verdict": L["demo_verdict"] if is_demo else None,
+        # What BEMÆRKNINGER prints: the seeder's " · demo" marker (and its
+        # "sample") is not the owner's note.
+        "notes": strip_demo_marker(getattr(dc, "notes", None)) if is_demo
+                 else getattr(dc, "notes", None),
         "business_name": business_name or "—",
         # One shared composer — every artifact used to hand-roll this join and
         # print "…, 2500 Valby, 2500 Valby".
@@ -1168,7 +1201,8 @@ def build_close_claims(
         # The filename must not imply finality either — a kladde downloaded,
         # mailed on and opened a week later is identified by its name alone.
         "filename": (
-            f"kasserapport_{iso}.pdf" if is_locked
+            f"kasserapport_eksempel_{iso}.pdf" if is_demo
+            else f"kasserapport_{iso}.pdf" if is_locked
             else f"kasserapport_kladde_{iso}.pdf"
         ),
     }
@@ -1184,7 +1218,10 @@ def close_readiness(dc: Any, currency: str = "DKK", *, has_bilag: bool = False) 
 
     {"locked": bool, "ready": bool | None, "heading": str | None,
      "failing": [str]} — ready/heading are None for a draft (no verdict)."""
-    c = build_close_claims(dc, currency=currency, has_bilag=has_bilag)
+    # demo=False: the verdict is about the FIGURES. The period artifacts never
+    # hold a sample close, and the documents that show one (the kasserapport,
+    # the owner's lock mail) say "Eksempel — ikke til bogføring" themselves.
+    c = build_close_claims(dc, currency=currency, has_bilag=has_bilag, demo=False)
     a = c["assurance"]
     if not a:
         return {"locked": False, "ready": None, "heading": None, "failing": []}
