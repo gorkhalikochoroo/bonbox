@@ -326,7 +326,10 @@ export default function OnboardingPage() {
   // fix that key is sourced from useLanguage.jsx, so `lang` is no longer
   // referenced here.
   const { t } = useLanguage();
-  const { plan: currentPlan, isReady: entReady } = useEntitlements();
+  const { plan: currentPlan, isReady: entReady, hasFeature: hasPlanFeature } = useEntitlements();
+  // The revisor's lock mail (auto-send) is a plan feature (close_auto_email);
+  // the tick below is offered only where it can actually work.
+  const autoSendOnPlan = typeof hasPlanFeature === "function" ? hasPlanFeature("close_auto_email") : false;
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
@@ -479,6 +482,10 @@ export default function OnboardingPage() {
     tax_filing_frequency: "half_yearly",
     prices_include_moms: true,
     accountant_email: "",
+    // The revisor's lock mail — an explicit tick, OFF by default. Unticked,
+    // BonBox mails the revisor nothing on its own (the server stores a new
+    // address with auto-send off too).
+    accountant_auto_send: false,
     day_cutoff_mode: cutoffModeFor(biz.branch_type, resolvedArchetype),
     day_cutoff_custom: 6,
   });
@@ -756,7 +763,11 @@ export default function OnboardingPage() {
         company_name: biz.company_name,
         day_cutoff_hour: cutoffHour,
       };
-      if (email) bizPayload.accountant_email = email;
+      if (email) {
+        bizPayload.accountant_email = email;
+        // What the owner sees is what is saved: the tick, never a default.
+        bizPayload.accountant_auto_send = Boolean(tax.accountant_auto_send && autoSendOnPlan);
+      }
       await api.put("/business", bizPayload);
       goNext();
     } catch (err) {
@@ -838,10 +849,14 @@ export default function OnboardingPage() {
   // FULL dashboard instead of an empty one, then complete onboarding. The seed
   // is best-effort: if it 409s (already seeded / has real data) we still finish
   // — never trap the user on a side feature.
+  //
+  // keep_profile: the owner typed their OWN business in steps 2–3 — the
+  // sample rows are added beside it, the profile (company, CVR, address,
+  // cutoff, revisor) is never overwritten with the sample company.
   const seedDemoAndFinish = async () => {
     setFinishing(true);
     try {
-      await api.post("/demo/seed");
+      await api.post("/demo/seed", null, { params: { keep_profile: true } });
     } catch {
       /* best-effort — already-seeded / has-real just proceeds to the dashboard */
     }
@@ -1390,7 +1405,12 @@ export default function OnboardingPage() {
                   type="email"
                   value={tax.accountant_email}
                   onChange={(e) =>
-                    setTax({ ...tax, accountant_email: e.target.value })
+                    // Emptying the address takes the tick with it.
+                    setTax({
+                      ...tax,
+                      accountant_email: e.target.value,
+                      accountant_auto_send: e.target.value.trim() ? tax.accountant_auto_send : false,
+                    })
                   }
                   placeholder="revisor@example.dk"
                   autoComplete="off"
@@ -1409,6 +1429,38 @@ export default function OnboardingPage() {
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
                   {t("onbStep3AccountantDisambig")}
                 </p>
+                {/* Said plainly, then the one explicit choice: nothing goes to
+                    the revisor on its own until the owner ticks it. Default
+                    off; only offered with an address and on a plan that has
+                    the lock mail. */}
+                <p className="text-xs font-medium text-gray-800 dark:text-gray-200 mt-3" data-testid="onb-acct-no-mail">
+                  {t("onbAcctNoMailUntilTick", "BonBox won't send your revisor anything automatically until you tick the box below.")}
+                </p>
+                <label
+                  className={
+                    "mt-2 flex items-start gap-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 " +
+                    (tax.accountant_email.trim() && autoSendOnPlan ? "cursor-pointer" : "opacity-60")
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    data-testid="onb-acct-auto-send"
+                    className="mt-0.5 h-4 w-4 rounded accent-gray-900 dark:accent-gray-100"
+                    checked={Boolean(tax.accountant_auto_send) && Boolean(tax.accountant_email.trim()) && autoSendOnPlan}
+                    disabled={!tax.accountant_email.trim() || !autoSendOnPlan}
+                    onChange={(e) => setTax({ ...tax, accountant_auto_send: e.target.checked })}
+                  />
+                  <span className="text-sm text-gray-800 dark:text-gray-100">
+                    <span className="font-medium">
+                      {t("accountantAutoSendLabel", "Send the kasserapport to my revisor automatically when a day is locked")}
+                    </span>
+                    <span className="block text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                      {autoSendOnPlan
+                        ? t("onbAcctAutoSendExplain", "Ticked: when you lock a day, BonBox e-mails that day's kasserapport as a PDF to {email}, with a copy to you. Unticked: BonBox sends your revisor nothing — only what you send yourself with Send. You can change this on Profile.", { email: tax.accountant_email.trim() || "—" })
+                        : (isNativeApp() ? "" : t("accountantAutoSendFreeNote", "Automatic sending on lock is on Starter. On your plan you send it yourself from History or the period export."))}
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {stepError && (
@@ -1493,6 +1545,10 @@ export default function OnboardingPage() {
                     </div>
                     <p id="onb-revisor-name-hint" className="sm:col-span-2 text-[11px] text-gray-500 dark:text-gray-400 -mt-1">
                       {t("onbStep4NameHint")}
+                    </p>
+                    {/* Optional — and nothing is sent unless asked. */}
+                    <p className="sm:col-span-2 text-[11px] text-gray-500 dark:text-gray-400" data-testid="onb-revisor-optional">
+                      {t("onbStep4OptionalHint", "Optional. Leave it empty to skip — BonBox only sends an invitation when you press 'Send invite & finish'.")}
                     </p>
                   </div>
                 )}
@@ -1608,10 +1664,14 @@ export default function OnboardingPage() {
                 type="button"
                 onClick={seedDemoAndFinish}
                 disabled={revisorSending || finishing}
+                data-testid="onb-explore-sample"
                 className="mt-4 w-full text-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-60 transition-colors"
               >
-                {t("onbExploreWithSampleData", "Not ready to add your own numbers? Explore with sample data first →")}
+                {t("onbExploreWithSampleData", "Explore with sample data")}
               </button>
+              <p className="mt-1 text-center text-[11px] text-gray-400 dark:text-gray-500">
+                {t("onbExploreSampleNote", "Your own details stay as you typed them. The sample figures are marked as demo and can be cleared again.")}
+              </p>
             </div>
           )}
         </div>

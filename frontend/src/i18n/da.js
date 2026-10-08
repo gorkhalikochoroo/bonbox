@@ -2883,7 +2883,7 @@ export const da = {
     scanMenuBack: "Tilbage",
     scanMenuSaving: "Gemmer…",
     scanMenuImportCount: "Importér {count} varer",
-    onbExploreWithSampleData: "Ikke klar til at taste dine egne tal? Se det hele med demotal først →",
+    onbExploreWithSampleData: "Udforsk med eksempeldata",
     rsvpWaitlistTitle: "Venteliste",
     // ── Destructive dialogs name the row they are about to act on ──
     // An audit of all 54 confirm() call sites found 21 that did not: the
@@ -7547,6 +7547,10 @@ export const da = {
     // kasserapport-mails, trin 4 inviterer en revisor til at logge ind
     // direkte. Som regel samme revisor, men to forskellige kanaler.
     onbStep3AccountantDisambig: "Ikke det samme som læseadgangen i næste trin — den er til revisorer, der selv vil logge ind og se dine bøger.",
+    onbAcctNoMailUntilTick: "BonBox sender ikke automatisk noget til din revisor, før du sætter flueben herunder.",
+    onbAcctAutoSendExplain: "Med flueben: når du låser en dag, mailer BonBox dagens kasserapport som PDF til {email}, og du får selv en kopi. Uden flueben sender BonBox intet til revisoren — kun det, du selv sender med Send. Du kan ændre det under Profil.",
+    onbStep4OptionalHint: "Valgfrit. Lad feltet stå tomt for at springe over — BonBox sender kun en invitation, når du selv trykker 'Send invitation og afslut'.",
+    onbExploreSampleNote: "Dine egne oplysninger bliver stående, som du har tastet dem. Eksempeltallene er mærket som demo og kan ryddes igen.",
     onbAccountantEmailInvalid: "Indtast en gyldig revisor-e-mail.",
     onbTaxSaveFailed: "Kunne ikke gemme skat-præferencer. Prøv igen.",
     // Dagsskifte — gemmes på BusinessProfile.day_cutoff_hour. DKK-ejere

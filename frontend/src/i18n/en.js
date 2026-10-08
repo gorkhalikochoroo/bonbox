@@ -2992,7 +2992,7 @@ export const en = {
     scanMenuBack: "Back",
     scanMenuSaving: "Saving…",
     scanMenuImportCount: "Import {count} items",
-    onbExploreWithSampleData: "Not ready to add your own numbers? Explore with sample data first →",
+    onbExploreWithSampleData: "Explore with sample data",
     rsvpWaitlistTitle: "Waitlist",
     // ── Destructive dialogs name the row they are about to act on ──
     // An audit of all 54 confirm() call sites found 21 that did not: the
@@ -7827,6 +7827,10 @@ export const en = {
     // Step 4 (revisor login invite). Same accountant most of the
     // time, two different channels.
     onbStep3AccountantDisambig: "Different from the read-only revisor login in the next step — that one's for accountants who want to log in and see your books directly.",
+    onbAcctNoMailUntilTick: "BonBox won't send your revisor anything automatically until you tick the box below.",
+    onbAcctAutoSendExplain: "Ticked: when you lock a day, BonBox e-mails that day's kasserapport as a PDF to {email}, with a copy to you. Unticked: BonBox sends your revisor nothing — only what you send yourself with Send. You can change this on Profile.",
+    onbStep4OptionalHint: "Optional. Leave it empty to skip — BonBox only sends an invitation when you press 'Send invite & finish'.",
+    onbExploreSampleNote: "Your own details stay as you typed them. The sample figures are marked as demo and can be cleared again.",
     onbAccountantEmailInvalid: "Enter a valid revisor email.",
     onbTaxSaveFailed: "Couldn't save tax preferences. Try again.",
     // Day rollover chooser — stored on BusinessProfile.day_cutoff_hour.

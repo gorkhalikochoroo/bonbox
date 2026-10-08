@@ -86,17 +86,22 @@ def get_demo_status(
 @limiter.limit("3/hour")
 def seed_demo(
     request: Request,
+    keep_profile: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     """Drop a realistic 30-day Mirabelle-style dataset onto the user's
     account so the dashboard, brief, and reports light up instantly.
 
+    `?keep_profile=true` (the onboarding wizard): the sample rows only — the
+    owner's business profile (company, CVR, address, cutoff, revisor) is
+    left exactly as they typed it. See seed_for_user.
+
     Refuses (409) if:
       • the user already has real data — we never overwrite work
       • demo data is already present — user should clear first
     """
-    result = seed_for_user(db, user)
+    result = seed_for_user(db, user, keep_profile=bool(keep_profile))
     if not result.get("ok"):
         # Best-effort audit so we can spot abuse patterns
         audit_service.record(
@@ -124,6 +129,7 @@ def seed_demo(
             "closes": int(result.get("closes", 0)),
             "inventory": int(result.get("inventory", 0)),
             "expenses": int(result.get("expenses", 0)),
+            "profile_kept": bool(result.get("profile_kept")),
         },
         ip_address=_client_ip(request),
     )
