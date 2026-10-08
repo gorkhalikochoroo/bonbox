@@ -56,6 +56,10 @@ import {
 } from "../utils/closeEmail";
 
 const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
+// An inline "Profil" link in an 11–13 px note measured 28×13 px on a phone — a
+// thumb misses it. On a phone it gets a 40 px tap area and stays in the
+// sentence; from sm up it is plain inline text again.
+const PROFILE_LINK_TAP = "max-sm:inline-flex max-sm:items-center max-sm:justify-center max-sm:min-h-10 max-sm:min-w-10 max-sm:px-1";
 import { saveFile } from "../utils/download";
 import { exportPieces, previousQuarter, spanDays } from "../utils/exportPieces";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
@@ -942,7 +946,7 @@ export default function DailyClosePage() {
             <Button
               variant="main"
               onClick={() => heroScanInputRef.current?.click()}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto max-lg:h-10"
             >
               {t("closeScanCta", "Snap your Z-report")}
             </Button>
@@ -955,7 +959,7 @@ export default function DailyClosePage() {
             <Button
               variant="secondary"
               onClick={() => scrollToWizard({ manual: true })}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto max-lg:h-10"
             >
               {t("closeManualCta", "Enter manually")}
             </Button>
@@ -1335,6 +1339,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
   const [step, setStep] = useState(1);
   const currentStepId = stepSequence[step - 1];
+  // Næste, Tilbage and "Spring over" kept the scroll position: the next step
+  // opened with its heading (and its first fields) under the sticky header.
+  // After a step change the card's top is brought back into view — only when
+  // it is above the header, never pulling a short page around.
+  const formTopRef = useRef(null);
+  const revealStepTop = () => {
+    const run = () => {
+      const el = formTopRef.current;
+      if (el?.getBoundingClientRect && el.getBoundingClientRect().top < 64) {
+        el.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      }
+    };
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  };
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   // The server's own sentence, when it sent one. Kept apart from `error` so a
@@ -2219,9 +2238,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         setNotes(prev => prev ? prev + "\n" + noteParts.join("\n") : noteParts.join("\n"));
       }
     }
-    // Jump to review or step 1
+    // Jump to review or step 1 — from the bottom of a long scan card, so the
+    // step's top is brought into view too.
     setScanMode("skipped");
     setStep(jumpToReview ? totalSteps : 1);
+    revealStepTop();
   };
 
   // Prefill from real data
@@ -3376,7 +3397,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const businessDateLabel = new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long" });
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div ref={formTopRef} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden scroll-mt-16">
       {/* ─── Close anomaly double-check (close_sanity soft guard) ───
           Shown when today's total is far off the recent same-weekday
           baseline — catches a misread Z-report total before it locks. */}
@@ -3503,8 +3524,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               </div>
             )}
             <div className="text-center">
-              <button onClick={() => { setScanMode("skipped"); setStep(1); }}
-                className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2 transition">
+              <button onClick={() => { setScanMode("skipped"); setStep(1); revealStepTop(); }}
+                className="inline-flex items-center min-h-10 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2 transition">
                 {t("skipEnterManually", "Skip — enter manually")}
               </button>
             </div>
@@ -3528,6 +3549,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* ─── SCAN RESULT CARD ─── */}
         {scanMode === "result" && scanResult && (
           <div className="space-y-5">
+            {/* The day the scan is for — the idle card said it, the result
+                card dropped it until Trin 5. */}
+            <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5" data-testid="dc-scan-result-date">
+              <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
+              {t("dcCloseForDate", "Kasserapport for {date}", { date: businessDateLabel })}
+            </p>
             {/* ─── "Another terminal, or a better photo?" ───────────────
                 The only question we ask, asked only when it is real: both
                 scans carry a headline total, so the numbers either ADD UP
@@ -4014,10 +4041,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 {cardBonGap && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 tabular-nums">
                     <span className="font-semibold">
+                      {/* The sentence's full stop after "kr." printed
+                          "du gemmer 17.130 kr.." — one stop, whatever the
+                          currency's own ending. */}
                       {t("dcScanBonVsSaved", "Z-report: {bon} · you save {saved}.", {
                         bon: formatOwnerMoney(cardBonGap.bon, currency, { decimals: cardBonGap.decimals }),
                         saved: formatOwnerMoney(cardSaveTotal, currency, { decimals: cardBonGap.decimals }),
-                      })}
+                      }).replace(/\.\.$/, ".")}
                     </span>{" "}
                     {scanResult.revenue_total_text
                       ? t("dcScanBonVsSavedTyped", "You corrected the total yourself.")
@@ -4484,8 +4514,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           </div>
         )}
 
-        {/* Step header */}
-        <div className="flex items-center justify-between gap-3 mb-5">
+        {/* Step header. From 768 to 1023 px the wizard reaches the right edge
+            and the floating AI button (fixed, 64 px in from the right) sat
+            over the step counter; the counter keeps out of that column. */}
+        <div className="flex items-center justify-between gap-3 mb-5 md:max-lg:pr-8">
           <h2 className="text-[16px] font-semibold text-gray-900 dark:text-white">
             {currentStepId === "revenue" && t("stepNRevenue", "Step {n} — {label}", { n: step, label: t(config.stepOneLabelKey, config.stepOneLabel) })}
             {currentStepId === "payments" && t("stepNPayments", "Step {n} — Payment Methods", { n: step })}
@@ -5219,7 +5251,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* Navigation buttons */}
         <div className="flex justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
           {step > 1 ? (
-            <Button variant="ghost" size="lg" onClick={() => setStep(step - 1)}>
+            <Button variant="ghost" size="lg" onClick={() => { setStep(step - 1); revealStepTop(); }}>
               ← {t("back", "Back")}
             </Button>
           ) : (
@@ -5242,7 +5274,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           )}
 
           {step < totalSteps ? (
-            <Button variant="primary" size="lg" onClick={() => setStep(step + 1)}>
+            <Button variant="primary" size="lg" onClick={() => { setStep(step + 1); revealStepTop(); }}>
               {t("next", "Next")} →
             </Button>
           ) : (() => {
@@ -5521,7 +5553,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   const demoDay = isDemoClose(close);
   const btn = (label, onClick = () => send(false)) => demoDay ? null : (
     <button type="button" onClick={onClick} disabled={busy}
-      className="text-xs px-2.5 min-h-8 max-sm:min-h-10 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg font-semibold disabled:opacity-50 inline-flex items-center gap-1">
+      className="text-xs px-2.5 min-h-8 max-lg:min-h-10 bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 rounded-lg font-semibold disabled:opacity-50 inline-flex items-center gap-1">
       <Icon name="Send" size={12} /> {busy ? t("sendingBtn", "Sending…") : label}
     </button>
   );
@@ -5589,7 +5621,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
             ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you {when} — the revisor is sample data", { when: whenText })
             : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
         {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
-          <Link to="/profile" className="text-xs font-semibold underline">{identity
+          <Link to="/profile" className={`text-xs font-semibold underline ${PROFILE_LINK_TAP}`}>{identity
             ? t("identityIsDemoCta", "Correct your business on Profile")
             : demo
               ? t("dcRevisorIsDemoCta", "Save your own revisor on Profile")
@@ -5607,7 +5639,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   } else if (kind === "no_recipient") {
     line = (
       <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-1`}>
-        <Icon name="AlertTriangle" size={13} /> {t("dcMailNoRecipientLine", "Not sent — no e-mail address on file.")} <Link to="/profile" className="underline font-semibold">{t("profileLinkLabel", "Profile")}</Link>
+        <Icon name="AlertTriangle" size={13} /> {t("dcMailNoRecipientLine", "Not sent — no e-mail address on file.")} <Link to="/profile" className={`underline font-semibold ${PROFILE_LINK_TAP}`}>{t("profileLinkLabel", "Profile")}</Link>
       </span>
     );
   } else {
@@ -5633,7 +5665,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
       {identity && !demoDay && kind !== "revisor" && (
         <p className={`${textCls} text-amber-700 dark:text-amber-300 flex items-start gap-1`} data-testid="dc-mail-identity-demo">
           <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" /> <span>{t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{kind !== "owner_only" && (
-            <>{" "}<Link to="/profile" className="font-semibold underline">{t("identityIsDemoCta", "Correct your business on Profile")}</Link></>
+            <>{" "}<Link to="/profile" className={`font-semibold underline ${PROFILE_LINK_TAP}`}>{t("identityIsDemoCta", "Correct your business on Profile")}</Link></>
           )}</span>
         </p>
       )}
@@ -5646,10 +5678,8 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
   const ritual = close.close_ritual || {};
   // The server stores closed_at in UTC without a zone suffix; read bare, the
   // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
-  const closedAt = close.closed_at
-    ? new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(String(close.closed_at)) ? close.closed_at : `${close.closed_at}Z`)
-        .toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })
-    : "—";
+  // The same clock as every send line on this page (sentWhen: "06.31").
+  const closedAt = sentWhen(close.closed_at)?.time || "—";
   const closedBy = close.closed_by || (t("staffShort", "Staff"));
   const recipients = (close.email_sent_to?.length ? close.email_sent_to : (ritual.sent_to || [])).join(", ");
 
@@ -6748,7 +6778,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 aria-pressed={isActive}
                 // The app's selected state in both themes: in dark the chosen
                 // range was the DARKEST button and read as the unselected one.
-                className={`px-3 min-h-10 sm:min-h-8 rounded-lg text-[13px] sm:text-xs font-semibold border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 ${
+                className={`px-3 min-h-10 lg:min-h-8 rounded-lg text-[13px] sm:text-xs font-semibold border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 ${
                   isActive
                     ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
                     : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-gray-300"
@@ -6803,7 +6833,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   value={customFrom}
                   max={customTo}
                   onChange={(e) => setCustomFrom(e.target.value)}
-                  className="block mt-1 px-3 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+                  className="block mt-1 px-3 py-1.5 max-lg:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
                 />
               </label>
               <label className="text-xs text-gray-500 dark:text-gray-400">
@@ -6814,7 +6844,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   min={customFrom}
                   max={todayIso()}
                   onChange={(e) => setCustomTo(e.target.value)}
-                  className="block mt-1 px-3 py-1.5 max-sm:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
+                  className="block mt-1 px-3 py-1.5 max-lg:h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white text-sm"
                 />
               </label>
             </div>
@@ -6839,7 +6869,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <div className="flex flex-wrap gap-2 mt-2">
               {pieces.pieces.map((piece) => (
                 <Button key={`${piece.from}_${piece.to}`} size="sm" variant="secondary"
-                  className="border border-amber-300 dark:border-amber-700 max-sm:h-10"
+                  className="border border-amber-300 dark:border-amber-700 max-lg:h-10"
                   busy={pieceBusy === `${piece.from}_${piece.to}`}
                   disabled={!!pieceBusy || !!exportingFmt}
                   onClick={() => downloadPiece(piece)}
@@ -6855,7 +6885,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {[...lockedInRange].sort((a, b) => (a.date < b.date ? -1 : 1)).map((dc) => (
                   <button key={dc.id} type="button" onClick={() => downloadDayPdf(dc)}
                     disabled={!!pieceBusy}
-                    className="px-2 min-h-8 max-sm:min-h-10 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 text-[12px] font-medium text-gray-800 dark:text-gray-100 disabled:opacity-50">
+                    className="px-2 min-h-8 max-lg:min-h-10 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 text-[12px] font-medium text-gray-800 dark:text-gray-100 disabled:opacity-50">
                     {t("dcPieceDay", "Kasserapport {date}", { date: shortRangeDay(dc.date) })}
                   </button>
                 ))}
@@ -6904,6 +6934,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               busy={exportingFmt === "xlsx"}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
               iconLeft={exportingFmt === "xlsx" ? null : <Icon name="BarChart3" size={14} />}
+              className="max-lg:h-10"
               title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
             >
               {exportingFmt === "xlsx" ? (t("generatingPdfBtn", "Generating…")) : "Excel"}
@@ -6915,7 +6946,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               busy={exportingFmt === "pdf"}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
               iconLeft={exportingFmt === "pdf" ? null : <Icon name="FileText" size={14} />}
-              className="border border-gray-200 dark:border-gray-700"
+              className="border border-gray-200 dark:border-gray-700 max-lg:h-10"
               title={t("pdfTooltip", "One-pager — easy to read, not editable")}
             >
               {exportingFmt === "pdf" ? (t("generatingPdfBtn", "Generating…")) : "PDF"}
@@ -6927,7 +6958,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               busy={exportingFmt === "csv"}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0 || overCap}
               iconLeft={exportingFmt === "csv" ? null : <Icon name="FileSpreadsheet" size={14} />}
-              className="border border-gray-200 dark:border-gray-700"
+              className="border border-gray-200 dark:border-gray-700 max-lg:h-10"
               title={t("csvTooltip", "Semicolon + decimal comma — opens in Danish Excel")}
             >
               {exportingFmt === "csv" ? (t("generatingPdfBtn", "Generating…")) : "CSV"}
@@ -6941,7 +6972,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 value={accountantFmt}
                 onChange={(e) => persistAccountantFmt(e.target.value)}
                 disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-                className="px-2 py-1.5 max-sm:h-10 rounded-l-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
+                className="px-2 py-1.5 max-lg:h-10 rounded-l-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
                 title={t("accountantFmtTooltip", "Pick the format your accountant prefers")}
               >
                 <option value="xlsx">Excel</option>
@@ -6953,7 +6984,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 // Only LOCKED closes go to a revisor: a drafts-only period
                 // has nothing to send.
                 disabled={!!exportingFmt || sendingToAccountant || lockedRangeCount === 0 || overCap}
-                className="px-3 py-1.5 max-sm:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-gray-700 dark:disabled:text-gray-300 text-white text-xs font-semibold flex items-center gap-1 transition"
+                className="px-3 py-1.5 max-lg:h-10 rounded-r-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-gray-700 dark:disabled:text-gray-300 text-white text-xs font-semibold flex items-center gap-1 transition"
                 title={
                   revisorEmail
                     ? `${t("sendToTooltip", "Send to")} ${revisorEmail}`
@@ -7004,7 +7035,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         {profileKnown && !businessProfile?.accountant_email && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
             <Icon name="Lightbulb" size={12} className="inline align-text-bottom mr-1" /> {t("accountantHint", "Tip: save your revisor's email on ")}
-            <Link to="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
+            <Link to="/profile" className={`text-amber-600 dark:text-amber-400 hover:underline ${PROFILE_LINK_TAP}`}>
               {t("profileLinkLabel", "Profile")}
             </Link>
             {" "}{t("accountantHintTail", "to skip typing it every time.")}
@@ -7021,14 +7052,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-identity-demo">
             <Icon name="AlertTriangle" size={12} className="inline align-text-bottom mr-1" />
             {t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{" "}
-            <Link to="/profile" className="font-semibold underline">{t("profileLinkLabel", "Profile")}</Link>
+            <Link to="/profile" className={`font-semibold underline ${PROFILE_LINK_TAP}`}>{t("profileLinkLabel", "Profile")}</Link>
           </p>
         )}
         {profileKnown && revisorIsDemo && (
           <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-revisor-demo">
             <Icon name="Info" size={12} className="inline align-text-bottom mr-1" />
             {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile.")}{" "}
-            <Link to="/profile" className="font-semibold underline">{t("profileLinkLabel", "Profile")}</Link>
+            <Link to="/profile" className={`font-semibold underline ${PROFILE_LINK_TAP}`}>{t("profileLinkLabel", "Profile")}</Link>
           </p>
         )}
 
@@ -7091,11 +7122,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           <div className="mt-2 px-3 py-2 rounded-lg text-xs bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200" role="alert">
             <p className="flex items-start gap-2"><Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" /> <span>{sendIssue.message}</span></p>
             <div className="flex flex-wrap gap-2 mt-2">
-              <Button size="sm" variant="secondary" className="border border-amber-300 dark:border-amber-700 max-sm:h-10"
+              <Button size="sm" variant="secondary" className="border border-amber-300 dark:border-amber-700 max-lg:h-10"
                 onClick={() => sendViaOwnMail(sendIssue.fmt)} iconLeft={<Icon name="Mail" size={13} />}>
                 {t("dcSendViaOwnMail", "Send from my own mail")}
               </Button>
-              <Button size="sm" variant="secondary" className="border border-gray-200 dark:border-gray-700 max-sm:h-10"
+              <Button size="sm" variant="secondary" className="border border-gray-200 dark:border-gray-700 max-lg:h-10"
                 onClick={() => setSendIssue(null)}>
                 {t("dismiss", "Dismiss")}
               </Button>
@@ -7328,30 +7359,30 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 <Button size="sm" variant="secondary" onClick={() => setOpenId(openId === dc.id ? null : dc.id)}
                   aria-expanded={openId === dc.id}
                   iconLeft={<Icon name={openId === dc.id ? "ChevronUp" : "ChevronDown"} size={13} />}
-                  className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
+                  className="border border-gray-200 dark:border-gray-700 max-lg:h-10">
                   {openId === dc.id ? t("dcHideDetails", "Hide") : t("dcShowDetails", "Details")}
                 </Button>
                 {(dc.status || "confirmed") === "confirmed" && (
                   <button onClick={() => { setUnlockId(dc.id); setUnlockReason(""); }}
-                    className="max-sm:min-h-10 text-[11px] px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5 border border-amber-200 dark:border-amber-800">
+                    className="max-lg:min-h-10 text-[11px] px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5 border border-amber-200 dark:border-amber-800">
                     <Icon name="LockOpen" size={13} /> {t("dcUnlock", "Unlock")}
                   </button>
                 )}
                 {(dc.status || "confirmed") === "draft" && onEdit && (
-                  <Button size="sm" variant="secondary" onClick={() => onEdit(dc)} iconLeft={<Icon name="Pencil" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
+                  <Button size="sm" variant="secondary" onClick={() => onEdit(dc)} iconLeft={<Icon name="Pencil" size={13} />} className="border border-gray-200 dark:border-gray-700 max-lg:h-10">
                     {t("edit", "Edit")}
                   </Button>
                 )}
                 {/* "Del" (share sheet with a text summary) — never "Send": on
                     this card "Send" only ever means mail to the revisor. */}
                 <Button size="sm" variant="secondary" onClick={() => shareDc(dc)} busy={sharing === dc.id}
-                  iconLeft={sharing === dc.id ? null : <Icon name="Share2" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
+                  iconLeft={sharing === dc.id ? null : <Icon name="Share2" size={13} />} className="border border-gray-200 dark:border-gray-700 max-lg:h-10">
                   {t("dcShareClose", "Share")}
                 </Button>
                 <Button size="sm" variant="secondary"
                   onClick={() => downloadPdf(dc.id, dc.date, (dc.status || "confirmed") !== "confirmed")}
                   busy={downloading === dc.id}
-                  iconLeft={downloading === dc.id ? null : <Icon name="FileText" size={13} />} className="border border-gray-200 dark:border-gray-700 max-sm:h-10">
+                  iconLeft={downloading === dc.id ? null : <Icon name="FileText" size={13} />} className="border border-gray-200 dark:border-gray-700 max-lg:h-10">
                   PDF
                 </Button>
                 {/* Delete — DRAFTS ONLY. A locked close is the day's legal
@@ -7361,7 +7392,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 {(dc.status || "confirmed") === "draft" && (
                   <button onClick={() => deleteDraft(dc)} disabled={deleting === dc.id}
                     title={t("dcDeleteDraftTitle", "Delete this kladde?")}
-                    className="max-sm:min-h-10 text-[11px] px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 font-medium inline-flex items-center gap-1.5 border border-red-200 dark:border-red-800 disabled:opacity-50">
+                    className="max-lg:min-h-10 text-[11px] px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 font-medium inline-flex items-center gap-1.5 border border-red-200 dark:border-red-800 disabled:opacity-50">
                     <Icon name="Trash2" size={13} />
                     {deleting === dc.id ? t("dcDeleting", "Deleting…") : t("delete", "Delete")}
                   </button>
@@ -7392,7 +7423,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         );
       })}
       {data.length > shownCount && (
-        <Button variant="secondary" size="md" className="w-full max-sm:h-11" onClick={() => setShownCount((n) => n + 20)}>
+        <Button variant="secondary" size="md" className="w-full max-lg:h-11" onClick={() => setShownCount((n) => n + 20)}>
           {t("dcShowMoreCloses", "Show more ({n} left)", { n: data.length - shownCount })}
         </Button>
       )}

@@ -115,9 +115,11 @@ export function emailErrorKey(error) {
   return "dcMailErrUnknown";
 }
 
-/** { date: "08.10", time: "07:12" } in the device's (= the venue's) local
- *  time — the caller words it ("08.10 kl. 07:12"). The server stores naive
- *  UTC; read bare, the browser took it as local. null when unknown. */
+/** { date: "08.10", time: "07.12" } in the device's (= the venue's) local
+ *  time — the caller words it ("08.10 kl. 07.12"). The server stores naive
+ *  UTC; read bare, the browser took it as local. null when unknown.
+ *  Danish time, "07.12": the lock card said "kl. 06.31" while the send lines
+ *  beside it said "kl. 07:12" — one page, one clock. */
 export function sentWhen(iso) {
   if (!iso) return null;
   const s = String(iso);
@@ -127,7 +129,7 @@ export function sentWhen(iso) {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
-  return { date: `${dd}.${mm}`, time: `${hh}:${mi}` };
+  return { date: `${dd}.${mm}`, time: `${hh}.${mi}` };
 }
 
 /** The server's file name from Content-Disposition (filename* first, then

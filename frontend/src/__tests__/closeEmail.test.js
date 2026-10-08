@@ -61,7 +61,8 @@ describe("file names and times", () => {
   });
   it("reads a naive server timestamp as UTC", () => {
     const w = sentWhen("2026-10-08T05:12:00");
-    expect(w.time).toMatch(/^\d\d:\d\d$/);
+    // Danish time, the same "07.12" the lock card prints.
+    expect(w.time).toMatch(/^\d\d\.\d\d$/);
     expect(sentWhen(null)).toBeNull();
   });
 });
