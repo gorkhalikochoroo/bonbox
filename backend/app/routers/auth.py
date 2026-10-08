@@ -64,6 +64,7 @@ from app.schemas.auth import (
 )
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
+from app.services.revisor_mail import header_safe as _header_safe
 from app.config import settings
 
 import logging
@@ -181,6 +182,10 @@ def _clear_auth_cookie(response: Response, request: Request | None = None) -> No
 
 
 def _welcome_email_html(name: str) -> str:
+    # `name` is the business name typed at signup, mailed to an address that
+    # is not verified yet: escaped (revisor_mail.esc, the one mail escape).
+    from app.services.revisor_mail import esc
+    name = esc(name)
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:24px">
@@ -214,6 +219,11 @@ def _welcome_email_html(name: str) -> str:
 
 def _admin_signup_email_html(email: str, business_name: str, business_type: str) -> str:
     from datetime import datetime
+    from app.services.revisor_mail import esc
+    # Every value here was typed by whoever signed up — escaped.
+    email = esc(email)
+    business_name = esc(business_name)
+    business_type = esc(business_type)
     now = utc_now().strftime("%Y-%m-%d %H:%M UTC")
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
@@ -635,7 +645,7 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
             try:
                 send_email(
                     settings.ADMIN_EMAIL,
-                    f"New BonBox signup (Google): {name or email}",
+                    _header_safe(f"New BonBox signup (Google): {name or email}"),
                     _admin_signup_email_html(email, name, "google-oauth"),
                 )
             except Exception:
@@ -872,7 +882,7 @@ def apple_auth(
             try:
                 send_email(
                     settings.ADMIN_EMAIL,
-                    f"New BonBox signup (Apple): {full_name or email}",
+                    _header_safe(f"New BonBox signup (Apple): {full_name or email}"),
                     _admin_signup_email_html(email, full_name, "apple-oauth"),
                 )
             except Exception:
@@ -1013,7 +1023,7 @@ def verify_email(
         try:
             send_email(
                 settings.ADMIN_EMAIL,
-                f"New verified BonBox signup: {current_user.business_name or current_user.email}",
+                _header_safe(f"New verified BonBox signup: {current_user.business_name or current_user.email}"),
                 _admin_signup_email_html(current_user.email, current_user.business_name, current_user.business_type),
             )
         except Exception:
