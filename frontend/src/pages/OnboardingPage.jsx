@@ -798,10 +798,15 @@ export default function OnboardingPage() {
         // confirmed — this invite, not every mail): say so, never "sent",
         // and finish the wizard as usual — it is not an error. ("recently_sent"
         // = the same link went out by mail under 24 hours ago: it was sent.)
-        const held = res?.data?.email_sent === false
-          && res?.data?.email_not_sent_reason === "email_unverified";
-        inviteHeld = held;
-        setRevisorMsg(held ? t("onbRevisorInviteHeld") : t("onbRevisorInviteSent", { email }));
+        // Held while "did you create this account?" waits for an answer
+        // (reason "claim_question_open"): the address IS confirmed — the
+        // notice names the mailed question, never "confirm your e-mail".
+        const reason = res?.data?.email_not_sent_reason;
+        const heldClaim = res?.data?.email_sent === false && reason === "claim_question_open";
+        const held = heldClaim || (res?.data?.email_sent === false && reason === "email_unverified");
+        inviteHeld = held ? (heldClaim ? "claim_question_open" : "email_unverified") : false;
+        setRevisorMsg(heldClaim ? t("onbRevisorInviteHeldClaimOpen")
+          : held ? t("onbRevisorInviteHeld") : t("onbRevisorInviteSent", { email }));
       } catch (err) {
         const detail = err?.response?.data?.detail;
         const code = detail && typeof detail === "object" ? detail.code : null;
@@ -825,7 +830,7 @@ export default function OnboardingPage() {
     // dashboard. routeForFeature() degrades to /dashboard for unknown keys.
     await finishOnboarding(
       routeForFeature(resolvedArchetype.firstWin),
-      inviteHeld ? { revisorInviteHeld: true } : undefined,
+      inviteHeld ? { revisorInviteHeld: true, revisorInviteHeldReason: inviteHeld } : undefined,
     );
   };
 

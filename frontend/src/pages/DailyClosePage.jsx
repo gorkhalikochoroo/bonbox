@@ -11,6 +11,8 @@ import { trackEvent } from "../hooks/useEventLog";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
 import { errText } from "../utils/errText";
+import { HELD_CLAIM_OPEN, HELD_UNVERIFIED, heldReasonForUser, heldReasonFromError } from "../utils/senderGate";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
 import { useConfirm } from "../hooks/useConfirm";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
@@ -4996,6 +4998,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                           // confirmed e-mail (the server: skip
                           // "email_unverified") — said before Lås too.
                           if ((businessProfile?.accountant_auto_send_effective ?? true) && user?.email_verified === false) return t("autoEmailToUnverified", "To {owner}. Not to your revisor ({acct}) — confirm your e-mail first.", { owner, acct });
+                          // …or while "did you create this account?" waits
+                          // for an answer (the server: skip
+                          // "claim_question_open") — the true reason.
+                          if ((businessProfile?.accountant_auto_send_effective ?? true) && user?.claim_question_open === true) return t("autoEmailToClaimOpen", "To {owner}. Not to your revisor ({acct}) — BonBox is waiting for your answer to the question we e-mailed you.", { owner, acct });
                           // An older server has no such field and mails a saved revisor on lock.
                           if (businessProfile?.accountant_auto_send_effective ?? true) return t("autoEmailToBoth", "To {owner} and your revisor {acct}: the kasserapport as a PDF.", { owner, acct });
                           return t("autoEmailToOwnerOnly", "To {owner}. Your revisor ({acct}) only gets it when you tap Send — you can change that on Profile.", { owner, acct });
@@ -5284,8 +5290,12 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   const { user } = useAuth();
   // Send igen answered 403 email_unverified: the server's word wins over the
   // session's copy of the user (a team login sees its OWN email_verified).
-  const [heldByServer, setHeldByServer] = useState(false);
-  const ownerConfirmed = !heldByServer && user?.email_verified === true;
+  // Its reason too: "claim_question_open" — the address is confirmed and the
+  // answer to the mailed question is missing (release gate, 9 Oct).
+  const [heldByServer, setHeldByServer] = useState(null);
+  const ownerConfirmed = heldByServer !== HELD_UNVERIFIED && user?.email_verified === true;
+  const claimOpen = heldByServer === HELD_CLAIM_OPEN
+    || (heldByServer !== HELD_UNVERIFIED && user?.claim_question_open === true);
   const [st, setSt] = useState(() => ({
     status: ritual?.email_status ?? close.email_status ?? null,
     error: ritual?.email_error ?? close.email_error ?? null,
@@ -5301,7 +5311,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   // A settled null profile means the owner has no BusinessProfile row — read
   // as {} (no revisor saved), so the "Ikke sendt" lines still show.
   const { kind, acct, demo, identity, ownerSent } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
-    error: st.error, profile: profileLoaded ? (profile ?? {}) : null, ownerConfirmed });
+    error: st.error, profile: profileLoaded ? (profile ?? {}) : null, ownerConfirmed, claimOpen });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
   // The lock card and the History row render the same close, each with its
@@ -5375,10 +5385,13 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
       } else if (status === 409 && code === "in_progress") {
         setErr(t("dcMailInProgress", "It is being sent right now (from another tab or button). Wait a moment — it will not go twice."));
       } else if (status === 403 && code === "email_unverified") {
-        // Mail to the revisor waits for the owner's own confirmed e-mail.
-        // Nothing was sent; the line below says so with "Bekræft nu".
-        setHeldByServer(true);
-        setSt((s0) => ({ ...s0, skip: "email_unverified" }));
+        // Mail to the revisor waits for the owner's own confirmed e-mail —
+        // or for the answer to "did you create this account?" (reason
+        // claim_question_open). Nothing was sent; the line below says which,
+        // with "Bekræft nu" or "Send spørgsmålet igen".
+        const held = heldReasonFromError(e) || HELD_UNVERIFIED;
+        setHeldByServer(held);
+        setSt((s0) => ({ ...s0, skip: held }));
       } else if (status === 429) {
         setErr(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."));
       } else if (status === 400 && code === "no_accountant_email") {
@@ -5471,6 +5484,26 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
     line = (
       <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-1`}>
         <Icon name="BellOff" size={13} /> {t("dcMailOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — send it from your own mail.", { email: acct || "—" })}
+      </span>
+    );
+  } else if (kind === "claim_open" || kind === "claim_open_owner_failed") {
+    // The revisor got nothing: the address IS confirmed, but the answer to
+    // "Har du selv oprettet denne konto?" (mailed to the owner) is missing.
+    // No Send button (it would be refused) and no "Bekræft nu" (it leads
+    // nowhere): "Send spørgsmålet igen". The owner's OWN copy is said too.
+    line = (
+      <span className="inline-flex flex-col gap-1">
+        {kind === "claim_open_owner_failed" && (
+          <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-1`} data-testid="dc-mail-owner-copy-failed">
+            <Icon name="AlertTriangle" size={13} /> {t("dcMailOwnerCopyFailed", "Your copy was not sent — {reason}", { reason })}
+          </span>
+        )}
+        <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`} data-testid="dc-mail-held-claim-open">
+          <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {ownerSent
+            ? t("dcMailHeldClaimOpenSentYou", "Sent to you {when} — not to your revisor: BonBox is waiting for your answer to the question we e-mailed you", { when: whenText })
+            : t("dcMailHeldClaimOpen", "Not sent to your revisor — BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?)")}</span>
+          <ClaimQuestionResend className="text-xs" testId="dc-mail-claim-resend" />
+        </span>
       </span>
     );
   } else if (kind === "unverified" || kind === "unverified_owner_failed") {
@@ -5572,7 +5605,12 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
     ? new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(String(close.closed_at)) ? close.closed_at : `${close.closed_at}Z`)
         .toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })
     : "—";
-  const closedBy = close.closed_by || (t("staffShort", "Staff"));
+  // Nobody typed "Lukket af": only the owner's own session can lock a day
+  // (team seats are read-only), so it was the owner — named as BonBox names
+  // the owner elsewhere (the account's business name), never "Staff"
+  // (release gate, 9 Oct).
+  const { user: lockUser } = useAuth();
+  const closedBy = close.closed_by || lockUser?.business_name || t("dcLockedByOwner", "the owner");
   const recipients = (close.email_sent_to?.length ? close.email_sent_to : (ritual.sent_to || [])).join(", ");
 
   // Local dismiss state for bank-drop — POST to backend so the
@@ -5714,7 +5752,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
    ═══════════════════════════════════════════════════════════ */
 function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked,
   loading = false, failed = false, isOnline = true, focusCloseId = null, onFocusConsumed }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const confirm = useConfirm();
   // Tri-state: null while /billing/me is loading. Only a KNOWN "no" changes
   // the send path — a Free owner is never promised a BonBox send.
@@ -6236,6 +6274,23 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         : nDemo === 1
           ? t("dcSendDemoLeftOne", " · 1 sample day (demo) is not sent")
           : t("dcSendDemoLeftMany", " · {n} sample days (demo) are not sent", { n: nDemo });
+      // Held for this account right now (unconfirmed e-mail, or the "did you
+      // create this account?" question open): BonBox would send the revisor
+      // nothing — and no copy. Say that BEFORE the send, instead of a
+      // confirm that promises "goes to {email}" (release gate, 9 Oct). Only
+      // on a FRESH read of the account (an address confirmed in another tab
+      // is not held here); without one, the server decides (403 → the same
+      // notice below).
+      const heldNow = heldReasonForUser(await refreshUser?.());
+      if (heldNow) {
+        setSendIssue({
+          message: heldNow === HELD_CLAIM_OPEN
+            ? t("dcMailHeldClaimOpen", "Not sent to your revisor — BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?)")
+            : t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"),
+          fmt, verify: heldNow === HELD_UNVERIFIED, claim: heldNow === HELD_CLAIM_OPEN,
+        });
+        return;
+      }
       // The copy goes to the login address — the same one the server uses.
       const ownerCopy = (user?.email || "").trim() || t("dcYourOwnMail", "your own mail");
       const ok = await confirm({
@@ -6296,7 +6351,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         }
         let message;
         let verify = false;
-        if (status === 403 && detail?.code === "email_unverified") {
+        let claim = false;
+        if (status === 403 && detail?.code === "email_unverified" && heldReasonFromError(e) === HELD_CLAIM_OPEN) {
+          // The address IS confirmed; the answer to the mailed question is
+          // missing — "Send spørgsmålet igen", never "Bekræft nu".
+          message = t("dcMailHeldClaimOpen", "Not sent to your revisor — BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?)");
+          claim = true;
+        } else if (status === 403 && detail?.code === "email_unverified") {
           // Nothing was mailed — not the revisor, not a copy. The owner's own
           // mail still works (the button below), and "Bekræft nu" opens BonBox's.
           message = t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first");
@@ -6325,7 +6386,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         } else {
           message = errText(e, t("dcSendFailedDirect", "BonBox couldn't send it. Nothing was sent."));
         }
-        setSendIssue({ message, fmt, verify });
+        setSendIssue({ message, fmt, verify, claim });
         return;
       } finally {
         setSendingToAccountant(false);
@@ -7019,6 +7080,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           <div className="mt-2 px-3 py-2 rounded-lg text-xs bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200" role="alert">
             <p className="flex items-start gap-2"><Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" /> <span>{sendIssue.message}{sendIssue.verify && (
               <>{" "}<Link to="/verify-email?now=1" className="font-semibold underline underline-offset-2 whitespace-nowrap" data-testid="dc-send-verify-now">{t("verifyEmailNowCta", "Confirm now")}</Link></>
+            )}{sendIssue.claim && (
+              <>{" "}<ClaimQuestionResend testId="dc-send-claim-resend" /></>
             )}</span></p>
             <div className="flex flex-wrap gap-2 mt-2">
               <Button size="sm" variant="secondary" className="border border-amber-300 dark:border-amber-700 max-sm:h-10"

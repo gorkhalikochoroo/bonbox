@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import ClaimQuestionResend from "./ClaimQuestionResend";
 
 /**
  * "Your revisor's invite is saved, but not e-mailed yet" — after the wizard.
@@ -25,7 +26,11 @@ export default function RevisorInviteHeldNotice({ className = "" }) {
   const [hidden, setHidden] = useState(false);
 
   if (hidden || !location?.state?.revisorInviteHeld) return null;
-  if (user?.email_verified === true) return null;
+  // Held while "did you create this account?" waits for an answer: the
+  // address IS confirmed, so the row names the mailed question and offers
+  // "Send spørgsmålet igen" — never "Bekræft nu" (release gate, 9 Oct).
+  const claimHeld = location.state.revisorInviteHeldReason === "claim_question_open";
+  if (claimHeld ? user?.claim_question_open === false : user?.email_verified === true) return null;
 
   return (
     <div
@@ -38,13 +43,17 @@ export default function RevisorInviteHeldNotice({ className = "" }) {
       }
     >
       <p className="min-w-0">
-        {t("onbRevisorInviteHeld")}{" "}
-        <Link
-          to="/verify-email?now=1"
-          className="font-semibold underline underline-offset-2 whitespace-nowrap"
-        >
-          {t("verifyEmailNowCta", "Confirm now")}
-        </Link>
+        {claimHeld ? t("onbRevisorInviteHeldClaimOpen") : t("onbRevisorInviteHeld")}{" "}
+        {claimHeld ? (
+          <ClaimQuestionResend testId="revisor-invite-held-claim-resend" />
+        ) : (
+          <Link
+            to="/verify-email?now=1"
+            className="font-semibold underline underline-offset-2 whitespace-nowrap"
+          >
+            {t("verifyEmailNowCta", "Confirm now")}
+          </Link>
+        )}
       </p>
       <button
         type="button"

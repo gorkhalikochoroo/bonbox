@@ -20,6 +20,8 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } fro
 import { isStaffMemberRole } from "../config/navManifest";
 import { contractLabel } from "../config/scheduleGrid";
 import { revisorAddress } from "../utils/closeEmail";
+import { HELD_CLAIM_OPEN, heldReasonForUser, heldReasonFromError } from "../utils/senderGate";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -169,7 +171,7 @@ const NO_PAY = { hours: 0, base_earned: 0, overtime: 0, overtime_hours: 0, tips:
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
 export default function StaffPayrollPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { t, lang } = useLanguage();
   const currency = displayCurrency(user?.currency);
   // A manager reaches this tab (/staff/hours is not an ownerOnly destination)
@@ -624,8 +626,24 @@ export default function StaffPayrollPage() {
   const showDkFiles = isDanish && !isStaffSeat
     && !(dkEstimate && !dkQ.failed && !dkLoading && dkEstimate.staff_count === 0);
 
+  // Mail to the revisor is held for an unconfirmed e-mail ("Bekræft nu"), or
+  // while "did you create this account?" waits for the answer to the mailed
+  // question ("Send spørgsmålet igen" — the address IS confirmed).
+  const setHeldError = (held) => (held === HELD_CLAIM_OPEN
+    ? setError(t("dcMailHeldClaimOpen", "Not sent to your revisor — BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?)"), "claim")
+    : setError(t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"), "verify"));
+
   const sendToAccountant = async () => {
     if (!canSend) return;
+    // Held right now: BonBox would send the revisor nothing (and no copy).
+    // Said BEFORE the send, not after a confirm that promises "To: …, You
+    // get a copy" (release gate, 9 Oct) — on a fresh read of the account
+    // only; without one, the server decides (403 → the same line).
+    const heldNow = heldReasonForUser(await refreshUser?.());
+    if (heldNow) {
+      setHeldError(heldNow);
+      return;
+    }
     // A pay report leaves the building on this tap. The confirm used to read
     // "8 medarbejdere, 1. sep. 26 – 30. sep. 26. Du får en kopi." — not WHO
     // gets it (a hover tooltip said "angiv adressen under Profil"), not WHAT
@@ -723,9 +741,10 @@ export default function StaffPayrollPage() {
         // still exists — offer it, in the owner's language.
         setError(t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail."), "download");
       } else if (err?.response?.status === 403 && detail?.code === "email_unverified") {
-        // Mail to the revisor waits for the owner's own confirmed e-mail.
-        // Nothing was mailed: "Bekræft nu", or the PDF for the owner's own mail.
-        setError(t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"), "verify");
+        // Mail to the revisor waits for the owner's own confirmed e-mail (or
+        // the answer to the mailed question). Nothing was mailed: "Bekræft
+        // nu" / "Send spørgsmålet igen", or the PDF for the owner's own mail.
+        setHeldError(heldReasonFromError(err));
       } else if (err?.response?.status === 429 && detail?.code === "revisor_daily_cap") {
         setError(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."), "download");
       } else {
@@ -1548,6 +1567,16 @@ export default function StaffPayrollPage() {
                       {t("verifyEmailNowCta", "Confirm now")}
                       <Icon name="ChevronRight" size={14} />
                     </Link>
+                    <button type="button" onClick={generatePdf}
+                      className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                      {t("payDownloadToSendYourself", "Download the PDF")}
+                      <Icon name="ChevronRight" size={14} />
+                    </button>
+                  </span>
+                )}
+                {error.action === "claim" && (
+                  <span className="inline-flex flex-wrap items-center gap-x-3">
+                    <ClaimQuestionResend testId="pay-send-claim-resend" className="min-h-[40px] sm:min-h-0" />
                     <button type="button" onClick={generatePdf}
                       className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
                       {t("payDownloadToSendYourself", "Download the PDF")}

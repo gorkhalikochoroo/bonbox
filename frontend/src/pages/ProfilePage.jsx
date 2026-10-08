@@ -739,8 +739,16 @@ export default function ProfilePage() {
       } else {
         setBriefTestMsg(t("briefSendFailedToast"));
       }
-    } catch {
-      setBriefTestMsg(t("briefSendFailedToast"));
+    } catch (err) {
+      // The server says why — the test-mail ceiling (429: one per 10
+      // minutes, five a day, shared with the other test mails) or an
+      // unconfirmed address (403) — in the owner's language. Anything
+      // else: "Couldn't send".
+      const d = err?.response?.data?.detail;
+      const st = err?.response?.status;
+      const said = (st === 429 || st === 403 || st === 503) && d && typeof d === "object"
+        ? (lang === "da" ? d.message_da : d.message) : "";
+      setBriefTestMsg(said || t("briefSendFailedToast"));
     }
     setSendingBriefTest(false);
     setTimeout(() => setBriefTestMsg(""), 4000);
@@ -1464,6 +1472,19 @@ export default function ProfilePage() {
                       {autoSendOnPlan
                         ? t("accountantAutoSendExplain", "What: the day's kasserapport as a PDF (plus the Z-bon photo if you scanned one). When: the moment the day is locked. To: {email}. You get a copy. Your revisor can unsubscribe with one click, and you'll see it here. Unticked, your revisor only gets what you send with Send.", { email: (!accountantFormIsDemo && accountantForm.accountant_email.trim()) || "—" })
                         : t("accountantAutoSendFreeNote", "Automatic sending on lock is on Starter. On your plan you send it yourself from History or the period export.")}
+                      {/* What actually happens on lock while BonBox holds
+                          revisor mail: the owner's copy only (release gate,
+                          9 Oct) — never just "the moment the day is locked". */}
+                      {autoSendOnPlan && accountantForm.accountant_email.trim() && !accountantFormIsDemo && user?.email_verified === false && (
+                        <span className="block mt-1 text-amber-700 dark:text-amber-300" data-testid="accountant-auto-send-held">
+                          {t("accountantAutoSendHeldUnverified", "Right now your revisor gets nothing: your e-mail isn't confirmed yet, so only your own copy goes when a day is locked.")}
+                        </span>
+                      )}
+                      {autoSendOnPlan && accountantForm.accountant_email.trim() && !accountantFormIsDemo && user?.email_verified === true && user?.claim_question_open === true && (
+                        <span className="block mt-1 text-amber-700 dark:text-amber-300" data-testid="accountant-auto-send-held">
+                          {t("accountantAutoSendHeldClaimOpen", "Right now your revisor gets nothing: BonBox is waiting for your answer to the question we e-mailed you, so only your own copy goes when a day is locked.")}
+                        </span>
+                      )}
                     </span>
                   </span>
                 </label>

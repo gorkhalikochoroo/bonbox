@@ -27,6 +27,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { Button, Card, Icon } from "./ui";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import ClaimQuestionResend from "./ClaimQuestionResend";
 
 const INPUT_CLASS =
   "w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 " +
@@ -86,7 +87,14 @@ export default function RevisorSection() {
   const [inviteRecent, setInviteRecent] = useState(false);
   // The pending row whose "Send invitation" is in flight.
   const [resendingId, setResendingId] = useState(null);
-  const ownerConfirmed = user?.email_verified === true;
+  // "Confirmed" for sending means: the address is confirmed AND no "did you
+  // create this account?" question waits for an answer (the server holds
+  // the invite either way — release gate, 9 Oct).
+  const claimOpen = user?.email_verified === true && user?.claim_question_open === true;
+  const ownerConfirmed = user?.email_verified === true && !claimOpen;
+  // The last invite was held because the question is open (reason
+  // "claim_question_open"): said in those words, with "Send spørgsmålet igen".
+  const [inviteHeldClaim, setInviteHeldClaim] = useState(false);
 
   const refreshGrants = () => {
     setGrantsLoading(true);
@@ -135,7 +143,9 @@ export default function RevisorSection() {
     setInviteLink(res.data?.accept_url || "");
     const reason = res.data?.email_not_sent_reason;
     const notNow = res.data?.email_sent === false;
-    const held = notNow && reason === "email_unverified";
+    const heldClaim = notNow && reason === "claim_question_open";
+    const held = notNow && (reason === "email_unverified" || heldClaim);
+    setInviteHeldClaim(heldClaim);
     // The same link already went out by mail less than 24 hours ago: nothing
     // was sent now, but a mail DID leave — so "Didn't arrive?" stays true.
     const recent = notNow && reason === "recently_sent";
@@ -145,7 +155,9 @@ export default function RevisorSection() {
     setInviteRecent(recent);
     // Only claim a sent e-mail when the server says it left; otherwise the
     // copy-link below is the way to reach the revisor.
-    const msg = held
+    const msg = heldClaim
+      ? t("revisorInviteHeldClaimOpen", "Invite saved, but not e-mailed yet: BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?). Once you've answered, tap Send invitation next to your revisor below.")
+      : held
       ? t("revisorInviteHeldUnverified", "Invite saved, but not e-mailed yet: BonBox e-mails your revisor the invitation only once your own e-mail is confirmed. Confirm it, then tap Send invitation next to your revisor below.")
       : recent
         ? t("revisorInviteRecentlySent", "This invite was e-mailed less than 24 hours ago, so BonBox didn't send it again.")
@@ -306,8 +318,12 @@ export default function RevisorSection() {
         {revisorMsg && (
           <Message tone={inviteHeld || inviteRecent ? "notice" : "success"}>
             <span data-testid={inviteHeld ? "revisor-invite-held" : undefined}>{revisorMsg}</span>
+            {/* Held while the question is open: "Send spørgsmålet igen". */}
+            {inviteHeld && inviteHeldClaim && claimOpen && (
+              <ClaimQuestionResend className="ml-2" testId="revisor-invite-claim-resend" />
+            )}
             {/* Held for an unconfirmed account: the one tap that fixes it. */}
-            {inviteHeld && !ownerConfirmed && (
+            {inviteHeld && !inviteHeldClaim && user?.email_verified !== true && (
               <Link
                 to="/verify-email?now=1"
                 className="ml-2 inline-flex items-center font-semibold underline underline-offset-2"
@@ -435,7 +451,13 @@ export default function RevisorSection() {
                     <div className="flex items-center gap-1">
                       {/* A never-mailed invite of an unconfirmed owner: the
                           one tap that lets BonBox send it. */}
-                      {notMailed && !ownerConfirmed && (
+                      {/* …or, while "did you create this account?" is
+                          open, the question mailed again — never "Bekræft
+                          nu" to a confirmed address. */}
+                      {notMailed && claimOpen && (
+                        <ClaimQuestionResend className="text-xs text-amber-800 dark:text-amber-200 px-1.5" testId={`revisor-grant-claim-resend-${g.id}`} />
+                      )}
+                      {notMailed && !ownerConfirmed && !claimOpen && (
                         <Link
                           to="/verify-email?now=1"
                           className="text-xs font-semibold underline underline-offset-2 text-amber-800 dark:text-amber-200 px-1.5"

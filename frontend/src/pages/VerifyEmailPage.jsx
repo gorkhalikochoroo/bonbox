@@ -264,7 +264,11 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
             {/* OTP input boxes */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-300 mb-3">{t("verifyCodeLabel", "Verification code")}</label>
-              <div className="flex gap-3 justify-center" onPaste={handlePaste}>
+              {/* Six boxes that share the row: 52 px each on a wide screen,
+                  narrower (gap 8 px) on a 360–390 px phone — the fixed
+                  3.25rem + gap-3 row was 372 px and cut the 6th box off
+                  (release gate, 9 Oct). */}
+              <div className="flex gap-2 sm:gap-3 justify-center w-full" onPaste={handlePaste} data-testid="verify-code-row">
                 {code.map((digit, index) => (
                   <input
                     key={index}
@@ -275,12 +279,11 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
                     value={digit}
                     onChange={(e) => handleChange(index, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(index, e)}
-                    className={`w-13 h-14 text-center text-2xl font-bold rounded-xl border-2 transition-all duration-200 bg-white/[0.05] text-white focus:outline-none ${
+                    className={`flex-1 min-w-0 max-w-[3.25rem] h-14 text-center text-2xl font-bold rounded-xl border-2 transition-all duration-200 bg-white/[0.05] text-white focus:outline-none ${
                       digit
                         ? "border-gray-300/50 bg-emerald-500/15"
                         : "border-white/10 focus:border-gray-300 focus:ring-2 focus:ring-gray-400/20"
                     }`}
-                    style={{ width: "3.25rem" }}
                     disabled={loading}
                     autoComplete="one-time-code"
                   />

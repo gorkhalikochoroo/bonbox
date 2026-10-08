@@ -16,6 +16,8 @@ import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
 import { formatDateClear, formatDateClearFull } from "../utils/dateFormat";
 import { revisorAddress } from "../utils/closeEmail";
+import { HELD_CLAIM_OPEN, heldReasonForUser, heldReasonFromError } from "../utils/senderGate";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
 
 // The backend speaks in codes and English labels ("half_yearly", "H2 2026",
 // "Jul–Dec 2026", "2027-03-01"); an owner reads Danish.
@@ -534,6 +536,9 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
   const [show402, setShow402] = useState(false);
   const confirm = useConfirm();
   const navigate = useNavigate();
+  const { refreshUser } = useAuth() || {};
+  const HELD_UNVERIFIED_TEXT = t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first");
+  const HELD_CLAIM_TEXT = t("dcMailHeldClaimOpen", "Not sent to your revisor — BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?)");
 
   const periodStart = deadline?.period_start;
   const periodEnd = deadline?.period_end;
@@ -594,6 +599,16 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       setTimeout(() => setError(""), 10000);
       return;
     }
+    // Held for this account right now (unconfirmed e-mail, or the "did you
+    // create this account?" question open): BonBox would send the revisor
+    // nothing. Say so BEFORE the send instead of a confirm that promises
+    // "Your revisor gets …" (release gate, 9 Oct) — on a fresh read of the
+    // account only; without one, the server decides (403 → the same line).
+    const heldNow = heldReasonForUser(await refreshUser?.());
+    if (heldNow) {
+      setError(heldNow === HELD_CLAIM_OPEN ? HELD_CLAIM_TEXT : HELD_UNVERIFIED_TEXT);
+      return;
+    }
     // One tap sent the momsangivelse with no recipient on screen — even for a
     // period that hasn't ended. Say who gets what, and ask.
     const ok = await confirm({
@@ -637,9 +652,12 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         setError(t("filingPdfOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. Download the PDF and send it from your own mail."));
         setTimeout(() => setError(""), 10000);
       } else if (e?.response?.status === 403 && e?.response?.data?.detail?.code === "email_unverified") {
-        // Mail to the revisor waits for the owner's own confirmed e-mail.
-        // Nothing was mailed; the PDF button beside this still downloads it.
-        setError(t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"));
+        // Mail to the revisor waits for the owner's own confirmed e-mail —
+        // or for the answer to the mailed "did you create this account?"
+        // (reason claim_question_open: the address IS confirmed, so no
+        // "confirm" wording). Nothing was mailed; the PDF button beside
+        // this still downloads it.
+        setError(heldReasonFromError(e) === HELD_CLAIM_OPEN ? HELD_CLAIM_TEXT : HELD_UNVERIFIED_TEXT);
         setTimeout(() => setError(""), 15000);
       } else if (e?.response?.status === 429) {
         setError(t("filingPdfDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Download the PDF and send it from your own mail, or try tomorrow."));
@@ -727,8 +745,12 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
           <div className="mb-3 text-xs px-3 py-2 rounded-md bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200/70 dark:border-red-800/60">
             {error}
             {/* Held for an unconfirmed owner: the one tap that fixes it. */}
-            {error === t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first") && (
+            {error === HELD_UNVERIFIED_TEXT && (
               <>{" "}<Link to="/verify-email?now=1" className="font-semibold underline underline-offset-2 whitespace-nowrap" data-testid="filing-send-verify-now">{t("verifyEmailNowCta", "Confirm now")}</Link></>
+            )}
+            {/* Question open: "Send spørgsmålet igen", never "Bekræft nu". */}
+            {error === HELD_CLAIM_TEXT && (
+              <>{" "}<ClaimQuestionResend testId="filing-send-claim-resend" /></>
             )}
           </div>
         )}

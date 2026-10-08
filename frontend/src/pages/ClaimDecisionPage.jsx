@@ -124,7 +124,9 @@ export default function ClaimDecisionPage() {
             busy={busy}
             error={error}
             preferred={preferred}
-            explainKey="claimMailExplain"
+            // After a reset, "Nej / Ved ikke" ends the password just chosen
+            // with the code too — said before the tap (release gate, 9 Oct).
+            explainKey={afterReset ? "claimMailExplainAfterReset" : "claimMailExplain"}
             textKey={afterReset ? "claimQuestionTextAfterReset" : "claimQuestionText"}
           />
         )}
@@ -137,7 +139,7 @@ export default function ClaimDecisionPage() {
 
         {state === "secured" && (
           <div className="mt-3" data-testid="claim-secured">
-            <p className="text-[14px] text-gray-500 leading-relaxed">{t("claimSecuredMailBody")}</p>
+            <p className="text-[14px] text-gray-500 leading-relaxed">{t(afterReset ? "claimSecuredMailBodyAfterReset" : "claimSecuredMailBody")}</p>
             {accessClosed && (
               <p className="text-[14px] text-gray-500 leading-relaxed mt-3">{t("magicLinkClaimedAccessClosed")}</p>
             )}
