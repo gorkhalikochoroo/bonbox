@@ -1569,12 +1569,34 @@ def inventory_autopilot_apply(
             # the apply path.  Treat as "no recipient recorded".
             continue
     # Also count the unique recipients in THIS request so a single
-    # giant batch can't bypass the cap.
-    incoming_recipients = {
-        (line.supplier_email or "").strip().lower()
-        for line in body.items
-        if (getattr(line, "supplier_email", None) or "").strip()
-    }
+    # giant batch can't bypass the cap — the addresses that will ACTUALLY be
+    # mailed. apply_reorder uses the line's supplier_email, else the item's
+    # STORED one; counting the body alone let 500 stored addresses go out in
+    # one call before the cap saw them (sweep, 8 Oct). Resolved the same way
+    # here, from the caller's OWN items only (a foreign id is refused by the
+    # service's tenant check below, never read into this count).
+    _line_ids = []
+    for line in body.items:
+        try:
+            _line_ids.append(uuid.UUID(str(line.item_id)))
+        except (TypeError, ValueError):
+            continue
+    _stored_email = {
+        str(_id): (_email or "")
+        for _id, _email in (
+            db.query(InventoryItem.id, InventoryItem.supplier_email)
+            .filter(InventoryItem.id.in_(_line_ids), InventoryItem.user_id == user.id)
+            .all()
+        )
+    } if _line_ids else {}
+    incoming_recipients = set()
+    for line in body.items:
+        _key = str(line.item_id)
+        if _key not in _stored_email:
+            continue
+        _addr = (line.supplier_email or _stored_email[_key] or "").strip().lower()
+        if _addr and "@" in _addr:
+            incoming_recipients.add(_addr)
     projected = len(recipients_today | incoming_recipients)
     if projected > _MAX_RECIPIENTS_PER_DAY:
         raise HTTPException(
