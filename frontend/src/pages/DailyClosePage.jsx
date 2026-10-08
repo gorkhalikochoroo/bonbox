@@ -39,6 +39,7 @@ import {
   TOTAL_KEYS,
 } from "../utils/dailyCloseScanMerge";
 import {
+  activeEntries,
   addScan,
   cardView,
   chooseTerminal,
@@ -46,6 +47,8 @@ import {
   dateMoved,
   detachForm,
   discardScans,
+  dropPending,
+  fieldOf,
   formTill,
   formValues,
   hasScanTills,
@@ -61,6 +64,7 @@ import {
   tillFromForm,
   tillGroups,
   tillTotals,
+  TILL_SCAN,
   typeIntoForm,
   undo as undoTill,
 } from "../utils/closeTills";
@@ -1606,7 +1610,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // owner types one (or the review would show one figure and lock another).
   const scanTotalEmptied = Boolean(scanResult) && severalTills && scanResult.revenue_total_text != null
     && String(scanResult.revenue_total_text).trim() === "";
-  const [scanPhotos, setScanPhotos] = useState([]); // [{url, name}]
+  const [scanPhotos, setScanPhotos] = useState([]); // [{url, name, ref}]
+  // The photos still in the day: one thrown away with "brug det ikke" goes
+  // from the card's thumbnails (and from Start forfra's count) with it.
+  const dayPhotos = useMemo(() => {
+    const refs = new Set([...ledger.entries.map((e) => e.photo), ...ledger.pending.map((p) => p.photo)]);
+    return scanPhotos.filter((p) => !p.ref || refs.has(p.ref));
+  }, [scanPhotos, ledger]);
   // First scanned Z-report photo URL (Supabase signed URL or local path).
   // Persisted on the close row as receipt_photo so the owner can re-view
   // the source document later (Bogføringsloven §10 retention).
@@ -1883,7 +1893,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // anything is locked. It restores the unanswered queue too: an undo means
   // "I answered that wrong", so the question comes back.
   const undoStep = lastStep(ledger);
-  const canUndoChoice = undoStep === "sum" || undoStep === "replace" || undoStep === "page";
+  const canUndoChoice = undoStep === "sum" || undoStep === "replace" || undoStep === "page" || undoStep === "drop";
 
   /** The owner answered "another terminal" (sum) or "same terminal" (replace). */
   const resolveTerminalChoice = (mode) => {
@@ -1893,8 +1903,22 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     act(chooseTerminal, mode);
   };
 
+  // The day's first photo still in it, for the close's receipt_photo.
+  const firstPhotoUrl = (lg) => [...activeEntries(lg).filter((e) => e.origin === TILL_SCAN), ...lg.pending]
+    .map((e) => e.scan?.image_url).find((u) => typeof u === "string" && u) || null;
   const undoMerge = () => {
-    if (canUndoChoice) act(undoTill);
+    if (!canUndoChoice) return;
+    const after = act(undoTill);
+    // A photo thrown away with "brug det ikke" and brought back: its stored
+    // image is the close's source document again.
+    if (!receiptPhotoUrl) { const u = firstPhotoUrl(after); if (u) setReceiptPhotoUrl(u); }
+  };
+
+  /** "Det er det samme billede — brug det ikke": the waiting photo goes, nothing else. */
+  const dropWaitingPhoto = () => {
+    const head = ledgerRef.current.pending[0];
+    const after = act(dropPending);
+    if (head && receiptPhotoUrl && head.scan?.image_url === receiptPhotoUrl) setReceiptPhotoUrl(firstPhotoUrl(after));
   };
 
   const handleFileSelect = async (rawFile) => {
@@ -1940,7 +1964,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         return;
       }
       const thumbUrl = URL.createObjectURL(file);
-      setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name }]);
+      setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name, ref: photoRef }]);
       // Before the day's first photo the form is the truth: a close typed by
       // hand, or a reopened draft, becomes the first till ("the one on
       // screen") — so a second Z-bon is asked about instead of silently
@@ -2699,7 +2723,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // An unreadable count is no count: it showed "0 kr." takings, a −2.000
   // difference and the >100 kr. warning beside "Vi kan ikke læse beløbet".
   const cashCountReadable = String(cashCounted ?? "").trim() !== "" && !isMoneyRejected(cashCounted, mLocale);
-  const cashDiff = cashCountReadable ? Math.round((cashCountedVal - cashExpected) * 100) / 100 : null;
+  // Against an expected figure only — the server's rule (no expected cash, no
+  // cash_difference). With no cash sale anywhere the step showed "3.500 kr.
+  // for meget i kassen" against a fallback 0, and the record stored none.
+  const cashDiff = cashCountReadable && hasCashBaseline ? Math.round((cashCountedVal - cashExpected) * 100) / 100 : null;
+  const cashNoBaseline = cashCountReadable && !hasCashBaseline;
   // Whole kroner at a glance — but a figure with øre shows them, or the step
   // says −50 while the review and the kasserapport say −50,25.
   const oreIfAny = (v) => (Number.isFinite(v) && Math.abs(v - Math.round(v)) > 0.004 ? LEDGER_DECIMALS : GLANCE_DECIMALS);
@@ -2884,8 +2912,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // corrected total, a category raised past the bon, one till of two, or a
   // page whose MOMS belongs to no total anybody read: worked out, and said.
   const ledgerMoms = useMemo(() => momsOf(ledger), [ledger]);
-  // The form's own MOMS on a card (typed, or a reopened draft's): never a read.
-  const formMomsIn = (scan) => (scan?.merge_info?.formFields || []).includes("moms_total");
   const momsFor = (total) => {
     const base = Math.max(0, Math.round((total - exemptSalesTotal) * 100) / 100);
     return base > 0 && vatRate > 0 ? Math.round((base * vatRate / vatDivisor) * 100) / 100 : 0;
@@ -3429,21 +3455,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // still must not read as "aflæst" or count as found.
   const typedOnCard = useMemo(() => new Set(scanResult?.merge_info?.typedFields || []), [scanResult]);
   const readOnCard = (field, v) => typeof v === "number" && v !== 0 && !typedOnCard.has(field);
-  const scanFieldsDetected = useMemo(() => {
-    if (!scanResult) return 0;
-    let count = 0;
-    const r = scanResult.revenue || {};
-    const p = scanResult.payments || {};
-    defaultRevCats.forEach(c => { if (readOnCard(`revenue.${c.key}`, r[c.key])) count++; });
-    defaultPayMethods.forEach(m => { if (readOnCard(`payments.${m.key}`, p[m.key])) count++; });
-    if (config.hasTips && readOnCard("tips", scanResult.tips)) count++;
-    const read = (v) => typeof v === "number" && v !== 0;
-    if (read(scanResult.revenue_total) && !scanResult.revenue_total_text) count++;
-    if (read(scanResult.moms_total) && !formMomsIn(scanResult)) count++;
-    return count;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanResult, typedOnCard, defaultRevCats, defaultPayMethods]);
   const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0) + 2;
+  // The confidence is a READ's: per till, what its own photos read off the
+  // paper (a figure the owner changed is not "found"). Counted on the merged
+  // card, a fully read bon summed with a typed close or a draft said "Lav
+  // sikkerhed — 2/10" — the typed lines, the bon's own among them, dropped
+  // out of the count. One figure per till read off a photo.
+  const tillReads = useMemo(() => {
+    const fields = [
+      ...defaultRevCats.map((c) => `revenue.${c.key}`),
+      ...defaultPayMethods.map((m) => `payments.${m.key}`),
+      ...(config.hasTips ? ["tips"] : []),
+      "revenue_total", "moms_total",
+    ];
+    return tillGroups(ledger)
+      .map((g) => g.filter((e) => e.origin === TILL_SCAN))
+      .filter((photos) => photos.length > 0)
+      .map((photos) => fields.filter((f) => photos.some((e) => {
+        const v = fieldOf(e.scan, f);
+        return typeof v === "number" && v !== 0 && !Object.prototype.hasOwnProperty.call(e.edits || {}, f);
+      })).length);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledger, defaultRevCats, defaultPayMethods]);
   // A card rebuilt from a reopened draft carries no read at all — no
   // confidence, no "missing", no "we couldn't read the split".
   const cardIsRead = Boolean(scanResult) && !scanResult.from_draft;
@@ -3490,8 +3523,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // is named on its own line, in words that do not call it a bon's.
     return { read: names(sides.read), own: names(sides.own) };
   }, [ledger, momsTyped, revCats, payMethods, vatName, t]);
-  const mergeIncompleteLabels = mergeIncompleteNames.read;
-  const mergeIncompleteOwnLabels = mergeIncompleteNames.own;
 
   /**
    * The MOMS the card shows is the MOMS "Brug disse tal" leaves in the form —
@@ -3520,6 +3551,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   })();
   const cardMomsApplied = Boolean(scanResult) && Boolean(appliedMoms) && appliedMoms.key === scanMomsKey(scanResult);
   const cardMoms = (() => {
+    // A card with no photo in the day (a reopened draft, a typed total) is
+    // the form's own till: its MOMS is the form's — the one the review shows
+    // and the payload sends. It kept the draft's saved 2.652,90 after the
+    // total moved, under a review of 4.452,90.
+    if (!hasScanTills(ledger)) return { value: momsTotal, read: false, moved: false };
     const bon = Number(scanResult?.moms_total);
     const fits = ledgerMoms.source === "zbon";
     // The form's MOMS is what applying leaves: the figure already applied, or
@@ -3538,6 +3574,52 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (fits) return { value: ledgerMoms.value, read: true, moved: false };
     return { value: momsFor(cardSaveTotal), read: false, moved: ledgerMoms.recomputed, oneTill: ledgerMoms.oneTill };
   })();
+
+  // ─── Nothing above the box being typed in moves while typing ─────────
+  // The card's hints are worked out on every keystroke ("i alt er 2 kr.",
+  // "Rettet ned i hånden −20.128 kr." on the way to 20.130,50) and mounted
+  // above the boxes. While a box on the card has focus they hold what they
+  // said when typing began; leaving the box shows the final state once.
+  // The hints as they were when a box on the card took focus (null: live).
+  // A hint that comes and goes with every keystroke above the box being
+  // typed in moved that box 138–174 px under the caret on a phone; held, it
+  // settles once, when the owner leaves the box.
+  const [cardHeld, setCardHeld] = useState(null);
+  const held = scanMode === "result" ? cardHeld : null;
+  const cardGapLive = (() => {
+    if (!scanResult) return null;
+    const hasTotal = (scanResult.revenue_total || 0) > 0;
+    // Lines that add up to the total ARE the split: an empty Takeaway was 0
+    // that night, not something to ask for. The owner's own till on the card
+    // (a typed close, a reopened draft): its categories are theirs, not
+    // "found on this bon", and the bon's unsplit part is the "Ikke fordelt"
+    // line — no category is asked for.
+    if (!hasTotal || scanRevComplete || !cardIsRead || cardOwnTill) return null;
+    // Found = read off the photo; a line the owner typed is not.
+    const detected = defaultRevCats.filter((c) => readOnCard(`revenue.${c.key}`, scanResult.revenue?.[c.key])).length;
+    const missing = defaultRevCats
+      .filter((c) => { const v = scanResult.revenue?.[c.key]; return !(v != null && v !== 0 && v !== ""); })
+      .map((c) => String(catLabel(t, c) || "").split(" / ")[0]);
+    if (!missing.length) return null;
+    // The total the box shows and the day saves — it said "i alt er 20.030"
+    // beside a box reading 20.130.
+    return { detected, missing, allEmpty: detected === 0, amount: cardSaveTotal > 0 ? cardSaveTotal : scanResult.revenue_total };
+  })();
+  const cardLive = {
+    gap: cardGapLive,
+    unsplit: { amount: cardUnsplit, show: cardSaveTotal > 0, decimals: pairDecimals(cardSaveTotal, cardUnsplit) },
+    reads: tillReads,
+    mergeNow: cardSaveTotal > 0 ? cardSaveTotal : null,
+    mergeNames: mergeIncompleteNames,
+  };
+  const cardShown = held || cardLive;
+  const cardGap = cardShown.gap;
+  const cardUnsplitShown = cardShown.unsplit;
+  const heldReads = cardShown.reads;
+  const heldMergeNow = cardShown.mergeNow;
+  const heldMergeNames = cardShown.mergeNames;
+  const onCardFocus = (e) => { if (e.target?.tagName === "INPUT") setCardHeld(cardLive); };
+  const onCardBlur = (e) => { if (e.target?.tagName === "INPUT") setCardHeld(null); };
 
   /**
    * "These numbers are a SUM of two tills" — rendered on the scan card AND on
@@ -3600,17 +3682,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* Honest about what could NOT be added, BY NAME. "Terminal 2's MOMS
             line was unreadable" and "terminal 2 had no MOMS" look the same on
             a photo, so we say which lines instead of inventing a sum. */}
-        {mergeIncompleteLabels.length > 0 && (
+        {heldMergeNames.read.length > 0 && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
             {t("scanMergedIncompleteNamed", "Only on one of the receipts, so not added up: {fields}. Check them before you lock.", {
-              fields: mergeIncompleteLabels.join(", "),
+              fields: heldMergeNames.read.join(", "),
             })}
           </p>
         )}
-        {mergeIncompleteOwnLabels.length > 0 && (
+        {heldMergeNames.own.length > 0 && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
             {t("scanMergedIncompleteOwn", "Your own figures that were not on the new receipt are not added up: {fields}. Check them before you lock.", {
-              fields: mergeIncompleteOwnLabels.join(", "),
+              fields: heldMergeNames.own.join(", "),
             })}
           </p>
         )}
@@ -3814,7 +3896,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
         {/* ─── SCAN RESULT CARD ─── */}
         {scanMode === "result" && scanResult && (
-          <div className="space-y-5">
+          <div className="space-y-5" onFocus={onCardFocus} onBlur={onCardBlur}>
             {/* The day the scan is for — the idle card said it, the result
                 card dropped it until Trin 5. */}
             <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5" data-testid="dc-scan-result-date">
@@ -3881,11 +3963,33 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       })}
                     </Button>
                   </div>
+                  {/* A retake of a bon already in the day (a new photo of the
+                      same paper) had no right answer: "add" counted it twice,
+                      "same terminal" dropped every other till. The photo goes;
+                      the day stays exactly as it was. */}
+                  <Button variant="ghost" size="sm" className="w-full h-auto! min-h-11 py-2 whitespace-normal! text-left leading-snug"
+                    onClick={dropWaitingPhoto}
+                    iconLeft={<Icon name="X" size={15} />}>
+                    {t("dcScanSamePhotoDiscard", "It's the same photo — don't use it")}
+                  </Button>
                 </div>
               );
             })()}
 
-            {!pendingScan && renderMergeSummary({ withUndo: true, nowTotal: cardSaveTotal > 0 ? cardSaveTotal : null })}
+            {!pendingScan && renderMergeSummary({ withUndo: true, nowTotal: heldMergeNow })}
+            {/* The photo thrown away — as undoable as an answer. */}
+            {!pendingScan && undoStep === "drop" && (
+              <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3" data-testid="dc-scan-dropped">
+                <span className="text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
+                  <Icon name="X" size={15} />
+                  {t("dcScanPhotoDropped", "The new photo was not used.")}
+                </span>
+                <button onClick={undoMerge}
+                  className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
+                  {t("scanMergedUndo", "Undo")}
+                </button>
+              </div>
+            )}
             {/* "Same terminal" replaced the figures — as undoable as a sum. */}
             {!pendingScan && canUndoChoice && scanResult?.merge_info?.mode === MERGE_REPLACE && (
               <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm flex items-center justify-between gap-3">
@@ -4164,12 +4268,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   were two different hues for the same instruction ("check
                   this"), and yellow-700 on yellow-100 is the weakest pair of
                   the three. One warn colour, one critical colour. */}
-              {cardIsRead && (
-              <span className={`text-[12px] font-medium px-3 py-1 rounded-full ${
+              {cardIsRead && heldReads.length > 0 && (
+              <span className="flex flex-wrap gap-1.5" data-testid="dc-scan-confidence">
+              {heldReads.map((detected, i) => (
+              <span key={i} className={`text-[12px] font-medium px-3 py-1 rounded-full ${
                 // Few fields read is "check this" (amber), not money lost (red).
-                scanFieldsDetected >= 5 ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                detected >= 5 ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                   : "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
               }`}>
+                {/* Several tills: whose read this is ("Bon 2"). */}
+                {severalTills && <span className="font-semibold">{t("dcScanBonN", "Receipt {n}:", { n: i + 1 })} </span>}
                 {/* confidenceLevel*, not confidence*. The template already ends
                     in the noun ("… sikkerhed — 5/7 felter"), and the standalone
                     pill keys carry it too, so interpolating one into the other
@@ -4177,10 +4285,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     Danish owner who scanned a kasserapport. The bare level word
                     has its own three keys now. */}
                 <Icon name="Target" size={14} className="inline align-text-bottom mr-1" /> {t("scanConfidenceLevel", "{level} confidence — {detected}/{total} fields detected", {
-                  level: scanFieldsDetected >= 5 ? t("confidenceLevelHigh", "High") : scanFieldsDetected >= 3 ? t("confidenceLevelMedium", "Medium") : t("confidenceLevelLow", "Low"),
-                  detected: scanFieldsDetected,
+                  level: detected >= 5 ? t("confidenceLevelHigh", "High") : detected >= 3 ? t("confidenceLevelMedium", "Medium") : t("confidenceLevelLow", "Low"),
+                  detected,
                   total: scanFieldsTotal,
                 })}
+              </span>
+              ))}
               </span>
               )}
             </div>
@@ -4191,44 +4301,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   • "partial"     → tell owner which categories to fill
                 Both keep the close save-able instead of silently writing
                 the wrong number (was the original bug). */}
-            {(() => {
-              const hasTotal = (scanResult.revenue_total || 0) > 0;
-              // Lines that add up to the total ARE the split: an empty
-              // Takeaway was 0 that night, not something to ask for.
-              if (!hasTotal || scanRevComplete || !cardIsRead) return null;
-              // The owner's own till is on the card (a typed close, a reopened
-              // draft): its categories are theirs, not "found on this bon", and
-              // the bon's unsplit part is the "Ikke fordelt" line below — no
-              // category is asked for. It named Takeaway as missing from a bon
-              // that had no split at all.
-              if (cardOwnTill) return null;
-              // Found = read off the photo; a line the owner typed is not.
-              const detected = defaultRevCats
-                .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
-                .filter(r => readOnCard(`revenue.${r.key}`, r.val));
-              const missing = defaultRevCats
-                .map(c => ({ key: c.key, label: catLabel(t, c), val: scanResult.revenue?.[c.key] }))
-                .filter(r => !(r.val != null && r.val !== 0 && r.val !== ""));
-              if (missing.length === 0) return null;
-              const allEmpty = detected.length === 0;
-              return (
+            {cardGap && (
                 <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200 space-y-1">
                   <div>
                     <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> <strong>
-                      {allEmpty
+                      {cardGap.allEmpty
                         ? t("scanGapNoBreakdown", "We couldn't detect the per-category breakdown")
-                        : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: detected.length, total: defaultRevCats.length })}
+                        : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: cardGap.detected, total: defaultRevCats.length })}
                     </strong>
-                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}", { amount: formatOwnerMoney(scanResult.revenue_total, currency, { decimals: GLANCE_DECIMALS }) })}
+                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}", { amount: formatOwnerMoney(cardGap.amount, currency, { decimals: oreIfAny(cardGap.amount) }) })}
                   </div>
                   <div className="text-xs opacity-90">
-                    {allEmpty
+                    {cardGap.allEmpty
                       ? t("scanGapSavingTotal", "Saving the total revenue anyway. Enter the per-category split below if you need it for reports.")
-                      : <>{t("scanGapEnterActualFor", "Please enter the actual amount for:")} <strong>{missing.map(m => m.label.split(" / ")[0]).join(", ")}</strong>. {t("scanGapOrSkip", "Or skip — the total above will save correctly either way.")}</>}
+                      : <>{t("scanGapEnterActualFor", "Please enter the actual amount for:")} <strong>{cardGap.missing.join(", ")}</strong>. {t("scanGapOrSkip", "Or skip — the total above will save correctly either way.")}</>}
                   </div>
                 </div>
-              );
-            })()}
+            )}
 
             {/* Revenue (med moms) */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
@@ -4258,6 +4347,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         revenue boxes verbatim, where the page's own strict
                         parser decides. */}
                     <MoneyField
+                      id={`scan-rev-${c.key}`}
                       locale={mLocale}
                       // The field IS the flex child of the row above, so the
                       // wrapper has to carry the growth or the box collapses.
@@ -4271,8 +4361,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               })}
               {/* The card's lines add up to the total it saves: the part no
                   category carries (a bon read as a total) is its own line. */}
-              <UnsplitLine amount={cardUnsplit} show={cardSaveTotal > 0} currency={currency} t={t}
-                decimals={pairDecimals(cardSaveTotal, cardUnsplit)} />
+              <UnsplitLine amount={cardUnsplitShown.amount} show={cardUnsplitShown.show} currency={currency} t={t}
+                decimals={cardUnsplitShown.decimals} />
               {/* Money on this card goes through formatOwnerMoney. It used to
                   be a bare `toLocaleString() + currency code`, which uses the
                   BROWSER locale: a Danish owner on an English phone read
@@ -4430,6 +4520,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
                     <MoneyField
+                      id={`scan-pay-${m.key}`}
                       locale={mLocale}
                       // The field IS the flex child of the row above, so the
                       // wrapper has to carry the growth or the box collapses.
@@ -4512,18 +4603,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 reviewing the OCR'd numbers. Each thumb opens the full
                 image in a new tab (works for both blob URLs and
                 Supabase signed URLs). */}
-            {scanPhotos.length > 0 && (
+            {dayPhotos.length > 0 && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
-                    <Icon name="Image" size={14} /> {scanPhotos.length > 1 ? t("receiptPhotosLabel", "Receipt photos") : t("receiptPhotoLabel", "Receipt photo")}
+                    <Icon name="Image" size={14} /> {dayPhotos.length > 1 ? t("receiptPhotosLabel", "Receipt photos") : t("receiptPhotoLabel", "Receipt photo")}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {t("tapToViewFullSize", "Tap to view full size")}
                   </span>
                 </div>
                 <div className="flex gap-3 overflow-x-auto pb-1">
-                  {scanPhotos.map((p, i) => {
+                  {dayPhotos.map((p, i) => {
                     const safe = safeImageUrl(p.url);
                     return safe ? (
                       <a key={i} href={safe} target="_blank" rel="noreferrer"
@@ -4582,7 +4673,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // A sum turns every figure back into a number, so a Mad
                 // corrected before "another till" no longer looks typed — and
                 // two photos plus their sum are more than one read brings back.
-                const severalPhotos = scanResult?.merge_info?.mode === MERGE_SUM || scanPhotos.length > 1;
+                const severalPhotos = scanResult?.merge_info?.mode === MERGE_SUM || dayPhotos.length > 1;
                 const corrected = scanResult && (severalPhotos || scanResult.revenue_total_text != null || typed(scanResult.tips)
                   || [...Object.values(scanResult.revenue || {}), ...Object.values(scanResult.payments || {})].some(typed));
                 if (corrected) {
@@ -4590,7 +4681,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   const own = formTill(before);
                   const ownTotal = own ? tillTotals(discardScans(before))[0] || 0 : 0;
                   const total = formatOwnerMoney(ownTotal, currency, { decimals: oreIfAny(ownTotal) });
-                  const photos = scanPhotos.length;
+                  const photos = dayPhotos.length;
                   const ok = await askConfirm({
                     title: t("dcScanStartOverTitle", "Start over?"),
                     message: own
@@ -5169,7 +5260,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 told there was no cash figure to compare against, which is the
                 opposite of true and hides a real 0-vs-counted variance. Only the
                 no-baseline case gets the hint now. */}
-            {!cashExpectedFromRegister && !typedCash && (
+            {/* A count with nothing to hold it against: said, never a difference. */}
+            {cashNoBaseline ? (
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 text-center" data-testid="dc-cash-no-baseline">{t("dcCashNoBaseline", "No cash sales to compare with — the count is saved without a cash difference.")}</p>
+            ) : !cashExpectedFromRegister && !typedCash && (
               <p className="text-[13px] text-gray-500 dark:text-gray-400 text-center">{t("noCashStep2")}</p>
             )}
           </div>
@@ -5288,7 +5382,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       moms: formatOwnerMoney(draftMoms.moms, currency, { decimals: oreIfAny(draftMoms.moms) }),
                       old: formatOwnerMoney(draftMoms.total, currency, { decimals: oreIfAny(draftMoms.total) }),
                       saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
-                    })}</span>
+                    }).replace(/kr\.\./g, "kr.")}</span>
                   </p>
                 )}
                 {!momsTyped && momsSource === "computed" && draftMoms?.followed && draftMomsMoved && (
@@ -5298,7 +5392,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       moms: formatOwnerMoney(draftMoms.moms, currency, { decimals: oreIfAny(draftMoms.moms) }),
                       old: formatOwnerMoney(draftMoms.total, currency, { decimals: oreIfAny(draftMoms.total) }),
                       saved: formatOwnerMoney(savedRevenue, currency, { decimals: oreIfAny(savedRevenue) }),
-                    })}</span>
+                    }).replace(/kr\.\./g, "kr.")}</span>
                   </p>
                 )}
                 {/* Some tills had a MOMS line and some did not: worked out for
@@ -5399,6 +5493,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 </div>
                 {cashDiff !== null && Math.abs(cashDiff) >= 0.005 && (
                   <p className={`text-[12px] mt-1 text-right ${cashDiff < -100 ? "text-red-700 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>{cashDirection(cashDiff, LEDGER_DECIMALS)}</p>
+                )}
+                {cashNoBaseline && (
+                  <p className="text-[12px] mt-1 text-right text-gray-500 dark:text-gray-400">{t("dcCashNoBaseline", "No cash sales to compare with — the count is saved without a cash difference.")}</p>
                 )}
               </div>
             )}

@@ -429,6 +429,24 @@ export function chooseTerminal(state, mode) {
   return next;
 }
 
+/**
+ * "It's the same photo — don't use it": the photo waiting on the question is
+ * thrown away and nothing else changes (a retake of a bon already summed in
+ * had no right answer: "add" counted it twice, "same terminal" dropped every
+ * other till). One step, so Fortryd brings the question back. What is still
+ * queued and not ambiguous against the day folds in, as after an answer.
+ */
+export function dropPending(state) {
+  const [head, ...rest] = state.pending;
+  if (!head) return state;
+  let next = { ...state, pending: rest, undo: pushUndo(state, "drop") };
+  while (next.pending.length && !needsTerminalQuestion(next, next.pending[0].scan)) {
+    const [p, ...more] = next.pending;
+    next = { ...next, entries: [...next.entries, { ...p, join: JOIN_FILL }], pending: more };
+  }
+  return next;
+}
+
 /* Where a change to a line lands inside one till: the entry whose figure the
    till shows for it (the last one carrying it), else the form's own entry
    (a new line the owner adds is theirs), else the till's last photo. */
@@ -444,11 +462,20 @@ function setEdit(state, entry, field, value) {
   const n = num(value, state.locale);
   // Typed back to what the photo read: it is the read again (and keeps
   // "aflæst"), not a correction.
-  if (field !== "revenue_total" && typeof read === "number" && n != null && Math.abs(n - read) < 0.005) {
-    if (!Object.prototype.hasOwnProperty.call(entry.edits, field)) return state;
-    const { [field]: _gone, ...rest } = entry.edits;
-    const next = { ...entry, edits: Object.keys(rest).length ? rest : EMPTY };
-    return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
+  if (typeof read === "number" && n != null && Math.abs(n - read) < 0.005) {
+    const back = !Object.prototype.hasOwnProperty.call(entry.edits, field) ? state : (() => {
+      const { [field]: _gone, ...rest } = entry.edits;
+      const next = { ...entry, edits: Object.keys(rest).length ? rest : EMPTY };
+      return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
+    })();
+    if (field !== "revenue_total") return back;
+    // The total too — when the till saves that very figure without the
+    // edit. Retyped unchanged, it was filed "rettet af ejeren … omsætning i
+    // alt", pinned the total (a category raised after it was saved under it
+    // as "Rettet ned i hånden") and dropped the bon's MOMS. Typed over lines
+    // that run past the bon, the bon's figure IS a correction, and stays one.
+    const g = tillGroups(back).findIndex((grp) => grp.some((e) => e.id === entry.id));
+    if (g >= 0 && Math.abs(tillTotals(back)[g] - n) < 0.005) return back;
   }
   const next = { ...entry, edits: { ...entry.edits, [field]: value } };
   return { ...state, entries: state.entries.map((e) => (e === entry ? next : e)) };
@@ -574,6 +601,13 @@ export function typeIntoForm(state, field, value, { form, fromForm = false } = {
       const entry = winnerIn(fromGroups[i], field);
       next = setEdit(next, next.entries.find((e) => e.id === entry.id), field, moneyInputText(v, locale));
     });
+    // The day's own total typed again: no till holds a total of the owner's
+    // and the day saves that figure — nothing was corrected, and the box is
+    // the tills' figure again, not a typed one.
+    if (!activeEntries(next).some((e) => hasOwn(e.edits, "revenue_total")) && Math.abs(savedTotal(next) - n) < 0.005) {
+      const { revenue_total: _t, ...restOverlay } = overlay;
+      return { ...next, overlay: Object.keys(restOverlay).length ? restOverlay : EMPTY, overlayBase, mirror };
+    }
     return { ...next, overlay, overlayBase, mirror };
   }
   const target = n ?? 0;
@@ -645,7 +679,7 @@ export function undo(state) {
   };
 }
 
-/** The step Fortryd would take back ("sum", "replace", "page", "scan", "queue", "discard"), or null. */
+/** The step Fortryd would take back ("sum", "replace", "page", "drop", "scan", "queue", "discard"), or null. */
 export function lastStep(state) {
   return state.undo.length ? state.undo[state.undo.length - 1].kind : null;
 }
@@ -871,6 +905,7 @@ export function tillsReducer(state, action) {
   switch (action?.type) {
     case "scan": return addScan(state, action.scan, action);
     case "choose": return chooseTerminal(state, action.mode);
+    case "drop": return dropPending(state);
     case "type": return typeIntoForm(state, action.field, action.value, action);
     case "discard": return discardScans(state);
     case "undo": return undo(state);
