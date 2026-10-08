@@ -230,25 +230,118 @@ _EXPENSE_SAMPLES = [
 ]
 
 
+# ─── The sample company on the business profile ───────────────────────
+#
+# The seeder writes the sample company (Mirabelle ApS) into the owner's
+# business profile so the demo looks fully set up. It must never cost the
+# owner anything they typed there themselves:
+#   • a CVR-verified identity is never touched;
+#   • before it writes, it snapshots what the owner had in every field it is
+#     about to overwrite (`demo_snapshot_json`), and "Ryd demodata" puts that
+#     back (see _reset_seeded_profile);
+#   • it fills the revisor slot only when it is empty — an owner's own revisor
+#     stays (it is never mailed while the identity is the sample's:
+#     revisor_mail.is_demo_identity);
+#   • bank, MobilePay, logo and every other field it does not seed are left
+#     alone.
+
+def _seeded_profile_values() -> dict:
+    """field → the value the seeder writes. ONE table, read by the seeder, the
+    clear and the Profile save, so they cannot drift."""
+    from app.services.revisor_mail import (
+        DEMO_SEEDED_BUSINESS_EMAIL, DEMO_SEEDED_CITY, DEMO_SEEDED_COMPANY_NAME,
+        DEMO_SEEDED_CVR, DEMO_SEEDED_STREET, DEMO_SEEDED_ZIPCODE,
+    )
+    return {
+        "company_name": DEMO_SEEDED_COMPANY_NAME,
+        "org_number": DEMO_SEEDED_CVR,
+        "vat_number": "DK" + DEMO_SEEDED_CVR,
+        "country": "DK",
+        "address": DEMO_SEEDED_STREET,
+        "city": DEMO_SEEDED_CITY,
+        "zipcode": DEMO_SEEDED_ZIPCODE,
+        "industry": "Restauranter",
+        "industry_code": "56.10.10",
+        "company_type": "Anpartsselskab",
+        "phone": "+45 33 11 22 33",
+        # Only RESERVED, non-deliverable addresses (RFC 2606 ".example"): a
+        # seeded address at a real domain was mailed on a real lock once.
+        "email": DEMO_SEEDED_BUSINESS_EMAIL,
+        "day_cutoff_hour": 4,  # night-shift cutoff
+        "source": "cvrapi.dk",
+        "founded": "2018-03-12",
+        "dawa_address_id": "0a3f50ad-2b4f-32b8-e044-0003ba298018",
+        "vat_registered": True,
+        "status_flags": None,  # no warnings
+    }
+
+
+# The company block — what "the business identity" means on Profile. The
+# seeder's other field (day_cutoff_hour) is an operations setting.
+_IDENTITY_FIELDS = (
+    "company_name", "org_number", "vat_number", "country", "address", "city",
+    "zipcode", "industry", "industry_code", "company_type", "phone", "email",
+    "source", "founded", "dawa_address_id", "vat_registered", "status_flags",
+)
+_STAMP_FIELDS = ("cvr_verified_at", "cvr_verified_source")
+_REVISOR_FIELDS = ("accountant_email", "accountant_name", "accountant_auto_send")
+
+
+def _to_json_value(v):
+    if isinstance(v, datetime):
+        return {"__dt__": v.isoformat()}
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+
+def _from_json_value(v):
+    if isinstance(v, dict) and "__dt__" in v:
+        try:
+            return datetime.fromisoformat(v["__dt__"])
+        except (TypeError, ValueError):
+            return None
+    return v
+
+
+def _load_snapshot(profile) -> dict | None:
+    import json
+    raw = getattr(profile, "demo_snapshot_json", None)
+    if not raw:
+        return None
+    try:
+        snap = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return snap if isinstance(snap, dict) else None
+
+
 def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) -> None:
     """Set up the BusinessProfile to look fully verified.
 
-    Safety rules (Audit P1 — Task #74):
+    Safety rules (Audit P1 — Task #74, and the revisor round 6):
       • If the user already has a CVR-verified BusinessProfile whose
         verification source does NOT carry the " · demo" sentinel,
         refuse to touch it.  A real Mirabelle ApS-replacement
         represents the owner's actual verified Danish company and
         must NEVER be silently overwritten with the demo
         CVR/VAT/accountant fields.
-      • If there's an existing row that is NOT CVR-verified (typical
-        for an empty signup), we update it in place — safe, since
-        nothing has been verified against Erhvervsstyrelsen yet.
+      • An existing row that is NOT CVR-verified (an empty signup, or one
+        the owner typed into) is seeded in place — after a snapshot of
+        every value the owner had in the fields the seeder writes, kept in
+        demo_snapshot_json for "Ryd demodata" to restore.
+      • The revisor slot is filled only when it is empty.
       • Otherwise we insert a fresh row.
       • When `mark_demo` is True (per-user demo path), the
         cvr_verified_source is tagged with " · demo" so the row
         is later distinguishable from a real verified profile —
         both by `_count_non_demo_rows` and by the clear path.
     """
+    import json
+    from app.services.revisor_mail import (
+        DEMO_SEEDED_REVISOR_EMAIL, DEMO_SEEDED_REVISOR_NAME, is_demo_profile,
+        saved_revisor_address,
+    )
     existing = db.query(BusinessProfile).filter_by(user_id=user.id).first()
     if (
         existing
@@ -259,39 +352,40 @@ def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) 
         # _count_non_demo_rows but if anyone bypasses that, this stops
         # the overwrite cold.  Real CVR-verified profile → don't touch.
         return
+    values = _seeded_profile_values()
     if existing:
         # Update in place — don't dup the row
         profile = existing
+        # Snapshot what the OWNER had — once. A row already carrying the
+        # sample (tagged, or snapshotted by an earlier seed) keeps the
+        # snapshot it has: a second one would only record the sample.
+        if not is_demo_profile(existing) and _load_snapshot(existing) is None:
+            fields = {}
+            for f in (*values.keys(), *_STAMP_FIELDS, *_REVISOR_FIELDS):
+                v = getattr(existing, f, None)
+                if v is not None and v != "":
+                    fields[f] = _to_json_value(v)
+            existing.demo_snapshot_json = json.dumps({
+                "created": False, "fields": fields,
+                "user_business_name": getattr(user, "business_name", None),
+            }, ensure_ascii=False)
     else:
         profile = BusinessProfile(id=uuid.uuid4(), user_id=user.id)
         db.add(profile)
+        profile.demo_snapshot_json = json.dumps({
+            "created": True, "fields": {},
+            "user_business_name": getattr(user, "business_name", None),
+        }, ensure_ascii=False)
 
-    profile.company_name = "Mirabelle ApS"
-    profile.org_number = "39842851"
-    profile.vat_number = "DK39842851"
-    profile.country = "DK"
-    profile.address = "Vestergade 1"
-    profile.city = "København K"
-    profile.zipcode = "1456"
-    profile.industry = "Restauranter"
-    profile.industry_code = "56.10.10"
-    profile.company_type = "Anpartsselskab"
-    profile.phone = "+45 33 11 22 33"
-    # Only RESERVED, non-deliverable addresses (RFC 2606 ".example"): a seeded
-    # revisor at a real domain (anna@revisor.dk) with auto-send unset — read
-    # as ON — was mailed the first REAL day an owner locked after trying the
-    # demo. Auto-send is explicitly off; and every send path also treats the
-    # seeded address on a demo-tagged profile as not saved (revisor_mail).
-    from app.services.revisor_mail import (
-        DEMO_SEEDED_BUSINESS_EMAIL, DEMO_SEEDED_REVISOR_EMAIL, DEMO_SEEDED_REVISOR_NAME,
-    )
-    profile.email = DEMO_SEEDED_BUSINESS_EMAIL
-    profile.accountant_email = DEMO_SEEDED_REVISOR_EMAIL
-    profile.accountant_name = DEMO_SEEDED_REVISOR_NAME
-    profile.accountant_auto_send = False
-    profile.day_cutoff_hour = 4  # night-shift cutoff
-    profile.source = "cvrapi.dk"
-    profile.founded = "2018-03-12"
+    for field, value in values.items():
+        setattr(profile, field, value)
+    # The sample revisor only into an EMPTY slot: an owner who saved their own
+    # revisor keeps them (never mailed under the sample company). The seeded
+    # one is reserved, non-deliverable and auto-send is off.
+    if not saved_revisor_address(profile):
+        profile.accountant_email = DEMO_SEEDED_REVISOR_EMAIL
+        profile.accountant_name = DEMO_SEEDED_REVISOR_NAME
+        profile.accountant_auto_send = False
     # Verification stamps — make the green "Verified" banner appear
     profile.cvr_verified_at = utc_now() - timedelta(days=2)
     # When mark_demo is True the source carries the " · demo" sentinel
@@ -299,9 +393,109 @@ def _seed_business_profile(db: Session, user: User, *, mark_demo: bool = False) 
     # any other auditor.  When False (shared demo@bonbox.dk account)
     # we keep the clean "cvrapi.dk" source for screen-recording realism.
     profile.cvr_verified_source = "cvrapi.dk · demo" if mark_demo else "cvrapi.dk"
-    profile.dawa_address_id = "0a3f50ad-2b4f-32b8-e044-0003ba298018"
-    profile.vat_registered = True
-    profile.status_flags = None  # no warnings
+
+
+def _column_is_blank(profile, col) -> bool:
+    """A column holds nothing the owner put there: empty, or its default."""
+    v = getattr(profile, col.key, None)
+    if v is None or v == "":
+        return True
+    d = getattr(col.default, "arg", None) if col.default is not None else None
+    if d is None or callable(d):
+        return False
+    try:
+        if isinstance(v, (int, float, Decimal)) and not isinstance(v, bool):
+            return float(v) == float(d)
+    except (TypeError, ValueError):
+        return False
+    return v == d
+
+
+def _profile_is_blank(profile) -> bool:
+    skip = {"id", "user_id", "created_at", "updated_at", "demo_snapshot_json"}
+    return all(_column_is_blank(profile, c)
+               for c in BusinessProfile.__table__.columns if c.key not in skip)
+
+
+def _reset_seeded_profile(db: Session, user: User) -> dict:
+    """"Ryd demodata" for the business profile. Resets ONLY what still holds
+    the seeded values — to what the owner had before the seed (the snapshot),
+    else empty. The revisor, bank and identity fields the owner typed
+    survive. The row is deleted only when nothing of the owner's is left on
+    it (the untouched demo: a clean slate, as before).
+
+    Returns {"business_profile_reset": 0|1, "kept": [...]} — "kept" names
+    what survived ("identity", "revisor", "bank") so the page can say so."""
+    from app.services.revisor_mail import (
+        DEMO_SEEDED_BUSINESS_ADDRESSES, DEMO_SEEDED_COMPANY_NAME, is_demo_identity,
+        is_demo_profile, is_demo_revisor,
+    )
+    out = {"business_profile_reset": 0, "kept": []}
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    if profile is None:
+        return out
+    snap = _load_snapshot(profile)
+    tagged = is_demo_profile(profile)
+    if not tagged and snap is None:
+        return out  # never seeded here (or seeded before snapshots, and fixed)
+    before = (snap or {}).get("fields") or {}
+    values = _seeded_profile_values()
+
+    def _restore(field):
+        if field in before:
+            setattr(profile, field, _from_json_value(before[field]))
+        else:
+            col = BusinessProfile.__table__.columns[field]
+            d = getattr(col.default, "arg", None) if col.default is not None else None
+            setattr(profile, field, None if (d is None or callable(d)) else d)
+
+    # The sample company — only while the identity IS still the sample's. An
+    # owner who saved their own company keeps all of it (a register lookup can
+    # return "Restauranter" or "cvrapi.dk" too: those are theirs now).
+    if is_demo_identity(profile):
+        for f in _IDENTITY_FIELDS:
+            v = getattr(profile, f, None)
+            # The business e-mail: the old seeds wrote info@mirabelle.dk.
+            seeded = ((v or "").strip().lower() in DEMO_SEEDED_BUSINESS_ADDRESSES
+                      if f == "email" else v == values[f])
+            if seeded:
+                _restore(f)
+    # The " · demo" verification stamp — back to what the owner had.
+    if tagged:
+        for f in _STAMP_FIELDS:
+            _restore(f)
+    # The sample revisor (reserved address) — back to the owner's, else empty.
+    if is_demo_revisor(profile):
+        for f in _REVISOR_FIELDS:
+            _restore(f)
+        if is_demo_revisor(profile):  # a snapshot can never hold the sample
+            profile.accountant_email = None
+            profile.accountant_auto_send = None
+            profile.accountant_name = None
+    # The night-shift cutoff the demo set.
+    if getattr(profile, "day_cutoff_hour", None) == values["day_cutoff_hour"]:
+        _restore("day_cutoff_hour")
+    profile.demo_snapshot_json = None
+
+    # The signup name the echoed sample company overwrote.
+    prev_name = (snap or {}).get("user_business_name")
+    if (prev_name and (getattr(user, "business_name", None) or "").strip().casefold()
+            == DEMO_SEEDED_COMPANY_NAME.casefold()
+            and prev_name.strip().casefold() != DEMO_SEEDED_COMPANY_NAME.casefold()):
+        user.business_name = prev_name
+
+    out["business_profile_reset"] = 1
+    if _profile_is_blank(profile):
+        db.delete(profile)
+        return out
+    if (profile.company_name or "").strip():
+        out["kept"].append("identity")
+    if (profile.accountant_email or "").strip():
+        out["kept"].append("revisor")
+    if any((getattr(profile, f, None) or "") for f in
+           ("bank_reg_number", "bank_account_number", "mobilepay_number", "iban", "bic")):
+        out["kept"].append("bank")
+    return out
 
 
 def _seed_branch(db: Session, user: User) -> Branch | None:
@@ -830,20 +1024,15 @@ def clear_for_user(db: Session, user: User) -> dict:
         db.delete(i)
         deleted["inventory"] += 1
 
-    # Demo BusinessProfile — delete the CVR-tagged-demo profile so
-    # the owner gets a clean slate to enter their real CVR.  Identified
-    # by the " · demo" sentinel on cvr_verified_source set during the
-    # seed.  BusinessProfile has no FK references back, so a delete is
-    # safe (Branch keys on user_id, not business_profile_id).
-    demo_profile = (
-        db.query(BusinessProfile)
-        .filter(BusinessProfile.user_id == user.id,
-                BusinessProfile.cvr_verified_source.like("% · demo"))
-        .first()
-    )
-    if demo_profile is not None:
-        db.delete(demo_profile)
-        deleted["business_profile_reset"] = 1
+    # Demo BusinessProfile — reset ONLY the seeded values (to the owner's
+    # own, from the pre-seed snapshot) and drop the " · demo" stamp, so the
+    # owner gets a clean slate to enter their real CVR. It used to delete the
+    # whole tagged row — and with it the real revisor and bank details the
+    # owner had saved on it, against this function's own promise. The row
+    # goes only when nothing of the owner's is left on it.
+    prof = _reset_seeded_profile(db, user)
+    deleted["business_profile_reset"] = prof["business_profile_reset"]
+    kept = prof["kept"]
 
     # Demo-named expense categories — only remove if no expenses
     # reference them. Safer than blanket cascade.
@@ -860,7 +1049,7 @@ def clear_for_user(db: Session, user: User) -> dict:
             deleted["expense_cats"] += 1
 
     db.commit()
-    return {"ok": True, "deleted": deleted}
+    return {"ok": True, "deleted": deleted, "kept": kept}
 
 
 def status_for_user(db: Session, user: User) -> dict:

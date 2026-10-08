@@ -130,7 +130,13 @@ export default function RevisorSection() {
       } else if (detail?.code === "demo_recipient") {
         // The demo seeder's sample revisor: no invite mail goes there.
         setRevisorError(
-          t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."),
+          t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile."),
+        );
+      } else if (detail?.code === "demo_identity") {
+        // The business is still the demo's sample company: the invite would
+        // introduce "Mirabelle ApS" to a real revisor.
+        setRevisorError(
+          t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."),
         );
       } else {
         setRevisorError(

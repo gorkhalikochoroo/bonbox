@@ -332,6 +332,9 @@ export default function StaffPayrollPage() {
   // demo_recipient): never named here as the recipient.
   const revisorEmail = revisorAddress(profileQ.data).toLowerCase();
   const revisorIsDemo = Boolean(profileQ.data?.accountant_is_demo);
+  // A real revisor, but the business is still the demo's sample company:
+  // nothing goes to them (409 demo_identity) until Profile is the owner's own.
+  const identityDemo = Boolean(profileQ.data?.identity_is_demo) && Boolean(revisorEmail);
   const revisorName = String(profileQ.data?.accountant_name || "").trim();
   const profileKnown = !profileQ.loading && !profileQ.failed;
   const navigate = useNavigate();
@@ -613,7 +616,7 @@ export default function StaffPayrollPage() {
   const periodEmpty = !hoursQ.loading && !(Number(totals.hours) > 0) && !(Number(totals.tips) > 0);
   const canSend =
     !docsBlocked && !sending && !pdfLoading && selectedIds.size > 0 && profileKnown && !!revisorEmail
-    && !hoursQ.loading && !periodEmpty;
+    && !identityDemo && !hoursQ.loading && !periodEmpty;
   // The CSV and the lønseddel are DK documents and owner-only (the server
   // denies both to any staff seat). Shown while the estimate loads — disabled,
   // so the list does not jump — and on a failed estimate, disabled with the
@@ -710,7 +713,10 @@ export default function StaffPayrollPage() {
         setError(t("paySendNoEmail", "Add your revisor's email under Profile to send from here."), "profile");
         profileQ.reload();
       } else if (err?.response?.status === 409 && detail?.code === "demo_recipient") {
-        setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."), "profile");
+        setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile."), "profile");
+        profileQ.reload();
+      } else if (err?.response?.status === 409 && detail?.code === "demo_identity") {
+        setError(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."), "profile");
         profileQ.reload();
       } else if (err?.response?.status === 409 && detail?.code === "accountant_opted_out") {
         // A retry can never work: the revisor stopped BonBox mail. The file
@@ -1433,7 +1439,17 @@ export default function StaffPayrollPage() {
                     {t("retry", "Try again")}
                   </button>
                 </>
-              ) : !profileKnown ? null : revisorEmail ? (
+              ) : !profileKnown ? null : identityDemo ? (
+                <span className="text-amber-700 dark:text-amber-300" data-testid="pay-identity-demo">
+                  {t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{" "}
+                  <Link
+                    to="/profile"
+                    className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+                  >
+                    {t("paySendProfileLink", "Profile")}
+                  </Link>
+                </span>
+              ) : revisorEmail ? (
                 <>
                   {t("paySendTo", "To:")}{" "}
                   <span className="font-medium text-gray-900 dark:text-gray-100 break-all">{recipientLabel}</span>
@@ -1442,7 +1458,7 @@ export default function StaffPayrollPage() {
                 </>
               ) : revisorIsDemo ? (
                 <>
-                  {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile.")}{" "}
+                  {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile.")}{" "}
                   <Link
                     to={REVISOR_EMAIL_HREF}
                     className="font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"

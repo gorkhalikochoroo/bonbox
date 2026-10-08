@@ -249,6 +249,13 @@ class BusinessProfile(Base):
     # procedurebeskrivelse, keyed by skabelon point (see procedure_service.
     # PROCEDURE_POINTS) + saved_at. The PDF regenerates from these on demand.
     procedure_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 084 — what the demo seeder overwrote. Seeding writes the sample
+    # company (Mirabelle ApS) into the profile; this JSON keeps the values the
+    # owner had there BEFORE it did ({"fields": {...}, "created": bool,
+    # "user_business_name": ...}), so "Ryd demodata" puts them back instead of
+    # wiping the profile. NULL = never seeded (or seeded before this existed).
+    # Never part of the API: not in the Create/Response schemas.
+    demo_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
@@ -285,14 +292,24 @@ class BusinessProfile(Base):
         return is_demo_revisor(self)
 
     @property
+    def identity_is_demo(self) -> bool:
+        """The business identity is still the demo seeder's sample company
+        (Mirabelle ApS): BonBox sends a revisor nothing under it, and the
+        pages say "Ret navn, CVR og adresse under Profil"."""
+        from app.services.revisor_mail import is_demo_identity
+        return is_demo_identity(self)
+
+    @property
     def accountant_auto_send_effective(self) -> bool:
         """Does a lock mail the revisor? Needs a saved address, the owner's
-        choice (NULL = the pre-choice behaviour, on), no opt-out — and not the
-        demo seeder's sample revisor."""
+        choice (NULL = the pre-choice behaviour, on), no opt-out — and neither
+        the demo seeder's sample revisor nor its sample company."""
         if not (self.accountant_email or "").strip():
             return False
         if self.accountant_opted_out:
             return False
         if self.accountant_is_demo:
+            return False
+        if self.identity_is_demo:
             return False
         return self.accountant_auto_send is not False

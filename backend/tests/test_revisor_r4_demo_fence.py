@@ -194,12 +194,24 @@ def test_period_moms_payroll_and_invite_refuse_the_demo_revisor(db_session, clie
     assert mailbox.sent == []
 
 
-def test_a_real_revisor_on_a_demo_tagged_profile_is_mailed(db_session, client, mailbox):
-    """Only the SEEDED address is fenced: an owner who typed their own revisor
-    onto a demo-tagged profile still has them mailed."""
+def test_a_real_revisor_on_a_demo_tagged_profile_is_mailed_once_the_company_is_the_owners(
+        db_session, client, mailbox):
+    """Only the SEEDED address is fenced as a recipient: an owner who typed
+    their own revisor onto a demo-tagged profile has them mailed — once the
+    business on the profile is the owner's own. (Round 6: while it is still
+    the sample company, that mail named "Mirabelle ApS (CVR 39842851)" to a
+    real revisor — it now waits, skip "demo_identity", and the owner is told.)"""
     user = _make_user(db_session)
     _demo_profile(db_session, user, accountant_email="min@revisor.dk", auto_send=True)
     r = _lock(client, user)
+    assert r.json()["close_ritual"]["accountant_included"] is False
+    assert r.json()["close_ritual"]["accountant_skip_reason"] == "demo_identity"
+    assert _revisor_mails(mailbox, "min@revisor.dk") == []
+    # The owner saves their own company: the revisor is mailed again.
+    assert client.put("/api/business", json={"company_name": "Café Rigtig ApS",
+                                             "org_number": "12345678"},
+                      headers=_auth(user)).status_code == 200
+    r = _lock(client, user, d="2026-09-26")
     assert r.json()["close_ritual"]["accountant_included"] is True
     assert len(_revisor_mails(mailbox, "min@revisor.dk")) == 1
 
@@ -226,13 +238,26 @@ def test_the_owner_copy_never_goes_to_a_seeded_business_address(db_session, clie
 
 
 def test_moms_and_period_sends_never_copy_a_seeded_business_address(db_session, client):
-    """A real revisor typed onto a demo-tagged profile is mailed — but the
-    owner's copy never goes to an address the demo seeder wrote."""
-    user = _make_user(db_session, email="info@mirabelle.dk")
+    """A real revisor typed onto a demo-tagged profile is mailed once the
+    company is the owner's own (round 6: not while it is still the sample —
+    409 demo_identity, nothing to anyone) — and the owner's copy never goes to
+    an address the demo seeder wrote."""
+    user = _make_user(db_session, email="info@mirabelle.example")
     _demo_profile(db_session, user, accountant_email="min@revisor.dk", auto_send=True)
     _row(db_session, user, date(2026, 9, 25), 1000.0)
     with patch("app.services.email_service.send_email_with_attachment",
                return_value=(True, None)) as sender:
+        t = client.post("/api/tax/filing-pdf/send-to-accountant"
+                        "?period_start=2026-09-01&period_end=2026-09-30",
+                        json={"cc_self": True}, headers=_auth(user))
+        assert t.status_code == 409 and t.json()["detail"]["code"] == "demo_identity", t.text
+        r = client.post("/api/daily-close/send-to-accountant?from=2026-09-01&to=2026-09-30",
+                        json={"fmt": "pdf", "cc_self": True}, headers=_auth(user))
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "demo_identity", r.text
+        assert sender.call_count == 0
+        assert client.put("/api/business", json={"company_name": "Café Rigtig ApS",
+                                                 "org_number": "12345678"},
+                          headers=_auth(user)).status_code == 200
         t = client.post("/api/tax/filing-pdf/send-to-accountant"
                         "?period_start=2026-09-01&period_end=2026-09-30",
                         json={"cc_self": True}, headers=_auth(user))

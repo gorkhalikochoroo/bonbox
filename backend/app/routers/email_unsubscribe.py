@@ -373,7 +373,7 @@ def _revisor_expired_page(biz: str) -> str:
           Linket er udløbet.
         </h1>
         <p class="lead">
-          Afmeldingslinks i mails med kasserapporter virker i 180 dage. Brug linket i en nyere
+          Afmeldingslinks i mails fra BonBox virker i 180 dage. Brug linket i en nyere
           mail fra BonBox om {b} — eller skriv til
           <a href="mailto:hello@bonbox.dk">hello@bonbox.dk</a>,
           så stopper vi mails til dig om {b}. Du skal ikke logge ind.

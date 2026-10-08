@@ -544,6 +544,9 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
   // Never the demo seeder's sample revisor — the server refuses it (409
   // demo_recipient); with it, "Send" leads to Profile like no revisor at all.
   const accountantEmail = revisorAddress(businessProfile);
+  // The business is still the demo's sample company: nothing goes to the
+  // revisor (409 demo_identity) until Profile holds the owner's own.
+  const identityDemo = Boolean(businessProfile?.identity_is_demo) && Boolean(accountantEmail);
 
   const downloadPdf = async () => {
     setDownloading(true);
@@ -586,6 +589,11 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       navigate("/profile");
       return;
     }
+    if (identityDemo) {
+      setError(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
+      setTimeout(() => setError(""), 10000);
+      return;
+    }
     // One tap sent the momsangivelse with no recipient on screen — even for a
     // period that hasn't ended. Say who gets what, and ask.
     const ok = await confirm({
@@ -613,7 +621,10 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
         setError(t("filingPdfNeedsAccountantEmail"));
         setTimeout(() => setError(""), 6000);
       } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "demo_recipient") {
-        setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."));
+        setError(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile."));
+        setTimeout(() => setError(""), 10000);
+      } else if (e?.response?.status === 409 && e?.response?.data?.detail?.code === "demo_identity") {
+        setError(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
         setTimeout(() => setError(""), 10000);
       } else if (e?.response?.status === 422 && e?.response?.data?.detail?.code === "demo_in_period") {
         // Sample (demo) days or expenses in the period: never mailed to the
@@ -751,6 +762,12 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
           </button>
         </div>
 
+        {unlocked && identityDemo && (
+          <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-3 leading-relaxed" data-testid="tax-identity-demo">
+            {t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{" "}
+            <Link to="/profile" className="font-semibold underline">{t("profileLinkLabel", "Profile")}</Link>
+          </p>
+        )}
         {!unlocked && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3 leading-relaxed">
             {t("filingPdfUpsell")}

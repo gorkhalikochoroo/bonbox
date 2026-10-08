@@ -372,6 +372,44 @@ async def reverify_profile(
 
 # ─── GET / PUT (existing) ─────────────────────────────────────────────
 
+
+def _drop_sample_identity_leftovers(profile, changes: dict) -> bool:
+    """After a save on a profile that held the demo's sample company: when
+    the name and the CVR are now the owner's own, clear what still belongs to
+    the sample. True when it ran."""
+    from app.services.demo_seed import _seeded_profile_values
+    from app.services.revisor_mail import (
+        DEMO_SEEDED_BUSINESS_ADDRESSES, DEMO_SEEDED_CVR, drop_seeded_revisor,
+        is_demo_profile, seeded_company_name, seeded_street,
+    )
+    # The two fields the owner edits. (The VAT number is not on the form: the
+    # sample's "DK39842851" is a leftover, cleared below.)
+    if seeded_company_name(profile) or re.sub(r"\D", "", profile.org_number or "") == DEMO_SEEDED_CVR:
+        return False  # still (partly) the sample: nothing goes to a revisor yet
+    seeded = _seeded_profile_values()
+    if is_demo_profile(profile):
+        # Not replaced by a register save (that writes its own source): the
+        # owner typed the company — not verified against the register.
+        profile.cvr_verified_at = None
+        profile.cvr_verified_source = None
+    if seeded_street(profile):
+        profile.address = None
+        if (profile.city or "") == seeded["city"]:
+            profile.city = None
+        if (profile.zipcode or "") == seeded["zipcode"]:
+            profile.zipcode = None
+    for f in ("phone", "founded", "dawa_address_id"):
+        if getattr(profile, f, None) == seeded[f]:
+            setattr(profile, f, None)
+    if (profile.email or "").strip().lower() in DEMO_SEEDED_BUSINESS_ADDRESSES:
+        profile.email = None
+    if re.sub(r"\D", "", profile.vat_number or "") == DEMO_SEEDED_CVR:
+        profile.vat_number = None
+    if "source" not in changes and (profile.source or "") == seeded["source"]:
+        profile.source = None
+    drop_seeded_revisor(profile)
+    return True
+
 _ACCOUNTANT_EMAIL_RE = re.compile(r"[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}")
 
 
@@ -445,6 +483,9 @@ def save_profile(
     # demo seeder's sample? (Used below so a rename cannot un-fence it.)
     from app.services.revisor_mail import is_demo_revisor as _is_demo_revisor
     was_demo_revisor = profile is not None and _is_demo_revisor(profile)
+    # …and is the business itself still the demo seeder's sample company?
+    from app.services.revisor_mail import is_demo_identity as _is_demo_identity
+    was_demo_identity = profile is not None and _is_demo_identity(profile)
     if "accountant_email" in changes:
         addr = (changes.get("accountant_email") or "").strip().lower() or None
         if addr and not _ACCOUNTANT_EMAIL_RE.fullmatch(addr):
@@ -521,8 +562,21 @@ def save_profile(
         profile.cvr_verified_at = utc_now()
         profile.cvr_verified_source = data.source
 
-    # Also update user's business_name if company_name provided
-    if data.company_name:
+    # The owner replaced the sample company with their own — the name AND the
+    # CVR are no longer the sample's. What only the sample company had goes
+    # with it: the " · demo" verification stamp (typed by hand ≠ verified),
+    # the sample's street address, phone, e-mail, founding date and DAWA id
+    # where they still hold the seeded values, and the sample revisor. Then
+    # nothing about the profile still reads as the sample (is_demo_identity),
+    # and revisor mail flows again — under the owner's own company.
+    if was_demo_identity:
+        _drop_sample_identity_leftovers(profile, changes)
+
+    # Also update user's business_name if company_name provided — never with
+    # the sample company's name: the Profile forms echo company_name on every
+    # save, and the demo's "Mirabelle ApS" replaced the owner's signup name
+    # (the fallback every revisor artifact uses) for good.
+    if data.company_name and not _is_demo_identity(profile):
         user.business_name = data.company_name
 
     db.commit()

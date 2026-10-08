@@ -808,7 +808,9 @@ def _fire_close_auto_email(
             "accountant_email": str | None,
             "accountant_included": bool,     # did the revisor get THIS mail?
             "accountant_skip_reason": None | "not_saved" | "auto_send_off" |
-                                      "opted_out" | "same_as_owner" | "daily_cap",
+                                      "opted_out" | "same_as_owner" | "daily_cap" |
+                                      "demo_recipient" | "demo_close" |
+                                      "demo_identity" | "unchanged",
             "correction": bool,              # marked "Rettet kasserapport"
             "has_scan", "scan_degraded", "pdf_hash", "push_status",
             "bank_drop", "upgrade_hint",
@@ -885,9 +887,9 @@ def _fire_close_auto_email(
     if owner_email and not _owner_copy_allowed(profile, owner_email):
         owner_email = ""
     from app.services.revisor_mail import (
-        REVISOR_DAILY_CAP, address_fingerprint, is_demo_revisor, revisor_daily_cap_reached,
-        revisor_opted_out, revisor_unsubscribe_headers, revisor_unsubscribe_url,
-        saved_revisor_address, sender_display,
+        REVISOR_DAILY_CAP, address_fingerprint, is_demo_identity, is_demo_revisor,
+        revisor_daily_cap_reached, revisor_opted_out, revisor_unsubscribe_headers,
+        revisor_unsubscribe_url, saved_revisor_address, sender_display,
     )
     from app.services.email_service import html_to_text
     acct = saved_revisor_address(profile)
@@ -901,6 +903,13 @@ def _fire_close_auto_email(
         skip = "demo_recipient"
     elif _is_demo_close(dc):
         skip = "demo_close"
+    elif is_demo_identity(profile):
+        # A REAL day and a real revisor — but the business is still the demo
+        # seeder's sample company: the mail, its From, its footer and the
+        # kasserapport would name "Mirabelle ApS (CVR 39842851)". A revisor
+        # cannot book a voucher under another legal entity (and may well
+        # unsubscribe a sender they do not know). The owner's copy says why.
+        skip = "demo_identity"
     elif revisor_opted_out(profile, acct):
         skip = "opted_out"
     elif acct == owner_email:
@@ -1028,7 +1037,10 @@ def _fire_close_auto_email(
     if owner_email:
         acct_sent = bool(sends and sends[0][1].get("status") == "sent")
         from app.services.daily_close_range_export import dk_datetime
-        from app.services.revisor_mail import DEMO_RECIPIENT_MESSAGE_DA, DEMO_RECIPIENT_MESSAGE_EN
+        from app.services.revisor_mail import (
+            DEMO_IDENTITY_MESSAGE_DA, DEMO_IDENTITY_MESSAGE_EN,
+            DEMO_RECIPIENT_MESSAGE_DA, DEMO_RECIPIENT_MESSAGE_EN,
+        )
         unchanged_when = dk_datetime(result.get("unchanged_since"), tz, danish=is_danish)
         if is_danish:
             revisor_line = {
@@ -1042,6 +1054,7 @@ def _fire_close_auto_email(
                 "same_as_owner": None,
                 "demo_close": "Revisoren fik ikke mailen: dagen er eksempeldata (demo).",
                 "demo_recipient": DEMO_RECIPIENT_MESSAGE_DA,
+                "demo_identity": f"Revisoren ({acct}) fik ikke mailen. {DEMO_IDENTITY_MESSAGE_DA}",
                 "unchanged": (f"Revisoren ({acct}) fik ikke en ny mail — tallene er uændrede "
                               f"siden versionen, der blev sendt {unchanged_when or 'tidligere'}. "
                               "Skal revisoren have den igen, så tryk Send igen i Historik."),
@@ -1059,6 +1072,7 @@ def _fire_close_auto_email(
                 "same_as_owner": None,
                 "demo_close": "Your accountant didn't get it: this day is sample (demo) data.",
                 "demo_recipient": DEMO_RECIPIENT_MESSAGE_EN,
+                "demo_identity": f"Your accountant ({acct}) didn't get it. {DEMO_IDENTITY_MESSAGE_EN}",
                 "unchanged": (f"Your accountant ({acct}) didn't get a new mail — the figures are "
                               f"unchanged since the version sent {unchanged_when or 'earlier'}. "
                               "To send it again, tap Send again in History."),
@@ -2270,8 +2284,8 @@ def resend_close_email(
     from sqlalchemy import or_
     from app.services.billing import effective_plan
     from app.services.revisor_mail import (
-        enforce_revisor_daily_cap, is_demo_revisor, resolve_revisor_recipient,
-        saved_revisor_address,
+        enforce_revisor_daily_cap, is_demo_identity, is_demo_revisor,
+        resolve_revisor_recipient, saved_revisor_address,
     )
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
@@ -2309,8 +2323,10 @@ def resend_close_email(
     # re-sends the owner's own copy; it used to answer 400 and leave the owner
     # with "Ikke sendt" and no way forward. The demo seeder's sample revisor
     # on a demo-seeded profile is NOT SAVED: the owner's copy only, which says
-    # why (skip "demo_recipient").
-    if saved_revisor_address(profile) and not is_demo_revisor(profile):
+    # why (skip "demo_recipient"). So is a real revisor while the business is
+    # still the demo's sample company (skip "demo_identity").
+    if (saved_revisor_address(profile) and not is_demo_revisor(profile)
+            and not is_demo_identity(profile)):
         acct = resolve_revisor_recipient(profile)
         target = acct
     else:
@@ -3975,6 +3991,51 @@ class SendToAccountantRequest(BaseModel):
     message: str | None = Field(default=None, max_length=2000)
     # cc the user's own email so they have a copy for their records
     cc_self: bool = True
+    # One key per tap on "Send". A retried POST with the same key (double
+    # tap, a network retry) answers with the first send's outcome — never a
+    # second mail to the revisor. Optional: an old client without it still
+    # sends, as before.
+    key: str | None = Field(default=None, min_length=8, max_length=64,
+                            pattern=r"^[A-Za-z0-9_-]+$")
+
+
+# How long a period-send key is remembered — long enough for any retry.
+_PERIOD_SEND_REPLAY = timedelta(minutes=10)
+
+
+def _period_send_replay(db: Session, user: User, key: str | None) -> dict | None:
+    """The response of an earlier period send with the same key (audit row,
+    last 10 minutes, this account only), or None."""
+    if not key:
+        return None
+    import json as _json
+    from app.models.audit_log import AuditLog
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "daily_close.send_to_accountant",
+            AuditLog.created_at >= utc_now() - _PERIOD_SEND_REPLAY,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    for r in rows:
+        try:
+            a = _json.loads(r.after_state or "{}") or {}
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(a, dict) and a.get("send_key") == key:
+            return {
+                "ok": True, "replayed": True,
+                "sent_to": a.get("recipient"), "cc_self": bool(a.get("cc_self")),
+                "cc_to": a.get("cc_to"), "filename": a.get("filename"),
+                "format": a.get("format"), "n_closes": a.get("n_closes"),
+                "n_drafts": a.get("n_drafts"), "n_demo": a.get("n_demo"),
+                "subject": a.get("subject"),
+            }
+    return None
 
 
 _DA_MONTHS_FULL = ["januar", "februar", "marts", "april", "maj", "juni", "juli",
@@ -4184,6 +4245,11 @@ def send_to_accountant(
             },
         )
 
+    # The same tap again: answer with what happened — never a second mail.
+    replay = _period_send_replay(db, user, body.key)
+    if replay is not None:
+        return replay
+
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user.id,
     ).first()
@@ -4311,6 +4377,8 @@ def send_to_accountant(
             "n_drafts": totals["n_drafts"], "n_demo": n_demo,
             "from_date": f.isoformat(), "to_date": t.isoformat(),
             "total_revenue": totals["revenue"], "total_moms": totals["moms"],
+            # The tap's key and what it answered, so a retry replays it.
+            "send_key": body.key, "subject": subject,
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )

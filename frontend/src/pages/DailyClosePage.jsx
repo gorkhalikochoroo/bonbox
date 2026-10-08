@@ -4981,9 +4981,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                           const owner = user?.email || "";
                           // The demo seeder's sample revisor is never mailed
                           // — never named as "your revisor" either.
-                          if (businessProfile?.accountant_is_demo) return t("autoEmailToDemoRevisor", "To {owner}. The revisor is sample data — save your own revisor's e-mail on Profile.", { owner });
+                          // A demo seeder's sample day is never sent to the
+                          // revisor (the server: skip demo_close) — said
+                          // here, before Lås, not only after it.
+                          if (isDemoClose({ notes })) return t("autoEmailDemoDay", "To {owner}. This day is sample data and is never sent to your revisor.", { owner });
+                          if (businessProfile?.accountant_is_demo) return t("autoEmailToDemoRevisor", "To {owner}. The revisor is sample data — save your own revisor's name and e-mail on Profile.", { owner });
                           const acct = businessProfile?.accountant_email || "";
                           if (!acct) return t("autoEmailToNoRevisor", "To {owner}. No revisor e-mail is saved — add it on Profile if they should get it too.", { owner });
+                          // A real revisor, but the business is still the
+                          // demo's sample company: nothing goes to them yet.
+                          if (businessProfile?.identity_is_demo) return t("autoEmailToDemoIdentity", "To {owner}. Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.", { owner });
                           if (businessProfile?.accountant_opted_out) return t("autoEmailToOptedOut", "To {owner}. Your revisor ({acct}) has unsubscribed from BonBox mail and won't get it.", { owner, acct });
                           // An older server has no such field and mails a saved revisor on lock.
                           if (businessProfile?.accountant_auto_send_effective ?? true) return t("autoEmailToBoth", "To {owner} and your revisor {acct}: the kasserapport as a PDF.", { owner, acct });
@@ -5284,7 +5291,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   const keyRef = useRef(null);
   // A settled null profile means the owner has no BusinessProfile row — read
   // as {} (no revisor saved), so the "Ikke sendt" lines still show.
-  const { kind, acct, demo } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
+  const { kind, acct, demo, identity } = closeEmailState({ status: st.status, sentTo: st.sentTo, skip: st.skip,
     error: st.error, profile: profileLoaded ? (profile ?? {}) : null });
   const when = sentWhen(st.sentAt);
   const whenText = when ? t("dcMailWhen", "{date} at {time}", when) : "";
@@ -5352,7 +5359,10 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
         setErr(t("dcMailDemoClose", "This is a sample day (demo data) — it is never sent to your revisor."));
       } else if (status === 409 && code === "demo_recipient") {
         setSt((s0) => ({ ...s0, skip: "demo_recipient" }));
-        setErr(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile."));
+        setErr(t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile."));
+      } else if (status === 409 && code === "demo_identity") {
+        setSt((s0) => ({ ...s0, skip: "demo_identity" }));
+        setErr(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
       } else if (status === 409 && code === "in_progress") {
         setErr(t("dcMailInProgress", "It is being sent right now (from another tab or button). Wait a moment — it will not go twice."));
       } else if (status === 429) {
@@ -5461,15 +5471,17 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   } else if (kind === "owner_only") {
     line = (
       <span className={`${textCls} text-gray-700 dark:text-gray-300 inline-flex items-center gap-2 flex-wrap`}>
-        <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {acct
+        <span className="inline-flex items-center gap-1"><Icon name="Mail" size={13} /> {acct || identity
           ? t("dcMailOwnerOnly", "Sent to you {when} — not to your revisor", { when: whenText })
           : demo
             ? t("dcMailOwnerOnlyDemoRevisor", "Sent to you {when} — the revisor is sample data", { when: whenText })
             : t("dcMailOwnerOnlyNoRevisor", "Sent to you {when} — no revisor e-mail saved", { when: whenText })}</span>
         {acct ? btn(t("dcMailSendToRevisor", "Send to revisor")) : (
-          <Link to="/profile" className="text-xs font-semibold underline">{demo
-            ? t("dcRevisorIsDemoCta", "Save your own revisor on Profile")
-            : t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
+          <Link to="/profile" className="text-xs font-semibold underline">{identity
+            ? t("identityIsDemoCta", "Correct your business on Profile")
+            : demo
+              ? t("dcRevisorIsDemoCta", "Save your own revisor on Profile")
+              : t("dcMailAddRevisor", "Add revisor e-mail")}</Link>
         )}
       </span>
     );
@@ -5501,6 +5513,16 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
       {demoDay && kind !== "revisor" && (
         <p className={`${textCls} text-gray-600 dark:text-gray-400 flex items-center gap-1`} data-testid="dc-mail-demo-day">
           <Icon name="Info" size={13} className="shrink-0" /> {t("dcMailDemoDayNever", "Sample day — never sent to your revisor")}
+        </p>
+      )}
+      {/* A real day, a real revisor — but the business is still the demo's
+          sample company: nothing goes to the revisor until Profile says who
+          the owner really is (the server: skip / 409 demo_identity). */}
+      {identity && !demoDay && kind !== "revisor" && (
+        <p className={`${textCls} text-amber-700 dark:text-amber-300 flex items-start gap-1`} data-testid="dc-mail-identity-demo">
+          <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" /> <span>{t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{kind !== "owner_only" && (
+            <>{" "}<Link to="/profile" className="font-semibold underline">{t("identityIsDemoCta", "Correct your business on Profile")}</Link></>
+          )}</span>
         </p>
       )}
       {err && <p className="text-xs text-red-600 dark:text-red-400" role="alert">{err}</p>}
@@ -5773,6 +5795,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // never pre-filled, named as "your revisor" or mailed from here.
   const revisorEmail = revisorAddress(businessProfile);
   const revisorIsDemo = Boolean(businessProfile?.accountant_is_demo);
+  // The business is still the demo's sample company (Mirabelle ApS): Send
+  // goes nowhere — not by BonBox (409 demo_identity), not via the owner's own
+  // mail either — until Profile holds the owner's own name, CVR and address.
+  const identityDemo = Boolean(businessProfile?.identity_is_demo);
   // Plan caps from /billing/me — drives the cap-aware preset
   // buttons (Free=7d / Starter=31d / Pro=full year). Defaults to
   // 366 (the hard ceiling) so before /billing/me responds the UI
@@ -5783,6 +5809,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // A direct send that did not (or may not have) gone: what happened, and the
   // owner's choice of what to do next. Never a silent switch to mailto.
   const [sendIssue, setSendIssue] = useState(null);
+  // The period send's key: kept across a lost response, so a second tap
+  // replays the same send instead of mailing the revisor twice.
+  const periodSendKeyRef = useRef(null);
   // /billing/me keeps its silent catch ON PURPOSE, and it is the one shape of
   // silence that is honest: every failure leaves exportCapDays at 366, and the
   // whole cap UI — the hint line, the locked presets, the "exceeds your plan"
@@ -6109,6 +6138,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     setExportError("");
     setSendStatus("");
     setSendIssue(null);
+    if (identityDemo) {
+      setExportError(t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor."));
+      return;
+    }
     const fmt = accountantFmt; // honour the user's saved choice
     // Never the demo seeder's sample revisor (revisorAddress → "").
     const acct = revisorEmail;
@@ -6173,13 +6206,19 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       if (!ok) return;
       setSendingToAccountant(true);
       try {
+        // One key per confirmed tap: a retried POST answers with the first
+        // send's outcome instead of mailing the revisor twice.
+        // Only for the SAME send: another period or format is a new key.
+        const sig = `${activeRange.from}|${activeRange.to}|${fmt}`;
+        if (periodSendKeyRef.current?.sig !== sig) periodSendKeyRef.current = { sig, key: newSendKey() };
         const r = await api.post(
           `/daily-close/send-to-accountant?from=${activeRange.from}&to=${activeRange.to}`,
-          { fmt, cc_self: true },
+          { fmt, cc_self: true, key: periodSendKeyRef.current.key },
           // A send is not replayed by the interceptor: a lost response does
           // not mean nothing was sent.
           { _noRetry: true },
         );
+        periodSendKeyRef.current = null;
         if (r.data?.ok) {
           setSendStatus(
             (t("sentToAccountantOk", "Sent to")) +
@@ -6193,6 +6232,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       } catch (e) {
         const status = e.response?.status;
         const detail = e.response?.data?.detail;
+        // An answer means the server decided: the next tap is a new send.
+        // No answer (lost response) keeps the key, so a retry replays it.
+        if (e.response) periodSendKeyRef.current = null;
         if (status === 402 && detail?.feature === "direct_accountant_email") {
           // Free: download + own mail is the plan's path — go straight there.
           await sendViaOwnMail(fmt, { freePath: true });
@@ -6212,7 +6254,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             ? t("dcSendOnlyDemo", "This period only has sample days (demo data) — they are never sent to your revisor. Lock your real days first.")
             : t("dcSendNothingLocked", "There are no locked closes in this period — lock the days before you send them to your revisor.");
         } else if (status === 409 && detail?.code === "demo_recipient") {
-          message = t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile.");
+          message = t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile.");
+        } else if (status === 409 && detail?.code === "demo_identity") {
+          message = t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.");
         } else if (status === 409 && detail?.code === "accountant_opted_out") {
           message = t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail.");
         } else if (status === 429) {
@@ -6847,15 +6891,22 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             phone cannot show. */}
         {/* The saved revisor is the demo seeder's sample: say so — Send
             opens the owner's own mail, never to the sample address. */}
+        {profileKnown && identityDemo && (
+          <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-identity-demo">
+            <Icon name="AlertTriangle" size={12} className="inline align-text-bottom mr-1" />
+            {t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{" "}
+            <Link to="/profile" className="font-semibold underline">{t("profileLinkLabel", "Profile")}</Link>
+          </p>
+        )}
         {profileKnown && revisorIsDemo && (
           <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-revisor-demo">
             <Icon name="Info" size={12} className="inline align-text-bottom mr-1" />
-            {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's e-mail on Profile.")}{" "}
+            {t("dcRevisorIsDemo", "The revisor is sample data — save your own revisor's name and e-mail on Profile.")}{" "}
             <Link to="/profile" className="font-semibold underline">{t("profileLinkLabel", "Profile")}</Link>
           </p>
         )}
 
-        {profileKnown && revisorEmail && rangeCount > 0 && (
+        {profileKnown && revisorEmail && !identityDemo && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
             {businessProfile?.accountant_opted_out
               ? t("dcSendToLineOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.", { email: businessProfile.accountant_email })

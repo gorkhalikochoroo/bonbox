@@ -43,6 +43,13 @@ export function revisorAddress(profile) {
   return String(profile?.accountant_email || "").trim();
 }
 
+/** The business on the profile is still the demo seeder's sample company
+ *  (Mirabelle ApS): the server sends a revisor nothing under it (skip / 409
+ *  "demo_identity") until the owner saves their own name, CVR and address. */
+export function identityIsDemo(profile) {
+  return Boolean(profile?.identity_is_demo);
+}
+
 /**
  * What to say about one close's lock mail.
  *   kind: "revisor" (handed to the mail server for the revisor) | "owner_only" |
@@ -52,21 +59,25 @@ export function revisorAddress(profile) {
  *         holds these figures, so no new mail went) |
  *         "unrecorded" (locked before the send status was kept) | "none"
  *   demo: the saved revisor is demo-seeder sample data (never mailed).
+ *   identity: the business is still the demo's sample company — a real
+ *     revisor is saved but gets nothing until the owner fixes Profile. No
+ *     send button is offered (acct is ""), the row says why.
  */
 export function closeEmailState({ status, sentTo = [], skip = null, profile = null, error = null }) {
   const raw = String(profile?.accountant_email || "").trim().toLowerCase();
   const demo = Boolean(profile?.accountant_is_demo) || skip === "demo_recipient";
+  const identity = !demo && Boolean(raw) && (identityIsDemo(profile) || skip === "demo_identity");
   const to = (sentTo || []).map((x) => String(x).toLowerCase());
   // A close that DID reach the saved address before it was known as sample
   // data says so, honestly — every other line treats it as not saved.
   if (status && status !== "sending" && status !== "skipped_feature_locked" && raw && to.includes(raw)) {
-    return { kind: "revisor", acct: raw, demo: false };
+    return { kind: "revisor", acct: raw, demo: false, identity: false };
   }
-  const acct = demo ? "" : raw;
+  const acct = demo || identity ? "" : raw;
   if (skip === "unchanged" || error === "revisor_unchanged") {
-    if (status === "sent" || status === "partial") return { kind: "unchanged", acct, demo };
+    if (status === "sent" || status === "partial") return { kind: "unchanged", acct, demo, identity };
   }
-  return { ...closeEmailKind({ status, to, skip, profile, acct }), demo };
+  return { ...closeEmailKind({ status, to, skip, profile, acct }), demo, identity };
 }
 
 function closeEmailKind({ status, to, skip, profile, acct }) {

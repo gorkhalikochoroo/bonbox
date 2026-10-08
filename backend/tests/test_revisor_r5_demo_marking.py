@@ -265,7 +265,16 @@ def test_the_next_mail_to_the_real_revisor_greets_hej(db_session, client, mailbo
     _demo_profile(db_session, user)
     assert _put(client, user, accountant_email="pia@realrevisor.dk",
                 accountant_name="Anna Hansen", accountant_auto_send=True).status_code == 200
+    # Round 6: the company is still the sample's — nothing goes to Pia yet.
     r = _lock(client, user)  # a REAL day
+    assert r.status_code == 200, r.text
+    assert r.json()["close_ritual"]["accountant_skip_reason"] == "demo_identity"
+    assert not [p for p in mailbox.sent if p["to"] == ["pia@realrevisor.dk"]]
+    # The owner saves their own company; the next real day reaches Pia.
+    assert client.put("/api/business", json={"company_name": "Café Rigtig ApS",
+                                             "org_number": "12345678"},
+                      headers=_auth(user)).status_code == 200
+    r = _lock(client, user, d="2026-09-26")
     assert r.status_code == 200, r.text
     to_pia = [p for p in mailbox.sent if p["to"] == ["pia@realrevisor.dk"]]
     assert len(to_pia) == 1

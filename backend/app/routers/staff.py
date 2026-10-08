@@ -7599,7 +7599,7 @@ def send_payroll_to_accountant(
     )
 
     from app.services.revisor_mail import (
-        is_demo_seeded_address, owner_copy_line, revisor_footer_html,
+        owner_copy_allowed, owner_copy_line, revisor_footer_html,
         revisor_unsubscribe_url, send_file_to_revisor, sender_display,
     )
     # The revisor is a third party: say why they get this and let them stop.
@@ -7615,9 +7615,10 @@ def send_payroll_to_accountant(
     ok, err, owner_copied = send_file_to_revisor(
         recipient=recipient, subject=subject,
         html_revisor=html, html_owner=html_owner,
-        # Never an owner copy to an address the demo seeder wrote.
+        # Never an owner copy to an address the demo seeder wrote, nor to one
+        # that opted out of BonBox mail — the one rule the close paths use.
         owner_email=(user.email if body.cc_self
-                     and not is_demo_seeded_address(profile, user.email) else None),
+                     and owner_copy_allowed(profile, user.email) else None),
         attachment_bytes=pdf_bytes, attachment_filename=filename,
         attachment_mime="application/pdf", reply_to=user.email,
         from_display=sender_display(biz_name),

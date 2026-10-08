@@ -21,8 +21,10 @@ Safety posture
 2. Idempotent: seed refuses to overwrite, clear is a no-op when
    there are no demo rows.
 3. Marker contract: ONLY rows whose description/name/notes ends in
-   " · demo" are ever touched on clear. The owner's real data is
-   never at risk.
+   " · demo" are ever touched on clear. The business profile is never
+   deleted from under the owner: only fields that still hold the
+   seeded values are reset (to what the owner had before the seed),
+   and the revisor, bank and identity fields the owner typed stay.
 4. Audit-logged: every seed and clear is recorded for GDPR and
    Bogføringsloven §9 trail.
 """
@@ -154,6 +156,10 @@ def clear_demo(
             "closes": int(deleted.get("closes", 0)),
             "inventory": int(deleted.get("inventory", 0)),
             "expense_cats": int(deleted.get("expense_cats", 0)),
+            "business_profile_reset": int(deleted.get("business_profile_reset", 0)),
+            # What the owner had typed on the profile and kept (revisor,
+            # bank, identity) — the clear resets only seeded values.
+            "profile_kept": list(result.get("kept") or []),
         },
         ip_address=_client_ip(request),
     )

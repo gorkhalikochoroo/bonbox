@@ -15,10 +15,12 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { Icon } from "./ui";
 
 export default function DemoActiveBanner() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [hasDemo, setHasDemo] = useState(false);
   const [clearing, setClearing] = useState(false);
 
@@ -45,6 +47,17 @@ export default function DemoActiveBanner() {
 
   const onClear = async () => {
     if (clearing) return;
+    // One tap used to clear — and took the revisor and bank details the
+    // owner had saved on the demo profile. Now it says what goes and what
+    // stays (the server keeps everything the owner typed), and asks.
+    const ok = await confirm({
+      title: t("demoClearConfirmTitle", "Clear the sample data?"),
+      message: t("demoClearConfirmBody", "Removed: the sample days, stock, expenses, tables and bookings — and the sample company (Mirabelle ApS) and sample revisor on your profile.\nKept: everything you added yourself — your own days and expenses, your revisor, your bank details and your own company details."),
+      confirmLabel: t("demoClearConfirmBtn", "Clear sample data"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (ok !== true) return;
     setClearing(true);
     try {
       await api.post("/demo/clear");

@@ -2592,6 +2592,11 @@ _migrations = [
     # owner corrected). Nullable, no default, no backfill.
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS cash_float NUMERIC(12,2)",
     "ALTER TABLE daily_closes ADD COLUMN IF NOT EXISTS source_meta TEXT",
+    # ── Migration 084 (2026-10-08): demo seeding keeps the owner's own data ─
+    # What the demo seeder overwrote on the business profile, so "Ryd
+    # demodata" restores it instead of deleting the profile (and the revisor
+    # and bank details the owner typed). Nullable, no default, no backfill.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS demo_snapshot_json TEXT",
 ]
 
 
@@ -3226,6 +3231,8 @@ def _run_migrations():
             # Mirror of Migration 083 — the float and the figures' source.
             ok += _add("daily_closes", "cash_float", "NUMERIC(12,2)")
             ok += _add("daily_closes", "source_meta", "TEXT")
+            # Mirror of Migration 084 — the demo seeder's pre-seed snapshot.
+            ok += _add("business_profiles", "demo_snapshot_json", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

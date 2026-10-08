@@ -1101,6 +1101,14 @@ def build_daily_close_range_pdf(
                                  textColor=INK, fontName="Helvetica",
                                  leading=8, alignment=0)  # 0 = TA_LEFT
 
+    # The demo seeder's sample company is still the business identity: the
+    # header says so (closes are real — demo days are never in a period).
+    from app.services.revisor_mail import (
+        DEMO_IDENTITY_DOC_LINE_DA, DEMO_IDENTITY_DOC_LINE_EN, is_demo_identity,
+    )
+    identity_demo = is_demo_identity(profile)
+    identity_line = DEMO_IDENTITY_DOC_LINE_DA if DA else DEMO_IDENTITY_DOC_LINE_EN
+
     def _make_story():
         # Returns a FRESH list of flowables each call — render_with_doc_hash
         # invokes this once per pass (reportlab mutates flowables in-place, so
@@ -1122,6 +1130,10 @@ def build_daily_close_range_pdf(
         head_left = biz_line
         if biz_meta:
             head_left += f"<br/><font color='#6b7280' size='9'>{' · '.join(biz_meta)}</font>"
+        if identity_demo:
+            # The days are the owner's own; the company above is the demo's.
+            head_left += (f"<br/><font name='Helvetica-Bold' color='#b45309' size='9'>"
+                          f"{identity_line}</font>")
 
         head_right = (
             f"<font name='Helvetica-Bold' size='11'>{L['title']}</font>"
@@ -1916,6 +1928,15 @@ def build_daily_close_range_xlsx(
         if addr_line:
             s1.cell(row=row, column=1, value="Adresse" if DA else "Address")
             _as_text(s1.cell(row=row, column=2, value=addr_line))
+            row += 1
+        from app.services.revisor_mail import (
+            DEMO_IDENTITY_DOC_LINE_DA, DEMO_IDENTITY_DOC_LINE_EN, is_demo_identity,
+        )
+        if is_demo_identity(profile):
+            # The demo seeder's sample company is still the identity above.
+            c = s1.cell(row=row, column=1,
+                        value=DEMO_IDENTITY_DOC_LINE_DA if DA else DEMO_IDENTITY_DOC_LINE_EN)
+            c.font = Font(bold=True, color="B45309")
             row += 1
 
     period_row = max(row + 1, 6)

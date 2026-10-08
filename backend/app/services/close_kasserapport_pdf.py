@@ -225,6 +225,12 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
     is_demo = is_demo_close(dc)
     # A sample close is not a voucher: it carries no bilag number.
     bilagsnummer = "" if is_demo else close_bilagsnummer(dc, branch)
+    # A REAL day under the demo seeder's sample company (Mirabelle ApS): the
+    # figures are the owner's own, the header is not. The page says so under
+    # the identity — it is still the day's kasserapport (a demo DAY keeps its
+    # EKSEMPEL treatment instead). A real identity's document is unchanged.
+    from app.services.revisor_mail import is_demo_identity
+    identity_demo = (not is_demo) and is_demo_identity(profile)
 
     # ── The document's claims — derived once, in kasserapport_claims ──
     profile_name = getattr(profile, "company_name", None) if profile else None
@@ -356,6 +362,14 @@ def build_close_kasserapport_pdf(db, user, dc, *, profile=None) -> dict:
             sub.append(f"CVR {escape_pdf_text(profile.org_number)}")
         if sub:
             id_lines.append(f"<font color='#6b7280'>{' · '.join(sub)}</font>")
+        if identity_demo:
+            from app.services.revisor_mail import (
+                DEMO_IDENTITY_DOC_LINE_DA, DEMO_IDENTITY_DOC_LINE_EN,
+            )
+            id_lines.append(
+                f"<font name='Helvetica-Bold' color='{AMBER.hexval()}'>"
+                f"{DEMO_IDENTITY_DOC_LINE_DA if DA else DEMO_IDENTITY_DOC_LINE_EN}</font>"
+            )
         if branch:
             id_lines.append(f"<font color='#6b7280'>{L['branch']}: {escape_pdf_text(branch)}</font>")
         who = []

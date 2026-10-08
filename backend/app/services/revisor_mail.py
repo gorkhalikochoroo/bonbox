@@ -97,12 +97,99 @@ DEMO_RESERVED_ADDRESSES = frozenset({DEMO_SEEDED_REVISOR_EMAIL, DEMO_SEEDED_BUSI
 DEMO_RECIPIENT_MESSAGE_DA = "Revisoren er eksempeldata — gem din egen revisors mail under Profil."
 DEMO_RECIPIENT_MESSAGE_EN = "The revisor is sample data — save your own revisor's e-mail on Profile."
 
+# The sample COMPANY the demo seeder writes into the business profile. A real
+# day locked on that profile went to the owner's REAL revisor as "Mirabelle
+# ApS (CVR 39842851)" — subject, From, footer and the kasserapport itself: a
+# voucher under another legal entity. While the profile still names the
+# sample company, BonBox sends a revisor nothing (skip / 409 "demo_identity").
+# demo_seed writes these values from here, so the seeder and the fence agree.
+DEMO_SEEDED_COMPANY_NAME = "Mirabelle ApS"
+DEMO_SEEDED_CVR = "39842851"
+DEMO_SEEDED_STREET = "Vestergade 1"
+DEMO_SEEDED_ZIPCODE = "1456"
+DEMO_SEEDED_CITY = "København K"
+
+DEMO_IDENTITY_MESSAGE_DA = (
+    "Din virksomhed står stadig som eksempelvirksomheden (Mirabelle ApS). "
+    "Ret navn, CVR og adresse under Profil, før vi sender til din revisor."
+)
+DEMO_IDENTITY_MESSAGE_EN = (
+    "Your business is still set up as the sample company (Mirabelle ApS). "
+    "Correct the name, CVR and address on Profile before we send anything to your revisor."
+)
+# Printed on a REAL day's document while the identity is still the sample's.
+# It says what is wrong with the header — not that the day is no voucher (the
+# figures are the owner's own); a demo DAY keeps its EKSEMPEL treatment.
+DEMO_IDENTITY_DOC_LINE_DA = "Virksomhedsoplysningerne er eksempeldata — ret dem under Profil"
+DEMO_IDENTITY_DOC_LINE_EN = "The business details are sample data — correct them on Profile"
+
 
 def is_demo_profile(profile: Any) -> bool:
     """The per-user demo seeder tags the profile it writes: its
     cvr_verified_source ends in " · demo"."""
     return bool(profile) and str(
         getattr(profile, "cvr_verified_source", None) or "").endswith(DEMO_PROFILE_SUFFIX)
+
+
+def _digits(value: Any) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def seeded_company_name(profile: Any) -> bool:
+    return bool(profile) and (
+        " ".join(str(getattr(profile, "company_name", None) or "").split()).casefold()
+        == DEMO_SEEDED_COMPANY_NAME.casefold())
+
+
+def seeded_cvr(profile: Any) -> bool:
+    """The CVR (org number, or the VAT number "DK39842851") is the sample's."""
+    return bool(profile) and (
+        _digits(getattr(profile, "org_number", None)) == DEMO_SEEDED_CVR
+        or _digits(getattr(profile, "vat_number", None)) == DEMO_SEEDED_CVR)
+
+
+def seeded_street(profile: Any) -> bool:
+    """The street address is the sample's ("Vestergade 1", in 1456)."""
+    if not profile:
+        return False
+    street = " ".join(str(getattr(profile, "address", None) or "").split(",")[0].split())
+    zipcode = str(getattr(profile, "zipcode", None) or "").strip()
+    return (street.casefold() == DEMO_SEEDED_STREET.casefold()
+            and zipcode in ("", DEMO_SEEDED_ZIPCODE))
+
+
+def is_demo_identity(profile: Any) -> bool:
+    """The business identity on the profile is still the demo seeder's sample
+    company — so nothing may go to a revisor under it.
+
+    * the " · demo" tag (every per-user seed writes it), or
+    * the sample street address with the sample name or CVR beside it (a tag
+      lost to a register save that echoed the sample company), or
+    * the sample CVR carrying a verification stamp (the shared demo account
+      and a re-verified sample: no real owner is verified under it).
+
+    The sample name and CVR alone, unverified and with no sample address, are
+    not enough: that is a business the owner typed in themselves."""
+    if not profile:
+        return False
+    if is_demo_profile(profile):
+        return True
+    cvr = seeded_cvr(profile)
+    if seeded_street(profile) and (cvr or seeded_company_name(profile)):
+        return True
+    return cvr and getattr(profile, "cvr_verified_at", None) is not None
+
+
+def demo_identity_error() -> HTTPException:
+    """409 demo_identity — the business is still the sample company."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "demo_identity",
+            "message": DEMO_IDENTITY_MESSAGE_EN,
+            "message_da": DEMO_IDENTITY_MESSAGE_DA,
+        },
+    )
 
 
 def _seeded_revisor_still_saved(profile: Any) -> bool:
@@ -169,7 +256,7 @@ def owner_copy_allowed(profile: Any, address: str | None) -> bool:
         return False
     if is_demo_seeded_address(profile, addr):
         return False
-    return address_fingerprint(addr) not in opted_out_fingerprints(profile)
+    return not _address_opted_out(profile, addr)
 
 
 def demo_rows_in_period(db, user_id, period_start, period_end) -> int:
@@ -260,7 +347,23 @@ def revisor_opted_out(profile: Any, address: str | None = None) -> bool:
     addr = (address or saved_revisor_address(profile)).strip().lower()
     if not addr:
         return False
-    return address_fingerprint(addr) in opted_out_fingerprints(profile)
+    return _address_opted_out(profile, addr)
+
+
+def mailbox_address(address: str | None) -> str:
+    """The mailbox behind an address: "pia+bonbox@firma.dk" → "pia@firma.dk".
+    A "+tag" reaches the same inbox, so it must not step round an opt-out."""
+    addr = (address or "").strip().lower()
+    local, at, domain = addr.partition("@")
+    if not at:
+        return addr
+    return f"{local.split('+', 1)[0]}@{domain}"
+
+
+def _address_opted_out(profile: Any, addr: str) -> bool:
+    fps = opted_out_fingerprints(profile)
+    return (address_fingerprint(addr) in fps
+            or address_fingerprint(mailbox_address(addr)) in fps)
 
 
 def record_opt_out(profile: Any, fingerprint: str) -> bool:
@@ -294,6 +397,7 @@ def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
 
     400 no_accountant_email  — nothing saved
     409 demo_recipient       — the saved address is the demo seeder's sample
+    409 demo_identity        — the business is still the sample company
     422 recipient_not_saved  — body named a different address
     409 accountant_opted_out — the revisor stopped BonBox mail
     """
@@ -309,6 +413,9 @@ def resolve_revisor_recipient(profile: Any, override: str | None = None) -> str:
     if is_demo_revisor(profile, saved):
         # Sample data, not a revisor the owner chose: never mailed.
         raise demo_recipient_error()
+    if is_demo_identity(profile):
+        # A real revisor, but the sender would be the sample company and CVR.
+        raise demo_identity_error()
     if override:
         o = str(override).strip().lower()
         if o and o != saved:

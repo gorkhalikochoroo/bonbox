@@ -269,13 +269,19 @@ def invite_accountant(
     # shares (429), and never to an address that asked BonBox to stop — the
     # opt-out page promised "BonBox sender ikke flere mails til dig".
     from app.services.revisor_mail import (
-        demo_recipient_error, enforce_revisor_daily_cap, is_demo_revisor, revisor_opted_out,
+        demo_identity_error, demo_recipient_error, enforce_revisor_daily_cap,
+        is_demo_identity, is_demo_revisor, revisor_opted_out,
     )
     _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
     if is_demo_revisor(_profile, email):
         # The demo seeder's sample revisor is not a person the owner chose:
         # no invite mail goes there (409 demo_recipient).
         raise demo_recipient_error()
+    if is_demo_identity(_profile):
+        # The invite would introduce the sample company (Mirabelle ApS) to a
+        # real revisor: nothing goes out until the owner's own company is
+        # saved (409 demo_identity).
+        raise demo_identity_error()
     if revisor_opted_out(_profile, email):
         raise HTTPException(
             status_code=409,

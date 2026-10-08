@@ -85,6 +85,9 @@ class BusinessProfileResponse(BaseModel):
     # The saved revisor is demo-seeder sample data: never mailed; the pages
     # say "Revisoren er eksempeldata — gem din egen revisors mail under Profil".
     accountant_is_demo: bool = False
+    # The business itself is still the demo's sample company (Mirabelle ApS):
+    # nothing goes to a revisor until the owner corrects name, CVR and address.
+    identity_is_demo: bool = False
     source: str | None = None
     founded: str | None = None
     # 0-23. DK default 6 (Danish restaurant convention — service ending

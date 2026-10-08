@@ -435,6 +435,16 @@ export default function ProfilePage() {
 
   // Task #68 — clear demo data button handler (Profile → Privacy)
   const onClearDemoData = async () => {
+    // Say plainly what goes and what stays — it used to clear on one tap and
+    // took the revisor and bank details the owner had saved with it.
+    const ok = await confirm({
+      title: t("demoClearConfirmTitle", "Clear the sample data?"),
+      message: t("demoClearConfirmBody", "Removed: the sample days, stock, expenses, tables and bookings — and the sample company (Mirabelle ApS) and sample revisor on your profile.\nKept: everything you added yourself — your own days and expenses, your revisor, your bank details and your own company details."),
+      confirmLabel: t("demoClearConfirmBtn", "Clear sample data"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (ok !== true) return;
     setDemoClearBusy(true);
     setDemoClearMsg("");
     try {
@@ -445,9 +455,27 @@ export default function ProfilePage() {
         (d.closes || 0) +
         (d.inventory || 0) +
         (d.expense_cats || 0);
+      const keptLabels = {
+        revisor: t("demoClearKeptRevisor", "your revisor"),
+        bank: t("demoClearKeptBank", "your bank details"),
+        identity: t("demoClearKeptIdentity", "your company details"),
+      };
+      const kept = (res?.data?.kept || []).map((k) => keptLabels[k]).filter(Boolean);
       setDemoClearMsg(
-        t("demoClearDone", "Sample data cleared.") + ` (${total} rows)`,
+        t("demoClearDone", "Sample data cleared.") + ` (${total} rows)`
+        + (kept.length ? " " + t("demoClearKept", "Kept on your profile: {items}.", { items: kept.join(", ") }) : ""),
       );
+      // The profile was reset to the owner's own values — show those.
+      try {
+        const fresh = await api.get("/business");
+        setBusinessProfile(fresh.data);
+        setAccountantForm({
+          accountant_email: fresh.data?.accountant_email || "",
+          accountant_name: fresh.data?.accountant_name || "",
+          accountant_auto_send: fresh.data?.accountant_is_demo ? false
+            : (fresh.data?.accountant_auto_send ?? Boolean(fresh.data?.accountant_email)),
+        });
+      } catch { /* the cards keep what they show; a reload re-reads */ }
       // Reload status so the card hides
       setDemoStatus({ has_demo: false, has_real: !!demoStatus?.has_real });
       // Let Dashboard re-pull
@@ -462,7 +490,7 @@ export default function ProfilePage() {
       );
     } finally {
       setDemoClearBusy(false);
-      setTimeout(() => setDemoClearMsg(""), 5000);
+      setTimeout(() => setDemoClearMsg(""), 8000);
     }
   };
 
@@ -527,8 +555,11 @@ export default function ProfilePage() {
       setBusinessProfile(res.data);
       // The server clears the demo seeder's sample name when the sample
       // address is replaced — the form shows what was saved.
+      // The address too: a sample address renamed in place is stored as the
+      // reserved sample one — the form shows what was saved, not what was typed.
       setAccountantForm((f) => ({ ...f, accountant_auto_send: res.data?.accountant_auto_send ?? false,
-        accountant_name: res.data?.accountant_name || "" }));
+        accountant_name: res.data?.accountant_name || "",
+        accountant_email: res.data?.accountant_email || "" }));
       setAccountantMsg(t("accountantSaved") || "Accountant contact saved");
       setTimeout(() => setAccountantMsg(""), 3000);
     } catch (err) {
@@ -1133,6 +1164,17 @@ export default function ProfilePage() {
                 subtitle={t("businessRegistrationDesc") || "Look up and save your company details from public registers"}
                 icon={<Icon name="FileText" size={18} />}
               />
+              {/* The demo seeded its sample company here. Until the owner's
+                  own replaces it, BonBox sends their revisor nothing. */}
+              {businessProfile?.identity_is_demo && (
+                <p className="mb-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2" role="status" data-testid="profile-identity-demo">
+                  <Icon name="AlertTriangle" size={16} className="shrink-0 mt-0.5" />
+                  <span>
+                    {t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}{" "}
+                    {t("identityIsDemoProfileNotice", "Look up your own company below (or type its name, CVR and address) and save.")}
+                  </span>
+                </p>
+              )}
               {businessProfile && (
                 <VerifiedBusinessBanner
                   profile={businessProfile}
@@ -1340,7 +1382,7 @@ export default function ProfilePage() {
                       type="text"
                       value={accountantForm.accountant_name}
                       onChange={(e) => setAccountantForm((f) => ({ ...f, accountant_name: e.target.value }))}
-                      placeholder="Pia Jensen"
+                      placeholder={t("accountantNamePlaceholder", "E.g. your revisor's first name")}
                       maxLength={150}
                       className={INPUT_CLASS}
                       autoComplete="off"
@@ -1381,6 +1423,15 @@ export default function ProfilePage() {
                   <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2" role="status" data-testid="accountant-demo-notice">
                     <Icon name="Info" size={16} className="shrink-0 mt-0.5" />
                     <span>{t("accountantIsDemoNotice", "This revisor is sample data from the demo — BonBox never mails it. Type your own revisor's name and e-mail above and save.")}</span>
+                  </p>
+                )}
+                {/* A real revisor saved — but the business is still the
+                    demo's sample company: nothing goes to them until the
+                    company card above holds the owner's own. */}
+                {businessProfile?.identity_is_demo && !accountantFormIsDemo && accountantForm.accountant_email.trim() && (
+                  <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2" role="status" data-testid="accountant-identity-demo">
+                    <Icon name="AlertTriangle" size={16} className="shrink-0 mt-0.5" />
+                    <span>{t("identityIsDemoNotice", "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.")}</span>
                   </p>
                 )}
                 {/* The revisor's lock mail — an explained, explicit choice:
