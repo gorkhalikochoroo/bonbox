@@ -62,7 +62,10 @@ const FMT_LABEL = { xlsx: "Excel", pdf: "PDF", csv: "CSV" };
 // back the horizontal, so the sentence's lines keep their spacing (an
 // inline-flex min-height made the last line of each note stand apart).
 // `relative` lifts the link above the next note, so its padding takes the tap.
-const PROFILE_LINK_TAP = "max-sm:relative max-sm:py-3.5 max-sm:px-1.5 max-sm:-mx-1.5";
+// On a tablet (768) the same links still measured 28×13 (the revisor link
+// 194×16), so the tap area holds up to desktop width, as History and export.
+const PROFILE_LINK_TAP = "max-sm:relative max-sm:py-3.5 max-sm:px-1.5 max-sm:-mx-1.5"
+  + " sm:max-lg:relative sm:max-lg:py-3.5 sm:max-lg:px-1.5 sm:max-lg:-mx-1.5";
 import { saveFile } from "../utils/download";
 import { exportPieces, previousQuarter, spanDays } from "../utils/exportPieces";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
@@ -4996,8 +4999,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         )}
 
         {/* ─── REVIEW STEP ─── */}
+        {/* 768–1023 px: the floating AI button (fixed bottom-right) sat on
+            the ledger's right-aligned figures as they scrolled under it. */}
         {currentStepId === "review" && (
-          <div className="space-y-4">
+          <div className="space-y-4 md:max-lg:pr-8">
             {/* Date confirmation */}
             <div className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300">
               <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
@@ -5428,8 +5433,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           </div>
         )}
 
-        {/* Navigation buttons */}
-        <div className="flex justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+        {/* Navigation buttons — clear of the floating AI button's column
+            from 768 to 1023 px (it clipped Næste's corner). */}
+        <div className="flex justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 md:max-lg:pr-8">
           {step > 1 ? (
             <Button variant="ghost" size="lg" onClick={() => { setStep(step - 1); revealStepTop(); }}>
               ← {t("back", "Back")}
@@ -7355,10 +7361,12 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         const revLinesSum = Object.values(rev).reduce((a, v) => a + (Number(v) || 0), 0);
         const unsplit = Object.keys(rev).length && Number(dc.revenue_total) > 0
           ? Math.round((Number(dc.revenue_total) - revLinesSum) * 100) / 100 : 0;
-        // One precision per card: øre on every figure when any has øre (or
-        // while the ledger, which is at øre, is open) — "4.567 kr." sat
-        // beside "12.345,50 kr.", and "28.469 kr." over "28.469,00 kr.".
-        const cardDec = isOpen || [dc.revenue_total, ...Object.values(rev), ...Object.values(pay), dc.cash_difference, dc.tips_total, unsplit]
+        // One precision per card, decided by the card's figures alone — the
+        // ledger's included — never by whether it is open: øre on every figure
+        // when any has øre. "4.567 kr." sat beside "12.345,50 kr.", and
+        // "Vis detaljer" turned "28.469 kr." into "28.469,00 kr.".
+        const cardDec = [dc.revenue_total, ...Object.values(rev), ...Object.values(pay), dc.cash_difference, dc.tips_total, unsplit,
+          dc.moms_total, dc.revenue_ex_moms, dc.payment_total, dc.cash_expected, dc.cash_counted]
           .some((v) => v != null && oreDecimals(v) === LEDGER_DECIMALS) ? LEDGER_DECIMALS : GLANCE_DECIMALS;
         return (
           <div key={dc.id} data-close-id={dc.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm scroll-mt-20">
@@ -7469,7 +7477,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 ].filter(([, v]) => v != null).map(([label, v, sign]) => (
                   <div key={label} className="flex justify-between gap-3">
                     <dt>{label}</dt>
-                    <dd className="font-medium text-gray-900 dark:text-gray-100"><Amount value={v} currency={currency} decimals={LEDGER_DECIMALS} sign={!!sign} /></dd>
+                    <dd className="font-medium text-gray-900 dark:text-gray-100"><Amount value={v} currency={currency} decimals={cardDec} sign={!!sign} /></dd>
                   </div>
                 ))}
                 {dc.notes && (
@@ -7979,7 +7987,7 @@ function CalendarHeatMap({ data, currency }) {
         </h3>
         <div className="flex gap-1.5">
           {[{ id: "revenue", label: t("dcHeatmapRevenueMode", "Revenue") }, { id: "cash", label: t("dcHeatmapCashMode", "Cash +/-") }].map(m => (
-            <Chip key={m.id} size="sm" selected={mode === m.id} onClick={() => setMode(m.id)}>{m.label}</Chip>
+            <Chip key={m.id} size="sm" selected={mode === m.id} onClick={() => setMode(m.id)} className="max-lg:min-h-10">{m.label}</Chip>
           ))}
         </div>
       </div>
