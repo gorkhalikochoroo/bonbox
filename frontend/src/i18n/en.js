@@ -7121,6 +7121,7 @@ export const en = {
     revisorLastLogin: "Last seen",
     revisorEmailInvalid: "Enter a valid email address.",
     revisorInviteSent: "Invite sent. They have 7 days to accept.",
+    revisorInviteNotEmailed: "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.",
     revisorCopyLinkHint: "Didn't arrive? Send your revisor this link yourself — it works for 7 days.",
     copyLink: "Copy link",
     revisorPlanRequired: "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access.",

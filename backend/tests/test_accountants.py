@@ -210,8 +210,11 @@ def test_starter_owner_can_invite(client, db, monkeypatch):
 
     sent: list[dict] = []
 
-    def _capture(to_email, subject, html, **kwargs):
-        sent.append({"to": to_email, "subject": subject, "html": html})
+    # Same signature as the real email_service.send_email (to, subject, html,
+    # *, reply_to, headers) — a stub that accepted `to_email` let the invite
+    # call a keyword the real function rejects, and no mail was ever sent.
+    def _capture(to, subject, html, *, reply_to=None, headers=None):
+        sent.append({"to": to, "subject": subject, "html": html})
         return True
 
     monkeypatch.setattr(
@@ -778,8 +781,8 @@ def test_invite_mail_escapes_the_owner_typed_business_name(client, db, monkeypat
     sent: list[dict] = []
     monkeypatch.setattr(
         "app.services.email_service.send_email",
-        lambda to_email, subject, html, **kw: sent.append(
-            {"to": to_email, "subject": subject, "html": html}) or True,
+        lambda to, subject, html, *, reply_to=None, headers=None: sent.append(
+            {"to": to, "subject": subject, "html": html}) or True,
     )
     res = client.post("/api/accountants/invite", json={"email": "revisor@example.dk"})
     assert res.status_code == 201, res.text
@@ -812,3 +815,42 @@ def test_invite_is_refused_for_an_opted_out_revisor_and_counted_in_the_cap(clien
     res = client.post("/api/accountants/invite", json={"email": "other@revisor.dk"})
     assert res.status_code == 429 and res.json()["detail"]["code"] == "revisor_daily_cap"
     assert sent == []
+
+
+def test_invite_stub_matches_the_real_send_email_signature():
+    """Contract: the stubs above must accept exactly what the real sender
+    accepts. The old stub took `to_email`, the invite called `to_email=`, the
+    real function takes `to` — so the TypeError was swallowed and no invite
+    e-mail ever left, while every test stayed green."""
+    import inspect
+    from app.services.email_service import send_email
+    params = inspect.signature(send_email).parameters
+    assert list(params)[:3] == ["to", "subject", "html"]
+    assert "to_email" not in params
+
+
+def test_invite_reports_whether_the_mail_left(client, db, monkeypatch):
+    owner = _owner(db, plan="starter")
+    _override_user(owner)
+    calls: list[dict] = []
+
+    def _real_signature_ok(to, subject, html, *, reply_to=None, headers=None):
+        calls.append({"to": to})
+        return True
+
+    monkeypatch.setattr("app.services.email_service.send_email", _real_signature_ok)
+    res = client.post("/api/accountants/invite", json={"email": "ok-revisor@example.dk"})
+    assert res.status_code == 201, res.text
+    assert res.json()["email_sent"] is True
+    assert calls == [{"to": "ok-revisor@example.dk"}]
+
+    def _not_sent(to, subject, html, *, reply_to=None, headers=None):
+        return False
+
+    monkeypatch.setattr("app.services.email_service.send_email", _not_sent)
+    res = client.post("/api/accountants/invite", json={"email": "other-revisor@example.dk"})
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["email_sent"] is False
+    assert body["accept_url"]  # the copy-link fallback is still there
+

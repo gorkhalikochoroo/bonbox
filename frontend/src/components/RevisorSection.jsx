@@ -105,13 +105,18 @@ export default function RevisorSection() {
         name: revisorName.trim() || null,
       });
       setInviteLink(res.data?.accept_url || "");
+      // Only claim a sent e-mail when the server says it left; otherwise the
+      // copy-link below is the way to reach the revisor.
       setRevisorMsg(
-        t("revisorInviteSent", "Invite sent. They have 7 days to accept."),
+        res.data?.email_sent === false
+          ? t("revisorInviteNotEmailed", "The invite is ready, but the e-mail could not be sent. Copy the link below and send it to your accountant. It works for 7 days.")
+          : t("revisorInviteSent", "Invite sent. They have 7 days to accept."),
       );
       setRevisorEmail("");
       setRevisorName("");
       refreshGrants();
-      setTimeout(() => setRevisorMsg(""), 5000);
+      // A "could not e-mail" notice stays until the owner acts on it.
+      if (res.data?.email_sent !== false) setTimeout(() => setRevisorMsg(""), 5000);
     } catch (err) {
       const detail = err?.response?.data?.detail;
       if (err?.response?.status === 402 && detail?.code === "plan_required") {

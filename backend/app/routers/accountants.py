@@ -401,7 +401,10 @@ def invite_accountant(
     frontend = (settings.FRONTEND_URL or "https://bonbox.dk").rstrip("/")
     accept_url = f"{frontend}/accept-invite/{grant.invite_token}"
 
-    # Send invite email — best-effort, never block the API response
+    # Send invite email — best-effort, never block the API response. Whether
+    # it actually left is reported back (email_sent) so the owner is never
+    # told "Invitation sendt" for a mail that did not go out.
+    email_sent = False
     try:
         from app.services.email_service import send_email
         from app.services.revisor_mail import header_safe
@@ -413,16 +416,19 @@ def invite_accountant(
             if is_danish
             else f"{subject_name} has invited you as their accountant on BonBox"
         )
-        send_email(
-            to_email=email,
+        # `to`, not `to_email`: the wrong keyword raised a TypeError that the
+        # except below swallowed, so no invite e-mail had ever been sent.
+        email_sent = bool(send_email(
+            to=email,
             subject=subject,
             html=_invite_email_html(owner_name, accept_url, is_danish),
-        )
+        ))
     except Exception as e:  # noqa: BLE001
         logger.warning("accountant invite email failed: %s", e)
 
     resp = _to_response(grant, owner_business_name=user.business_name)
     resp.accept_url = accept_url  # copy-link fallback (invite response only)
+    resp.email_sent = email_sent
     return resp
 
 

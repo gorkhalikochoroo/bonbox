@@ -69,6 +69,10 @@ class AccountantGrantResponse(BaseModel):
     # (_to_response leaves it None) so a routine grants poll never re-emits the
     # single-use token. Fail-soft copy-link fallback for the revisor invite.
     accept_url: Optional[str] = None
+    # Invite response only: True when the invite e-mail was handed to the mail
+    # server, False when it was not (owner must share accept_url themselves),
+    # None on every other response.
+    email_sent: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 

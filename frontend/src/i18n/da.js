@@ -6910,6 +6910,7 @@ export const da = {
     revisorLastLogin: "Sidst set",
     revisorEmailInvalid: "Indtast en gyldig email-adresse.",
     revisorInviteSent: "Invitation sendt. De har 7 dage til at acceptere.",
+    revisorInviteNotEmailed: "Invitationen er klar, men mailen kunne ikke sendes. Kopiér linket herunder og send det til din revisor. Det virker i 7 dage.",
     revisorCopyLinkHint: "Kom den ikke frem? Send selv din revisor dette link — det virker i 7 dage.",
     copyLink: "Kopiér link",
     revisorPlanRequired: "Invitation af revisor kræver Starter. Opgrader for at låse skrivebeskyttet revisor-adgang op.",
