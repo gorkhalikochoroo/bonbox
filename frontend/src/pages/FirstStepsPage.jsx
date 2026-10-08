@@ -21,7 +21,7 @@
  * the daily close) at /getting-started; a normal protected route, so a reload
  * or a later visit works. "Gå til oversigten" leaves for the dashboard.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import api from "../services/api";
@@ -46,6 +46,11 @@ export default function FirstStepsPage() {
   const [error, setError] = useState("");
   const [invite, setInvite] = useState(null); // { name, url, code }
   const [copied, setCopied] = useState(false);
+  // The staff member created by an attempt whose link call then failed
+  // ({ id, name }). A retry for the same name only asks for the link again —
+  // never a second "Sofie" taking another roster seat. Cleared once the link
+  // is made; a different name is a different person and is created fresh.
+  const pendingMember = useRef(null);
 
   const makeInvite = async (e) => {
     e?.preventDefault?.();
@@ -54,10 +59,15 @@ export default function FirstStepsPage() {
     setBusy(true);
     setError("");
     try {
-      const created = await api.post("/staff/members", { name: clean });
-      const memberId = created?.data?.id;
-      if (!memberId) throw new Error("no member id");
+      let memberId = pendingMember.current?.name === clean ? pendingMember.current.id : null;
+      if (!memberId) {
+        const created = await api.post("/staff/members", { name: clean });
+        memberId = created?.data?.id;
+        if (!memberId) throw new Error("no member id");
+        pendingMember.current = { id: memberId, name: clean };
+      }
       const link = await api.post(`/staff/members/${memberId}/link`);
+      pendingMember.current = null;
       setInvite({
         name: clean,
         url: publicUrl(link.data.portal_url),

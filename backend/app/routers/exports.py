@@ -39,6 +39,10 @@ _MAX_DAYS = 366
 # could hammer this endpoint. 10/min per IP is more than any real user needs.
 limiter = Limiter(key_func=client_ip)
 
+# The formats built from the day's closes and the expenses — the rows the demo
+# seeder marks (faktura and mileage carry neither).
+_DEMO_FENCED_FORMATS = frozenset({"dinero", "billy", "economic", "generic", "bundle"})
+
 
 @router.get("/formats")
 def list_formats(_: User = Depends(get_current_user)):
@@ -111,6 +115,36 @@ def export_bookkeeping(
                 "_recoverable": True,
             },
         )
+
+    # Sample data under the owner's OWN company and CVR (onboarding's "explore
+    # with sample data" keeps the profile): the formats that carry the day's
+    # closes and expenses would put invented figures into the owner's real
+    # Dinero / Billy / e-conomic books. Refused until "Ryd demodata". A
+    # business still set up as the sample company exports as before.
+    if format_id in _DEMO_FENCED_FORMATS:
+        from app.models.business_profile import BusinessProfile
+        from app.services.revisor_mail import demo_rows_under_own_identity
+        profile = db.query(BusinessProfile).filter(
+            BusinessProfile.user_id == user.id,
+        ).first()
+        n_demo = demo_rows_under_own_identity(db, user, profile, start, end)
+        if n_demo:
+            # JSON with a STRING detail, like every other refusal here (the
+            # page renders `detail` as text); `code` lets it say it in Danish.
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": (
+                        f"The period holds {n_demo} sample (demo) entries. BonBox doesn't "
+                        "make a bookkeeping file under your own CVR from sample data — "
+                        "clear the sample data on Profile first."
+                    ),
+                    "code": "demo_in_period",
+                    "n_demo": int(n_demo),
+                    "_error": True,
+                    "_recoverable": True,
+                },
+            )
 
     try:
         body = fmt["exporter"](user, db, start, end)

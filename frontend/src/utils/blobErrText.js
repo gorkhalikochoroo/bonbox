@@ -50,4 +50,22 @@ export async function blobErrText(err, fallback, lang = "da") {
   return preferred || detail.message || detail.message_en || fallback;
 }
 
+/** The structured `detail` object of a failed blob download (e.g.
+ *  {code, n_demo, message, message_da}), or null — for callers that branch on
+ *  the server's `code` to word the refusal in the owner's language. */
+export async function blobErrDetail(err) {
+  const data = err?.response?.data;
+  if (!data) return null;
+  if (typeof data.text !== "function") {
+    const d = data?.detail;
+    return d && typeof d === "object" && !Array.isArray(d) ? d : null;
+  }
+  try {
+    const d = JSON.parse(await data.text())?.detail;
+    return d && typeof d === "object" && !Array.isArray(d) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
 export default blobErrText;

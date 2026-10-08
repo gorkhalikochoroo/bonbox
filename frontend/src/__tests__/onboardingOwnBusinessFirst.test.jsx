@@ -3,7 +3,8 @@
  *
  *   • The revisor e-mail step says plainly that BonBox sends the revisor
  *     nothing automatically until the owner ticks it, and the tick is there,
- *     OFF by default, only usable with an address; what is saved is the tick.
+ *     OFF by default, only usable with an address; only a tick is ever sent
+ *     (unticked, the server keeps a stored choice and stores a new address OFF).
  *   • The revisor invite (step 4) is optional and says so.
  *   • "Udforsk med eksempeldata" is the quiet secondary path and asks the
  *     server to keep the owner's own profile (POST /demo/seed?keep_profile).
@@ -99,17 +100,30 @@ describe("step 3 — the revisor e-mail never mails on its own", () => {
     expect(box.disabled).toBe(true);
   });
 
-  it("an address without the tick is saved with auto-send OFF", async () => {
+  it("an address without the tick sends no auto-send field (the server stores a new address OFF)", async () => {
     await toStep3();
     fireEvent.change(document.getElementById("onb-acct-email"), { target: { value: "Revisor@Regnskab.dk" } });
     const box = screen.getByTestId("onb-acct-auto-send");
     expect(box.disabled).toBe(false);
     expect(box.checked).toBe(false);
     await act(async () => { fireEvent.click(screen.getByText("onbNext")); });
-    expect(lastBusinessPut()).toMatchObject({
-      accountant_email: "revisor@regnskab.dk",
-      accountant_auto_send: false,
-    });
+    expect(lastBusinessPut()).toMatchObject({ accountant_email: "revisor@regnskab.dk" });
+    expect(lastBusinessPut()).not.toHaveProperty("accountant_auto_send");
+  });
+
+  it("a wizard re-run with the same saved address never sends auto-send:false (an existing opt-in survives)", async () => {
+    // Profile → "Run the welcome wizard again": the owner already has the
+    // revisor lock mail on for this address and retypes it unticked.
+    await toStep3();
+    fireEvent.change(document.getElementById("onb-acct-email"), { target: { value: "revisor@regnskab.dk" } });
+    await act(async () => { fireEvent.click(screen.getByText("onbNext")); });
+    const body = lastBusinessPut();
+    expect(body.accountant_email).toBe("revisor@regnskab.dk");
+    expect(body).not.toHaveProperty("accountant_auto_send");
+    const sentFalse = h.put.mock.calls.some(
+      ([url, b]) => url === "/business" && b && b.accountant_auto_send === false,
+    );
+    expect(sentFalse).toBe(false);
   });
 
   it("the tick, explained with the address, is what is saved", async () => {
@@ -145,7 +159,8 @@ describe("step 3 — the revisor e-mail never mails on its own", () => {
     fireEvent.change(document.getElementById("onb-acct-email"), { target: { value: "revisor@regnskab.dk" } });
     expect(screen.getByTestId("onb-acct-auto-send").disabled).toBe(true);
     await act(async () => { fireEvent.click(screen.getByText("onbNext")); });
-    expect(lastBusinessPut()).toMatchObject({ accountant_auto_send: false });
+    // Nothing sent: a stored opt-in comes back when the owner upgrades.
+    expect(lastBusinessPut()).not.toHaveProperty("accountant_auto_send");
   });
 });
 

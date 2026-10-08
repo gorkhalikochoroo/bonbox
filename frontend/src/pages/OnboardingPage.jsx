@@ -765,8 +765,12 @@ export default function OnboardingPage() {
       };
       if (email) {
         bizPayload.accountant_email = email;
-        // What the owner sees is what is saved: the tick, never a default.
-        bizPayload.accountant_auto_send = Boolean(tax.accountant_auto_send && autoSendOnPlan);
+        // Only a tick is ever sent. Unticked, the field is left out and the
+        // server's own rule decides: a NEW address is stored with auto-send
+        // off; the SAME address (a wizard re-run) keeps the owner's stored
+        // choice — an existing opt-in is never switched off from here, and a
+        // plan without the lock mail never overwrites it either.
+        if (tax.accountant_auto_send && autoSendOnPlan) bizPayload.accountant_auto_send = true;
       }
       await api.put("/business", bizPayload);
       goNext();

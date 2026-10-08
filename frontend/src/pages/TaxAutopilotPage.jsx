@@ -11,6 +11,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { errText } from "../utils/errText";
+import { blobErrDetail } from "../utils/blobErrText";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
@@ -570,8 +571,15 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       setStatus(t("filingPdfDownloaded"));
       setTimeout(() => setStatus(""), 5000);
     } catch (e) {
+      // The body of a refused blob download is itself a Blob — read it.
+      const detail = e?.response?.status === 422 ? await blobErrDetail(e) : null;
       if (e?.response?.status === 402) {
         setShow402(true);
+      } else if (detail?.code === "demo_in_period") {
+        // Sample (demo) days or expenses under the owner's own CVR: no
+        // filing-ready momsangivelse is made — the way out is Ryd demodata.
+        setError(t("filingPdfDemoInPeriodDownload", "The period holds {n} sample (demo) entries. BonBox doesn't make a VAT return under your own CVR from sample data — clear the sample data on Profile first.", { n: detail.n_demo }));
+        setTimeout(() => setError(""), 10000);
       } else {
         setError(
           e?.response?.data?.detail?.message || t("filingPdfDownloadFailed"),

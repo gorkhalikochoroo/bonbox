@@ -861,6 +861,41 @@ def _count_non_demo_rows(db: Session, user_id, *, include_verified_profile: bool
     )
 
 
+def _count_in_use_rows(db: Session, user_id) -> int:
+    """Signs a venue is already running on BonBox even with no closes or
+    expenses: its own (non-demo) bookings, its own bookable tables, and a staff
+    roster. seed_for_user's keep_profile mode refuses on any of them — it no
+    longer has the CVR-verified gate, and sample tables (is_active, so real
+    capacity for the public booking page) and tonight's sample bookings must
+    never land on a live host stand. Kept out of _count_non_demo_rows so the
+    default seed and "Ryd demodata" rules are unchanged."""
+    from sqlalchemy import or_
+    from app.models.staff import StaffMember
+    real_bookings = (
+        db.query(Reservation)
+        .filter(Reservation.user_id == user_id, Reservation.is_deleted.isnot(True))
+        .filter(or_(Reservation.idempotency_key.is_(None),
+                    ~Reservation.idempotency_key.like("demo-%")))
+        .count()
+    )
+    real_tables = (
+        db.query(BookableResource)
+        .filter(BookableResource.user_id == user_id,
+                BookableResource.is_deleted.isnot(True))
+        .filter(~BookableResource.label.like("% · demo"))
+        .count()
+    )
+    # Every staff member, active or not: staff are only ever deactivated, and
+    # a roster at all means the venue has used BonBox for real.
+    staff = (
+        db.query(StaffMember)
+        .filter(StaffMember.user_id == user_id,
+                StaffMember.is_deleted.isnot(True))
+        .count()
+    )
+    return int(real_bookings + real_tables + staff)
+
+
 def _seed_reservations(db: Session, user: User, mark_demo: bool = True) -> dict:
     """Seed a believable *tonight's service* so the Reservations timeline
     isn't a blank screen on a fresh/demo account.
@@ -960,16 +995,30 @@ def seed_for_user(db: Session, user: User, *, keep_profile: bool = False) -> dic
     documents (and the clear does not remove branches); an existing branch is
     used as is. Because the profile is left alone, a CVR-verified one is not a
     reason to refuse here (it still is in the default mode, which writes the
-    profile). Demo days under a real identity are already fenced: EKSEMPEL on
-    every document, never mailed to a revisor (skip "demo_close").
+    profile) — but an account already IN USE still is: real bookings, real
+    tables or staff (_count_in_use_rows) refuse it, so a live venue
+    re-running the welcome wizard never gets sample tables on its host stand
+    or in its public availability.
+
+    What fences the sample days under the owner's real identity: a sample
+    close's kasserapport is titled EKSEMPEL and is never mailed to a revisor
+    (skip "demo_close"); the momsangivelse mail refuses a period holding sample
+    rows (demo_in_period), and so do the momsangivelse PDF download and the
+    bookkeeping exports that carry closes and expenses
+    (revisor_mail.demo_rows_under_own_identity) until "Ryd demodata".
     """
     if user is None:
         return {"ok": False, "reason": "no user"}
 
-    # Block when there's any real data
+    # Block when there's any real data. keep_profile drops the verified-
+    # profile signal (the profile is not touched) and adds the account-in-use
+    # one instead (bookings, tables, staff — what a live venue has even with
+    # no closes or expenses yet).
     real_count = _count_non_demo_rows(
         db, user.id, include_verified_profile=not keep_profile,
     )
+    if keep_profile:
+        real_count += _count_in_use_rows(db, user.id)
     if real_count > 0:
         return {
             "ok": False,

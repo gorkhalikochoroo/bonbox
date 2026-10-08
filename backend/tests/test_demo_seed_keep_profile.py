@@ -206,3 +206,149 @@ def test_route_takes_keep_profile(db_session):
     assert r.json()["profile_kept"] is True
     db_session.refresh(p)
     assert _snapshot(p) == before
+
+
+# ── Review fixes: an account in use still refuses; sample rows under the
+#    owner's own CVR never leave as a filing-ready document ─────────────────
+
+def _verified(db, user):
+    return _own_profile(db, user, cvr_verified_at=utc_now(),
+                        cvr_verified_source="cvrapi.dk", source="cvrapi.dk")
+
+
+def test_keep_profile_refuses_a_live_venue_with_its_own_tables_and_bookings(db_session):
+    """A CVR-verified venue that uses BonBox only for bookings (no closes, no
+    expenses) re-runs the welcome wizard and taps "explore": the sample
+    tables would be live capacity on the public booking page and tonight's
+    sample bookings would sit on the host stand. Refused."""
+    from datetime import timedelta
+    from app.models.reservation import Reservation
+    user = _owner(db_session)
+    _verified(db_session, user)
+    t = BookableResource(user_id=user.id, kind="table", label="Bord 4",
+                         capacity_seats=4, is_active=True)
+    db_session.add(t)
+    db_session.flush()
+    start = utc_now().replace(tzinfo=None, microsecond=0) + timedelta(days=1)
+    db_session.add(Reservation(user_id=user.id, resource_id=t.id, guest_name="Gæst",
+                               party_size=2, starts_at=start,
+                               ends_at=start + timedelta(minutes=90), duration_min=90,
+                               status="confirmed", source="public"))
+    db_session.commit()
+    res = seed_for_user(db_session, user, keep_profile=True)
+    assert res["ok"] is False and res["reason"] == "user has real data"
+    labels = {r.label for r in db_session.query(BookableResource).filter_by(user_id=user.id)}
+    assert labels == {"Bord 4"}  # no "Bord 1 · demo" … on the live stand
+    assert db_session.query(DailyClose).filter_by(user_id=user.id).count() == 0
+
+
+def test_keep_profile_refuses_a_real_booking_alone_and_a_staff_roster_alone(db_session):
+    from datetime import timedelta
+    from app.models.reservation import Reservation
+    from app.models.staff import StaffMember
+    a = _owner(db_session, email="a@cafe.dk")
+    _verified(db_session, a)
+    start = utc_now().replace(tzinfo=None, microsecond=0) + timedelta(days=1)
+    db_session.add(Reservation(user_id=a.id, guest_name="Walk-in", party_size=2,
+                               starts_at=start, ends_at=start + timedelta(minutes=60),
+                               duration_min=60, status="requested", source="walk_in"))
+    b = _owner(db_session, email="b@cafe.dk")
+    _verified(db_session, b)
+    db_session.add(StaffMember(user_id=b.id, name="Sofie", active=False))
+    db_session.commit()
+    assert seed_for_user(db_session, a, keep_profile=True)["ok"] is False
+    assert seed_for_user(db_session, b, keep_profile=True)["ok"] is False
+
+
+def test_the_default_seed_rules_are_unchanged_by_the_in_use_gate(db_session):
+    """Tables / staff are counted for keep_profile only — the dashboard's own
+    "Load demo" on an unverified account keeps its round-6 behaviour."""
+    from app.models.staff import StaffMember
+    user = _owner(db_session)
+    _own_profile(db_session, user)
+    db_session.add(StaffMember(user_id=user.id, name="Sofie"))
+    db_session.commit()
+    assert seed_for_user(db_session, user)["ok"] is True
+
+
+def _client_as(user):
+    app.dependency_overrides[get_current_user] = lambda: user
+    for mod in ("app.routers.tax", "app.routers.exports"):
+        try:
+            import importlib
+            m = importlib.import_module(mod)
+            (getattr(m, "_limiter", None) or getattr(m, "limiter")).reset()
+        except Exception:
+            pass
+    return TestClient(app)
+
+
+def _period():
+    from datetime import timedelta
+    from app.services.tz_utils import business_today_local
+    return lambda u: (business_today_local(u) - timedelta(days=40), business_today_local(u))
+
+
+def test_filing_pdf_refuses_sample_rows_under_the_owners_own_cvr(db_session):
+    user = _owner(db_session)
+    user.plan = "pro"
+    db_session.commit()
+    _verified(db_session, user)
+    assert seed_for_user(db_session, user, keep_profile=True)["ok"] is True
+    p_start, p_end = _period()(user)
+    c = _client_as(user)
+    r = c.get(f"/api/tax/filing-pdf?period_start={p_start}&period_end={p_end}")
+    assert r.status_code == 422, r.text
+    d = r.json()["detail"]
+    assert d["code"] == "demo_in_period" and d["n_demo"] > 0
+    assert "eksempelposter" in d["message_da"]
+    # "Ryd demodata" → the owner's own momsangivelse downloads again
+    assert clear_for_user(db_session, user)["ok"] is True
+    r2 = c.get(f"/api/tax/filing-pdf?period_start={p_start}&period_end={p_end}")
+    assert r2.status_code == 200, r2.text
+    assert r2.headers["content-type"] == "application/pdf"
+
+
+def test_filing_pdf_for_the_sample_company_downloads_as_before(db_session):
+    """The default seed puts the sample company (name AND CVR) on the profile
+    — the PDF carries the sample identity, so it is not fenced (unchanged)."""
+    user = _owner(db_session)
+    user.plan = "pro"
+    db_session.commit()
+    assert seed_for_user(db_session, user)["ok"] is True
+    p_start, p_end = _period()(user)
+    r = _client_as(user).get(f"/api/tax/filing-pdf?period_start={p_start}&period_end={p_end}")
+    assert r.status_code == 200, r.text
+
+
+def test_bookkeeping_exports_refuse_sample_rows_under_the_owners_own_cvr(db_session):
+    user = _owner(db_session)
+    user.plan = "pro"
+    db_session.commit()
+    _verified(db_session, user)
+    assert seed_for_user(db_session, user, keep_profile=True)["ok"] is True
+    p_start, p_end = _period()(user)
+    c = _client_as(user)
+    for fmt in ("dinero", "billy", "economic", "generic", "bundle"):
+        r = c.get(f"/api/exports/{fmt}?start={p_start}&end={p_end}")
+        assert r.status_code == 422, (fmt, r.text)
+        body = r.json()
+        assert body["code"] == "demo_in_period" and body["n_demo"] > 0
+        assert isinstance(body["detail"], str)  # the page renders it as text
+    # Mileage carries no close or expense — not fenced.
+    r = c.get(f"/api/exports/mileage?start={p_start}&end={p_end}")
+    assert r.status_code != 422 or r.json().get("code") != "demo_in_period"
+    # After "Ryd demodata" nothing is fenced.
+    assert clear_for_user(db_session, user)["ok"] is True
+    r = c.get(f"/api/exports/generic?start={p_start}&end={p_end}")
+    assert r.status_code != 422 or r.json().get("code") != "demo_in_period"
+
+
+def test_bookkeeping_export_for_the_sample_company_is_unchanged(db_session):
+    user = _owner(db_session)
+    user.plan = "pro"
+    db_session.commit()
+    assert seed_for_user(db_session, user)["ok"] is True
+    p_start, p_end = _period()(user)
+    r = _client_as(user).get(f"/api/exports/dinero?start={p_start}&end={p_end}")
+    assert r.status_code == 200, r.text

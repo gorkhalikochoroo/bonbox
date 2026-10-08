@@ -131,6 +131,49 @@ describe("FirstStepsPage — invite your staff", () => {
     expect(screen.queryByTestId("first-steps-invite-ready")).toBeNull();
   });
 
+  it("a failed link call is retried without creating the staff member twice", async () => {
+    let linkCalls = 0;
+    h.post.mockImplementation((url) => {
+      if (url === "/staff/members") return Promise.resolve({ data: { id: "m1", name: "Sofie" } });
+      if (url === "/staff/members/m1/link") {
+        linkCalls += 1;
+        if (linkCalls === 1) return Promise.reject({ response: { status: 503, data: { detail: "Network blip" } } });
+        return Promise.resolve({ data: { portal_url: "/s/cafe-solsikken/sofie/tok123", join_code: "K7Q2XM" } });
+      }
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+    page();
+    fireEvent.change(screen.getByPlaceholderText("e.g. Sofie"), { target: { value: "Sofie" } });
+    await act(async () => { fireEvent.click(screen.getByText("Make invite")); });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByTestId("first-steps-invite-ready")).toBeNull();
+    // Same name, second tap: only the link is asked for again.
+    await act(async () => { fireEvent.click(screen.getByText("Make invite")); });
+    await screen.findByTestId("first-steps-invite-ready");
+    const creates = h.post.mock.calls.filter(([url]) => url === "/staff/members");
+    expect(creates).toHaveLength(1);
+    expect(linkCalls).toBe(2);
+    expect(screen.getByTestId("first-steps-code").textContent).toBe("K7Q2XM");
+  });
+
+  it("after a failed link, a different name is a different person (created fresh)", async () => {
+    let n = 0;
+    h.post.mockImplementation((url) => {
+      if (url === "/staff/members") { n += 1; return Promise.resolve({ data: { id: `m${n}` } }); }
+      if (url === "/staff/members/m1/link") return Promise.reject({ response: { status: 503, data: { detail: "Network blip" } } });
+      if (url === "/staff/members/m2/link") {
+        return Promise.resolve({ data: { portal_url: "/s/cafe-solsikken/jonas/tok9", join_code: "ABCDEF" } });
+      }
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+    page();
+    fireEvent.change(screen.getByPlaceholderText("e.g. Sofie"), { target: { value: "Sofie" } });
+    await act(async () => { fireEvent.click(screen.getByText("Make invite")); });
+    await makeInvite("Jonas");
+    expect(h.post).toHaveBeenCalledWith("/staff/members", { name: "Jonas" });
+    expect(screen.getByTestId("first-steps-code").textContent).toBe("ABCDEF");
+  });
+
   it("is the owner's card only", () => {
     h.role = "manager";
     page();

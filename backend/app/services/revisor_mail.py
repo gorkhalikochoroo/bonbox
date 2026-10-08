@@ -336,6 +336,42 @@ def demo_in_period_error(n_demo: int) -> HTTPException:
     )
 
 
+def demo_rows_under_own_identity(db, user, profile, period_start, period_end) -> int:
+    """Sample rows in the period while the business is the OWNER'S own — the
+    onboarding's "Udforsk med eksempeldata" keeps the owner's company and CVR
+    and adds the sample days beside them. A document built from those rows
+    (momsangivelse PDF, bookkeeping import file) would carry invented figures
+    under the real CVR. 0 when there are none, or when the business is still
+    the sample company (every figure and the name on it are the sample's —
+    the default demo seed, unchanged)."""
+    if is_demo_identity(profile, user):
+        return 0
+    return demo_rows_in_period(db, user.id, period_start, period_end)
+
+
+def demo_in_period_document_error(n_demo: int) -> HTTPException:
+    """422 demo_in_period — no filing-ready document is made from sample data
+    under the business's own name and CVR (the download twin of
+    demo_in_period_error, which words it for a mail to the revisor)."""
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "demo_in_period",
+            "n_demo": int(n_demo),
+            "message": (
+                f"The period holds {n_demo} sample (demo) entries. BonBox doesn't make a "
+                "VAT return or bookkeeping file under your own CVR from sample data — "
+                "clear the sample data on Profile first."
+            ),
+            "message_da": (
+                f"Perioden indeholder {n_demo} eksempelposter (demo). BonBox laver ikke en "
+                "momsangivelse eller bogføringsfil under dit eget CVR med eksempeldata — "
+                "ryd demodata under Profil først."
+            ),
+        },
+    )
+
+
 def demo_recipient_error() -> HTTPException:
     """409 demo_recipient — the saved revisor is the demo seeder's sample."""
     return HTTPException(

@@ -75,6 +75,16 @@ export default function BookkeepingExportPage() {
 
   const currentFormat = formats.find((f) => f.id === selected);
 
+  /** The words for a refused export's JSON body. Sample (demo) entries under
+   *  the owner's own CVR are said in the owner's language; anything else is
+   *  the server's `detail` when it is text (never an object as a child). */
+  const refusalText = (json) => {
+    if (json?.code === "demo_in_period") {
+      return t("bkeDemoInPeriod", "The period holds {n} sample (demo) entries. BonBox doesn't make a bookkeeping file under your own CVR from sample data — clear the sample data on Profile first.", { n: json.n_demo });
+    }
+    return typeof json?.detail === "string" ? json.detail : "";
+  };
+
   const handleDownload = async () => {
     setDownloading(true);
     setErr("");
@@ -123,7 +133,7 @@ export default function BookkeepingExportPage() {
         try {
           const text = await blob.text();
           const json = JSON.parse(text);
-          detail = json?.detail || "";
+          detail = refusalText(json);
         } catch (_) {
           detail = "";
         }
@@ -209,7 +219,7 @@ export default function BookkeepingExportPage() {
         try {
           const text = await blob.text();
           const json = JSON.parse(text);
-          detail = json?.detail || "";
+          detail = refusalText(json);
         } catch (_) {
           detail = "";
         }
