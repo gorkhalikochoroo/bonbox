@@ -89,6 +89,12 @@ export default function Amount({ value, decimals = 0, sign = false, size, curren
         // (4.8:1 on white, 4.6:1 on gray-50) and gray-400 in dark (5.6:1 on
         // gray-800, 4.7:1 on a gray-700/50 panel; computed in Chromium). Size
         // and weight still carry the whisper; the colour only has to be read.
+        // These greys are for LIGHT cards in light mode and DARK cards in dark
+        // mode. A surface that inverts that (a dark or saturated fill in light
+        // mode, a light chip in dark mode) must set the token itself through
+        // data-amount-token: the Tax countdown hero, the Pricing simulator
+        // (text-current) and the Waste selected cost chip (gray-300 / dark
+        // gray-600). Without it the "kr." measured 1.0:1 on the red hero (light mode).
         <span data-amount-token="" className="text-[length:max(11px,0.62em)] font-medium text-gray-500 dark:text-gray-400 ml-0.5">
           {token}
         </span>

@@ -229,9 +229,12 @@ export default function TaxAutopilotPage() {
 
       {/* ─── COUNTDOWN HERO — semantic color (red=overdue, amber=soon, emerald=on track).
           Solid color (not gradient), no rainbow shadow — calmer than the previous
-          tech-glow gradient but the urgency cue stays. ─── */}
+          tech-glow gradient but the urgency cue stays.
+          The "kr." token follows the hero's white (text-current): Amount's
+          gray-500 is tuned for light cards and measured 1.0:1 on red-600 and
+          3.7:1 on gray-900 here (light mode). Size and weight still carry the whisper. ─── */}
       {nextDeadline && (
-        <div className={`rounded-xl p-6 text-white border ${
+        <div className={`rounded-xl p-6 text-white border [&_[data-amount-token]]:text-current ${
           nextDeadline.status === "overdue" || nextDeadline.status === "urgent"
             ? "bg-red-600 border-red-700"
             : nextDeadline.status === "soon"

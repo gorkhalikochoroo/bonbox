@@ -277,14 +277,18 @@ export default function HeroV2() {
             />
           </div>
 
-          {/* On shift */}
-          <div className="mx-[18px] mb-4 flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-[14px]">
-            <span className={`${eyebrow} flex-none`}>
+          {/* On shift. Below sm the eyebrow takes its own line (5px over the
+              name, like the MOMS card's eyebrow): beside it, Inter left the
+              name ~113px at 390 and split "16:00–" / "23:00" over 4 lines.
+              With the eyebrow out of the way the role fits whole (nowrap),
+              so a narrow phone breaks after the name, never inside the time. */}
+          <div className="mx-[18px] mb-4 flex flex-wrap items-center gap-x-3 gap-y-[5px] rounded-xl border border-slate-200 px-4 py-[14px] sm:flex-nowrap">
+            <span className={`${eyebrow} flex-none basis-full sm:basis-auto`}>
               {t("landingV2HeroCardOnShift", "On shift")}
             </span>
-            <span className="text-[14.5px] text-slate-900">
+            <span className="min-w-0 flex-1 text-[14.5px] text-slate-900">
               {t("landingV2HeroCardOnShiftName", "Agnes Kristensen")} ·{" "}
-              <span className="text-slate-500">
+              <span className="whitespace-nowrap text-slate-500">
                 {t("landingV2HeroCardOnShiftRole", "server, 16:00–23:00")}
               </span>
             </span>

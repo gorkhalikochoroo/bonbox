@@ -339,11 +339,14 @@ export default function WastePage() {
             // A chip FILLS the cost; the button below logs it. A chip that
             // logged on tap (no confirm, no undo) booked 50 kr. of waste on a
             // mis-tap.
+            // Selected = an inverted chip, so Amount's "kr." (gray-500 / dark
+            // gray-400, tuned for light cards) gets the mirrored whisper:
+            // gray-300 on gray-900, gray-600 on gray-100.
             <button key={c} type="button" onClick={() => { setCostTouched(true); setCost(String(c)); }} disabled={!item || !qty}
               aria-pressed={String(cost) === String(c)}
               className={`px-4 py-2.5 rounded-xl border text-sm font-semibold transition disabled:opacity-30 ${
                 String(cost) === String(c)
-                  ? "border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900"
+                  ? "border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 [&_[data-amount-token]]:text-gray-300 dark:[&_[data-amount-token]]:text-gray-600"
                   : "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
               }`}>
               <Amount value={c} currency={currency} />

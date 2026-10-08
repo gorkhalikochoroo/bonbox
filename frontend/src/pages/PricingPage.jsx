@@ -183,8 +183,10 @@ export default function PricingPage({ embedded = false }) {
         />
       </div>
 
-      {/* ─── PRICE SIMULATOR ─── */}
-      <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
+      {/* ─── PRICE SIMULATOR ───
+          The "kr." token follows the card's white: Amount's gray-500 measured
+          1.1:1 on blue-600 (light mode). */}
+      <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg [&_[data-amount-token]]:text-current">
         <h2 className="font-bold text-lg mb-1">🎛️ {t("ppPriceSimulator", "Price Simulator")}</h2>
         <p className="text-sm opacity-80 mb-4">{t("ppSimulatorIntro", "See how a small price increase per transaction impacts revenue")}</p>
 

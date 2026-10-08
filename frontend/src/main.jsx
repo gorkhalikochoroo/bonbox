@@ -22,14 +22,16 @@ import { createRoot } from 'react-dom/client'
 // Cyrillic files are under Vite's 4 KB inline limit, the font data itself,
 // base64'd into the stylesheet that must load before anything paints.
 // latin covers Danish (æ ø å é ü) and the Western punctuation (– — … € −).
-// A character it lacks (Ł, Š, ğ, Cyrillic, Greek) is drawn by the next font
-// in the stack, the system font, per character.
+// Extended Latin (Turkish ş ğ İ, Polish Ł, Czech č, Romanian ș) and
+// Vietnamese come from ./fonts-ext-subsets.css, imported after the last
+// latin file below: hand-written @font-face rules WITH a unicode-range, so
+// those files download only on a page that draws such a letter. Cyrillic and
+// Greek are drawn by the next font in the stack, the system font.
 //
-// Do NOT add latin-ext-<weight>.css beside these: fontsource's per-subset
+// Do NOT add fontsource's latin-ext-<weight>.css beside these: its per-subset
 // files carry no unicode-range, so the browser treats latin-ext as a second
 // full copy of the face and downloads it for every page (measured: the
-// landing went from 10 to 20 font files). If latin-ext is ever needed, it
-// wants its own @font-face with the unicode-range from the all-subset file.
+// landing went from 10 to 20 font files).
 import '@fontsource/inter/latin-400.css'
 import '@fontsource/inter/latin-500.css'
 import '@fontsource/inter/latin-600.css'
@@ -52,6 +54,8 @@ import '@fontsource/hanken-grotesk/latin-600.css'
 import '@fontsource/hanken-grotesk/latin-700.css'
 import '@fontsource/hanken-grotesk/latin-800.css'
 import '@fontsource/inter/latin-800.css'
+// After every latin import (see fonts-ext-subsets.css for why the order matters).
+import './fonts-ext-subsets.css'
 
 import './index.css'
 import App from './App.jsx'
