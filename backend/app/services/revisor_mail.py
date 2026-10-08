@@ -600,16 +600,18 @@ INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_DA = (
 # (every app build handles it: nothing sent, the owner's own mail offered),
 # with a message that says what actually waits. Mirrors the profile 409.
 CLAIM_OPEN_MESSAGE_EN = (
-    "BonBox is waiting for your answer: did you create this account yourself? "
-    "Answer from the link in the e-mail we sent, or sign in with a login link. "
-    "Until then, BonBox does not send fakturaer, team invitations, supplier orders "
-    "or mail to your revisor for you."
+    "Your e-mail address is confirmed, but BonBox is waiting for your answer to the "
+    "question we e-mailed you: did you create this account yourself? Until you answer "
+    "from the link in that e-mail, BonBox does not send fakturaer, team invitations, "
+    "supplier orders or mail to your revisor for you. Can't find the e-mail? Sign in "
+    "with a login link and we'll ask you again."
 )
 CLAIM_OPEN_MESSAGE_DA = (
-    "BonBox venter på dit svar: Har du selv oprettet denne konto? "
-    "Svar via linket i den mail, vi har sendt, eller log ind med et login-link. "
-    "Indtil da sender BonBox ikke fakturaer, medarbejderinvitationer, leverandørordrer "
-    "eller mail til din revisor for dig."
+    "Din e-mailadresse er bekræftet, men BonBox venter på dit svar på spørgsmålet, "
+    "vi har mailet dig: Har du selv oprettet denne konto? Indtil du svarer via linket "
+    "i mailen, sender BonBox ikke fakturaer, medarbejderinvitationer, leverandørordrer "
+    "eller mail til din revisor for dig. Kan du ikke finde mailen? Log ind med et "
+    "login-link, så spørger vi igen."
 )
 
 
@@ -648,6 +650,19 @@ def sender_is_verified(user: Any) -> bool:
     if getattr(user, "email_verified", False) is not True:
         return False
     return not claim_question_pending(user)
+
+
+def held_sender_reason(user: Any) -> str | None:
+    """Why BonBox holds third-party mail for this account, in the words the
+    app shows: None (a confirmed sender), "email_unverified" (the account's
+    own address is not confirmed) or "claim_question_open" (the address IS
+    confirmed, but "did you create this account yourself?" waits for the
+    inbox owner's answer). The skip reason of the lock mail and the held
+    revisor invite — so no screen says "confirm your e-mail" to an owner
+    whose address is confirmed (release gate, 9 Oct)."""
+    if getattr(user, "email_verified", False) is not True:
+        return "email_unverified"
+    return "claim_question_open" if claim_question_pending(user) else None
 
 
 def require_verified_sender(user: Any, *, message: str | None = None,

@@ -81,7 +81,12 @@ def _assert_claim_refusal(r):
     assert d["reason"] == "claim_question_open"
     assert "Har du selv oprettet denne konto?" in d["message_da"]
     assert "did you create this account yourself?" in d["message"]
-    assert "bekræft" not in d["message_da"].lower()
+    # Never "confirm your e-mail" — the address is confirmed, and the text
+    # says so (release gate, 9 Oct: "Din e-mailadresse er bekræftet, men …").
+    assert "Din e-mailadresse er bekræftet" in d["message_da"]
+    assert "bekræft først" not in d["message_da"].lower()
+    assert "bekræft din e-mail" not in d["message_da"].lower()
+    assert "Profil → Ikke bekræftet" not in d["message_da"]
 
 
 def _invoice(db, owner):
@@ -147,14 +152,16 @@ def test_the_lock_mail_holds_the_revisor_copy_while_the_question_is_open(
     r = _lock(client, user, d="2026-10-07")
     assert r.status_code == 200, r.text
     ritual = r.json()["close_ritual"]
-    assert ritual["accountant_skip_reason"] == "email_unverified"
+    # The true reason, not "email_unverified" (release gate, 9 Oct).
+    assert ritual["accountant_skip_reason"] == "claim_question_open"
     assert ritual["accountant_included"] is False
     assert ritual["sent_to"] == [OWNER]          # the lock and the owner's copy still happen
     assert _to(mailbox, PIA) == []
     # The owner's copy says why in true words: the address IS confirmed.
     own = _to(mailbox, OWNER)
     assert len(own) == 1
-    assert "BonBox venter på dit svar: Har du selv oprettet denne konto?" in own[0]["html"]
+    assert ("BonBox venter på dit svar på spørgsmålet, vi har mailet dig: "
+            "Har du selv oprettet denne konto?") in own[0]["html"]
     assert "bekræft din e-mail først" not in own[0]["html"]
 
 
@@ -166,7 +173,8 @@ def test_the_revisor_invite_is_held_while_the_question_is_open(db_session, clien
                     json={"email": "chosen-revisor@example.com"}, headers=hdr)
     assert r.status_code in (200, 201), r.text
     assert r.json().get("email_sent") is False
-    assert r.json().get("email_not_sent_reason") == "email_unverified"
+    # The true reason, not "email_unverified" (release gate, 9 Oct).
+    assert r.json().get("email_not_sent_reason") == "claim_question_open"
     assert _to(mailbox, "chosen-revisor@example.com") == []
 
 

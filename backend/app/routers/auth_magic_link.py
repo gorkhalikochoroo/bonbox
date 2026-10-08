@@ -48,13 +48,14 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.magic_link_token import MagicLinkToken
+from app.models.user import User
 from app.schemas.auth import MagicLinkSessionToken, Token, UserResponse
 from app.schemas.magic_link import (
     ClaimDecisionIn, ClaimDecisionResponse, ClaimStatusResponse, ClaimTicketIn,
     MagicLinkRequest, MagicLinkResponse, MagicLinkVerify,
 )
 from app.services import audit_service
-from app.services.auth import create_access_token
+from app.services.auth import create_access_token, get_current_user
 from app.services.email_service import send_email
 from app.services.magic_link_service import create_token, verify_token
 
@@ -401,3 +402,43 @@ def claim_decision(
         out.access_token = jwt_token
         out.user = UserResponse.model_validate(user)
     return out
+
+
+# ── "Send spørgsmålet igen" — from the app, for the owner's own inbox ──────
+# While the question is open, BonBox holds fakturaer, invitations, supplier
+# orders and revisor mail, and every such refusal offers this (release gate,
+# 9 Oct). The signed-in session only ASKS for the mail: the new ticket goes
+# to the account's own confirmed address, the response carries no ticket, and
+# nothing here answers the question — only the inbox owner can, from the
+# mail. At most one question mail a day (claim_decision.REMAIL_AFTER); a mail
+# that fails to send gives the day back.
+
+
+@router.post("/claim-decision/remail")
+@limiter.limit("5/hour")
+def claim_decision_remail(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Errors: 409 claim_no_open_question · 429 claim_remail_cooldown (with
+    retry_after_hours) · 503 claim_remail_failed (nothing was sent; try again
+    in a few minutes)."""
+    from app.services.claim_decision import (
+        REMAIL_FAILED_DA, REMAIL_FAILED_EN, reask_by_mail, send_question_mail,
+        withdraw_mail_ticket,
+    )
+    ask = reask_by_mail(db, user, ip_address=_client_ip(request))
+    db.commit()
+    if not send_question_mail(user, ask, again=True):
+        try:
+            withdraw_mail_ticket(db, ask.mail_ticket)
+            db.commit()
+        except Exception:  # noqa: BLE001 — the next try then waits the day
+            db.rollback()
+        raise HTTPException(status_code=503, detail={
+            "code": "claim_remail_failed",
+            "message": REMAIL_FAILED_EN,
+            "message_da": REMAIL_FAILED_DA,
+        })
+    return {"ok": True, "sent_to": user.email}

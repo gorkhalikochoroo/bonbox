@@ -216,7 +216,8 @@ def pending_ask(user: User) -> ClaimAsk | None:
 
 
 def question_email_html(lang: str, created: date, keep_url: str, secure_url: str,
-                        with_apple: bool = False, via: str | None = None) -> tuple[str, str]:
+                        with_apple: bool = False, via: str | None = None,
+                        again: bool = False) -> tuple[str, str]:
     """(subject, html) of the mail that asks the question, to the inbox that
     was just proven. No value anybody typed goes in it; the two links open a
     page that asks once more before anything happens (a mail scanner opening
@@ -224,43 +225,73 @@ def question_email_html(lang: str, created: date, keep_url: str, secure_url: str
 
     The mail is built before any answer exists: the browser that opened a
     login link is asked on the page at the same moment, so the text holds
-    for an owner who has already answered there too (review, 9 Oct)."""
+    for an owner who has already answered there too (review, 9 Oct).
+
+    `again`: sent from the app's "Send spørgsmålet igen" (reask_by_mail) —
+    nobody just signed in, so the intro says who asked, not "you just …".
+
+    Asked after a password reset, "Nej / Ved ikke" also ends the password
+    chosen with the reset code (services/auth.secure_account replaces the
+    password, whichever it is) — the explanation says so (release gate,
+    9 Oct)."""
     when = long_date(created, lang)
     reset = via == "password_reset"
     apple = with_apple or str(via or "").startswith("apple")
     if lang == "da":
         subject = "BonBox: Har du selv oprettet din konto?"
-        if reset:
+        if again:
+            intro = ("Nogen, der er logget ind på din BonBox-konto, har bedt os sende dette "
+                     "spørgsmål igen. Din e-mailadresse er bekræftet, men BonBox venter på dit svar.")
+        elif reset:
             intro = ("Du har netop valgt en ny adgangskode til BonBox med en kode fra din e-mail, "
                      "og din e-mailadresse er nu bekræftet.")
-            question = f"Har du selv oprettet denne BonBox-konto den {when} og valgt den første adgangskode?"
         else:
             how = "med Apple" if apple else "med et login-link fra din e-mail"
             intro = f"Du er netop logget ind på BonBox {how}, og din e-mailadresse er nu bekræftet."
+        if reset:
+            question = f"Har du selv oprettet denne BonBox-konto den {when} og valgt den første adgangskode?"
+        else:
             question = f"Har du selv oprettet denne BonBox-konto den {when} og valgt adgangskoden?"
         keep_label = "Ja, det var mig"
         secure_label = "Nej / Ved ikke – sikr min konto"
-        explain = ("Ja: alt forbliver, som det er. Nej / Ved ikke: den gamle adgangskode holder op "
-                   "med at virke, alle enheder logges ud, og revisoradgang og værtsskærme, der er "
-                   "givet, lukkes. Derefter vælger du en ny adgangskode.")
+        if reset:
+            explain = ("Ja: alt forbliver, som det er. Nej / Ved ikke: adgangskoden holder op med at "
+                       "virke – også den nye, du valgte med koden fra din e-mail – alle enheder logges "
+                       "ud, og revisoradgang og værtsskærme, der er givet, lukkes. Derefter vælger du "
+                       "en ny adgangskode.")
+        else:
+            explain = ("Ja: alt forbliver, som det er. Nej / Ved ikke: den gamle adgangskode holder op "
+                       "med at virke, alle enheder logges ud, og revisoradgang og værtsskærme, der er "
+                       "givet, lukkes. Derefter vælger du en ny adgangskode.")
         small = ("Linkene virker i 7 dage, og kun ét svar tæller. Har du allerede svaret i BonBox, "
                  "skal du ikke gøre mere – så virker linkene ikke længere. Har du ikke svaret endnu, "
                  "er kontoen, som den er.")
     else:
         subject = "BonBox: Did you create your account yourself?"
-        if reset:
+        if again:
+            intro = ("Someone signed in to your BonBox account asked us to send this question "
+                     "again. Your e-mail address is confirmed, but BonBox is waiting for your answer.")
+        elif reset:
             intro = ("You just chose a new BonBox password with a code from your e-mail, "
                      "and your e-mail address is now confirmed.")
-            question = f"Did you create this BonBox account yourself on {when} and choose its first password?"
         else:
             how = "with Apple" if apple else "with a login link from your e-mail"
             intro = f"You just signed in to BonBox {how}, and your e-mail address is now confirmed."
+        if reset:
+            question = f"Did you create this BonBox account yourself on {when} and choose its first password?"
+        else:
             question = f"Did you create this BonBox account yourself on {when} and choose the password?"
         keep_label = "Yes, it was me"
         secure_label = "No / Not sure – secure my account"
-        explain = ("Yes: everything stays as it is. No / Not sure: the old password stops working, "
-                   "every device is signed out, and revisor access and host-stand devices given "
-                   "out are closed. Then you choose a new password.")
+        if reset:
+            explain = ("Yes: everything stays as it is. No / Not sure: the password stops working – "
+                       "including the new one you chose with the code from your e-mail – every "
+                       "device is signed out, and revisor access and host-stand devices given out "
+                       "are closed. Then you choose a new password.")
+        else:
+            explain = ("Yes: everything stays as it is. No / Not sure: the old password stops working, "
+                       "every device is signed out, and revisor access and host-stand devices given "
+                       "out are closed. Then you choose a new password.")
         small = ("The links work for 7 days, and only one answer counts. If you already answered in "
                  "BonBox, there is nothing more to do – the links then no longer work. If you have "
                  "not answered yet, the account stays as it is.")
@@ -286,9 +317,10 @@ def question_email_html(lang: str, created: date, keep_url: str, secure_url: str
     return subject, html
 
 
-def send_question_mail(user: User, ask: ClaimAsk | None) -> bool:
+def send_question_mail(user: User, ask: ClaimAsk | None, *, again: bool = False) -> bool:
     """Best-effort, after the commit: the one notice mail with the two links
-    (Keep / Secure), in the account's language. Never raises."""
+    (Keep / Secure), in the account's language. Never raises. `again`: the
+    app's "Send spørgsmålet igen" (reask_by_mail)."""
     if not ask or not ask.mail_ticket:
         return False
     try:
@@ -300,11 +332,87 @@ def send_question_mail(user: User, ask: ClaimAsk | None) -> bool:
         lang = owner_lang(user)
         subject, html = question_email_html(
             lang, date.fromisoformat(ask.question["created_at"]),
-            f"{link}&answer=keep", f"{link}&answer=secure", via=ask.via)
+            f"{link}&answer=keep", f"{link}&answer=secure", via=ask.via, again=again)
         return bool(send_email(user.email, subject, html))
     except Exception:  # noqa: BLE001 — the question stays open; the next proof
         # of the inbox a day on mails it again (ask_inbox_owner, REMAIL_AFTER)
         return False
+
+
+# ── "Send spørgsmålet igen" from the app ─────────────────────────────────
+#
+# While the question is open, every third-party send says so (release gate,
+# 9 Oct) and offers to e-mail the question again. The app's session only
+# ASKS for the mail: the new ticket goes to the account's own (confirmed)
+# inbox and nowhere else, so whoever set the password still cannot answer —
+# only the inbox owner can. At most one question mail a day (REMAIL_AFTER,
+# the same window the sign-in re-ask uses); a mail that fails to send does
+# not use up the day (the route withdraws its ticket).
+
+REMAIL_FAILED_EN = "BonBox couldn't send the e-mail just now. Try again in a few minutes."
+REMAIL_FAILED_DA = "BonBox kunne ikke sende mailen lige nu. Prøv igen om et par minutter."
+
+
+def _hours_until(when) -> int:
+    import math
+    secs = (when - utc_now()).total_seconds()
+    return max(1, math.ceil(secs / 3600))
+
+
+def reask_by_mail(db: Session, user: User, *, ip_address: str | None = None) -> ClaimAsk:
+    """A new question mail (a 7-day mail ticket) for an account whose
+    question is open and whose newest open question mail is a day old (or
+    missing). Refuses: 409 no open question (or an unconfirmed address — the
+    question only exists once the inbox was proven), 429 inside the day.
+    The caller commits, THEN mails (send_question_mail(..., again=True))."""
+    db.query(User.id).filter(User.id == user.id).with_for_update().first()
+    if getattr(user, "email_verified", False) is not True or not question_open(db, user):
+        raise _refuse(status.HTTP_409_CONFLICT, "claim_no_open_question",
+                      "There is no open question on this account.",
+                      "Der er ikke noget åbent spørgsmål på kontoen.")
+    newest = _newest_open_mail_at(db, user)
+    if newest is not None and newest > utc_now() - REMAIL_AFTER:
+        hours = _hours_until(newest + REMAIL_AFTER)
+        raise _refuse(
+            status.HTTP_429_TOO_MANY_REQUESTS, "claim_remail_cooldown",
+            ("BonBox e-mails this question at most once a day. You can ask for it again in "
+             f"{hours} hour{'s' if hours != 1 else ''} — or sign in with a login link and answer "
+             "it there right away."),
+            ("BonBox mailer højst spørgsmålet én gang i døgnet. Du kan bede om det igen om "
+             f"{hours} time{'r' if hours != 1 else ''} – eller logge ind med et login-link og "
+             "svare der med det samme."),
+            retry_after_hours=hours,
+        )
+    # The question as it was first asked: after a password reset the page
+    # names the FIRST password (ticket_status reads via from the ticket).
+    via_row = (
+        db.query(AccountClaimTicket.via)
+        .filter(AccountClaimTicket.user_id == user.id,
+                AccountClaimTicket.used_at.is_(None),
+                AccountClaimTicket.voided_at.is_(None))
+        .order_by(AccountClaimTicket.created_at.desc())
+        .first()
+    )
+    via = (via_row[0] if via_row and via_row[0] else "magic_link")
+    ask = ClaimAsk(question=question_payload(user), via=via)
+    ask.mail_ticket = _new_ticket(db, user, kind="mail", via=via, ttl=MAIL_TTL)
+    _audit(db, user, ASKED_ACTION, {"via": via, "again": True, "in_app": True}, ip_address)
+    db.flush()
+    return ask
+
+
+def withdraw_mail_ticket(db: Session, raw: str | None) -> None:
+    """The question mail with this ticket never left: drop the ticket, so the
+    day's one mail is not used up by a send that failed. The question stays
+    open (reask_by_mail only runs on an open question — other tickets hold
+    it). The caller commits."""
+    if not raw:
+        return
+    db.query(AccountClaimTicket).filter(
+        AccountClaimTicket.token_hash == _hash(raw),
+        AccountClaimTicket.kind == "mail",
+        AccountClaimTicket.used_at.is_(None),
+    ).delete(synchronize_session=False)
 
 
 # ── The answer ───────────────────────────────────────────────────────────

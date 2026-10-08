@@ -811,7 +811,8 @@ def _fire_close_auto_email(
                                       "opted_out" | "same_as_owner" | "daily_cap" |
                                       "demo_recipient" | "demo_close" |
                                       "demo_identity" | "unchanged" |
-                                      "email_unverified",
+                                      "email_unverified" |
+                                      "claim_question_open",
             "correction": bool,              # marked "Rettet kasserapport"
             "has_scan", "scan_degraded", "pdf_hash", "push_status",
             "bank_drop", "upgrade_hint",
@@ -891,7 +892,7 @@ def _fire_close_auto_email(
         REVISOR_DAILY_CAP, address_fingerprint, is_demo_identity, is_demo_revisor,
         revisor_daily_cap_reached, revisor_opted_out, revisor_unsubscribe_headers,
         revisor_unsubscribe_url, saved_revisor_address, sender_display,
-        sender_is_verified,
+        held_sender_reason,
     )
     from app.services.email_service import html_to_text
     acct = saved_revisor_address(profile)
@@ -918,13 +919,16 @@ def _fire_close_auto_email(
         skip = "same_as_owner"
     elif not explicit and not getattr(profile, "accountant_auto_send_effective", True):
         skip = "auto_send_off"
-    elif not sender_is_verified(user):
+    elif (held := held_sender_reason(user)):
         # Mail to the revisor needs the owner's own e-mail confirmed (Manoj,
         # 8 Oct). The lock and the owner's own copy still happen; that copy
         # and the card say "Ikke sendt til revisoren — bekræft din e-mail
         # først". Explicit too: "Send igen" refuses earlier (403) — this is
         # the backstop, never a revisor mail from an unconfirmed account.
-        skip = "email_unverified"
+        # A CONFIRMED address whose "did you create this account?" question
+        # is still open is held too, under its own reason
+        # "claim_question_open" — the true one (release gate, 9 Oct).
+        skip = held
     elif not explicit and revisor_daily_cap_reached(db, user):
         # The lock mail counts towards the per-account ceiling on mail to a
         # third party, like every other revisor send. At the cap the revisor
@@ -1073,6 +1077,14 @@ def _fire_close_auto_email(
                 "email_unverified": (f"Ikke sendt til revisoren ({acct}) — bekræft din e-mail først "
                                      "(Profil → Ikke bekræftet). Bagefter kan du sende den "
                                      "fra Historik, eller sende denne mail videre selv."),
+                # The address IS confirmed: held because "did you create this
+                # account yourself?" waits for an answer (revisor_mail.
+                # claim_question_pending) — say that, not "confirm your e-mail".
+                "claim_question_open": (f"Ikke sendt til revisoren ({acct}) — din e-mail er bekræftet, "
+                                        "men BonBox venter på dit svar på spørgsmålet, vi har mailet "
+                                        "dig: Har du selv oprettet denne konto? Svar via linket i den "
+                                        "mail. Bagefter kan du sende den fra Historik, eller sende "
+                                        "denne mail videre selv."),
             }[skip]
         else:
             revisor_line = {
@@ -1094,22 +1106,12 @@ def _fire_close_auto_email(
                 "email_unverified": (f"Not sent to your revisor ({acct}) — confirm your e-mail first "
                                      "(Profile → Unverified). Then send it from History, "
                                      "or forward this mail yourself."),
+                "claim_question_open": (f"Not sent to your revisor ({acct}) — your e-mail is confirmed, "
+                                        "but BonBox is waiting for your answer to the question we "
+                                        "e-mailed you: did you create this account yourself? Answer "
+                                        "from the link in that e-mail. Then send it from History, "
+                                        "or forward this mail yourself."),
             }[skip]
-        if skip == "email_unverified" and getattr(user, "email_verified", False) is True:
-            # The address IS confirmed: held because "did you create this
-            # account yourself?" waits for an answer (revisor_mail.
-            # claim_question_pending) — say that, not "confirm your e-mail".
-            revisor_line = (
-                (f"Ikke sendt til revisoren ({acct}) — BonBox venter på dit svar: Har du selv "
-                 "oprettet denne konto? Svar via linket i den mail, vi har sendt, eller log ind "
-                 "med et login-link. Bagefter kan du sende den fra Historik, eller sende denne "
-                 "mail videre selv.")
-                if is_danish else
-                (f"Not sent to your revisor ({acct}) — BonBox is waiting for your answer: did you "
-                 "create this account yourself? Answer from the link in the e-mail we sent, or "
-                 "sign in with a login link. Then send it from History, or forward this mail "
-                 "yourself.")
-            )
         subject, html = _build_close_email_html(
             **common, audience="owner", revisor_line=revisor_line,
             correction=owner_correction,
@@ -1146,10 +1148,17 @@ def _fire_close_auto_email(
         # Persisted with the status, so History still says "uændret" after a
         # reload (the skip reason itself is only on the audit row).
         result["email_error"] = "revisor_unchanged"
-    if skip == "email_unverified" and not result["email_error"]:
+    if skip in ("email_unverified", "claim_question_open"):
         # Likewise: History says "Ikke sendt til revisoren — bekræft din
-        # e-mail først" after a reload, not "Sent to you — not to your revisor".
-        result["email_error"] = "revisor_email_unverified"
+        # e-mail først" (or "… venter på dit svar") after a reload, not "Sent
+        # to you — not to your revisor". When the owner's own copy failed too,
+        # BOTH facts are kept — "revisor_<reason>;<the copy's error>" — so
+        # History says why the revisor got nothing AND why the copy failed,
+        # never "mail sending isn't set up" with a Send button that would be
+        # refused (release gate, 9 Oct). email_error is VARCHAR(64).
+        marker = f"revisor_{skip}"
+        owner_err = result["email_error"]
+        result["email_error"] = (f"{marker};{owner_err}" if owner_err else marker)[:64]
     result["sent_to"] = sent_to
     result["accountant_included"] = bool(include_acct and acct in sent_to)
     result["has_scan"] = any(r.get("has_scan") for _who, r in sends)

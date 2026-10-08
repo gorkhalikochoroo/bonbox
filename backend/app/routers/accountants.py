@@ -330,7 +330,9 @@ def invite_accountant(
     e-mail is confirmed". Copy about the held invite speaks of the invite.
     An unconfirmed owner's invite still CREATES the grant and returns the
     accept link (the revisor's access works, nothing is lost); only the mail
-    is held: email_sent=false, email_not_sent_reason="email_unverified".
+    is held: email_sent=false, email_not_sent_reason="email_unverified" (or
+    "claim_question_open" for a confirmed address whose "did you create this
+    account?" question is still open).
 
     One live link, one mail: re-posting the address of a PENDING grant whose
     link has not expired keeps that link (a link the owner already handed
@@ -352,7 +354,7 @@ def invite_accountant(
     # opt-out page promised "BonBox sender ikke flere mails til dig".
     from app.services.revisor_mail import (
         demo_identity_error, demo_recipient_error, enforce_revisor_daily_cap,
-        is_demo_identity, is_demo_revisor, revisor_opted_out, sender_is_verified,
+        held_sender_reason, is_demo_identity, is_demo_revisor, revisor_opted_out,
     )
     _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
     if is_demo_revisor(_profile, email):
@@ -480,16 +482,21 @@ def invite_accountant(
     # again ("Send invitation" twice, or the form re-posted): one invite, one
     # mail a day — a failed send never counts, so it can be retried at once.
     _last_mailed = getattr(grant, "invite_mailed_at", None)
-    if not sender_is_verified(user):
-        mail_held = "email_unverified"
+    # Held for an unconfirmed address ("email_unverified"), or for a
+    # confirmed one whose "did you create this account?" question is still
+    # open ("claim_question_open" — the true reason, so the app never says
+    # "confirm your e-mail" to an owner whose address is confirmed).
+    _held = held_sender_reason(user)
+    if _held:
+        mail_held = _held
     elif keep_link and _last_mailed and _last_mailed > now - timedelta(hours=24):
         mail_held = "recently_sent"
     else:
         mail_held = None
-    if mail_held == "email_unverified" and _last_mailed is None:
+    if mail_held in ("email_unverified", "claim_question_open") and _last_mailed is None:
         # Team → Revisor reads "saved · not e-mailed yet" from this, after a
         # reload too. (A link mailed earlier stays "mailed".)
-        grant.invite_mail_held = "email_unverified"
+        grant.invite_mail_held = mail_held
     _invite_after = {
         "owner_user_id": str(user.id),
         "accountant_email": grant.accountant_email,

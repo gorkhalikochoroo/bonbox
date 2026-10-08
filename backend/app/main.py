@@ -3290,6 +3290,10 @@ def _run_migrations():
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")
+            # Mirror of the time-registration period (63d051d2, 22 Sep). It
+            # shipped with the PG ALTER only, so every BusinessProfile query
+            # 500'd on a dev DB from before it (release gate, 9 Oct).
+            ok += _add("business_profiles", "timereg_period_json", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

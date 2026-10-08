@@ -105,6 +105,11 @@ class UserResponse(BaseModel):
     monthly_goal: float = 0
     role: str = "owner"
     email_verified: bool = False
+    # The address is confirmed, but "did you create this account yourself?"
+    # waits for the inbox owner's answer (models/user.claim_question_open):
+    # third-party mail is held, and the app names that reason — with "Send
+    # spørgsmålet igen" — instead of "confirm your e-mail".
+    claim_question_open: bool = False
     analytics_opt_out: bool = False
     timezone: str = "Europe/Copenhagen"
     plan: str = "free"

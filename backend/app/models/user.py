@@ -232,6 +232,27 @@ class User(Base):
         DateTime, default=utc_now, onupdate=utc_now
     )
 
+    @property
+    def claim_question_open(self) -> bool:
+        """For display only (UserResponse): "did you create this account
+        yourself?" waits for the inbox owner's answer (services/
+        claim_decision.py). While it does, BonBox holds mail to third
+        parties (revisor_mail.sender_is_verified) — and the app says so in
+        those words, never "confirm your e-mail" (release gate, 9 Oct).
+        Read through the row's own session without flushing anything; a
+        detached row or a failed lookup reads False (the send gate itself
+        fails closed and its refusal names the reason)."""
+        try:
+            from sqlalchemy.orm import object_session
+            db = object_session(self)
+            if db is None or self.id is None:
+                return False
+            from app.services.claim_decision import question_open_for
+            with db.no_autoflush:
+                return bool(question_open_for(db, self.id))
+        except Exception:  # noqa: BLE001 — display only
+            return False
+
     sales: Mapped[list["Sale"]] = relationship(back_populates="user")
     expense_categories: Mapped[list["ExpenseCategory"]] = relationship(back_populates="user")
     expenses: Mapped[list["Expense"]] = relationship(back_populates="user")
