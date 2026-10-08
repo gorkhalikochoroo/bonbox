@@ -202,6 +202,10 @@ class User(Base):
     # Stored on User (not BusinessProfile) because new signups have no
     # BusinessProfile row yet — the wizard is the thing that CREATES one.
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Which printed door-visit code the account came from ("r1-a-03" = round
+    # 1, argument A, visit 3), or NULL. Written once at account creation and
+    # never overwritten; a code, never personal data. services/signup_ref.py.
+    signup_ref: Mapped[str | None] = mapped_column(String(24), nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
     # `nepali-7k4q@in.bonbox.dk`) that owners forward receipts to. We

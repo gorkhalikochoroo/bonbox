@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr, field_validator, Field, model_validator
 
+from app.services.signup_ref import clean_signup_ref
+
 
 # The currencies the app can format and pick (frontend utils/currency.js and
 # the Profile picker). `currency` is printed inside money on PDFs a Paragraph
@@ -39,7 +41,24 @@ def _ui_language(v):
     return code
 
 
-class UserRegister(BaseModel):
+class SignupRefMixin(BaseModel):
+    """`signup_ref` — the printed door-visit code (?ref=r1-a-03) the frontend
+    kept until the account existed. Optional on every request that can create
+    an account: register, the Google/Apple completions (/auth/google,
+    /auth/apple, /auth/oauth/*) and the magic-link verify (plus the
+    magic-link request, which only carries it into the mailed link).
+    Anything that is not [a-z0-9-]{1,24} becomes None HERE, so a bad ref can
+    never fail a signup;
+    services/signup_ref.py decides whether it is stored."""
+    signup_ref: str | None = None
+
+    @field_validator("signup_ref", mode="before")
+    @classmethod
+    def _signup_ref_ok(cls, v):
+        return clean_signup_ref(v)
+
+
+class UserRegister(SignupRefMixin):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
     business_name: str = Field(..., min_length=1, max_length=200)

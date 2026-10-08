@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { withSignupRef, clearSignupRef } from "../utils/signupRef";
 
 /**
  * Magic-link landing page (Task #61).
@@ -51,7 +52,11 @@ export default function LoginMagicPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.post("/auth/magic-link/verify", { token });
+        // A new account made by this link gets the door-visit code, if one
+        // is kept — the mailed link carries it as &ref= (utils/signupRef.js).
+        // An existing account is never stamped (backend).
+        const res = await api.post("/auth/magic-link/verify", withSignupRef({ token }));
+        clearSignupRef();
         if (cancelled) return;
         const access = res?.data?.access_token;
         // Native (Capacitor iOS) — persist the bearer so the WKWebView

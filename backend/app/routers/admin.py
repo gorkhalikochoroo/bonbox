@@ -1159,3 +1159,156 @@ def admin_activation(
             "`exported` counts only since staff.payroll_csv_exported shipped."
         ),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  FIELDWORK REFS — door visits, counted as conversions (counts only)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Oct 2026 door rounds: each leave-behind carries a QR to
+# /register?ref=<code> ("r1-a-03" = round 1, argument A, visit 3). The code
+# lands on users.signup_ref at account creation (services/signup_ref.py).
+# This view turns those codes into numbers per code and per round/argument.
+#
+# WHAT IT NEVER RETURNS: a user id, an e-mail, a business name, a date per
+# account — anything that ties a count to a person. A ref is a printed code;
+# Manoj's private visit log is the only place a code meets a venue.
+#
+# Each step is counted independently (a venue can invite staff before it
+# ever closes a day), exactly like /activation above. Founder/test accounts
+# are excluded through the SAME list as /activation and the thesis export.
+_SIGNUP_REF_STEPS = (
+    "signups",              # accounts created with this code
+    "email_verified",       # users.email_verified (Google/Apple count as verified)
+    "onboarding_finished",  # users.onboarding_completed_at set — "Spring over" also sets it
+    "first_close_any",      # >=1 daily close, draft or locked (demo closes excluded)
+    "first_close_locked",   # >=1 locked (confirmed) daily close (demo closes excluded)
+    "staff_link_created",   # >=1 staff link exists — made when the owner shares the roster
+    "staff_link_opened",    # >=1 staff link a staffer actually opened (last_accessed)
+    "active_7d",            # >=1 human action in the last 7 days (HUMAN_ACTIONS)
+)
+
+
+@router.get("/signup-refs")
+def admin_signup_refs(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Door-visit conversions per signup ref and per round/argument."""
+    from app.models.daily_close import DailyClose
+    from app.models.staff import StaffLink
+    from app.services.daily_close_range_export import DEMO_NOTES_SUFFIX
+    from app.services.human_actions import HUMAN_ACTIONS
+    from app.services.internal_accounts import EXCLUDED_ACCOUNTS
+    from app.services.signup_ref import FIELDWORK_PREFIXES, ref_prefix
+
+    rows = (
+        db.query(User.id, User.signup_ref, User.email_verified, User.onboarding_completed_at)
+        .filter(User.signup_ref.isnot(None))
+        .all()
+    )
+    excluded = 0
+    ref_of: dict = {}
+    verified: set = set()
+    onboarded: set = set()
+    for uid, ref, is_verified, onboarded_at in rows:
+        # Compare as str: the exclusion list is keyed by the canonical form.
+        if str(uid) in EXCLUDED_ACCOUNTS:
+            excluded += 1
+            continue
+        ref_of[uid] = ref
+        if is_verified:
+            verified.add(uid)
+        if onboarded_at is not None:
+            onboarded.add(uid)
+    ids = list(ref_of)
+
+    close_any: set = set()
+    close_locked: set = set()
+    link_created: set = set()
+    link_opened: set = set()
+    active: set = set()
+    if ids:
+        # Soft-deleted closes still count — the owner did the close. Demo
+        # seeder closes never do (notes end in " · demo").
+        for uid, status_, notes in (
+            db.query(DailyClose.user_id, DailyClose.status, DailyClose.notes)
+            .filter(DailyClose.user_id.in_(ids))
+            .all()
+        ):
+            if str(notes or "").endswith(DEMO_NOTES_SUFFIX):
+                continue
+            close_any.add(uid)
+            if (status_ or "confirmed") == "confirmed":
+                close_locked.add(uid)
+        for uid, last_accessed in (
+            db.query(StaffLink.user_id, StaffLink.last_accessed)
+            .filter(StaffLink.user_id.in_(ids))
+            .all()
+        ):
+            link_created.add(uid)
+            if last_accessed is not None:
+                link_opened.add(uid)
+        since = utc_now() - timedelta(days=7)
+        active = {
+            row[0] for row in (
+                db.query(distinct(EventLog.user_id))
+                .filter(
+                    EventLog.user_id.in_(ids),
+                    EventLog.created_at >= since,
+                    EventLog.event.in_(HUMAN_ACTIONS),
+                )
+                .all()
+            )
+        }
+
+    reached = {
+        "signups": set(ids),
+        "email_verified": verified,
+        "onboarding_finished": onboarded,
+        "first_close_any": close_any,
+        "first_close_locked": close_locked,
+        "staff_link_created": link_created,
+        "staff_link_opened": link_opened,
+        "active_7d": active,
+    }
+
+    def _counts(members) -> dict:
+        return {k: len(reached[k] & members) for k in _SIGNUP_REF_STEPS}
+
+    by_ref_members: dict[str, set] = {}
+    by_prefix_members: dict[str, set] = {p: set() for p in FIELDWORK_PREFIXES}
+    for uid, ref in ref_of.items():
+        by_ref_members.setdefault(ref, set()).add(uid)
+        by_prefix_members.setdefault(ref_prefix(ref), set()).add(uid)
+
+    return {
+        "generated_at": utc_now().isoformat(),
+        "steps": list(_SIGNUP_REF_STEPS),
+        "total": _counts(set(ids)),
+        "by_prefix": [
+            {"prefix": p, **_counts(m)}
+            for p, m in sorted(by_prefix_members.items())
+        ],
+        "by_ref": [
+            {"ref": r, "prefix": ref_prefix(r), **_counts(m)}
+            for r, m in sorted(by_ref_members.items())
+        ],
+        # How many accounts with a ref were left out as founder/test accounts.
+        "excluded_internal": excluded,
+        "notes": (
+            "Counts only. Steps are counted independently, not as a funnel. "
+            "LOWER BOUND: an account counts only when it was created in the "
+            "browser that opened the QR (or from an e-mail link asked for "
+            "there), while that page load lasted or with the cookie banner's "
+            "Analytics consent, and only from the day the code-keeping build "
+            "went live (check /api/health commit). Sheets handed out before "
+            "that, a QR scanned on a phone and a signup later on a laptop, or "
+            "blocked storage are lost, not zero. "
+            "first_close_* exclude demo closes and include closes later deleted. "
+            "onboarding_finished includes owners who skipped the wizard. "
+            "staff_link_created means a link exists, not that it was sent. "
+            "active_7d = an allow-listed human action (services/human_actions.py) "
+            "in the last 7 days; owners who opted out of analytics are not seen."
+        ),
+    }

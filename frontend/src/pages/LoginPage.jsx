@@ -9,6 +9,7 @@ import api from "../services/api";
 // quiet without conditional imports.
 import AppleSignInButton from "../components/AppleSignInButton";
 import { errText } from "../utils/errText";
+import { withSignupRef } from "../utils/signupRef";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -279,7 +280,9 @@ export default function LoginPage() {
     }
     setMagicSending(true);
     try {
-      await api.post("/auth/magic-link/request", { email: email.trim().toLowerCase() });
+      // withSignupRef: a kept door-visit code rides along so the mailed link
+      // carries it (&ref=) to whichever tab or browser opens it.
+      await api.post("/auth/magic-link/request", withSignupRef({ email: email.trim().toLowerCase() }));
       setMagicSent(true);
     } catch (err) {
       let msg;
