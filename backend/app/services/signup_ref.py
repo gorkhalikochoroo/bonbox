@@ -29,6 +29,11 @@ _SIGNUP_REF_RE = re.compile(r"[a-z0-9-]{1,24}")
 _FIELDWORK_RE = re.compile(r"(r\d{1,2})-([a-z])-(\d{1,3})")
 OTHER_PREFIX = "other"
 
+# The planned door rounds (Oct 2026): round 1 = argument A (8–14 Oct), round 2
+# = argument B (15–21 Oct). The admin view always lists these two, at zero if
+# nobody has signed up from them yet, so "no signups" reads as a measured 0.
+FIELDWORK_PREFIXES = ("r1-a", "r2-b")
+
 
 def clean_signup_ref(raw) -> str | None:
     """The ref to store, or None when there is nothing valid to store.

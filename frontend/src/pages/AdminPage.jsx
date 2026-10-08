@@ -160,6 +160,9 @@ export default function AdminPage() {
         <KpiCard label="Total Events" value={overview?.total_events ?? 0} sub="all time" />
       </div>
 
+      {/* Door visits — the Oct 2026 leave-behind QR codes, counts only */}
+      <SignupRefsSection t={t} />
+
       {/* Retention */}
       {retention && (
         <Section title="Retention" subtitle="Users who returned after signing up">
@@ -591,6 +594,95 @@ function TierChip({ user }) {
       <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${s.bg} ${s.text}`}>{s.label}</span>
       {trialSub && <span className="text-[10px] text-gray-500 dark:text-gray-400">{trialSub}</span>}
     </span>
+  );
+}
+
+// Door-visit conversions (GET /admin/signup-refs). Loads on its own so a
+// failure here never blanks the rest of the admin page. Counts only — the
+// endpoint returns no id, e-mail or business name, and neither does this.
+const REF_STEPS = [
+  ["signups", "adminRefsSignups", "Signed up"],
+  ["email_verified", "adminRefsVerified", "E-mail verified"],
+  ["onboarding_finished", "adminRefsOnboarded", "Setup done"],
+  ["first_close_any", "adminRefsCloseAny", "First close (draft or locked)"],
+  ["first_close_locked", "adminRefsCloseLocked", "Locked close"],
+  ["staff_link_created", "adminRefsLinkCreated", "Staff link made"],
+  ["staff_link_opened", "adminRefsLinkOpened", "Staff opened link"],
+  ["active_7d", "adminRefsActive7d", "Active, last 7 days"],
+];
+
+function SignupRefsSection({ t }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/admin/signup-refs")
+      .then((r) => { if (!cancelled) setData(r.data); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const cell = "px-2 py-1.5 text-right tabular-nums";
+  const row = (label, counts, key, strong) => (
+    <tr key={key} className={`border-b border-gray-100 dark:border-gray-800 ${strong ? "font-semibold" : ""}`}>
+      <td className="px-2 py-1.5 text-left font-mono whitespace-nowrap">{label}</td>
+      {REF_STEPS.map(([k]) => (
+        <td key={k} className={`${cell} ${counts[k] ? "" : "text-gray-400 dark:text-gray-500"}`}>{counts[k] ?? 0}</td>
+      ))}
+    </tr>
+  );
+  const groupHead = (label) => (
+    <tr>
+      <td colSpan={REF_STEPS.length + 1} className="px-2 pt-3 pb-1 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</td>
+    </tr>
+  );
+
+  return (
+    <Section
+      title={t("adminRefsTitle", "Door visits (signup codes)")}
+      subtitle={t("adminRefsSubtitle", "Accounts created from a leave-behind QR. Counts only — each step is counted on its own, not as a funnel.")}
+    >
+      {failed && (
+        <p className="text-sm text-gray-600 dark:text-gray-300">{t("adminRefsUnavailable", "Door-visit counts could not be loaded.")}</p>
+      )}
+      {!failed && !data && <div className="h-16 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-lg" />}
+      {data && (
+        <>
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="w-full text-sm text-gray-900 dark:text-gray-100">
+              <thead className="text-[11px] text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+                <tr>
+                  <th className="text-left px-2 py-2">{t("adminRefsCode", "Code")}</th>
+                  {REF_STEPS.map(([k, key, fb]) => (
+                    <th key={k} className="text-right px-2 py-2 font-medium align-bottom">{t(key, fb)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groupHead(t("adminRefsByRound", "By round and argument"))}
+                {(data.by_prefix || []).map((r) => row(r.prefix, r, `p-${r.prefix}`))}
+                {row(t("adminRefsTotal", "All codes"), data.total || {}, "total", true)}
+                {groupHead(t("adminRefsByCode", "By code"))}
+                {(data.by_ref || []).map((r) => row(r.ref, r, `r-${r.ref}`))}
+                {(!data.by_ref || data.by_ref.length === 0) && (
+                  <tr>
+                    <td colSpan={REF_STEPS.length + 1} className="px-2 py-2 text-gray-500 dark:text-gray-400">
+                      {t("adminRefsNone", "No account has been created from a code yet.")}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {data.excluded_internal > 0 && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              {t("adminRefsExcluded", "{n} internal/test accounts left out", { n: data.excluded_internal })}
+            </p>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 
