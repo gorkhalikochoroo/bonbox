@@ -42,3 +42,23 @@ describe("event log and the analytics choice", () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 });
+
+// /cookies: usage events "are recorded until you decline Analytics in the
+// banner". The Smart-card telemetry posted straight to /event-log and ignored
+// that decline. It now uses the same check as the page-view log.
+describe("smart-card telemetry and the analytics choice", () => {
+  it("sends nothing after the owner declined analytics", async () => {
+    consent(false);
+    const { useSmartTelemetry } = await import("../hooks/useSmartTelemetry");
+    useSmartTelemetry().track("smart_proposal_accepted", "smart_staffing", { confidence: "high" });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("still sends when analytics is accepted", async () => {
+    consent(true);
+    const { useSmartTelemetry } = await import("../hooks/useSmartTelemetry");
+    useSmartTelemetry().track("smart_proposal_accepted", "smart_staffing", { confidence: "high" });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0][0]).toBe("/event-log");
+  });
+});

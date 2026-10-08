@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { CookieSettingsButton } from "../components/CookieConsent";
 
 function Section({ title, children }) {
   return (
@@ -34,9 +35,11 @@ function Table({ headers, rows }) {
 // (PrivacyEn / PrivacyDa), so a reviewer can read — and a lawyer can approve —
 // each version top to bottom. Keep the two in step: same sections, same order,
 // same links. If you change one, change the other in the same commit.
+// cookieSettings reopens the consent banner's drawer (CookieSettingsButton) —
+// the footer link the drawer itself points to.
 const CHROME = {
-  en: { terms: "Terms", cookies: "Cookies", back: "Back to BonBox" },
-  da: { terms: "Vilkår", cookies: "Cookies", back: "Tilbage til BonBox" },
+  en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
+  da: { terms: "Vilkår", cookies: "Cookies", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
 };
 
 function PrivacyEn() {
@@ -128,7 +131,7 @@ function PrivacyEn() {
             <li>Token usage of AI Copilot conversations (metadata only — used for cost monitoring, not content)</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account.
+            <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account, except the record of each AI chat turn, Smart Sale Entry and upgrade checkout that BonBox needs to enforce your plan's limits.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Retention:</strong> Product analytics events are automatically deleted after 180 days. Aggregated counts may be retained longer in anonymised form for product improvement.
@@ -384,7 +387,7 @@ function PrivacyDa() {
             <li>Tokenforbrug i samtaler med AI Copilot (kun metadata — bruges til at overvåge omkostninger, ikke indhold)</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            <strong>Du kan til enhver tid sætte analysen på pause</strong> under <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profil → Privatliv & data</Link>. Mens den er sat på pause, registreres der ingen nye hændelser for din konto.
+            <strong>Du kan til enhver tid sætte analysen på pause</strong> under <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profil → Privatliv & data</Link>. Mens den er sat på pause, registreres der ingen nye hændelser for din konto, bortset fra registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Opbevaring:</strong> Hændelser til produktanalyse slettes automatisk efter 180 dage. Samlede optællinger kan opbevares længere i anonymiseret form med henblik på at forbedre produktet.
@@ -582,9 +585,10 @@ export default function PrivacyPolicyPage() {
 
         <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <Link to="/" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">&larr; {c.back}</Link>
-          <div className="flex gap-4 text-sm text-gray-400">
+          <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-sm text-gray-400">
             <Link to="/terms" className="hover:text-gray-600 dark:hover:text-gray-300 transition">{c.terms}</Link>
             <Link to="/cookies" className="hover:text-gray-600 dark:hover:text-gray-300 transition">{c.cookies}</Link>
+            <CookieSettingsButton label={c.cookieSettings} className="hover:text-gray-600 dark:hover:text-gray-300 transition" />
           </div>
         </div>
       </div>

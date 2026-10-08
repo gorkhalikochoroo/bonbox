@@ -1,22 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   cleanSignupRef, captureSignupRef, getSignupRef, clearSignupRef, withSignupRef,
-  onCookieConsentChanged, FLYER_TEXT_SINCE,
+  onCookieConsentChanged, FLYER_TEXT_SINCE, FLYER_MARKETING_TEXT,
 } from "../utils/signupRef";
 
 // The leave-behind QR's code must survive from the first page load until an
 // account exists, and a bad one must simply be ignored. It touches the
 // device (local storage) only with the cookie banner's Marketing consent —
 // the category that says it measures which channels bring people — given
-// on or after the day the banner first named the flyer code.
+// to the text that names the flyer code (the banner stamps which Marketing
+// text an answer was given to: MARKETING_TEXT in CookieConsent.jsx).
 
 const KEY = "bonbox_signup_ref";
 const DAY = 24 * 60 * 60 * 1000;
-const record = (choices, timestamp = new Date().toISOString()) =>
+// What this release's banner saves. Pass marketingText null for an answer
+// saved by the banner production showed before it (no stamp).
+const record = (choices, timestamp = new Date().toISOString(), marketingText = FLYER_MARKETING_TEXT) =>
   localStorage.setItem(
     "bonbox_cookie_consent",
     JSON.stringify({
       version: 1,
+      ...(marketingText === null ? {} : { marketingText }),
       timestamp,
       choices: { necessary: true, functional: false, analytics: false, marketing: false, ...choices },
     }),
@@ -209,6 +213,30 @@ describe("signup ref — Marketing, not Analytics, is the switch", () => {
     record({ marketing: true }, new Date(FLYER_TEXT_SINCE).toISOString());
     captureSignupRef("?ref=r1-a-03");
     expect(JSON.parse(localStorage.getItem(KEY)).ref).toBe("r1-a-03");
+  });
+
+  // 8 Oct review: production showed the OLD Marketing text ("Lets us measure
+  // which channels…", no flyer code) all of 8 Oct, until this release goes
+  // live. A yes given there carries no text stamp and must not count, however
+  // recent its timestamp.
+  it("a Marketing yes saved by the earlier banner (no text stamp) does not count, even on 8 Oct", async () => {
+    const onTheDay = new Date(FLYER_TEXT_SINCE + 6 * 60 * 60 * 1000).toISOString();
+    record({ analytics: true, marketing: true }, onTheDay, null);
+    expect(captureSignupRef("?ref=r1-a-03")).toBe("r1-a-03"); // memory still works
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    // A copy held under such an answer is dropped on the next load.
+    localStorage.setItem(KEY, JSON.stringify({ ref: "r1-a-03", at: Date.now() }));
+    vi.resetModules();
+    const fresh = await import("../utils/signupRef");
+    expect(fresh.getSignupRef()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("an answer stamped with an older Marketing text does not count", () => {
+    record({ marketing: true }, new Date().toISOString(), FLYER_MARKETING_TEXT - 1);
+    captureSignupRef("?ref=r1-a-03");
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });
 

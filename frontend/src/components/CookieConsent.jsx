@@ -15,8 +15,10 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  *  • Choices persist in localStorage with a version stamp so we can re-prompt
  *    if the policy changes, and a timestamp so we can re-prompt every 12
  *    months (best practice; required for some Datatilsynet interpretations).
- *  • Re-open via the `bonbox-open-cookie-settings` window event — wire from
- *    a footer link or settings page.
+ *  • Re-open via the `bonbox-open-cookie-settings` window event —
+ *    <CookieSettingsButton /> below is that link: the /cookies, /privacy and
+ *    landing footers and Profile → Privacy & data carry it, which is what
+ *    the drawer's "change it anytime via the link in the footer" refers to.
  *
  * Tax-jurisdiction note: this banner serves DK/EU users; same pattern works
  * for non-EU but the legal force is EU/EEA-bound. Banner shows in the user's
@@ -33,9 +35,17 @@ const STORAGE_KEY = "bonbox_cookie_consent";
 // getCookieConsent() return null for everyone, and the usage log
 // (useEventLog.js) only stops on an explicit analytics:false, so earlier
 // "no" answers would be logged again until re-answered. The 8 Oct 2026 flyer
-// sentence in Marketing is handled by the answer's timestamp instead
-// (FLYER_TEXT_SINCE in utils/signupRef.js).
+// sentence in Marketing is handled by MARKETING_TEXT below instead.
 const VERSION = 1;
+// Which Marketing text the answer was given to, stamped on every answer this
+// banner saves (beside VERSION, so it forgets nobody's answer):
+//   (absent) — an answer saved before this stamp existed: the Marketing text
+//              did not name the flyer code (production until this release)
+//   2        — Marketing names the printed flyer's campaign code (8 Oct 2026)
+// utils/signupRef.js keeps the code on the device only for a Marketing "yes"
+// stamped >= 2. Bump this when the Marketing text changes again, and say in
+// signupRef.js which stamps still count.
+export const MARKETING_TEXT = 2;
 const TWELVE_MONTHS_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
@@ -109,6 +119,21 @@ export function getCookieConsentTime() {
   }
 }
 
+/**
+ * The MARKETING_TEXT stamp on the stored answer, or null when there is no
+ * valid answer (same checks as getCookieConsent) or the answer carries no
+ * stamp (saved by an older banner).
+ */
+export function getCookieConsentMarketingText() {
+  if (!getCookieConsent()) return null;
+  try {
+    const n = JSON.parse(localStorage.getItem(STORAGE_KEY)).marketingText;
+    return Number.isInteger(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Honor browser DoNotTrack signal. If user set DNT=1, default everything off. */
 function userHasDNT() {
   try {
@@ -133,6 +158,7 @@ function saveConsent(choices) {
       STORAGE_KEY,
       JSON.stringify({
         version: VERSION,
+        marketingText: MARKETING_TEXT,
         timestamp: new Date().toISOString(),
         choices: safe,
       }),
@@ -440,4 +466,26 @@ export default function CookieConsent() {
  */
 export function openCookieSettings() {
   window.dispatchEvent(new CustomEvent("bonbox-open-cookie-settings"));
+}
+
+/**
+ * "Cookie settings" — reopens the banner's drawer on the current answer, so
+ * consent can be changed or withdrawn as easily as it was given (GDPR Art.
+ * 7(3)). Renders as a plain text button; pass the surrounding link styling.
+ */
+export function CookieSettingsButton({ className = "", label }) {
+  const { t } = useLanguage();
+  // The staff Scheduler build never opens the banner (nothing there needs
+  // consent), so a button there would do nothing — render none.
+  if (import.meta.env.VITE_APP_MODE === "scheduler") return null;
+  return (
+    <button
+      type="button"
+      onClick={openCookieSettings}
+      className={className}
+      data-cookie-settings="open"
+    >
+      {label || t("cookieSettings")}
+    </button>
+  );
 }

@@ -11,8 +11,9 @@ These tests pin what would flatter or leak the numbers if it broke quietly:
   • the payload carries counts only — no id, e-mail or business name
   • only a super-admin gets it, through the EXISTING guard (which answers a
     refusal with a deliberate 404, not 403 — see services/admin_security.py)
-  • the thesis export gains a signup_ref dimension by round/argument, never
-    the code itself
+  • the thesis export leaves the flyer code out by default and refuses
+    --include-flyer-rounds until the notices announce that use; once
+    allowed, its signup_ref dimension is by round/argument, never the code
 
 Run:
   cd backend && python3 -m pytest tests/test_admin_signup_refs.py -x -q
@@ -313,15 +314,66 @@ def test_route_is_wired_to_the_super_admin_guard():
     raise AssertionError("route /api/admin/signup-refs not mounted")
 
 
-# ── Thesis export: round/argument only, suppressed like every table ───
+# ── Thesis export: no flyer code until the notices announce it ───────
+#
+# /privacy and /cookies say the flyer code is used "for nothing but the counts
+# described above" (the founder's super-admin view). The thesis export must
+# therefore not read it by default, and must refuse the opt-in while
+# FLYER_THESIS_USE_ANNOUNCED is False. That constant flips only in the commit
+# that announces the use on both pages — update these tests in that commit.
 
 
-def test_thesis_export_counts_signup_ref_by_round_never_by_code(db):
+def test_thesis_use_of_the_flyer_code_is_not_announced_on_this_build():
+    import scripts.thesis_export as te
+    assert te.FLYER_THESIS_USE_ANNOUNCED is False
+
+
+def test_thesis_export_leaves_the_flyer_code_out_by_default(db):
     _seed(db)
+    from scripts.thesis_export import collect
+    dims = collect(db)
+    assert "signup_ref" not in dims
+    raw = json.dumps(dims)
+    for s in ("r1-a", "r2-b", "flyer-01", "(no ref)"):
+        assert s not in raw
+    # The other tables are still there.
+    assert {"business_type", "plan", "staff_band", "activity_30d"} <= set(dims)
+
+
+def test_thesis_export_refuses_flyer_rounds_until_announced(db, tmp_path):
+    _seed(db)
+    from scripts.thesis_export import FlyerUseNotAnnounced, collect, run
+    with pytest.raises(FlyerUseNotAnnounced):
+        collect(db, include_flyer_rounds=True)
+    # The CLI path refuses before it creates or reads anything.
+    out = tmp_path / "export"
+    with pytest.raises(FlyerUseNotAnnounced):
+        run(str(out), include_flyer_rounds=True)
+    assert not out.exists()
+
+
+def test_thesis_export_cli_refusal_exits_non_zero(monkeypatch, tmp_path):
+    import runpy
+    import sys
+    out = tmp_path / "export"
+    monkeypatch.setattr(sys, "argv", ["thesis_export", "--out", str(out), "--include-flyer-rounds"])
+    monkeypatch.delitem(sys.modules, "scripts.thesis_export", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("scripts.thesis_export", run_name="__main__")
+    assert exc.value.code not in (0, None)
+    assert "FLYER_THESIS_USE_ANNOUNCED" in str(exc.value.code)
+    assert not out.exists()
+
+
+def test_thesis_export_counts_signup_ref_by_round_never_by_code(db, monkeypatch):
+    """Once announced (and only then): round/argument, never the code."""
+    _seed(db)
+    import scripts.thesis_export as te
     from scripts.thesis_export import HUMAN_ACTIONS, collect
     from app.services.human_actions import HUMAN_ACTIONS as SHARED
     assert HUMAN_ACTIONS is SHARED  # one definition of "active"
-    dims = collect(db)
+    monkeypatch.setattr(te, "FLYER_THESIS_USE_ANNOUNCED", True)
+    dims = collect(db, include_flyer_rounds=True)
     assert dims["signup_ref"] == {"r1-a": 3, "r2-b": 1, "other": 1, "(no ref)": 1}
     raw = json.dumps(dims)
     for code in ("r1-a-01", "r1-a-02", "r2-b-01", "flyer-01"):

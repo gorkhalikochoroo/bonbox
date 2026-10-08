@@ -158,6 +158,37 @@ describe("CookiePolicyPage — the Analytics category", () => {
   });
 });
 
+// 8 Oct review: a banner decline did not stop the Smart-card events, and a
+// Profile pause did not stop the server's AI token-usage row; both are fixed in
+// code. What a pause can NOT stop — the plan-limit counters enforce_cap reads —
+// is now said on both pages instead of "no new events".
+const PLAN_LIMIT_COUNTERS = {
+  en: "the record of each AI chat turn, Smart Sale Entry and upgrade checkout that BonBox needs to enforce your plan's limits",
+  da: "registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan",
+};
+
+describe("usage events — what a decline or a pause stops, and what it does not", () => {
+  it.each(["en", "da"])("lang=%s: /cookies says browser vs server events and names the plan-limit counters", (lang) => {
+    const text = textAt(CookiePolicyPage, lang);
+    expect(text).toContain(
+      lang === "en"
+        ? "Declining in the banner stops the events this browser sends; pausing in Profile also stops the ones our server records for your account (AI token usage, the business-type guess during setup)."
+        : "Afviser du i banneret, stopper de hændelser, denne browser sender; sætter du dem på pause under Profil, stopper også dem, vores server selv registrerer for din konto (tokenforbrug i AI og gættet på virksomhedstype under opsætningen).",
+    );
+    expect(text).toContain(PLAN_LIMIT_COUNTERS[lang]);
+  });
+
+  it.each(["en", "da"])("lang=%s: /privacy no longer says a pause records nothing at all", (lang) => {
+    const text = textAt(PrivacyPolicyPage, lang);
+    expect(text).toContain(PLAN_LIMIT_COUNTERS[lang]);
+    expect(text).not.toContain(
+      lang === "en"
+        ? "When paused, no new events are recorded for your account."
+        : "Mens den er sat på pause, registreres der ingen nye hændelser for din konto.",
+    );
+  });
+});
+
 describe("PrivacyPolicyPage — how long the flyer code stays on the account", () => {
   it.each([
     ["en", "Campaign code from a printed flyer (on the account)Deleted 12 months after you create your account, or earlier if you delete your account"],

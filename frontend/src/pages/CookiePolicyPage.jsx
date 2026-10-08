@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { CookieSettingsButton } from "../components/CookieConsent";
 
 function CookieTable({ headers, rows }) {
   return (
@@ -32,9 +33,11 @@ function CookieTable({ headers, rows }) {
 // (CookiesEn / CookiesDa), so a reviewer can read — and a lawyer can approve —
 // each version top to bottom. Keep the two in step: same sections, same order,
 // same cookie names. If you change one, change the other in the same commit.
+// cookieSettings reopens the consent banner's drawer (CookieSettingsButton) —
+// the footer link the drawer itself points to.
 const CHROME = {
-  en: { privacy: "Privacy", terms: "Terms", back: "Back to BonBox" },
-  da: { privacy: "Privatliv", terms: "Vilkår", back: "Tilbage til BonBox" },
+  en: { privacy: "Privacy", terms: "Terms", cookieSettings: "Cookie settings", back: "Back to BonBox" },
+  da: { privacy: "Privatliv", terms: "Vilkår", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
 };
 
 function CookiesEn() {
@@ -136,7 +139,11 @@ function CookiesEn() {
             for the optional Analytics and Marketing categories. The Analytics switch starts off, but
             BonBox's own usage events for signed-in accounts (see "Product analytics events" in our{" "}
             <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</Link>)
-            are recorded until you decline Analytics in the banner or pause them in Profile. No
+            are recorded until you decline Analytics in the banner or pause them in Profile.
+            Declining in the banner stops the events this browser sends; pausing in Profile also
+            stops the ones our server records for your account (AI token usage, the business-type
+            guess during setup). Neither stops the record of each AI chat turn, Smart Sale Entry
+            and upgrade checkout that BonBox needs to enforce your plan's limits. No
             third-party analytics tool is loaded. Turning Marketing on lets us keep a flyer's campaign
             code (above) on your device for up to 30 days; declining keeps it off your device. If we
             ever add an analytics tool, the banner is already the gate, and declining will keep it from
@@ -276,6 +283,11 @@ function CookiesDa() {
             men BonBox' egne brugshændelser for indloggede konti (se "Hændelser til produktanalyse" i vores{" "}
             <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">privatlivspolitik</Link>)
             registreres, indtil du afviser Analyse i banneret eller sætter dem på pause under Profil.
+            Afviser du i banneret, stopper de hændelser, denne browser sender; sætter du dem på pause
+            under Profil, stopper også dem, vores server selv registrerer for din konto (tokenforbrug i
+            AI og gættet på virksomhedstype under opsætningen). Ingen af delene stopper registreringen
+            af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en
+            opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan.
             Der indlæses intet analyseværktøj fra tredjeparter. Slår du Markedsføring til, må vi gemme
             kampagnekoden fra en folder (se ovenfor) på din enhed i op til 30 dage; afviser du, gemmes den
             ikke på din enhed. Hvis vi en dag tilføjer
@@ -344,9 +356,10 @@ export default function CookiePolicyPage() {
 
         <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <Link to="/" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">&larr; {c.back}</Link>
-          <div className="flex gap-4 text-sm text-gray-400">
+          <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-sm text-gray-400">
             <Link to="/privacy" className="hover:text-gray-600 dark:hover:text-gray-300 transition">{c.privacy}</Link>
             <Link to="/terms" className="hover:text-gray-600 dark:hover:text-gray-300 transition">{c.terms}</Link>
+            <CookieSettingsButton label={c.cookieSettings} className="hover:text-gray-600 dark:hover:text-gray-300 transition" />
           </div>
         </div>
       </div>

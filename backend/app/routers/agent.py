@@ -684,6 +684,40 @@ async def agent_chat(
 # Claude API streaming (used when API key + credits are available)
 # ---------------------------------------------------------------------------
 
+def _record_token_usage(db, user, input_tokens: int, output_tokens: int, model) -> bool:
+    """Write the ai_tokens_used cost row. Returns True when a row was written.
+
+    This is product analytics (cost monitoring), so an owner who paused
+    analytics in Profile gets no row — /privacy says that when paused "no new
+    events are recorded for your account". The agent.chat row written before
+    the model runs is NOT this: it is the plan-limit counter that
+    enforce_cap reads, and it stays. Failure is non-fatal — token logging must
+    never break a successful chat.
+    """
+    if getattr(user, "analytics_opt_out", False):
+        return False
+    try:
+        from app.models.event_log import EventLog
+        db.add(EventLog(
+            user_id=user.id,
+            event="ai_tokens_used",
+            page="agent",
+            detail=json.dumps({
+                "input": input_tokens,
+                "output": output_tokens,
+                "model": model,
+            }),
+        ))
+        db.commit()
+        return True
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+
 async def _claude_chat(req: ChatRequest, db, user):
     """Full Claude API chat with tool use — requires ANTHROPIC_API_KEY + credits."""
     import anthropic as anth
@@ -988,29 +1022,9 @@ async def _claude_chat(req: ChatRequest, db, user):
                 else:
                     break
 
-            # Persist token usage for cost monitoring. Logged as an event_log
-            # row so it shows up alongside everything else (and the admin panel
-            # can chart it). Failure is non-fatal — we don't want token logging
-            # to break a successful chat.
-            try:
-                from app.models.event_log import EventLog
-                ev = EventLog(
-                    user_id=user.id,
-                    event="ai_tokens_used",
-                    page="agent",
-                    detail=json.dumps({
-                        "input": _total_input_tokens,
-                        "output": _total_output_tokens,
-                        "model": _served_model,
-                    }),
-                )
-                db.add(ev)
-                db.commit()
-            except Exception:  # noqa: BLE001
-                try:
-                    db.rollback()
-                except Exception:  # noqa: BLE001
-                    pass
+            # Persist token usage for cost monitoring (skipped when the owner
+            # paused analytics — see _record_token_usage).
+            _record_token_usage(db, user, _total_input_tokens, _total_output_tokens, _served_model)
 
             yield f"event: done\ndata: {json.dumps({'tokens': {'input': _total_input_tokens, 'output': _total_output_tokens}})}\n\n"
 

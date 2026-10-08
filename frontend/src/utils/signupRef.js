@@ -22,12 +22,16 @@
  *     is for; Analytics is the in-app usage log. Given later → written then;
  *     withdrawn → removed. Without it, nothing about the code touches the
  *     device.
- *   • A Marketing "yes" counts only when it was given on or after
- *     FLYER_TEXT_SINCE, the day the banner first named the flyer code. An
- *     older "yes" was given to a text that did not mention it, so the code
- *     stays in memory until the visitor answers the banner again. (Bumping
- *     the banner's VERSION instead would also forget every Analytics "no",
- *     and the usage log only stops on an explicit "no".)
+ *   • A Marketing "yes" counts only when the banner that saved it stamped
+ *     it MARKETING_TEXT >= 2 (components/CookieConsent.jsx) — i.e. it was
+ *     given to the text that names the flyer code. Production's banner
+ *     before this release saved no stamp, so a "yes" given there — even on
+ *     8 Oct, the day this text was written — was given to a text that did
+ *     not mention the code; the code then stays in memory until the visitor
+ *     answers the banner again (Cookie settings in the footer). A stamp
+ *     cannot predate the release that writes it, so no deploy-time date is
+ *     needed. (Bumping the banner's VERSION instead would also forget every
+ *     Analytics "no", and the usage log only stops on an explicit "no".)
  *   • Every page load first drops a copy that is past 30 days or held
  *     without consent, so "up to 30 days" is a deletion, not just a value
  *     that is ignored.
@@ -50,7 +54,9 @@
  *     mode, blocked storage) are swallowed — a lost ref must never cost a
  *     signup.
  */
-import { getCookieConsent, getCookieConsentTime } from "../components/CookieConsent";
+import {
+  getCookieConsent, getCookieConsentTime, getCookieConsentMarketingText,
+} from "../components/CookieConsent";
 
 const KEY = "bonbox_signup_ref";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -58,8 +64,13 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // _FIELDWORK_RE — or test-01 … test-99 for checking a QR end to end.
 const REF_RE = /^(?:r\d{1,2}-[a-z]-\d{1,3}|test-\d{2})$/;
 const CONSENT_EVENT = "bonbox-cookie-consent-changed";
-// 8 Oct 2026, Copenhagen: the banner's Marketing text names the flyer code
-// from this release on. See the header.
+// The first MARKETING_TEXT stamp whose Marketing text names the flyer code.
+export const FLYER_MARKETING_TEXT = 2;
+// A floor only, kept as a second check: the flyer sentence was written on
+// 8 Oct 2026 (Copenhagen), so no answer older than this can have been given
+// to it. It is NOT the go-live time — production showed the old text after
+// this moment; the MARKETING_TEXT stamp above is what proves which text an
+// answer was given to.
 export const FLYER_TEXT_SINCE = Date.parse("2026-10-08T00:00:00+02:00");
 
 // This page load's code: { ref, at } or null.
@@ -75,6 +86,8 @@ export function cleanSignupRef(raw) {
 function storageAllowed() {
   try {
     if (!getCookieConsent()?.marketing) return false;
+    const text = getCookieConsentMarketingText();
+    if (text === null || text < FLYER_MARKETING_TEXT) return false;
     const at = getCookieConsentTime();
     return at !== null && at >= FLYER_TEXT_SINCE;
   } catch {

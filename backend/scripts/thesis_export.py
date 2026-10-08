@@ -30,6 +30,11 @@ Design decisions, each defensible at the viva:
    your own accounts is a judgement; excluding them via a committed record with
    a reason per id is a METHOD.
 
+6. THE FLYER CODE IS OFF BY DEFAULT. /privacy and /cookies say the flyer
+   code (users.signup_ref) is used for the founder's per-code counts and
+   nothing else. Until those notices announce another use, this export does
+   not read the column: see FLYER_THESIS_USE_ANNOUNCED below.
+
 The script does not decide what is LAWFUL to publish — that needs the SDU
 DPO / controller-identity answer. It decides what is disclosure-SAFE. Those are
 different questions; this owns the second, and says so.
@@ -63,6 +68,31 @@ from app.services.internal_accounts import EXCLUDED_ACCOUNTS  # noqa: E402
 # rationale — it lives there now.
 from app.services.human_actions import HUMAN_ACTIONS  # noqa: E402
 
+# ── THE FLYER CODE — off until the notices announce this use ──
+# /privacy and /cookies (8 Oct 2026, Manoj's decision 1) tell owners the flyer
+# code on their account is used for the founder's per-code counts and "for
+# nothing but the counts described above". Running this export with the
+# signup_ref table would make that sentence false, so by default the export
+# never reads users.signup_ref at all. --include-flyer-rounds adds the
+# round/argument table, and it REFUSES to run while this is False.
+#
+# Flip it to True only in the same commit that adds this use to /privacy and
+# /cookies (en + da), after the SDU/DPO sign-off — never on its own.
+FLYER_THESIS_USE_ANNOUNCED = False
+
+
+class FlyerUseNotAnnounced(RuntimeError):
+    """--include-flyer-rounds was asked for before the notices announce it."""
+
+
+def _check_flyer_opt_in(include_flyer_rounds: bool) -> None:
+    if include_flyer_rounds and not FLYER_THESIS_USE_ANNOUNCED:
+        raise FlyerUseNotAnnounced(
+            "Refused: the flyer code (signup_ref) is not in this export until "
+            "/privacy and /cookies announce that use and "
+            "FLYER_THESIS_USE_ANNOUNCED is set to True in the same commit."
+        )
+
 
 def _human_owner_ids(db) -> set[str]:
     """Owner accounts, minus the documented exclusions."""
@@ -70,9 +100,14 @@ def _human_owner_ids(db) -> set[str]:
     return ids - set(EXCLUDED_ACCOUNTS)
 
 
-def collect(db) -> dict[str, dict[str, int]]:
+def collect(db, include_flyer_rounds: bool = False) -> dict[str, dict[str, int]]:
     """Raw categorical counts (pre-suppression). Aggregate queries only —
-    no row ever carries an email, a business name, or a detail string."""
+    no row ever carries an email, a business name, or a detail string.
+
+    The signup_ref table is built only with include_flyer_rounds=True, which
+    is refused while FLYER_THESIS_USE_ANNOUNCED is False (checked before any
+    query runs)."""
+    _check_flyer_opt_in(include_flyer_rounds)
     owners = _human_owner_ids(db)
     dims: dict[str, dict[str, int]] = {}
 
@@ -112,13 +147,15 @@ def collect(db) -> dict[str, dict[str, int]]:
     # Attributed counts are a LOWER BOUND: "(no ref)" also holds door-visit
     # signups whose code was dropped (signup in another browser, storage
     # declined after the tab closed, or before the code-keeping deploy).
-    from app.services.signup_ref import ref_prefix
+    # Off by default: see FLYER_THESIS_USE_ANNOUNCED.
+    if include_flyer_rounds:
+        from app.services.signup_ref import ref_prefix
 
-    sr = Counter()
-    for uid, ref in db.query(User.id, User.signup_ref).filter(User.owner_id.is_(None)):
-        if str(uid) in owners:
-            sr[ref_prefix(ref) or "(no ref)"] += 1
-    dims["signup_ref"] = dict(sr)
+        sr = Counter()
+        for uid, ref in db.query(User.id, User.signup_ref).filter(User.owner_id.is_(None)):
+            if str(uid) in owners:
+                sr[ref_prefix(ref) or "(no ref)"] += 1
+        dims["signup_ref"] = dict(sr)
 
     # human activity (30d) — allow-listed events, distinct accounts
     from datetime import timedelta
@@ -145,11 +182,13 @@ def _hash(payload: dict) -> str:
     ).hexdigest()[:16]
 
 
-def run(out_dir: str) -> None:
+def run(out_dir: str, include_flyer_rounds: bool = False) -> None:
+    # Refuse before anything is created or read.
+    _check_flyer_opt_in(include_flyer_rounds)
     os.makedirs(out_dir, exist_ok=True)
     db = SessionLocal()
     try:
-        raw = collect(db)
+        raw = collect(db, include_flyer_rounds=include_flyer_rounds)
     finally:
         db.close()
 
@@ -183,6 +222,11 @@ def run(out_dir: str) -> None:
             "event_logs.detail never read",
             "activity = allow-listed HUMAN_ACTIONS only (cron excluded)",
             f"{len(EXCLUDED_ACCOUNTS)} founder/test accounts excluded (see EXCLUDED_ACCOUNTS)",
+            (
+                "flyer code: round/argument only (--include-flyer-rounds)"
+                if include_flyer_rounds
+                else "flyer code (users.signup_ref) never read"
+            ),
         ],
         "NOT_asserted": "legal/ethical publishability — needs the SDU DPO answer",
         "tables": {dim: tab.as_dict() for dim, tab in tables.items()},
@@ -200,4 +244,14 @@ def run(out_dir: str) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="output dir (in the thesis repo, NOT the codebase)")
-    run(ap.parse_args().out)
+    ap.add_argument(
+        "--include-flyer-rounds",
+        action="store_true",
+        help="add the flyer-code round/argument table; refused until "
+             "FLYER_THESIS_USE_ANNOUNCED is True (see the comment above it)",
+    )
+    args = ap.parse_args()
+    try:
+        run(args.out, include_flyer_rounds=args.include_flyer_rounds)
+    except FlyerUseNotAnnounced as exc:
+        raise SystemExit(str(exc))

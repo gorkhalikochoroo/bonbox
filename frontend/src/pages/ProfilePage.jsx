@@ -50,6 +50,7 @@ import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import DeviceShareSettingsCard from "../components/DeviceShareSettingsCard";
 import { resetAllTips } from "../components/DismissibleTip";
+import { CookieSettingsButton } from "../components/CookieConsent";
 import { localIso } from "../utils/dateFormat";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
@@ -1835,6 +1836,10 @@ export default function ProfilePage() {
                   onChange={toggleAnalyticsOptOut}
                 />
                 {privacyMsg && <Message tone="info">{privacyMsg}</Message>}
+                {/* Reopens the cookie banner's drawer on this device's answer,
+                    so Analytics/Marketing consent can be changed or withdrawn
+                    here, not only by clearing site data. */}
+                <CookieSettingsButton className="text-[13px] font-medium text-blue-600 dark:text-blue-400 hover:underline" />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-200 dark:border-gray-800">
                   GDPR: BonBox processes analytics under legitimate-interest basis. Your right to opt
                   out is respected here. To delete all your data, see the Danger Zone below.
