@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "../services/api";
-import { errText } from "../utils/errText";
+import { oauthErrText } from "../utils/errText";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { GoogleLogin } from "@react-oauth/google";
@@ -112,7 +112,7 @@ export default function RegisterPage() {
       if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
         return;
       }
-      setError(errText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed"));
+      setError(oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t));
     } finally {
       setAppleNativeBusy(false);
     }
@@ -443,7 +443,7 @@ export default function RegisterPage() {
                         await appleOauthLogin(idToken, name);
                         navigate("/dashboard");
                       } catch (err) {
-                        setError(errText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed"));
+                        setError(oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t));
                       }
                     }}
                     onError={(msg) =>
@@ -459,7 +459,7 @@ export default function RegisterPage() {
                         const fn = googleOauthLogin || googleLogin;
                         fn(res.credential)
                           .then(() => navigate("/dashboard"))
-                          .catch((err) => setError(errText(err, t("googleSignupFailed"))));
+                          .catch((err) => setError(oauthErrText(err, t("googleSignupFailed"), t)));
                       }}
                       onError={() => setError(t("googleSignupFailed"))}
                       shape="rectangular"

@@ -66,6 +66,7 @@ from app.schemas.auth import (
 from app.services.signup_ref import apply_signup_ref
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
+from app.services.revisor_mail import header_safe as _header_safe
 from app.config import settings
 
 import logging
@@ -205,6 +206,11 @@ def _send_verification_mail(to: str, code: str, lang: str) -> bool:
 
 def _admin_signup_email_html(email: str, business_name: str, business_type: str) -> str:
     from datetime import datetime
+    from app.services.revisor_mail import esc
+    # Every value here was typed by whoever signed up — escaped.
+    email = esc(email)
+    business_name = esc(business_name)
+    business_type = esc(business_type)
     now = utc_now().strftime("%Y-%m-%d %H:%M UTC")
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
@@ -550,81 +556,24 @@ class GoogleAuthRequest(SignupRefMixin):
 @router.post("/google", response_model=Token)
 @limiter.limit("15/minute")
 def google_auth(request: Request, response: Response, data: GoogleAuthRequest, db: Session = Depends(get_db)):
-    """Sign in or register with Google. Verifies the ID token and creates/logs in the user."""
-    from google.oauth2 import id_token as google_id_token
-    from google.auth.transport import requests as google_requests
+    """Legacy Google sign-in — kept for old clients, run through the SAME
+    handler as /auth/oauth/google (security round, 8 Oct).
 
-    if not settings.GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=503, detail="Google sign-in not configured")
-
-    try:
-        idinfo = google_id_token.verify_oauth2_token(
-            data.credential,
-            google_requests.Request(),
-            settings.GOOGLE_CLIENT_ID,
-        )
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Google token")
-
-    email = idinfo.get("email")
-    if not email:
-        raise HTTPException(status_code=401, detail="Google account has no email")
-
-    # Check if user exists
-    user = db.query(User).filter(User.email == email).first()
-    is_new = False
-
-    if not user:
-        # NEW signups via Google: same disposable-email gate as /register.
-        # Existing users are exempt — login should keep working even if
-        # their domain landed on the list after their signup.
-        if _is_disposable_email(email):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Please use a real email address (work or personal). Disposable email services aren't supported.",
-            )
-        # Auto-register — Google already verified their email
-        is_new = True
-        name = idinfo.get("name", "")
-        user = User(
-            email=email,
-            password_hash=hash_password(secrets.token_urlsafe(32)),  # random password (won't be used)
-            business_name=name,
-            business_type="",
-            currency="DKK",
-            email_verified=True,
-            oauth_provider="google",  # mark origin so it's distinguishable from a password account
-        )
-        # New account only — a sign-in to an existing one never gains a ref.
-        apply_signup_ref(user, data.signup_ref)
-        # Start the 14-day Pro trial for new Google sign-ups too
-        from app.services.billing import start_trial
-        start_trial(user)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-        # Welcome email — in the browser's language, else the currency's
-        try:
-            from app.services.signup_mail import mail_lang_for_user
-            _send_welcome_mail(user.email, name or "", mail_lang_for_user(user, request))
-        except Exception:
-            pass
-
-        # Admin notification — skip probe / test signups
-        if settings.ADMIN_EMAIL and "@bonbox-probe.com" not in (email or "").lower():
-            try:
-                send_email(
-                    settings.ADMIN_EMAIL,
-                    f"New BonBox signup (Google): {name or email}",
-                    _admin_signup_email_html(email, name, "google-oauth"),
-                )
-            except Exception:
-                pass
-
-    token = create_access_token(str(user.id), user.token_version)
-    _set_auth_cookie(response, token, request)
-    return Token(access_token=token, user=UserResponse.model_validate(user))
+    This route used to resolve the Google e-mail to ANY existing account
+    and log it in: no email_verified check, no refusal to link onto a
+    password account, no jti replay check. It now takes the credential
+    (Google's ID token) to auth_oauth.google_signin, so both routes apply
+    one set of rules and answer with one shape. legacy=True keeps this
+    route's own new-signup behaviour: the disposable-address gate, the
+    welcome mail (now services/signup_mail's, in the owner's language) and
+    the admin signup notice. The door-visit signup_ref rides
+    along and is stamped on a NEW account only, as on /oauth/google.
+    """
+    from app.routers.auth_oauth import google_signin
+    return google_signin(
+        request, response, data.credential, db,
+        legacy=True, signup_ref=data.signup_ref,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -786,6 +735,12 @@ def apple_auth(
     if not apple_sub:
         raise HTTPException(status_code=401, detail="Apple token missing sub")
 
+    from app.routers.auth_oauth import claim_is_true, refuse_unverified_email
+    from app.services.oauth_jti_cache import claim_jti
+    # Same replay guard as /auth/oauth/apple: one id_token, one sign-in.
+    if not claim_jti(claims.get("jti"), claims.get("exp")):
+        raise HTTPException(status_code=401, detail="Apple token already used (replay)")
+
     is_relay_email = bool(email) and email.lower().endswith("@privaterelay.appleid.com")
 
     # Find user by apple_user_id first (stable across email changes),
@@ -793,18 +748,24 @@ def apple_auth(
     # — that risks hijacking an existing account if someone re-uses
     # the same relay alias.
     user = db.query(User).filter(User.apple_user_id == apple_sub).first()
+    # Everything below keys on the e-mail (lookup, link, create): only on an
+    # address Apple says it verified.
+    if not user and email and not claim_is_true(claims.get("email_verified")):
+        raise refuse_unverified_email("Apple")
     if not user and email and not is_relay_email:
         user = db.query(User).filter(User.email == email).first()
         if user:
             # Existing email-based user signing in with Apple for the
             # first time — link the apple_user_id so future sign-ins
-            # find them by sub.
-            # NOTE (security audit 2026-06): the new /api/auth/oauth/apple
-            # endpoint refuses to link Apple onto a pre-existing PASSWORD
-            # account (account-takeover guard, Task #75). Porting that same
-            # refusal here would change this tested legacy flow, so it's a
-            # deliberate product decision left to Manoj rather than changed
-            # silently. The active /oauth/* path is already guarded.
+            # find them by sub. Only on an address Apple verified (above),
+            # i.e. by someone who controls that inbox.
+            # NOTE (security audit 2026-06, re-checked 8 Oct): the new
+            # /api/auth/oauth/apple endpoint refuses to link Apple onto a
+            # pre-existing PASSWORD account (account-takeover guard, Task
+            # #75). Porting that same refusal here would change this tested
+            # legacy flow (old iOS builds), so it's a deliberate product
+            # decision left to Manoj rather than changed silently. The
+            # active /oauth/* path is already guarded.
             user.apple_user_id = apple_sub
             db.commit()
             db.refresh(user)
@@ -834,6 +795,9 @@ def apple_auth(
             currency="DKK",
             email_verified=True,
             apple_user_id=apple_sub,
+            # Mark the origin, as the legacy Google route always did, so a
+            # later Google sign-in on the same address may link to it.
+            oauth_provider="apple",
         )
         # New account only — a sign-in to an existing one never gains a ref.
         apply_signup_ref(user, data.signup_ref)
@@ -856,7 +820,7 @@ def apple_auth(
             try:
                 send_email(
                     settings.ADMIN_EMAIL,
-                    f"New BonBox signup (Apple): {full_name or email}",
+                    _header_safe(f"New BonBox signup (Apple): {full_name or email}"),
                     _admin_signup_email_html(email, full_name, "apple-oauth"),
                 )
             except Exception:
@@ -997,7 +961,7 @@ def verify_email(
         try:
             send_email(
                 settings.ADMIN_EMAIL,
-                f"New verified BonBox signup: {current_user.business_name or current_user.email}",
+                _header_safe(f"New verified BonBox signup: {current_user.business_name or current_user.email}"),
                 _admin_signup_email_html(current_user.email, current_user.business_name, current_user.business_type),
             )
         except Exception:
@@ -1194,6 +1158,80 @@ _RESET_CODE_TTL_MIN = 15
 # flood is pointless, short enough that an owner whose first mail went to spam
 # is not stuck waiting out the full code lifetime.
 _RESET_RESEND_COOLDOWN_MIN = 2
+# Per-ACCOUNT ceilings over a rolling 24 hours (security round, 8 Oct). The
+# 5-wrong-guesses limit used to start over with every new code, so the only
+# per-account bound on guesses was the 2-minute resend cooldown (~3,600
+# guesses a day against a 6-digit code), and nothing bounded the reset mails
+# a known owner address could be sent. Counted from audit_logs, the repo's
+# usage counter — no migration:
+#   • at most _RESET_CODES_PER_DAY codes (= reset mails) per account;
+#   • at most _RESET_MAX_FAILED wrong codes per account. The counter is
+#     carried across a reissue, not zeroed; at the limit reset is paused for
+#     the rest of the window and the owner gets ONE mail saying so.
+_RESET_CODES_PER_DAY = 5
+_RESET_MAX_FAILED = 5
+_RESET_ISSUED_ACTION = "auth.reset_code_issued"
+_RESET_FAILED_ACTION = "auth.reset_code_failed"
+_RESET_LOCKED_ACTION = "auth.reset_locked"
+
+
+def _reset_events_24h(db: Session, user: User, action: str) -> int | None:
+    """How many `action` audit rows this account has in the last 24 hours.
+    None when the count itself failed — the caller decides what that means."""
+    try:
+        from app.models.audit_log import AuditLog
+        since = utc_now() - timedelta(hours=24)
+        return (
+            db.query(AuditLog)
+            .filter(AuditLog.user_id == user.id, AuditLog.action == action,
+                    AuditLog.created_at >= since)
+            .count()
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("reset ceiling count failed (%s): %s", action, e)
+        return None
+
+
+def _reset_audit(db: Session, user: User, action: str, request: Request | None) -> None:
+    """Best-effort audit row (no code, no address in the payload)."""
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, user.id, action, entity_type="user", entity_id=user.id,
+            ip_address=getattr(getattr(request, "client", None), "host", None),
+        )
+    except Exception:  # noqa: BLE001 — never block the flow on the audit write
+        pass
+
+
+def _reset_locked_email_html(lang: str) -> tuple[str, str]:
+    """(subject, html) of the one mail an owner gets when reset is paused."""
+    if lang == "da":
+        subject = "BonBox — nulstilling af adgangskode er sat på pause"
+        lines = (
+            "Der er indtastet forkerte nulstillingskoder til din BonBox-konto for mange gange.",
+            "Nulstilling af adgangskode er derfor sat på pause i 24 timer.",
+            "Din adgangskode er ikke ændret. Var det ikke dig, behøver du ikke gøre noget.",
+            "Du kan stadig logge ind med din adgangskode eller et login-link.",
+        )
+    else:
+        subject = "BonBox — password reset paused"
+        lines = (
+            "Too many wrong reset codes were entered for your BonBox account.",
+            "Password reset is paused for 24 hours.",
+            "Your password has not changed. If this wasn't you, there is nothing you need to do.",
+            "You can still sign in with your password or a login link.",
+        )
+    body = "".join(
+        f'<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 12px">{line}</p>'
+        for line in lines
+    )
+    html = (
+        "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+        "max-width:480px;margin:0 auto;padding:32px 24px;background:#fff\">"
+        f"{body}</div>"
+    )
+    return subject, html
 
 
 @router.post("/forgot-password")
@@ -1234,11 +1272,26 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
             # and send. A throttle must never lock a real owner out of reset.
             pass
 
+    # Per-account daily ceilings — the same generic answer, no mail. A
+    # counting failure never blocks the owner (n is None → not over).
+    _issued = _reset_events_24h(db, user, _RESET_ISSUED_ACTION)
+    if _issued is not None and _issued >= _RESET_CODES_PER_DAY:
+        return {"message": "If an account exists with that email, we've sent a reset code."}
+    _failed = _reset_events_24h(db, user, _RESET_FAILED_ACTION)
+    if _failed is not None and _failed >= _RESET_MAX_FAILED:
+        # Paused (the owner was told by mail when it happened): a code now
+        # could not be used, so none is sent.
+        return {"message": "If an account exists with that email, we've sent a reset code."}
+
     # Generate a short 6-digit code instead of a long token
     code = f"{secrets.randbelow(900000) + 100000}"
     user.reset_token = code
     user.reset_token_expires = _now + timedelta(minutes=_RESET_CODE_TTL_MIN)
-    user.reset_attempts = 0  # fresh code → reset the brute-force counter
+    # The wrong-guess counter is CARRIED across a new code, not zeroed: it
+    # holds this account's wrong codes of the last 24 hours. (On a counting
+    # failure the stored value stands — never a fresh 0.)
+    user.reset_attempts = _failed if _failed is not None else (user.reset_attempts or 0)
+    _reset_audit(db, user, _RESET_ISSUED_ACTION, request)
     db.commit()
 
     email_sent = send_email(
@@ -1287,7 +1340,16 @@ def reset_password(
     cookie for the device completing the reset so the legitimate user is
     signed straight in. Mirrors sign_out_all.
     """
-    user = db.query(User).filter(User.email == data.email).first()
+    # Row lock (review, 8 Oct): read-compare-increment of reset_attempts must
+    # be one step, or a burst of parallel guesses (many IPs, one account) all
+    # read the same count and each writes the same +1 — the 5-guess burn and
+    # the 24h ceiling seeded from it would not hold. FOR UPDATE serialises
+    # the requests for this account until each one commits or rolls back.
+    # (SQLite has no row locks and ignores it; it serialises writers anyway.)
+    user = (
+        db.query(User).filter(User.email == data.email)
+        .with_for_update().first()
+    )
     # Use a single generic error so we don't leak whether the email exists,
     # whether a token was issued, or whether it matched.
     invalid = HTTPException(status_code=400, detail="Invalid or expired reset code")
@@ -1297,7 +1359,7 @@ def reset_password(
     # per-IP limit (5/min) alone won't stop a distributed/botnet spray inside
     # the 15-min window. After 5 wrong guesses we burn the code so it can no
     # longer be brute-forced; the user simply requests a fresh one.
-    if (user.reset_attempts or 0) >= 5:
+    if (user.reset_attempts or 0) >= _RESET_MAX_FAILED:
         user.reset_token = None
         user.reset_token_expires = None
         db.commit()
@@ -1311,7 +1373,22 @@ def reset_password(
         (data.reset_token or "").encode("utf-8"),
     ):
         user.reset_attempts = (user.reset_attempts or 0) + 1
+        _reset_audit(db, user, _RESET_FAILED_ACTION, request)
+        locked_now = user.reset_attempts >= _RESET_MAX_FAILED
+        if locked_now:
+            # Burn the code at once and pause reset for the window.
+            user.reset_token = None
+            user.reset_token_expires = None
+            _reset_audit(db, user, _RESET_LOCKED_ACTION, request)
         db.commit()
+        if locked_now:
+            # One mail, once per lock: tell the owner what happened.
+            try:
+                from app.services.owner_language import owner_lang
+                subj, html = _reset_locked_email_html(owner_lang(user))
+                send_email(user.email, subj, html)
+            except Exception:  # noqa: BLE001
+                logger.warning("reset lock notice failed for user %s", user.id)
         raise invalid
 
     user.password_hash = hash_password(data.new_password)
@@ -1553,6 +1630,154 @@ def set_monthly_goal(
 
 
 # ============================================================
+# The ownership walk — shared by erasure (Art. 17) and export (Art. 15/20)
+# ============================================================
+def _user_fk_columns(table):
+    """Column names in `table` that are a ForeignKey to users.id."""
+    cols = []
+    for col in table.columns:
+        for fk in col.foreign_keys:
+            if fk.column.table.name == "users":
+                cols.append(col.name)
+    return cols
+
+
+def _owned_by_uid_predicate(table, uid, _seen=None):
+    """SQL predicate selecting the rows of `table` that belong to `uid`.
+
+    Direct case: any users.id-FK column == uid. Orphan-child case: a
+    table with NO users.id FK (e.g. inventory_logs → inventory_items)
+    is still tenant-owned through its parent, and its parent FK may lack
+    ON DELETE CASCADE — so deleting the parent first would FK-violate.
+    We recurse through every non-users FK and match rows whose parent
+    row is itself owned by uid (… IN (SELECT pk FROM parent WHERE
+    parent_is_owned_by_uid)). Returns None if no ownership path exists
+    (a truly global/shared table — left untouched). Cycle-guarded.
+    """
+    from sqlalchemy import or_ as _or, select as _select
+
+    _seen = _seen or set()
+    if table.name in _seen:
+        return None
+    _seen = _seen | {table.name}
+
+    clauses = [table.c[c] == uid for c in _user_fk_columns(table)]
+    for col in table.columns:
+        for fk in col.foreign_keys:
+            parent = fk.column.table
+            if parent.name == "users" or parent.name == table.name:
+                continue
+            parent_pred = _owned_by_uid_predicate(parent, uid, _seen)
+            if parent_pred is None:
+                continue
+            parent_pk = list(parent.primary_key.columns)
+            if len(parent_pk) != 1:
+                continue
+            clauses.append(col.in_(_select(parent_pk[0]).where(parent_pred)))
+    if not clauses:
+        return None
+    return _or(*clauses)
+
+
+# Tables the erasure keeps (legal hold) — not part of the walk, so not part
+# of the walk's export either. Mirrors delete_account's own sets, which
+# tests/test_delete_account_completeness.py reads from its source.
+_EXPORT_SKIPPED_TABLES = {"users", "audit_logs", "security_events", "error_logs"}
+
+# Credential columns never leave the server, not even to their owner: a
+# stolen export must not sign anybody in, open a staff portal or a bank
+# consent, or redeem a gavekort.
+_EXPORT_SECRET_EXACT = {
+    "token", "auth", "credentials", "verification_code", "join_code",
+    "consent_state", "short_code",
+    # tickets.qr_payload: the signed entry JWT — whoever holds it gets in.
+    "qr_payload",
+}
+
+# A staff-portal link carries its capability token in the path
+# (/s/<token>, /s/<business>/<token>, /s/<business>/<staff>/<token>) and the
+# mails that hold one are stored whole in notification_log.body. The token
+# column itself is never exported, so the copy inside a stored mail is cut
+# out too: the link reads https://www.bonbox.dk/s/[removed].
+_PORTAL_LINK_RE = re.compile(
+    r"""(?:(https?://[^\s"'<>/]+)|(?<=[\s"'=(>])|^)/s/[^\s"'<>]+"""
+)
+
+
+def _redact_portal_links(text: str) -> str:
+    if "/s/" not in text:
+        return text
+    return _PORTAL_LINK_RE.sub(lambda m: (m.group(1) or "") + "/s/[removed]", text)
+
+
+def _is_secret_column(col) -> bool:
+    name = col.name.lower()
+    if name in _EXPORT_SECRET_EXACT:
+        return True
+    if name.endswith(("_hash", "_enc", "_token")):
+        return True
+    if "password" in name or "secret" in name:
+        return True
+    try:
+        if col.type.python_type is bytes:
+            return True
+    except Exception:  # noqa: BLE001 — custom types (GUID) have no python_type
+        pass
+    return False
+
+
+def _export_cell(value):
+    """A stored value → one CSV cell (csv_safe is applied by the writer)."""
+    import json as _json
+    from datetime import date as _date, datetime as _dt
+    if value is None:
+        return ""
+    if isinstance(value, (_dt, _date)):
+        return value.isoformat()
+    if isinstance(value, (dict, list)):
+        return _redact_portal_links(_json.dumps(value, ensure_ascii=False, default=str))
+    return _redact_portal_links(str(value))
+
+
+def _export_owned_tables(db: Session, writer, uid) -> None:
+    """Art. 15/20 completeness: every row the erasure walk would delete —
+    one section per table, every column except credentials. Driven by
+    Base.metadata, so a new user-owned table is exported the day it is
+    added, exactly as it is erased."""
+    from app.database import Base as _Base
+
+    writer.writerow([])
+    writer.writerow(["=== Complete record: every table BonBox holds for this account ==="])
+    for table in _Base.metadata.sorted_tables:
+        if table.name in _EXPORT_SKIPPED_TABLES:
+            continue
+        predicate = _owned_by_uid_predicate(table, uid)
+        if predicate is None:
+            continue
+        cols = [c for c in table.columns if not _is_secret_column(c)]
+        try:
+            with db.begin_nested():
+                from sqlalchemy import select as _select
+                stmt = _select(*cols).where(predicate)
+                pk = list(table.primary_key.columns)
+                if pk and pk[0] in cols:
+                    stmt = stmt.order_by(pk[0])
+                rows = db.execute(stmt).fetchall()
+        except Exception:  # noqa: BLE001 — say so, never drop a table silently
+            logger.warning("export-data: could not read table %s", table.name)
+            writer.writerow([])
+            writer.writerow([f"=== table: {table.name} (could not be read — contact support) ==="])
+            continue
+        if not rows:
+            continue
+        _write_csv_section(
+            writer, f"table: {table.name} ({len(rows)} rows)",
+            [c.name for c in cols],
+            [[_export_cell(v) for v in row] for row in rows],
+        )
+
+
+# ============================================================
 # GDPR: Right to Data Portability (Article 20)
 # ============================================================
 def _write_csv_section(writer, title: str, headers: list, rows: list):
@@ -1568,16 +1793,40 @@ def _write_csv_section(writer, title: str, headers: list, rows: list):
 
 
 @router.get("/export-data")
+# The complete record reads every owned table (~85 queries) into memory in
+# one request; production is one worker with a 15-connection pool. 3/minute
+# per IP is plenty for an owner and keeps a loop on this GET from tying up
+# the pool (review, 8 Oct). No body, so the slowapi/future-annotations
+# gotcha does not apply.
+@limiter.limit("3/minute")
 def export_all_data(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """GDPR Article 20 — Export all user data as a single CSV file.
 
-    Returns every piece of data BonBox stores about the user:
-    profile, sales, expenses, inventory, cash book, waste logs,
-    khata, loans, budgets, staffing rules, business profile, etc.
+    Returns every piece of data BonBox stores about the user: a readable
+    summary (profile, sales, expenses, inventory, cash book, waste logs,
+    khata, loans, budgets, staffing rules, business profile, …) followed by
+    the complete record — one section per table the account-deletion walk
+    covers, every column except credentials (_export_owned_tables).
+
+    Owner only. Members are refused by member_read_guard; a revisor in an
+    accountant-view session is refused here (review, 8 Oct): the export is
+    the data subject's Art. 15/20 copy — guests' phones and allergy notes,
+    staff addresses and tax cards, staff chat — and a revisor's grant is for
+    the books, which the accountant exports already cover.
     """
+    if getattr(current_user, "_is_accountant_view", False):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "export_owner_only",
+                "message": "Only the account owner can download the full data export.",
+                "message_da": "Kun ejeren af kontoen kan hente den fulde dataeksport.",
+            },
+        )
     uid = current_user.id
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -1768,6 +2017,12 @@ def export_all_data(
             str(pc.created_at),
         ] for pc in pay_conns])
 
+    # --- Everything else: the same walk the erasure uses ---
+    # The sections above are the readable summary; this part makes the
+    # export complete (daily closes, kasserapport, staff, schedules, hours,
+    # reservations, customers, invoices, events, gavekort, chat, …).
+    _export_owned_tables(db, w, uid)
+
     # Return as downloadable CSV
     buf.seek(0)
     return StreamingResponse(
@@ -1852,58 +2107,16 @@ def delete_account(
     _ERASURE_DEFERRED_TABLES = {"bank_connections", "mobilepay_connections"}
 
     from app.database import Base as _Base
-    from sqlalchemy import or_ as _or, select as _select
 
-    def _user_fk_columns(table):
-        """Column names in `table` that are a ForeignKey to users.id."""
-        cols = []
-        for col in table.columns:
-            for fk in col.foreign_keys:
-                if fk.column.table.name == "users":
-                    cols.append(col.name)
-        return cols
-
-    def _owned_by_uid_predicate(table, _seen=None):
-        """SQL predicate selecting the rows of `table` that belong to `uid`.
-
-        Direct case: any users.id-FK column == uid. Orphan-child case: a
-        table with NO users.id FK (e.g. inventory_logs → inventory_items)
-        is still tenant-owned through its parent, and its parent FK may lack
-        ON DELETE CASCADE — so deleting the parent first would FK-violate.
-        We recurse through every non-users FK and match rows whose parent
-        row is itself owned by uid (… IN (SELECT pk FROM parent WHERE
-        parent_is_owned_by_uid)). Returns None if no ownership path exists
-        (a truly global/shared table — left untouched). Cycle-guarded.
-        """
-        _seen = _seen or set()
-        if table.name in _seen:
-            return None
-        _seen = _seen | {table.name}
-
-        clauses = [table.c[c] == uid for c in _user_fk_columns(table)]
-        for col in table.columns:
-            for fk in col.foreign_keys:
-                parent = fk.column.table
-                if parent.name == "users" or parent.name == table.name:
-                    continue
-                parent_pred = _owned_by_uid_predicate(parent, _seen)
-                if parent_pred is None:
-                    continue
-                parent_pk = list(parent.primary_key.columns)
-                if len(parent_pk) != 1:
-                    continue
-                clauses.append(col.in_(_select(parent_pk[0]).where(parent_pred)))
-        if not clauses:
-            return None
-        return _or(*clauses)
-
+    # The ownership walk is module-level (_owned_by_uid_predicate) so the
+    # GDPR export reads exactly the rows this erasure deletes.
     # Children-before-parents: sorted_tables is parents-first, so reverse it.
     for table in reversed(_Base.metadata.sorted_tables):
         if table.name == "users":
             continue
         if table.name in _ERASURE_RETAINED_TABLES or table.name in _ERASURE_DEFERRED_TABLES:
             continue
-        predicate = _owned_by_uid_predicate(table)
+        predicate = _owned_by_uid_predicate(table, uid)
         if predicate is None:
             continue  # global/shared table with no ownership path — keep
         try:

@@ -51,3 +51,16 @@ export function errText(err, fallback = "Something went wrong. Try again.") {
 }
 
 export default errText;
+
+/**
+ * oauthErrText — errText for the Google / Apple sign-in buttons. The server
+ * refuses two cases with a code (an e-mail the provider has not verified,
+ * and an existing password account it will not link silently); say those in
+ * the owner's language instead of the server's English.
+ */
+export function oauthErrText(err, fallback, t) {
+  const code = err?.response?.data?.detail?.code;
+  if (code === "email_not_verified") return t("oauthEmailNotVerified");
+  if (code === "account_exists_login_first") return t("oauthAccountExistsLoginFirst");
+  return errText(err, fallback);
+}

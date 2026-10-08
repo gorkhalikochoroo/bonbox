@@ -386,8 +386,17 @@ def build_shift_email_html(
     week_label: str,
     lang: str = "en",
 ) -> str:
-    """Build a mobile-friendly HTML email for shift change notifications."""
+    """Build a mobile-friendly HTML email for shift change notifications.
+
+    Goes to whatever staff address the owner entered, under BonBox's sender:
+    every interpolated value is escaped (revisor_mail.esc, the one mail
+    escape) — the business and staff names are text someone typed."""
+    from app.services.revisor_mail import esc
     C = _EMAIL_COPY.get((lang or "en").lower(), _EMAIL_COPY["en"])
+    restaurant_name = esc(restaurant_name)
+    week_label = esc(week_label)
+    portal_url = esc(portal_url) if portal_url else portal_url
+    first_name = esc((staff_name or "").split(" ")[0])
 
     # Build change rows
     change_rows = ""
@@ -395,13 +404,13 @@ def build_shift_email_html(
         date_nice = _format_date_nice(c.date, lang)
         if c.change_type == "added":
             badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#16a34a20;color:#16a34a;font-size:11px;font-weight:600">{C["new"]}</span>'
-            detail = f"{c.new_start} - {c.new_end}"
+            detail = f"{esc(c.new_start)} - {esc(c.new_end)}"
         elif c.change_type == "removed":
             badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#dc262620;color:#dc2626;font-size:11px;font-weight:600">{C["cancelled"]}</span>'
-            detail = f"<s style=\"color:#94a3b8\">{c.old_start} - {c.old_end}</s>"
+            detail = f"<s style=\"color:#94a3b8\">{esc(c.old_start)} - {esc(c.old_end)}</s>"
         else:
             badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#d9770620;color:#d97706;font-size:11px;font-weight:600">{C["changed"]}</span>'
-            detail = f"<s style=\"color:#94a3b8\">{c.old_start}-{c.old_end}</s> &rarr; <strong>{c.new_start}-{c.new_end}</strong>"
+            detail = f"<s style=\"color:#94a3b8\">{esc(c.old_start)}-{esc(c.old_end)}</s> &rarr; <strong>{esc(c.new_start)}-{esc(c.new_end)}</strong>"
 
         change_rows += f"""
         <tr>
@@ -435,7 +444,7 @@ def build_shift_email_html(
 
     <!-- Greeting -->
     <div style="margin-bottom:20px">
-      <p style="margin:0;font-size:15px;color:#cbd5e1">{C['greeting'].format(first=staff_name.split(' ')[0])}</p>
+      <p style="margin:0;font-size:15px;color:#cbd5e1">{C['greeting'].format(first=first_name)}</p>
       <p style="margin:6px 0 0;font-size:14px;color:#94a3b8">{C['lede']}</p>
     </div>
 

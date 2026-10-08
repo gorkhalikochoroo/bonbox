@@ -88,6 +88,9 @@ def no_mail(monkeypatch):
     """Every mail the auth router would send lands here instead."""
     sent: list[tuple] = []
     monkeypatch.setattr("app.routers.auth.send_email", lambda *a, **k: sent.append((a, k)))
+    # The legacy /google route now runs auth_oauth.google_signin, whose
+    # signup mails go through email_service.send_email (looked up per call).
+    monkeypatch.setattr("app.services.email_service.send_email", lambda *a, **k: sent.append((a, k)))
     return sent
 
 
@@ -275,17 +278,25 @@ def test_oauth_sign_in_to_existing_account_never_overwrites(db_session, client):
 # ── Legacy /google and /apple (still used by the web Google fallback + iOS) ──
 
 
+# The legacy /google route now runs auth_oauth.google_signin (security
+# round, 8 Oct), so its token is checked by auth_oauth.verify_google_token —
+# stubbed there, with the claims a real Google token carries (sub, verified).
+
+
 def test_legacy_google_new_account_gets_ref(db_session, client):
-    with patch("google.oauth2.id_token.verify_oauth2_token",
-               return_value={"email": "legacy.g@gmail.com", "name": "Legacy"}):
+    with patch("app.routers.auth_oauth.verify_google_token",
+               return_value=_claims("g-legacy-new", "legacy.g@gmail.com", "Legacy")):
         r = client.post("/api/auth/google", json={"credential": "stub", "signup_ref": "r1-a-02"})
     assert r.status_code == 200, r.text
     assert db_session.query(User).filter(User.email == "legacy.g@gmail.com").first().signup_ref == "r1-a-02"
 
 
 def test_legacy_apple_new_account_gets_ref(db_session, client):
+    # email_verified: the legacy route now refuses an address Apple does not
+    # vouch for (security round, 8 Oct).
     with patch("app.routers.auth._verify_apple_identity_token",
-               return_value={"sub": "legacy-a-1", "email": "legacy.a@icloud.com"}):
+               return_value={"sub": "legacy-a-1", "email": "legacy.a@icloud.com",
+                             "email_verified": "true"}):
         r = client.post("/api/auth/apple",
                         json={"identity_token": "stub", "full_name": "Legacy", "signup_ref": "r2-b-02"})
     assert r.status_code == 200, r.text
@@ -293,18 +304,49 @@ def test_legacy_apple_new_account_gets_ref(db_session, client):
 
 
 def test_legacy_google_existing_account_keeps_its_ref(db_session, client):
+    # A Google-made account (the legacy route stamped oauth_provider="google"
+    # before google_sub existed) signing in again: linked by its verified
+    # e-mail, never given the new ref.
     db_session.add(User(
         email="legacy.old@gmail.com", password_hash=hash_password("x" * 12),
         business_name="Old", business_type="cafe", currency="DKK",
-        email_verified=True, signup_ref="r1-a-05",
+        email_verified=True, oauth_provider="google", signup_ref="r1-a-05",
+    ))
+    db_session.add(User(
+        email="legacy.noref@gmail.com", password_hash=hash_password("x" * 12),
+        business_name="NoRef", business_type="cafe", currency="DKK",
+        email_verified=True, oauth_provider="google",
     ))
     db_session.commit()
-    with patch("google.oauth2.id_token.verify_oauth2_token",
-               return_value={"email": "legacy.old@gmail.com", "name": "Old"}):
+    with patch("app.routers.auth_oauth.verify_google_token",
+               return_value=_claims("g-legacy-old", "legacy.old@gmail.com", "Old")):
+        r = client.post("/api/auth/google", json={"credential": "stub", "signup_ref": "r2-b-01"})
+    assert r.status_code == 200, r.text
+    with patch("app.routers.auth_oauth.verify_google_token",
+               return_value=_claims("g-legacy-noref", "legacy.noref@gmail.com", "NoRef")):
         r = client.post("/api/auth/google", json={"credential": "stub", "signup_ref": "r2-b-01"})
     assert r.status_code == 200, r.text
     db_session.expire_all()
     assert db_session.query(User).filter(User.email == "legacy.old@gmail.com").first().signup_ref == "r1-a-05"
+    # A sign-in is not a signup: an account without a ref does not gain one.
+    assert db_session.query(User).filter(User.email == "legacy.noref@gmail.com").first().signup_ref is None
+
+
+def test_legacy_google_refused_link_never_stamps_a_ref(db_session, client):
+    # A PASSWORD account is never silently linked by the legacy route any
+    # more (409) — and the refused attempt leaves its ref alone.
+    db_session.add(User(
+        email="legacy.pw@gmail.com", password_hash=hash_password("x" * 12),
+        business_name="Pw", business_type="cafe", currency="DKK",
+        email_verified=True,
+    ))
+    db_session.commit()
+    with patch("app.routers.auth_oauth.verify_google_token",
+               return_value=_claims("g-legacy-pw", "legacy.pw@gmail.com", "Pw")):
+        r = client.post("/api/auth/google", json={"credential": "stub", "signup_ref": "r2-b-03"})
+    assert r.status_code == 409, r.text
+    db_session.expire_all()
+    assert db_session.query(User).filter(User.email == "legacy.pw@gmail.com").first().signup_ref is None
 
 
 # ── Magic link (e-mail me a link) — also a self-signup ───────────────

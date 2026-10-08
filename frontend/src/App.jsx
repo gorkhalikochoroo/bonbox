@@ -596,19 +596,27 @@ function OwnerOnlyRoute({ children }) {
   return children;
 }
 
-function VerifyEmailRoute() {
+export function VerifyEmailRoute() {
   const { user, loading, needsEmailVerification } = useAuth();
-  const location = useLocation();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" />;
-  // If already verified or skipped, go to dashboard — unless the owner asked
-  // for the page: the "Bekræft din e-mail" reminder and Profile's
-  // "Unverified" chip link here with ?now=1, and a skip must not turn that
-  // tap into a bounce back to the dashboard.
-  const asked = new URLSearchParams(location.search).get("now") === "1";
-  if (!needsEmailVerification()) return <Navigate to="/dashboard" />;
-  if (verifySkipActive(user.id) && !asked) return <Navigate to="/dashboard" />;
-  return <VerifyEmailPage />;
+  // Only a confirmed address leaves this page. The grace date and "skip for
+  // now" decide who is SENT here (ProtectedRoute / OnboardingRoute), not who
+  // may come: an owner created before the grace date, or one who skipped,
+  // arrives on purpose — Profile → Ikke bekræftet, the "Bekræft din e-mail"
+  // reminder (?now=1), or "Bekræft nu" on a send BonBox refused for an
+  // unconfirmed account — and must be able to confirm. Bouncing them to
+  // /dashboard made faktura mail and team invites a permanent 403 for every
+  // grandfathered owner (review, 8 Oct), and a skip never turns that tap
+  // into a bounce.
+  if (user.email_verified) return <Navigate to="/dashboard" />;
+  // The skip is the 7-day per-account one (utils/verifySkip — it still
+  // honours the old session flag). Nobody mailed a code to an owner who was
+  // not sent here at signup (or who skipped it) — the page sends a fresh
+  // one on arrival.
+  const skipped = verifySkipActive(user.id);
+  const sendOnArrival = !needsEmailVerification() || skipped;
+  return <VerifyEmailPage sendOnArrival={sendOnArrival} />;
 }
 
 function PublicOrDashboard() {

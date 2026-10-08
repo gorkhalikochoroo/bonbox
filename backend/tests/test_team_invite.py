@@ -139,6 +139,9 @@ def _owner(db, *, plan: str = "starter", email_suffix: str = "") -> User:
         currency="DKK",
         plan=plan,
         role="owner",
+        # Invites are mail to a third party: only a confirmed account may
+        # send them (8 Oct security round — test_team_invite_mail_security).
+        email_verified=True,
     )
     db.add(u)
     db.commit()
