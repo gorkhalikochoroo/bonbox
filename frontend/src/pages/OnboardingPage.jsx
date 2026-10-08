@@ -821,8 +821,18 @@ export default function OnboardingPage() {
     }
     // Land on the archetype's firstWin (quickest win) instead of an empty
     // dashboard. routeForFeature() degrades to /dashboard for unknown keys.
-    await finishOnboarding(routeForFeature(resolvedArchetype.firstWin));
+    await finishOnboarding(finishRoute());
   };
+
+  /** Where the wizard's finish lands. An archetype whose first win is the
+   *  day's close (café, restaurant, bakery, bar, takeaway) goes to "Du er
+   *  klar" (/getting-started): "Lav din første kasserapport" one tap away,
+   *  and the staff invite beside it. Every other archetype keeps its firstWin. */
+  const finishRoute = () => (
+    resolvedArchetype.firstWin === "daily_close"
+      ? "/getting-started"
+      : routeForFeature(resolvedArchetype.firstWin)
+  );
 
   /** POST the completion stamp and redirect. Defaults to /dashboard, but
    *  the "Finish" action passes the resolved archetype's firstWin route so
@@ -1646,7 +1656,11 @@ export default function OnboardingPage() {
                 backLabel={t("onbBack")}
                 backDisabled={revisorSending || finishing}
                 secondaryLabel={t("onbStep4SkipBtn")}
-                onSecondary={() => finishOnboarding("/dashboard")}
+                // Skipping the revisor is not skipping the next step: the
+                // close-first archetypes land on "Du er klar" here too.
+                onSecondary={() => finishOnboarding(
+                  resolvedArchetype.firstWin === "daily_close" ? "/getting-started" : "/dashboard",
+                )}
                 secondaryDisabled={revisorSending || finishing}
                 primaryLabel={
                   revisor.email && canInviteRevisor

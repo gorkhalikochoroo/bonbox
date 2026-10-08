@@ -19,6 +19,7 @@ const h = vi.hoisted(() => ({
   patch: vi.fn(() => Promise.resolve({ data: {} })),
   navigate: vi.fn(),
   features: new Set(["close_auto_email"]),
+  businessType: "cafe",
 }));
 
 vi.mock("../services/api", () => ({
@@ -27,7 +28,7 @@ vi.mock("../services/api", () => ({
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
     user: {
-      id: "u1", business_name: "Café Solsikken", business_type: "cafe",
+      id: "u1", business_name: "Café Solsikken", business_type: h.businessType,
       currency: "DKK", role: "owner", onboarding_completed_at: null,
     },
     refreshUser: vi.fn(() => Promise.resolve()),
@@ -67,6 +68,7 @@ beforeEach(() => {
   h.patch.mockClear();
   h.navigate.mockClear();
   h.features = new Set(["close_auto_email"]);
+  h.businessType = "cafe";
 });
 
 async function toStep3() {
@@ -162,5 +164,30 @@ describe("step 4 — the invite is optional, the demo keeps the owner's business
     // seeding never PUTs the profile
     const putsAfterSeed = h.put.mock.calls.filter(([url]) => url === "/business").length;
     expect(putsAfterSeed).toBe(2); // step 2 + step 3 saves only
+  });
+});
+
+describe("the finish — one obvious next step (item 4)", () => {
+  it("a café lands on 'Du er klar' (/getting-started)", async () => {
+    await toStep4();
+    await act(async () => { fireEvent.click(screen.getByText("onbFinishToFirstWin")); });
+    await waitFor(() => expect(h.navigate).toHaveBeenCalled());
+    expect(h.post).toHaveBeenCalledWith("/auth/onboarding/complete");
+    expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
+  });
+
+  it("skipping the revisor still lands there", async () => {
+    await toStep4();
+    await act(async () => { fireEvent.click(screen.getByText("onbStep4SkipBtn")); });
+    await waitFor(() => expect(h.navigate).toHaveBeenCalled());
+    expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
+  });
+
+  it("a salon keeps its own first win (reservations)", async () => {
+    h.businessType = "salon";
+    await toStep4();
+    await act(async () => { fireEvent.click(screen.getByText("onbFinishToFirstWin")); });
+    await waitFor(() => expect(h.navigate).toHaveBeenCalled());
+    expect(h.navigate).toHaveBeenLastCalledWith("/reservations", { replace: true });
   });
 });

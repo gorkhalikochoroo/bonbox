@@ -473,6 +473,9 @@ const JoinPage = lazyRetry(() => import("./pages/JoinPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 // Task #55 — First-run welcome wizard. Full-screen, no Layout chrome.
 const OnboardingPage = lazyRetry(() => import("./pages/OnboardingPage"));
+// "Du er klar" — the one next step after the wizard: today's kasserapport,
+// and the staff invite (existing link + join code, shared by the owner).
+const FirstStepsPage = lazyRetry(() => import("./pages/FirstStepsPage"));
 const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const AdminSupportPage = lazyRetry(() => import("./pages/AdminSupportPage"));
@@ -658,6 +661,9 @@ function AppRoutes() {
             (no sidebar / mobile nav chrome). OnboardingRoute does its
             own auth + owner-only + onboarding-pending guards. */}
         <Route path="/onboarding" element={<OnboardingRoute />} />
+        {/* After the wizard — full-screen like it, but a normal protected
+            route (onboarding must be done; reload-safe; revisitable). */}
+        <Route path="/getting-started" element={<ProtectedRoute><FirstStepsPage /></ProtectedRoute>} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />
