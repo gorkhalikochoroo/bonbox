@@ -1758,6 +1758,30 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setPendingScans(next);
   };
   const pendingScan = pendingScans[0] || null;
+  // The question mounts at the TOP of the scan card, but the photo that raises
+  // it comes from "+ Tilføj" at the BOTTOM — and the scan spinner collapses the
+  // card, so Chrome's scroll anchoring put the owner back down there with the
+  // question 700–1.400 px above the screen while the two buttons in view went
+  // gray. Each time a question appears (a new photo, Fortryd, the next one in
+  // the queue, a photo added while it is open) it is brought into view and
+  // takes focus; the reason line above the gray buttons does the same on a tap.
+  const terminalQRef = useRef(null);
+  const showTerminalQuestion = () => {
+    const el = terminalQRef.current;
+    el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    el?.focus?.({ preventScroll: true });
+  };
+  useEffect(() => {
+    if (!pendingScan || scanMode !== "result") return;
+    // After the card has laid out again (the spinner is gone by then).
+    if (typeof window.requestAnimationFrame === "function") {
+      const raf = window.requestAnimationFrame(showTerminalQuestion);
+      return () => window.cancelAnimationFrame?.(raf);
+    }
+    const timer = setTimeout(showTerminalQuestion, 0);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScan, scanMode]);
   // One level of undo for a terminal choice, so a wrong tap is catchable
   // before anything is locked. It restores the unanswered queue too — an undo
   // means "I answered that wrong", so the question has to come back.
@@ -2149,7 +2173,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // draft's typed MOMS was dropped to Auto. A MOMS the owner typed since
     // the last apply is theirs and stays even when the figure moves.
     const momsKey = scanMomsKey(scanResult);
-    const ownerTypedMoms = Boolean(appliedMoms) && momsMode === "manual"
+    const ownerTypedMoms = Boolean(appliedMoms) && momsTyped
       && (appliedMoms.owner || momsManual !== appliedMoms.manual);
     let nextManual = momsMode === "manual" ? momsManual : "";
     if (!appliedMoms || (appliedMoms.key !== momsKey && !ownerTypedMoms)) {
@@ -2568,6 +2592,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // MOMS / VAT — toggle between auto-calc and manual entry from receipt
   const [momsMode, setMomsMode] = useState("auto"); // "auto" | "manual"
   const [momsManual, setMomsManual] = useState("");
+  // The owner's own MOMS: "Fra kvittering" holding a figure that reads. An
+  // empty box is NOT a typed 0 — nobody has typed yet. The review printed
+  // "MOMS (fra bon) 0,00" over an empty box while the payload sent null and
+  // the server saved its own 3.426, labelled manual. One rule for the review,
+  // its label, the scan card and the payload: until a figure is typed, the
+  // MOMS is the scanned or worked-out one, shown and saved as what it is.
+  const momsTyped = momsMode === "manual" && Number.isFinite(readMoney(momsManual));
 
   // Any money box on the page holding text that is not an amount. This is the
   // save gate: a close writes to the ledger and prints a kasserapport, so it
@@ -2648,7 +2679,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
 
   const momsTotal = useMemo(() => {
-    if (momsMode === "manual") return readMoney0(momsManual);
+    if (momsTyped) return readMoney0(momsManual);
     // Same guard as applyScanValues: a scanned MOMS that covers one of two
     // summed tills is not "the MOMS from the receipt". Without this, flipping
     // the toggle back to Auto did NOT recover — this branch returned the
@@ -2659,7 +2690,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (scannedMoms) return scannedMoms;
     return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [momsMode, momsManual, scanResult, taxableBase, savedRevenue]);
+  }, [momsTyped, momsManual, scanResult, taxableBase, savedRevenue]);
 
   // WHICH of the two "auto" paths produced that number — because the caption
   // underneath used to assert the multiplication either way. The comment above
@@ -2674,12 +2705,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // Only the sentence changes, to name where the number actually came from.
   // "recomputed": the bon had a MOMS, but for another total — said in words.
   const momsSource = useMemo(() => {
-    if (momsMode === "manual") return "manual";
+    if (momsTyped) return "manual";
     const scannedMoms = scanMomsFits(scanResult, savedRevenue) ? scanResult.moms_total : null;
     if (!scannedMoms && scanMomsMoved(scanResult, savedRevenue)) return "recomputed";
     return scannedMoms ? "scanned" : "computed";
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [momsMode, scanResult, savedRevenue]);
+  }, [momsTyped, scanResult, savedRevenue]);
   const revenueExMoms = useMemo(() => Math.round((savedRevenue - momsTotal) * 100) / 100, [savedRevenue, momsTotal]);
 
   // The bon's MOMS put in as "Fra kvittering" follows the total once the total
@@ -2690,7 +2721,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // The reopened draft's MOMS still in the box, under a total that moved off
   // the one it was saved with.
   const draftMomsMoved = Boolean(draftMoms) && Math.abs(savedRevenue - draftMoms.total) >= 0.005;
-  const draftMomsKept = draftMomsMoved && momsMode === "manual"
+  const draftMomsKept = draftMomsMoved && momsTyped
     && Math.abs(readMoney0(momsManual) - draftMoms.moms) < 0.015;
   useEffect(() => {
     const moved = Math.abs(savedRevenueSeenRef.current - savedRevenue) >= 0.005;
@@ -2818,8 +2849,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       status,
       revenue_breakdown,
       payment_breakdown,
-      moms_total: momsTotal || null,
-      moms_mode: momsMode,
+      // A typed figure goes as typed — 0 included (`|| null` nulled it, and
+      // the server put its own figure under the owner's "0,00"). Anything
+      // else goes as the auto figure it is: never "manual" over a number
+      // nobody typed, which the kasserapport would print as "indtastet".
+      moms_total: momsTyped ? momsTotal : (momsTotal || null),
+      moms_mode: momsTyped ? "manual" : "auto",
       tips_total: tipsTotal && Number.isFinite(readMoney(tipsTotal)) ? readMoney(tipsTotal) : null,
       tips_staff_count: staffCount ? parseInt(staffCount) : null,
       cash_counted: countedNum,
@@ -3212,7 +3247,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const fits = scanMomsFits(scanResult, cardSaveTotal);
     // The form's MOMS is what applying leaves: the figure already applied, or
     // one the owner typed (kept even when a new figure arrives).
-    const formKept = momsMode === "manual" && Boolean(appliedMoms)
+    const formKept = momsTyped && Boolean(appliedMoms)
       && (cardMomsApplied || appliedMoms.owner || momsManual !== appliedMoms.manual);
     if (formKept) {
       const kept = readMoney0(momsManual);
@@ -3507,8 +3542,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               const existingTotal = scanSaveTotal(scanResult, mLocale) ?? headlineTotal(scanResult, mLocale);
               const incomingTotal = scanSaveTotal(pendingScan, mLocale) ?? headlineTotal(pendingScan, mLocale);
               return (
-                <div className="rounded-xl p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-3">
-                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
+                <div ref={terminalQRef} tabIndex={-1} role="group" aria-labelledby="dc-terminal-q"
+                  data-testid="dc-terminal-question"
+                  className="rounded-xl p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-3 scroll-mt-20 focus:outline-none">
+                  <p id="dc-terminal-q" className="text-sm font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
                     <Icon name="HelpCircle" size={16} />
                     {t("scanSecondTotalTitle", "Is this another terminal?")}
                   </p>
@@ -4196,15 +4233,26 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             {/* Action buttons — both disabled while the "another terminal?"
                 question is open. Letting the owner walk past it would lock
                 the numbers from BEFORE the second scan, which is the exact
-                loss this flow exists to stop. */}
+                loss this flow exists to stop. Gray with no reason read as a
+                dead end, so the reason sits right above them, and a tap takes
+                the owner to the question. */}
+            {pendingScan && (
+              <button type="button" id="dc-terminal-q-reason" onClick={showTerminalQuestion}
+                className="w-full min-h-10 flex items-center justify-center gap-1.5 text-[13px] font-medium text-amber-800 dark:text-amber-200 underline underline-offset-2">
+                <Icon name="ChevronUp" size={14} className="shrink-0" />
+                {t("dcScanAnswerQuestionFirst", "Answer the question above first — is this another terminal?")}
+              </button>
+            )}
             <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="primary" size="lg" className="flex-1" onClick={() => applyScanValues(true)}
                 disabled={Boolean(pendingScan)}
+                aria-describedby={pendingScan ? "dc-terminal-q-reason" : undefined}
                 iconLeft={<Icon name="CheckCircle2" size={16} />}>
                 {t("useTheseValuesJumpReview", "Use these values — jump to review")}
               </Button>
               <Button variant="secondary" size="lg" className="flex-1" onClick={() => applyScanValues(false)}
                 disabled={Boolean(pendingScan)}
+                aria-describedby={pendingScan ? "dc-terminal-q-reason" : undefined}
                 iconLeft={<Icon name="Pencil" size={16} />}>
                 {t("continueStepByStep", "Continue step-by-step")}
               </Button>
@@ -4797,6 +4845,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     <MoneyField locale={mLocale} placeholder={t("momsAmountPlaceholder")}
                       className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
+                    {/* Nothing typed yet: say which figure is saved — the same
+                        one as the line below, whose caption names its source. */}
+                    {String(momsManual ?? "").trim() === "" && (
+                      <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5">
+                        {t("dcMomsManualEmpty", "Nothing typed yet, so we save {moms}, as shown below. Type the receipt's MOMS here if it is different.", {
+                          moms: formatOwnerMoney(momsTotal, currency, { decimals: oreIfAny(momsTotal) }),
+                        })}
+                      </p>
+                    )}
                   </div>
                 )}
                 {/* A reopened draft's MOMS kept under a total that moved. */}
@@ -4810,7 +4867,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     })}</span>
                   </p>
                 )}
-                {momsMode === "auto" && momsSource === "computed" && draftMoms?.followed && draftMomsMoved && (
+                {!momsTyped && momsSource === "computed" && draftMoms?.followed && draftMomsMoved && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
                     <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
                     <span>{t("dcMomsDraftFollowed", "The draft was saved with MOMS {moms} for a total of {old}. The total is now {saved}, so MOMS is worked out again from it. If the Z-report has more than one MOMS rate, tap From receipt and type the right figure.", {
@@ -4820,7 +4877,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     })}</span>
                   </p>
                 )}
-                {momsMode === "auto" && momsSource !== "recomputed" && (
+                {!momsTyped && momsSource !== "recomputed" && (
                   <p className="text-[12px] text-gray-500 dark:text-gray-400">
                     {momsSource === "scanned"
                       ? t("momsFromZReport", "Read from your Z-report — not recalculated from revenue.")
@@ -4829,7 +4886,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 )}
                 {/* The bon's MOMS belongs to another total than the one saved —
                     said, with the way back for a mixed-rate day. */}
-                {momsMode === "auto" && momsSource === "recomputed" && (
+                {!momsTyped && momsSource === "recomputed" && (
                   <p className="text-[12px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
                     <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
                     <span>{t("dcMomsRecomputed", "The Z-report's MOMS ({bon}) belongs to another total than the {saved} you save, so MOMS is worked out again from that total. If the report has more than one MOMS rate, tap From receipt and type the right figure.", {
@@ -4868,7 +4925,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   </div>
                 )}
                 <div className="flex justify-between text-[13px] font-semibold py-0.5 text-gray-900 dark:text-gray-100 tabular-nums">
-                  <span>{vatName} {vatRatePct}%{momsMode === "manual" ? ` ${t("fromReceiptSuffix", "(from receipt)")}` : ""}</span>
+                  <span>{vatName} {vatRatePct}%{momsTyped ? ` ${t("fromReceiptSuffix", "(from receipt)")}` : ""}</span>
                   <span><Amount value={momsTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 <div className="flex justify-between text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-1 text-gray-900 dark:text-white tabular-nums">

@@ -1651,6 +1651,11 @@ def create_daily_close(
     # Previously hardcoded 25% which gave wrong MOMS for any non-DK user
     # (NPR 13%, GBP 20%, EUR 21%, etc.) and ignored B2B net-amount mode.
     moms_mode = data.moms_mode or "auto"
+    # "Fra kvittering" with nothing typed sends no figure: the MOMS below is
+    # BonBox's own, so it is stored as auto. Kept "manual", the kasserapport
+    # printed a computed 3.426 as "Salgsmoms (indtastet)" / "(fra Z-bon)".
+    if moms_mode == "manual" and data.moms_total is None:
+        moms_mode = "auto"
     try:
         from app.services.tax_service import _get_vat_rate
         vat_rate = _get_vat_rate(user.currency or "DKK")

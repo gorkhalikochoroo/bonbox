@@ -8409,6 +8409,8 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcScanAnswerQuestionFirst: "Answer the question above first — is this another terminal?",
+    dcMomsManualEmpty: "Nothing typed yet, so we save {moms}, as shown below. Type the receipt's MOMS here if it is different.",
     identityIsDemoNotice: "Your business is still set up as the sample company (Mirabelle ApS). Correct the name, CVR and address on Profile before we send anything to your revisor.",
     identityIsDemoCta: "Correct your business on Profile",
     identityIsDemoProfileNotice: "Look up your own company below (or type its name, CVR and address) and save.",

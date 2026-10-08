@@ -8118,6 +8118,8 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcScanAnswerQuestionFirst: "Svar først på spørgsmålet ovenfor — er det en terminal mere?",
+    dcMomsManualEmpty: "Intet skrevet endnu, så vi gemmer {moms}, som vist nedenfor. Skriv bonens MOMS her, hvis den er en anden.",
     identityIsDemoNotice: "Din virksomhed står stadig som eksempelvirksomheden (Mirabelle ApS). Ret navn, CVR og adresse under Profil, før vi sender til din revisor.",
     identityIsDemoCta: "Ret virksomheden under Profil",
     identityIsDemoProfileNotice: "Slå din egen virksomhed op nedenfor (eller skriv navn, CVR og adresse) og gem.",
