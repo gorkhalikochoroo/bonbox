@@ -56,7 +56,7 @@ import { businessTodayIso, dateLocale } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 /** How many times each invariant was actually checked (SEQ_STATS=1 prints them). */
-export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0 };
+export const STATS = { sequences: 0, steps: 0, I1: 0, I1lock: 0, I2: 0, I3: 0, I4: 0, I5: 0, I6: 0, M4: 0, M4b: 0, M6: 0, MV: 0, F3: 0 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
 
@@ -161,9 +161,11 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
       if (!(covers(claim) && Math.abs(server - claim) <= 1.0 && covers(server))) sent = null;
     }
     const moms = sent != null ? r2(sent) : (rev !== 0 ? momsOf(rev) : 0);
-    // A day deleted earlier is filed again under the same row (the backend
-    // takes the soft-deleted row back: its unique day key still holds it).
-    const reused = !prev && S.dead.get(key);
+    // A day deleted earlier is filed again under the same row where the
+    // unique day key still holds it — under a branch (the backend takes the
+    // soft-deleted DRAFT back; a NULL branch never collides, so it is a new
+    // row there, round 20). Only drafts are ever deleted here.
+    const reused = !prev && body.branch_id && S.dead.get(key);
     if (reused) S.dead.delete(key);
     const row = {
       id: prev?.id || reused || `row${++S.seq}`,
@@ -176,6 +178,10 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
       moms_total: moms,
       moms_mode: mode,
       cash_counted: body.cash_counted ?? null,
+      // The float is informational: one out of range (or none) keeps what
+      // is stored (backend _clean_cash_float + the update's "only if sent").
+      cash_float: typeof body.cash_float === "number" && body.cash_float >= 0 && body.cash_float <= 1_000_000
+        ? r2(body.cash_float) : (prev?.cash_float ?? null),
       tips_total: body.tips_total ?? null,
       tips_staff_count: body.tips_staff_count ?? null,
       closed_by: body.closed_by ?? null,
@@ -437,6 +443,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // A Start forfra that left the day empty (M6), and a move answered "Brug
   // dem" (MV): checked once the page has filed what follows.
   let emptiedDay = null;
+  // …and the row as it stood when Start forfra was tapped (F3).
+  let emptiedRow = null;
+  // Drafts Start forfra kept because they hold the owner's own fields
+  // (F3): until the next save for the day, the stored row is the one filed
+  // before — its photo included.
+  const keptDrafts = new Map();
   let pendingMove = null;
   let moveOrigin = null;
   // The day the card is for, as its date line says it: the test keeps it.
@@ -508,6 +520,10 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (row.receipt_photo) {
       const allowed = new Set([...M.photos].map(photoUrl));
       if (M.draftPhoto) allowed.add(M.draftPhoto);
+      // A draft Start forfra kept (F3): the stored row is the one filed
+      // before, until the next save for the day replaces it.
+      const kept = keptDrafts.get(date);
+      if (kept && !S.posts.slice(kept.posts).some((b) => b.date === date)) allowed.add(kept.photo);
       expect(allowed.has(row.receipt_photo), fail("M4b no stored photo of a bon no longer in the day",
         `${date} stores ${row.receipt_photo}; photos in the day: ${[...allowed].join(", ") || "none"}`)).toBe(true);
     }
@@ -529,11 +545,29 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     // filed is taken back.
     if (emptiedDay) {
       const day = emptiedDay;
+      const was = emptiedRow;
       emptiedDay = null;
+      emptiedRow = null;
       const row = S.rows.get(`${day}|`);
       STATS.M6 += 1;
       const orig = originals.get(day);
-      if (orig) {
+      // F3 (round 20) — the draft held what the owner typed beside the
+      // photo (a note, Lukket af, a count, tips, staff): it is the only
+      // stored copy, so it is never deleted or put back — it stays as it
+      // was filed until the next save updates it. (Expectation changed from
+      // round 19's "always taken back": that deleted the owner's note.)
+      const ownFields = (r) => Boolean(r) && Boolean(r.notes || r.closed_by || r.cash_counted != null
+        || r.tips_total != null || r.tips_staff_count != null);
+      if (was && ownFields(was) && (orig || createdHere.has(day))) {
+        STATS.F3 += 1;
+        expect(Boolean(row) && row.status === "draft" && row.id === was.id && (row.notes || null) === (was.notes || null)
+          && (row.closed_by || null) === (was.closed_by || null) && Math.abs(Number(row.revenue_total) - Number(was.revenue_total)) < 0.005,
+        fail("F3 Start forfra never deletes the owner's own fields",
+          `${day}: the draft holding ${JSON.stringify({ notes: was.notes, closed_by: was.closed_by, cash_counted: was.cash_counted })} should stay as filed, stored ${brief(row)}`)).toBe(true);
+        expect(hasText("dcDayHasDraft"), fail("F3 Start forfra never deletes the owner's own fields",
+          `${day}: the kept draft is this page's own, yet the banner covers it`)).toBe(false);
+        keptDrafts.set(day, { photo: was.receipt_photo || null, posts: S.posts.length });
+      } else if (orig) {
         // A draft the page replaced through the banner: back as it was, and
         // the banner shows it — never the thrown-away photo's figures.
         expect(sameDraft(row, orig), fail("M6 Start forfra takes the photo's draft back",
@@ -886,6 +920,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const btn = findBtn(/^startOver$/);
     if (!btn) return;
     const day = businessDayShown();
+    const rowAtTap = day && S.rows.get(`${day}|`);
+    const wasRow = rowAtTap ? JSON.parse(JSON.stringify(rowAtTap)) : null;
     await step("Start forfra", async () => { fireEvent.click(btn); for (let i = 0; i < 5 && where() === "card"; i++) await settle(); }, () => {
       const a = M.atFirst;
       M.undo.push({ kind: "discard", snap: snap() });
@@ -895,7 +931,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       M.atFirst = null;
       // A photo-only day emptied (M6) — checked once this step's requests
       // have arrived (a slow step's are checked by I1/M4 after the next).
-      if (!ownFig() && day && postedHere.has(day) && !slowStep) emptiedDay = day;
+      if (!ownFig() && day && postedHere.has(day) && !slowStep) { emptiedDay = day; emptiedRow = wasRow; }
     });
   };
 

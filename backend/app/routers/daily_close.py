@@ -1319,6 +1319,33 @@ def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) 
 
 # ─── POST — submit daily close ───
 
+def _dead_draft_figures(dead) -> dict:
+    """What a soft-deleted draft held, for the audit row of the close that
+    takes its place (close.restored `before`): its figures, cash, notes,
+    photo and source — the reused row's columns are the new close's."""
+    def _f(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+    created = getattr(dead, "created_at", None)
+    return {
+        "revenue_total": _f(dead.revenue_total),
+        "moms_total": _f(dead.moms_total),
+        "revenue_breakdown": decode_breakdown(dead.revenue_categories) or {},
+        "payment_breakdown": decode_breakdown(dead.payment_categories) or {},
+        "cash_counted": _f(dead.cash_counted),
+        "cash_expected": _f(dead.cash_expected),
+        "cash_float": _f(getattr(dead, "cash_float", None)),
+        "tips_total": _f(dead.tips_total),
+        "notes": dead.notes,
+        "closed_by": dead.closed_by,
+        "receipt_photo": dead.receipt_photo,
+        "source_meta": dead.source_meta,
+        "created_at": created.isoformat() if created else None,
+    }
+
+
 def _clean_source_meta(meta) -> str | None:
     """Keep only the known, bounded keys of the client's source description
     (see DailyClose.source_meta) and store it as JSON text."""
@@ -2063,25 +2090,45 @@ def create_daily_close(
     # the INSERT below failed with an IntegrityError (500) for a venue that
     # files under a branch, and the day could never be saved or locked again.
     # The page deletes drafts on its own now (Start forfra on a day of photos
-    # only, a date move). The deleted row is taken back as this new close:
-    # every column is the new close's, nothing of the deleted one survives
-    # (no photo, source, float, unlock or send state), and the audit trail
-    # says so. NULL branches never collided (NULLs are distinct) but are
-    # reused the same way — one row per day.
-    dead = (
-        db.query(DailyClose)
-        .filter(
-            DailyClose.user_id == user.id,
-            DailyClose.date == data.date,
-            DailyClose.branch_id == data.branch_id,
-            DailyClose.is_deleted.is_(True),
+    # only, a date move). The deleted DRAFT is taken back as this new close:
+    # every column is the new close's, and the audit trail keeps what the
+    # deleted draft held (its figures, photo and source — `before` of
+    # close.restored), so nothing of it is lost from the record.
+    #
+    # Only a draft, and only where the key collides. A soft-deleted LOCKED
+    # kasserapport (deletes before the 2026-06-10 lock check let one through)
+    # is a bookkeeping record (bogføringsloven) and is never overwritten. A
+    # NULL branch never collides (NULLs are distinct in the unique key), so
+    # a day filed again without a branch is a new row, as it always was.
+    dead = None
+    if data.branch_id is not None:
+        dead_any = (
+            db.query(DailyClose)
+            .filter(
+                DailyClose.user_id == user.id,
+                DailyClose.date == data.date,
+                DailyClose.branch_id == data.branch_id,
+                DailyClose.is_deleted.is_(True),
+            )
+            .first()
         )
-        .first()
-    )
+        if dead_any is not None and (dead_any.status or "draft") != "draft":
+            # Taken back it would be overwritten; inserted beside it the
+            # unique key refuses (500). Said plainly instead.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "deleted_locked_close",
+                    "message": ("Der ligger en slettet, låst kasserapport for denne dag og afdeling. "
+                                "Den bevares (bogføringsloven) og kan ikke overskrives — kontakt support."),
+                },
+            )
+        dead = dead_any
     restored_from = None
     if dead is not None:
         restored_from = {"deleted_at": dead.deleted_at.isoformat() if dead.deleted_at else None,
-                         "status": dead.status}
+                         "status": dead.status,
+                         **_dead_draft_figures(dead)}
         now = utc_now()
         for attr in DailyClose.__mapper__.column_attrs:
             if attr.key in ("id", "user_id", "branch_id", "date"):

@@ -1476,13 +1476,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // showed "+1.000 off"; counted without it, the bank-drop kept 1.000 kr. of
   // the day's takings back. The float is remembered on this device.
   const [drawerCount, setDrawerCount] = useState("");
-  const [cashFloat, setCashFloat] = useState(() => {
+  // This device's remembered float — the default for a close that has none
+  // of its own. A reopened close counted with another float keeps THAT one
+  // (the Rediger loader): rebuilt from this device's, the drawer and the
+  // float on its kasserapport were figures nobody counted.
+  const deviceFloat = () => {
     let v = "1000";
     try { v = localStorage.getItem(CASH_FLOAT_KEY) ?? "1000"; } catch { /* private mode */ }
     // Grouped like every other figure ("1.000"); a box it can't read stays as typed.
     const n = parseMoneyInput(v, mLocale);
     return Number.isFinite(n) ? toMoneyInput(n) : v;
-  });
+  };
+  const [cashFloat, setCashFloat] = useState(deviceFloat);
   // Register-derived expected cash (POS `kontant`/`cash` total for the
   // business day, from the /daily-close/prefill suggested_prefill block).
   // When present this is the REAL baseline for the drawer variance —
@@ -1682,7 +1687,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   //   serverSrcRef     the source and photo the server answered with
   //   filedScanKeysRef days this form filed a source read off photos for —
   //                    with no photo left, the record is told again what it is
-  //   clearPhotoKeysRef days whose stored photo must go when no photo is left
+  //   filedPhotosRef   the photos this form filed (never the reopened close's
+  //                    own): with no photo left in the day, a stored photo is
+  //                    cleared only when it is one of these — or the photo of
+  //                    the draft the banner's "Start forfra" replaced. Any
+  //                    other photo is another device's, and a null keeps it.
   //   ownRowsRef       the row id each save answered with, whether this
   //                    form CREATED the row (only such a draft is ever
   //                    deleted), and — a draft it replaced through the
@@ -1693,7 +1702,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const loadedUnlockedRef = useRef(false);
   const serverSrcRef = useRef({});
   const filedScanKeysRef = useRef(new Set());
-  const clearPhotoKeysRef = useRef(new Set());
+  const filedPhotosRef = useRef(new Set());
   const ownRowsRef = useRef({});
   // Saves on their way: a draft is deleted only once they have answered.
   const inflightRef = useRef(new Set());
@@ -1878,8 +1887,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     });
     // The boxes show the reopened close now, not a photo.
     boxesHoldPhotosRef.current = false;
+    // The float the close was counted with, when it has one — never this
+    // device's: a draft saved with 1.000 reopened as "Optalt 3.004,75 ·
+    // Byttepenge 1.500" (this device's), and the next save — a note — filed
+    // 1.500 on its kasserapport. Not written to this device's default: that
+    // stays the owner's own choice (onFloatChange). A close with none of its
+    // own takes this device's default, never the last close opened here.
+    const savedFloat = dc.cash_float != null && Number.isFinite(Number(dc.cash_float))
+      ? asInput(dc.cash_float) : deviceFloat();
+    setCashFloat(savedFloat);
     setCashCounted(loaded.cash);
-    setDrawerCount(drawerFrom(loaded.cash, cashFloat));
+    setDrawerCount(drawerFrom(loaded.cash, savedFloat));
     setMomsMode(loaded.momsMode);
     setMomsManual(loaded.momsManual);
     // The saved MOMS is the form's: going back to the card and applying it
@@ -1896,7 +1914,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // day's ledger (a total typed on the card moves no box).
     // The baseline is what the form holds once loaded — Gavekort and Batch
     // included (emptied below), so opening the draft is not a change.
-    editBaselineRef.current = editSignature({ rev, pay, ...loaded, cashFloat });
+    editBaselineRef.current = editSignature({ rev, pay, ...loaded, cashFloat: savedFloat });
     editOpenLedgerRef.current = draftLedger;
     // The stored draft is this ledger: the card says so until it moves.
     filedLedgerRef.current = draftLedger;
@@ -1930,7 +1948,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         photo: dc.receipt_photo || null,
       };
       filedScanKeysRef.current.delete(loadedKey);
-      clearPhotoKeysRef.current.delete(loadedKey);
     }
     // Skip scan UI (the user already has values) and jump to step 1.
     setScanMode("skipped");
@@ -3293,11 +3310,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // close's), else none. A null keeps whatever the server holds, so when it
     // holds a photo of no bon in the day any more (thrown away with Start
     // forfra, or the old draft's that "Start forfra" on the banner replaced)
-    // it is cleared explicitly with "".
+    // it is cleared explicitly with "" — that photo only. One this form never
+    // filed is another device's (a bon scanned there since): "" sent for any
+    // stored photo, or for a day this form had once cleared, threw it away.
     const storedPhoto = serverSrcRef.current[dayKey]
       ? serverSrcRef.current[dayKey].photo
       : ((existingCloses || []).find((dc) => closeRowKey(dc) === dayKey && !dc.is_deleted && !droppedIds.has(dc.id))?.receipt_photo || null);
-    const receipt_photo = receiptPhotoUrl || (clearPhotoKeysRef.current.has(dayKey) || storedPhoto ? "" : null);
+    const replacedPhoto = ownRowsRef.current[dayKey]?.before?.receipt_photo
+      || (overwriteKey === dayKey && overwriteSnapRef.current?.key === dayKey ? overwriteSnapRef.current.row?.receipt_photo : null)
+      || null;
+    const photoIsOurs = Boolean(storedPhoto) && (filedPhotosRef.current.has(storedPhoto) || storedPhoto === replacedPhoto);
+    const receipt_photo = receiptPhotoUrl || (photoIsOurs ? "" : null);
     const countedNum = cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null;
 
     const body = {
@@ -3503,10 +3526,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         : (body.receipt_photo === "" ? null : (body.receipt_photo || prev.photo || null)),
     };
     if (payloadInfo.get(body)?.scanSource) filedScanKeysRef.current.add(key);
-    // A photo of this session filed, or one cleared: if no photo is left in
-    // the day later, the stored one goes (and stays gone).
-    if (body.receipt_photo === "" || (body.receipt_photo && body.receipt_photo !== loadedPhotoRef.current)) {
-      clearPhotoKeysRef.current.add(key);
+    // A photo of this session filed (not the reopened close's own, sent back
+    // as it was): if no photo is left in the day later, it goes.
+    if (body.receipt_photo && body.receipt_photo !== loadedPhotoRef.current) {
+      filedPhotosRef.current.add(body.receipt_photo);
     }
     const own = ownRowsRef.current[key];
     const id = data.id ?? own?.id ?? null;
@@ -3595,7 +3618,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       delete ownRowsRef.current[key];
       delete serverSrcRef.current[key];
       filedScanKeysRef.current.delete(key);
-      clearPhotoKeysRef.current.delete(key);
       setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
     };
     if (!own) {
@@ -3781,6 +3803,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         const res = await api.post("/daily-close", body,
           keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
         noteSaved(savingKey, body, res, savingCreates, replacing);
+        // The photo it cleared is gone: the next draft of the same figures
+        // says null ("keep" — nothing of ours is stored any more), and that
+        // is no change to send again.
+        if (body.receipt_photo === "" && lastSentRef.current === sent) {
+          lastSentRef.current = JSON.stringify({ ...body, receipt_photo: null });
+        }
         setOwnDraftKeys((prev) => (prev.has(savingKey) ? prev : new Set(prev).add(savingKey)));
         onDraftSaved?.();
         setDraftSaved(true);
@@ -5251,11 +5279,32 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // (the photo's figures) is deleted with it — said in the
                 // question when there is one (an untouched photo still goes
                 // in one tap, as before).
-                const dropsDraft = !formTill(discardScans(before)) && Boolean(ownRowsRef.current[rowKey]?.created);
+                const photoOnly = !formTill(discardScans(before));
+                const dropsDraft = photoOnly && Boolean(ownRowsRef.current[rowKey]?.created);
                 // …or, over a draft the banner's "Start forfra" replaced, that
                 // draft comes back as it was.
-                const bringsBack = !formTill(discardScans(before)) && !dropsDraft ? ownRowsRef.current[rowKey]?.before : null;
-                if (corrected) {
+                const bringsBack = photoOnly && !dropsDraft ? ownRowsRef.current[rowKey]?.before : null;
+                // What the owner typed OUTSIDE the photo's till — the drawer
+                // count, Lukket af, the note, gavekort, staff, the batch —
+                // stays on screen; and the stored draft is the only copy of
+                // it. Deleted (or put back as the old draft) here, it was gone
+                // the moment the page was left before the next photo. So the
+                // draft stays and the next save updates it; it goes only when
+                // nothing was typed outside the tills.
+                const filledIn = (v) => String(v ?? "").trim() !== "";
+                // Tips typed on step 4 on a day of photos only ride on the
+                // photo's till: they go with it, and the question says so.
+                const tipsTyped = Boolean(config.hasTips) && typed(scanResult?.tips);
+                const keptFields = [
+                  (filledIn(drawerCount) || filledIn(cashCounted)) && t("dcStartOverKeepsCount", "your cash count"),
+                  filledIn(closedBy) && t("dcStartOverKeepsClosedBy", "Closed by"),
+                  filledIn(notes) && t("dcStartOverKeepsNote", "your note"),
+                  filledIn(gavekortSold) && t("dcStartOverKeepsGiftCards", "the gift cards sold"),
+                  filledIn(staffCount) && t("dcStartOverKeepsStaff", "the staff count"),
+                  config.hasBatch && filledIn(batchRef) && t("dcStartOverKeepsBatch", "the batch number"),
+                ].filter(Boolean);
+                const keepsDraft = (dropsDraft || Boolean(bringsBack)) && (keptFields.length > 0 || (photoOnly && tipsTyped));
+                if (corrected || keepsDraft) {
                   // What stays is said: the owner's own till comes back, whole.
                   const own = formTill(before);
                   const ownTotal = own ? tillTotals(discardScans(before))[0] || 0 : 0;
@@ -5264,9 +5313,29 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   const stored = (existingCloses || []).find((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted)?.revenue_total;
                   const draftAmount = Number(stored ?? (filedLedgerRef.current ? savedTotal(filedLedgerRef.current) : ledgerSaved)) || 0;
                   const backAmount = Number(bringsBack?.revenue_total) || 0;
-                  const draftLine = dropsDraft
+                  const draftMoney = formatOwnerMoney(draftAmount, currency, { decimals: oreIfAny(draftAmount) });
+                  // "Optællingen, Lukket af og noten" — the owner's own fields, by name.
+                  const fieldList = (() => {
+                    if (!keptFields.length) return "";
+                    let joined;
+                    try {
+                      joined = new Intl.ListFormat(dateLocale(), { style: "long", type: "conjunction" }).format(keptFields);
+                    } catch {
+                      joined = keptFields.join(", ");
+                    }
+                    return joined.charAt(0).toUpperCase() + joined.slice(1);
+                  })();
+                  const draftLine = keepsDraft
+                    ? (fieldList
+                      ? t("dcScanStartOverDraftKept", "{fields} stay. The draft saved at {amount} stays, and is updated the next time you save.", {
+                        fields: fieldList, amount: draftMoney,
+                      })
+                      : t("dcScanStartOverDraftKeptOnly", "The draft saved at {amount} stays, and is updated the next time you save.", {
+                        amount: draftMoney,
+                      }))
+                    : dropsDraft
                     ? t("dcScanStartOverDraftGoes", "The draft saved at {amount} is deleted too.", {
-                      amount: formatOwnerMoney(draftAmount, currency, { decimals: oreIfAny(draftAmount) }),
+                      amount: draftMoney,
                     })
                     : bringsBack
                       ? t("dcScanStartOverDraftBack", "The draft saved before ({amount}) comes back.", {
@@ -5281,10 +5350,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
                           count: Math.max(photos, 2),
                         })
-                      : t("dcScanStartOverBody", "The photo and your corrections on the card will be gone.");
+                      : corrected
+                        ? t("dcScanStartOverBody", "The photo and your corrections on the card will be gone.")
+                        // Asked only for what the owner typed beside it.
+                        : t("dcScanStartOverPhotoGoes", "The photo will be gone.");
+                  const tipsAmount = tipsTyped ? readMoney(scanResult.tips) : NaN;
+                  const tipsLine = photoOnly && tipsTyped
+                    ? t("dcScanStartOverTipsGo", "The tips you typed ({amount}) go too.", {
+                      amount: Number.isFinite(tipsAmount)
+                        ? formatOwnerMoney(tipsAmount, currency, { decimals: oreIfAny(tipsAmount) })
+                        : String(scanResult.tips),
+                    })
+                    : "";
                   const ok = await askConfirm({
                     title: t("dcScanStartOverTitle", "Start over?"),
-                    message: draftLine ? `${base} ${draftLine}` : base,
+                    message: [base, tipsLine, draftLine].filter(Boolean).join(" "),
                     confirmLabel: t("startOver", "Start over"),
                     cancelLabel: t("cancel", "Cancel"),
                     destructive: true,
@@ -5309,12 +5389,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   // Nothing of the day is left: nothing waiting is filed, and
                   // the draft this form filed for it (the photo's figures) is
                   // taken back — deleted when this form made it, shown by the
-                  // day's draft banner when it did not.
+                  // day's draft banner when it did not. Unless it holds what
+                  // the owner typed outside the tills (keepsDraft): then it
+                  // stays, and the next save (the next photo, or figures
+                  // typed) updates it — every field of it is sent again.
                   clearTimeout(autoSaveRef.current);
                   pendingSaveRef.current = null;
                   lastSentRef.current = null;
-                  filedLedgerRef.current = null;
-                  releaseDayDraft(rowKey, { why: "startOver" });
+                  // Kept, the stored draft is still the one filed: the next
+                  // photo's card says "Ikke gemt endnu" until it is applied
+                  // (left from there, the draft holds the old figures).
+                  if (!keepsDraft) {
+                    filedLedgerRef.current = null;
+                    releaseDayDraft(rowKey, { why: "startOver" });
+                  }
                 }
               }}
                 className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">

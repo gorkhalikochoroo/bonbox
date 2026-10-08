@@ -199,10 +199,18 @@ describe("4. the thrown-away bon's photo leaves the close", () => {
     await flush();
     expect(posted().at(-1).receipt_photo).toBe("");
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000, source_meta: { kind: "typed" }, receipt_photo: null });
-    // Stays cleared: the next change sends "" again (no flip-flop of saves).
+    // Stays cleared. Round 20 (expectation changed, removal audit U6): the
+    // next change sends null — "" only ever clears a photo this page filed,
+    // and that one is gone; a "" here would clear a photo another device
+    // scanned since. No flip-flop: a step with no change sends nothing.
+    const n = S.posts.length;
+    tap(/^next\s*→$/);
+    await flush();
+    expect(S.posts.length).toBe(n);
+    tap(/^←\s*back$/);
     keyIn(q("#dc-rev-drinks"), "500");
     await flush();
-    expect(posted().at(-1).receipt_photo).toBe("");
+    expect(posted().at(-1).receipt_photo).toBeNull();
     expect(rowFor(today).receipt_photo).toBeNull();
   });
 

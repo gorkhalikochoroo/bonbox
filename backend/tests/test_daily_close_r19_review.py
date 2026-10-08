@@ -157,13 +157,19 @@ def test_a_branch_day_deleted_then_saved_again_saves_and_locks(db_session, clien
     assert [h["revenue_total"] for h in hist if str(h["date"]) == "2026-06-05"] == [7000]
 
 
-def test_no_branch_deleted_then_saved_again_is_one_row(db_session, client):
+def test_no_branch_deleted_then_saved_again_is_one_live_row(db_session, client):
+    # Round 20 (expectation changed): a NULL branch never collides in the
+    # unique key, so the deleted draft is no longer taken back — it stays
+    # deleted, as it was, beside the day's new row. One LIVE row per day.
     u = _user(db_session)
     first = _post(client, u, receipt_photo="u1/kasserapport/bon.jpg")
     assert client.delete(f"/api/daily-close/{first['id']}", headers=_auth(u)).status_code == 204
     again = _post(client, u, revenue_breakdown={"food": 9000}, payment_breakdown={"card": 9000})
     assert again["revenue_total"] == 9000 and again["receipt_photo"] is None
-    assert len(_rows(db_session, u)) == 1
+    live = [r for r in _rows(db_session, u) if not r.is_deleted]
+    assert len(live) == 1 and str(live[0].id) == again["id"]
+    hist = client.get("/api/daily-close", headers=_auth(u)).json()
+    assert [h["revenue_total"] for h in hist if str(h["date"]) == "2026-06-05"] == [9000]
 
 
 # ─── 2. the unlock mark survives the page's own source ─────────────────
