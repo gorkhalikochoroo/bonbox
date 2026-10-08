@@ -58,11 +58,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import Token, UserResponse
+from app.schemas.auth import SignupRefMixin, Token, UserResponse
 from app.services import audit_service
 from app.services.auth import create_access_token, hash_password
 from app.services.oauth_apple import verify_apple_token
 from app.services.oauth_google import verify_google_token
+from app.services.signup_ref import apply_signup_ref
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,7 +83,7 @@ _oauth_signin_limit = limiter.shared_limit(
 # ── Request schemas ──────────────────────────────────────────────────
 
 
-class AppleOAuthRequest(BaseModel):
+class AppleOAuthRequest(SignupRefMixin):
     """POST /auth/oauth/apple body.
 
     `name` is optional and only sent by the iOS / web Apple SDK on the
@@ -93,7 +94,7 @@ class AppleOAuthRequest(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
 
 
-class GoogleOAuthRequest(BaseModel):
+class GoogleOAuthRequest(SignupRefMixin):
     """POST /auth/oauth/google body."""
     id_token: str = Field(..., min_length=1, max_length=4096)
 
@@ -273,6 +274,9 @@ def oauth_apple(
             apple_user_id=sub,
             oauth_provider="apple",
         )
+        # New account only — a sign-in or a link never gains or replaces a
+        # ref (services/signup_ref.py).
+        apply_signup_ref(user, data.signup_ref)
         try:
             from app.services.billing import start_trial
 
@@ -415,6 +419,9 @@ def oauth_google(
             google_sub=sub,
             oauth_provider="google",
         )
+        # New account only — a sign-in or a link never gains or replaces a
+        # ref (services/signup_ref.py).
+        apply_signup_ref(user, data.signup_ref)
         try:
             from app.services.billing import start_trial
 

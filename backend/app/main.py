@@ -2597,6 +2597,12 @@ _migrations = [
     # demodata" restores it instead of deleting the profile (and the revisor
     # and bank details the owner typed). Nullable, no default, no backfill.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS demo_snapshot_json TEXT",
+    # ── Migration (2026-10-08): users.signup_ref — door-visit attribution ──
+    # Mirrors app/models/user.py:User.signup_ref. The printed QR's code
+    # ("r1-a-03"), kept by the frontend until the account exists and stored
+    # once at creation (services/signup_ref.py). Nullable, no default, no
+    # backfill — every existing account is simply "no ref".
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ref VARCHAR(24)",
 ]
 
 
@@ -3233,6 +3239,8 @@ def _run_migrations():
             ok += _add("daily_closes", "source_meta", "TEXT")
             # Mirror of Migration 084 — the demo seeder's pre-seed snapshot.
             ok += _add("business_profiles", "demo_snapshot_json", "TEXT")
+            # Mirror of users.signup_ref — the door-visit code.
+            ok += _add("users", "signup_ref", "VARCHAR(24)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

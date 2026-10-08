@@ -61,7 +61,9 @@ from app.models.daily_close import DailyClose
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
+    SignupRefMixin,
 )
+from app.services.signup_ref import apply_signup_ref
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
 from app.config import settings
@@ -497,6 +499,9 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
         verification_code=verification_code,
         verification_code_expires=utc_now() + timedelta(minutes=30),
     )
+    # The printed door-visit code, if the signup came from one (already
+    # validated by the schema; services/signup_ref.py).
+    apply_signup_ref(user, data.signup_ref)
     # Start the 14-day Pro trial — full features, no card required
     from app.services.billing import start_trial
     start_trial(user)
@@ -565,7 +570,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
-class GoogleAuthRequest(BaseModel):
+class GoogleAuthRequest(SignupRefMixin):
     credential: str  # Google ID token
 
 
@@ -617,6 +622,8 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
             email_verified=True,
             oauth_provider="google",  # mark origin so it's distinguishable from a password account
         )
+        # New account only — a sign-in to an existing one never gains a ref.
+        apply_signup_ref(user, data.signup_ref)
         # Start the 14-day Pro trial for new Google sign-ups too
         from app.services.billing import start_trial
         start_trial(user)
@@ -769,7 +776,7 @@ def _verify_apple_identity_token(token: str) -> dict:
     return claims
 
 
-class AppleAuthRequest(BaseModel):
+class AppleAuthRequest(SignupRefMixin):
     identity_token: str  # Apple's signed JWT
     full_name: Optional[str] = None  # Only present on first sign-in
 
@@ -854,6 +861,8 @@ def apple_auth(
             email_verified=True,
             apple_user_id=apple_sub,
         )
+        # New account only — a sign-in to an existing one never gains a ref.
+        apply_signup_ref(user, data.signup_ref)
         from app.services.billing import start_trial
         start_trial(user)
         db.add(user)
@@ -1603,14 +1612,17 @@ def export_all_data(
     w.writerow(["BonBox Data Export"])
     w.writerow([f"User: {current_user.email}"])
     w.writerow([f"Exported: {utc_now().isoformat()}"])
+    # signup_ref — the printed door-visit code the account came from, if any.
+    # Stored about the user, so it is in their copy (Art. 15/20).
     _write_csv_section(w, "Profile", [
         "id", "email", "business_name", "business_type", "currency",
-        "daily_goal", "monthly_goal", "role", "created_at",
+        "daily_goal", "monthly_goal", "role", "created_at", "signup_ref",
     ], [[
         str(current_user.id), current_user.email, current_user.business_name,
         current_user.business_type, current_user.currency,
         current_user.daily_goal, current_user.monthly_goal,
         current_user.role, str(current_user.created_at),
+        current_user.signup_ref or "",
     ]])
 
     # --- Business Profile ---
