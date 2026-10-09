@@ -21,8 +21,10 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the day's draft (the server).
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -65,6 +67,7 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   window.confirm = vi.fn(() => true);
+  del.mockClear();
   window.URL.createObjectURL = () => "blob:http://localhost/preview";
   window.URL.revokeObjectURL = () => {};
   localStorage.clear();
@@ -192,7 +195,10 @@ describe("2. Fortryd / Start forfra on the scan card are filed", () => {
     return view;
   };
 
-  it("\"same terminal\" 3.500 applied and saved, then Start forfra + Spring over: the owner's 14.000 is saved within the debounce", async () => {
+  // Round 23 (A, rewritten): Start forfra deletes the day's draft and starts
+  // over empty — the owner's 14.000 no longer comes back. What stays true:
+  // nothing of the thrown-away bon is ever left stored.
+  it("\"same terminal\" 3.500 applied and saved, then Start forfra: the 3.500 draft is deleted (asked, named) and Spring over is an empty form that files nothing", async () => {
     const { container } = await typedClose();
     fireEvent.click(screen.getByText("← scanZReportBack"));
     await waitFor(() => expect(screen.getByText("scanZReportTitle")).toBeInTheDocument());
@@ -208,18 +214,17 @@ describe("2. Fortryd / Start forfra on the scan card are filed", () => {
     fireEvent.click(screen.getByText("← scanZReportBack"));
     await waitFor(() => expect(screen.getByText("startOver")).toBeInTheDocument());
     tap(/^startOver$/);
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|3\.500 kr\.$/);
     await waitFor(() => expect(screen.getByText("skipEnterManually")).toBeInTheDocument());
     tap(/^skipEnterManually$/);
-    await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("14.000"));
-    // No leave(): the 2 s autosave itself must be armed.
-    await waitFor(() => expect(draftPosts().length).toBeGreaterThan(n), { timeout: 3500 });
-    const last = draftPosts().at(-1);
-    expect(last.revenue_breakdown).toEqual({ food: 14000 });
-    expect(last.payment_breakdown).toEqual({ card: 14000 });
-    expect(last.revenue_total_override).toBeNull();
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    expect(container.querySelector("#dc-rev-food").value).toBe("");
+    await new Promise((r) => setTimeout(r, 2300));
+    expect(draftPosts().length).toBe(n);
   }, 15000);
 
-  it("Start forfra, then leaving from the empty scan card: the owner's figures are saved, not the thrown-away sum", async () => {
+  it("Start forfra, then leaving from the empty scan card: the thrown-away sum's draft is deleted, and leaving files nothing", async () => {
     const { container } = await typedClose();
     fireEvent.click(screen.getByText("← scanZReportBack"));
     await waitFor(() => expect(screen.getByText("scanZReportTitle")).toBeInTheDocument());
@@ -229,14 +234,14 @@ describe("2. Fortryd / Start forfra on the scan card are filed", () => {
     tap(/^continueStepByStep$/);
     await leave();
     expect(draftPosts().at(-1).revenue_total_override).toBe(17000);
+    const n = draftPosts().length;
     fireEvent.click(screen.getByText("← scanZReportBack"));
     await waitFor(() => expect(screen.getByText("scanMergedUndo")).toBeInTheDocument());
     tap(/^startOver$/);
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText("skipEnterManually")).toBeInTheDocument());
     await leave();
-    const last = draftPosts().at(-1);
-    expect(last.revenue_breakdown).toEqual({ food: 14000 });
-    expect(last.revenue_total_override).toBeNull();
+    expect(draftPosts().length).toBe(n);
   });
 
   it("a figure typed just before \"← Scan Z-bon\" is saved at the tap, not dropped with the timer", async () => {

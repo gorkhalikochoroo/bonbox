@@ -21,8 +21,10 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the day's draft (the server).
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -69,6 +71,7 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   window.confirm = vi.fn(() => true);
+  del.mockClear();
   localStorage.clear();
   get.mockReset();
   post.mockReset();
@@ -148,8 +151,12 @@ const typedClose14000 = async () => {
   return view;
 };
 
+// Round 23 (A, rewritten): Start forfra deletes the day's draft (the
+// question names the stored sum) and the form starts over EMPTY — the owner's
+// till no longer comes back. The r16 blocking defect (the same bon counted
+// twice) cannot happen: after Start forfra the same bon is the day's only till.
 describe("Start forfra after an applied sum, then the same bon again (r16 blocking)", () => {
-  it("typed close: 17.000 — never 20.000 — with Kort 13.000 and MOMS 3.400", async () => {
+  it("typed close: the 17.000 sum's draft is deleted (named), and the same bon again is the day's only till — never 20.000", async () => {
     const { container } = await typedClose14000();
     await toScanCard();
     shoot(container);
@@ -161,35 +168,26 @@ describe("Start forfra after an applied sum, then the same bon again (r16 blocki
     // The sum is saved as a draft (the owner walks away and comes back).
     await waitFor(() => expect(closePosts().some((b) => b.revenue_total_override === 17000)).toBe(true), { timeout: 3500 });
 
-    // ← Scan Z-bon → Start forfra: the bon goes, the typed till is back —
-    // in the boxes too, and the dialog says so.
     await backToCard();
     fireEvent.click(screen.getByText("startOver"));
     await waitFor(() => expect(window.confirm).toHaveBeenCalledTimes(1));
-    expect(window.confirm.mock.calls[0][0]).toBe("dcScanStartOverKeepsOwn:14.000 kr.");
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|17\.000 kr\.$/);
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
-    fireEvent.click(screen.getByText("skipEnterManually"));
-    await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("9.000"));
-    expect(box(container, "#dc-rev-drinks")).toBe("5.000");
 
-    // The same bon again: asked about against the owner's 14.000.
-    await toScanCard();
+    // The same bon again: the day's first till — no question, 3.000.
     shoot(container);
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:3.000 kr.|14.000 kr.");
-    expect(screen.getByText(/scanSecondTotalSum/).textContent).toContain("17.000 kr.");
-    await sum();
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
     fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
     const payload = await lockedPayload();
-    expect(payload.revenue_total_override).toBe(17000);
-    expect(payload.revenue_breakdown).toEqual({ food: 11000, drinks: 6000 });
-    expect(payload.payment_breakdown).toEqual({ cash: 4000, card: 13000 });
-    expect(payload.moms_mode).toBe("auto");
-    expect(payload.moms_total).toBe(3400);
-    expect(payload.source_meta).toMatchObject({ kind: "zbon", terminal_totals: [14000, 3000], typed_tills: [0], scans: 1 });
+    expect(payload.revenue_total_override).toBe(3000);
+    expect(payload.revenue_breakdown).toEqual({ food: 2000, drinks: 1000 });
+    expect(payload.moms_total).toBe(600);
+    expect(payload.source_meta).toMatchObject({ kind: "zbon", scans: 1 });
   }, 20000);
 
-  it("reopened draft + a total-only bon: Start forfra puts the draft's payments back, the retake sums once", async () => {
+  it("reopened draft + a total-only bon: Start forfra deletes the reopened draft, the retake counts once", async () => {
     closes = [{
       id: "d1", date: today, status: "draft", revenue_total: 14000,
       revenue_breakdown: { food: 9000, drinks: 5000 }, payment_breakdown: { card: 12000, cash: 2000 },
@@ -209,22 +207,17 @@ describe("Start forfra after an applied sum, then the same bon again (r16 blocki
 
     await backToCard();
     fireEvent.click(screen.getByText("startOver"));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(del.mock.calls[0][0]).toBe("/daily-close/d1");
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
-    fireEvent.click(screen.getByText("skipEnterManually"));
-    await toStep(container, "#dc-pay-card");
-    // The draft's own Kort, not the summed 16.000.
-    expect(box(container, "#dc-pay-card")).toBe("12.000");
-    await backToStepOne();
 
-    await toScanCard();
     shoot(container, photo("kasse-igen.jpg"));
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:4.000 kr.|14.000 kr.");
-    await sum();
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
     fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
     const payload = await lockedPayload();
-    expect(payload.revenue_total_override).toBe(18000);
-    expect(payload.payment_breakdown).toEqual({ card: 16000, cash: 2000 });
+    expect(payload.revenue_total_override).toBe(4000);
+    expect(payload.payment_breakdown).toEqual({ card: 4000 });
   }, 20000);
 });
 

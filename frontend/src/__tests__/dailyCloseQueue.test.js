@@ -14,7 +14,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  addFailedToOfflineQueue,
   addToOfflineQueue,
+  draftChangedStamp,
+  isDraftChanged,
   firstNeedingConfirmation,
   getOfflineQueue,
   queueSummary,
@@ -23,6 +26,8 @@ import {
   updateQueueItem,
   OQ_KEY,
   QUEUE_ALREADY_SAVED,
+  QUEUE_ERR_DELETED_LOCKED,
+  QUEUE_ERR_DRAFT_CHANGED,
   QUEUE_ERR_REJECTED,
   QUEUE_ERR_SERVER,
   QUEUE_FAILED,
@@ -155,6 +160,26 @@ describe("syncOfflineQueue", () => {
     const again = vi.fn().mockResolvedValue({ data: {} });
     await syncOfflineQueue(again);
     expect(again).not.toHaveBeenCalled();
+  });
+
+  // Round 20 review: a branch day held by a deleted, LOCKED kasserapport is
+  // refused (423 deleted_locked_close). Nothing of the day is in the books —
+  // this queued copy is the only one, so it is never "already saved" (whose
+  // row offers "remove this copy" as a spare).
+  it.each([423, 409])("a %s with code deleted_locked_close is never ALREADY_SAVED: kept, failed, with the server's words", async (status) => {
+    seed([{ date: "2026-09-15", revenue_total: 7000 }]);
+    const said = "Der ligger en slettet, låst kasserapport for denne dag og afdeling. Den bevares (bogføringsloven) og kan ikke overskrives — kontakt support.";
+    const post = vi.fn().mockRejectedValue(httpError(status, { code: "deleted_locked_close", message: said }));
+
+    const res = await syncOfflineQueue(post);
+
+    expect(res.alreadySaved).toBe(0);
+    expect(res.failed).toBe(1);
+    const [item] = getOfflineQueue();
+    expect(item.state).toBe(QUEUE_FAILED);
+    expect(item.errorCode).toBe(QUEUE_ERR_DELETED_LOCKED);
+    expect(item.errorDetail).toBe(said);
+    expect(item.payload.revenue_total).toBe(7000);
   });
 
   it("never erases a close queued WHILE a sync is in flight", async () => {
@@ -294,5 +319,95 @@ describe("queue edits", () => {
     ];
     expect(firstNeedingConfirmation(items).id).toBe("b");
     expect(firstNeedingConfirmation([])).toBeNull();
+  });
+});
+
+/* ─── round 21: a copy that met draft_changed ───────────────────────── */
+
+describe("a queued copy refused as draft_changed (round 21)", () => {
+  const draftChanged = (stamp) => Object.assign(new Error("Request failed with status code 412"), {
+    response: { status: 412, data: { detail: { code: "draft_changed", updated_at: stamp, current: { id: "r1", updated_at: stamp } } } },
+  });
+  // Even a server that said it as a 409: never "already saved".
+  const draftChanged409 = (stamp) => Object.assign(new Error("Request failed with status code 409"), {
+    response: { status: 409, data: { detail: { code: "draft_changed", updated_at: stamp } } },
+  });
+
+  beforeEach(() => { localStorage.clear(); });
+
+  it("stays as a FAILED copy with the newer version's stamp — never already-saved, never dropped", async () => {
+    addToOfflineQueue({ date: "2026-06-05", status: "confirmed", base_updated_at: "2026-06-05T20:00:00" });
+    const post = vi.fn().mockRejectedValue(draftChanged("2026-06-05T21:00:00.123456"));
+    const res = await syncOfflineQueue(post);
+    expect(res.synced).toBe(0);
+    expect(res.remaining).toHaveLength(1);
+    const it0 = res.remaining[0];
+    expect(it0.state).toBe(QUEUE_FAILED);
+    expect(it0.errorCode).toBe(QUEUE_ERR_DRAFT_CHANGED);
+    expect(it0.conflictStamp).toBe("2026-06-05T21:00:00.123456");
+    expect(it0.payload.base_updated_at).toBe("2026-06-05T20:00:00");
+    expect(getOfflineQueue()).toHaveLength(1);
+    expect(queueSummary(getOfflineQueue())).toMatchObject({ failed: 1, alreadySaved: 0 });
+  });
+
+  it("a 409 carrying draft_changed is not the locked-row 409", async () => {
+    addToOfflineQueue({ date: "2026-06-05", status: "draft" });
+    const res = await syncOfflineQueue(vi.fn().mockRejectedValue(draftChanged409("2026-06-05T21:00:00")));
+    expect(res.remaining[0].state).toBe(QUEUE_FAILED);
+    expect(res.remaining[0].errorCode).toBe(QUEUE_ERR_DRAFT_CHANGED);
+    expect(res.alreadySaved).toBe(0);
+  });
+
+  it("isDraftChanged / draftChangedStamp read the server's detail", () => {
+    expect(isDraftChanged(draftChanged("x"))).toBe(true);
+    expect(draftChangedStamp(draftChanged("2026-06-05T21:00:00"))).toBe("2026-06-05T21:00:00");
+    expect(isDraftChanged(httpError(409, "This daily close is locked."))).toBe(false);
+    expect(isDraftChanged(networkError())).toBe(false);
+  });
+
+  it("addFailedToOfflineQueue keeps a copy straight away as failed (the form was gone when it was refused)", () => {
+    const item = addFailedToOfflineQueue({ date: "2026-06-05", status: "draft", notes: "x" },
+      { errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "2026-06-05T21:00:00" });
+    expect(item.state).toBe(QUEUE_FAILED);
+    const q = getOfflineQueue();
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "2026-06-05T21:00:00" });
+  });
+
+  // Round 21 review — expectation changed from "a later sync tries it again":
+  // re-posted as it was, a copy re-created a day whose newer draft had been
+  // deleted on the other phone (no row, no version check). It waits for the
+  // owner's "Behold mine tal" — kept, never sent by a sync, never dropped.
+  it("a later sync never sends it: it stays failed, with its stamp, until the owner keeps it", async () => {
+    addFailedToOfflineQueue({ date: "2026-06-05", status: "draft" }, { errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+    const post = vi.fn().mockRejectedValue(draftChanged("b"));
+    const res = await syncOfflineQueue(post);
+    expect(post).not.toHaveBeenCalled();
+    expect(res.synced).toBe(0);
+    expect(res.remaining).toHaveLength(1);
+    expect(res.remaining[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+    expect(getOfflineQueue()[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+  });
+
+  it("the newer draft deleted on the other phone: the sync does not re-create the day — and the copies behind it still go", async () => {
+    addFailedToOfflineQueue({ date: "2026-06-05", status: "draft", notes: "A" }, { errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: "a" });
+    addToOfflineQueue({ date: "2026-06-06", status: "confirmed" });
+    // The server would take anything now (the day's row is gone).
+    const post = vi.fn().mockResolvedValue({ data: { id: "x" } });
+    const res = await syncOfflineQueue(post);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0][0].date).toBe("2026-06-06");
+    expect(res.synced).toBe(1);
+    const left = getOfflineQueue();
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, payload: { notes: "A" } });
+  });
+
+  it("any other failed copy is still tried again by the sync", async () => {
+    addFailedToOfflineQueue({ date: "2026-06-05", status: "confirmed" }, { errorCode: "server" });
+    const post = vi.fn().mockResolvedValue({ data: { id: "x" } });
+    const res = await syncOfflineQueue(post);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(res.remaining).toHaveLength(0);
   });
 });

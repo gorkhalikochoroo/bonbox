@@ -192,6 +192,47 @@ describe("daily close — queued closes the owner has to see", () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem(OQ_KEY))).toEqual([]));
   });
 
+  // Round 20 review: a branch day held by a deleted, LOCKED kasserapport
+  // (423 deleted_locked_close) is NOT "already locked in your kasserapport —
+  // you can remove this copy": nothing of the day is in the books, and this
+  // copy is the only one.
+  const deletedLocked = (status = 423) => Object.assign(new Error(String(status)), {
+    response: { status, data: { detail: { code: "deleted_locked_close", message: "Der ligger en slettet, låst kasserapport for denne dag og afdeling. Den bevares (bogføringsloven) og kan ikke overskrives — kontakt support." } } },
+  });
+
+  it("a day held by a deleted, locked kasserapport stays failed with its own sentence — never 'already saved'", async () => {
+    seedQueue([waitingClose]);
+    post.mockRejectedValue(deletedLocked());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/dcSyncPending:1/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/dcSyncPending:1/));
+
+    await waitFor(() => expect(screen.getByText(/dcQueuedFailed:1/)).toBeInTheDocument());
+    expect(screen.queryByText(/dcQueuedAlreadySaved/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/dcQueueErrLocked/)).not.toBeInTheDocument();
+    expect(screen.getByText(/dcQueueErrDeletedLocked/)).toBeInTheDocument();
+    // The server's own words ride along ("kontakt support").
+    expect(screen.getByText(/kontakt support/)).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(OQ_KEY))).toHaveLength(1);
+  });
+
+  it("…and from the double-check dialog: the same sentence, the copy kept as failed", async () => {
+    seedQueue([blockedClose]);
+    post.mockRejectedValue(deletedLocked(409));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("dcQueueReviewCta")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("dcQueueReviewCta"));
+    await waitFor(() => expect(screen.getByText("closeAnomalyConfirm")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("closeAnomalyConfirm"));
+
+    await waitFor(() => expect(screen.getAllByText(/dcQueueErrDeletedLocked/).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/dcQueueErrLocked/)).not.toBeInTheDocument();
+    const [item] = JSON.parse(localStorage.getItem(OQ_KEY));
+    expect(item).toMatchObject({ state: "failed", errorCode: "deleted_locked" });
+  });
+
   it("translates a refused close instead of echoing the server's English", async () => {
     seedQueue([waitingClose]);
     post.mockRejectedValue(Object.assign(new Error("500"), {

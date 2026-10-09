@@ -171,8 +171,12 @@ function checkInvariants(state, ctx) {
   // I6
   const meta = sourceMetaOf(state, { revenue_breakdown: {}, payment_breakdown: {} });
   const hasScan = activeEntries(state).some((e) => e.origin === TILL_SCAN);
-  if (!hasScan) expect(meta?.kind, `I6 no photo, yet "zbon" — ${where()}`).not.toBe("zbon");
   const ft = formTill(state);
+  // Round 20: a reopened Z-bon read changed by hand is told again as its
+  // OWN read with the change corrected — "zbon" with no photo in the day is
+  // that and nothing else (never typed figures relabelled a read).
+  const reopenedRead = ft?.origin === TILL_DRAFT && ft.meta?.kind === "zbon";
+  if (!hasScan && !reopenedRead) expect(meta?.kind, `I6 no photo, yet "zbon" — ${where()}`).not.toBe("zbon");
   if (meta?.kind === "zbon" && ft && tillGroups(state).length > 1 && !ft.meta) {
     expect(meta.typed_tills, `I6 a typed till filed as a Z-bon read — ${where()}`).toEqual([0]);
   }
@@ -187,7 +191,22 @@ function checkInvariants(state, ctx) {
       expect(meta.corrected, `I6 a changed draft line ${k} filed as read — ${where()}`).toContain(k);
     });
   }
-  if (!hasScan && ft?.origin === TILL_DRAFT && ft.meta) expect(meta, `I6 a reopened draft relabelled — ${where()}`).toBeNull();
+  // A reopened draft with no photo: untouched, nothing is sent (the server
+  // keeps its own); a Z-bon read changed by hand since (round 20) goes as its
+  // own source — the same kind, never relabelled — with the change corrected.
+  if (!hasScan && ft?.origin === TILL_DRAFT && ft.meta) {
+    const tt = Array.isArray(ft.meta.terminal_totals) ? ft.meta.terminal_totals.map(Number) : [];
+    const moved = tt.length > 1 && !near(tt.reduce((a, v) => a + v, 0), savedTotal(state));
+    if (reopenedRead && (draftChanges(ft, L).length || moved)) {
+      expect(meta?.kind, `I6 a reopened draft relabelled — ${where()}`).toBe(ft.meta.kind);
+      if (moved) {
+        expect(meta.corrected, `I6 a moved reopened sum without "revenue_total" — ${where()}`).toContain("revenue_total");
+        expect(near(meta.terminal_totals.reduce((a, v) => a + v, 0), savedTotal(state)), `I6 a reopened sum's tills ≠ saved — ${where()}`).toBe(true);
+      }
+    } else {
+      expect(meta, `I6 a reopened draft relabelled — ${where()}`).toBeNull();
+    }
+  }
   // I8
   if (!card && tillGroups(state).length === 1) {
     const lines = Object.values(fv.revenue).reduce((a, v) => a + (num(v) || 0), 0);

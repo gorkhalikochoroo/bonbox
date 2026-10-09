@@ -49,6 +49,12 @@ vi.mock("../hooks/useLanguage", () => ({
     LANGUAGES: [],
   }),
 }));
+// Round 23 — the page's questions are useConfirm dialogs: answered by
+// window.confirm here, or by `confirmAnswer` ("extra" = "Hent … salg").
+let confirmAnswer = null;
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (o) => Promise.resolve(confirmAnswer ? confirmAnswer(o) : window.confirm(typeof o === "string" ? o : o?.message)),
+}));
 vi.mock("../hooks/useEntitlements", () => ({
   useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
 }));
@@ -77,6 +83,7 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   window.confirm = vi.fn(() => true);
+  confirmAnswer = null;
   window.URL.createObjectURL = () => "blob:http://localhost/preview";
   window.URL.revokeObjectURL = () => {};
   localStorage.clear();
@@ -157,15 +164,23 @@ describe("1. a draft is taken back only if nothing was filed for the day since",
     await flush();
     slow(false);
     await backToCard();
+    // Round 23 (expectation changed): Start forfra waits for the slow save,
+    // then deletes the day's draft (asked first) and starts over empty — the
+    // card waits meanwhile (no photo is taken onto a day being emptied). The
+    // new bon then files the day's new draft, and nothing deletes it.
     tap(/^startOver$/);
     await settle();
+    expect(btn(/^continueStepByStep$/).disabled).toBe(true);
+    await arrive();
+    await flush();
+    expect(S.deletes).toHaveLength(1);
+    expect(rowFor(today)).toBeUndefined();
     await shoot("b3000", "bon3000.jpg");
     tap(/^continueStepByStep$/);
     await flush();
     await arrive();
     await flush();
-    // The new bon is the day's draft; nothing deleted it.
-    expect(S.deletes).toEqual([]);
+    expect(S.deletes).toHaveLength(1);
     expect(rowFor(today)).toMatchObject({ revenue_total: 3000, receipt_photo: photoUrl("bon3000.jpg") });
     expect(document.body.textContent).not.toContain("dcDayHasDraft");
   });
@@ -184,13 +199,12 @@ describe("1. a draft is taken back only if nothing was filed for the day since",
     await typed14000();
     await flush();
     expect(heldToday).toHaveLength(1);
+    // (Round 23: each move is asked first — answered "Flyt tallene".)
     await moveTo(yesterday);
-    tap(/^dcDateMoveKeep/);
     await flush();
     // Yesterday is filed; today's release waits on today's slow save.
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000 });
     await moveTo(today);
-    tap(/^dcDateMoveKeep/);
     await flush();
     await act(async () => { heldToday.splice(0).forEach((go) => go()); await new Promise((r) => setTimeout(r, 0)); });
     await flush();
@@ -201,45 +215,49 @@ describe("1. a draft is taken back only if nothing was filed for the day since",
 });
 
 describe("2 + 11. a second date change before the first new day is filed", () => {
-  it("Brug dem, another date inside the 2 s, Brug dem: the first day's draft goes, the note names it", async () => {
+  // Round 23 (expectation changed): a confirmed move files the new day AT
+  // ONCE (no 2 s debounce), so the second move is a move from yesterday: both
+  // earlier days' drafts go, and the note names the day the figures left.
+  it("Flyt tallene, then another date: the figures end on the last day, neither earlier day keeps a draft, the note names the day they left", async () => {
     serve();
     await mount();
     await typed14000();
     await flush();
     const todayId = rowFor(today).id;
     await moveTo(yesterday);
-    tap(/^dcDateMoveKeep/);
     await settle();
-    // Inside the debounce: nothing is filed for yesterday yet.
     await moveTo(twoDaysAgo);
-    expect(q('[data-testid="dc-date-move"]')).not.toBeNull();
-    tap(/^dcDateMoveKeep/);
     await flush();
     expect(rowFor(twoDaysAgo)).toMatchObject({ revenue_total: 14000 });
     expect(rowFor(yesterday)).toBeUndefined();
     expect(rowFor(today)).toBeUndefined();
-    expect(S.deletes).toEqual([todayId]);
-    expect(q('[data-testid="dc-date-moved"]').textContent).toBe(`dcDateMovedFrom:${short(today)}`);
+    expect(S.deletes[0]).toBe(todayId);
+    expect(S.deletes).toHaveLength(2);
+    expect(q('[data-testid="dc-date-moved"]').textContent).toBe(`dcDateMovedFrom:${short(yesterday)}`);
   });
 
-  it("Brug dem, another date inside the 2 s, \"Hent … salg\": nothing moved — the first day's 14.000 stays", async () => {
+  // Round 23 (expectation changed): the first move is done at once (the new
+  // day filed, the old draft deleted); the second, answered "Hent … salg",
+  // moves nothing — yesterday keeps the 14.000.
+  it("Flyt tallene, then another date answered \"Hent … salg\": the second moves nothing — yesterday's 14.000 stays", async () => {
     serve([], [twoDaysAgo]);
     await mount();
     await typed14000();
     await flush();
+    const todayId = rowFor(today).id;
     await moveTo(yesterday);
-    tap(/^dcDateMoveKeep/);
-    await settle();
+    await flush();
+    confirmAnswer = () => "extra";
     await moveTo(twoDaysAgo);
     for (let i = 0; i < 4; i++) await settle();
-    tap(/^dcDateMoveFetch/);
     await flush();
     // Change something on the synced day so it is filed.
     keyIn(q("#dc-rev-takeaway"), "100");
     await flush();
     expect(rowFor(twoDaysAgo)).toBeTruthy();
-    expect(rowFor(today)).toMatchObject({ revenue_total: 14000, status: "draft" });
-    expect(S.deletes).toEqual([]);
+    expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000, status: "draft" });
+    expect(rowFor(today)).toBeUndefined();
+    expect(S.deletes).toEqual([todayId]);
     expect(q('[data-testid="dc-date-moved"]')).toBeNull();
   });
 });
@@ -252,16 +270,18 @@ describe("4. a move whose old-day delete does not go through says so", () => {
     await flush();
     del.mockImplementation(() => Promise.reject(Object.assign(new Error("offline"), {})));
     await moveTo(yesterday);
-    tap(/^dcDateMoveKeep/);
     await flush();
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000 });
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000 });
-    // Never "er stadig gemt" for a draft that holds the moved figures.
-    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedOldHolds:/);
+    // Never "moved" for a day that still holds the figures (round 23: the
+    // note is "Kopieret til … står der stadig", with "Slet den").
+    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedCopied:/);
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeTruthy();
   });
 });
 
-describe("3. a Z-bon's day moved with no question is moved, not copied", () => {
+// (Round 23: a Z-bon's day is asked about too — answered "Flyt tallene".)
+describe("3. a Z-bon's day moved is moved, not copied", () => {
   it("b5000 applied and filed for today, date → yesterday: yesterday holds it, today's draft (and its photo) goes", async () => {
     serve();
     await mount();
@@ -302,16 +322,20 @@ describe("9. figures typed while the thrown-away photo's save is on its way", ()
     await flush();
     expect(S.held.length).toBe(1);
     await backToCard();
+    // Round 23 (expectation changed): Start forfra waits for the photo's save
+    // on its way, then deletes that draft — the page waits meanwhile, so
+    // nothing typed can be lost to it — and the 7.000 typed after is the
+    // day's new draft: typed, no photo.
     tap(/^startOver$/);
     await settle();
+    slow(false);
+    await arrive();
+    await flush();
+    expect(S.deletes).toHaveLength(1);
     tap(/^skipEnterManually$/);
     await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
     keyIn(q("#dc-rev-food"), "7000");
     await flush();
-    slow(false);
-    await arrive();
-    await flush();
-    expect(S.deletes).toEqual([]);
     expect(rowFor(today)).toMatchObject({
       revenue_total: 7000, revenue_breakdown: { food: 7000 }, receipt_photo: null, source_meta: { kind: "typed" },
     });
@@ -341,7 +365,10 @@ describe("12. no draft banner over the draft being deleted", () => {
     expect(document.body.textContent).not.toContain("dcDayHasDraft");
   });
 
-  it("the DELETE refused: the draft is still the day's, and the banner says so", async () => {
+  // Round 23 (expectation changed): a Start forfra that cannot reach the
+  // server changes nothing — the card stays as it was and says the draft was
+  // not deleted (the form is still the owner's; no banner over it).
+  it("the DELETE gets no answer: nothing changes, and the card says the draft was not deleted", async () => {
     serve();
     await mount();
     await shoot("b5000", "bon5000.jpg");
@@ -352,7 +379,9 @@ describe("12. no draft banner over the draft being deleted", () => {
     tap(/^startOver$/);
     await flush();
     expect(rowFor(today)).toMatchObject({ revenue_total: 5000 });
-    expect(document.body.textContent).toContain("dcDayHasDraftBody:5.000 kr.");
+    expect(q('[data-testid="dc-start-over-failed"]').textContent).toContain("dcStartOverNotDeletedOffline");
+    expect(q('[data-testid="dc-scan-result-date"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("dcDayHasDraft");
   });
 });
 

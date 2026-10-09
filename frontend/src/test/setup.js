@@ -69,4 +69,9 @@ afterEach(() => {
   // every subsequent useLanguage default).
   try { localStorage.clear(); } catch {}
   try { sessionStorage.clear(); } catch {}
+  // Each test is a new page load: the Daily close's draft saves "still on
+  // their way" (kept on the window, DailyClosePage CLOSE_SAVES) belong to the
+  // test that sent them — a save a test left unanswered must not hold the
+  // next test's history list back.
+  try { globalThis[Symbol.for("bonbox.closeSavesOnTheirWay")]?.clear?.(); } catch {}
 });

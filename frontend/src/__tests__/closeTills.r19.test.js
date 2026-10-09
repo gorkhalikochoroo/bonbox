@@ -196,3 +196,42 @@ describe("closeTills r19 — an emptied till total stays empty in a sum of three
     expect(cardView(s).revenue_total_text).toBe("23.000");
   });
 });
+
+// Round 20 review: a MOMS typed on a reopened Z-bon read — not the MOMS it
+// was opened with — sent null (nothing changed), and the server printed the
+// owner's figure as "Salgsmoms aflæst fra Z-bon". Now "moms" goes in `typed`
+// (moms_source → "typed"), with the restore path the same.
+describe("a MOMS typed on a reopened Z-bon read is the owner's", () => {
+  const zbonMeta = { kind: "zbon", scans: 1, corrected: [] };
+  const opened = (moms = "3.150") => loadDraft(createTills(L), {
+    revenue: { food: "15.750" }, payments: { card: "15.750" }, total: 15750, moms, meta: zbonMeta,
+  });
+
+  it("bon MOMS 3.150, 2.900 typed: \"moms\" in typed, the read itself unchanged — on restore too", () => {
+    const z = opened();
+    expect(sourceMetaOf(z, { momsTyped: true, momsValue: 2900 })).toEqual({ ...zbonMeta, typed: ["moms"] });
+    expect(sourceMetaOf(z, { momsTyped: true, momsValue: 2900, restore: true })).toEqual({ ...zbonMeta, typed: ["moms"] });
+  });
+
+  it("the bon's own MOMS (or Auto): nothing said typed", () => {
+    const z = opened();
+    expect(sourceMetaOf(z, { momsTyped: true, momsValue: 3150 })).toBeNull();
+    expect(sourceMetaOf(z, { momsTyped: false, momsValue: null })).toBeNull();
+    expect(sourceMetaOf(z, { momsTyped: true, momsValue: 3150, restore: true })).toEqual(zbonMeta);
+  });
+
+  it("opened on Auto, a MOMS typed: the owner's", () => {
+    const z = opened(null);
+    expect(sourceMetaOf(z, { momsTyped: true, momsValue: 3150 })).toEqual({ ...zbonMeta, typed: ["moms"] });
+  });
+
+  it("a line corrected too: both said — the correction and the typed MOMS", () => {
+    const z = typeIntoForm(opened(), "revenue.food", "16.000");
+    expect(sourceMetaOf(z, { momsTyped: true, momsValue: 2900 })).toMatchObject({ kind: "zbon", corrected: ["rev:food"], typed: ["moms"] });
+  });
+
+  it("a typed close is untouched by this (its MOMS is typed anyway)", () => {
+    const d = loadDraft(createTills(L), { revenue: { food: "15.750" }, payments: { card: "15.750" }, total: 15750, moms: "3.150", meta: { kind: "typed" } });
+    expect(sourceMetaOf(d, { momsTyped: true, momsValue: 2900 })).toBeNull();
+  });
+});

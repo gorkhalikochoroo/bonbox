@@ -178,6 +178,10 @@ def _to_response(dc: DailyClose) -> dict:
         "unlocked_at": getattr(dc, "unlocked_at", None),
         "is_deleted": dc.is_deleted,
         "created_at": dc.created_at,
+        # The version of the row: the page sends it back as base_updated_at
+        # with its next draft save, so a draft changed elsewhere since is
+        # never overwritten in silence (create_daily_close, round 21).
+        "updated_at": getattr(dc, "updated_at", None),
         "receipt_photo": getattr(dc, "receipt_photo", None),
         # Where the figures came from (Z-bon or typed, the tills added
         # together, which of them were typed). A reopened draft that was itself
@@ -1362,6 +1366,200 @@ def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) 
 
 # ─── POST — submit daily close ───
 
+def _dead_draft_figures(dead) -> dict:
+    """What a soft-deleted draft held, for the audit row of the close that
+    takes its place (close.restored `before`): its figures, cash, notes,
+    photo and source — the reused row's columns are the new close's."""
+    def _f(v):
+        try:
+            return None if v is None else round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+    created = getattr(dead, "created_at", None)
+    return {
+        "revenue_total": _f(dead.revenue_total),
+        "moms_total": _f(dead.moms_total),
+        "revenue_breakdown": decode_breakdown(dead.revenue_categories) or {},
+        "payment_breakdown": decode_breakdown(dead.payment_categories) or {},
+        "cash_counted": _f(dead.cash_counted),
+        "cash_expected": _f(dead.cash_expected),
+        "cash_float": _f(getattr(dead, "cash_float", None)),
+        "tips_total": _f(dead.tips_total),
+        "notes": dead.notes,
+        "closed_by": dead.closed_by,
+        "receipt_photo": dead.receipt_photo,
+        "source_meta": dead.source_meta,
+        "created_at": created.isoformat() if created else None,
+    }
+
+
+DRAFT_CHANGED = "draft_changed"
+
+
+def _naive_utc(ts):
+    """A datetime as the naive UTC the columns hold (an aware one converted)."""
+    from datetime import timezone as _tz
+    if ts is None:
+        return None
+    if ts.tzinfo is not None:
+        ts = ts.astimezone(_tz.utc).replace(tzinfo=None)
+    return ts
+
+
+def _last_save_id(db, user, close_id) -> str | None:
+    """The page's own id for the save that wrote this close last (its
+    `save_id`, kept on the daily_close create / update / lock audit row), or
+    None. Read only when a page says its save follows one of its own still on
+    its way (base_save_id)."""
+    import json as _json
+    try:
+        from app.models.audit_log import AuditLog
+        row = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.entity_id == close_id,
+                AuditLog.action.in_(("daily_close.create", "daily_close.update", "daily_close.lock")),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .first()
+        )
+        after = _json.loads(row.after_state or "{}") if row is not None else {}
+    except Exception:  # noqa: BLE001
+        return None
+    sid = after.get("save_id") if isinstance(after, dict) else None
+    return sid if isinstance(sid, str) and sid else None
+
+
+def _last_save_ids(db, user, close_ids) -> dict | None:
+    """{str(close_id): save_id | None} for these closes, in ONE query (round
+    22): the page's own id for the save that wrote each last, as
+    _last_save_id reads it one row at a time. A page whose save got no answer
+    (stored, the answer lost) reads its day with this before it takes a
+    draft back — the row is its own exactly when the save that wrote it last
+    is one the page sent. Bounded by the rows asked for (a day: one per
+    branch); History's list never asks for it.
+
+    None when the audit trail could not be read (round 22 review): "couldn't
+    check" is not "written by a save with no id" — the caller then names no
+    last_save_id at all, and the page treats the row as unknown, never as
+    saved somewhere else."""
+    import json as _json
+    ids = [cid for cid in close_ids if cid is not None]
+    out = {str(cid): None for cid in ids}
+    if not ids:
+        return out
+    try:
+        from app.models.audit_log import AuditLog
+        rows = (
+            db.query(AuditLog.entity_id, AuditLog.after_state)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.entity_id.in_(ids),
+                AuditLog.action.in_(("daily_close.create", "daily_close.update", "daily_close.lock")),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    seen = set()
+    for entity_id, after_state in rows:
+        k = str(entity_id)
+        if k in seen:
+            continue
+        seen.add(k)
+        try:
+            after = _json.loads(after_state or "{}")
+        except Exception:  # noqa: BLE001
+            after = {}
+        sid = after.get("save_id") if isinstance(after, dict) else None
+        out[k] = sid if isinstance(sid, str) and sid else None
+    return out
+
+
+def _draft_changed_since(existing, base, base_save_id=None, *, db=None, user=None) -> dict | None:
+    """The 412 detail when the stored DRAFT is newer than the version the
+    page holds (`base`, its base_updated_at), else None.
+
+    Only a live draft is checked — a locked row keeps its own 409 — and only
+    when the page sent a base: an older app build sends none and saves as it
+    always did. A base equal to (or newer than) the stored version is the
+    page's own latest. The detail carries the stored draft, so the page can
+    show it and offer it.
+
+    `base_save_id`: the page's own save still on its way when this one went
+    (the page was going away — no time to wait for its answer). When the
+    stored version is the one THAT save wrote, it is the page's own and this
+    save follows it; anyone else's version in between is still refused."""
+    if existing is None or base is None:
+        return None
+    if (getattr(existing, "status", None) or "confirmed") != "draft":
+        return None
+    stored = _naive_utc(getattr(existing, "updated_at", None))
+    if stored is None or stored <= _naive_utc(base):
+        return None
+    if base_save_id and db is not None and user is not None and _last_save_id(db, user, existing.id) == base_save_id:
+        return None
+    from fastapi.encoders import jsonable_encoder
+    return {
+        "code": DRAFT_CHANGED,
+        "message": ("Kladden for denne dag er gemt et andet sted, efter du åbnede den. "
+                    "Intet er overskrevet — hent den nyeste kladde, eller behold dine tal."),
+        "updated_at": stored.isoformat(),
+        "current": jsonable_encoder(_to_response(existing)),
+    }
+
+
+def _claim_draft_version(db, existing, data, user) -> None:
+    """Hold the stored draft at the version just checked until this save
+    commits (round 21 review). The check above reads the row without a lock
+    and the ORM's UPDATE has no version condition: two saves built on the
+    same version both passed it on Postgres (READ COMMITTED), the second
+    waited on the first's row lock and then wrote over it — both answered
+    200, and the version in between was lost with nobody told (the page's
+    own older save landing after its newer one, or another phone's).
+
+    A compare-and-set: UPDATE … SET updated_at = <stored> WHERE id = … AND
+    updated_at = <stored>. It changes nothing, takes the row lock (held to
+    this save's commit), and touches no row when another save committed a
+    newer version first — that version is then read and checked like the
+    first one (refused 412 draft_changed, or, when it is the page's own save
+    still on its way that this one follows — base_save_id — claimed in its
+    turn). A row locked or deleted meanwhile is left to the save's own rules
+    (the locked-row 409)."""
+    for _ in range(3):
+        stamp = existing.updated_at
+        hit = (
+            db.query(DailyClose)
+            .filter(DailyClose.id == existing.id, DailyClose.updated_at == stamp)
+            .update({DailyClose.updated_at: stamp}, synchronize_session=False)
+        )
+        if hit:
+            return
+        db.refresh(existing)
+        if (getattr(existing, "status", None) or "confirmed") != "draft" or existing.is_deleted:
+            return
+        if existing.updated_at == stamp:
+            # No newer version — the stamp did not compare equal as stored
+            # (a legacy value): never a refusal for that; the row lock alone.
+            db.query(DailyClose).filter(DailyClose.id == existing.id).with_for_update().first()
+            return
+        changed = _draft_changed_since(existing, data.base_updated_at, data.base_save_id, db=db, user=user)
+        if changed is not None:
+            raise HTTPException(status_code=412, detail=changed)
+    from fastapi.encoders import jsonable_encoder
+    raise HTTPException(status_code=412, detail={
+        "code": DRAFT_CHANGED,
+        "message": ("Kladden for denne dag er gemt et andet sted, efter du åbnede den. "
+                    "Intet er overskrevet — hent den nyeste kladde, eller behold dine tal."),
+        "updated_at": _naive_utc(existing.updated_at).isoformat() if existing.updated_at else None,
+        "current": jsonable_encoder(_to_response(existing)),
+    })
+
+
 def _clean_source_meta(meta) -> str | None:
     """Keep only the known, bounded keys of the client's source description
     (see DailyClose.source_meta) and store it as JSON text."""
@@ -1682,6 +1880,26 @@ def create_daily_close(
         .first()
     )
 
+    # A draft that changed since the page opened it is never replaced in
+    # silence (round 21). Every save sends every field, so a page holding an
+    # older copy — a save from its previous visit landed after it listed the
+    # day, or another phone saved since — filed that copy over the newer
+    # draft: a note typed on it erased a Kort 2.000 already stored. The page
+    # says which version it holds (base_updated_at, the updated_at it last
+    # read or was answered with); an older one is refused with its own code,
+    # never the locked-row 409 (to every client a 409 here means "locked —
+    # already in the books") and never the 423. The page then asks the owner:
+    # the newer draft, or theirs (sent again on the newer base). No base (an
+    # older app build) saves as it always did.
+    _changed = _draft_changed_since(existing, data.base_updated_at, data.base_save_id, db=db, user=user)
+    if _changed is not None:
+        raise HTTPException(status_code=412, detail=_changed)
+    # …and checked atomically: the version just checked is held until this
+    # save commits (a concurrent save of the same version is refused).
+    if (existing is not None and data.base_updated_at is not None
+            and (getattr(existing, "status", None) or "confirmed") == "draft"):
+        _claim_draft_version(db, existing, data, user)
+
     # Revenue total: when the OCR detected a bottom-line total
     # (revenue_total_override) AND the user didn't fully reconcile the
     # category breakdown, prefer the larger value. Three cases:
@@ -1976,6 +2194,10 @@ def create_daily_close(
         # Read before the update: a seeded day the owner typed real figures
         # into stops being sample data (_notes_to_store).
         _notes = _notes_to_store(existing, data, revenue_total)
+        # The photo the row held before this save: one it clears or replaces
+        # (another phone's bon, saved over by the owner's "Behold mine tal")
+        # stays traceable in the audit row.
+        _photo_before = getattr(existing, "receipt_photo", None)
         # Update existing
         existing.revenue_categories = encode_breakdown(data.revenue_breakdown)
         existing.revenue_total = revenue_total
@@ -2037,7 +2259,11 @@ def create_daily_close(
             action=_audit_action,
             entity_type="daily_close",
             entity_id=existing.id,
-            before={"status": existing_status, "revenue_total": float(existing.revenue_total or 0)},
+            before={
+                "status": existing_status, "revenue_total": float(existing.revenue_total or 0),
+                **({"receipt_photo": _photo_before}
+                   if _photo_before and _photo_before != existing.receipt_photo else {}),
+            },
             after={
                 "status": status, "revenue_total": revenue_total,
                 "payment_total": payment_total, "moms_total": moms_total,
@@ -2047,6 +2273,9 @@ def create_daily_close(
                 # rest of what the kasserapport prints (_lock_doc_fields).
                 **_lock_lines(data),
                 **(_lock_doc_fields(existing) if status == "confirmed" else {}),
+                # The page's id for this save: the save it sends next, while
+                # this one is still on its way, follows it (base_save_id).
+                **({"save_id": data.save_id} if data.save_id else {}),
             },
             ip_address=getattr(request.client, "host", None) if request.client else None,
         )
@@ -2106,25 +2335,50 @@ def create_daily_close(
     # the INSERT below failed with an IntegrityError (500) for a venue that
     # files under a branch, and the day could never be saved or locked again.
     # The page deletes drafts on its own now (Start forfra on a day of photos
-    # only, a date move). The deleted row is taken back as this new close:
-    # every column is the new close's, nothing of the deleted one survives
-    # (no photo, source, float, unlock or send state), and the audit trail
-    # says so. NULL branches never collided (NULLs are distinct) but are
-    # reused the same way — one row per day.
-    dead = (
-        db.query(DailyClose)
-        .filter(
-            DailyClose.user_id == user.id,
-            DailyClose.date == data.date,
-            DailyClose.branch_id == data.branch_id,
-            DailyClose.is_deleted.is_(True),
+    # only, a date move). The deleted DRAFT is taken back as this new close:
+    # every column is the new close's, and the audit trail keeps what the
+    # deleted draft held (its figures, photo and source — `before` of
+    # close.restored), so nothing of it is lost from the record.
+    #
+    # Only a draft, and only where the key collides. A soft-deleted LOCKED
+    # kasserapport (deletes before the 2026-06-10 lock check let one through)
+    # is a bookkeeping record (bogføringsloven) and is never overwritten. A
+    # NULL branch never collides (NULLs are distinct in the unique key), so
+    # a day filed again without a branch is a new row, as it always was.
+    dead = None
+    if data.branch_id is not None:
+        dead_any = (
+            db.query(DailyClose)
+            .filter(
+                DailyClose.user_id == user.id,
+                DailyClose.date == data.date,
+                DailyClose.branch_id == data.branch_id,
+                DailyClose.is_deleted.is_(True),
+            )
+            .first()
         )
-        .first()
-    )
+        if dead_any is not None and (dead_any.status or "draft") != "draft":
+            # Taken back it would be overwritten; inserted beside it the
+            # unique key refuses (500). Said plainly instead — and NOT as a
+            # 409: to every client (the page, the offline queue, an app build
+            # already in the field) a 409 from this route means "a live close
+            # is locked for this day, the money is in the books", and a queued
+            # copy was offered for removal on it. Nothing of this day is in the
+            # books: 423 (Locked) with its own code, kept as a failed save.
+            raise HTTPException(
+                status_code=423,
+                detail={
+                    "code": "deleted_locked_close",
+                    "message": ("Der ligger en slettet, låst kasserapport for denne dag og afdeling. "
+                                "Den bevares (bogføringsloven) og kan ikke overskrives — kontakt support."),
+                },
+            )
+        dead = dead_any
     restored_from = None
     if dead is not None:
         restored_from = {"deleted_at": dead.deleted_at.isoformat() if dead.deleted_at else None,
-                         "status": dead.status}
+                         "status": dead.status,
+                         **_dead_draft_figures(dead)}
         now = utc_now()
         for attr in DailyClose.__mapper__.column_attrs:
             if attr.key in ("id", "user_id", "branch_id", "date"):
@@ -2163,6 +2417,7 @@ def create_daily_close(
             "closed_by": data.closed_by, "branch_id": data.branch_id,
             **(_lock_lines(data) if status == "confirmed" else {}),
             **(_lock_doc_fields(dc) if status == "confirmed" else {}),
+            **({"save_id": data.save_id} if data.save_id else {}),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
@@ -2809,6 +3064,10 @@ def list_daily_closes(
     from_date: date = Query(None, alias="from"),
     to_date: date = Query(None, alias="to"),
     branch_id: str = Query(None),
+    # Round 22: each row's last_save_id (the page's id for the save that
+    # wrote it last). Asked for by the page when it reads ONE day fresh
+    # before taking back a draft whose save got no answer.
+    with_save_id: bool = Query(False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -2826,6 +3085,13 @@ def list_daily_closes(
     closes = q.order_by(DailyClose.date.desc()).limit(90).all()
     rows = [_to_response(dc) for dc in closes]
     _fill_email_status_from_trail(db, user, closes, rows)
+    if with_save_id:
+        sids = _last_save_ids(db, user, [dc.id for dc in closes])
+        # Not read (the audit query failed): no last_save_id at all — the
+        # page's "couldn't check", never None ("no id wrote it").
+        if sids is not None:
+            for dc, row in zip(closes, rows):
+                row["last_save_id"] = sids.get(str(dc.id))
     return rows
 
 
@@ -4799,7 +5065,15 @@ def get_daily_close(
     ).first()
     if not dc:
         raise HTTPException(status_code=404, detail="Daily close not found")
-    return _to_response(dc)
+    out = _to_response(dc)
+    # Round 22: the page's id for the save that wrote it last — a page whose
+    # save got no answer knows the row is its own exactly when this is one
+    # of the save ids it sent. Left out when it could not be read (round 22
+    # review: unknown, never "not the page's").
+    sids = _last_save_ids(db, user, [dc.id])
+    if sids is not None:
+        out["last_save_id"] = sids.get(str(dc.id))
+    return out
 
 
 # ─── GET — PDF Kasserapport ───
@@ -4842,6 +5116,11 @@ def daily_close_pdf(
 def delete_daily_close(
     close_id: str,
     request: Request,
+    # Round 21 review — the version of the draft the page holds (and its own
+    # save still on its way, when an answer was lost): the same draft_changed
+    # rule as a save. Absent (History, an older app build): as before.
+    base_updated_at: datetime | None = Query(None),
+    base_save_id: str | None = Query(None, max_length=64),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -4864,6 +5143,33 @@ def delete_daily_close(
                 "message": "This close is locked. Unlock it first, then delete.",
             },
         )
+    # A draft the page created and now takes back (Start forfra on a day of
+    # photos only, a date move) that was saved somewhere else since — another
+    # phone typed Kort 2.000 into it — is never deleted in silence: refused
+    # (412 draft_changed, with the stored draft), and the page shows it.
+    if not dc.is_deleted:
+        _changed = _draft_changed_since(dc, base_updated_at, base_save_id, db=db, user=user)
+        if _changed is not None:
+            raise HTTPException(status_code=412, detail=_changed)
+        # …and the version just checked is held until this delete commits
+        # (round 22 review), as a save's is (_claim_draft_version): the check
+        # reads the row without a lock and the delete's UPDATE has no version
+        # condition — another phone's save committing in between (it got 200)
+        # was deleted with this page's figures. A newer version committed
+        # first is read and checked like the first one (412 draft_changed, or
+        # the page's own save it follows — base_save_id); a row locked
+        # meanwhile keeps its 409.
+        if base_updated_at is not None and (dc.status or "").lower() == "draft":
+            from types import SimpleNamespace as _NS
+            _claim_draft_version(db, dc, _NS(base_updated_at=base_updated_at, base_save_id=base_save_id), user)
+            if (dc.status or "").lower() == "confirmed":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "close_locked",
+                        "message": "This close is locked. Unlock it first, then delete.",
+                    },
+                )
     dc.is_deleted = True
     dc.deleted_at = utc_now()
     # L7 — every delete leaves an audit trail (who, when, which date).

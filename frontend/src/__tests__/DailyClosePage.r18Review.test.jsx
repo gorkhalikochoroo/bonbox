@@ -191,8 +191,17 @@ describe("2. Fortsæt kladden after a date move", () => {
     await leave();
     expect(stored(today).notes).toContain("Gavekort solgt");
     await backToStepOne(view.container).catch(() => {});
+    // Round 23 (path changed): figures are never moved onto a day that holds
+    // another draft — the question says so, and its "Fortsæt kladden" is the
+    // one tap that continues it (round 23 review: restored — it was a detour
+    // through History).
+    const asked = [];
+    const was = window.confirm;
+    window.confirm = (m) => { asked.push(m); return true; };
     fireEvent.change(view.container.querySelector("#close-date"), { target: { value: yesterday } });
-    fireEvent.click(await screen.findByText("dcContinueDraft"));
+    await waitFor(() => expect(asked.length).toBe(1));
+    window.confirm = was;
+    expect(asked[0]).toMatch(/^dcMoveTargetDraftBody/);
     await waitFor(() => expect(view.container.querySelector("#dc-rev-treatments")?.value).toBe("800"));
     const before = S.posts.length;
     await settle(2300);

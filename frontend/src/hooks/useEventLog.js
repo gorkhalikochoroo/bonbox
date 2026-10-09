@@ -33,9 +33,14 @@ function flushEvents() {
   // tagging Sales by which event a row belongs to). Analytics telemetry
   // moved to `/api/event-log`. The wire shape ({events: [...]}) and the
   // GDPR opt-out handling are unchanged.
-  api.post("/event-log/batch", { events: batch }).catch(() => {
-    // silently fail — don't interrupt user experience
-  });
+  // Silently fail — don't interrupt user experience. Guarded against a
+  // poster that throws or answers with no promise (a stubbed api in a test
+  // whose mock was reset while this 5 s timer was pending surfaced as an
+  // uncaught TypeError and failed the whole run).
+  try {
+    const sent = api.post("/event-log/batch", { events: batch });
+    if (sent && typeof sent.catch === "function") sent.catch(() => {});
+  } catch { /* silently fail */ }
 }
 
 function scheduleFlush() {

@@ -67,6 +67,8 @@ const SALES_DAY = {
 let prefillByDate = {};
 beforeEach(() => {
   window.scrollTo = () => {};
+  // Round 23: a date move with figures is asked first — answered "Flyt tallene".
+  window.confirm = () => true;
   localStorage.clear();
   get.mockReset();
   post.mockReset();
@@ -145,6 +147,8 @@ describe("daily close — a new date never shows the old day's prefill", () => {
     fireEvent.change(container.querySelector("#dc-pay-mobilepay"), { target: { value: "300" } });
 
     pickDate(container, "2026-06-01");
+    // (Round 23: the move is asked first — the date changes once answered.)
+    await waitFor(() => expect(container.querySelector("#close-date").value).toBe("2026-06-01"));
     await waitFor(() => expect(prefillCallsFor("2026-06-01")).toBe(1));
     await waitFor(() => expect(screen.queryByText("loadingRecords")).not.toBeInTheDocument());
     // The sync's untouched figures are gone…
