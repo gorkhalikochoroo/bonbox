@@ -181,6 +181,19 @@ const resentOnFormVersion = (n, stored) => {
   }
 };
 
+/** The page hidden (document.visibilityState) while `fn` runs. */
+const hidden = async (fn) => {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+  try { await fn(); } finally { delete document.visibilityState; }
+};
+/** A failed copy (DRAFT_CHANGED, on the version it met) holds the owner's figures on this phone. */
+const keptWhileHidden = (stored) => {
+  const kept = getOfflineQueue().filter((it) => it.payload?.date === today);
+  expect(kept).toHaveLength(1);
+  expect(kept[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: stored });
+  expect(kept[0].payload.revenue_breakdown).toEqual({ food: 3000 });
+};
+
 describe("round 23 fix-up — a re-sent save carries the form's own version, never History's", () => {
   it("two devices + a lost answer, re-sent ONCE ONLINE: refused — \"Kladden er gemt et andet sted\" asks; the other phone's draft is kept", async () => {
     const { stored, n } = await lostThenListed();
@@ -221,13 +234,38 @@ describe("round 23 fix-up — a re-sent save carries the form's own version, nev
 
   it("…re-sent on PAGEHIDE (the phone locked, the tab switched): refused — asked when the page is back, the other phone's draft kept", async () => {
     const { stored, n } = await lostThenListed();
-    await fire("pagehide");
-    await settleMany(10);
+    // (As a browser does it: the page is hidden, then pagehide.)
+    await hidden(async () => {
+      await fire("pagehide");
+      await settleMany(10);
+      // Round 23 re-send review — refused while the page is away: the
+      // owner's figures are kept on this phone at once (a tab the OS
+      // discards in the background leaves no JS to keep them later).
+      keptWhileHidden(stored);
+    });
     await fire("pageshow");
     await settleMany(4);
     resentOnFormVersion(n, stored);
     otherPhoneKept();
     expect(q('[data-testid="dc-draft-changed"]')).not.toBeNull();
+    // Back: the question is on screen again — the copy for the way out goes.
+    expect(getOfflineQueue().filter((it) => it.payload?.date === today)).toHaveLength(0);
+  });
+
+  it("…re-sent when the tab is HIDDEN (visibilitychange): refused while hidden — a failed copy holds the owner's figures until the page is shown again", async () => {
+    const { stored, n } = await lostThenListed();
+    const visibility = () => act(async () => { document.dispatchEvent(new Event("visibilitychange")); await new Promise((r) => setTimeout(r, 0)); });
+    await hidden(async () => {
+      await visibility();
+      await settleMany(10);
+      resentOnFormVersion(n, stored);
+      otherPhoneKept();
+      keptWhileHidden(stored);
+    });
+    await visibility();
+    await settleMany(4);
+    expect(q('[data-testid="dc-draft-changed"]')).not.toBeNull();
+    expect(getOfflineQueue().filter((it) => it.payload?.date === today)).toHaveLength(0);
   });
 
   it("no false alarm: no other phone — the version stored is this form's own lost save (the re-send after it died too, so base_save_id names a save that never landed): read fresh, it is the form's own, and the figures are saved on it with nobody asked", async () => {
