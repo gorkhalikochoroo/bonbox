@@ -3,9 +3,13 @@
  * register) are true (RELEASE_GATE rule 5: no unmeasured numbers; legal text
  * needs Manoj's OK — the sentences below are the ones put to him).
  *
- *   (e) /register: under "Opret konto", what creating an account agrees to,
- *       with Handelsbetingelser (/terms) and Privatlivspolitik (/privacy) one
- *       tap away (a new tab on the web: the form stays as typed).
+ *   (e) /register: Servicevilkår (/terms) and Privatlivspolitik (/privacy)
+ *       one tap away (a new tab on the web: the form stays as typed) —
+ *       "Læs vores …", informational (R-c review: an "accepterer du" line
+ *       made owners accept Terms whose §8 price and §4 retention text do not
+ *       match the code — that wording waits for Manoj + the DK attorney).
+ *       Rendered once, where every sign-up path passes it: beside the
+ *       Google / Apple row when there is one, else under "Opret konto".
  *   (f) landing: "Daglig lukning på 30 sekunder" (never measured) → "Daglig
  *       lukning: tag et billede af Z-bonen, BonBox fylder tallene ud" (a Z-bon
  *       scan is on every plan — Free: 3 a day); "Arkiv bygget til
@@ -13,7 +17,10 @@
  *       (GET /daily-close/{id}/pdf, every plan — BonBox itself keeps no
  *       5-year archive promise: an erased account's closes are deleted).
  *   (g) login: "… — tager 30 sekunder" and "det tager normalt 20-30
- *       sekunder" (never measured) → no number.
+ *       sekunder" (never measured) → no number; the iOS hint names the link
+ *       as it reads ("Glemt?" — forgotShort), not "Glemt adgangskode".
+ *   Turkish is OFFERED (languageCatalog): its pack carries the new true
+ *   sentences, never English fallbacks for removed ones.
  * Plus a guard: no "N sekunder / N seconds" on those three pages, in any
  * language pack or inline fallback.
  */
@@ -25,6 +32,8 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
 import { en } from "../i18n/en";
+import { tr } from "../i18n/tr";
+import { ALL_LANGUAGES } from "../i18n/languageCatalog";
 
 const h = vi.hoisted(() => ({ lang: "da" }));
 
@@ -57,14 +66,14 @@ vi.mock("../components/AppleSignInButton", () => ({ default: () => null }));
 
 const RegisterPage = (await import("../pages/RegisterPage")).default;
 
-beforeEach(() => { h.lang = "da"; });
+beforeEach(() => { h.lang = "da"; vi.unstubAllEnvs(); });
 
-describe("(e) /register — the line under \"Opret konto\"", () => {
-  it("Danish: the sentence, with both documents linked (new tab), under the button", () => {
+describe("(e) /register — the service terms and privacy policy, one tap away", () => {
+  it("Danish: the sentence, with both documents linked (new tab), under the button (no Google / Apple row)", () => {
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
     const line = screen.getByTestId("register-legal-line");
-    expect(line.textContent).toBe("Ved at oprette en konto accepterer du vores Handelsbetingelser og Privatlivspolitik.");
-    const terms = within(line).getByRole("link", { name: "Handelsbetingelser" });
+    expect(line.textContent).toBe("Læs vores Servicevilkår og Privatlivspolitik.");
+    const terms = within(line).getByRole("link", { name: "Servicevilkår" });
     const privacy = within(line).getByRole("link", { name: "Privatlivspolitik" });
     expect(terms.getAttribute("href")).toBe("/terms");
     expect(privacy.getAttribute("href")).toBe("/privacy");
@@ -82,7 +91,7 @@ describe("(e) /register — the line under \"Opret konto\"", () => {
     h.lang = "en";
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
     const line = screen.getByTestId("register-legal-line");
-    expect(line.textContent).toBe("By creating an account you accept our Terms of Service and Privacy Policy.");
+    expect(line.textContent).toBe("Read our Terms of Service and Privacy Policy.");
     expect(within(line).getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
     expect(within(line).getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
   });
@@ -92,8 +101,36 @@ describe("(e) /register — the line under \"Opret konto\"", () => {
     const line = screen.getByTestId("register-legal-line");
     const submit = vi.fn((e) => e.preventDefault());
     line.closest("form").addEventListener("submit", submit);
-    fireEvent.click(within(line).getByRole("link", { name: "Handelsbetingelser" }));
+    fireEvent.click(within(line).getByRole("link", { name: "Servicevilkår" }));
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("with the Google / Apple row: once, beside those buttons, above both paths — never only under the e-mail form", () => {
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "test-client");
+    render(<MemoryRouter><RegisterPage /></MemoryRouter>);
+    const lines = screen.getAllByTestId("register-legal-line");
+    expect(lines).toHaveLength(1);
+    const [line] = lines;
+    expect(line.textContent).toBe("Læs vores Servicevilkår og Privatlivspolitik.");
+    expect(line.closest("form")).toBeNull();
+    // In the OAuth row, right before its "eller brug e-mail" divider, and
+    // before the form in the page.
+    const divider = line.nextElementSibling;
+    expect(divider?.textContent).toContain(da.orUseEmail || "or use email");
+    const form = document.querySelector("form");
+    expect(line.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("says no acceptance (no pack): informational until Manoj + the DK attorney approve accept-wording and the Terms", () => {
+    const ACCEPT = /accept|accepter|kabul|agree|godkend/i;
+    for (const [code, dict] of [["da", da], ["en", en], ["tr", tr]]) {
+      expect(typeof dict.registerLegalRead, code).toBe("string");
+      expect(ACCEPT.test(dict.registerLegalRead), `${code}: ${dict.registerLegalRead}`).toBe(false);
+      expect(dict.registerLegalRead).toContain("{terms}");
+      expect(dict.registerLegalRead).toContain("{privacy}");
+    }
+    expect(da.registerLegalAccept).toBeUndefined();
+    expect(en.registerLegalAccept).toBeUndefined();
   });
 });
 
@@ -103,12 +140,46 @@ describe("(f) landing and (g) login — the new sentences", () => {
     expect(en["landingV2.pricing.free.f1"]).toBe("Daily close: take a photo of the Z-report and BonBox fills in the figures");
     expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF, klar til at gemme i 5 år");
     expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF, ready to keep for 5 years");
-    expect(da.loginGoogleHintNative).toBe("Tilmeldt med Google på web? Tryk på “Glemt adgangskode” ovenfor for at sætte en app-adgangskode.");
-    expect(en.loginGoogleHintNative).toBe("Signed up with Google on the web? Tap “Forgot password” above to set an app password.");
+    expect(da.loginGoogleHintNative).toBe("Tilmeldt med Google på web? Tryk på “Glemt?” ved adgangskoden ovenfor for at sætte en app-adgangskode.");
+    expect(en.loginGoogleHintNative).toBe("Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password.");
     expect(da.loginWarmingUp).toBe("Serveren vågner — første gang kan det tage lidt længere.");
     expect(en.loginWarmingUp).toBe("Server is waking up — the first time can take a little longer.");
-    expect(da.registerLegalAccept).toBe("Ved at oprette en konto accepterer du vores {terms} og {privacy}.");
-    expect(en.registerLegalAccept).toBe("By creating an account you accept our {terms} and {privacy}.");
+    expect(da.registerLegalRead).toBe("Læs vores {terms} og {privacy}.");
+    expect(en.registerLegalRead).toBe("Read our {terms} and {privacy}.");
+    expect(da.registerLegalTerms).toBe("Servicevilkår");
+    expect(en.registerLegalTerms).toBe("Terms of Service");
+  });
+
+  it("the iOS hint names the link above the password as it reads (forgotShort) — da, en, tr, and the inline fallback", () => {
+    for (const [code, dict] of [["da", da], ["en", en], ["tr", tr]]) {
+      expect(dict.loginGoogleHintNative, code).toContain(`“${dict.forgotShort}”`);
+    }
+    expect(da.loginGoogleHintNative).not.toMatch(/Glemt adgangskode/);
+    expect(en.loginGoogleHintNative).not.toMatch(/Forgot password/);
+    const login = fs.readFileSync(path.join(SRC, "pages/LoginPage.jsx"), "utf8");
+    expect(login).toContain("“Forgot?” next to the password above");
+    expect(login).not.toMatch(/Tap “Forgot password” above/);
+  });
+
+  it("Turkish is offered — its pack carries the new sentences (never an English line in a Turkish hero, Free card, login or register)", () => {
+    expect(ALL_LANGUAGES.find((l) => l.code === "tr")?.offered).toBe(true);
+    expect(tr.landingV2HeroTrustArchive).toBe("Her kasserapport PDF olarak, 5 yıl saklamaya hazır");
+    expect(tr["landingV2.pricing.free.f1"]).toBe("Günlük kapanış: Z-raporunun fotoğrafını çek, BonBox rakamları doldurur");
+    expect(tr.loginWarmingUp).toBe("Sunucu uyanıyor — ilk seferde biraz daha uzun sürebilir.");
+    expect(tr.loginGoogleHintNative).toBe("Web'de Google ile mi kaydoldun? Uygulama şifresi belirlemek için yukarıda şifrenin yanındaki “Unuttun mu?”ya dokun.");
+    expect(tr.registerLegalRead).toBe("{terms} ve {privacy} belgelerimizi okuyabilirsin.");
+    expect(tr.registerLegalTerms).toBe("Hizmet Şartları");
+    expect(tr.registerLegalPrivacy).toBe("Gizlilik Politikası");
+    expect(tr.registerSubheading).toBe("Bugün başla.");
+    // Every key the R-c trust change touched is in every OFFERED pack.
+    for (const l of ALL_LANGUAGES.filter((x) => x.offered)) {
+      const dict = { da, en, tr }[l.code];
+      expect(dict, l.code).toBeTruthy();
+      for (const k of ["landingV2HeroTrustArchive", "landingV2.pricing.free.f1", "loginWarmingUp", "loginGoogleHintNative",
+        "registerLegalRead", "registerLegalTerms", "registerLegalPrivacy", "registerSubheading"]) {
+        expect(typeof dict[k], `${l.code} ${k}`).toBe("string");
+      }
+    }
   });
 });
 
@@ -125,7 +196,7 @@ const FRONT_DOORS = [
 // Vietnamese, German, Spanish, French, Italian, Dutch, Portuguese, Swedish,
 // Norwegian, Japanese.)
 const SECONDS = /(?:\d+|[०-९]+)(?:\s*[-–]\s*\d+)?\s*-?\s*(?:sek\.?|sekunder|sekund|seconds?|second|saniye|सेकेन्ड|วินาที|giây|sekunden|segundos|secondes|secondi|seconden|秒)/i;
-const BOOKKEEPING_CLAIM = /arkiv bygget til bogføringsloven|archive built for bogføringsloven/i;
+const BOOKKEEPING_CLAIM = /arkiv bygget til bogføringsloven|archive built for bogføringsloven|bogføringsloven için yapılmış arşiv/i;
 
 describe("guard — no unmeasured seconds on landing, login and register", () => {
   const keys = new Set();
@@ -167,6 +238,7 @@ describe("guard — no unmeasured seconds on landing, login and register", () =>
       expect(SECONDS.test(old)).toBe(true);
     }
     expect(BOOKKEEPING_CLAIM.test("Arkiv bygget til Bogføringsloven")).toBe(true);
+    expect(BOOKKEEPING_CLAIM.test("Bogføringsloven için yapılmış arşiv")).toBe(true);
     // A true expiry is not a duration claim of this kind.
     expect(SECONDS.test("Det udløber om 15 minutter.")).toBe(false);
   });

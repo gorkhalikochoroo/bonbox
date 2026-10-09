@@ -328,6 +328,34 @@ export default function RegisterPage() {
   // redirect above moves them to /login; this guard stops a one-frame flash.
   if (isNative) return null;
 
+  // Release R-c (trust) — the service terms and the privacy policy, one tap
+  // away (a new tab on the web, so the form stays as typed). Rendered ONCE,
+  // where every sign-up path passes it: beside the Google / Apple row (those
+  // create the account without the form), or under "Opret konto" when there
+  // is no such row. Informational only — R-c review: an "accepterer du"
+  // line would make owners accept Terms whose price (§8) and retention (§4)
+  // text do not match the code; that wording waits for Manoj + the DK
+  // attorney.
+  const hasOAuthRow = hasAppleWeb || hasAppleNative || hasGoogle;
+  const legalLine = (
+    <p data-testid="register-legal-line"
+      className={`${hasOAuthRow ? "" : "-mt-2 "}text-center text-[12px] leading-relaxed text-gray-500 dark:text-gray-400 text-pretty`}>
+      {t("registerLegalRead", "Read our {terms} and {privacy}.")
+        .split(/(\{terms\}|\{privacy\})/)
+        .map((part, i) => {
+          if (part !== "{terms}" && part !== "{privacy}") return part;
+          const terms = part === "{terms}";
+          return (
+            <Link key={i} to={terms ? "/terms" : "/privacy"}
+              {...(isNative ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+              className="underline underline-offset-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+              {terms ? t("registerLegalTerms", "Terms of Service") : t("registerLegalPrivacy", "Privacy Policy")}
+            </Link>
+          );
+        })}
+    </p>
+  );
+
   return (
     <>
       <style>{`
@@ -411,7 +439,7 @@ export default function RegisterPage() {
                 Placed above the form so third-party sign-up is the
                 dominant choice (mirrors the LoginPage layout). Each
                 button no-ops cleanly when its env var is unset. */}
-            {(hasAppleWeb || hasAppleNative || hasGoogle) && (
+            {hasOAuthRow && (
               <div className="mb-5 space-y-2.5">
                 {hasAppleNative && (
                   // Task #90 — native iOS SIWA. Same visual treatment as
@@ -473,6 +501,10 @@ export default function RegisterPage() {
                     />
                   </div>
                 )}
+                {/* Beside the one-tap buttons: they create the account
+                    without the form, so the documents sit here, above
+                    both paths (R-c review). */}
+                {legalLine}
                 <div className="flex items-center gap-3 pt-2">
                   <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
                   <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -690,25 +722,9 @@ export default function RegisterPage() {
                   </>
                 ) : t("createAccount")}
               </button>
-              {/* Release R-c (trust) — what creating an account agrees to,
-                  with both documents one tap away. A new tab on the web, so
-                  the form stays as typed. */}
-              <p data-testid="register-legal-line"
-                className="-mt-2 text-center text-[12px] leading-relaxed text-gray-500 dark:text-gray-400 text-pretty">
-                {t("registerLegalAccept", "By creating an account you accept our {terms} and {privacy}.")
-                  .split(/(\{terms\}|\{privacy\})/)
-                  .map((part, i) => {
-                    if (part !== "{terms}" && part !== "{privacy}") return part;
-                    const terms = part === "{terms}";
-                    return (
-                      <Link key={i} to={terms ? "/terms" : "/privacy"}
-                        {...(isNative ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-                        className="underline underline-offset-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
-                        {terms ? t("registerLegalTerms", "Terms of Service") : t("registerLegalPrivacy", "Privacy Policy")}
-                      </Link>
-                    );
-                  })}
-              </p>
+              {/* The documents, for the e-mail path when there is no
+                  Google / Apple row above (it carries them otherwise). */}
+              {!hasOAuthRow && legalLine}
             </form>
 
             {/* OAuth providers (Apple + Google) live ABOVE the form

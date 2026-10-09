@@ -2508,6 +2508,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       filedScanKeysRef.current.delete(loadedKey);
       // The version opened: the next save is built on it.
       baseRef.current[loadedKey] = dc.updated_at || null;
+      // R-c review — figures the day held when the form let go of it that
+      // are on no server (12.000 typed on a dead line, then "Hent {dag}s
+      // salg"): the banner's "Fortsæt kladden" (or History's "Rediger") on
+      // the stored 10.000 dropped them unseen. Kept on this phone as a copy
+      // that names the version opened ("Din kopi: 12.000 kr." — "Gem kopien
+      // … i stedet" stores it over it, by the owner's tap; never by itself).
+      keepLetGoFigures(loadedKey);
+      stampLetGoCopy(loadedKey, dc.updated_at);
       // The owner took the day back (round 23 R-c): its draft is on the form.
       unreleaseDay(loadedKey);
       // Opened (the newest draft, or a close from History): a draft of the
@@ -3388,7 +3396,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       });
       if (!mountedRef.current) return;
       if (ans === true) {
-        moveFromRef.current = goes.length ? { from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current } : null;
+        moveFromRef.current = goes.length ? { from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current, runNo: runNoRef.current } : null;
         // The figures are the new day's now: a draft of them that got no
         // answer on the old day is never sent there again.
         // (Not the figures a day let go of held then, on no server — kept on
@@ -4933,6 +4941,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       || keyInflightRef.current[key]?.size || failedBodyRef.current[key]);
     startingOverRef.current = key;
     setStartOverBusy(true);
+    // R-c review — figures of a day the form let go of, on no server: the
+    // question named the stored draft, not them. Kept on this phone as a
+    // copy the owner decides on, never dropped unseen (keepLetGoFigures).
+    keepLetGoFigures(key);
     // Thrown away: a draft of the day that got no answer is never sent again.
     delete failedBodyRef.current[key];
     // Nothing waiting is filed for the day any more.
@@ -5460,6 +5472,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               setDraftSaved(true);
               setTimeout(() => setDraftSaved(false), 3000);
             }
+            // R-c review — the new day of a date move ("Flyt tallene"), sent
+            // again after its save died (the owner on another day since —
+            // "Hent {dag}s salg"): it holds the figures now, so the old day's
+            // draft goes, as answered (finishMove — never the day on screen;
+            // on the version this form holds). Left alone, the figures stood
+            // on both days. (Only figures built after the move are the moved
+            // ones.)
+            const m = moveFromRef.current;
+            if (m && m.toKey === key && (m.runNo == null || f.runNo > m.runNo)) finishMove(key);
           }
         })
         .catch(async (err) => {
@@ -6180,7 +6201,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!c) return null;
     const listedRow = (existingCloses || []).find((dc) => closeRowKey(dc) === c.key && !dc.is_deleted) || null;
     const asked = c.current && c.current.id != null ? c.current : null;
-    return asked && listedRow && String(listedRow.updated_at || "") > String(asked.updated_at || "") ? listedRow
+    // (Only a newer DRAFT — R-c review: a row locked since is never handed
+    // over as the draft to open; the version the question met is, and the
+    // fresh read says "locked" — the day's locked banner, as before.)
+    return asked && listedRow && (listedRow.status || "confirmed") === "draft"
+      && String(listedRow.updated_at || "") > String(asked.updated_at || "") ? listedRow
       : asked || listedRow;
   };
   const reloadNewestDraft = () => {

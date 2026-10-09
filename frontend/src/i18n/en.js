@@ -6930,7 +6930,7 @@ export const en = {
     landingFooterContact: "Contact", landingFooterPrivacy: "Privacy",
     // Register page
     createYourAccount: "Create your account", createAccount: "Create Account", creatingAccount: "Creating account...",
-    registerLegalAccept: "By creating an account you accept our {terms} and {privacy}.",
+    registerLegalRead: "Read our {terms} and {privacy}.",
     registerLegalTerms: "Terms of Service",
     registerLegalPrivacy: "Privacy Policy",
     businessName: "Business Name", displayName: "Display Name", selectType: "Select type",
@@ -7489,7 +7489,7 @@ export const en = {
     // Native-iOS-only hint: Google login is hidden on iOS due to Apple
     // guideline 4.8. This nudge tells web-Google-signup users how to
     // bridge into the app via the existing "Forgot password" flow.
-    loginGoogleHintNative: "Signed up with Google on the web? Tap “Forgot password” above to set an app password.",
+    loginGoogleHintNative: "Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password.",
     // Sign in with Apple — iOS only
     signInWithApple: "Sign in with Apple",
     signUpWithApple: "Sign up with Apple",

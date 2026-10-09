@@ -694,7 +694,7 @@ export default function LoginPage() {
             {isNative && (
               <p className="mt-4 text-center text-[12px] text-gray-500">
                 {t("loginGoogleHintNative") ||
-                  "Signed up with Google on the web? Tap “Forgot password” above to set an app password."}
+                  "Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password."}
               </p>
             )}
 

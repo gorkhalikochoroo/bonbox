@@ -6727,8 +6727,8 @@ export const da = {
     landingFooterContact: "Kontakt", landingFooterPrivacy: "Privatliv",
     // Register page
     createYourAccount: "Opret din konto", createAccount: "Opret konto", creatingAccount: "Opretter konto...",
-    registerLegalAccept: "Ved at oprette en konto accepterer du vores {terms} og {privacy}.",
-    registerLegalTerms: "Handelsbetingelser",
+    registerLegalRead: "Læs vores {terms} og {privacy}.",
+    registerLegalTerms: "Servicevilkår",
     registerLegalPrivacy: "Privatlivspolitik",
     businessName: "Virksomhedsnavn", displayName: "Visningsnavn", selectType: "Vælg type",
     alreadyHaveAccount: "Har du allerede en konto?", signIn: "Log ind", signInInstead: "Log ind i stedet",
@@ -7241,7 +7241,7 @@ export const da = {
     smartStaffingFineTune: "Finjuster enkelte værdier nedenfor — disse gemmes uafhængigt af kortet ovenfor.",
     smartStaffingHideAdvanced: "Skjul avanceret editor ↑",
     // Native-iOS-hint: Google login skjult pga. Apple guideline 4.8
-    loginGoogleHintNative: "Tilmeldt med Google på web? Tryk på “Glemt adgangskode” ovenfor for at sætte en app-adgangskode.",
+    loginGoogleHintNative: "Tilmeldt med Google på web? Tryk på “Glemt?” ved adgangskoden ovenfor for at sætte en app-adgangskode.",
     // Apple-login (kun iOS)
     signInWithApple: "Log ind med Apple",
     signUpWithApple: "Tilmeld med Apple",

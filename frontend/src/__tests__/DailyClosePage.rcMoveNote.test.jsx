@@ -14,7 +14,21 @@
  *   23026  a move off a day another device LOCKED: the line says the day is
  *          locked — never "kladden … står der stadig" (it is no draft); the
  *          harness's MV holds every sequence to it now (MVlocked).
+ * R-c review (10 Oct):
+ *   23028  figures typed on a dead line for a day the form then let go of
+ *          ("Hent {dag}s salg"), the day's stored draft continued from its
+ *          banner: they are never dropped unasked — kept on this phone as a
+ *          copy ("Din kopi: 12.000 kr.", "Gem kopien … i stedet").
+ *   23029  the same with the banner's Start forfra.
+ *   23030  a move answered "Flyt tallene" whose new day's save died on a dead
+ *          line, then "Hent {dag}s salg" from the new day: once the line is
+ *          back and the new day's figures land, the old day's draft goes —
+ *          the figures are never counted on both days.
+ *   23031  a save refused (saved on another device), then that device LOCKS
+ *          the day, History read again: "Hent den nyeste kladde" says the
+ *          day is locked — never opens it as a draft with "Bekræft og lås".
  */
+import { fireEvent } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
@@ -53,7 +67,7 @@ vi.mock("../components/SmartScanModal", () => ({ default: () => null }));
 vi.mock("../utils/resizeImage", () => ({ resizeImageIfLarge: async (f) => f }));
 
 const { runSequence, createServer, STATS } = await import("../test/closeSequenceHarness");
-const { getOfflineQueue } = await import("../utils/dailyCloseQueue");
+const { getOfflineQueue, QUEUE_FAILED, QUEUE_ERR_DRAFT_CHANGED } = await import("../utils/dailyCloseQueue");
 const DailyClosePage = (await import("../pages/DailyClosePage")).default;
 
 const today = businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
@@ -62,6 +76,34 @@ const twoDaysAgo = (() => { const d = new Date(`${today}T12:00:00`); d.setDate(d
 const stored = (S, k = key) => S.rows.get(k);
 
 const otherVisitCopyOfToday = () => getOfflineQueue().filter((it) => it.payload?.date === today);
+// Back on today from another day with nothing of the owner's on the form (no
+// question): the step itself, so what the page shows is looked at first.
+async function backToToday(A) {
+  const el = A.q("#close-date");
+  const asked = A.dialogs.length;
+  await A.step(`date → ${A.today} (nothing typed)`, async () => {
+    fireEvent.change(el, { target: { value: A.today } });
+    for (let i = 0; i < 4; i++) await A.settle();
+  });
+  A.expect(A.dialogs.length).toBe(asked);
+  A.expect(A.q("#close-date").value).toBe(A.today);
+}
+// Today's 10.000 stored; 12.000 typed over it on a dead line (stored nowhere);
+// "Hent {dag}s salg" to the day before yesterday; back on today — the banner
+// names the stored 10.000. The line is still dead.
+async function twelveUnsentLetGo(A) {
+  await A.skip();
+  await A.typeBox("rev", "food", "10.000");
+  A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 10000 });
+  A.slow("dead", 12);
+  await A.typeBox("rev", "food", "12.000");
+  A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 10000 });
+  await A.moveDate(A.twoDaysAgo, "extra");
+  A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+  await backToToday(A);
+  A.expect(A.hasText("dcDayHasDraftBody:10.000")).toBe(true);
+}
+const twelveCopy = () => getOfflineQueue().find((it) => it.payload?.date === today && it.payload?.revenue_breakdown?.food === 12000);
 
 const PLANS = [
   ["(a) an OFFLINE move: today's 3.000 never lands and the page is left offline (kept on this phone — the next visit's copy); back, 5.000 typed offline for today and moved to yesterday (asked, answered yes); online — the earlier copy files today, the 5.000 lands on yesterday: the line never says \"Flyttet fra\" while today holds that draft — \"Kopieret … står der stadig\", and nothing of it is deleted (the form never held it)", 23025, async (A) => {
@@ -126,6 +168,90 @@ const PLANS = [
     await A.typeBox("pay", "mobilepay", "500");
     A.expect(stored(A.S, `${A.yesterday}|`)?.payment_breakdown?.mobilepay).toBe(500);
     A.expect(A.hasText("dcDateMovedCopiedLocked:")).toBe(true);
+  }],
+  // R-c review (10 Oct).
+  ["(review 1) today's 10.000 saved, 12.000 typed over it on a dead line, \"Hent {dag}s salg\", back on today and the banner's \"Fortsæt kladden\" on the 10.000: the unsent 12.000 is never dropped unasked — kept on this phone as a copy that says what it holds, stored over the 10.000 only by its own tap", 23028, async (A) => {
+    await twelveUnsentLetGo(A);
+    await A.continueDraft();
+    await A.online();
+    await A.settleAll();
+    await A.step("look again", () => {});
+    // Continued: the stored draft stays as it was (never sent over by itself)…
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 10000 });
+    // …and the 12.000 is on this phone, said as what it is.
+    A.expect(twelveCopy()).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED });
+    A.expect(A.hasText("dcQueueCopyHolds:12.000")).toBe(true);
+    A.expect(A.hasText("dcQueueErrLetGo")).toBe(true);
+    const b = A.findBtn(/^dcQueueKeepCopyInstead:12\.000/);
+    A.expect(Boolean(b)).toBe(true);
+    // Its tap stores it (by choice). (The wizard does not follow a copy
+    // stored from the strip — R-c's two-questions design: the form keeps
+    // what it opened, and its next save is asked about, never stored over
+    // the copy.)
+    fireEvent.click(b);
+    for (let i = 0; i < 6; i++) await A.settle();
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+    A.expect(getOfflineQueue().some((it) => it.payload?.date === A.today)).toBe(false);
+    await A.typeBox("pay", "card", "500");
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+    A.expect(A.conflictShown()).toBe(true);
+    await A.resolveConflict("reload");
+    A.expect(await A.toStep("s1")).toBe(true);
+    A.expect(A.q("#dc-rev-food")?.value || "").toMatch(/^12[.]?000/);
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+  }],
+  ["(review 1, Start forfra) the same, then the banner's \"Start forfra\" (the 10.000 deleted, as asked): the unsent 12.000 the question never named is kept on this phone as a copy, never dropped unseen", 23029, async (A) => {
+    await twelveUnsentLetGo(A);
+    await A.bannerStartOver();
+    // The question named the stored 10.000 — the draft it deletes.
+    A.expect(String(A.dialogs.at(-1)?.message)).toMatch(/dcStartOverDeleteBody:.*10\.000/);
+    await A.online();
+    await A.settleAll();
+    await A.step("look again", () => {});
+    A.expect(stored(A.S)).toBeUndefined();
+    A.expect(twelveCopy()).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED });
+    A.expect(A.hasText("dcQueueCopyHolds:12.000")).toBe(true);
+    // (Never sent by itself.)
+    await A.settleAll();
+    A.expect(stored(A.S)).toBeUndefined();
+  }],
+  ["(review 2) 3.000 saved for today, moved to yesterday answered \"Flyt tallene\", yesterday's save dies on a dead line, \"Hent {dag}s salg\" from yesterday to the day before yesterday, the line back: once yesterday holds the 3.000 today's draft is gone — never on both days", 23030, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 3000 });
+    A.slow("dead", 12);
+    await A.moveDate(A.yesterday, "yes");
+    A.expect(String(A.dialogs.at(-1)?.message)).toMatch(/dcMoveConfirmBody:/);
+    A.expect(A.q("#close-date").value).toBe(A.yesterday);
+    A.expect(stored(A.S, `${A.yesterday}|`)).toBeUndefined();
+    await A.moveDate(A.twoDaysAgo, "extra");
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    await A.online();
+    await A.settleAll();
+    await A.step("look again", () => {});
+    A.expect(stored(A.S, `${A.yesterday}|`)?.revenue_breakdown).toEqual({ food: 3000 });
+    A.expect(stored(A.S)).toBeUndefined();
+    // Deleted on the version this form held (its own 3.000).
+    A.expect(A.S.deletes.length).toBe(1);
+  }],
+  ["(review 3) a save refused (another device saved today), then that device LOCKS today and History is read again: \"Hent den nyeste kladde\" says today is locked — never opens it as a draft to \"Bekræft og lås\"", 23031, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 3000 });
+    await A.otherDeviceFigures(null, { saveId: "other-device" });
+    await A.typeBox("rev", "drinks", "500");
+    A.expect(A.conflictShown()).toBe(true);
+    await A.otherDeviceLocks();
+    A.expect(stored(A.S).status).toBe("confirmed");
+    await A.online();
+    await A.settleAll();
+    A.expect(A.conflictShown()).toBe(true);
+    await A.resolveConflict("reload");
+    await A.settleAll();
+    await A.step("look again", () => {});
+    A.expect(A.hasText("dcDayAlreadyLocked")).toBe(true);
+    A.expect(A.hasText("confirmAndLock")).toBe(false);
+    A.expect(stored(A.S)).toMatchObject({ status: "confirmed", revenue_breakdown: { food: 3000 } });
   }],
 ];
 
