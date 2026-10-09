@@ -8118,6 +8118,7 @@ export const da = {
     dcPayInvoiceCredit: "Faktura / kredit",
     dcPayBankTransfer: "Bankoverførsel",
     dcPayGiftCard: "Gavekort",
+    dcQueueCopyHolds: "Din kopi: {amount}",
     dcStartOverNotDeletedChanged: "Ikke slettet — kladden blev gemt på en anden enhed imens (nu {amount}). Fortsæt den, eller start forfra igen.",
     dcStartOverNotDeletedChangedNoAmount: "Ikke slettet — kladden blev gemt på en anden enhed imens. Fortsæt den, eller start forfra igen.",
     dcStartOverNotDeletedLocked: "Ikke slettet — dagen blev låst på en anden enhed.",

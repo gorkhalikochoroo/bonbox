@@ -681,6 +681,34 @@ export default function DailyClosePage() {
    * it. Changed yet again since: it stays, with that newer version's stamp.
    */
   const [keepingId, setKeepingId] = useState(null);
+  // Round 23 R-c — one "Behold mine tal" per day. The day whose own figures
+  // are on the wizard's screen ({ key, keep }: the form's "keep what is on
+  // screen"): a refused copy of THAT day kept on this phone answers with the
+  // form's figures — the same thing as the form's own "Behold mine tal",
+  // never an earlier visit's figures that are not on screen. Answered either
+  // way, the day's refused draft copies are done with.
+  const [formDay, setFormDay] = useState(null);
+  const queueKeyOf = (it) => closeRowKey(it?.payload);
+  const isDayDraftCopy = (it) => it?.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED
+    && (it.payload?.status || "draft") !== "confirmed";
+  const formHoldsCopyDay = (it) => Boolean(formDay?.key) && isDayDraftCopy(it) && queueKeyOf(it) === formDay.key;
+  const answerDayCopies = (key) => {
+    const drop = getOfflineQueue().filter((it) => isDayDraftCopy(it) && queueKeyOf(it) === key);
+    if (!drop.length) return;
+    let next = null;
+    drop.forEach((it) => { next = removeFromOfflineQueue(it.id); });
+    setQueue(next);
+  };
+  /** What a refused copy holds, as its row says it ("Din kopi: 8.000 kr."). */
+  const copyFigure = (it) => {
+    const row = storedRowOfBody(it?.payload);
+    if (isPaymentsOnly(row)) {
+      const p = paymentsOf(row);
+      return t("dcDraftFigurePaymentsOnly", "only payments of {amount}", { amount: formatOwnerMoney(p, currency, { decimals: oreDecimals(p) }) });
+    }
+    const v = Number(row.revenue_total) || 0;
+    return formatOwnerMoney(v, currency, { decimals: oreDecimals(v) });
+  };
   const keepQueuedCopy = async (item) => {
     if (!item || keepingId) return;
     setKeepingId(item.id);
@@ -986,6 +1014,14 @@ export default function DailyClosePage() {
                   : it.state === QUEUE_ALREADY_SAVED
                     ? t("dcQueueErrLocked", "This date is already locked in your kasserapport, so nothing was changed. You can remove this copy.")
                     : queueErrorText(it)}
+                {/* Round 23 R-c — what the copy's "Behold mine tal" stores is
+                    on screen: its own figure, when the wizard is not showing
+                    that day (when it is, the button keeps the wizard's). */}
+                {isDayDraftCopy(it) && !formHoldsCopyDay(it) && (
+                  <span className="block mt-0.5 font-semibold" data-testid="dc-queue-copy-holds">
+                    {t("dcQueueCopyHolds", "Your copy: {amount}", { amount: copyFigure(it) })}
+                  </span>
+                )}
                 {/* The server's own wording, kept as secondary detail for the
                     owner's revisor — never as the headline, because it is
                     English and this is the Danish audit trail. */}
@@ -1002,12 +1038,19 @@ export default function DailyClosePage() {
               {/* Every row that is NOT waiting on the owner's confirmation gets
                   a way out. Without it a close the server already holds sits
                   under a permanent alarm with no button at all. */}
-              {it.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED && (
+              {/* Round 23 R-c — for the day on the wizard's screen, the same
+                  thing as the wizard's own "Behold mine tal": what is on
+                  screen is stored (formDay.keep). */}
+              {it.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED && (formHoldsCopyDay(it) ? (
+                <Button variant="secondary" size="sm" onClick={() => formDay.keep?.()} data-testid="dc-queue-keep-mine">
+                  {t("dcDraftChangedKeep", "Keep my numbers")}
+                </Button>
+              ) : (
                 <Button variant="secondary" size="sm" onClick={() => keepQueuedCopy(it)} disabled={!isOnline || keepingId === it.id}
                   data-testid="dc-queue-keep-mine">
                   {t("dcDraftChangedKeep", "Keep my numbers")}
                 </Button>
-              )}
+              ))}
               {it.state !== QUEUE_NEEDS_CONFIRMATION && (
                 <Button variant="secondary" size="sm" onClick={() => dropQueuedClose(it)}
                   iconLeft={<Icon name="Trash2" size={14} />}>
@@ -1230,7 +1273,9 @@ export default function DailyClosePage() {
           onDraftSaved={() => { if (pageMountedRef.current) fetchHistory(); }}
           onContinueDraft={(dc) => openDraftFresh(dc)}
           onShowHistory={(id) => { setHistoryFocusId(id || null); setTab("history"); }}
-          onEditingChange={setFormEditingDate} />}
+          onEditingChange={setFormEditingDate}
+          onFormDay={(key, keep) => setFormDay(key ? { key, keep } : null)}
+          onKeptOnScreen={answerDayCopies} />}
         {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
           // The three outcomes, handed down whole. A child that only receives
           // `data` cannot tell an empty list from an unanswered request, which
@@ -1487,6 +1532,13 @@ function CardMoneyField({ value, onChange, onBlur, locale, ...rest }) {
 
 /** A close row's day key, the way the form keys what it files: "date|branch". */
 const closeRowKey = (dc) => `${String(dc?.date || "").slice(0, 10)}|${dc?.branch_id || ""}`;
+/** A draft body as the server stores its total (the backend's override rule). */
+const storedRowOfBody = (b) => {
+  const lines = Object.values(b?.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+  const ov = Number(b?.revenue_total_override);
+  const total = ov > 0 ? (b.revenue_total_owner_set ? ov : Math.max(lines, ov)) : lines;
+  return { revenue_total: Math.round(total * 100) / 100, payment_breakdown: b?.payment_breakdown || {} };
+};
 
 /* ─── Which version of a day's draft the form holds (round 21) ────────────
    Every draft save sends every field, and the server replaced the stored row
@@ -1568,7 +1620,7 @@ const filesSomething = (revenue, payments) => revenue > 0 || payments > 0;
 /** What a built payload was made of (not sent): the day it is for, and whether its source was read off photos. */
 const payloadInfo = new WeakMap();
 
-function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange }) {
+function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange, onFormDay, onKeptOnScreen }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -4584,12 +4636,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return formatOwnerMoney(v, currency, { decimals: oreDecimals(v) });
   };
   /** A draft body as the server stores its total (the backend's override rule). */
-  const rowOfBody = (b) => {
-    const lines = Object.values(b?.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    const ov = Number(b?.revenue_total_override);
-    const total = ov > 0 ? (b.revenue_total_owner_set ? ov : Math.max(lines, ov)) : lines;
-    return { revenue_total: Math.round(total * 100) / 100, payment_breakdown: b?.payment_breakdown || {} };
-  };
+  const rowOfBody = storedRowOfBody;
   // Round 23 — Start forfra could not reach the server ("offline") or was
   // refused ("error"): nothing changed, and the page says so. Round 23
   // review — also when the server KEPT the draft: saved on another device
@@ -5953,11 +6000,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftConflict, conflictHere]);
+  // The newest draft the page knows of for the question's day: the newer of
+  // the version the question met and the one History lists (round 23 R-c — a
+  // copy from this phone's queue, or another save, landed since: the card
+  // named the stale amount and, offline, "Hent den nyeste" opened it).
+  const newestForConflict = (c) => {
+    if (!c) return null;
+    const listedRow = (existingCloses || []).find((dc) => closeRowKey(dc) === c.key && !dc.is_deleted) || null;
+    const asked = c.current && c.current.id != null ? c.current : null;
+    return asked && listedRow && String(listedRow.updated_at || "") > String(asked.updated_at || "") ? listedRow
+      : asked || listedRow;
+  };
   const reloadNewestDraft = () => {
     const c = draftConflict;
     if (!c) return;
-    const row = c.current && c.current.id != null ? c.current
-      : (existingCloses || []).find((dc) => closeRowKey(dc) === c.key && !dc.is_deleted) || null;
+    const row = newestForConflict(c);
     // What was waiting to be sent for the day is not sent over it.
     clearTimeout(autoSaveRef.current);
     pendingSaveRef.current = null;
@@ -6019,6 +6076,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // draft" banner does not stand in front of the save the owner chose.
     setOwnDraftKeys((prev) => (prev.has(c.key) ? prev : new Set(prev).add(c.key)));
     setDraftConflict(null);
+    // Round 23 R-c — one answer for the day: a refused copy of it kept on
+    // this phone (an earlier visit's figures) is answered by this choice too.
+    if (c.via !== "lock") onKeptOnScreen?.(c.key);
     if (c.via === "lock") { handleSubmit(); return; }
     // Round 23 re-send review — the form files nothing for the day as it
     // stands (the scan card, a bon's question open): the autosave would send
@@ -6037,8 +6097,36 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     sendNowRef.current = true;
     requestRefile(true);
   };
+  // Round 23 R-c — "Behold mine tal" for the day on screen, wherever it is
+  // tapped (this card, or the page's copy of the day kept on this phone):
+  // what is on screen is stored. With the question open: as the card. With
+  // none: the form's figures are filed now.
+  const keepOnScreen = () => {
+    if (draftConflict && draftConflict.key === rowKeyRef.current) {
+      if (draftConflict.via !== "lock") keepMyDraft();
+      return;
+    }
+    sendNowRef.current = true;
+    requestRefile(true);
+    onKeptOnScreen?.(rowKeyRef.current);
+  };
+  const keepOnScreenRef = useRef(keepOnScreen);
+  keepOnScreenRef.current = keepOnScreen;
+  // The day whose own figures the form shows (not a banner's draft, not a
+  // locked day): the page's queue answers a copy of it with these. (Not
+  // while the form's question is a refused LOCK — its answer is "Behold
+  // mine tal og lås", another action under another label.)
+  const screenDayKey = !existingBlocks && !lockedRowRejected && deletedLockedRow == null
+    && !(conflictHere && draftConflict?.via === "lock")
+    && (conflictHere || (formIsTheDay && filesSomething(savedRevenue, paymentTotal))) ? rowKey : null;
+  useEffect(() => {
+    onFormDay?.(screenDayKey, screenDayKey ? () => keepOnScreenRef.current?.() : null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenDayKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => onFormDay?.(null, null), []);
   const conflictFigure = (() => {
-    const cur = draftConflict?.current;
+    const cur = draftConflict ? (draftConflict.current ? newestForConflict(draftConflict) : null) : null;
     if (!cur) return "";
     if (isPaymentsOnly(cur)) {
       const p = paymentsOf(cur);

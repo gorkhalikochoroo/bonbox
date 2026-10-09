@@ -8409,6 +8409,7 @@ export const en = {
     dcPayInvoiceCredit: "Faktura / credit",
     dcPayBankTransfer: "Bank transfer",
     dcPayGiftCard: "Gavekort",
+    dcQueueCopyHolds: "Your copy: {amount}",
     dcStartOverNotDeletedChanged: "Not deleted — the draft was saved on another device meanwhile (now {amount}). Continue it, or start over again.",
     dcStartOverNotDeletedChangedNoAmount: "Not deleted — the draft was saved on another device meanwhile. Continue it, or start over again.",
     dcStartOverNotDeletedLocked: "Not deleted — the day was locked on another device.",
