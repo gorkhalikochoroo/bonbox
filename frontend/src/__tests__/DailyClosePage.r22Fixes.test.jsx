@@ -267,13 +267,17 @@ describe("must fix — a save whose answer was lost is asked about before the da
     expect(rowFor().revenue_total).toBe(2500);
     await backToCard();
     await flush();
-    S.holding.drop = false;
-    const sid = S.lastSaveId.get(KEY);
-    expect(sid).toBeTruthy();
+    expect(S.lastSaveId.get(KEY)).toBeTruthy();
     const stored = rowFor();
+    // (Still losing answers: the way out re-sends the unanswered draft —
+    // round 23 — and that answer is lost too; the delete follows whichever
+    // lost save wrote the row last.)
     tap(/^startOver$/);
     await flush();
-    expect(del).toHaveBeenLastCalledWith(`/daily-close/${stored.id}`, { params: { base_updated_at: stored.updated_at, base_save_id: sid } });
+    S.holding.drop = false;
+    const [url, cfg] = del.mock.calls.at(-1);
+    expect(url).toBe(`/daily-close/${stored.id}`);
+    expect(cfg.params.base_save_id).toBe(S.lastSaveId.get(KEY));
     expect(rowFor()).toBeUndefined();
     expect(text()).not.toContain("dcDayHasDraft");
   });

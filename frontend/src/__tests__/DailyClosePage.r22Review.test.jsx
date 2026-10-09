@@ -351,12 +351,15 @@ describe("review 3 — a 409 answering the OLD day's save never makes the new da
 
 /* ─── 4. a lost create, then the banner's Start forfra ───────────────── */
 
-// Round 23 (A, rewritten): the banner's Start forfra deletes the draft it is
-// tapped on (asked first, naming it), on the version shown — another
-// device's D, or the form's own lost create alike — and the form starts over
-// empty. Nothing is replaced, so nothing is put back.
-describe("review 4 — the banner's Start forfra after an earlier save got no answer", () => {
-  it("lost create → another device files D → the banner's Start forfra: asked (naming D's 3.000), D deleted on its version, the form empty", async () => {
+// Round 23 (A + commit 2, rewritten): a save that got no answer is now sent
+// again once online (it was dropped when the form went back to the card). So:
+// over another device's draft D it meets D and ASKS ("gemt et andet sted") —
+// never filed over D in silence — and Start forfra, after opening D, deletes
+// exactly the version shown (asked, naming 3.000); the form's own lost create
+// is answered on its re-send and is the form's own draft — no banner over it —
+// and Start forfra deletes it. Nothing is replaced, so nothing is put back.
+describe("review 4 — Start forfra after an earlier save got no answer", () => {
+  it("lost create → another device files D → online: the re-sent draft meets D and asks; D opened, Start forfra (naming 3.000) deletes it on its version", async () => {
     serve();
     await mount();
     await shoot("b5000", "b5000.jpg");
@@ -370,23 +373,30 @@ describe("review 4 — the banner's Start forfra after an earlier save got no an
     await flush();
     S.holding.offline = false;
     expect(rowFor()).toBeUndefined();
-    // Another device files its draft for the day, and History lists it.
+    // Another device files its draft for the day.
     const D = otherFiles(today, { revenue_total: 3000, revenue_breakdown: { food: 3000 }, moms_total: 600 });
     await fire("online");
-    for (let i = 0; i < 4; i++) await settle();
-    tap(/^continueStepByStep$/);
-    await waitFor(() => expect(text()).toContain("dcDayHasDraft"));
-    window.confirm = vi.fn(() => true);
-    tap(/^dcStartOverDraft$/);
+    for (let i = 0; i < 6; i++) await settle();
+    // Never over D in silence: asked.
+    expect(q('[data-testid="dc-draft-changed"]')).not.toBeNull();
+    expect(rowFor()).toMatchObject({ id: D.id, revenue_total: 3000 });
+    tap(/^dcDraftChangedReload$/);
+    for (let i = 0; i < 6; i++) await settle();
+    // D opened; a photo onto it, and from the card Start forfra.
+    tap(/^←\s*scanZReportBack$/);
     await settle();
+    await shoot("b3000", "b3000.jpg");
+    if (q('[data-testid="dc-terminal-question"]')) tap(/^scanSecondTotalSum/);
+    await settle();
+    window.confirm = vi.fn(() => true);
+    tap(/^startOver$/);
     await flush();
     expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|3\.000 kr\.$/);
     expect(del).toHaveBeenCalledWith(`/daily-close/${D.id}`, expect.objectContaining({ params: expect.objectContaining({ base_updated_at: D.updated_at }) }));
     expect(rowFor()).toBeUndefined();
-    expect(btn(/^skipEnterManually$/)).toBeTruthy();
   });
 
-  it("…and over the form's OWN lost create shown on the banner, Start forfra deletes it", async () => {
+  it("…the form's OWN lost create: answered on its re-send once online — the form's own draft, no banner over it — and Start forfra deletes it", async () => {
     serve();
     await mount();
     await shoot("b5000", "b5000.jpg");
@@ -401,12 +411,10 @@ describe("review 4 — the banner's Start forfra after an earlier save got no an
     await flush();
     S.holding.drop = false;
     await fire("online");
-    for (let i = 0; i < 4; i++) await settle();
-    tap(/^continueStepByStep$/);
-    // The form's own row, listed — and shown on the banner (no save of it
-    // was ever answered).
-    await waitFor(() => expect(text()).toContain("dcDayHasDraft"));
-    tap(/^dcStartOverDraft$/);
+    for (let i = 0; i < 6; i++) await settle();
+    expect(S.refused).toHaveLength(0);
+    expect(text()).not.toContain("dcDayHasDraft");
+    tap(/^startOver$/);
     for (let i = 0; i < 4; i++) await settle();
     await flush();
     expect(rowFor()).toBeUndefined();

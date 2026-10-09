@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { dateLocale, businessTodayIso, formatDateClear, formatDateClearFull, localIso } from "../utils/dateFormat";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
@@ -630,8 +630,13 @@ export default function DailyClosePage() {
       const res = await syncOfflineQueue(postClose);
       setQueue(res.remaining);
       // Refresh whenever anything actually landed — a queue that still holds an
-      // item awaiting confirmation may STILL have synced three others.
-      if (res.synced > 0 || res.total === 0) { fetchHistory(); fetchInsights(); }
+      // item awaiting confirmation may STILL have synced three others. And
+      // whenever the server answered at all (round 23 — the round-22 review's
+      // confusing item): a copy refused because the day was locked (409) or
+      // saved elsewhere (412) is the server saying the day changed — History
+      // read offline was never read again, so the wizard said "Vi kunne ikke
+      // tjekke …" and offered a new close beside a queue saying "låst".
+      if (res.synced > 0 || res.total === 0 || !res.stoppedOnNetwork) { fetchHistory(); fetchInsights(); }
     } finally {
       syncInFlight.current = false;
       setSyncing(false);
@@ -702,10 +707,13 @@ export default function DailyClosePage() {
         setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, lastTriedTs: Date.now() }));
       } else if (isDraftChanged(err)) {
         setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: draftChangedStamp(err), httpStatus: status, lastTriedTs: Date.now() }));
+        // The day changed on the server: History is read again (round 23).
+        fetchHistory();
       } else if (isDeletedLockedClose(err)) {
         setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DELETED_LOCKED, errorDetail: errText(err, ""), httpStatus: status }));
       } else if (status === 409) {
         setQueue(updateQueueItem(item.id, { state: QUEUE_ALREADY_SAVED, errorCode: null, errorDetail: errText(err, ""), httpStatus: status }));
+        fetchHistory();
       } else {
         setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED, errorDetail: errText(err, ""), httpStatus: status }));
       }
@@ -749,6 +757,7 @@ export default function DailyClosePage() {
         const failed = { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: draftChangedStamp(err), errorDetail: null, httpStatus: status };
         setReviewError(queueErrorText(failed));
         setQueue(updateQueueItem(item.id, failed));
+        fetchHistory();
       } else if (status === 409) {
         // The owner already filed this date in the wizard (which is exactly
         // what our own "cancel and re-open the date" note tells them to do).
@@ -758,6 +767,7 @@ export default function DailyClosePage() {
           state: QUEUE_ALREADY_SAVED, errorCode: null,
           errorDetail: errText(err, ""), httpStatus: status,
         }));
+        fetchHistory();
       } else {
         const code = status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED;
         setReviewError(code === QUEUE_ERR_SERVER
@@ -2285,6 +2295,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       filedScanKeysRef.current.delete(loadedKey);
       // The version opened: the next save is built on it.
       baseRef.current[loadedKey] = dc.updated_at || null;
+      // Opened (the newest draft, or a close from History): a draft of the
+      // day that got no answer is not sent over what the owner chose to open.
+      delete failedBodyRef.current[loadedKey];
+      // …nor named as the day's draft by Start forfra: what is stored is
+      // what was just opened — on exactly that version (a save of the day
+      // that got no answer before is not followed any more: the owner chose
+      // the version the server holds now).
+      delete sentBodyRef.current[loadedKey];
+      delete lostSaveRef.current[loadedKey];
     }
     // Opened (the newest draft, or another day): nothing is waiting on the
     // owner's answer any more.
@@ -3132,6 +3151,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (!mountedRef.current) return;
       if (ans === true) {
         moveFromRef.current = goes.length ? { from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current } : null;
+        // The figures are the new day's now: a draft of them that got no
+        // answer on the old day is never sent there again.
+        goes.forEach((k) => { delete failedBodyRef.current[k]; });
         // The new day is filed at once, not two seconds later — its answer
         // finishes the move.
         sendNowRef.current = true;
@@ -4464,6 +4486,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       || keyInflightRef.current[key]?.size || failedBodyRef.current[key]);
     startingOverRef.current = key;
     setStartOverBusy(true);
+    // Thrown away: a draft of the day that got no answer is never sent again.
+    delete failedBodyRef.current[key];
     // Nothing waiting is filed for the day any more.
     clearTimeout(autoSaveRef.current);
     if (pendingSaveRef.current?.key === key) pendingSaveRef.current = null;
@@ -4558,11 +4582,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // "Gemmer…/Gemt" each time. A change back to figures saved before is
     // not this: the last draft sent holds the change in between.
     const sig = JSON.stringify(buildPayload("draft"));
-    filedLedgerRef.current = autosaveLedger;
+    // Round 23 — the ledger the stored draft holds is set when a save is
+    // ANSWERED (below), not when it is built: built and then not sent (no
+    // answer — offline, a dead line) it made the card say these figures were
+    // saved, and "Ikke gemt endnu" never showed. The same draft already sent
+    // (and not failed since): that one holds these figures.
     if (sig === lastSentRef.current) {
+      filedLedgerRef.current = autosaveLedger;
       clearTimeout(autoSaveRef.current);
       return nothingToSave();
     }
+    const ledgerAtBuild = autosaveLedger;
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
     const savingKey = rowKey;
@@ -4644,6 +4674,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // Answered, and built after the save that got no answer: the day's
         // version is this one's now.
         if (lostSaveRef.current[savingKey] && lostSaveRef.current[savingKey].runNo < runNo) delete lostSaveRef.current[savingKey];
+        // …and a draft that got no answer before it is on the server now (this
+        // one carries the owner's later figures).
+        if (failedBodyRef.current[savingKey] && failedBodyRef.current[savingKey].runNo <= runNo) delete failedBodyRef.current[savingKey];
+        // What the stored draft holds now (the card compares with it).
+        if (savingKey === rowKeyRef.current && (sentNoRef.current[savingKey] || 0) <= runNo) filedLedgerRef.current = ledgerAtBuild;
         // The photo it cleared is gone: the next draft of the same figures
         // says null ("keep" — nothing of ours is stored any more), and that
         // is no change to send again.
@@ -4666,6 +4701,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         if (!err?.response && saveId) {
           const was = lostSaveRef.current[savingKey];
           if (!was || was.runNo < runNo) lostSaveRef.current[savingKey] = { id: saveId, runNo };
+          // Round 23 — the owner's figures as sent, kept until a save of the
+          // day answers: sent again on the way out and once online, also when
+          // the form has gone back to the scan card since (the waiting save
+          // was dropped there — a figure typed offline, then "← Scan Z-bon",
+          // was never sent).
+          const f = failedBodyRef.current[savingKey];
+          if (!f || f.runNo <= runNo) {
+            const { base_updated_at: _b, save_id: _s, base_save_id: _f, ...built } = body;
+            failedBodyRef.current[savingKey] = { body: built, runNo, ledger: ledgerAtBuild };
+          }
           // Still the form's latest for the day (nothing newer waiting or
           // sent): the same draft waits for the page to be left, the
           // network to come back, or the next change (round 22, offline).
@@ -4706,6 +4751,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               .catch(sayCopy);
           }
         }
+        // Refused (answered: nothing written): this body is not what the day
+        // holds — Start forfra's question never names it.
+        if (err?.response && sentBodyRef.current[savingKey] === body) delete sentBodyRef.current[savingKey];
         // Still best-effort for every other failure (offline, 500, flaky
         // connection) — but a 409 is not a transient error, it is the lock
         // saying this row is final. A day held by a deleted, locked
@@ -4832,6 +4880,103 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
     return true;
   };
+  // Round 23 — the drafts sent with no answer (failedBodyRef) of the days the
+  // waiting save does not file itself: kept on this device too when the page
+  // goes away offline (one copy per day), and sent once online.
+  const failedCopiesRef = useRef({});
+  const keepFailedCopies = () => {
+    if (typeof navigator === "undefined" || navigator.onLine !== false) return false;
+    let kept = false;
+    for (const [key, f] of Object.entries(failedBodyRef.current)) {
+      // The waiting save files this day itself (its own copy, above).
+      if (pendingSaveRef.current?.key === key && formFilesRef.current) continue;
+      const payload = { ...f.body, base_updated_at: baseFor(key) };
+      const lost = lostSaveRef.current[key];
+      if (lost?.id) payload.base_save_id = lost.id;
+      const prevId = failedCopiesRef.current[key];
+      if (prevId && getOfflineQueue().some((it) => it.id === prevId)) {
+        updateQueueItem(prevId, { payload });
+        kept = true;
+        continue;
+      }
+      const item = addToOfflineQueue(payload);
+      if (item) { failedCopiesRef.current[key] = item.id; kept = true; }
+    }
+    if (kept) { try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ } }
+    return kept;
+  };
+  const dropFailedCopies = () => {
+    const ids = Object.values(failedCopiesRef.current);
+    if (!ids.length || !mountedRef.current) return;
+    failedCopiesRef.current = {};
+    const queued = new Set(getOfflineQueue().map((it) => it.id));
+    let dropped = false;
+    ids.forEach((id) => { if (queued.has(id)) { removeFromOfflineQueue(id); dropped = true; } });
+    if (dropped) { try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ } }
+  };
+  /**
+   * Round 23 — a draft sent with no answer (offline, a dead line) is sent
+   * again: on the way out and once online — also when the form has left that
+   * day's boxes since (the scan card), where nothing else would send it.
+   * Exactly the figures sent then, on the version the form holds now (and
+   * following that save, which may have landed). Never over a save of the day
+   * still waiting or on its way (it carries the owner's later figures), and
+   * never for a day Start forfra is deleting.
+   */
+  const sendFailedBodies = ({ keepalive = false } = {}) => {
+    for (const [key, f] of Object.entries(failedBodyRef.current)) {
+      if (pendingSaveRef.current?.key === key || keyInflightRef.current[key]?.size || startingOverRef.current === key) continue;
+      const payload = { ...f.body, base_updated_at: baseFor(key) };
+      const saveId = newSaveId();
+      payload.save_id = saveId;
+      mySaveIdsRef.current.add(saveId);
+      const lost = lostSaveRef.current[key];
+      if (lost?.id) payload.base_save_id = lost.id;
+      let answered;
+      const tracker = new Promise((r) => { answered = r; });
+      inflightRef.current.add(tracker);
+      if (!keyInflightRef.current[key]) keyInflightRef.current[key] = new Set();
+      keyInflightRef.current[key].add(tracker);
+      const onTheirWay = closeSavesOnTheirWay();
+      onTheirWay.add(tracker);
+      sendGenRef.current[key] = (sendGenRef.current[key] || 0) + 1;
+      (async () => api.post("/daily-close", payload,
+        keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined))()
+        .then((res) => {
+          noteSaved(key, payload, res);
+          if (failedBodyRef.current[key] === f) delete failedBodyRef.current[key];
+          if (lostSaveRef.current[key] && lostSaveRef.current[key].runNo <= f.runNo) delete lostSaveRef.current[key];
+          if (key === rowKeyRef.current && !pendingSaveRef.current) {
+            filedLedgerRef.current = f.ledger || filedLedgerRef.current;
+            if (lastSentRef.current == null) lastSentRef.current = JSON.stringify(f.body);
+          }
+          if (mountedRef.current) {
+            setOwnDraftKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+            onDraftSaved?.();
+          }
+        })
+        .catch(async (err) => {
+          if (!err?.response) {
+            // Still no answer: it waits for the next way out, or "online".
+            lostSaveRef.current[key] = { id: saveId, runNo: f.runNo };
+            return;
+          }
+          if (failedBodyRef.current[key] === f) delete failedBodyRef.current[key];
+          if (isDraftChanged(err)) {
+            await draftRefused(key, payload, err, null, "draft", f.runNo);
+          } else if (err.response.status === 409 && key === rowKeyRef.current && mountedRef.current) {
+            setLockedRowRejected(true);
+            onDraftSaved?.();
+          }
+        })
+        .finally(() => {
+          inflightRef.current.delete(tracker);
+          keyInflightRef.current[key]?.delete(tracker);
+          onTheirWay.delete(tracker);
+          answered();
+        });
+    }
+  };
   const dropOfflineCopy = () => {
     const oc = offlineCopyRef.current;
     if (!oc || !mountedRef.current) return;
@@ -4873,15 +5018,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const onHide = () => {
       if (keepOfflineCopy()) clearTimeout(autoSaveRef.current);
       else flush({ keepalive: true });
+      // (Round 23: a draft sent with no answer goes too — or is kept here.)
+      if (!keepFailedCopies()) sendFailedBodies({ keepalive: true });
       keepConflictCopy();
     };
     // Back (the tab shown again): the question is on screen again, and the
     // copy kept for the way out is not a second place to answer it — nor is
     // the offline copy (the draft is still waiting here).
-    const onBack = () => { dropConflictCopy(); dropOfflineCopy(); };
+    const onBack = () => { dropConflictCopy(); dropOfflineCopy(); dropFailedCopies(); };
     // Online again: the waiting draft goes now (its copy, if any, is taken
     // off the queue first — it would be sent twice).
-    const onOnline = () => { dropOfflineCopy(); flush(); };
+    const onOnline = () => { dropOfflineCopy(); dropFailedCopies(); flush(); sendFailedBodies(); };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") onHide();
       else if (document.visibilityState === "visible") onBack();
@@ -4896,6 +5043,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       window.removeEventListener("pageshow", onBack);
       window.removeEventListener("online", onOnline);
       if (!keepOfflineCopy()) flush();
+      if (!keepFailedCopies()) sendFailedBodies();
       keepConflictCopy();
     };
   }, []);
@@ -5402,6 +5550,31 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     el?.focus?.({ preventScroll: true });
   };
+  // Round 23 — raised by an autosave while the owner types, the question is
+  // put in above the field being typed in: it pushed that field 209–361 px
+  // down (under the phone's bottom bar at 390). Inserted, the page scrolls
+  // by exactly its height in the same frame, so the focused field stays
+  // where it was; the amber "Ikke gemt" slot brings the question into view
+  // on a tap. The same for the day's lock banner arriving while typing.
+  const keepFocusedInPlace = (box) => {
+    if (!box || typeof document === "undefined") return;
+    const f = document.activeElement;
+    if (!f || !/^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)) return;
+    // Only a field BELOW the inserted box moves.
+    if (!(box.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)) return;
+    let margin = 0;
+    try { margin = parseFloat(window.getComputedStyle(box).marginBottom) || 0; } catch { margin = 0; }
+    const h = (box.offsetHeight || 0) + margin;
+    if (h > 0) window.scrollBy?.(0, h);
+  };
+  const conflictWhileTyping = conflictHere && draftConflict?.via !== "lock";
+  const conflictShownRef = useRef(false);
+  useLayoutEffect(() => {
+    const was = conflictShownRef.current;
+    conflictShownRef.current = conflictWhileTyping;
+    if (conflictWhileTyping && !was) keepFocusedInPlace(draftConflictBoxRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflictWhileTyping]);
   useEffect(() => {
     if (!conflictHere || draftConflict?.via !== "lock") return undefined;
     if (typeof window.requestAnimationFrame === "function") {
@@ -5527,6 +5700,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       <span>{t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online")}</span>
     </p>
   ) : null;
+  // The day's banner (a lock met while typing — round 22 — arrives above the
+  // field being typed in): kept from moving the field like the question.
+  const existingBannerBoxRef = useRef(null);
+  const lockWhileTyping = Boolean(lockedRowRejected) && existingBlocks && !conflictHere;
+  const lockShownRef = useRef(false);
+  useLayoutEffect(() => {
+    const was = lockShownRef.current;
+    lockShownRef.current = lockWhileTyping;
+    if (lockWhileTyping && !was) keepFocusedInPlace(existingBannerBoxRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockWhileTyping]);
   // Start forfra could not be done (round 23): said where it was tapped.
   const startOverFailedEl = startOverFailed ? (
     <p role="alert" data-testid="dc-start-over-failed" className="mt-2 text-[13px] text-red-700 dark:text-red-300 flex items-start gap-1.5">
@@ -5539,11 +5723,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     </p>
   ) : null;
   const existingBannerEl = existingBlocks && !conflictHere ? (
-
+          <div ref={existingBannerBoxRef} className="mb-4">
           <SectionBanner
             severity={existingLocked ? "info" : "warn"}
             icon={existingLocked ? "Lock" : "FileText"}
-            className="mb-4"
             title={existingLocked
               ? t("dcDayAlreadyLocked", "This day is already closed and locked")
               : t("dcDayHasDraft", "There's already a draft for this day")}
@@ -5581,6 +5764,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             </div>
             {!existingLocked && startOverFailedEl}
           </SectionBanner>
+          </div>
   ) : null;
   const businessDateLabel = new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long" });
 

@@ -213,6 +213,11 @@ const PLANS = [
 // Found by this variant while round 23 was built.
 const FOUND = [
   ["a move made offline from a day whose save never landed: never \"står der stadig\" for a draft that may not exist (MV)", 10525],
+  // The round-22 review's confusing item, reached by several offline steps:
+  // a queued copy refused once online never re-read History (fail on b4c2ceb3).
+  ["left offline after another device locked the day, back online: the refused copy re-reads History — the lock is said (LK)", 10414],
+  ["the same over a reopened draft (a full reload, the save's answer lost) (LK)", 10595],
+  ["the same with a note typed offline before the lock (LK)", 10678],
 ];
 
 describe("daily close — round 23 sequences (Start forfra deletes, no scan offline, moves asked)", () => {
