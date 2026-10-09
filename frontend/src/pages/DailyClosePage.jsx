@@ -10027,22 +10027,46 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           </p>
         )}
 
-        {profileKnown && revisorEmail && !identityDemo && rangeCount > 0 && (
-          <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-            {businessProfile?.accountant_opted_out
-              ? t("dcSendToLineOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.", { email: businessProfile.accountant_email })
-              : directSendEntitled === false
-                ? t("dcSendToLineOwnMail", "Send downloads the {format} and opens your own mail to {email} — you send it yourself.", {
-                    email: businessProfile.accountant_email,
-                    format: FMT_LABEL[accountantFmt] || accountantFmt,
-                  })
-                : t("dcSendToLine", "Send goes to {email} · {format} · {from} – {to}", {
-                    email: businessProfile.accountant_email,
-                    format: FMT_LABEL[accountantFmt] || accountantFmt,
-                    from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
-                  })}
-          </p>
-        )}
+        {profileKnown && revisorEmail && !identityDemo && rangeCount > 0 && (() => {
+          // Mail to the revisor held for this account (own e-mail not
+          // confirmed, or "did you create this account?" unanswered): Send
+          // mails the revisor nothing — it offers the file for the owner's
+          // own mail (the notice below). Never "Send går til {revisor}" in
+          // front of that (R-a follow-up, 9 Oct).
+          const heldLine = !businessProfile?.accountant_opted_out && directSendEntitled !== false
+            ? heldReasonForUser(user)
+            : null;
+          const fmtLabel = FMT_LABEL[accountantFmt] || accountantFmt;
+          if (heldLine) {
+            return (
+              <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-send-to-line-held">
+                {heldLine === HELD_CLAIM_OPEN
+                  ? t("dcSendToLineHeldClaimOpen", "Not to {email} yet: BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?). Until then, Send gives you the {format} file to send from your own mail.", { email: businessProfile.accountant_email, format: fmtLabel })
+                  : t("dcSendToLineHeldUnverified", "Not to {email} yet: BonBox mails your revisor only once your own e-mail is confirmed. Until then, Send gives you the {format} file to send from your own mail.", { email: businessProfile.accountant_email, format: fmtLabel })}
+                {" "}
+                {heldLine === HELD_CLAIM_OPEN
+                  ? <ClaimQuestionResend testId="dc-send-to-line-claim-resend" />
+                  : <Link to="/verify-email?now=1" className="font-semibold underline underline-offset-2 whitespace-nowrap" data-testid="dc-send-to-line-verify-now">{t("verifyEmailNowCta", "Confirm now")}</Link>}
+              </p>
+            );
+          }
+          return (
+            <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+              {businessProfile?.accountant_opted_out
+                ? t("dcSendToLineOptedOut", "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.", { email: businessProfile.accountant_email })
+                : directSendEntitled === false
+                  ? t("dcSendToLineOwnMail", "Send downloads the {format} and opens your own mail to {email} — you send it yourself.", {
+                      email: businessProfile.accountant_email,
+                      format: fmtLabel,
+                    })
+                  : t("dcSendToLine", "Send goes to {email} · {format} · {from} – {to}", {
+                      email: businessProfile.accountant_email,
+                      format: fmtLabel,
+                      from: shortRangeDay(activeRange.from), to: shortRangeDay(activeRange.to),
+                    })}
+            </p>
+          );
+        })()}
 
         {/* Drafts but nothing locked: why Send is greyed out. */}
         {rangeCount > 0 && lockedRangeCount === 0 && (

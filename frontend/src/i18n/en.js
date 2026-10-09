@@ -8680,6 +8680,8 @@ export const en = {
     dcSendFailedDirect: "BonBox couldn't send it. Nothing was sent.",
     dcSendViaOwnMail: "Send from my own mail",
     dcSendToLine: "Send goes to {email} · {format} · {from} – {to}",
+    dcSendToLineHeldUnverified: "Not to {email} yet: BonBox mails your revisor only once your own e-mail is confirmed. Until then, Send gives you the {format} file to send from your own mail.",
+    dcSendToLineHeldClaimOpen: "Not to {email} yet: BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?). Until then, Send gives you the {format} file to send from your own mail.",
     dcSendToLineOptedOut: "Your revisor ({email}) has unsubscribed from BonBox mail — Send opens your own mail instead.",
     autoEmailToggleLabelLock: "Mail the kasserapport when you lock",
     autoEmailToNoRevisor: "To {owner}. No revisor e-mail is saved — add it on Profile if they should get it too.",

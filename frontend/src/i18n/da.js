@@ -8389,6 +8389,8 @@ export const da = {
     dcSendFailedDirect: "BonBox kunne ikke sende den. Intet blev sendt.",
     dcSendViaOwnMail: "Send fra min egen mail",
     dcSendToLine: "Send går til {email} · {format} · {from} – {to}",
+    dcSendToLineHeldUnverified: "Ikke til {email} endnu: BonBox mailer først din revisor, når din egen e-mail er bekræftet. Indtil da giver Send dig {format}-filen, så du kan sende den fra din egen mail.",
+    dcSendToLineHeldClaimOpen: "Ikke til {email} endnu: BonBox venter på dit svar på spørgsmålet, vi har mailet dig (Har du selv oprettet denne konto?). Indtil da giver Send dig {format}-filen, så du kan sende den fra din egen mail.",
     dcSendToLineOptedOut: "Din revisor ({email}) har afmeldt mails fra BonBox — Send åbner i stedet din egen mail.",
     autoEmailToggleLabelLock: "Send kasserapporten på mail, når du låser",
     autoEmailToNoRevisor: "Til {owner}. Der er ingen revisor-mail gemt — tilføj den under Profil, hvis revisoren også skal have den.",
