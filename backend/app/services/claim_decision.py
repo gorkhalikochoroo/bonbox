@@ -399,14 +399,21 @@ def reask_by_mail(db: Session, user: User, *, ip_address: str | None = None) -> 
     newest = _newest_open_mail_at(db, user)
     if newest is not None and newest > utc_now() - REMAIL_AFTER:
         hours = _hours_until(newest + REMAIL_AFTER)
+        # The day counts from the last TRY: the question mail made at a
+        # sign-in or a reset may have failed to send (send_question_mail is
+        # best-effort and nothing records that it left). So the words never
+        # say a mail arrived — they say a try was made and what to do if
+        # nothing came (R-a follow-up, 9 Oct).
         raise _refuse(
             status.HTTP_429_TOO_MANY_REQUESTS, "claim_remail_cooldown",
-            ("BonBox e-mails this question at most once a day. You can ask for it again in "
-             f"{hours} hour{'s' if hours != 1 else ''} — or sign in with a login link and answer "
-             "it there right away."),
-            ("BonBox mailer højst spørgsmålet én gang i døgnet. Du kan bede om det igen om "
-             f"{hours} time{'r' if hours != 1 else ''} – eller logge ind med et login-link og "
-             "svare der med det samme."),
+            ("BonBox tries to e-mail this question at most once a day, and the last try was "
+             "less than a day ago. If no e-mail reached you, sign in with a login link and "
+             "answer it there right away — or ask for it again in "
+             f"{hours} hour{'s' if hours != 1 else ''}."),
+            ("BonBox prøver højst at maile spørgsmålet én gang i døgnet, og det seneste forsøg "
+             "er under et døgn gammelt. Er der ikke kommet nogen mail, så log ind med et "
+             "login-link og svar der med det samme – eller bed om det igen om "
+             f"{hours} time{'r' if hours != 1 else ''}."),
             retry_after_hours=hours,
         )
     # The question as a whole, not its newest ticket: a reset anywhere in
