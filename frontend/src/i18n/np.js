@@ -1542,7 +1542,6 @@ export const np = {
   trialBenefit1: "Built in Copenhagen · database in Ireland",
   trialBenefit2: "जहिले पनि रद्द गर्न सकिन्छ · आफ्नो डाटा निर्यात गर्नुहोस्",
   trialBenefit3: "पहिलो 100 का लागि स्थापना मूल्य 249 kr/महिना लक",
-  registerSubheading: "30 सेकेन्डमा सेट गर्नुहोस्। आज नै ट्र्याक गर्न सुरु गर्नुहोस्।",
   passwordRequirements: "अक्षर र संख्या सहित 8+ क्यारेक्टर",
   businessNamePlaceholder: "मेरो अद्भुत पसल",
   googleSignupFailed: "Google साइन अप असफल",
@@ -1853,7 +1852,6 @@ export const np = {
   landingTagDriftSuggestions: "Drift सुझावहरू",
   landingTagSmartSetup: "Smart Setup",
   // Login Google hint (cross-platform sign-in bridge)
-  loginGoogleHintNative: "वेबमा Google मार्फत साइन अप गर्नुभयो? माथिको \"Forgot password\" ट्याप गरेर एप पासवर्ड सेट गर्नुहोस् — ३० सेकेन्ड लाग्छ।",
   // Onboarding heading + steps
   onbAllSet: "🎉 तपाईं तयार हुनुहुन्छ!",
   onbAllSetSub: "तपाईंको सेटअप सकियो। केही थप बिक्री लगाएपछि यो लुकाउनेछौं।",

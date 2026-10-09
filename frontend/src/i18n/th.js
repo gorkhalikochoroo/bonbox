@@ -591,7 +591,6 @@ export const th = {
   trialBenefit1: "สร้างในโคเปนเฮเกน · GDPR · โฮสต์ในยุโรป",
   trialBenefit2: "ยกเลิกเมื่อใดก็ได้ · ส่งออกข้อมูลของคุณ",
   trialBenefit3: "ราคาผู้ก่อตั้ง 249 kr/เดือน ล็อกไว้สำหรับ 100 คนแรก",
-  registerSubheading: "ตั้งค่าใน 30 วินาที เริ่มติดตามวันนี้",
   passwordRequirements: "8+ ตัวอักษร พร้อมตัวอักษรและตัวเลข",
   businessNamePlaceholder: "ร้านสุดเจ๋งของฉัน",
   googleSignupFailed: "สมัคร Google ล้มเหลว",

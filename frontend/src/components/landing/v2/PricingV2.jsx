@@ -114,7 +114,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.free.f1",
-                  "30-second daily close"
+                  "Daily close: take a photo of the Z-report and BonBox fills in the figures"
                 )}
               </Feature>
               <Feature>

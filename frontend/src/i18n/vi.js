@@ -596,7 +596,6 @@ export const vi = {
   trialBenefit1: "Tạo tại Copenhagen · GDPR · Hosting EU",
   trialBenefit2: "Hủy bất cứ lúc nào · Xuất dữ liệu của bạn",
   trialBenefit3: "Giá sáng lập 249 kr/tháng cố định cho 100 người đầu",
-  registerSubheading: "Thiết lập trong 30 giây. Bắt đầu theo dõi ngay hôm nay.",
   passwordRequirements: "8+ ký tự, gồm chữ và số",
   businessNamePlaceholder: "Cửa hàng tuyệt vời của tôi",
   googleSignupFailed: "Đăng ký Google thất bại",

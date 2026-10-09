@@ -6647,7 +6647,7 @@ export const en = {
     landingV2HeroLead: "Daily close, reservations, schedule, timer & løn, stock and MOMS. For restaurants, bars, bistros, shops and anyone else closing a till in Denmark. One login for the owner, one app for the staff, one bill.",
     landingV2HeroCtaPrimary: "Free trial",
     landingV2HeroCtaSecondary: "See the floor plan",
-    landingV2HeroTrustArchive: "Archive built for Bogføringsloven",
+    landingV2HeroTrustArchive: "Each kasserapport as a PDF, ready to keep for 5 years",
     landingV2HeroTrustHosting: "Database in Ireland, receipts read in the US",
     landingV2HeroTrustNoCut: "No cut of your revenue",
     landingV2HeroCardCaption: "Preview of the BonBox owner dashboard. All figures are demo data.",
@@ -6692,7 +6692,7 @@ export const en = {
     "landingV2.pricing.free.price": "Free",
     "landingV2.pricing.free.period": "forever",
     "landingV2.pricing.free.cta": "Start free",
-    "landingV2.pricing.free.f1": "30-second daily close",
+    "landingV2.pricing.free.f1": "Daily close: take a photo of the Z-report and BonBox fills in the figures",
     "landingV2.pricing.free.f2": "AI daily brief with tap-to-action insights",
     "landingV2.pricing.free.f3": "MOMS countdown — when SKAT is due, and roughly how much",
     "landingV2.pricing.free.f4": "Receipt OCR, 10 a month",
@@ -6930,6 +6930,9 @@ export const en = {
     landingFooterContact: "Contact", landingFooterPrivacy: "Privacy",
     // Register page
     createYourAccount: "Create your account", createAccount: "Create Account", creatingAccount: "Creating account...",
+    registerLegalAccept: "By creating an account you accept our {terms} and {privacy}.",
+    registerLegalTerms: "Terms of Service",
+    registerLegalPrivacy: "Privacy Policy",
     businessName: "Business Name", displayName: "Display Name", selectType: "Select type",
     alreadyHaveAccount: "Already have an account?", signIn: "Sign In", signInInstead: "Sign in instead",
     emailAlreadyRegistered: "This email is already registered.",
@@ -6966,7 +6969,7 @@ export const en = {
     hidePassword: "Hide password",
     showPassword: "Show password",
     // Task #97 — cold-start retry banner (added 2026-05-19)
-    loginWarmingUp: "Server is waking up — this usually takes 20-30 seconds the first time.",
+    loginWarmingUp: "Server is waking up — the first time can take a little longer.",
     loginRetrying: "Network hiccup — retrying.",
     loginAttemptOf: "Attempt {n} of {max}",
     loginPasswordStuckTryMagic: "Password sign-in is having trouble. Try the one-click email link instead — it works even when the API is slow.",
@@ -7486,7 +7489,7 @@ export const en = {
     // Native-iOS-only hint: Google login is hidden on iOS due to Apple
     // guideline 4.8. This nudge tells web-Google-signup users how to
     // bridge into the app via the existing "Forgot password" flow.
-    loginGoogleHintNative: "Signed up with Google on the web? Tap “Forgot password” above to set an app password — takes 30 seconds.",
+    loginGoogleHintNative: "Signed up with Google on the web? Tap “Forgot password” above to set an app password.",
     // Sign in with Apple — iOS only
     signInWithApple: "Sign in with Apple",
     signUpWithApple: "Sign up with Apple",

@@ -6439,7 +6439,7 @@ export const da = {
     landingV2HeroLead: "Dagens lukning, bordbestilling, vagtplan, timer & løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning.",
     landingV2HeroCtaPrimary: "Prøv gratis",
     landingV2HeroCtaSecondary: "Se bordplanen",
-    landingV2HeroTrustArchive: "Arkiv bygget til Bogføringsloven",
+    landingV2HeroTrustArchive: "Kasserapporter som PDF, klar til at gemme i 5 år",
     landingV2HeroTrustHosting: "Database i Irland, bilag læses i USA",
     landingV2HeroTrustNoCut: "Ingen andel af din omsætning",
     landingV2HeroCardCaption: "Forhåndsvisning af BonBox-ejeroverblikket. Alle tal er demodata.",
@@ -6480,7 +6480,7 @@ export const da = {
     "landingV2.pricing.free.price": "Gratis",
     "landingV2.pricing.free.period": "for altid",
     "landingV2.pricing.free.cta": "Start gratis",
-    "landingV2.pricing.free.f1": "Daglig lukning på 30 sekunder",
+    "landingV2.pricing.free.f1": "Daglig lukning: tag et billede af Z-bonen, BonBox fylder tallene ud",
     "landingV2.pricing.free.f2": "Daglig AI-briefing med indsigter, du kan handle på med ét tryk",
     "landingV2.pricing.free.f3": "MOMS-nedtælling — hvornår SKAT forfalder, og cirka hvor meget",
     "landingV2.pricing.free.f4": "Kvittering-OCR, 10 om måneden",
@@ -6727,6 +6727,9 @@ export const da = {
     landingFooterContact: "Kontakt", landingFooterPrivacy: "Privatliv",
     // Register page
     createYourAccount: "Opret din konto", createAccount: "Opret konto", creatingAccount: "Opretter konto...",
+    registerLegalAccept: "Ved at oprette en konto accepterer du vores {terms} og {privacy}.",
+    registerLegalTerms: "Handelsbetingelser",
+    registerLegalPrivacy: "Privatlivspolitik",
     businessName: "Virksomhedsnavn", displayName: "Visningsnavn", selectType: "Vælg type",
     alreadyHaveAccount: "Har du allerede en konto?", signIn: "Log ind", signInInstead: "Log ind i stedet",
     emailAlreadyRegistered: "Denne e-mail er allerede registreret.",
@@ -6762,7 +6765,7 @@ export const da = {
     hidePassword: "Skjul adgangskode",
     showPassword: "Vis adgangskode",
     // Task #97 — cold-start retry banner (added 2026-05-19)
-    loginWarmingUp: "Serveren vågner — det tager normalt 20-30 sekunder første gang.",
+    loginWarmingUp: "Serveren vågner — første gang kan det tage lidt længere.",
     loginRetrying: "Netværksfejl — prøver igen.",
     loginAttemptOf: "Forsøg {n} af {max}",
     loginPasswordStuckTryMagic: "Adgangskode-login har problemer. Prøv et-klik email-link i stedet — det virker, selv når API'et er langsomt.",
@@ -7238,7 +7241,7 @@ export const da = {
     smartStaffingFineTune: "Finjuster enkelte værdier nedenfor — disse gemmes uafhængigt af kortet ovenfor.",
     smartStaffingHideAdvanced: "Skjul avanceret editor ↑",
     // Native-iOS-hint: Google login skjult pga. Apple guideline 4.8
-    loginGoogleHintNative: "Tilmeldt med Google på web? Tryk på “Glemt adgangskode” ovenfor for at sætte en app-adgangskode — tager 30 sekunder.",
+    loginGoogleHintNative: "Tilmeldt med Google på web? Tryk på “Glemt adgangskode” ovenfor for at sætte en app-adgangskode.",
     // Apple-login (kun iOS)
     signInWithApple: "Log ind med Apple",
     signUpWithApple: "Tilmeld med Apple",

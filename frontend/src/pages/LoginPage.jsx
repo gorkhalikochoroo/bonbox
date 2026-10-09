@@ -382,7 +382,7 @@ export default function LoginPage() {
                 </svg>
                 <span>
                   {retryStatus.coldStart
-                    ? t("loginWarmingUp", "Server is waking up — this usually takes 20-30 seconds the first time.")
+                    ? t("loginWarmingUp", "Server is waking up — the first time can take a little longer.")
                     : t("loginRetrying", "Network hiccup — retrying.")}
                   {" "}
                   <span className="text-amber-700/80 ml-1">
@@ -694,7 +694,7 @@ export default function LoginPage() {
             {isNative && (
               <p className="mt-4 text-center text-[12px] text-gray-500">
                 {t("loginGoogleHintNative") ||
-                  "Signed up with Google on the web? Tap “Forgot password” above to set an app password — takes 30 seconds."}
+                  "Signed up with Google on the web? Tap “Forgot password” above to set an app password."}
               </p>
             )}
 

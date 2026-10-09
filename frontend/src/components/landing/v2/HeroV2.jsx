@@ -128,7 +128,7 @@ export default function HeroV2() {
 
           <div className="flex flex-wrap gap-x-[22px] gap-y-2 text-[13.5px] text-slate-500">
             <span>
-              {t("landingV2HeroTrustArchive", "Archive built for Bogføringsloven")}
+              {t("landingV2HeroTrustArchive", "Each kasserapport as a PDF, ready to keep for 5 years")}
             </span>
             <span>
               {t(

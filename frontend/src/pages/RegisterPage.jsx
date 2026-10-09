@@ -690,6 +690,25 @@ export default function RegisterPage() {
                   </>
                 ) : t("createAccount")}
               </button>
+              {/* Release R-c (trust) — what creating an account agrees to,
+                  with both documents one tap away. A new tab on the web, so
+                  the form stays as typed. */}
+              <p data-testid="register-legal-line"
+                className="-mt-2 text-center text-[12px] leading-relaxed text-gray-500 dark:text-gray-400 text-pretty">
+                {t("registerLegalAccept", "By creating an account you accept our {terms} and {privacy}.")
+                  .split(/(\{terms\}|\{privacy\})/)
+                  .map((part, i) => {
+                    if (part !== "{terms}" && part !== "{privacy}") return part;
+                    const terms = part === "{terms}";
+                    return (
+                      <Link key={i} to={terms ? "/terms" : "/privacy"}
+                        {...(isNative ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+                        className="underline underline-offset-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                        {terms ? t("registerLegalTerms", "Terms of Service") : t("registerLegalPrivacy", "Privacy Policy")}
+                      </Link>
+                    );
+                  })}
+              </p>
             </form>
 
             {/* OAuth providers (Apple + Google) live ABOVE the form
