@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.utils.request_path import routed_path
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # auto_error=False: don't 401 here when the Authorization header is missing —
@@ -369,7 +370,7 @@ def _resolve_accountant_view(accountant: User, request: Request, db: Session) ->
     # Local import to avoid circular import at module load time
     from app.models.accountant_grant import AccountantGrant
 
-    path = request.url.path or ""
+    path = routed_path(request)
     # The switch-client endpoint must NEVER delegate — the whole point
     # is to set the cookie that future requests delegate against. We
     # don't allowlist it via _ACCOUNTANT_PRE_CLIENT_PATHS because its
@@ -502,7 +503,7 @@ def _resolve_member_view(member: User, request: Request, db: Session) -> User:
     Self-paths (/auth/me, /auth/logout) return the raw member so the UI
     knows who is logged in and sign-out works on their own session.
     """
-    path = request.url.path or ""
+    path = routed_path(request)
     if path in _MEMBER_SELF_PATHS:
         try:
             member._is_member_view = True  # noqa: SLF001

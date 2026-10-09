@@ -34,6 +34,7 @@ from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
+from app.utils.request_path import routed_path
 from passlib.context import CryptContext
 
 from app.database import get_db, SessionLocal
@@ -413,7 +414,7 @@ def _get_staff_from_token(token: str, db: Session, touch: bool = True):
     # stream carries only "something changed" pings, no business data).
     if link.pin_hash and os.getenv("PORTAL_PIN_ENFORCE", "1") == "1":
         req = _portal_request.get()
-        path = (req.url.path if req is not None else "").rstrip("/")
+        path = routed_path(req).rstrip("/")
         exempt = path.endswith(f"/{token}") or path.endswith("/manifest.webmanifest") or path.endswith("/stream")
         if path.endswith("/schedule.ics"):
             # The calendar app's stand-in for the PIN proof — see _calendar_key.
