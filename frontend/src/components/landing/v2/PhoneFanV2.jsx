@@ -332,7 +332,9 @@ export default function PhoneFanV2() {
                   </span>
                 </div>
               </div>
-              <div className="text-[11.5px] text-slate-400 mb-4">
+              {/* slate-500 like the mock's other "kr." / hours text: 4.76:1 on
+                  the white phone (slate-400 was 2.63:1 — release gate R-b). */}
+              <div className="text-[11.5px] text-slate-500 mb-4">
                 {t(
                   "landingV2.phones.hoursEstimate",
                   "Estimate · ≈ 1.812 kr. before tax"

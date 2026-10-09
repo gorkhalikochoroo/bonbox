@@ -4024,6 +4024,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // server has answered, so "Gemt" only ever means saved.
   const [draftSavingState, setDraftSavingState] = useState(false);
   const draftSaving = draftSavingState;
+  // The day (row key) whose last draft save got no answer — its figures are
+  // on no server yet. Offline, the slot says "Ikke gemt endnu" for it (never
+  // "Gemmer…" or the step counter), and "Gemt" once a save of it lands
+  // (release gate R-b).
+  const [unsentKey, setUnsentKey] = useState(null);
   // Set only when it changes: the autosave effect said "nothing to save" on
   // every keystroke on the scan card, and each setState(false) over a false
   // still cost a (bail-out) render of this whole form.
@@ -4890,6 +4895,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         }
         setOwnDraftKeys((prev) => (prev.has(savingKey) ? prev : new Set(prev).add(savingKey)));
         onDraftSaved?.();
+        setUnsentKey((k) => (k === savingKey ? null : k));
         setDraftSaved(true);
         setTimeout(() => setDraftSaved(false), 3000);
         // The new day of a date move is filed: the old day's draft goes.
@@ -4900,6 +4906,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // No answer at all: it may have landed — the next save (and a delete
         // of the day) follows it, and a delete asks the server first.
         if (!err?.response && saveId) {
+          // The slot says so while offline (round R-b): these figures are on
+          // no server yet.
+          if (mountedRef.current && savingKey === rowKeyRef.current) setUnsentKey(savingKey);
           const was = lostSaveRef.current[savingKey];
           // (`base`: the version it was built on — what a save that follows
           // it is built on too, never History's.)
@@ -5170,6 +5179,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           if (mountedRef.current) {
             setOwnDraftKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
             onDraftSaved?.();
+            // Landed (after the line came back): the slot says "Gemt" for
+            // the day on screen, as for any answered save (release gate R-b).
+            setUnsentKey((k) => (k === key ? null : k));
+            if (key === rowKeyRef.current) {
+              setDraftSaved(true);
+              setTimeout(() => setDraftSaved(false), 3000);
+            }
           }
         })
         .catch(async (err) => {
@@ -5966,6 +5982,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // every way to a scan is gray and says why. Typing works as always (queued,
   // never lost).
   const scanOffline = isOnline === false;
+  const scanOfflineMsg = t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online");
   const scanOfflineEl = scanOffline ? (
     <p id="dc-scan-offline" role="status" data-testid="dc-scan-offline"
       className="text-[13px] text-amber-800 dark:text-amber-200 flex items-start gap-1.5">
@@ -6188,12 +6205,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               aria-disabled={scanOffline || undefined}
               onClick={() => { if (scanOffline) return; if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
               onDragOver={e => e.preventDefault()}
-              onDrop={async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
+              // Offline the zone is gray and the line under the buttons says
+              // why: a drop does nothing (release gate R-b — it said
+              // "Scan kræver internet" a second time under the zone).
+              onDrop={async e => { e.preventDefault(); if (scanOffline) return; const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
               <p className="text-gray-400 dark:text-gray-500 text-sm">
                 {t("dragDropZReport", "Drag & drop your Z-report images here, or click to browse")}
               </p>
             </div>
-            {scanError && (
+            {/* The offline reason is already said under the buttons
+                (scanOfflineEl): never a second copy here. */}
+            {scanError && !(scanOffline && scanError === scanOfflineMsg) && (
               <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
                 {scanError}
               </div>
@@ -7318,7 +7340,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               slot says so, never the step counter over edits nobody saves
               (round 22). The hit area is 40 px; the negative margin keeps the
               row's height, so nothing moves. */}
-          <span aria-live="polite" title={draftSaved && !draftSaving ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
+          <span aria-live="polite" data-testid="dc-save-slot" title={draftSaved && !draftSaving ? t("draftSavedResumeLater", "Draft saved — you can leave and resume later") : undefined}
             className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums shrink-0 min-w-[3.75rem] text-right">
             {conflictHere && !draftSaving
               ? (
@@ -7333,6 +7355,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <span data-testid="dc-save-slot-unsaved" title={t("dcDraftNotSavedLocked", "Not saved — the day was locked on another device")}
                   className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
                   <Icon name="Lock" size={13} className="shrink-0" />{t("dcDraftNotSavedShort", "Not saved")}
+                </span>
+              )
+              // Offline with figures on no server yet (a save waiting, or one
+              // that got no answer): "Ikke gemt endnu" — "Gemmer…" would
+              // promise a save that cannot happen, and the step counter said
+              // nothing at all (release gate R-b). Online again, the save goes
+              // ("Gemmer…") and "Gemt" follows once it lands.
+              : isOnline === false && (draftSaving || unsentKey === rowKey)
+              ? (
+                <span data-testid="dc-save-slot-offline" title={t("dcDraftNotSavedYetWhy", "Not saved yet — you're offline. The figures stay on this screen and are saved when you're back online.")}
+                  className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-amber-700 dark:text-amber-400">
+                  <Icon name="UploadCloud" size={13} className="shrink-0" />{t("dcDraftNotSavedYetShort", "Not saved yet")}
                 </span>
               )
               : draftSaving
@@ -9979,7 +10013,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             {/* What the files and the mail count: locked closes, with any
                 drafts named beside them ("26 låste · 1 kladde"). */}
             {draftRangeCount > 0
-              ? t("dcRangeLockedAndDrafts", "{locked} locked · {drafts} draft(s)", { locked: lockedRangeCount, drafts: draftRangeCount })
+              ? (lockedRangeCount === 1
+                // "1 låst", never "1 låste" (release gate R-b).
+                ? t("dcRangeLockedOneAndDrafts", "1 locked · {drafts} in draft", { drafts: draftRangeCount })
+                : t("dcRangeLockedAndDrafts", "{locked} locked · {drafts} draft(s)", { locked: lockedRangeCount, drafts: draftRangeCount }))
               : <>{rangeCount} {rangeCount === 1
                   ? (t("closeSingular", "close"))
                   : (t("closePlural", "closes"))}</>}
@@ -10133,7 +10170,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           // confirmed, or "did you create this account?" unanswered): Send
           // mails the revisor nothing — it offers the file for the owner's
           // own mail (the notice below). Never "Send går til {revisor}" in
-          // front of that (R-a follow-up, 9 Oct).
+          // front of that (R-a follow-up, 9 Oct). The line names the notice's
+          // button ("Send fra min egen mail"): Send itself hands over no file
+          // (release gate R-b).
           const heldLine = !businessProfile?.accountant_opted_out && directSendEntitled !== false
             ? heldReasonForUser(user)
             : null;
@@ -10142,8 +10181,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             return (
               <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300" data-testid="dc-send-to-line-held">
                 {heldLine === HELD_CLAIM_OPEN
-                  ? t("dcSendToLineHeldClaimOpen", "Not to {email} yet: BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?). Until then, Send gives you the {format} file to send from your own mail.", { email: businessProfile.accountant_email, format: fmtLabel })
-                  : t("dcSendToLineHeldUnverified", "Not to {email} yet: BonBox mails your revisor only once your own e-mail is confirmed. Until then, Send gives you the {format} file to send from your own mail.", { email: businessProfile.accountant_email, format: fmtLabel })}
+                  ? t("dcSendToLineHeldClaimOpen", "Not to {email} yet: BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?). Until then: tap Send, then \"Send from my own mail\" — you get the {format} file and send it yourself.", { email: businessProfile.accountant_email, format: fmtLabel })
+                  : t("dcSendToLineHeldUnverified", "Not to {email} yet: BonBox mails your revisor only once your own e-mail is confirmed. Until then: tap Send, then \"Send from my own mail\" — you get the {format} file and send it yourself.", { email: businessProfile.accountant_email, format: fmtLabel })}
                 {" "}
                 {heldLine === HELD_CLAIM_OPEN
                   ? <ClaimQuestionResend testId="dc-send-to-line-claim-resend" />
@@ -10194,12 +10233,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 const w = sentWhen(r.sent_at);
                 return (
                   <li key={`${r.sent_at}_${i}`}>
-                    {t("dcRecentSendLine", "{from} – {to} · {format} · {n} locked · to {email} · {when}", {
-                      from: shortRangeDay(r.from), to: shortRangeDay(r.to),
-                      format: FMT_LABEL[r.format] || r.format || "—",
-                      n: r.n_closes ?? "—", email: r.recipient || "—",
-                      when: w ? t("dcMailWhen", "{date} at {time}", w) : "—",
-                    })}
+                    {Number(r.n_closes) === 1
+                      // "1 låst", never "1 låste" (release gate R-b).
+                      ? t("dcRecentSendLineOne", "{from} – {to} · {format} · 1 locked · to {email} · {when}", {
+                        from: shortRangeDay(r.from), to: shortRangeDay(r.to),
+                        format: FMT_LABEL[r.format] || r.format || "—",
+                        email: r.recipient || "—",
+                        when: w ? t("dcMailWhen", "{date} at {time}", w) : "—",
+                      })
+                      : t("dcRecentSendLine", "{from} – {to} · {format} · {n} locked · to {email} · {when}", {
+                        from: shortRangeDay(r.from), to: shortRangeDay(r.to),
+                        format: FMT_LABEL[r.format] || r.format || "—",
+                        n: r.n_closes ?? "—", email: r.recipient || "—",
+                        when: w ? t("dcMailWhen", "{date} at {time}", w) : "—",
+                      })}
                   </li>
                 );
               })}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { remailClaimQuestion, remailResultText } from "../utils/senderGate";
@@ -17,6 +17,15 @@ export default function ClaimQuestionResend({ className = "", testId = "claim-re
   const { t, lang } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null); // { ok, text }
+  // The answer is brought into view when it appears: on a phone the button
+  // can sit just above the fixed bottom tab bar, and the answer rendered
+  // under it (release gate R-b). The scroll margin clears the bar (h-14 +
+  // the safe area); "nearest" moves nothing where it is already in view.
+  const resultRef = useRef(null);
+  useEffect(() => {
+    if (!result) return;
+    try { resultRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }); } catch { /* old browser */ }
+  }, [result]);
 
   const onClick = async () => {
     if (busy) return;
@@ -44,7 +53,9 @@ export default function ClaimQuestionResend({ className = "", testId = "claim-re
         {busy ? t("sendingBtn", "Sending…") : t("claimResendQuestion", "Send the question again")}
       </button>
       {result && (
-        <span role="status" data-testid={`${testId}-result`} className={result.ok ? "" : "font-medium"}>
+        <span role="status" data-testid={`${testId}-result`} ref={resultRef}
+          style={{ scrollMarginBottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}
+          className={result.ok ? "" : "font-medium"}>
           {result.text}
         </span>
       )}
