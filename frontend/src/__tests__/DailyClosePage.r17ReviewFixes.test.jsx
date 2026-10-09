@@ -25,8 +25,10 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the day's draft (the server).
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -73,6 +75,7 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   window.confirm = vi.fn(() => true);
+  del.mockClear();
   localStorage.clear();
   get.mockReset();
   post.mockReset();
@@ -234,47 +237,47 @@ describe("2. the card's total emptied on a summed day", () => {
   }, 20000);
 });
 
+// Round 23 (narrowing A, rewritten): Start forfra deletes the day's draft —
+// the question names what is stored — and starts over EMPTY; the owner's own
+// till no longer comes back. What these tests guarded (a bon thrown away is
+// never counted again; the retake sums once) holds: the retake is the day's
+// only till.
 describe("3. Fortryd, then Start forfra, after an applied sum", () => {
-  it("puts the owner's figures back in the boxes, files them as typed, and the retake sums once", async () => {
+  it("deletes the applied sum's draft (named in the question), starts over empty, and the retake counts once", async () => {
     const { container } = await typedClose14000();
     await toScanCard();
     shoot(container);
     await sum();
     fireEvent.click(screen.getByText("continueStepByStep"));
     await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("11.000"));
+    await waitFor(() => expect(draftPosts().at(-1)?.revenue_total_override).toBe(17000), { timeout: 3500 });
     await backToCard();
     fireEvent.click(screen.getByText("scanMergedUndo"));
     await waitFor(() => expect(question()).not.toBeNull());
     fireEvent.click(screen.getByText("startOver"));
     await waitFor(() => expect(window.confirm).toHaveBeenCalledTimes(1));
-    expect(window.confirm.mock.calls[0][0]).toBe("dcScanStartOverKeepsOwn:14.000 kr.");
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|17\.000 kr\.$/);
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
+    const before = draftPosts().length;
     fireEvent.click(screen.getByText("skipEnterManually"));
-    await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("9.000"));
-    expect(box(container, "#dc-rev-drinks")).toBe("5.000");
-    await toStep(container, "#dc-pay-card");
-    expect(box(container, "#dc-pay-card")).toBe("10.000");
-    // The draft the autosave files is the owner's 14.000 — never the bon thrown away.
-    await waitFor(() => {
-      const last = draftPosts().at(-1);
-      expect(last?.revenue_breakdown).toEqual({ food: 9000, drinks: 5000 });
-    }, { timeout: 3500 });
-    expect(draftPosts().at(-1).payment_breakdown).toEqual({ cash: 4000, card: 10000 });
-    await backToStepOne();
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    expect(box(container, "#dc-rev-food")).toBe("");
+    expect(box(container, "#dc-rev-drinks")).toBe("");
+    await new Promise((r) => setTimeout(r, 2300));
+    expect(draftPosts().length).toBe(before);
 
     await toScanCard();
     shoot(container, photo("kasse-igen.jpg"));
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:3.000 kr.|14.000 kr.");
-    await sum();
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
     fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
     const payload = await lockedPayload();
-    expect(payload.revenue_total_override).toBe(17000);
-    expect(payload.moms_total).toBe(3400);
-    expect(payload.payment_breakdown).toEqual({ cash: 4000, card: 13000 });
+    expect(payload.revenue_total_override).toBe(3000);
+    expect(payload.moms_total).toBe(600);
   }, 25000);
 
-  it("a typed MOMS 3.000 + the bon's 600, applied, Fortryd, Start forfra: the owner's 3.000 comes back", async () => {
+  it("a typed MOMS 3.000 + the bon's 600, applied, Fortryd, Start forfra: nothing of the old day stays — the next close starts on Auto", async () => {
     const { container } = await typedClose14000();
     await toReviewAndTypeMoms(container, "3.000");
     await backToStepOne();
@@ -289,16 +292,18 @@ describe("3. Fortryd, then Start forfra, after an applied sum", () => {
     fireEvent.click(screen.getByText("startOver"));
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
     fireEvent.click(screen.getByText("skipEnterManually"));
-    await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("9.000"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    expect(box(container, "#dc-rev-food")).toBe("");
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "9.000" } });
     const payload = await lockedPayload();
-    expect(payload.revenue_breakdown).toEqual({ food: 9000, drinks: 5000 });
-    expect(payload.moms_mode).toBe("manual");
-    expect(payload.moms_total).toBe(3000);
+    expect(payload.revenue_breakdown).toEqual({ food: 9000 });
+    expect(payload.moms_mode).toBe("auto");
+    expect(payload.moms_total).toBe(1800);
   }, 25000);
 });
 
 describe("3b. the same Fortryd + Start forfra after \"same terminal\" over a reopened draft", () => {
-  it("the draft's 14.000 comes back in the boxes, and the retake is asked against it", async () => {
+  it("the reopened draft is deleted (named in the question) and the retake is the day's first till", async () => {
     const BON_1500 = { revenue: { food: 1500 }, revenue_total: 1500, payments: { card: 1500 }, raw_text: "BON 1500", ocr_available: true };
     const { container } = await reopen({
       revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 }, payment_breakdown: { card: 14000 },
@@ -312,18 +317,18 @@ describe("3b. the same Fortryd + Start forfra after \"same terminal\" over a reo
     await waitFor(() => expect(question()).toBeNull());
     fireEvent.click(screen.getByText("continueStepByStep"));
     await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("1.500"));
+    await waitFor(() => expect(draftPosts().length).toBeGreaterThan(0), { timeout: 3500 });
     await backToCard();
     fireEvent.click(screen.getByText("scanMergedUndo"));
     await waitFor(() => expect(question()).not.toBeNull());
     fireEvent.click(screen.getByText("startOver"));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(del.mock.calls[0][0]).toBe("/daily-close/d1");
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|1\.500 kr\.$/);
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
-    fireEvent.click(screen.getByText("skipEnterManually"));
-    await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("9.000"));
-    expect(box(container, "#dc-rev-drinks")).toBe("5.000");
-    await toScanCard();
     shoot(container, photo("kasse-igen.jpg"));
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:1.500 kr.|14.000 kr.");
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
   }, 25000);
 });
 
@@ -346,29 +351,30 @@ describe("4. the review names a reopened Z-bon draft + a bon for what the record
   }, 20000);
 });
 
+// Round 23 (A, rewritten): the question names the draft that is stored
+// (the typed 14.000 — the card's 16.000 was never applied), the draft is
+// deleted, and the retake is the day's first till (never asked against the
+// thrown-away total).
 describe("5. a total typed on the card goes with the photos at Start forfra", () => {
-  it("the dialog, the boxes and the retake all read the owner's 14.000", async () => {
+  it("the question names the stored 14.000 (never the card's 16.000), and the retake starts the day", async () => {
     const { container } = await typedClose14000();
+    await waitFor(() => expect(draftPosts().length).toBeGreaterThan(0), { timeout: 3500 });
     await toScanCard();
     shoot(container);
     await sum();
     fireEvent.change(container.querySelector("#scan-total"), { target: { value: "16.000" } });
     fireEvent.click(screen.getByText("startOver"));
     await waitFor(() => expect(window.confirm).toHaveBeenCalledTimes(1));
-    expect(window.confirm.mock.calls[0][0]).toBe("dcScanStartOverKeepsOwn:14.000 kr.");
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|14\.000 kr\.$/);
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
-    fireEvent.click(screen.getByText("skipEnterManually"));
-    await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("9.000"));
-    await toScanCard();
     shoot(container, photo("kasse-igen.jpg"));
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:3.000 kr.|14.000 kr.");
-    await sum();
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
     fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
     const payload = await lockedPayload();
-    expect(payload.revenue_total_override).toBe(17000);
-    expect(payload.revenue_total_owner_set).toBe(false);
-    expect(payload.revenue_breakdown).toEqual({ food: 11000, drinks: 6000 });
+    expect(payload.revenue_total_override).toBe(3000);
+    expect(payload.revenue_breakdown).toEqual({ food: 2000, drinks: 1000 });
   }, 25000);
 });
 
@@ -417,8 +423,11 @@ describe("7. a reopened Z-bon draft edited, then a second bon", () => {
   }, 20000);
 });
 
+// Round 23 (A, rewritten): Start forfra on a reopened Z-bon draft deletes
+// it (asked, naming its 14.000); nothing of it — its photo, its source — is
+// carried into the close typed next, which is a new, typed close.
 describe("8. Start forfra on a reopened Z-bon draft", () => {
-  it("does not relabel the draft as typed: no source is sent, the server keeps the read", async () => {
+  it("deletes the reopened read (named in the question); the close typed next carries none of its source or photo", async () => {
     const { container } = await reopen({
       revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 }, payment_breakdown: { card: 14000 },
       moms_mode: "auto", moms_total: 2800, source_meta: { kind: "zbon", scans: 1 }, receipt_photo: "u1/kasserapport/old.jpg",
@@ -428,12 +437,17 @@ describe("8. Start forfra on a reopened Z-bon draft", () => {
     shoot(container);
     await waitFor(() => expect(question()).not.toBeNull());
     fireEvent.click(screen.getByText("startOver"));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|14\.000 kr\.$/);
     await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
     fireEvent.click(screen.getByText("skipEnterManually"));
-    await waitFor(() => expect(box(container, "#dc-rev-food")).toBe("9.000"));
+    await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
+    expect(box(container, "#dc-rev-food")).toBe("");
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "9.000" } });
     const payload = await lockedPayload();
-    expect(payload.source_meta).toBeNull();
-    expect(payload.revenue_breakdown).toEqual({ food: 9000, drinks: 5000 });
+    expect(payload.source_meta).toMatchObject({ kind: "typed" });
+    expect(payload.receipt_photo ?? null).toBe(null);
+    expect(payload.revenue_breakdown).toEqual({ food: 9000 });
   }, 20000);
 });
 

@@ -13,8 +13,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the day's draft (the server), asked first.
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -112,7 +114,11 @@ describe("daily close — MOMS after going back to the scan", () => {
     await backTo("← scanZReportBack");
     fireEvent.click(screen.getByText("← scanZReportBack"));
     await waitFor(() => expect(screen.getByText("startOver")).toBeInTheDocument());
+    // (Round 23: asked first — the draft filed for the bon is deleted by the
+    // server — and the form starts over once that has answered.)
+    window.confirm = () => true;
     fireEvent.click(screen.getByText("startOver"));
+    await waitFor(() => expect(screen.queryByText("scanResults")).not.toBeInTheDocument());
     shoot(container);
     await waitFor(() => expect(container.querySelector("#scan-total")?.value).toBe("12.000"));
     fireEvent.click(screen.getByText("useTheseValuesJumpReview"));

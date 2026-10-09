@@ -151,10 +151,11 @@ const rowFor = (day = today) => S.rows.get(`${day}|`);
 const text = () => document.body.textContent;
 /** The page's reads of one day (the "ask the server" reads). */
 const dayReads = () => get.mock.calls.filter(([url, cfg]) => url === "/daily-close" && cfg?.params?.with_save_id);
+// (Round 23: the move is asked before the date changes — window.confirm
+// answers "Flyt tallene".)
 const moveTo = async (day) => {
   fireEvent.change(q("#close-date"), { target: { value: day } });
   await settle();
-  tap(/^dcDateMoveKeep/);
   await flush();
   await flush();
 };
@@ -207,7 +208,8 @@ describe("must fix — a save whose answer was lost is asked about before the da
     await moveTo(yesterday);
     expect(del).not.toHaveBeenCalled();
     expect(rowFor()).toMatchObject({ status: "draft", notes: "B" });
-    expect(text()).toContain("dcDateMovedOldHolds");
+    // (Round 23: the note is "Kopieret til … står der stadig".)
+    expect(text()).toContain("dcDateMovedCopied");
     expect(text()).not.toContain("dcDateMovedFrom");
   });
 
@@ -224,7 +226,11 @@ describe("must fix — a save whose answer was lost is asked about before the da
     await flushLost();
     await moveTo(yesterday);
     expect(del).not.toHaveBeenCalled();
-    expect(text()).toContain("dcDateMovedOldHolds");
+    // (Round 23: the old day's save got no answer and could not be asked
+    // about — "Kopieret til … — kladden … kan stadig stå der", with "Slet
+    // den"; never the certain "står der stadig" for what is not known.)
+    expect(text()).toContain("dcDateMovedMaybeCopied");
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeTruthy();
     expect(text()).not.toContain("dcDateMovedFrom");
   });
 
@@ -242,11 +248,16 @@ describe("must fix — a save whose answer was lost is asked about before the da
     expect(text()).toContain("dcDateMovedFrom");
   });
 
-  it("the banner's Start forfra, a Z-bon stored over the draft with its answer lost, Start forfra: the revert follows the lost save (base_save_id) and the 17.030 draft is back", async () => {
+  // Round 23 (A, rewritten): the banner's Start forfra deletes the draft (no
+  // replaced draft to put back); the card's Start forfra asks the server
+  // about the save whose answer was lost and deletes exactly that version.
+  it("the banner's Start forfra deletes the 17.030 draft; a Z-bon stored with its answer lost, Start forfra: deleted on the version the lost save wrote (base_save_id)", async () => {
     serve([ZBON]);
     await mount();
     tap(/^dcStartOverDraft$/);
-    await settle();
+    await flush();
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|17\.030 kr\.$/);
+    expect(rowFor()).toBeUndefined();
     await shoot("t2500", "t2500.jpg");
     // Every save of the photo's figures reaches the server, every answer is
     // lost (the step and the way back to the card).
@@ -259,18 +270,15 @@ describe("must fix — a save whose answer was lost is asked about before the da
     S.holding.drop = false;
     const sid = S.lastSaveId.get(KEY);
     expect(sid).toBeTruthy();
+    const stored = rowFor();
     tap(/^startOver$/);
     await flush();
-    const revert = S.posts.at(-1);
-    expect(revert).toMatchObject({ revenue_total_override: 17030, base_save_id: sid });
-    expect(rowFor()).toMatchObject({
-      status: "draft", revenue_total: 17030, notes: "Test", closed_by: "Test", cash_counted: 980,
-      receipt_photo: "u1/kasserapport/seed-own.jpg",
-    });
-    expect(text()).toContain("dcDayHasDraftBody:17.030");
+    expect(del).toHaveBeenLastCalledWith(`/daily-close/${stored.id}`, { params: { base_updated_at: stored.updated_at, base_save_id: sid } });
+    expect(rowFor()).toBeUndefined();
+    expect(text()).not.toContain("dcDayHasDraft");
   });
 
-  it("Start forfra on a photo's day whose save lost its answer: the question counts that draft as the form's — the note typed beside it keeps it", async () => {
+  it("Start forfra on a photo's day whose save lost its answer: the question counts that draft (5.000) — answered yes, it is deleted on that version", async () => {
     serve();
     await mount();
     await shoot("b5000", "b5000.jpg");
@@ -284,9 +292,9 @@ describe("must fix — a save whose answer was lost is asked about before the da
     tap(/^startOver$/);
     await flush();
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(window.confirm.mock.calls[0][0]).toContain("dcScanStartOverDraftKept:");
-    expect(del).not.toHaveBeenCalled();
-    expect(rowFor()).toMatchObject({ status: "draft", notes: "Test" });
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(rowFor()).toBeUndefined();
   });
 });
 
@@ -545,12 +553,17 @@ describe("offline — a draft save with no answer is never dropped", () => {
     }
   });
 
-  it("Start forfra OFFLINE over the draft the banner replaced: it cannot be put back now — it is, once online (asked first, on that version)", async () => {
+  // Round 23 (A, rewritten): Start forfra offline cannot reach the server —
+  // nothing changes, the card says the draft was not deleted, and nothing is
+  // done on its own once online (no automatic take-back): the owner taps it
+  // again.
+  it("Start forfra OFFLINE: not deleted, said, nothing changes; online, nothing happens by itself — Start forfra again deletes it", async () => {
     serve([ZBON]);
     try {
       await mount();
       tap(/^dcStartOverDraft$/);
-      await settle();
+      await flush();
+      expect(rowFor()).toBeUndefined();
       await shoot("b1500", "b1500.jpg");
       tap(/^continueStepByStep$/);
       await toStepWith("#dc-rev-food");
@@ -561,15 +574,16 @@ describe("offline — a draft save with no answer is never dropped", () => {
       await goOffline();
       tap(/^startOver$/);
       for (let i = 0; i < 6; i++) await settle();
-      // Offline: nothing changed on the server; the banner shows what is stored.
       expect(rowFor()).toMatchObject({ revenue_total: 9000 });
-      expect(text()).toContain("dcDayHasDraft");
+      expect(q('[data-testid="dc-start-over-failed"]').textContent).toContain("dcStartOverNotDeletedOffline");
+      expect(q('[data-testid="dc-scan-result-date"]')).not.toBeNull();
       await goOnline();
       for (let i = 0; i < 4; i++) await settle();
-      expect(rowFor()).toMatchObject({
-        status: "draft", revenue_total: 17030, notes: "Test", receipt_photo: "u1/kasserapport/seed-own.jpg",
-      });
-      expect(text()).toContain("dcDayHasDraftBody:17.030");
+      expect(rowFor()).toMatchObject({ revenue_total: 9000 });
+      tap(/^startOver$/);
+      await flush();
+      expect(rowFor()).toBeUndefined();
+      expect(q('[data-testid="dc-start-over-failed"]')).toBeNull();
     } finally {
       S.holding.offline = false;
       setOnline(true);

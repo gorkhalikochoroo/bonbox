@@ -174,7 +174,13 @@ const otherFiles = (day, fields) => {
 /* ─── 1. a move made offline, the page left offline ─────────────────── */
 
 describe("review 1 — a date move made offline and the page left offline never puts the figures on both days", () => {
-  it("answered on today, offline, \"Brug dem\" for yesterday, an edit, left: once online only today holds them — the latest", async () => {
+  // Round 23 (C, expectation changed): a move confirmed offline is a move
+  // the owner chose — the figures go with the form to yesterday; today's
+  // draft cannot be deleted offline, and the page says so ("Kopieret til …
+  // står der stadig", never "Flyttet"). Left offline, the latest figures are
+  // kept on this phone for the day the form is on, and today's draft stays —
+  // as said. (Round 22 kept them on today instead: the owner's move undone.)
+  it("answered on today, offline, \"Flyt tallene\" for yesterday, an edit, left: said \"står der stadig\"; once online yesterday holds the latest, today's draft is still there — never \"Flyttet\"", async () => {
     serve();
     try {
       const view = await mount();
@@ -185,17 +191,16 @@ describe("review 1 — a date move made offline and the page left offline never 
       expect(rowFor()).toMatchObject({ revenue_breakdown: { food: 3000 } });
       await goOffline();
       await pickDay(yesterday);
-      tap(/^dcDateMoveKeep/);
       await settle();
+      expect(text()).toContain("dcDateMovedCopied");
+      expect(text()).not.toContain("dcDateMovedFrom");
       keyIn(q("#dc-rev-food"), "3500");
       view.unmount();
       for (let i = 0; i < 4; i++) await settle();
       await mount();
       await goOnline();
-      // Never both days: the move was not done, the figures stayed on the day
-      // the server had them on — and the edit made after the move is kept.
-      expect(rowFor(yesterday)).toBeUndefined();
-      expect(rowFor()).toMatchObject({ status: "draft", revenue_breakdown: { food: 3500 } });
+      expect(rowFor(yesterday)).toMatchObject({ status: "draft", revenue_breakdown: { food: 3500 } });
+      expect(rowFor()).toMatchObject({ status: "draft", revenue_breakdown: { food: 3000 } });
       expect(queued()).toHaveLength(0);
     } finally {
       S.holding.offline = false;
@@ -213,7 +218,6 @@ describe("review 1 — a date move made offline and the page left offline never 
       keyIn(q("#dc-rev-food"), "3000");
       await flush();
       await pickDay(yesterday);
-      tap(/^dcDateMoveKeep/);
       await settle();
       view.unmount();
       for (let i = 0; i < 4; i++) await settle();
@@ -298,7 +302,6 @@ describe("review 2 — back online while the page is hidden: the waiting draft i
       await flush();
       await goOffline();
       await pickDay(yesterday);
-      tap(/^dcDateMoveKeep/);
       await settle();
       await fire("pagehide");
       await goOnline();
@@ -331,7 +334,6 @@ describe("review 3 — a 409 answering the OLD day's save never makes the new da
     await fire("pagehide");
     expect(S.held).toHaveLength(1);
     await pickDay(yesterday);
-    tap(/^dcDateMoveKeep/);
     await settle();
     // Today's save arrives now: the lock (409).
     S.holding.post = false;
@@ -349,8 +351,12 @@ describe("review 3 — a 409 answering the OLD day's save never makes the new da
 
 /* ─── 4. a lost create, then the banner's Start forfra ───────────────── */
 
-describe("review 4 — a draft the banner's Start forfra replaced is put back, never deleted, after an earlier save got no answer", () => {
-  it("lost create → another device files D → banner Start forfra → own save answered → photo-only Start forfra: D is back as it was", async () => {
+// Round 23 (A, rewritten): the banner's Start forfra deletes the draft it is
+// tapped on (asked first, naming it), on the version shown — another
+// device's D, or the form's own lost create alike — and the form starts over
+// empty. Nothing is replaced, so nothing is put back.
+describe("review 4 — the banner's Start forfra after an earlier save got no answer", () => {
+  it("lost create → another device files D → the banner's Start forfra: asked (naming D's 3.000), D deleted on its version, the form empty", async () => {
     serve();
     await mount();
     await shoot("b5000", "b5000.jpg");
@@ -370,18 +376,17 @@ describe("review 4 — a draft the banner's Start forfra replaced is put back, n
     for (let i = 0; i < 4; i++) await settle();
     tap(/^continueStepByStep$/);
     await waitFor(() => expect(text()).toContain("dcDayHasDraft"));
+    window.confirm = vi.fn(() => true);
     tap(/^dcStartOverDraft$/);
     await settle();
     await flush();
-    expect(rowFor()).toMatchObject({ id: D.id, revenue_total: 5000 });
-    await backToCard();
-    tap(/^startOver$/);
-    await flush();
-    expect(del).not.toHaveBeenCalled();
-    expect(rowFor()).toMatchObject({ id: D.id, status: "draft", revenue_total: 3000, notes: "B" });
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|3\.000 kr\.$/);
+    expect(del).toHaveBeenCalledWith(`/daily-close/${D.id}`, expect.objectContaining({ params: expect.objectContaining({ base_updated_at: D.updated_at }) }));
+    expect(rowFor()).toBeUndefined();
+    expect(btn(/^skipEnterManually$/)).toBeTruthy();
   });
 
-  it("…and over the form's OWN lost create shown on the banner, Start forfra still takes it off the day (deleted)", async () => {
+  it("…and over the form's OWN lost create shown on the banner, Start forfra deletes it", async () => {
     serve();
     await mount();
     await shoot("b5000", "b5000.jpg");
@@ -404,10 +409,8 @@ describe("review 4 — a draft the banner's Start forfra replaced is put back, n
     tap(/^dcStartOverDraft$/);
     for (let i = 0; i < 4; i++) await settle();
     await flush();
-    await backToCard();
-    tap(/^startOver$/);
-    await flush();
     expect(rowFor()).toBeUndefined();
+    expect(text()).not.toContain("dcDayHasDraft");
   });
 });
 
@@ -432,9 +435,18 @@ describe("review 5 — a take-back that could not ask keeps following the lost s
     get.mockImplementation((url, cfg) => (url === "/daily-close"
       ? Promise.reject(Object.assign(new Error("timeout"), { code: "ECONNABORTED" }))
       : pass(url, cfg)));
+    // Round 23 (A, rewritten): the read fails — the server cannot be asked
+    // whether the lost save is the form's — so nothing is deleted: said, and
+    // nothing changes. Asked again once reads work, it is deleted; what is
+    // typed next is saved with no "saved somewhere else".
     tap(/^startOver$/);
     for (let i = 0; i < 6; i++) await settle();
+    expect(rowFor()).toMatchObject({ revenue_total: 5000 });
+    expect(q('[data-testid="dc-start-over-failed"]')).not.toBeNull();
     get.mockImplementation(pass);
+    tap(/^startOver$/);
+    await flush();
+    expect(rowFor()).toBeUndefined();
     tap(/^skipEnterManually$/);
     await toStepWith("#dc-rev-food");
     keyIn(q("#dc-rev-food"), "3000");
@@ -471,7 +483,6 @@ describe("review 6 — a day read without last_save_id is unknown, never \"saved
     S.holding.drop = false;
     const sid = S.lastSaveId.get(KEY);
     await pickDay(yesterday);
-    tap(/^dcDateMoveKeep/);
     await flush();
     await flush();
     expect(del).toHaveBeenCalledTimes(1);
@@ -493,15 +504,18 @@ describe("review 6 — a day read without last_save_id is unknown, never \"saved
     S.holding.drop = false;
     S.otherSave(KEY, (r) => { r.notes = "B"; });
     await pickDay(yesterday);
-    tap(/^dcDateMoveKeep/);
     await flush();
     await flush();
     expect(rowFor()).toMatchObject({ status: "draft", notes: "B" });
     expect(text()).not.toContain("dcDateMovedFrom");
-    expect(text()).toContain("dcDateMovedOldHolds");
+    // (Round 23: "Kopieret til … står der stadig".)
+    expect(text()).toContain("dcDateMovedCopied");
   });
 
-  it("Start forfra that keeps the draft (a note typed beside the photo): it stays the form's own — no \"already a draft\" banner over it", async () => {
+  // Round 23 (A, expectation changed): Start forfra no longer keeps a draft
+  // for a note typed beside the photo — it deletes it (asked); with the older
+  // backend's read the server's own check decides, and no banner is left.
+  it("Start forfra with a note typed beside the photo: the draft is deleted (the older backend's read: the server's own check) — no banner", async () => {
     serve();
     olderBackend();
     await mount();
@@ -514,7 +528,7 @@ describe("review 6 — a day read without last_save_id is unknown, never \"saved
     await backToCard();
     tap(/^startOver$/);
     await flush();
-    expect(rowFor()).toMatchObject({ status: "draft", notes: "Test" });
+    expect(rowFor()).toBeUndefined();
     expect(text()).not.toContain("dcDayHasDraft");
   });
 });
@@ -541,30 +555,36 @@ describe("review 7 — a move finishes only when the moved save itself landed", 
     keyIn(q("#dc-rev-food"), "3000");
     await flush();
     expect(rowFor()).toMatchObject({ revenue_breakdown: { food: 3000 } });
-    // Today's figures moved to yesterday: that save dies on its way (stored
-    // nowhere, no answer).
-    await pickDay(yesterday);
-    tap(/^dcDateMoveKeep/);
-    await settle();
-    // The moved save dies on its way (never stored, no answer); the day's
-    // read right after it answers.
+    // Today's figures moved to yesterday ("Flyt tallene" — round 23: asked,
+    // and sent at once): that save dies on its way (never stored, no answer);
+    // the day's read right after it answers.
+    // (Round 23: the moved save is sent at once and re-sent on the way out —
+    // it never lands, every time.)
     const pass = post.getMockImplementation();
-    post.mockImplementationOnce((url, body) => (url === "/daily-close"
+    post.mockImplementation((url, body) => (url === "/daily-close" && body?.date === yesterday && body?.revenue_breakdown?.food === 3000
       ? Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }))
       : pass(url, body)));
+    await pickDay(yesterday);
+    await settle();
     await flush();
     for (let i = 0; i < 4; i++) await settle();
     expect(rowFor(yesterday)).toMatchObject({ revenue_breakdown: { food: 1000 } });
     // Never "moved" on yesterday's older save: today still holds 3.000.
     expect(rowFor()).toMatchObject({ status: "draft", revenue_breakdown: { food: 3000 } });
     expect(text()).not.toContain("dcDateMovedFrom");
+    // (Round 23: said — today still has its draft.)
+    expect(text()).toContain("dcDateMovedCopied");
   });
 });
 
 /* ─── 8. a take-back that could not ask is tried again on a timer ───── */
 
-describe("review 8 — a take-back that could not ask is tried again while online", () => {
-  it("Start forfra, the day's read times out (online): the thrown-away bon is taken off the day on the retry", async () => {
+// Round 23 (A, rewritten): no take-back is retried on its own any more (the
+// automatic paths are gone). A Start forfra whose read times out deletes
+// nothing, says so, and changes nothing; tapped again once reads answer, it
+// deletes the draft.
+describe("review 8 — a Start forfra that could not ask is not retried on its own", () => {
+  it("Start forfra, the day's read times out (online): not deleted, said, no timer — tapped again, the thrown-away bon's draft is deleted", async () => {
     serve();
     await mount();
     await shoot("b5000", "b5000.jpg");
@@ -591,9 +611,10 @@ describe("review 8 — a take-back that could not ask is tried again while onlin
       tap(/^startOver$/);
       for (let i = 0; i < 6; i++) await settle();
       expect(rowFor()).toMatchObject({ revenue_total: 5000 });
-      expect(timers.length).toBeGreaterThan(0);
+      expect(q('[data-testid="dc-start-over-failed"]')).not.toBeNull();
+      expect(timers).toHaveLength(0);
       get.mockImplementation(pass);
-      await act(async () => { timers.splice(0).forEach((fn) => fn()); await new Promise((r) => real(r, 0)); });
+      tap(/^startOver$/);
       for (let i = 0; i < 6; i++) await settle();
       expect(rowFor()).toBeUndefined();
     } finally {

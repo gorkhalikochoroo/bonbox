@@ -183,7 +183,11 @@ describe("3. payments only are saved, and said as payments only", () => {
 /* ─── 1 ─────────────────────────────────────────────────────────────── */
 
 describe("1. Start forfra on a payments-only own till", () => {
-  it("the reviewers' repro: MobilePay 1.234,50 + a 17.030 bon summed and filed, Start forfra → the stored draft is the payments, typed, no photo", async () => {
+  // Round 23 (A, expectation changed): Start forfra deletes the day's draft
+  // — the summed 18.264,50, asked first — instead of filing the owner's
+  // payments back; the thrown-away bon is never left stored, because
+  // nothing is.
+  it("the reviewers' repro: MobilePay 1.234,50 + a 17.030 bon summed and filed, Start forfra → the draft is deleted (asked, named): no bon left stored", async () => {
     serve();
     await mount();
     tap(/^skipEnterManually$/);
@@ -197,14 +201,15 @@ describe("1. Start forfra on a payments-only own till", () => {
     await flush();
     expect(rowFor()).toMatchObject({ revenue_total: 18264.5, receipt_photo: photoUrl("till1.jpg") });
     await backToCard();
+    const n = S.posts.length;
     tap(/^startOver$/);
     await settle();
     await flush();
-    const last = posted().at(-1);
-    expect(last).toMatchObject({ revenue_breakdown: {}, payment_breakdown: { mobilepay: 1234.5 }, receipt_photo: "", source_meta: { kind: "typed" } });
-    expect(rowFor()).toMatchObject({ revenue_total: 0, revenue_breakdown: {}, payment_breakdown: { mobilepay: 1234.5 }, receipt_photo: null, source_meta: { kind: "typed" } });
-    // Filed, not deleted: the payments are the owner's.
-    expect(S.deletes).toEqual([]);
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|18\.264,50 kr\.$/);
+    expect(S.deletes).toHaveLength(1);
+    expect(rowFor()).toBeUndefined();
+    // Nothing filed after: the form starts over empty.
+    expect(S.posts.length).toBe(n);
   });
 });
 
@@ -488,7 +493,9 @@ describe("a Z-bon's day moved, and moved back before the new day's save answered
 /* ─── 4 ─────────────────────────────────────────────────────────────── */
 
 describe("4. the photo filed is recorded when its save is sent", () => {
-  it("typed 3.000 + a 4.000 bon filed (its answer late), Start forfra: the next save clears the photo (\"\"), the stored draft has none", async () => {
+  // Round 23 (A, expectation changed): Start forfra waits for the late answer,
+  // then deletes the draft — the bon's photo with it; nothing is filed after.
+  it("typed 3.000 + a 4.000 bon filed (its answer late), Start forfra: the draft — the bon's photo with it — is deleted once that save has answered", async () => {
     serve();
     await mount();
     tap(/^skipEnterManually$/);
@@ -509,9 +516,9 @@ describe("4. the photo filed is recorded when its save is sent", () => {
     S.holding.answer = false;
     await release();
     await flush();
-    const afterStartOver = posted().filter((b) => b.revenue_breakdown?.food === 3000 && !b.revenue_total_override);
-    expect(afterStartOver.at(-1).receipt_photo).toBe("");
-    expect(rowFor()).toMatchObject({ revenue_total: 3000, receipt_photo: null, source_meta: { kind: "typed" } });
+    expect(S.deletes).toHaveLength(1);
+    expect(S.deletedRows.at(-1)).toMatchObject({ revenue_total: 7000, receipt_photo: photoUrl("bon4000.jpg") });
+    expect(rowFor()).toBeUndefined();
   });
 });
 

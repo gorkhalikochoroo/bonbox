@@ -186,10 +186,15 @@ describe("1. a reopened draft keeps the float it was counted with", () => {
 
 /* ─── 3 ─────────────────────────────────────────────────────────────── */
 
-describe("3. Start forfra on a photo-only day never deletes what the owner typed beside the photo", () => {
-  // The reviewers' repro (sequences lane): photo → step by step → count the
-  // drawer, Lukket af, Noter (autosaved) → "← Scan Z-bon" → Start forfra.
-  it("cash count, Lukket af and Noter typed: the question names them, the draft stays — and is offered on return", async () => {
+// Round 23 (narrowing A — Manoj, 9 Oct): Start forfra is an explicit,
+// confirmed DELETE of the day's draft. Round 20's rule ("never deletes what
+// the owner typed beside the photo" — the draft kept, updated by the next
+// save) is retired: the question now names the draft and its amount and says
+// it cannot be undone; answered yes, the draft goes — count, Lukket af,
+// Noter and tips with it — and the form starts over empty. Rewritten per
+// test; "cancelling keeps everything" is unchanged.
+describe("3. Start forfra on a photo-only day — the draft and everything typed beside the photo go, asked first", () => {
+  it("cash count, Lukket af and Noter typed: the question names the draft (5.000) — answered yes, it is deleted with them, and nothing is offered on return", async () => {
     serve();
     const view = await mount();
     await shoot("b5000", "bon5000.jpg");
@@ -207,32 +212,19 @@ describe("3. Start forfra on a photo-only day never deletes what the owner typed
     window.confirm.mockClear();
     tap(/^startOver$/);
     await flush();
-    // Asked, and the question says what stays and that the draft is kept.
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    const msg = window.confirm.mock.calls[0][0];
-    expect(msg).toContain("dcScanStartOverPhotoGoes");
-    expect(msg).toContain("dcScanStartOverDraftKept:");
-    // The list leads the sentence ("Optællingen, Lukket af og noten bliver").
-    expect(msg).toContain("dcScanStartOverDraftKept:DcStartOverKeepsCount");
-    expect(msg).toContain("dcStartOverKeepsClosedBy");
-    expect(msg).toContain("dcStartOverKeepsNote");
-    expect(msg).not.toContain("dcScanStartOverDraftGoes");
-    // Not deleted: the only stored copy of the count, Lukket af and Noter.
-    expect(S.deletes).toEqual([]);
-    expect(rowFor(today)).toMatchObject({ id, status: "draft", closed_by: "Test", notes: "Test", cash_counted: 1450 });
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(S.deletes).toEqual([id]);
+    expect(rowFor(today)).toBeUndefined();
 
-    // Left before the next photo: the draft is there, with the owner's fields.
     view.unmount();
     await settle();
     await mount();
-    expect(document.body.textContent).toContain("dcDayHasDraft");
-    tap(/^dcContinueDraft$/);
-    await toStepWith("#dc-notes");
-    expect(q("#dc-closed-by").value).toBe("Test");
-    expect(q("#dc-notes").value).toBe("Test");
+    expect(document.body.textContent).not.toContain("dcDayHasDraft");
+    expect(document.body.textContent).toContain("scanZReportTitle");
   });
 
-  it("the next save updates the kept draft: a new photo files its figures with the owner's fields, the old photo cleared", async () => {
+  it("the next photo after Start forfra files a NEW draft of its own figures — nothing of the deleted draft's fields", async () => {
     serve();
     await mount();
     await shoot("b5000", "bon5000.jpg");
@@ -244,18 +236,16 @@ describe("3. Start forfra on a photo-only day never deletes what the owner typed
     await backToCard();
     tap(/^startOver$/);
     await flush();
-    expect(rowFor(today).id).toBe(id);
+    expect(S.deletes).toEqual([id]);
     await shoot("b3000", "bon3000.jpg");
-    // The card is not what is stored yet, and says so.
-    expect(q('[data-testid="dc-scan-unsaved"]')).not.toBeNull();
     tap(/^continueStepByStep$/);
     await flush();
     expect(rowFor(today)).toMatchObject({
-      id, revenue_total: 3000, notes: "Test", receipt_photo: photoUrl("bon3000.jpg"), source_meta: { kind: "zbon" },
+      revenue_total: 3000, notes: null, receipt_photo: photoUrl("bon3000.jpg"), source_meta: { kind: "zbon" },
     });
   });
 
-  it("tips typed on step 4 go with the photo — and the question says so, with the amount", async () => {
+  it("tips typed on step 4: the question names the draft (5.000); answered yes, the draft — tips with it — is deleted", async () => {
     serve();
     await mount();
     await shoot("b5000", "bon5000.jpg");
@@ -268,14 +258,12 @@ describe("3. Start forfra on a photo-only day never deletes what the owner typed
     window.confirm.mockClear();
     tap(/^startOver$/);
     await flush();
-    const msg = window.confirm.mock.calls[0][0];
-    expect(msg).toContain("dcScanStartOverTipsGo:320 kr.");
-    // Typed by the owner: the draft holding them stays until the next save.
-    expect(msg).toContain("dcScanStartOverDraftKeptOnly:5.000 kr.");
-    expect(S.deletes).toEqual([]);
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(S.deletes).toHaveLength(1);
+    expect(rowFor(today)).toBeUndefined();
   });
 
-  it("nothing typed beside the photo: one tap, the draft is deleted (as before)", async () => {
+  it("nothing typed beside the photo: asked too (the draft is stored) — then deleted", async () => {
     serve();
     await mount();
     await shoot("b5000", "bon5000.jpg");
@@ -285,7 +273,7 @@ describe("3. Start forfra on a photo-only day never deletes what the owner typed
     window.confirm.mockClear();
     tap(/^startOver$/);
     await flush();
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalledTimes(1);
     expect(S.deletes).toHaveLength(1);
   });
 
@@ -309,11 +297,12 @@ describe("3. Start forfra on a photo-only day never deletes what the owner typed
 
 /* ─── 4 ─────────────────────────────────────────────────────────────── */
 
-describe("4. \"\" clears only a photo this page filed (or the replaced draft's)", () => {
-  // The removal audit's U6 repro: this page filed a photo, then Start forfra;
-  // another device then scans the day. The next autosave here used to send
-  // "" and clear that device's photo.
-  it("another device's photo, scanned after this page cleared its own, is never cleared", async () => {
+// Round 23: Start forfra deletes the day's draft (its photo with it) and the
+// banner's Start forfra deletes the draft it was tapped on — so the close
+// typed next is a NEW row with no photo to clear, and "" is never sent for
+// one. The rule held (a "" never clears another device's photo) is unchanged.
+describe("4. \"\" clears only a photo this page filed", () => {
+  it("another device's photo, scanned on the close typed after Start forfra, is never cleared", async () => {
     serve();
     await mount();
     tap(/^skipEnterManually$/);
@@ -328,11 +317,15 @@ describe("4. \"\" clears only a photo this page filed (or the replaced draft's)"
     expect(rowFor(today).receipt_photo).toBe(photoUrl("bon3000.jpg"));
     await backToCard();
     tap(/^startOver$/);
-    await settle();
-    tap(/^skipEnterManually$/);
     await flush();
-    // Its own photo: cleared.
-    expect(posted().at(-1).receipt_photo).toBe("");
+    // The draft — its photo with it — is deleted.
+    expect(S.deletes).toHaveLength(1);
+    expect(rowFor(today)).toBeUndefined();
+    tap(/^skipEnterManually$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    keyIn(q("#dc-rev-food"), "14000");
+    await flush();
+    expect(posted().at(-1).receipt_photo).toBeNull();
     expect(rowFor(today).receipt_photo).toBeNull();
     // Another device scans the day.
     rowFor(today).receipt_photo = "u1/kasserapport/other-device.jpg";
@@ -342,7 +335,7 @@ describe("4. \"\" clears only a photo this page filed (or the replaced draft's)"
     expect(rowFor(today).receipt_photo).toBe("u1/kasserapport/other-device.jpg");
   });
 
-  it("the draft the banner's \"Start forfra\" replaced: its photo is cleared by the figures typed over it", async () => {
+  it("the draft the banner's \"Start forfra\" was tapped on is deleted — its photo with it; the close typed next has none", async () => {
     serve([{
       id: "seed1", date: today, branch_id: null, status: "draft", closed_by: null, notes: null,
       revenue_total: 17030, revenue_breakdown: { food: 17030 }, payment_breakdown: { card: 17030 },
@@ -351,12 +344,13 @@ describe("4. \"\" clears only a photo this page filed (or the replaced draft's)"
     }]);
     await mount();
     tap(/^dcStartOverDraft$/);
-    await settle();
+    await flush();
+    expect(S.deletes).toEqual(["seed1"]);
     tap(/^skipEnterManually$/);
     await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
     keyIn(q("#dc-rev-food"), "9000");
     await flush();
-    expect(posted().at(-1).receipt_photo).toBe("");
+    expect(posted().at(-1).receipt_photo).toBeNull();
     expect(rowFor(today)).toMatchObject({ revenue_total: 9000, receipt_photo: null });
   });
 });

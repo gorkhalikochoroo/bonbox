@@ -18,14 +18,16 @@
  *          and said "moved" (finding 1);
  *   22002  the banner's Start forfra, a new Z-bon, its save's answer lost,
  *          Start forfra: the original draft gone, the thrown-away bon stored
- *          (finding 2);
+ *          (finding 2; round 23: rewritten — the banner's Start forfra now
+ *          deletes the draft, asked first, so nothing of either is left);
  *   22003 / 22004
  *          a Z-bon day whose saves' answers were lost: Start forfra kept the
  *          thrown-away bon as the stored draft, with no banner (finding 3);
  *   22005  another device locks the day: the next edit was refused in
  *          silence (finding 4);
  * and the same class on the other paths the rule covers (a replaced draft
- * moved, the new day's save of a move losing its answer, the newest draft
+ * moved — 22006, round 23: rewritten, the banner's Start forfra deletes the
+ * draft — the new day's save of a move losing its answer, the newest draft
  * locked elsewhere, leaving and coming back — 22009 / 22010 pass on dfb46ddb
  * too and pin it); and from the round's own review, 22011 — the old day's
  * save meeting another device's lock after "Brug dem" marked the NEW day
@@ -58,6 +60,11 @@ vi.mock("../hooks/useLanguage", () => ({
     setLang: () => {},
     LANGUAGES: [],
   }),
+}));
+// Round 23 — the page's questions (useConfirm) are answered by the harness
+// like the owner (closeSequenceHarness: __dcSeqConfirm).
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (opts) => Promise.resolve(globalThis.__dcSeqConfirm ? globalThis.__dcSeqConfirm(opts) : true),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
   useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
@@ -111,8 +118,14 @@ const PLANS = [
     A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
     A.expect(A.hasText("dcDateMovedOldHolds")).toBe(false);
   }],
-  ["finding 2 — the banner's Start forfra, a Z-bon of 2.500 stored over the draft with its answer lost, then Start forfra: the 17.030 draft was gone (sequences lane)", 22002, async (A) => {
+  // Round 23 — rewritten for the confirmed delete: the banner's Start forfra
+  // deletes the draft (asked first, naming it) instead of replacing it, so
+  // there is no replaced draft to put back; the card's Start forfra deletes
+  // the bon's draft though its save's answer was lost.
+  ["finding 2 — (round 23: the banner's Start forfra deletes the draft) the banner's Start forfra, a Z-bon of 2.500 stored with its answer lost, then Start forfra: neither the 17.030 draft nor the thrown-away bon is left", 22002, async (A) => {
     await A.bannerStartOver();
+    A.expect(String(A.dialogs.at(-1)?.message)).toMatch(/dcStartOverDeleteBody:.*17\.030/);
+    A.expect(stored(A.S)).toBeUndefined();
     await A.shoot("t2500");
     A.slow("drop", 2);
     await A.apply("steps");
@@ -120,14 +133,8 @@ const PLANS = [
     await A.toCard();
     await A.startOver();
     await A.settleAll();
-    // The draft the owner replaced is back as it was — its figures, photo,
-    // note and count — and the banner shows it; never the thrown-away bon.
-    A.expect(stored(A.S)).toMatchObject({
-      status: "draft", revenue_total: 17030, notes: "Test", closed_by: "Test", cash_counted: 980,
-      receipt_photo: "u1/kasserapport/seed-own.jpg",
-    });
-    A.expect(A.S.posts.some((b) => b.receipt_photo === photoUrl("p1-t2500.jpg"))).toBe(true);
-    A.expect(A.hasText("dcDayHasDraftBody:17.030")).toBe(true);
+    A.expect(stored(A.S)).toBeUndefined();
+    A.expect(A.hasText("dcDayHasDraft")).toBe(false);
   }, [zbonDraft()]],
   ["finding 3 — a Z-bon of 5.000, \"Brug disse tal\" and \"← Scan Z-bon\" both stored with their answers lost, Start forfra: the thrown-away bon stayed the day's draft (sequences lane)", 22003, async (A) => {
     await A.shoot("b5000");
@@ -160,17 +167,20 @@ const PLANS = [
     A.expect(A.hasText("dcDayAlreadyLockedBody:14.000")).toBe(true);
     A.expect(stored(A.S)).toMatchObject({ status: "confirmed", revenue_total: 14000 });
   }, [typedDraft()]],
-  ["a date move after the banner's Start forfra, the replacing save's answer lost: the replaced draft is back on the old day", 22006, async (A) => {
+  // Round 23 — rewritten: the banner's Start forfra deletes the draft, so the
+  // move takes the page's own (lost-answer) draft off the old day.
+  ["(round 23: the banner's Start forfra deletes the draft) a date move after the banner's Start forfra, the typed save's answer lost: the old day's draft goes, the figures are on the new day, and the page says moved", 22006, async (A) => {
     await A.bannerStartOver();
+    A.expect(stored(A.S)).toBeUndefined();
     await A.skip();
     A.slow("drop", 1);
     await A.typeBox("rev", "food", "3.000");
     A.expect(stored(A.S).revenue_total).toBe(3000);
     await A.moveDate(A.yesterday);
     await A.settleAll();
-    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 } });
+    A.expect(stored(A.S)).toBeUndefined();
     A.expect(stored(A.S, `${A.yesterday}|`).revenue_breakdown).toEqual({ food: 3000 });
-    A.expect(A.hasText("dcDateMovedKeptOld")).toBe(true);
+    A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
   }, [typedDraft()]],
   ["a date move whose new day's first save loses its answer: the page asks the server, and the old day's draft still goes", 22007, async (A) => {
     await A.skip();
@@ -234,9 +244,9 @@ const PLANS = [
 const FOUND = [
   ["a day locked elsewhere, met by a save while the scan card is open: said on the card (LK)", 9157],
   ["a lost answer's re-send meets another device's lock on the way to the card: said there (LK)", 9204],
-  ["Start forfra kept the owner's note over a version another device saved since: the banner shows it (M6)", 9259],
+  ["(round 23: replayed under the confirmed delete) Start forfra over a version another device saved since: never deleted — the banner shows it (M6)", 9259],
   ["the figures moved off a day another device locked: never \"moved\" (MV)", 9474],
-  ["Start forfra OFFLINE over the banner's replaced draft: put back once online — never the thrown-away bon's photo (M4b)", 9293],
+  ["(round 23: replayed — Start forfra offline is not done, and says so) Start forfra OFFLINE: nothing deleted, said; never a thrown-away bon's photo stored (M4b)", 9293],
 ];
 
 describe("daily close — round 22 sequences (answers lost, a day locked elsewhere, the fixed failure model)", () => {

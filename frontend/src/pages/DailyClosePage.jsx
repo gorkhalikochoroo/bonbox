@@ -53,7 +53,6 @@ import {
   createTills,
   dateMoved,
   detachForm,
-  discardScans,
   dropPending,
   fieldOf,
   formTill,
@@ -65,13 +64,12 @@ import {
   loadDraft,
   markApplied,
   momsOf,
+  resetTills,
   oneSidedLines,
   savedTotal,
   sourceMetaOf,
   tillFromForm,
   tillGroups,
-  tillTotals,
-  TILL_DRAFT,
   TILL_SCAN,
   typeIntoForm,
   undo as undoTill,
@@ -414,22 +412,6 @@ const _typesRestaurantLast = (obj) =>
   Object.keys(obj).filter((k) => k !== "restaurant").concat(obj.restaurant ? ["restaurant"] : []);
 const CAT_LABEL = Object.fromEntries(_typesRestaurantLast(REVENUE_CATS_BY_TYPE).flatMap((k) => REVENUE_CATS_BY_TYPE[k]).map((c) => [c.key, c]));
 const PAY_LABEL = Object.fromEntries(_typesRestaurantLast(PAYMENT_METHODS_BY_TYPE).flatMap((k) => PAYMENT_METHODS_BY_TYPE[k]).map((c) => [c.key, c]));
-/**
- * The note without the text a Z-report's prefill appended to it (each part
- * as appended, newest first, with the newline that joined it). A part the
- * owner edited is no longer found and stays — theirs now.
- */
-function withoutScanNotes(text, parts) {
-  return (parts || []).slice().reverse().reduce((s, part) => {
-    if (!part) return s;
-    const i = s.lastIndexOf(part);
-    if (i < 0) return s;
-    const end = i + part.length;
-    if (i > 0 && s[i - 1] === "\n") return s.slice(0, i - 1) + s.slice(end);
-    return s.slice(0, i) + s.slice(end < s.length && s[end] === "\n" ? end + 1 : end);
-  }, String(text ?? ""));
-}
-
 function chipLabel(map, k, t) {
   // Case-insensitive: sample data stores "Food"/"Drinks".
   const c = map[k] || map[String(k).toLowerCase()];
@@ -1141,6 +1123,9 @@ export default function DailyClosePage() {
             <Button
               variant="main"
               onClick={() => heroScanInputRef.current?.click()}
+              // Round 23: scanning needs internet (CloseForm says why).
+              disabled={!isOnline}
+              title={!isOnline ? t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online") : undefined}
               className="w-full sm:w-auto max-lg:h-10"
             >
               {t("closeScanCta", "Snap your Z-report")}
@@ -1524,11 +1509,9 @@ function closeSavesLanded() {
 }
 // How long a save (or the lock) waits for the day's save before it.
 const SAVE_TURN_WAIT_MS = 12000;
-// A take-back (Start forfra, a move) that could not reach the server while
-// the browser said online is tried again after this long — a few times
-// (round 22 review: CloseForm scheduleReleaseRetry).
-const RELEASE_RETRY_MS = 20000;
-const RELEASE_RETRY_MAX = 5;
+// (Round 23: no take-back is retried on a timer any more — Start forfra and
+// a date move delete a day's draft only when the owner said so, at once, and
+// say so when it could not be done.)
 
 /** What a draft's payments add up to (payment_total, else its lines). */
 const paymentsOf = (dc) => {
@@ -1800,14 +1783,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // A ref, not state, for the same reason as editLoadedRef above: it has to be
   // true synchronously, before the in-flight fetch resolves.
   const dateChosenRef = useRef(false);
-  // Figures the owner typed for one day, with the date since moved to another:
-  // { from, to } until the owner says which day they belong to. A date
-  // correction is legitimate, so the figures stay — but they are not filed as
-  // the new day's draft on a timer (the autosave did, within two seconds, once
-  // the new day's sync no longer replaced them).
-  const [dateMove, setDateMove] = useState(null);
-  // Only while the form is still on the day it was moved to.
-  const dateMoveOpen = dateMove && dateMove.to === businessDate ? dateMove : null;
+  // (Round 23: figures typed for one day, the date then moved, are asked
+  // about BEFORE the date changes — moveDate's question — so there is no
+  // in-between state of figures on screen for a day they were not filed for.)
   // A day named by the link that opened the page (see DailyClosePage).
   const presetHandledRef = useRef(null);
   useEffect(() => {
@@ -1926,15 +1904,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   //                    with no photo left, the record is told again what it is
   //   filedPhotosRef   the photos this form filed (never the reopened close's
   //                    own): with no photo left in the day, a stored photo is
-  //                    cleared only when it is one of these — or the photo of
-  //                    the draft the banner's "Start forfra" replaced. Any
-  //                    other photo is another device's, and a null keeps it.
-  //   ownRowsRef       the row id each save answered with, whether this
-  //                    form CREATED the row (only such a draft is ever
-  //                    deleted), and — a draft it replaced through the
-  //                    banner's "Start forfra" — that draft as it was
-  //                    (`before`: filed back when this form takes its own
-  //                    figures off the day, never left holding them)
+  //                    cleared only when it is one of these. Any other photo
+  //                    is another device's, and a null keeps it.
+  //   ownRowsRef       the row id each save answered with, and the row as the
+  //                    server stored it (`row`): what Start forfra's question
+  //                    names. Round 23 — no draft is ever taken back on a
+  //                    guess of whose it is: a day's draft is deleted only
+  //                    when the owner chose it (Start forfra, a date move),
+  //                    on the version this form holds (deleteDayDraft).
   const loadedPhotoRef = useRef(null);
   const loadedUnlockedRef = useRef(false);
   const serverSrcRef = useRef({});
@@ -1969,30 +1946,34 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // save of the day, the lock and a delete follow it (base_save_id), so the
   // version it wrote is the form's own — never "saved somewhere else".
   // Cleared when a save built after it is answered.
-  // Round 22 — recorded in full: { id, runNo, created (it would have made the
-  // day's row), replacing (the draft the banner's "Start forfra" was tapped
-  // over, as it was) } — a save whose answer was lost MAY be the form's own,
-  // and the form asks the server before it acts on the day (releaseDayDraft).
+  // A save whose answer was lost MAY be the form's own: before the form
+  // deletes the day's draft it asks the server (deleteDayDraft).
   const lostSaveRef = useRef({});
   // Every save id this form sent: a stored row whose last save is one of
   // these is the form's own (the server's last_save_id).
   const mySaveIdsRef = useRef(new Set());
-  // Drafts shown on the banner that the server said are the form's OWN lost
-  // create (their last save is one this form sent — round 22 review): a
-  // "Start forfra" over one of those replaces nothing of anyone else's.
-  const ownLostRowsRef = useRef(new WeakSet());
   const mountedRef = useRef(true);
-  // A take-back waiting to be tried again, online, on a timer (round 22
-  // review: scheduleReleaseRetry) — never after the form is gone.
-  const releaseRetryTimerRef = useRef(null);
   useEffect(() => {
     mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      clearTimeout(releaseRetryTimerRef.current);
-      releaseRetryTimerRef.current = null;
-    };
+    return () => { mountedRef.current = false; };
   }, []);
+  // Round 23 — the form emptied by Start forfra: bumped, so a follow-up
+  // started before (a move finishing) never writes onto the empty form.
+  const formEpochRef = useRef(0);
+  // The day Start forfra is deleting right now: nothing is filed for it
+  // while the delete is on its way (the form is about to be emptied).
+  const startingOverRef = useRef(null);
+  // Round 23 — a draft save that got NO answer, per day, exactly as it was
+  // sent ({ body, runNo }): the owner's figures on no server for sure. It is
+  // sent again on the way out and once online — also when the form has gone
+  // back to the scan card since (the card is not the day until applied, and
+  // the waiting save was dropped with it: a figure typed offline, then
+  // "← Scan Z-bon", was never sent). Cleared by an answered save of the day
+  // built after it, and when the day's draft is deleted.
+  const failedBodyRef = useRef({});
+  // The draft body this form last sent per day: what Start forfra's question
+  // names (the version the delete waits for, once it has answered).
+  const sentBodyRef = useRef({});
   // "Keep my numbers" answered: the save goes now, not two seconds later.
   const sendNowRef = useRef(false);
   // Round 22 — offline. A draft save that got no answer at all (offline, a
@@ -2006,10 +1987,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // sent when it is online again) — a request then could only fail.
   const retryArmedRef = useRef(null);
   const offlineCopyRef = useRef(null);
-  // …and a take-back (Start forfra, a move) that got no answer, per day:
-  // done once online again (releaseDayDraft → retryReleases).
-  const pendingReleaseRef = useRef({});
-  const retryReleasesRef = useRef(null);
   // The day's draft was saved somewhere else after this form read it, and a
   // save of the form's was refused for it (draft_changed): nothing was
   // overwritten, and the owner is asked which wins — the newest draft, or
@@ -2033,18 +2010,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // The day (and branch) the form is on, read by follow-ups that finish
   // after a render (a move answered while a delete waited).
   const rowKeyRef = useRef("");
-  // The draft on the banner when "Start forfra" was tapped: what the form's
-  // first save for that day replaces (ownRowsRef `before`).
-  const overwriteSnapRef = useRef(null);
-  // A row as the server answered a revert with: History lists the old
-  // version until it refetches, and the day's banner showed that amount.
+  // A row as the server holds it now (a delete refused for another device's
+  // newer version carries it): History lists the old version until it
+  // refetches, and the day's banner showed that amount.
   // Held only over the list it was made against (`listed`): the next list
   // History answers with is the server's own word.
   const [rowOverrides, setRowOverrides] = useState({});
   const existingClosesRef = useRef(existingCloses);
   existingClosesRef.current = existingCloses;
   // Bumped when what is stored for the day may no longer be what the form
-  // would file (a save overlapping a Start forfra): the autosave looks again.
+  // would file (a delete that did not go through): the autosave looks again.
   const [refile, setRefile] = useState(0);
   // Drafts this form deleted: History may list them until it refetches.
   const [droppedIds, setDroppedIds] = useState(() => new Set());
@@ -2064,11 +2039,27 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!ownStampsRef.current[key]) ownStampsRef.current[key] = new Set();
     ownStampsRef.current[key].add(stamp);
   };
-  // "Brug dem for {to}": the day the figures were typed for, until the new
-  // day's first save lands — then that day's draft (if this form made it) goes.
+  // Round 23 — a date move WITH figures is asked first ("Flyt tallene til
+  // {to}? Kladden for {from} slettes."). Answered yes: the figures are saved
+  // to the new day, then the old day's draft is deleted on the version this
+  // form holds. { from, to, keys }: the day the figures came from (named by
+  // the note), the new day, and the days whose draft goes once the new day's
+  // save has landed (the first day, and a day passed on the way — moved
+  // again before the new day was filed).
   const moveFromRef = useRef(null);
-  // What the move did, said once under the date: { from, to, kept }.
+  // What the move did, said once under the date: { from, to, state, keys,
+  // canDelete, failed } — state "moved" (the old draft is gone: "Flyttet
+  // fra …") or "copy" ("Kopieret til … — kladden for … står der stadig", with
+  // "Slet den" while it can still be deleted). Never "moved" unless the old
+  // day's draft is gone.
   const [movedNote, setMovedNote] = useState(null);
+  // A move's question (or its "Slet den") is being answered: the date picker
+  // waits for it.
+  const [moveBusy, setMoveBusy] = useState(false);
+  const moveBusyRef = useRef(false);
+  // The new day's prefill as the move's question read it: { date, branch,
+  // type, data, at } — the prefill effect uses it instead of a second read.
+  const movePrefetchRef = useRef(null);
   // The scan MOMS the form last took ({ key: scanMomsKey, manual }), so a
   // second "Brug disse tal" keeps the MOMS the form already has. And the
   // Z-bon's one-off extras (drawer count, clerk notes), applied once per scan:
@@ -2142,8 +2133,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // payment/revenue breakdown. See registerCash / editLoadedRef notes.
     editLoadedRef.current = true;
     boxFillEpochRef.current += 1;
-    setDateMove(null);
-    // A move answered but not filed yet is not this draft's.
+    // A move answered but not filed yet is not this draft's: nothing of it
+    // was filed for this day, and the day it came from keeps its draft.
     moveFromRef.current = null;
     setMovedNote(null);
     // An edited close is filed against ITS OWN date, never today — mark the
@@ -2441,6 +2432,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
   const handleFileSelect = async (rawFile) => {
     if (!rawFile) return;
+    // Start forfra is emptying the day (its delete on its way): not now.
+    if (startingOverRef.current) return;
+    // Round 23 — a scan needs the server: offline nothing is read, nothing
+    // changes, and the owner is told to type the figures (or scan once
+    // online). A scan already on its way when the connection drops fails
+    // the same way (below).
+    const offlineNow = () => typeof navigator !== "undefined" && navigator.onLine === false;
+    const offlineMsg = t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online");
+    if (offlineNow()) { setScanError(offlineMsg); return; }
     // The form as it stood before the photo is saved first (the hero camera
     // takes a photo from the form itself).
     flushWaitingSave();
@@ -2456,6 +2456,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setChipError("");
     setUnlinkOpenForTerminalId(null);
     setConflictDismissed(false);
+    let droppedOffline = false;
+    const onOffline = () => { droppedOffline = true; };
+    try { window.addEventListener("offline", onOffline); } catch { /* no window */ }
     try {
       // Auto-resize iPhone-sized photos (48 MP camera shots routinely
       // exceed our 12 MB backend cap). 2000 px long edge keeps OCR
@@ -2466,6 +2469,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const res = await api.post("/daily-close/scan-report", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+      // The connection dropped while it was read: the read is not used —
+      // nothing on the card or in the day changes.
+      if (droppedOffline || offlineNow()) throw Object.assign(new Error("offline"), { scanOffline: true });
       // Add thumbnail (use the resized file so the preview matches what
       // the backend actually saw)
       const before = ledgerRef.current;
@@ -2509,8 +2515,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // file type — genuinely the only clue), but the untranslated
       // "OCR scanning failed" is no longer what a Dane reads when the photo
       // simply did not come through.
-      setScanError(errText(err, t("dcScanFailed", "We couldn't read that photo. Take another one, or type the numbers in yourself.")));
+      // The connection dropped (round 23): said as such — the photo is fine.
+      const lostLine = err?.scanOffline || (!err?.response && (droppedOffline || offlineNow()));
+      if (lostLine) setScanError(offlineMsg);
+      else setScanError(errText(err, t("dcScanFailed", "We couldn't read that photo. Take another one, or type the numbers in yourself.")));
       setScanMode(cardView(ledgerRef.current) ? "result" : "idle"); // keep results if we already have some
+    } finally {
+      try { window.removeEventListener("offline", onOffline); } catch { /* no window */ }
     }
   };
 
@@ -2819,6 +2830,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
 
   const applyScanValues = (jumpToReview = false) => {
+    if (startingOverRef.current) return;
     const lg = ledgerRef.current;
     const card = cardView(lg);
     if (!card) return;
@@ -2841,10 +2853,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The boxes show the ledger from here on: Start forfra writes them back.
     act(markApplied);
     boxesHoldPhotosRef.current = hasScanTills(lg) || lg.pending.length > 0;
-    // The Z-bon's figures now, not ones typed for another day. A card that
-    // still carries the form's lines carries those very figures: the question
-    // stays, and nothing is filed for this day until it is answered.
-    if (!formSide) setDateMove(null);
     setRevAmounts(newRev);
     // Fill payments — match against current template methods + extras
     const newPay = {};
@@ -3007,67 +3015,157 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
   };
 
-  // The owner moves the date (the picker, "Reset to today"). Figures they
-  // typed for the old day stay — but are held back from the autosave until
-  // they say which day they belong to (dateMove). A Z-bon's or a loaded
-  // close's figures keep their own guard; the sync's own figures go with
-  // their day as before.
-  const moveDate = (next) => {
+  // The owner moves the date (the picker, "Nulstil til i dag"). Round 23 —
+  // with figures on the form (typed, a Z-bon on the card, a count, tips, a
+  // MOMS, gavekort) the move is ASKED FIRST, one question for every kind of
+  // day: "Flyt tallene til {to}? Kladden for {from} slettes." Yes: the
+  // figures are saved to the new day at once, then the old day's draft is
+  // deleted on the version this form holds (finishMove) — "Flyttet fra" only
+  // once it is gone, else "Kopieret til … — kladden for … står der stadig"
+  // with "Slet den". No: the form stays on the old day with its figures.
+  // "Hent {dag}s salg" (the new day has POS sales): the new day's own
+  // figures instead — nothing moves. A day that already holds a close that
+  // is not this form's is never moved onto: said, with History one tap away.
+  // Untouched POS figures are the day's own and go with it (no question).
+  const moveDate = async (next) => {
     if (!next) return;
     dateChosenRef.current = true;
-    if (next === businessDate) return;
+    if (next === businessDate || moveBusyRef.current) return;
     const synced = salesFillRef.current;
     const owners = (boxes, fill) => Object.entries(boxes || {}).some(([k, v]) =>
       String(v ?? "").trim() !== "" && !(fill && fill[k] === v));
     // Not only sales: a drawer count, tips, a MOMS or gavekort typed for the
-    // old day belong to it the same way. Left out, a synced day's untouched
-    // boxes moved on with no question, and the drawer count and MOMS were
-    // filed as the new day's draft against its own register and sales.
+    // old day belong to it the same way.
     const filled = (v) => String(v ?? "").trim() !== "";
     const typedExtras = filled(drawerCount) || filled(cashCounted) || filled(tipsTotal)
       || filled(gavekortSold) || momsTyped;
-    const typed = !cardView(ledgerRef.current) && !editLoadedRef.current
-      && (owners(revAmounts, synced?.rev) || owners(payAmounts, synced?.pay) || typedExtras);
-    // Moved again before answering — or before the day the figures were
-    // moved to was filed ("Brug dem", then another date within the 2 s): the
-    // figures are still the first day's, and that day's draft is the one a
-    // move takes off it. A move not filed yet is taken over here, never left
-    // behind: it deleted the first day's draft after "Hent … salg" had put
-    // other figures on screen, and a second move named the wrong day.
-    const pendingMove = moveFromRef.current;
-    moveFromRef.current = null;
-    const from = dateMoveOpen?.from ?? pendingMove?.from ?? businessDate;
-    // The row key the first day's figures were filed under (its branch too).
-    const fromKey = dateMoveOpen?.fromKey ?? pendingMove?.fromKey ?? `${businessDate}|${fileBranchId || ""}`;
-    // The day they were moved to — and moved away from again before it was
-    // filed for them (round 21: 8 Oct → 6 Oct → 8 Oct with 6 Oct's save on
-    // its way left 34.060 as a draft on 6 Oct, a copy). What this form filed
-    // there is taken off it like a moved day's (once its saves answered).
-    if (pendingMove?.to && pendingMove.to !== next) {
-      const midKey = `${pendingMove.to}|${fileBranchId || ""}`;
-      if (midKey !== fromKey && (ownRowsRef.current[midKey] || sendGenRef.current[midKey])) {
-        const mid = pendingMove.to;
-        releaseDayDraft(midKey, { why: "move", move: { from: mid, to: next } }).then((outcome) => {
-          if (outcome === "refiled" || outcome === "none") return;
-          // Said under the date, as after any move (finishMove).
-          setMovedNote({ from: mid, to: next, kept: outcome === "reverted", copy: outcome === "kept" || outcome === "stuck" });
+    const figures = !editLoadedRef.current && (Boolean(cardView(ledgerRef.current))
+      || owners(revAmounts, synced?.rev) || owners(payAmounts, synced?.pay) || typedExtras);
+    const pending = moveFromRef.current;
+    if (!figures) {
+      // Nothing of the owner's goes with the date.
+      moveFromRef.current = null;
+      setMovedNote(null);
+      act(dateMoved, next);
+      setBusinessDate(next);
+      return;
+    }
+    const dayName = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "long" });
+    const curKey = `${businessDate}|${fileBranchId || ""}`;
+    // The new day is filed under the branch picked at the top of the page (a
+    // new day lets go of a branch the banner set — see the effect on
+    // [businessDate, branchId]).
+    const nextBranch = branchId || null;
+    const branchPart = nextBranch || "";
+    const nextKey = `${next}|${branchPart}`;
+    // A close already filed for the new day that is not this form's own.
+    const target = (existingClosesRef.current || []).find((dc) => String(dc.date || "").slice(0, 10) === next
+      && (!branchId || (dc.branch_id || null) === nextBranch)
+      && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
+    const targetKey = target ? closeRowKey(target) : null;
+    const targetOwn = Boolean(target) && (ownDraftKeys.has(targetKey) || Boolean(ownRowsRef.current[targetKey])
+      || (pending?.keys || []).includes(targetKey));
+    moveBusyRef.current = true;
+    setMoveBusy(true);
+    try {
+      if (target && !targetOwn) {
+        const locked = (target.status || "confirmed") === "confirmed";
+        const ans = await askConfirm({
+          title: locked
+            ? t("dcMoveTargetLockedTitle", "{to} is already closed and locked", { to: dayName(next) })
+            : t("dcMoveTargetDraftTitle", "{to} already has a draft", { to: dayName(next) }),
+          message: t("dcMoveTargetBody", "Your figures stay on {from} — nothing is moved. Open the {to} close from History, or pick another day.", {
+            from: dayName(businessDate), to: dayName(next),
+          }),
+          confirmLabel: t("dcOpenHistory", "Open History"),
+          cancelLabel: t("dcMoveConfirmNo", "Stay on {from}", { from: dayName(businessDate) }),
         });
+        if (ans === true && mountedRef.current) onShowHistory?.(target.id);
+        return;
       }
+      // The new day's POS sales: "Hent {dag}s salg" is offered when it has
+      // some — never over a card (the boxes under a bon's total).
+      let sync = null;
+      if (!cardView(ledgerRef.current) && !(typeof navigator !== "undefined" && navigator.onLine === false)) {
+        try {
+          const params = { date: next };
+          if (nextBranch) params.branch_id = nextBranch;
+          if (branchType) params.branch_type = branchType;
+          const res = await api.get("/daily-close/prefill", { params, _noRetry: true, timeout: 6000 });
+          const sp = res?.data?.suggested_prefill;
+          if (res?.data?.has_data && (Object.keys(sp?.payment_breakdown || {}).length > 0 || Number(sp?.revenue_total) > 0)) sync = res.data;
+          // Kept for the new day's own prefill read (never asked twice).
+          if (res?.data && typeof res.data === "object") {
+            movePrefetchRef.current = { date: next, branch: nextBranch, type: branchType || null, data: res.data, at: Date.now() };
+          }
+        } catch { /* not offered */ }
+        if (!mountedRef.current) return;
+      }
+      // The days whose draft goes once the new day is filed: the one the
+      // figures were typed for (and a day they passed through on the way,
+      // moved again before it was filed) — never the day they go to.
+      const keys = [...(pending?.keys || [])];
+      const curHolds = Boolean(ownRowsRef.current[curKey] || lostSaveRef.current[curKey]
+        || keyInflightRef.current[curKey]?.size || failedBodyRef.current[curKey]
+        || pendingSaveRef.current?.key === curKey || ownDraftKeys.has(curKey));
+      if (curHolds && !keys.includes(curKey)) keys.push(curKey);
+      const goes = keys.filter((k) => k !== nextKey);
+      const from = pending?.from && !String(nextKey).startsWith(`${pending.from}|`) ? pending.from : businessDate;
+      const named = goes.map((k) => dayName(k.split("|")[0]));
+      const listOf = (arr) => {
+        try { return new Intl.ListFormat(dateLocale(), { style: "long", type: "conjunction" }).format(arr); } catch { return arr.join(", "); }
+      };
+      const to = dayName(next);
+      // "1. augusts salg" / "1. marts' salg"; "1 August's sales".
+      const toGen = dateLocale().startsWith("da") ? (/[sxz]$/i.test(to) ? `${to}'` : `${to}s`) : `${to}'s`;
+      const ans = await askConfirm({
+        title: t("dcMoveConfirmTitle", "Move the figures to {to}?", { to }),
+        message: !named.length
+          ? t("dcMoveConfirmBodyNothing", "Nothing is saved for {from} yet.", { from: dayName(businessDate) })
+          : named.length === 1
+            ? t("dcMoveConfirmBody", "The draft for {from} is deleted.", { from: named[0] })
+            : t("dcMoveConfirmBodyMany", "The drafts for {days} are deleted.", { days: listOf(named) }),
+        confirmLabel: t("dcMoveConfirmYes", "Move the figures"),
+        cancelLabel: t("dcMoveConfirmNo", "Stay on {from}", { from: dayName(businessDate) }),
+        extraLabel: sync ? t("dcDateMoveFetch", "Fetch {toGen} sales", { toGen }) : undefined,
+      });
+      if (!mountedRef.current) return;
+      if (ans === true) {
+        moveFromRef.current = goes.length ? { from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current } : null;
+        // The new day is filed at once, not two seconds later — its answer
+        // finishes the move.
+        sendNowRef.current = true;
+        setMovedNote(null);
+        // The tills move with the date (closeTills.dateMoved never changes them).
+        act(dateMoved, next);
+        setBusinessDate(next);
+      } else if (ans === "extra") {
+        // The new day's own POS figures instead: nothing moves. The old day
+        // keeps its draft (an edit still waiting for it is filed there
+        // first), and its other typed figures stay with it — a MOMS typed for
+        // 17.130 was saved as "indtastet" on a 1.850 day, a drawer count
+        // against another day's register. The new day's sync fills the boxes.
+        flushWaitingSave();
+        act(resetTills);
+        boxesHoldPhotosRef.current = false;
+        salesFillRef.current = null;
+        boxFillEpochRef.current += 1;
+        setRevAmounts({});
+        setPayAmounts({});
+        setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null);
+        setDrawerCount(""); setCashCounted("");
+        setTipsTotal(""); setGavekortSold("");
+        setMovedNote(null);
+        act(dateMoved, next);
+        setBusinessDate(next);
+      }
+      // No: the form stays on the day the figures were typed for (and the
+      // other day's prefill read is not kept).
+      else movePrefetchRef.current = null;
+    } finally {
+      moveBusyRef.current = false;
+      if (mountedRef.current) setMoveBusy(false);
     }
-    setDateMove(typed && from !== next ? { from, to: next, fromKey } : null);
-    setMovedNote(null);
-    // A day on a card (a Z-bon applied, a total typed) moves with no
-    // question — and was copied: the old day kept the bon's figures and
-    // photo. Once the new day is filed, the old day's draft this form filed
-    // goes the same way as after "Brug dem" (finishMove).
-    if (!typed && from !== next && cardView(ledgerRef.current) && !editLoadedRef.current
-      && (ownRowsRef.current[fromKey] || sendGenRef.current[fromKey])) {
-      moveFromRef.current = { fromKey, from, to: next };
-    }
-    // The tills move with the date (closeTills.dateMoved never changes them);
-    // the question above is what decides which day they are filed for.
-    act(dateMoved, next);
-    setBusinessDate(next);
   };
 
   // Prefill from real data
@@ -3132,7 +3230,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // branch_type lets the backend resolve THIS vertical's revenue category
         // keys for the computed split (restaurant food/drinks/takeaway, etc.).
         if (branchType) params.branch_type = branchType;
-        const res = await api.get("/daily-close/prefill", { params });
+        // The move's question already read this day's prefill (round 23 —
+        // "Hent {dag}s salg" is offered only when there are sales): that
+        // answer is used, not asked for twice.
+        const pre = movePrefetchRef.current;
+        movePrefetchRef.current = null;
+        const res = pre && pre.date === today && pre.branch === (fileBranchId || null) && pre.type === (branchType || null)
+          && Date.now() - pre.at < 60000
+          ? { data: pre.data }
+          : await api.get("/daily-close/prefill", { params });
         // The owner has moved on (another date or branch) while this was in
         // flight: an older answer landing after a newer one must not write the
         // day the owner left over the day they are on.
@@ -3691,18 +3797,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     });
     // The photo: the day's own (the first photo still in it, or the reopened
     // close's), else none. A null keeps whatever the server holds, so when it
-    // holds a photo of no bon in the day any more (thrown away with Start
-    // forfra, or the old draft's that "Start forfra" on the banner replaced)
-    // it is cleared explicitly with "" — that photo only. One this form never
-    // filed is another device's (a bon scanned there since): "" sent for any
-    // stored photo, or for a day this form had once cleared, threw it away.
+    // holds a photo of no bon in the day any more (thrown away with Fortryd,
+    // "brug det ikke") it is cleared explicitly with "" — that photo only.
+    // One this form never filed is another device's (a bon scanned there
+    // since): "" sent for any stored photo, or for a day this form had once
+    // cleared, threw it away.
     const storedPhoto = serverSrcRef.current[dayKey]
       ? serverSrcRef.current[dayKey].photo
       : ((existingCloses || []).find((dc) => closeRowKey(dc) === dayKey && !dc.is_deleted && !droppedIds.has(dc.id))?.receipt_photo || null);
-    const replacedPhoto = ownRowsRef.current[dayKey]?.before?.receipt_photo
-      || (overwriteKey === dayKey && overwriteSnapRef.current?.key === dayKey ? overwriteSnapRef.current.row?.receipt_photo : null)
-      || null;
-    const photoIsOurs = Boolean(storedPhoto) && (filedPhotosRef.current.has(storedPhoto) || storedPhoto === replacedPhoto);
+    const photoIsOurs = Boolean(storedPhoto) && filedPhotosRef.current.has(storedPhoto);
     const receipt_photo = receiptPhotoUrl || (photoIsOurs ? "" : null);
     // A drawer counted below its float is no count of the day's takings (it
     // holds the lock until the count or the float is fixed): the draft does
@@ -3876,7 +3979,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // "a draft already filed for this day", the banner covered the owner's own
   // figures and the autosave stopped (the next edit was never saved).
   const [ownDraftKeys, setOwnDraftKeys] = useState(() => new Set());
-  const [overwriteKey, setOverwriteKey] = useState(null);
   rowKeyRef.current = rowKey;
   const existingForDate = useMemo(() => {
     // Locked on another device while this form had the day open (a save of
@@ -3919,10 +4021,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const savesSettled = async () => {
     while (inflightRef.current.size) await Promise.allSettled([...inflightRef.current]);
   };
-  // What a save answered: the row's id, whether this form created it (or the
-  // draft it replaced, as it was), and the source and photo the server now
-  // holds for the day.
-  const noteSaved = (key, body, res, created, replacing = null) => {
+  // What a save answered: the row's id and the row as stored, and the source
+  // and photo the server now holds for the day.
+  const noteSaved = (key, body, res) => {
     const data = res?.data && typeof res.data === "object" ? res.data : {};
     const prev = serverSrcRef.current[key] || {};
     serverSrcRef.current[key] = {
@@ -3939,23 +4040,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The version the server stored: the next save is built on it.
     noteStamp(key, data.updated_at);
     const own = ownRowsRef.current[key];
-    // A save of the day before this one got no answer (round 22): it may
-    // have made the row (the list this save was built against never heard
-    // of it), or replaced the banner's draft — that is the form's too.
-    const lost = lostSaveRef.current[key];
     const id = data.id ?? own?.id ?? null;
-    // A replacement wins over a lost create (round 22 review): the draft
-    // the banner's "Start forfra" was tapped over is put back when the form
-    // takes its figures off the day — never deleted for an earlier save that
-    // got no answer — unless the server said that draft IS the form's own
-    // lost create (ownLostRowsRef): nothing of anyone else's to bring back.
-    const lostCreated = Boolean(lost?.created) && (!replacing || ownLostRowsRef.current.has(replacing));
-    const isCreated = own ? own.created : (Boolean(created) || lostCreated);
-    ownRowsRef.current[key] = {
-      id,
-      created: isCreated,
-      before: own ? own.before : (isCreated ? null : (replacing || lost?.replacing || null)),
-    };
+    // The row as stored (its total — or payments — is what Start forfra's
+    // question names); a save answered with no row keeps the one before.
+    const row = data.id != null ? data : (own?.row || null);
+    ownRowsRef.current[key] = { id, row };
     // The row lives (again): a draft deleted earlier this session is filed
     // anew under the same id (the server takes the deleted row back).
     if (id != null) {
@@ -4023,34 +4112,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (kept) { try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ } }
     return "kept";
   };
-  /** A draft as History listed it, as a draft save: filed back as it was. */
-  const revertBody = (b) => {
-    const total = Number(b.revenue_total);
-    const meta = b.source_meta && typeof b.source_meta === "object" ? b.source_meta
-      // Saved before its source was recorded: its own photo is its read.
-      : (b.receipt_photo ? { kind: "zbon", scans: 1, corrected: [] } : { kind: "typed" });
-    return {
-      date: String(b.date || "").slice(0, 10),
-      branch_id: b.branch_id || null,
-      status: "draft",
-      revenue_breakdown: b.revenue_breakdown || {},
-      payment_breakdown: b.payment_breakdown || {},
-      // Its total exactly as it was saved (a total above or below its lines).
-      revenue_total_override: total > 0 ? total : null,
-      revenue_total_owner_set: total > 0,
-      moms_total: b.moms_total ?? null,
-      moms_mode: b.moms_mode || null,
-      tips_total: b.tips_total ?? null,
-      tips_staff_count: b.tips_staff_count ?? null,
-      cash_counted: b.cash_counted ?? null,
-      cash_float: b.cash_float ?? null,
-      notes: b.notes ?? null,
-      closed_by: b.closed_by ?? null,
-      source_meta: meta,
-      // Its own photo, or none ("" clears the one this session filed).
-      receipt_photo: b.receipt_photo || "",
-    };
-  };
   /**
    * Round 22 — the day's row as the server holds it NOW, read fresh by date
    * (and branch), with the id of the save that wrote it last
@@ -4070,397 +4131,374 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
   /** The stored row's last save is one this form sent. */
   const lastSaveIsMine = (row) => Boolean(row?.last_save_id) && mySaveIdsRef.current.has(row.last_save_id);
-  /**
-   * The server said who wrote the row last (round 22 review). A row with no
-   * `last_save_id` at all is "couldn't check" — a backend that predates the
-   * read, or its audit query failed — never "saved somewhere else": three
-   * outcomes, not two. (null is said: a save with no id wrote it.)
-   */
-  const saveIdKnown = (row) => Boolean(row) && Object.prototype.hasOwnProperty.call(row, "last_save_id");
   /** The autosave looks again; `force`: whatever it holds is sent (the row may be gone or stale). */
   const requestRefile = (force = false) => {
     if (force) lastSentRef.current = null;
     setRefile((n) => n + 1);
   };
-  /**
-   * The draft this form filed for a day, taken back:
-   *   "deleted"   this form CREATED it this session — deleted;
-   *   "reverted"  it replaced a draft through the banner's "Start forfra" —
-   *               that draft is filed back as it was before this session;
-   *   "kept"      neither (never touched again); "stuck": the delete or the
-   *               revert did not go through — both mean the row still holds
-   *               this form's figures, and the day's banner shows them;
-   *   "none"      nothing of this form's is stored for the day — or the form
-   *               is on that day again (`why` "move": moved back);
-   *   "refiled"   the day was filed again since this was asked, or a save
-   *               for it is waiting (`why` "startOver": the owner typed): it
-   *               holds those figures now and is left to them.
-   * `keep` (Start forfra): the owner typed fields outside the tills — a row
-   * that turns out to be this form's once the saves answered stays ("kept").
-   * Waits for every save on its way first; what it decides is decided after.
-   */
-  const releaseDayDraft = async (key, { why = "move", keep = false, move = null, retrying = null } = {}) => {
-    // A take-back of this day still waiting for the network is this one now.
-    delete pendingReleaseRef.current[key];
-    const gen0 = sendGenRef.current[key] || 0;
-    // The version of the day the form holds, before anything is forgotten:
-    // a take-back retried later goes on it (round 22 review).
-    const base0 = baseRef.current[key];
-    // Start forfra emptied the day: the draft this form made for it is off
-    // the list at once — figures typed while the saves before it answer are
-    // filed as the day's new draft, never under the banner of the old one.
-    const own0 = ownRowsRef.current[key];
-    if (why === "startOver" && own0?.created && own0.id) {
-      setDroppedIds((prev) => (prev.has(own0.id) ? prev : new Set(prev).add(own0.id)));
-    }
-    await savesSettled();
-    const refiled = () => (sendGenRef.current[key] || 0) !== gen0;
-    if (refiled()) {
-      // Saves for the day overlapped: the last to land may not be the newest.
-      if (key === rowKeyRef.current) requestRefile(true);
-      return "refiled";
-    }
-    if (why === "move" && key === rowKeyRef.current) return "none";
-    if (why === "startOver" && pendingSaveRef.current?.key === key) return "refiled";
-    let own = ownRowsRef.current[key];
-    const forget = () => {
-      delete ownRowsRef.current[key];
-      delete serverSrcRef.current[key];
-      delete baseRef.current[key];
-      delete lostSaveRef.current[key];
-      filedScanKeysRef.current.delete(key);
-      setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
-    };
-    const undrop = (rid) => {
-      if (rid == null) return;
-      setDroppedIds((prev) => { if (!prev.has(rid)) return prev; const n = new Set(prev); n.delete(rid); return n; });
-    };
-    // Round 22, offline — a take-back that could not reach the server (no
-    // answer at all) is not given up: it is done once the browser is online
-    // again (retryReleases), asked first like any take-back after a save
-    // with no answer — and dropped if the day is filed again meanwhile.
-    // …and tried again on a timer while the browser says online (round 22
-    // review): a read that timed out on a slow network, a 5xx — no "online"
-    // event ever comes for those, and the thrown-away bon stayed the day's
-    // draft with the page open. The version the form held is kept with it.
-    const laterWhenOnline = (ownSnap, lostSnap) => {
-      const was = pendingReleaseRef.current[key];
-      pendingReleaseRef.current[key] = {
-        why, keep, move, own: ownSnap || null, lost: lostSnap || null, gen: sendGenRef.current[key] || 0,
-        base: base0 ?? null, tries: (retrying?.tries ?? was?.tries ?? 0) + 1,
-      };
-      scheduleReleaseRetry();
-    };
-    // Round 22 — a save of the day got no answer (stored, perhaps, its answer
-    // lost): it MAY be the form's own, so the server is asked before anything
-    // is decided. Only an answered save made the row the form's (ownRowsRef):
-    // a lost one that had stored the photo's figures left them as the day's
-    // draft — a date move then COPIED the day and said "moved", and Start
-    // forfra kept a thrown-away Z-bon as the stored draft (or lost the draft
-    // the banner's Start forfra had replaced). The day's row is read fresh;
-    // when the save that wrote it last is one this form sent, it is the
-    // form's own and is taken back exactly as after an answered save — on
-    // that very version (`onVersion`), so a draft saved anywhere else since
-    // is never deleted or written over.
-    let onVersion = null;
-    const lost = lostSaveRef.current[key];
-    if (lost) {
-      let row;
-      try {
-        row = await readDayFresh(key);
-      } catch {
-        // Could not ask (offline): the lost save may hold the form's figures,
-        // so this is never "nothing filed". Still the day's draft — the
-        // banner shows what the list holds, and a move says the old day
-        // still has the figures — until it can ask (online again).
-        laterWhenOnline(own, lost);
-        undrop(own0?.id);
-        forget();
-        // …and the lost save is still the form's best knowledge of the day
-        // (round 22 review): the next save follows it (base_save_id) on the
-        // version the form held. Forgotten, that save went on "no row known"
-        // and was refused against the form's own landed save — "Kladden er
-        // gemt et andet sted", offering the thrown-away bon's figures.
-        lostSaveRef.current[key] = lost;
-        if (base0 != null) baseRef.current[key] = base0;
-        setOverwriteKey((prev) => (prev === key ? null : prev));
-        onDraftSaved?.();
-        return "stuck";
-      }
-      if (refiled()) {
-        if (key === rowKeyRef.current) requestRefile(true);
-        return "refiled";
-      }
-      if (!row) {
-        // Nothing stored for the day: the lost save never landed (or the
-        // draft was deleted elsewhere since). Nothing of the form's is there.
-        undrop(own0?.id);
-        forget();
-        setOverwriteKey((prev) => (prev === key ? null : prev));
-        onDraftSaved?.();
-        return "none";
-      }
-      if (lastSaveIsMine(row) && (row.status || "confirmed") === "draft") {
-        own = {
-          id: row.id,
-          created: own ? own.created : Boolean(lost.created),
-          before: own ? own.before : (lost.created ? null : (lost.replacing || null)),
-        };
-        ownRowsRef.current[key] = own;
-        onVersion = { base: row.updated_at || null, saveId: row.last_save_id };
-      } else if (!saveIdKnown(row) && (row.status || "confirmed") === "draft") {
-        // Couldn't check who wrote it last (round 22 review — a backend
-        // that predates the read, or its audit query failed): unknown is
-        // never "not mine". The server decides, as before round 22: the
-        // take-back goes on the version the form held before the lost save
-        // and follows that save (base_save_id) — a version anyone else wrote
-        // since is refused (draft_changed) and stays.
-        own = {
-          id: row.id,
-          created: own ? own.created : Boolean(lost.created),
-          before: own ? own.before : (lost.created ? null : (lost.replacing || null)),
-        };
-        ownRowsRef.current[key] = own;
-        onVersion = { base: base0 || NO_ROW_BASE, saveId: lost.id || null };
-      } else {
-        // Stored, and not by a save of this form's last: the lost save never
-        // landed — the draft the banner replaced is there as it was — or the
-        // day was saved (or locked) somewhere else since. Not the form's to
-        // touch: the banner shows it as stored now.
-        const untouched = !own && Boolean(lost.replacing) && row.updated_at != null
-          && row.updated_at === lost.replacing.updated_at;
-        undrop(own0?.id);
-        undrop(row.id);
-        forget();
-        setOverwriteKey((prev) => (prev === key ? null : prev));
-        setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
-        onDraftSaved?.();
-        return untouched ? "reverted" : "stuck";
-      }
-    }
-    const id = own?.id || (existingCloses || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted)?.id || null;
-    if (!own) {
-      // "Start over" chosen on the banner, nothing filed since: the old draft
-      // is still the day's, and the banner says so again — read from the
-      // server, never from a list that may be older than the day (round 22).
-      setOverwriteKey((prev) => (prev === key ? null : prev));
-      onDraftSaved?.();
-      return "none";
-    }
-    // Start forfra was decided before the day's save answered (sent while
-    // its question was open, on a slow connection): the row it filed holds
-    // what the owner typed beside the photo — the only copy of it. It stays,
-    // and the next save updates it (every field is sent again).
-    if (why === "startOver" && keep && (own.created || own.before)) {
-      if (own.id) setDroppedIds((prev) => { if (!prev.has(own.id)) return prev; const n = new Set(prev); n.delete(own.id); return n; });
-      return "kept";
-    }
-    if (own.created && id) {
-      // Off the list before the delete goes: the day's draft banner offered
-      // the row being deleted (and "Fortsæt kladden" on it) for the whole
-      // round trip.
-      setDroppedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-      // On the version this form holds (round 21 review): a draft saved
-      // somewhere else since — another phone typed Kort 2.000 into it — is
-      // never deleted with this form's figures (draft_changed; it stays).
-      const delParams = {};
-      if (onVersion) {
-        // The version the server said it holds, written by this form.
-        if (onVersion.base) delParams.base_updated_at = onVersion.base;
-        if (onVersion.saveId) delParams.base_save_id = onVersion.saveId;
-      } else {
-        if (baseRef.current[key]) delParams.base_updated_at = baseRef.current[key];
-        if (lostSaveRef.current[key]?.id) delParams.base_save_id = lostSaveRef.current[key].id;
-      }
-      forget();
-      let ok = false;
-      let changedElsewhere = null;
-      let noAnswer = false;
-      try {
-        if (Object.keys(delParams).length) await api.delete(`/daily-close/${id}`, { params: delParams });
-        else await api.delete(`/daily-close/${id}`);
-        ok = true;
-      } catch (err) {
-        ok = err?.response?.status === 404;
-        if (isDraftChanged(err)) changedElsewhere = err;
-        noAnswer = !err?.response;
-      }
-      if (!ok && noAnswer) laterWhenOnline({ ...own, id }, lost);
-      if (!ok) {
-        // Not deleted (offline, refused): it is still the day's draft, and
-        // the banner shows it with its amount instead of hiding it.
-        setDroppedIds((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n; });
-        // Saved somewhere else since: the banner shows it as it is NOW (the
-        // refusal carries it), never the amount History listed earlier.
-        const cur = changedElsewhere?.response?.data?.detail?.current;
-        if (cur && typeof cur === "object" && cur.id != null) {
-          setRowOverrides((prev) => ({ ...prev, [cur.id]: { row: cur, listed: existingClosesRef.current } }));
-        }
-      } else if (refiled() && key === rowKeyRef.current) {
-        // Filed again while the delete was on its way: whichever landed
-        // last, the figures on screen are sent again — as this form's own
-        // new draft.
-        const o = ownRowsRef.current[key];
-        if (o) ownRowsRef.current[key] = { ...o, created: true, before: null };
-        requestRefile(true);
-        onDraftSaved?.();
-        return "refiled";
-      } else if (why === "startOver") {
-        // Nothing of the day is filed now: the next figures typed go.
-        lastSentRef.current = null;
-      }
-      onDraftSaved?.();
-      return ok ? "deleted" : "stuck";
-    }
-    if (own.before && id) {
-      // The draft the banner's "Start forfra" replaced goes back as it was:
-      // the figures this form filed over it are taken off the day.
-      let res = null;
-      try {
-        // On the version this form last saved: changed elsewhere since, the
-        // revert is refused (draft_changed) — that newer draft stays, and the
-        // day's banner shows it.
-        // A save of the day whose answer was lost wrote the version stored
-        // now (round 22): the revert follows it (base_save_id) — sent on the
-        // form's older version alone it was refused as "saved somewhere
-        // else" and ended stuck, the thrown-away bon left as the draft.
-        const followsLost = onVersion ? onVersion.saveId : (lostSaveRef.current[key]?.id || null);
-        res = await api.post("/daily-close", {
-          ...revertBody(own.before),
-          base_updated_at: onVersion ? onVersion.base : (baseRef.current[key] ?? null),
-          ...(followsLost ? { base_save_id: followsLost } : {}),
-        });
-      } catch (err) {
-        res = null;
-        if (!err?.response) laterWhenOnline({ ...own, id }, lost);
-      }
-      if (!res) {
-        forget();
-        setOverwriteKey((prev) => (prev === key ? null : prev));
-        onDraftSaved?.();
-        return "stuck";
-      }
-      if (refiled() && key === rowKeyRef.current) {
-        // The owner filed the day again meanwhile: theirs wins, and the
-        // replaced draft can still be put back later.
-        requestRefile(true);
-        return "refiled";
-      }
-      const back = res.data && typeof res.data === "object" && res.data.id ? res.data : { ...own.before };
-      setRowOverrides((prev) => ({ ...prev, [back.id || id]: { row: back, listed: existingClosesRef.current } }));
-      forget();
-      setOverwriteKey((prev) => (prev === key ? null : prev));
-      onDraftSaved?.();
-      return "reverted";
-    }
-    forget();
-    setOverwriteKey((prev) => (prev === key ? null : prev));
-    onDraftSaved?.();
-    return "kept";
-  };
-  /**
-   * Start forfra kept the day's draft (it holds what the owner typed beside
-   * the photo — the only copy): it stays the form's own, "updated the next
-   * time you save", only while the save that wrote it last is one this form
-   * sent. Saved — or locked — on another device since, it is that device's:
-   * the form lets go of it and the day's banner shows it as stored now,
-   * never this form's draft in silence (round 22). Nothing is deleted or
-   * written. The owner typing again meanwhile answers for itself (that save
-   * meets the newer version and asks).
-   */
-  const checkKeptDraft = async (key) => {
-    await savesSettled();
-    const gen0 = sendGenRef.current[key] || 0;
-    let row;
-    try {
-      row = await readDayFresh(key);
-    } catch {
-      return;
-    }
-    // Couldn't check who wrote it last: it stays the form's (never let go of
-    // over a doubt — the next save meets any newer version and asks).
-    if (!row || !saveIdKnown(row) || lastSaveIsMine(row)) return;
-    if ((sendGenRef.current[key] || 0) !== gen0 || pendingSaveRef.current?.key === key) return;
-    // The "saved somewhere else" question is open for the day: it already
-    // says so, and the owner answers it there.
-    if (draftConflictRef.current?.key === key) return;
+  /** What the form knew of a day's draft goes (deleted, or never the form's to file over). */
+  const forgetDay = (key) => {
     delete ownRowsRef.current[key];
     delete serverSrcRef.current[key];
     delete baseRef.current[key];
     delete lostSaveRef.current[key];
+    delete sentBodyRef.current[key];
     filedScanKeysRef.current.delete(key);
     setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
-    setOverwriteKey((prev) => (prev === key ? null : prev));
-    setDroppedIds((prev) => { if (!prev.has(row.id)) return prev; const n = new Set(prev); n.delete(row.id); return n; });
-    setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
-    onDraftSaved?.();
   };
-  // "Brug dem for {to}" answered (or a Z-bon's day moved), and the new day's
-  // first save landed: the figures belong to the new day only. The old day's
-  // draft goes (or goes back to what it was), and the line under the date
-  // says what happened.
-  const finishMove = async (savedKey) => {
-    const m = moveFromRef.current;
-    // A save for the old day itself landing (sent before the move) is not
-    // the new day filed: the move waits for that.
-    if (!m || savedKey === m.fromKey) return;
-    moveFromRef.current = null;
-    const outcome = await releaseDayDraft(m.fromKey, { why: "move", move: { from: m.from, to: m.to } });
-    if (outcome === "refiled") return;
-    setMovedNote({
-      from: m.from, to: m.to,
-      // The old day's own draft is there again; or the old day still holds
-      // these same figures (a delete or revert that did not go through).
-      kept: outcome === "reverted",
-      copy: outcome === "kept" || outcome === "stuck",
-    });
+  const undropId = (rid) => {
+    if (rid == null) return;
+    setDroppedIds((prev) => { if (!prev.has(rid)) return prev; const n = new Set(prev); n.delete(rid); return n; });
   };
-  // Round 22, offline — the take-backs that could not reach the server, done
-  // now that the browser is online again (the "online" event): each asks
-  // the server first (the day's row read fresh — the form's own only when
-  // its last save is one this form sent) and goes on exactly that version.
-  // A day filed again meanwhile keeps what was filed. A move's note says
-  // what became true.
-  const retryReleases = async () => {
-    const all = pendingReleaseRef.current;
-    pendingReleaseRef.current = {};
-    for (const [key, p] of Object.entries(all)) {
-      if ((sendGenRef.current[key] || 0) !== p.gen) continue;
-      if (p.own) ownRowsRef.current[key] = p.own;
-      lostSaveRef.current[key] = p.lost || { id: null, runNo: 0, created: Boolean(p.own?.created), replacing: p.own?.before || null };
-      // The version the form held when it first tried (a take-back retried
-      // after its delete had forgotten it).
-      if (p.base != null) baseRef.current[key] = p.base;
-      // eslint-disable-next-line no-await-in-loop
-      const outcome = await releaseDayDraft(key, { why: p.why, keep: p.keep, move: p.move, retrying: p });
-      if (p.move && (outcome === "deleted" || outcome === "none" || outcome === "reverted")) {
-        setMovedNote((cur) => (cur && cur.from === p.move.from && cur.to === p.move.to
-          ? { ...cur, kept: outcome === "reverted", copy: false } : cur));
+  /**
+   * Round 23 — the ONE way this form deletes a day's draft, and only because
+   * the owner said so (Start forfra, a date move answered "Flyt tallene",
+   * "Slet den"). It never guesses whose the draft is. The saves on their way
+   * answer first; then the draft is deleted on the version this form holds
+   * (base_updated_at — and base_save_id, the save whose answer was lost): a
+   * version saved anywhere else since is refused (412 draft_changed) and
+   * never deleted. A save whose answer was lost MAY have made (or changed)
+   * the row, so the server is asked first (the day read fresh, with the id of
+   * the save that wrote it last).
+   *   "deleted"  gone (or already gone: 404)
+   *   "none"     nothing is stored for the day
+   *   "changed"  saved somewhere else since: kept, the day's banner shows it
+   *   "locked"   locked (on another device): kept
+   *   "offline"  no answer (offline, a dead connection): nothing changed here
+   *   "error"    refused for another reason: kept
+   *   "refiled"  (`forMove`) the form is on that day again, or filed it again
+   *              while the saves before answered: it holds the figures now
+   * `shown` (the banner's Start forfra): the draft the owner saw and chose —
+   * deleted on exactly that version, whoever wrote it.
+   */
+  const deleteDayDraft = async (key, { forMove = false, shown = null } = {}) => {
+    const gen0 = sendGenRef.current[key] || 0;
+    await savesSettled();
+    // A move's old day the owner went back to (or filed again) meanwhile:
+    // its draft is the owner's figures again — never deleted for the move.
+    if (forMove && (key === rowKeyRef.current || (sendGenRef.current[key] || 0) !== gen0)) return "refiled";
+    const own = ownRowsRef.current[key];
+    const lost = shown ? null : lostSaveRef.current[key];
+    const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
+    let id = shown?.id ?? own?.id ?? listed?.id ?? null;
+    if (id == null && !lost) return "none";
+    const params = { base_updated_at: shown?.updated_at || baseFor(key) };
+    if (lost?.id) params.base_save_id = lost.id;
+    if (lost) {
+      let row;
+      try {
+        row = await readDayFresh(key);
+      } catch (err) {
+        return err?.response ? "error" : "offline";
+      }
+      if (!row) { forgetDay(key); onDraftSaved?.(); return "none"; }
+      if ((row.status || "confirmed") !== "draft") { forgetDay(key); onDraftSaved?.(); return "locked"; }
+      // Written last by a save of someone else's (the server said so): it is
+      // that version now — kept, and shown; no delete is even tried.
+      if (row.last_save_id && !lastSaveIsMine(row)) {
+        forgetDay(key);
+        setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+        onDraftSaved?.();
+        return "changed";
+      }
+      id = row.id;
+      // Written last by a save of this form's: that very version is the
+      // form's own (anyone else's since is refused by the server).
+      if (lastSaveIsMine(row)) {
+        if (row.updated_at) params.base_updated_at = row.updated_at;
+        params.base_save_id = row.last_save_id;
       }
     }
+    // Off the list before the delete goes: the day's banner never offers the
+    // draft being deleted.
+    setDroppedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    try {
+      await api.delete(`/daily-close/${id}`, { params });
+    } catch (err) {
+      if (err?.response?.status !== 404) {
+        undropId(id);
+        if (!err?.response) return "offline";
+        if (isDraftChanged(err)) {
+          // Never deleted: the banner shows it as it is NOW (the refusal
+          // carries it), not the amount History listed earlier.
+          const cur = err.response.data?.detail?.current;
+          forgetDay(key);
+          if (cur && typeof cur === "object" && cur.id != null) {
+            setRowOverrides((prev) => ({ ...prev, [cur.id]: { row: cur, listed: existingClosesRef.current } }));
+          }
+          onDraftSaved?.();
+          return "changed";
+        }
+        if (err.response.status === 409) {
+          forgetDay(key);
+          if (key === rowKeyRef.current) setLockedRowRejected(true);
+          onDraftSaved?.();
+          return "locked";
+        }
+        return "error";
+      }
+    }
+    forgetDay(key);
+    delete failedBodyRef.current[key];
+    // Nothing of the day is filed now: the next figures typed for it go.
+    if (key === rowKeyRef.current) lastSentRef.current = null;
+    onDraftSaved?.();
+    return "deleted";
   };
-  retryReleasesRef.current = retryReleases;
-  // Round 22 review — a take-back still waiting is tried again on a timer
-  // while the browser says online (a read that timed out, a 5xx: no "online"
-  // event comes for those). A few times; the "online" event still does it
-  // after that. Offline, the "online" event is the one that does it.
-  const scheduleReleaseRetry = () => {
-    if (releaseRetryTimerRef.current || !mountedRef.current) return;
-    const waiting = Object.values(pendingReleaseRef.current);
-    if (!waiting.some((p) => (p.tries || 0) <= RELEASE_RETRY_MAX)) return;
-    releaseRetryTimerRef.current = setTimeout(() => {
-      releaseRetryTimerRef.current = null;
-      if (!mountedRef.current) return;
-      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-      retryReleasesRef.current?.();
-    }, RELEASE_RETRY_MS);
+  /**
+   * A day's draft is KNOWN to be stored: a save of this form's was answered
+   * for it, or History lists it. (A save that got no answer — offline, a
+   * dropped line — may or may not have made one: "maybe".)
+   */
+  const draftKnownStored = (k) => Boolean(ownRowsRef.current[k])
+    || (existingClosesRef.current || []).some((dc) => closeRowKey(dc) === k && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
+  /** A move's outcome, as the line under the date says it. */
+  const moveNoteOf = (m, outcomes) => {
+    const stuck = outcomes.filter((o) => o.outcome !== "deleted" && o.outcome !== "none").map((o) => ({
+      ...o,
+      // Said "står der stadig" only when it is known to be there: the server
+      // said so (refused, locked), or the form knows it is stored.
+      known: o.outcome === "changed" || o.outcome === "locked" || draftKnownStored(o.key),
+    }));
+    if (!stuck.length) return { from: m.from, to: m.to, state: "moved" };
+    return { from: m.from, to: m.to, state: "copy", stuck };
+  };
+  // A move answered "Flyt tallene", and the new day's save landed: the old
+  // day's draft goes now — deleted on the version this form holds, or the
+  // line under the date says it is still there ("Slet den" when it can).
+  const finishMove = async (savedKey) => {
+    const m = moveFromRef.current;
+    if (!m || savedKey !== m.toKey) return;
+    moveFromRef.current = null;
+    const outcomes = [];
+    for (const k of m.keys) {
+      // Moved back onto it: it holds the figures again.
+      if (k === rowKeyRef.current) continue;
+      const outcome = await deleteDayDraft(k, { forMove: true });
+      if (outcome !== "refiled") outcomes.push({ key: k, outcome });
+    }
+    // Emptied by Start forfra meanwhile: nothing is said on the empty form.
+    if (!mountedRef.current || formEpochRef.current !== m.epoch) return;
+    setMovedNote(moveNoteOf(m, outcomes));
+  };
+  // "Slet den": the old day's draft a move could not delete, deleted now —
+  // the owner's one tap. Never a version saved elsewhere since (refused) or
+  // a locked day.
+  const deleteMovedOld = async () => {
+    const n = movedNote;
+    if (!n || n.state !== "copy" || moveBusyRef.current) return;
+    moveBusyRef.current = true;
+    setMoveBusy(true);
+    const epoch = formEpochRef.current;
+    const outcomes = [];
+    try {
+      for (const s of n.stuck) {
+        if (s.outcome === "changed" || s.outcome === "locked" || s.key === rowKeyRef.current) { outcomes.push(s); continue; }
+        const outcome = await deleteDayDraft(s.key, { forMove: true });
+        if (outcome !== "refiled") outcomes.push({ key: s.key, outcome });
+      }
+    } finally {
+      moveBusyRef.current = false;
+      if (mountedRef.current) setMoveBusy(false);
+    }
+    if (!mountedRef.current || formEpochRef.current !== epoch) return;
+    const next = moveNoteOf(n, outcomes);
+    setMovedNote(next.state === "copy" ? { ...next, tried: true } : next);
+  };
+  /** A stored draft's figure, as the banner says it ("12.000 kr.", or "kun betalinger på 1.234,50 kr."). */
+  const draftFigureOf = (row) => {
+    if (!row) return "";
+    if (isPaymentsOnly(row)) {
+      const p = paymentsOf(row);
+      return t("dcDraftFigurePaymentsOnly", "only payments of {amount}", { amount: formatOwnerMoney(p, currency, { decimals: oreDecimals(p) }) });
+    }
+    const v = Number(row.revenue_total) || 0;
+    return formatOwnerMoney(v, currency, { decimals: oreDecimals(v) });
+  };
+  /** A draft body as the server stores its total (the backend's override rule). */
+  const rowOfBody = (b) => {
+    const lines = Object.values(b?.revenue_breakdown || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+    const ov = Number(b?.revenue_total_override);
+    const total = ov > 0 ? (b.revenue_total_owner_set ? ov : Math.max(lines, ov)) : lines;
+    return { revenue_total: Math.round(total * 100) / 100, payment_breakdown: b?.payment_breakdown || {} };
+  };
+  // Round 23 — Start forfra could not reach the server ("offline") or was
+  // refused ("error"): nothing changed, and the page says so.
+  const [startOverFailed, setStartOverFailed] = useState(null);
+  // …and while its delete is on its way the card and the banner wait: a
+  // photo or "Brug disse tal" now would be emptied the moment it answers.
+  const [startOverBusy, setStartOverBusy] = useState(false);
+  /**
+   * Round 23 — Start forfra empties the form: every figure, photo, note and
+   * field, the scan card, the step — a new close for the same day. (The
+   * owner's own till coming back, the replaced draft put back, the fields
+   * kept beside the photo — every guess of what Start forfra should leave —
+   * is gone: it starts over.)
+   */
+  const resetFormEmpty = () => {
+    formEpochRef.current += 1;
+    clearTimeout(autoSaveRef.current);
+    pendingSaveRef.current = null;
+    retryArmedRef.current = null;
+    lastSentRef.current = null;
+    moveFromRef.current = null;
+    act(resetTills);
+    setScanPhotos([]);
+    setReceiptPhotoUrl(null);
+    loadedPhotoRef.current = null;
+    loadedUnlockedRef.current = false;
+    scanPrefillRef.current = null;
+    appliedPrefillRef.current = null;
+    setAppliedMoms(null);
+    setDraftMoms(null);
+    salesFillRef.current = null;
+    boxesHoldPhotosRef.current = false;
+    boxFillEpochRef.current += 1;
+    setRevAmounts({});
+    setPayAmounts({});
+    setRevCats(defaultRevCats);
+    setPayMethods(defaultPayMethods);
+    setCustomRevName("");
+    setDrawerCount("");
+    setCashCounted("");
+    setCashFloat(deviceFloat());
+    setTipsTotal("");
+    setStaffCount("");
+    setGavekortSold("");
+    setBatchRef("");
+    setClosedBy("");
+    setNotes("");
+    setMomsMode("auto");
+    setMomsManual("");
+    editLoadedRef.current = false;
+    editBaselineRef.current = null;
+    editOpenLedgerRef.current = null;
+    filedLedgerRef.current = null;
+    setEditingDate(null);
+    setEditingDraft(false);
+    setDraftConflict(null);
+    setMovedNote(null);
+    setScanError("");
+    setSmartScanVerifyState([]);
+    setChipDismissed(false);
+    setChipConfirmed(false);
+    setChipError("");
+    setUnlinkOpenForTerminalId(null);
+    setConflictDismissed(false);
+    setCardHeld(null);
+    setError("");
+    setErrorDetail("");
+    setStartOverFailed(null);
+    setStartOverBusy(false);
+    setScanMode("idle");
+    setStep(1);
+    if (!savesInFlightRef.current) setDraftSaving(false);
+  };
+  /**
+   * Round 23 — "Start forfra", the same explicit action wherever it is (the
+   * day's draft banner, the scan card). A question in plain Danish says
+   * exactly what happens — "Kladden for {dato} med {beløb} slettes, og du
+   * starter forfra. Det kan ikke fortrydes." — or, with nothing filed for the
+   * day, that what is on screen is cleared (one tap for a photo nobody
+   * touched, as before). Then the SERVER does it in one step: the day's draft
+   * deleted on the version this form holds (deleteDayDraft — saved elsewhere
+   * since: never deleted, the banner shows it), and the form is emptied. A
+   * delete that could not be done (offline, an error) changes nothing here
+   * and says so.
+   */
+  const startOverDay = async (source) => {
+    if (startingOverRef.current) return;
+    const bannerRow = source === "banner" ? existingForDate : null;
+    const key = bannerRow ? closeRowKey(bannerRow) : rowKey;
+    const own = ownRowsRef.current[key];
+    const listed = (existingCloses || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIds.has(dc.id));
+    const sentBody = sentBodyRef.current[key];
+    // Something of the day is stored (or on its way): the form's own saves,
+    // a reopened draft — or the draft on the banner.
+    const filed = Boolean(bannerRow) || Boolean(own || sentBody || lostSaveRef.current[key]
+      || keyInflightRef.current[key]?.size || failedBodyRef.current[key])
+      || (Boolean(listed) && (Boolean(editingDate) || ownDraftKeys.has(key)));
+    const figure = bannerRow ? draftFigureOf(bannerRow)
+      : sentBody ? draftFigureOf(rowOfBody(sentBody))
+        : own?.row ? draftFigureOf(own.row)
+          : listed ? draftFigureOf(listed) : "";
+    const day = String(key).split("|")[0];
+    let ok = true;
+    if (filed) {
+      ok = await askConfirm({
+        title: t("dcScanStartOverTitle", "Start over?"),
+        message: t("dcStartOverDeleteBody", "The draft for {date} with {amount} is deleted, and you start over. This can't be undone.", {
+          date: formatDateClear(day) || day, amount: figure || "—",
+        }),
+        confirmLabel: t("startOver", "Start over"),
+        cancelLabel: t("cancel", "Cancel"),
+        destructive: true,
+      });
+    } else {
+      // Nothing filed: what is on screen is cleared. Asked when the owner
+      // has put anything of their own into it (a correction on the card,
+      // two photos, figures typed, a note) — one tap threw corrections away
+      // unasked; an untouched photo still goes in one tap.
+      const typed = (v) => typeof v === "string" && v.trim() !== "";
+      const filledIn = (v) => String(v ?? "").trim() !== "";
+      const card = scanResult;
+      const severalPhotos = card?.merge_info?.mode === MERGE_SUM || dayPhotos.length > 1;
+      const corrected = Boolean(card) && (severalPhotos || card.revenue_total_text != null || typed(card.tips)
+        || [...Object.values(card.revenue || {}), ...Object.values(card.payments || {})].some(typed));
+      const ownWork = corrected || Boolean(formTill(ledgerRef.current))
+        || [closedBy, notes, drawerCount, tipsTotal, gavekortSold, staffCount, batchRef].some(filledIn);
+      if (ownWork) {
+        ok = await askConfirm({
+          title: t("dcScanStartOverTitle", "Start over?"),
+          message: t("dcStartOverClearBody", "What you typed and scanned here is cleared, and you start over. Nothing is saved yet."),
+          confirmLabel: t("startOver", "Start over"),
+          cancelLabel: t("cancel", "Cancel"),
+          destructive: true,
+        });
+      }
+    }
+    if (ok !== true || !mountedRef.current) return;
+    // Filed while the question was open (a save that was waiting went): it
+    // goes too — the owner chose to start over.
+    const filedNow = filed || Boolean(ownRowsRef.current[key] || sentBodyRef.current[key] || lostSaveRef.current[key]
+      || keyInflightRef.current[key]?.size || failedBodyRef.current[key]);
+    startingOverRef.current = key;
+    setStartOverBusy(true);
+    // Nothing waiting is filed for the day any more.
+    clearTimeout(autoSaveRef.current);
+    if (pendingSaveRef.current?.key === key) pendingSaveRef.current = null;
+    retryArmedRef.current = null;
+    setStartOverFailed(null);
+    let outcome = "none";
+    try {
+      if (filedNow) outcome = await deleteDayDraft(key, { shown: bannerRow });
+    } finally {
+      startingOverRef.current = null;
+      if (mountedRef.current) setStartOverBusy(false);
+    }
+    if (!mountedRef.current) return;
+    if (outcome === "offline" || outcome === "error") {
+      // Not deleted: nothing changes, and the page says so. What the form
+      // holds is what the day keeps (sent again — the delete may have gone
+      // through with its answer lost).
+      setStartOverFailed(outcome);
+      requestRefile(true);
+      return;
+    }
+    // The banner's draft was another branch's ("Alle afdelinger"): the new
+    // close is filed under that branch, not beside it.
+    if (bannerRow) setFileBranchOverride(bannerRow.branch_id || null);
+    resetFormEmpty();
   };
   // Named when the venue has several, so "a draft for this day" says whose.
   const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
     ? (branches.find((b) => String(b.id) === String(existingForDate.branch_id))?.name || "")
     : "";
   const existingLocked = existingForDate?.status === "confirmed";
-  const existingBlocks = Boolean(existingForDate) && (existingLocked || overwriteKey !== rowKey);
+  // A close already filed for the day that is not this form's: the banner
+  // stands in front of the form (continue it, or Start forfra — which deletes
+  // it). Round 23: nothing is ever filed OVER another draft any more.
+  const existingBlocks = Boolean(existingForDate);
 
   // The form is the day past the scan card ("skipped") — and on an empty
   // scan card when the day is the owner's own till and nothing else: Start
@@ -4488,9 +4526,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // The day's draft changed elsewhere and the owner has not said which
     // wins: nothing is sent over it (it would only be refused again).
     if (draftConflict && draftConflict.key === rowKey) return nothingToSave();
-    // Typed for another day, and not yet confirmed for this one: not filed
-    // as this day's draft until the owner answers (dateMove).
-    if (dateMoveOpen) return nothingToSave();
+    // Start forfra is deleting the day's draft: nothing is filed for it
+    // meanwhile (the form is emptied once the delete has answered).
+    if (startingOverRef.current === rowKey) return nothingToSave();
     // Only auto-save if user has entered some data and is past scan UI
     // On the total that will be SAVED: a Z-bon read as a total only was
     // never autosaved, because its categories summed to zero. And on the
@@ -4528,16 +4566,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Debounce: save 2s after last step change
     clearTimeout(autoSaveRef.current);
     const savingKey = rowKey;
-    // This save creates the day's row: no close is filed for it (a draft
-    // reopened here, or one "Start forfra" on the banner replaces, is not
-    // this form's to delete later).
-    const savingCreates = !editingDate && overwriteKey !== rowKey
-      && !(existingCloses || []).some((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted && !droppedIds.has(dc.id));
-    // …or replaces the draft the banner's "Start forfra" was tapped over:
-    // that draft as it was, to file back when the form takes its own
-    // figures off the day (Start forfra on its photos, a date move).
-    const replacing = !editingDate && overwriteKey === rowKey && overwriteSnapRef.current?.key === rowKey
-      ? overwriteSnapRef.current.row : null;
     // `keepalive` when the page itself is going away (pagehide / hidden): a
     // plain request can die with the page, a keepalive fetch is finished by
     // the browser.
@@ -4549,6 +4577,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const runNo = ++runNoRef.current;
       const sent = JSON.stringify(body);
       lastSentRef.current = sent;
+      sentBodyRef.current[savingKey] = body;
       // A source read off photos (or a reopened read told with a hand
       // correction) is on its way: from now on the day is told again what it
       // is. Marked when it is SENT — marked on the answer, a change put back
@@ -4611,7 +4640,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         keyWireRef.current[savingKey].add(tracker);
         const res = await api.post("/daily-close", body,
           keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
-        noteSaved(savingKey, body, res, savingCreates, replacing);
+        noteSaved(savingKey, body, res);
         // Answered, and built after the save that got no answer: the day's
         // version is this one's now.
         if (lostSaveRef.current[savingKey] && lostSaveRef.current[savingKey].runNo < runNo) delete lostSaveRef.current[savingKey];
@@ -4632,23 +4661,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       } catch (err) {
         // Not on the server: the same draft is sent again on the next change.
         if (lastSentRef.current === sent) lastSentRef.current = null;
-        // No answer at all: it may have landed — the next save follows it.
-        // Recorded in full (round 22): whether it would have made the day's
-        // row, and the draft it replaced — taking the day back later asks
-        // the server whether it landed, and then needs both.
+        // No answer at all: it may have landed — the next save (and a delete
+        // of the day) follows it, and a delete asks the server first.
         if (!err?.response && saveId) {
           const was = lostSaveRef.current[savingKey];
-          if (!was || was.runNo < runNo) {
-            lostSaveRef.current[savingKey] = {
-              id: saveId, runNo,
-              // A save replacing the banner's draft never makes the day the
-              // form's to delete (round 22 review) — unless that draft is the
-              // form's own lost create.
-              created: replacing && !ownLostRowsRef.current.has(replacing)
-                ? false : (Boolean(was?.created) || savingCreates),
-              replacing: was?.replacing || replacing || null,
-            };
-          }
+          if (!was || was.runNo < runNo) lostSaveRef.current[savingKey] = { id: saveId, runNo };
           // Still the form's latest for the day (nothing newer waiting or
           // sent): the same draft waits for the page to be left, the
           // network to come back, or the next change (round 22, offline).
@@ -4665,11 +4682,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // proof (round 22 review): an earlier one already on the new day
           // finished the move while the moved figures were on no server.
           const m = moveFromRef.current;
-          if (m && savingKey !== m.fromKey) {
+          if (m && savingKey === m.toKey) {
             const landed = saveId;
+            const sayCopy = () => {
+              // Not known to be filed (offline, or not landed): the old day
+              // still holds the figures — said so, never "moved" — until the
+              // new day's save lands (then the old draft goes, as answered).
+              if (!mountedRef.current || moveFromRef.current !== m || formEpochRef.current !== m.epoch) return;
+              setMovedNote(moveNoteOf(m, m.keys.map((k) => ({ key: k, outcome: "pending" }))));
+            };
             readDayFresh(savingKey)
-              .then((row) => { if (row && row.last_save_id === landed) finishMove(savingKey); })
-              .catch(() => { /* offline: the next answered save finishes it */ });
+              .then((row) => {
+                if (!row || row.last_save_id !== landed) { sayCopy(); return; }
+                // Landed: an answered save in all but the answer — the day is
+                // the form's own (never "Der er allerede en kladde" over the
+                // owner's own moved figures), and the move finishes.
+                noteSaved(savingKey, body, { data: row });
+                setOwnDraftKeys((p) => (p.has(savingKey) ? p : new Set(p).add(savingKey)));
+                if (lostSaveRef.current[savingKey]?.id === landed) delete lostSaveRef.current[savingKey];
+                if (retryArmedRef.current === sent) { retryArmedRef.current = null; lastSentRef.current = sent; }
+                finishMove(savingKey);
+              })
+              .catch(sayCopy);
           }
         }
         // Still best-effort for every other failure (offline, 500, flaky
@@ -4693,6 +4727,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             setLockedRowRejected(true);
             onDraftSaved?.();
           }
+          // The day the figures were moved to is locked: nothing moved, and
+          // the day they came from keeps its draft.
+          if (moveFromRef.current?.toKey === savingKey) moveFromRef.current = null;
         }
       } finally {
         inflightRef.current.delete(tracker);
@@ -4729,9 +4766,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // formIsTheDay / autosaveLedger: Start forfra changes the day on the scan
   // card, and "Spring over" back to the form moved no step — nothing re-ran,
   // and the draft kept the photo the owner had thrown away.
-  // refile: a release found the day filed again under it (releaseDayDraft).
+  // refile: the day may hold something else than the form now (a delete
+  // that did not go through, a lost answer).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, formIsTheDay, autosaveLedger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, deletedLockedRow, existingBlocks, businessDate, fileBranchId, savedRevenue, paymentTotal, momsTotal, exemptSalesTotal, dateMoveOpen, refile, draftConflict]);
+  }, [step, formIsTheDay, autosaveLedger, revAmounts, payAmounts, cashCounted, cashFloat, tipsTotal, closedBy, notes, staffCount, momsMode, momsManual, gavekortSold, batchRef, receiptPhotoUrl, lockedRowRejected, deletedLockedRow, existingBlocks, businessDate, fileBranchId, savedRevenue, paymentTotal, momsTotal, exemptSalesTotal, refile, draftConflict]);
 
   // The "draft saved somewhere else" question is open and the page goes away:
   // what the form holds now (the lock, via "lock"; else the draft — or, when
@@ -4777,24 +4815,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     let built = null;
     try { built = buildPayloadRef.current("draft"); } catch { built = null; }
     if (!built) return false;
-    // A date move answered ("Brug dem for {to}") and not finished — the new
-    // day's save got no answer, so the old day's draft was never taken back
-    // (round 22 review). The figures are kept on the day the server may
-    // already hold them on: a copy for the NEW day was sent once online
-    // while the old day still held them — the money on both days, the move
-    // dying with the form. On the old day's version, following its own save
-    // whose answer was lost: one day holds them, the latest figures, and the
-    // move is simply not done (the owner sees the draft on that day).
-    const m = moveFromRef.current;
-    const toOld = Boolean(m) && m.fromKey !== run.key && Boolean(ownRowsRef.current[m.fromKey]
-      || lostSaveRef.current[m.fromKey] || keyInflightRef.current[m.fromKey]?.size);
-    const dayKey = toOld ? m.fromKey : run.key;
+    // (Round 23: a date move is confirmed before the date changes — the copy
+    // is the day the form is on, the one the owner chose.)
+    const dayKey = run.key;
     const payload = { ...built, base_updated_at: baseFor(dayKey) };
-    if (toOld) {
-      const [fromDate, fromBranch] = String(m.fromKey).split("|");
-      payload.date = fromDate;
-      payload.branch_id = fromBranch || null;
-    }
     const lost = lostSaveRef.current[dayKey];
     if (lost?.id) payload.base_save_id = lost.id;
     const prev = offlineCopyRef.current;
@@ -4857,7 +4881,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const onBack = () => { dropConflictCopy(); dropOfflineCopy(); };
     // Online again: the waiting draft goes now (its copy, if any, is taken
     // off the queue first — it would be sent twice).
-    const onOnline = () => { dropOfflineCopy(); flush(); retryReleasesRef.current?.(); };
+    const onOnline = () => { dropOfflineCopy(); flush(); };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") onHide();
       else if (document.visibilityState === "visible") onBack();
@@ -5423,7 +5447,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       delete baseRef.current[c.key];
       delete ownRowsRef.current[c.key];
       setOwnDraftKeys((prev) => { if (!prev.has(c.key)) return prev; const n = new Set(prev); n.delete(c.key); return n; });
-      setOverwriteKey((prev) => (prev === c.key ? null : prev));
       setDraftConflict(null);
       onDraftSaved?.();
       return;
@@ -5437,7 +5460,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         meta: c.current.source_meta && typeof c.current.source_meta === "object" ? c.current.source_meta : null,
         photo: c.current.receipt_photo || null,
       };
-      if (!ownRowsRef.current[c.key] && c.current.id != null) ownRowsRef.current[c.key] = { id: c.current.id, created: false, before: null };
+      if (!ownRowsRef.current[c.key] && c.current.id != null) ownRowsRef.current[c.key] = { id: c.current.id, row: c.current };
       // That version's photo goes with it (round 21 review): kept, a 15.000
       // Z-bon stood as the source document of a 3.500 typed day. The form's
       // own photo replaces it; with none, "" clears it (the server keeps its
@@ -5493,6 +5516,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       </SectionBanner>
     </div>
   ) : null;
+  // Round 23 — scanning needs the server (the photo is read there): offline,
+  // every way to a scan is gray and says why. Typing works as always (queued,
+  // never lost).
+  const scanOffline = isOnline === false;
+  const scanOfflineEl = scanOffline ? (
+    <p id="dc-scan-offline" role="status" data-testid="dc-scan-offline"
+      className="text-[13px] text-amber-800 dark:text-amber-200 flex items-start gap-1.5">
+      <Icon name="Info" size={14} className="shrink-0 mt-0.5" />
+      <span>{t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online")}</span>
+    </p>
+  ) : null;
+  // Start forfra could not be done (round 23): said where it was tapped.
+  const startOverFailedEl = startOverFailed ? (
+    <p role="alert" data-testid="dc-start-over-failed" className="mt-2 text-[13px] text-red-700 dark:text-red-300 flex items-start gap-1.5">
+      <Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" />
+      <span>
+        {startOverFailed === "offline"
+          ? t("dcStartOverNotDeletedOffline", "The draft was not deleted — there is no connection. Try again when you're online.")
+          : t("dcStartOverNotDeleted", "The draft was not deleted. Try again.")}
+      </span>
+    </p>
+  ) : null;
   const existingBannerEl = existingBlocks && !conflictHere ? (
 
           <SectionBanner
@@ -5512,8 +5557,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               // A draft of payments only (no revenue): said as such, never
               // "Gemt med 0 kr.".
               : isPaymentsOnly(existingForDate)
-                ? t("dcDayHasDraftBodyPaymentsOnly", "Saved with only payments of {amount} — continue it, or start over, which replaces it.", { amount: formatOwnerMoney(paymentsOf(existingForDate), currency, { decimals: oreDecimals(paymentsOf(existingForDate)) }) })
-                : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which replaces it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) })}
+                ? t("dcDayHasDraftBodyPaymentsOnly", "Saved with only payments of {amount} — continue it, or start over, which deletes it.", { amount: formatOwnerMoney(paymentsOf(existingForDate), currency, { decimals: oreDecimals(paymentsOf(existingForDate)) }) })
+                : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which deletes it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) })}
             <div className="mt-3 flex flex-wrap gap-2">
               {existingLocked ? (
 <>
@@ -5526,42 +5571,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 )}
                 </>
               ) : (<>
-                <Button size="md" variant="primary" onClick={() => onContinueDraft?.(existingForDate)}>{t("dcContinueDraft", "Continue the draft")}</Button>
-                <Button size="md" variant="secondary" onClick={() => {
-                  // "Start over, which replaces it" — so the new close is filed
-                  // under that draft's branch, not beside it.
-                  const b = existingForDate.branch_id || null;
-                  setFileBranchOverride(b);
-                  setOverwriteKey(`${businessDate}|${b || ""}`);
-                  // The draft as it is now: filed back if the form takes its
-                  // own figures off the day again (releaseDayDraft).
-                  const snapKey = `${businessDate}|${b || ""}`;
-                  const snapRow = existingForDate;
-                  overwriteSnapRef.current = { key: snapKey, row: snapRow };
-                  // A save of the day got no answer and would have made its
-                  // row (round 22 review): the draft on the banner may be that
-                  // very save — the form's own. Asked: when the server says
-                  // its last save is one this form sent, there is nothing of
-                  // anyone else's to put back, and taking the figures off the
-                  // day deletes it; otherwise it is put back as it was.
-                  // Exactly the version on the banner, written last by a save
-                  // sent BEFORE this tap — never the form's own replacing save
-                  // landing first on a slow network.
-                  if (lostSaveRef.current[snapKey]?.created && snapRow?.id != null) {
-                    const sentBefore = new Set(mySaveIdsRef.current);
-                    readDayFresh(snapKey).then((row) => {
-                      if (!row || row.id !== snapRow.id || !saveIdKnown(row) || !row.last_save_id
-                        || !sentBefore.has(row.last_save_id) || row.updated_at !== snapRow.updated_at) return;
-                      ownLostRowsRef.current.add(snapRow);
-                      const o = ownRowsRef.current[snapKey];
-                      if (o && o.before === snapRow) ownRowsRef.current[snapKey] = { ...o, created: true, before: null };
-                      const l = lostSaveRef.current[snapKey];
-                      if (l && l.replacing === snapRow) lostSaveRef.current[snapKey] = { ...l, created: true };
-                    }).catch(() => { /* not asked: it is put back as it was */ });
-                  }
-                }}>{t("dcStartOverDraft", "Start over")}</Button>
+                <Button size="md" variant="primary" disabled={startOverBusy} onClick={() => onContinueDraft?.(existingForDate)}>{t("dcContinueDraft", "Continue the draft")}</Button>
+                {/* Round 23: deletes that draft — asked first, done by the
+                    server on the version shown (startOverDay). */}
+                <Button size="md" variant="secondary" disabled={startOverBusy} onClick={() => startOverDay("banner")}>
+                  {startOverBusy ? t("dcStartOverDeleting", "Deleting the draft…") : t("dcStartOverDraft", "Start over")}
+                </Button>
               </>)}
             </div>
+            {!existingLocked && startOverFailedEl}
           </SectionBanner>
   ) : null;
   const businessDateLabel = new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long" });
@@ -5655,6 +5673,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   variant="primary"
                   size="lg"
                   className="w-full sm:w-auto"
+                  disabled={scanOffline}
+                  aria-describedby={scanOffline ? "dc-scan-offline" : undefined}
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
                   iconLeft={<Icon name="Image" size={16} />}>
                   {t("takePhoto", "Take Photo")}
@@ -5663,11 +5683,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   variant="secondary"
                   size="lg"
                   className="w-full sm:w-auto"
+                  disabled={scanOffline}
+                  aria-describedby={scanOffline ? "dc-scan-offline" : undefined}
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
                   iconLeft={<Icon name="FolderOpen" size={16} />}>
                   {t("uploadImage", "Upload Image")}
                 </Button>
               </div>
+              {scanOfflineEl}
               {/* MOMS / VAT toggle — owner picks before scan so OCR'd
                   numbers are interpreted right. Most DK Z-reports are
                   gross (with MOMS); B2B / Excel exports may be net.
@@ -5691,8 +5714,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             </div>
             {/* Upload zone — desktop only: a phone has nothing to drag, and it
                 repeated the two buttons right above it. */}
-            <div className="hidden sm:block border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-gray-300 dark:hover:border-gray-300 transition-colors"
-              onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
+            <div className={"hidden sm:block border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center transition-colors " + (scanOffline ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-gray-300 dark:hover:border-gray-300")}
+              aria-disabled={scanOffline || undefined}
+              onClick={() => { if (scanOffline) return; if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
               onDragOver={e => e.preventDefault()}
               onDrop={async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
               <p className="text-gray-400 dark:text-gray-500 text-sm">
@@ -6499,13 +6523,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             )}
             <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="primary" size="lg" className="flex-1" onClick={() => applyScanValues(true)}
-                disabled={Boolean(pendingScan)}
+                disabled={Boolean(pendingScan) || startOverBusy}
                 aria-describedby={pendingScan ? "dc-terminal-q-reason" : undefined}
                 iconLeft={<Icon name="CheckCircle2" size={16} />}>
                 {t("useTheseValuesJumpReview", "Use these values — jump to review")}
               </Button>
               <Button variant="secondary" size="lg" className="flex-1" onClick={() => applyScanValues(false)}
-                disabled={Boolean(pendingScan)}
+                disabled={Boolean(pendingScan) || startOverBusy}
                 aria-describedby={pendingScan ? "dc-terminal-q-reason" : undefined}
                 iconLeft={<Icon name="Pencil" size={16} />}>
                 {t("continueStepByStep", "Continue step-by-step")}
@@ -6517,200 +6541,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   second one before anybody answered for it. */}
               {!pendingScan && (
                 <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
-                  className="text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium underline underline-offset-2">
+                  disabled={scanOffline || startOverBusy}
+                  aria-describedby={scanOffline ? "dc-scan-offline" : undefined}
+                  className="text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium underline underline-offset-2 disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">
                   + {t("addAnotherPhoto", "Add another page or terminal")}
                 </button>
               )}
-              <button onClick={async () => {
-                const before = ledgerRef.current;
-                // A figure the owner typed on the card is a string (a read is
-                // a number): one tap threw those corrections away unasked.
-                const typed = (v) => typeof v === "string" && v.trim() !== "";
-                // A sum turns every figure back into a number, so a Mad
-                // corrected before "another till" no longer looks typed — and
-                // two photos plus their sum are more than one read brings back.
-                const severalPhotos = scanResult?.merge_info?.mode === MERGE_SUM || dayPhotos.length > 1;
-                const corrected = scanResult && (severalPhotos || scanResult.revenue_total_text != null || typed(scanResult.tips)
-                  || [...Object.values(scanResult.revenue || {}), ...Object.values(scanResult.payments || {})].some(typed));
-                // A day of photos only, already filed as this form's own new
-                // draft: emptied, the day has nothing to file, and that draft
-                // (the photo's figures) is deleted with it — said in the
-                // question when there is one (an untouched photo still goes
-                // in one tap, as before).
-                // "Nothing to file" is the autosave's own rule (round 21):
-                // an own till that will not be filed is no till here either.
-                // "An own till exists" was the test, and a till of payments
-                // only (which the autosave never filed) kept the thrown-away
-                // bon's 18.264,50, its photo and "Z-bon" in the stored draft.
-                const filesAfter = (lg) => {
-                  if (!formTill(lg)) return false;
-                  const fv = formValues(lg);
-                  const sum = (b) => Object.values(b || {}).reduce((a, v) => a + readMoney0(v), 0);
-                  return filesSomething(savedRevenueOf(lg, sum(fv.revenue)), sum(fv.payments));
-                };
-                const photoOnly = !filesAfter(discardScans(before));
-                // A save of the day whose answer was lost counts as the
-                // form's own (round 22): it may well have stored the photo's
-                // figures — releaseDayDraft asks the server before it acts.
-                const ownRow = ownRowsRef.current[rowKey];
-                const lostRow = ownRow ? null : lostSaveRef.current[rowKey];
-                const dropsDraft = photoOnly && Boolean(ownRow ? ownRow.created : lostRow?.created);
-                // …or, over a draft the banner's "Start forfra" replaced, that
-                // draft comes back as it was.
-                const bringsBack = photoOnly && !dropsDraft ? (ownRow ? ownRow.before : (lostRow?.replacing || null)) : null;
-                // …or the day's first save is still on its way (a slow
-                // connection): no row is known yet, but one is being filed —
-                // with whatever the owner typed beside the photo in it.
-                const firstSaveOnWay = photoOnly && !ownRowsRef.current[rowKey]
-                  && (sendGenRef.current[rowKey] || 0) > 0 && inflightRef.current.size > 0;
-                // What the photos' Z-report prefill wrote, unchanged since, is
-                // the photo's (its denomination count, its per-clerk lines and
-                // ambiguity notes) — it goes with the photo, and is never
-                // "your count" or "your note".
-                const pfMark = scanPrefillRef.current;
-                const drawerIsPhotos = Boolean(pfMark) && pfMark.drawer != null && drawerCount === pfMark.drawer;
-                const drawerLeft = drawerIsPhotos ? pfMark.drawerBefore : drawerCount;
-                const notesLeft = pfMark ? withoutScanNotes(notes, pfMark.notes) : notes;
-                // What the owner typed OUTSIDE the photo's till — the drawer
-                // count, Lukket af, the note, gavekort, staff, the batch —
-                // stays on screen; and the stored draft is the only copy of
-                // it. Deleted (or put back as the old draft) here, it was gone
-                // the moment the page was left before the next photo. So the
-                // draft stays and the next save updates it; it goes only when
-                // nothing was typed outside the tills.
-                const filledIn = (v) => String(v ?? "").trim() !== "";
-                // Tips typed on step 4 on a day of photos only ride on the
-                // photo's till: they go with it, and the question says so.
-                const tipsTyped = Boolean(config.hasTips) && typed(scanResult?.tips);
-                const keptFields = [
-                  (filledIn(drawerLeft) || (!drawerIsPhotos && filledIn(cashCounted))) && t("dcStartOverKeepsCount", "your cash count"),
-                  filledIn(closedBy) && t("dcStartOverKeepsClosedBy", "Closed by"),
-                  filledIn(notesLeft) && t("dcStartOverKeepsNote", "your note"),
-                  filledIn(gavekortSold) && t("dcStartOverKeepsGiftCards", "the gift cards sold"),
-                  filledIn(staffCount) && t("dcStartOverKeepsStaff", "the staff count"),
-                  config.hasBatch && filledIn(batchRef) && t("dcStartOverKeepsBatch", "the batch number"),
-                ].filter(Boolean);
-                const ownTyped = keptFields.length > 0 || (photoOnly && tipsTyped);
-                const keepsDraft = (dropsDraft || Boolean(bringsBack) || firstSaveOnWay) && ownTyped;
-                if (corrected || keepsDraft) {
-                  // What stays is said: the owner's own till comes back, whole.
-                  const own = formTill(before);
-                  const ownTotal = own ? tillTotals(discardScans(before))[0] || 0 : 0;
-                  const total = formatOwnerMoney(ownTotal, currency, { decimals: oreIfAny(ownTotal) });
-                  const photos = dayPhotos.length;
-                  const stored = (existingCloses || []).find((dc) => closeRowKey(dc) === rowKey && !dc.is_deleted)?.revenue_total;
-                  const draftAmount = Number(stored ?? (filedLedgerRef.current ? savedTotal(filedLedgerRef.current) : ledgerSaved)) || 0;
-                  const backAmount = Number(bringsBack?.revenue_total) || 0;
-                  const draftMoney = formatOwnerMoney(draftAmount, currency, { decimals: oreIfAny(draftAmount) });
-                  // "Optællingen, Lukket af og noten" — the owner's own fields, by name.
-                  const fieldList = (() => {
-                    if (!keptFields.length) return "";
-                    let joined;
-                    try {
-                      joined = new Intl.ListFormat(dateLocale(), { style: "long", type: "conjunction" }).format(keptFields);
-                    } catch {
-                      joined = keptFields.join(", ");
-                    }
-                    return joined.charAt(0).toUpperCase() + joined.slice(1);
-                  })();
-                  const draftLine = keepsDraft
-                    ? (fieldList
-                      ? t("dcScanStartOverDraftKept", "{fields} stay. The draft saved at {amount} stays, and is updated the next time you save.", {
-                        fields: fieldList, amount: draftMoney,
-                      })
-                      : t("dcScanStartOverDraftKeptOnly", "The draft saved at {amount} stays, and is updated the next time you save.", {
-                        amount: draftMoney,
-                      }))
-                    : dropsDraft
-                    ? t("dcScanStartOverDraftGoes", "The draft saved at {amount} is deleted too.", {
-                      amount: draftMoney,
-                    })
-                    : bringsBack
-                      ? t("dcScanStartOverDraftBack", "The draft saved before ({amount}) comes back.", {
-                        amount: formatOwnerMoney(backAmount, currency, { decimals: oreIfAny(backAmount) }),
-                      })
-                      : "";
-                  const base = own
-                    ? (photos > 1
-                      ? t("dcScanStartOverKeepsOwnMany", "All {count} photos — and what you corrected on them — go. Your own figures ({total}) come back.", { count: photos, total })
-                      : t("dcScanStartOverKeepsOwn", "The photo — and what you corrected on it — goes. Your own figures ({total}) come back.", { total }))
-                    : severalPhotos
-                      ? t("dcScanStartOverBodyMany", "All {count} photos — and anything you corrected on the card — will be gone.", {
-                          count: Math.max(photos, 2),
-                        })
-                      : corrected
-                        ? t("dcScanStartOverBody", "The photo and your corrections on the card will be gone.")
-                        // Asked only for what the owner typed beside it.
-                        : t("dcScanStartOverPhotoGoes", "The photo will be gone.");
-                  const tipsAmount = tipsTyped ? readMoney(scanResult.tips) : NaN;
-                  const tipsLine = photoOnly && tipsTyped
-                    ? t("dcScanStartOverTipsGo", "The tips you typed ({amount}) go too.", {
-                      amount: Number.isFinite(tipsAmount)
-                        ? formatOwnerMoney(tipsAmount, currency, { decimals: oreIfAny(tipsAmount) })
-                        : String(scanResult.tips),
-                    })
-                    : "";
-                  const ok = await askConfirm({
-                    title: t("dcScanStartOverTitle", "Start over?"),
-                    message: [base, tipsLine, draftLine].filter(Boolean).join(" "),
-                    confirmLabel: t("startOver", "Start over"),
-                    cancelLabel: t("cancel", "Cancel"),
-                    destructive: true,
-                  });
-                  if (!ok) return;
-                }
-                // Every photo and its corrections go; the owner's own till (a
-                // typed close, a reopened draft) stays exactly as it was
-                // (closeTills.discardScans). When the boxes showed the photos'
-                // figures they show what is left — so the next photo is asked
-                // about against the owner's own figures, never against a bon
-                // already thrown away (the same 3.000 counted twice).
-                const after = act(discardScans);
-                ownTillBack(before, after);
-                setScanPhotos([]);
-                // The photos' own prefill goes with them: the drawer back to
-                // what it held before their count, their note lines out.
-                if (pfMark) {
-                  if (drawerIsPhotos) { setDrawerCount(drawerLeft); setCashCounted(takingsFrom(drawerLeft, cashFloat)); }
-                  if (notesLeft !== notes) setNotes(notesLeft);
-                  scanPrefillRef.current = null;
-                }
-                // The day's photo is now the reopened close's own (its till
-                // came back), or none: a thrown-away bon's photo is never the
-                // close's source document (the next save clears a stored one).
-                setReceiptPhotoUrl(formTill(after)?.origin === TILL_DRAFT ? loadedPhotoRef.current : null);
-                setScanMode("idle");
-                if (!filesAfter(after)) {
-                  // Nothing of the day is left: nothing waiting is filed, and
-                  // the draft this form filed for it (the photo's figures) is
-                  // taken back — deleted when this form made it, shown by the
-                  // day's draft banner when it did not. Unless it holds what
-                  // the owner typed outside the tills (keepsDraft): then it
-                  // stays, and the next save (the next photo, or figures
-                  // typed) updates it — every field of it is sent again.
-                  clearTimeout(autoSaveRef.current);
-                  pendingSaveRef.current = null;
-                  lastSentRef.current = null;
-                  // Kept, the stored draft is still the one filed: the next
-                  // photo's card says "Ikke gemt endnu" until it is applied
-                  // (left from there, the draft holds the old figures).
-                  if (!keepsDraft) {
-                    filedLedgerRef.current = null;
-                    // `keep`: a save filed while the question was open holds
-                    // the owner's fields too — decided again once it answered.
-                    releaseDayDraft(rowKey, { why: "startOver", keep: ownTyped });
-                  } else {
-                    // Kept as the form's own — asked, never assumed (round
-                    // 22): saved or locked on another device since, it is
-                    // that device's, and the day's banner shows it.
-                    checkKeptDraft(rowKey);
-                  }
-                }
-              }}
-                className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2">
-                {t("startOver", "Start over")}
+              {/* Round 23: one explicit action — asked, then the day's draft
+                  is deleted by the server and the form starts over empty
+                  (startOverDay). Fortryd and "Det er det samme billede" are
+                  the card's ways to take back one photo. */}
+              <button onClick={() => startOverDay("card")} disabled={startOverBusy}
+                className="text-[13px] whitespace-nowrap text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline underline-offset-2 disabled:opacity-50 disabled:no-underline">
+                {startOverBusy ? t("dcStartOverDeleting", "Deleting the draft…") : t("startOver", "Start over")}
               </button>
             </div>
+            {!pendingScan && scanOfflineEl}
+            {startOverFailedEl}
           </div>
         )}
 
@@ -6722,7 +6569,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             <Icon name="Calendar" size={14} /> {t("dateLabel", "Date")}
           </label>
           <input id="close-date" type="date" value={businessDate}
-            disabled={Boolean(editingDate)}
+            disabled={Boolean(editingDate) || moveBusy}
             max={businessTodayIso(cutoffHour)}
             onChange={e => moveDate(e.target.value)}
             className="px-3 py-1.5 min-h-10 max-sm:h-11 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
@@ -6745,80 +6592,48 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           )}
         </div>
 
-        {/* Figures typed for another day, the date since moved: one amber
-            line, asked before anything is filed for the new day. "Brug dem"
-            keeps them (a date correction); "Hent … salg" puts the new day's
-            POS figures in their place — offered only when there are some. */}
-        {dateMoveOpen && !existingBlocks && (() => {
-          const dayName = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "long" });
-          const from = dayName(dateMoveOpen.from);
-          const to = dayName(dateMoveOpen.to);
-          // "1. augusts salg" / "1. marts' salg"; "1 August's sales".
-          const toGen = dateLocale().startsWith("da") ? (/[sxz]$/i.test(to) ? `${to}'` : `${to}s`) : `${to}'s`;
-          const sp = prefill?.suggested_prefill;
-          // Not over a Z-bon summed onto the typed figures: "Hent" would empty
-          // the boxes under the card's total and save that total over them.
-          const daySync = Boolean(prefill) && !scanResult
-            && (Object.keys(sp?.payment_breakdown || {}).length > 0 || Number(sp?.revenue_total) > 0);
-          return (
-            <div role="group" aria-labelledby="dc-date-move-q" data-testid="dc-date-move"
-              className="mb-4 rounded-xl px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center gap-x-3 gap-y-2">
-              <p id="dc-date-move-q" className="flex-1 basis-64 min-w-0 text-[13px] text-amber-900 dark:text-amber-100 flex items-start gap-1.5">
-                <Icon name="CalendarClock" size={14} className="shrink-0 mt-0.5" />
-                <span>
-                  {daySync
-                    ? t("dcDateMoveTyped", "You typed figures for {from}. Use them for {to}, or fetch {toGen} sales from your POS?", { from, to, toGen })
-                    : t("dcDateMoveTypedNoSync", "You typed figures for {from}. Use them for {to}?", { from, to })}
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" className="min-h-10" onClick={() => {
-                  // A move, not a copy: once the new day's first save lands,
-                  // the old day's draft this form made goes (finishMove).
-                  moveFromRef.current = { fromKey: dateMoveOpen.fromKey, from: dateMoveOpen.from, to: dateMoveOpen.to };
-                  setDateMove(null);
-                }}>
-                  {t("dcDateMoveKeep", "Use them for {to}", { to })}
-                </Button>
-                {daySync && (
-                  <Button size="sm" variant="secondary" className="min-h-10" onClick={() => {
-                    fillBoxesFromSync(prefill, { replace: true });
-                    // The old day's other typed figures go with its sales: a
-                    // MOMS typed for 17.130 was saved as "indtastet" on a
-                    // 1.850 day, and a drawer count against its register.
-                    setMomsMode("auto"); setMomsManual(""); setAppliedMoms(null);
-                    setDrawerCount(""); setCashCounted("");
-                    setTipsTotal(""); setGavekortSold("");
-                    // Nothing moved: the old day's figures and draft stay its own.
-                    moveFromRef.current = null;
-                    setDateMove(null);
-                  }}>
-                    {t("dcDateMoveFetch", "Fetch {toGen} sales", { toGen })}
-                  </Button>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* What "Brug dem for {to}" did, once the new day was filed: the
-            figures moved ("Flyttet fra 8. okt."); the old day's own draft
-            (one the banner's "Start forfra" replaced) is back and still
-            saved; or — a delete that did not go through — the old day still
-            has the same figures, and it says so. */}
-        {movedNote && movedNote.to === businessDate && !dateMoveOpen && (() => {
+        {/* What a move answered "Flyt tallene" did, once the new day was
+            filed (round 23): the figures moved — the old day's draft is gone
+            ("Flyttet fra 8. okt."); or it could not be deleted (offline, an
+            error, saved or locked elsewhere since) and the old day still has
+            it — said so, with "Slet den" while it can still be deleted.
+            Never "Flyttet" unless the old draft is gone. */}
+        {movedNote && movedNote.to === businessDate && (() => {
           const short = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+          if (movedNote.state !== "copy") {
+            return (
+              <p data-testid="dc-date-moved" className="mb-4 -mt-1 text-[13px] text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                <Icon name="CalendarCheck" size={14} className="shrink-0" />
+                <span>{t("dcDateMovedFrom", "Moved from {from}", { from: short(movedNote.from) })}</span>
+              </p>
+            );
+          }
+          // The first day known to still hold a draft is named; when none is
+          // known (its save got no answer), the line says it MAY still be there.
+          const knownStuck = movedNote.stuck.find((x) => x.known);
+          const named = knownStuck || movedNote.stuck[0];
+          const stays = named?.key ? String(named.key).split("|")[0] : movedNote.from;
+          const canDelete = movedNote.stuck.some((x) => x.outcome !== "changed" && x.outcome !== "locked");
+          const stillOffline = movedNote.tried && movedNote.stuck.some((x) => x.outcome === "offline");
           return (
-            <p data-testid="dc-date-moved" className="mb-4 -mt-1 text-[13px] text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-              <Icon name="CalendarCheck" size={14} className="shrink-0" />
-              <span>
-                {movedNote.copy
-                  ? t("dcDateMovedOldHolds", "Used for {to} — the {from} draft still has the same figures", { to: short(movedNote.to), from: short(movedNote.from) })
-                  : movedNote.kept
-                    ? t("dcDateMovedKeptOld", "Used for {to} — the {from} draft is still saved", { to: short(movedNote.to), from: short(movedNote.from) })
-                    : t("dcDateMovedFrom", "Moved from {from}", { from: short(movedNote.from) })}
+            <div data-testid="dc-date-moved" data-state="copy" className="mb-4 -mt-1 text-[13px] text-amber-900 dark:text-amber-100 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="flex items-center gap-1.5">
+                <Icon name="CalendarClock" size={14} className="shrink-0" />
+                {knownStuck
+                  ? t("dcDateMovedCopied", "Copied to {to} — the draft for {from} is still there", { to: short(movedNote.to), from: short(stays) })
+                  : t("dcDateMovedMaybeCopied", "Copied to {to} — the draft for {from} may still be there", { to: short(movedNote.to), from: short(stays) })}
               </span>
-            </p>
+              {canDelete && (
+                <Button size="sm" variant="secondary" className="min-h-10" disabled={moveBusy} onClick={deleteMovedOld}>
+                  {t("dcDateMovedDeleteOld", "Delete it")}
+                </Button>
+              )}
+              {stillOffline && (
+                <span className="basis-full text-[12px] text-red-700 dark:text-red-300">
+                  {t("dcDateMovedDeleteOffline", "Not deleted — there is no connection. Try again when you're online.")}
+                </span>
+              )}
+            </div>
           );
         })()}
 
@@ -7817,7 +7632,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           ) : (
             // Back to the scan card WITH the scan, to correct it — it threw the
             // read Z-bon and its photo away without asking.
-            <Button variant="ghost" size="lg" onClick={() => {
+            <Button variant="ghost" size="lg"
+              // Round 23: the scan card is not reached offline (scanning needs
+              // the server) — the figures are typed here, and saved as typed.
+              disabled={scanOffline}
+              aria-describedby={scanOffline ? "dc-scan-offline" : undefined}
+              onClick={() => {
               flushWaitingSave();
               if (scanResult) {
                 // The card shows what the form holds NOW — every box edit is
@@ -7995,6 +7815,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               );
             })()}
         </div>
+        {/* Why "← Scan Z-bon" is gray (round 23): scanning needs internet. */}
+        {step === 1 && <div className="mt-2">{scanOfflineEl}</div>}
         </fieldset>
         </>)}
       </div>

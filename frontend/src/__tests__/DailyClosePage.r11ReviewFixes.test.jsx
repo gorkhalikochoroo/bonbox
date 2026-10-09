@@ -228,13 +228,24 @@ describe("daily close — a reopened draft files only its own photo", () => {
     await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
     fireEvent.click(screen.getByText("continueStepByStep"));
     await waitFor(() => expect(container.querySelector("#close-date")).not.toBeNull());
+    // Round 23 (path changed): figures are never moved onto a day that holds
+    // another draft — the question says so, and "Åbn Historik" opens it
+    // there; the draft is continued from History (Rediger).
+    const asked = [];
+    window.confirm = (m) => { asked.push(m); return true; };
     fireEvent.change(container.querySelector("#close-date"), { target: { value: past } });
-    fireEvent.click(await screen.findByText("dcContinueDraft"));
+    await waitFor(() => expect(asked.length).toBe(1));
+    expect(asked[0]).toMatch(/dcMoveTargetBody/);
+    fireEvent.click(await screen.findByText("edit"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("5.000"));
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "5.100" } });
     fireEvent.click(screen.getByRole("tab", { name: "historyTab" }));
-    await waitFor(() => expect(draftPosts()).toHaveLength(1), { timeout: 400 });
-    expect(draftPosts()[0][1]).toMatchObject({ date: past, receipt_photo: null });
+    // (Round 23: tonight's read stayed tonight's — it is filed for today when
+    // the form is left for History; only the past draft's own save counts.)
+    const pastPosts = () => draftPosts().filter(([, b]) => b.date === past);
+    await waitFor(() => expect(pastPosts()).toHaveLength(1), { timeout: 400 });
+    expect(pastPosts()[0][1]).toMatchObject({ date: past, receipt_photo: null });
+    expect(draftPosts().filter(([, b]) => b.date !== past && b.date !== today)).toHaveLength(0);
   });
 });
 

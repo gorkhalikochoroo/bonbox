@@ -16,6 +16,11 @@
  *  6. "Brug dem for {to}" moves: once the new day is filed, the old day's
  *     draft this page made is deleted and the page says "Flyttet fra …"; a
  *     draft it did not make is never touched, and the page says it stays.
+ *
+ * Round 23 (narrowings A and C, expectations changed per test, each said):
+ * Start forfra deletes the day's draft — asked first, naming it — and the
+ * form starts over empty; nothing comes back and nothing is put back. A date
+ * move with figures is asked before the date changes ("Flyt tallene").
  * Strings are asserted by key (t echoes key + values).
  */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -43,6 +48,16 @@ vi.mock("../hooks/useLanguage", () => ({
     setLang: () => {},
     LANGUAGES: [],
   }),
+}));
+// Round 23 — the page's questions are useConfirm dialogs: answered by
+// window.confirm here, or by `confirmAnswer` ("extra" = "Hent … salg").
+const asked = [];
+let confirmAnswer = null;
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (o) => {
+    asked.push(o);
+    return Promise.resolve(confirmAnswer ? confirmAnswer(o) : window.confirm(typeof o === "string" ? o : o?.message));
+  },
 }));
 vi.mock("../hooks/useEntitlements", () => ({
   useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
@@ -75,6 +90,8 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   window.confirm = vi.fn(() => true);
+  asked.length = 0;
+  confirmAnswer = null;
   window.URL.createObjectURL = () => "blob:http://localhost/preview";
   window.URL.revokeObjectURL = () => {};
   localStorage.clear();
@@ -145,16 +162,21 @@ describe("3. a typed close is never filed — or locked — as a Z-bon read afte
     expect(rowFor(today)).toMatchObject({ revenue_total: 17000, receipt_photo: photoUrl("bon3000.jpg") });
     expect(rowFor(today).source_meta).toMatchObject({ kind: "zbon", terminal_totals: [14000, 3000], typed_tills: [0] });
 
+    // Round 23 (expectation changed): Start forfra deletes the day's draft
+    // — the summed 17.000, asked first — and the form starts over empty; the
+    // close typed next is typed, through the lock.
     await backToCard();
     tap(/^startOver$/);
-    await settle();
-    tap(/^skipEnterManually$/);
     await flush();
-    // Said again explicitly: null would have kept the Z-bon.
-    expect(posted().at(-1).source_meta).toEqual({ kind: "typed" });
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|17\.000 kr\.$/);
+    expect(S.deletes).toEqual(["seed1"]);
+    expect(rowFor(today)).toBeUndefined();
+    tap(/^skipEnterManually$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    expect(q("#dc-rev-food").value).toBe("");
+    keyIn(q("#dc-rev-food"), "14000");
+    await flush();
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000, source_meta: { kind: "typed" }, receipt_photo: null });
-    // Not deleted: the reopened draft is the day's.
-    expect(S.deletes).toEqual([]);
 
     await toReview();
     expect(document.body.textContent).not.toContain("autoEmailPhotoToo");
@@ -192,17 +214,21 @@ describe("4. the thrown-away bon's photo leaves the close", () => {
     await flush();
     expect(rowFor(today).receipt_photo).toBe(photoUrl("bon3000.jpg"));
 
+    // Round 23 (expectation changed): Start forfra deletes the draft — the
+    // bon's photo with it — and the close typed next is a new one: typed, no
+    // photo, and "" is never sent for a photo that is not there (U6).
     await backToCard();
     tap(/^startOver$/);
-    await settle();
-    tap(/^skipEnterManually$/);
     await flush();
-    expect(posted().at(-1).receipt_photo).toBe("");
+    expect(S.deletes).toHaveLength(1);
+    expect(rowFor(today)).toBeUndefined();
+    tap(/^skipEnterManually$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    keyIn(q("#dc-rev-food"), "14000");
+    await flush();
+    expect(posted().at(-1).receipt_photo).toBeNull();
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000, source_meta: { kind: "typed" }, receipt_photo: null });
-    // Stays cleared. Round 20 (expectation changed, removal audit U6): the
-    // next change sends null — "" only ever clears a photo this page filed,
-    // and that one is gone; a "" here would clear a photo another device
-    // scanned since. No flip-flop: a step with no change sends nothing.
+    // No flip-flop: a step with no change sends nothing.
     const n = S.posts.length;
     tap(/^next\s*→$/);
     await flush();
@@ -214,7 +240,10 @@ describe("4. the thrown-away bon's photo leaves the close", () => {
     expect(rowFor(today).receipt_photo).toBeNull();
   });
 
-  it("a reopened Z-bon draft with its own photo: Start forfra after a second bon gives that photo back, never clears it", async () => {
+  // Round 23 (expectation changed): Start forfra deletes the reopened draft
+  // — its own photo with it — asked first, naming the summed 20.030; nothing
+  // is given back (the form starts over empty).
+  it("a reopened Z-bon draft with its own photo: Start forfra after a second bon deletes it, asked first — nothing given back", async () => {
     serve([{
       ...TYPED_DRAFT, revenue_total: 17030, revenue_breakdown: { food: 9000, drinks: 6000, takeaway: 2030 },
       payment_breakdown: { card: 12000, cash: 5030 }, moms_mode: "manual", moms_total: 3406,
@@ -231,12 +260,13 @@ describe("4. the thrown-away bon's photo leaves the close", () => {
     expect(rowFor(today).revenue_total).toBe(20030);
     await backToCard();
     tap(/^startOver$/);
-    await settle();
-    tap(/^skipEnterManually$/);
     await flush();
-    expect(rowFor(today)).toMatchObject({
-      revenue_total: 17030, receipt_photo: "u1/kasserapport/own.jpg", source_meta: { kind: "zbon", scans: 1, corrected: [] },
-    });
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|20\.030 kr\.$/);
+    expect(S.deletes).toEqual(["seed1"]);
+    expect(rowFor(today)).toBeUndefined();
+    tap(/^skipEnterManually$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    expect(q("#dc-rev-food").value).toBe("");
   });
 });
 
@@ -269,32 +299,33 @@ describe("5. Start forfra on a photo-only day takes the photo's draft back", () 
     expect(document.body.textContent).toContain("scanZReportTitle");
   });
 
-  // Review fix (expectation changed): the row the banner's "Start forfra"
-  // replaced held only the thrown-away bon after Start forfra on the card —
-  // its photo, "Z-bon (scannet)", and the banner offered it back ("Gemt med
-  // 5.000 kr. — fortsæt den"). The draft it replaced goes back as it was.
-  it("a draft this page did not make (\"Start forfra\" on the banner, then a photo): never deleted — it goes back as it was, and the banner shows it", async () => {
+  // Round 23 (expectation changed): the banner's Start forfra deletes the
+  // draft (asked first) instead of replacing it — so there is nothing to put
+  // back; the photo's own new draft is deleted by the card's Start forfra.
+  it("the banner's Start forfra deletes the draft; a photo then filed is the day's new draft, and Start forfra deletes that — nothing stays", async () => {
     serve([TYPED_DRAFT]);
     await mount();
     tap(/^dcStartOverDraft$/);
-    await settle();
+    await flush();
+    expect(window.confirm.mock.calls.at(-1)[0]).toMatch(/^dcStartOverDeleteBody:.*\|14\.000 kr\.$/);
+    expect(S.deletes).toEqual(["seed1"]);
     await shoot("b5000", "bon5000.jpg");
     tap(/^continueStepByStep$/);
     await flush();
-    expect(rowFor(today)).toMatchObject({ id: "seed1", revenue_total: 5000 });
+    expect(rowFor(today)).toMatchObject({ revenue_total: 5000 });
     await backToCard();
     tap(/^startOver$/);
     await flush();
-    expect(S.deletes).toEqual([]);
-    expect(rowFor(today)).toMatchObject({
-      id: "seed1", status: "draft", revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 },
-      payment_breakdown: { card: 14000 }, source_meta: { kind: "typed" }, receipt_photo: null, notes: "Test", closed_by: "Test",
-    });
-    expect(document.body.textContent).toContain("dcDayHasDraftBody:14.000 kr.");
-    expect(document.body.textContent).not.toContain("dcDayHasDraftBody:5.000 kr.");
+    expect(S.deletes).toHaveLength(2);
+    expect(rowFor(today)).toBeUndefined();
+    expect(document.body.textContent).not.toContain("dcDayHasDraft");
   });
 
-  it("an untouched photo still goes in one tap (no question) — the deletion is not asked about", async () => {
+  // Round 23 (expectation changed): a filed draft is deleted only when the
+  // owner says so — Start forfra is asked whenever something is stored for
+  // the day, naming it (an untouched photo NOT filed yet still goes in one
+  // tap: "simply clears the form").
+  it("a photo's draft filed: Start forfra asks, naming its 5.000 — an unfiled untouched photo still goes in one tap", async () => {
     serve();
     await mount();
     await shoot("b5000", "bon5000.jpg");
@@ -304,8 +335,17 @@ describe("5. Start forfra on a photo-only day takes the photo's draft back", () 
     window.confirm.mockClear();
     tap(/^startOver$/);
     await flush();
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(S.deletes).toHaveLength(1);
+    // Nothing filed: one tap, no question, no request.
+    await shoot("b5000", "bon5000b.jpg");
+    window.confirm.mockClear();
+    tap(/^startOver$/);
+    await flush();
     expect(window.confirm).not.toHaveBeenCalled();
     expect(S.deletes).toHaveLength(1);
+    expect(document.body.textContent).toContain("scanZReportTitle");
   });
 });
 
@@ -319,13 +359,16 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     keyIn(q("#dc-rev-food"), "14000");
     await flush();
     const todayId = rowFor(today).id;
+    // Round 23 (C): asked before the date changes — answered no, nothing is
+    // filed for yesterday and the form stays; then "Flyt tallene".
+    window.confirm.mockReturnValueOnce(false);
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
-    await settle();
-    expect(q('[data-testid="dc-date-move"]')).not.toBeNull();
-    // Nothing is filed for yesterday until the owner answers.
     await flush();
+    expect(asked.at(-1).title).toMatch(/^dcMoveConfirmTitle/);
+    expect(asked.at(-1).message).toMatch(/^dcMoveConfirmBody:/);
     expect(rowFor(yesterday)).toBeUndefined();
-    tap(/^dcDateMoveKeep/);
+    expect(q("#close-date").value).toBe(today);
+    fireEvent.change(q("#close-date"), { target: { value: yesterday } });
     await flush();
     expect(rowFor(yesterday)).toMatchObject({ status: "draft", revenue_total: 14000 });
     expect(rowFor(today)).toBeUndefined();
@@ -347,12 +390,12 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     post.mockImplementation((url, body) => (url === "/daily-close" && body.date === yesterday
       ? Promise.reject(Object.assign(new Error("offline"), {})) : realPost(url, body)));
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
-    await settle();
-    tap(/^dcDateMoveKeep/);
     await flush();
     expect(rowFor(yesterday)).toBeUndefined();
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000 });
     expect(S.deletes).toEqual([]);
+    // (Round 23: said — the old day still has its draft, never "moved".)
+    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedCopied:/);
     // Back online: the next change files yesterday, then today's goes.
     post.mockImplementation(realPost);
     keyIn(q("#dc-rev-drinks"), "100");
@@ -361,26 +404,25 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     expect(rowFor(today)).toBeUndefined();
   });
 
-  // Review fix (expectation strengthened): the old day's row held the moved
-  // 12.000, not its own 14.000, while the note said its draft "er stadig gemt".
-  it("a draft the page did not make (Start forfra on the banner) is never deleted — it goes back as it was, and the page says it stays", async () => {
+  // Round 23 (expectation changed): the banner's Start forfra deletes the
+  // draft (asked first) — nothing is replaced, so the move takes the page's
+  // own new draft off the old day: "Flyttet fra".
+  it("after the banner's Start forfra (the draft deleted), a move of the figures typed next moves them: \"Flyttet fra\"", async () => {
     serve([TYPED_DRAFT]);
     await mount();
     tap(/^dcStartOverDraft$/);
-    await settle();
+    await flush();
+    expect(S.deletes).toEqual(["seed1"]);
     tap(/^skipEnterManually$/);
     await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
     keyIn(q("#dc-rev-food"), "12000");
     await flush();
-    expect(rowFor(today)).toMatchObject({ id: "seed1", revenue_total: 12000 });
+    expect(rowFor(today)).toMatchObject({ revenue_total: 12000 });
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
-    await settle();
-    tap(/^dcDateMoveKeep/);
     await flush();
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 12000 });
-    expect(rowFor(today)).toMatchObject({ id: "seed1", revenue_total: 14000, revenue_breakdown: { food: 9000, drinks: 5000 } });
-    expect(S.deletes).toEqual([]);
-    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedKeptOld:/);
+    expect(rowFor(today)).toBeUndefined();
+    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedFrom:/);
   });
 
   it("\"Hent … salg\" is not a move: the old day's figures and draft stay that day's", async () => {
@@ -391,10 +433,12 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
     keyIn(q("#dc-rev-food"), "14000");
     await flush();
+    // (Round 23: "Hent … salg" is the move question's third answer.)
+    confirmAnswer = () => "extra";
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
     for (let i = 0; i < 4; i++) await settle();
-    tap(/^dcDateMoveFetch/);
     await flush();
+    expect(asked.at(-1).extraLabel).toMatch(/^dcDateMoveFetch/);
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000 });
     expect(S.deletes).toEqual([]);
     expect(q('[data-testid="dc-date-moved"]')).toBeNull();

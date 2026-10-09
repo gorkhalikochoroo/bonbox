@@ -14,8 +14,10 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the draft (the server, version-checked).
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -62,6 +64,8 @@ const renderPage = () =>
 
 beforeEach(() => {
   localStorage.clear();
+  window.confirm = () => true;
+  del.mockClear();
   get.mockReset();
   post.mockReset();
   get.mockImplementation((url) => Promise.resolve({ data: url === "/daily-close" ? [DRAFT] : [] }));
@@ -93,9 +97,15 @@ describe("daily close — the chosen day already has a draft", () => {
     expect(screen.queryByText("dcDayHasDraft")).not.toBeInTheDocument();
   });
 
+  // Round 23 (expectation added): the explicit choice is asked in words that
+  // name the draft and its amount, and the server deletes it first.
   it("starting over is an explicit choice, and then it saves", async () => {
+    const asked = [];
+    window.confirm = (m) => { asked.push(m); return true; };
     const { container } = renderPage();
     fireEvent.click(await screen.findByText("dcStartOverDraft"));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(asked[0]).toMatch(/dcStartOverDeleteBody:.*12\.000 kr\./);
     fireEvent.click(await screen.findByText("skipEnterManually"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
 
@@ -123,7 +133,11 @@ describe("daily close — picking a day that has a draft, mid-form", () => {
     await waitFor(() => expect(screen.getByText("dcDayHasDraft")).toBeInTheDocument());
     expect(container.querySelector("#dc-rev-food").matches(":disabled")).toBe(true);
 
+    // Round 23 (expectation changed): Start forfra deletes that draft and the
+    // page starts over — the scan's start, nothing locked any more.
     fireEvent.click(screen.getByText("dcStartOverDraft"));
+    fireEvent.click(await screen.findByText("skipEnterManually"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food").matches(":disabled")).toBe(false));
+    expect(del).toHaveBeenCalledTimes(1);
   });
 });

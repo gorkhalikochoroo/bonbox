@@ -74,6 +74,8 @@ let reportByDate = {};
 beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
+  // Round 23: a date move with figures is asked first — answered "Flyt tallene".
+  window.confirm = () => true;
   localStorage.clear();
   get.mockReset();
   post.mockReset();
@@ -203,13 +205,17 @@ describe("a draft saved after a date change carries the new day's MOMS (review f
     await waitFor(() => expect(drafts("2026-09-25")).toHaveLength(1), { timeout: 3500 });
     expect(drafts("2026-09-25")[0]).toMatchObject({ moms_total: 2426, exempt_sales_total: 5000 });
 
-    pickDate(container, "2026-06-01");
     // Round 16: figures typed for 25 Sep are filed for 1 Jun only once the
-    // owner says so ("Brug dem for 1. juni") — nothing is saved before that.
-    const choice = await screen.findByTestId("dc-date-move");
+    // owner says so. Round 23 (path changed): asked BEFORE the date moves —
+    // "Flyt tallene til 1. juni?" — so nothing is filed for 1 Jun unless the
+    // answer is yes; answered no, the form stays on 25 Sep.
+    window.confirm = () => false;
+    pickDate(container, "2026-06-01");
     await new Promise((r) => setTimeout(r, 2300));
     expect(drafts("2026-06-01")).toHaveLength(0);
-    fireEvent.click(choice.querySelector("button"));
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
+    window.confirm = () => true;
+    pickDate(container, "2026-06-01");
     await waitFor(() => expect(drafts("2026-06-01").length).toBeGreaterThanOrEqual(1), { timeout: 3500 });
     for (const d of drafts("2026-06-01")) {
       expect(d.moms_total).toBe(3426);

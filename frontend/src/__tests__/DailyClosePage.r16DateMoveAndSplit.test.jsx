@@ -20,8 +20,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
+}));
+// Round 23 — the move's question is a useConfirm dialog (C): each test
+// answers it (true = "Flyt tallene", false = "Bliv på …", "extra" = "Hent …
+// salg") and reads what it asked.
+const asked = [];
+let answer = () => true;
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (o) => { asked.push(o); return Promise.resolve(answer(o)); },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -70,6 +79,9 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   localStorage.clear();
+  asked.length = 0;
+  answer = () => true;
+  del.mockClear();
   get.mockReset();
   post.mockReset();
   scans = [];
@@ -117,73 +129,87 @@ const typedOn25Sep = async () => {
   return view;
 };
 
+// Round 23 (narrowing C): the amber line under the date ("Brug dem for {B}" /
+// "Hent {B}s salg"), asked AFTER the date had moved, is now one question
+// asked BEFORE it moves — "Flyt tallene til {B}? Kladden for {A} slettes." —
+// with "Hent {B}s salg" as its third answer when B has POS sales. The tests
+// below are the same must-fix, rewritten for that question (each says what
+// changed).
 describe("daily close — figures typed for one day, date moved to another (must-fix 2)", () => {
-  it("keeps them, saves nothing, and asks — both choices when the new day has sales", async () => {
+  it("asks before the date moves — both choices when the new day has sales — and files nothing for the new day while it is open", async () => {
     prefillByDate["2026-09-26"] = SALES_DAY;
     const { container } = await typedOn25Sep();
-
+    let respond;
+    answer = () => new Promise((r) => { respond = r; });
     pickDate(container, "2026-09-26");
-    await settled("2026-09-26");
-    // The typed figure stays (a date correction is legitimate)…
+    await waitFor(() => expect(asked).toHaveLength(1));
+    const q = asked[0];
+    expect(q.title).toBe(`dcMoveConfirmTitle:${dayName("2026-09-26")}`);
+    expect(q.message).toBe(`dcMoveConfirmBody:${dayName("2026-09-25")}`);
+    expect(q.confirmLabel).toBe("dcMoveConfirmYes");
+    expect(q.cancelLabel).toBe(`dcMoveConfirmNo:${dayName("2026-09-25")}`);
+    expect(q.extraLabel).toBe(`dcDateMoveFetch:${dayName("2026-09-26")}'s`);
+    // The typed figure is on screen for 25 Sep, and nothing is filed for
+    // 26 Sep while the question is open.
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
     expect(container.querySelector("#dc-rev-food").value).toBe("17.130");
-    // …and one line asks which day it belongs to.
-    expect(choice()).not.toBeNull();
-    expect(choice().textContent).toContain(
-      `dcDateMoveTyped:${dayName("2026-09-25")}|${dayName("2026-09-26")}|${dayName("2026-09-26")}'s`,
-    );
-    expect(choice().textContent).toContain("dcDateMoveKeep");
-    expect(choice().textContent).toContain("dcDateMoveFetch");
-    for (const b of choice().querySelectorAll("button")) expect(b.className).toMatch(/min-h-10/);
-    // Nothing is filed for 26 Sep while it is open.
     await tick(2300);
+    expect(drafts("2026-09-26")).toHaveLength(0);
+    respond(false);
+    await tick(30);
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
     expect(drafts("2026-09-26")).toHaveLength(0);
   }, 12000);
 
-  it("\"Brug dem for 26. september\" saves the typed figures for the new day", async () => {
+  it("\"Flyt tallene\": the typed figures are saved for the new day, and the old day's draft is deleted", async () => {
     prefillByDate["2026-09-26"] = SALES_DAY;
     const { container } = await typedOn25Sep();
     pickDate(container, "2026-09-26");
-    await settled("2026-09-26");
-    fireEvent.click(screen.getByText(/^dcDateMoveKeep/));
-    expect(choice()).toBeNull();
     await waitFor(() => expect(drafts("2026-09-26")).toHaveLength(1), { timeout: 3500 });
     expect(drafts("2026-09-26")[0]).toMatchObject({ date: "2026-09-26", revenue_breakdown: { food: 17130 } });
+    expect(container.querySelector("#close-date").value).toBe("2026-09-26");
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText(/^dcDateMovedFrom:/)).toBeInTheDocument());
   }, 12000);
 
-  it("\"Hent 26. septembers salg\" replaces them with the new day's POS figures", async () => {
+  it("\"Hent 26. septembers salg\" replaces them with the new day's POS figures — nothing moves", async () => {
     prefillByDate["2026-09-26"] = SALES_DAY;
     const { container } = await typedOn25Sep();
+    answer = () => "extra";
     pickDate(container, "2026-09-26");
-    await settled("2026-09-26");
-    fireEvent.click(screen.getByText(/^dcDateMoveFetch/));
-    expect(choice()).toBeNull();
-    expect(container.querySelector("#dc-rev-food").value).toBe("1.100");
+    await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("1.100"));
     expect(container.querySelector("#dc-rev-drinks").value).toBe("750");
     await waitFor(() => expect(drafts("2026-09-26")).toHaveLength(1), { timeout: 3500 });
     expect(drafts("2026-09-26")[0]).toMatchObject({
       revenue_breakdown: { food: 1100, drinks: 750 },
       payment_breakdown: { card: 1250, cash: 600 },
     });
+    // The old day keeps its draft.
+    expect(del).not.toHaveBeenCalled();
+    // (The new day's sales were read once — by the question — not twice.)
+    expect(callsFor("/daily-close/prefill", "2026-09-26")).toBe(1);
   }, 12000);
 
-  it("no sales on the new day: only \"Brug dem\", and moving back to the typed day closes the question", async () => {
+  it("no sales on the new day: no \"Hent\" offered; answered no, the figures stay on their day and nothing is filed elsewhere", async () => {
+    // (Round 23: "moved on again before answering" and "moving back closes
+    // the question" are gone with the in-between state — the date never
+    // moves before the answer.)
     const { container } = await typedOn25Sep();
+    answer = () => false;
     pickDate(container, "2026-06-01");
-    await settled("2026-06-01");
-    expect(choice().textContent).toContain(`dcDateMoveTypedNoSync:${dayName("2026-09-25")}|${dayName("2026-06-01")}`);
-    expect(choice().textContent).not.toContain("dcDateMoveFetch");
-    // Moved on again before answering: still 25 Sep's figures.
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0].extraLabel).toBeUndefined();
+    await tick(30);
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
     pickDate(container, "2026-06-02");
-    await settled("2026-06-02");
-    expect(choice().textContent).toContain(`dcDateMoveTypedNoSync:${dayName("2026-09-25")}|${dayName("2026-06-02")}`);
-    // Back on 25 Sep: they belong here, nothing to ask.
-    pickDate(container, "2026-09-25");
-    await waitFor(() => expect(choice()).toBeNull());
+    await waitFor(() => expect(asked).toHaveLength(2));
+    await tick(30);
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
     expect(drafts("2026-06-01")).toHaveLength(0);
     expect(drafts("2026-06-02")).toHaveLength(0);
   }, 12000);
 
-  it("a Z-bon's figures keep their own guard: no question", async () => {
+  it("a Z-bon's figures are asked about too (round 23 — one question for every day with figures), never with \"Hent\" under a bon", async () => {
     scans = [TILL1];
     prefillByDate["2026-09-25"] = SALES_DAY;
     const { container } = renderPage();
@@ -195,7 +221,10 @@ describe("daily close — figures typed for one day, date moved to another (must
     await waitFor(() => expect(container.querySelector("#dc-rev-food")?.value).toBe("9.000"));
     pickDate(container, "2026-09-25");
     await settled("2026-09-25");
-    expect(choice()).toBeNull();
+    expect(asked).toHaveLength(1);
+    expect(asked[0].title).toMatch(/^dcMoveConfirmTitle/);
+    expect(asked[0].extraLabel).toBeUndefined();
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
     expect(container.querySelector("#dc-rev-food").value).toBe("9.000");
   });
 });

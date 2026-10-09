@@ -22,9 +22,11 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the draft (the server, version-checked).
+const del = vi.fn(() => Promise.resolve({ data: null }));
 const branch = vi.hoisted(() => ({ current: { branchId: null, branchType: "restaurant", hasMultiBranch: false } }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -152,9 +154,17 @@ describe("daily close — a branch's close, with All branches picked", () => {
     expect(closePosts()[0][1]).toMatchObject({ branch_id: "b1", date: today });
   });
 
-  it("starting over replaces that branch's draft", async () => {
+  // Round 23 (expectation changed): Start forfra DELETES that branch's draft
+  // — asked first, on the version shown — and the new close is still filed
+  // under that branch, not beside it (it "replaced" it by a save over it).
+  it("starting over deletes that branch's draft (asked first), and the new close is filed under that branch", async () => {
+    window.confirm = () => true;
+    del.mockClear();
     const { container } = renderPage();
     fireEvent.click(await screen.findByText("dcStartOverDraft"));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(del.mock.calls[0][0]).toBe(`/daily-close/${BASE.id}`);
+    expect(del.mock.calls[0][1].params.base_updated_at).toBe(BASE.updated_at ?? null);
     fireEvent.click(await screen.findByText("skipEnterManually"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "900" } });

@@ -30,8 +30,20 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
 const get = vi.fn();
 const post = vi.fn();
+// Round 23 — Start forfra deletes the day's draft (the server), and the
+// page's questions are useConfirm dialogs: answered by window.confirm here,
+// or by `confirmAnswer` (a move's third answer, "Hent … salg" = "extra").
+const del = vi.fn(() => Promise.resolve({ data: null }));
 vi.mock("../services/api", () => ({
-  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
+  default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn(), delete: (...a) => del(...a) },
+}));
+const asked = [];
+let confirmAnswer = null;
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (o) => {
+    asked.push(o);
+    return Promise.resolve(confirmAnswer ? confirmAnswer(o) : window.confirm(typeof o === "string" ? o : o?.message));
+  },
 }));
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ user: { currency: "DKK", business_type: "restaurant" }, refreshUser: vi.fn() }),
@@ -92,6 +104,9 @@ beforeEach(() => {
   window.scrollTo = () => {};
   Element.prototype.scrollIntoView = () => {};
   window.confirm = vi.fn(() => true);
+  asked.length = 0;
+  confirmAnswer = null;
+  del.mockClear();
   localStorage.clear();
   get.mockReset();
   post.mockReset();
@@ -171,22 +186,30 @@ const startOver = async () => {
 const posted4000Over = () => closePosts().some((b) => b?.revenue_total_override === 4000
   || (b?.payment_breakdown?.card === 4000 && !b?.revenue_breakdown?.food));
 
+// Round 23 (narrowing A): Start forfra no longer gives the owner's own till
+// back — it deletes the day's draft (asked first, naming it) and the form
+// starts over EMPTY. Review 1 / 7's point (a retake is never filed over the
+// thrown-away figures) holds a fortiori: the retake is the day's first till.
+// Rewritten per test (said in each).
 describe("Start forfra on a card seeded from the form (review 1 / 7)", () => {
-  it("typed close: after Start forfra a retaken photo is asked about again, never filed over 17.130", async () => {
+  it("typed close: Start forfra deletes the typed draft (asked, named) and starts over — the retake is the day's first till, never summed with or filed over 17.130", async () => {
     const { container } = await typedClose();
+    await waitFor(() => expect(drafts(today)).toHaveLength(1), { timeout: 3500 });
     await toScanCard();
     shoot(container);
     await waitFor(() => expect(question()).not.toBeNull());
     await startOver();
-    // The typed figure is still the form's.
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/dcStartOverDeleteBody:.*17\.130 kr\./));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     shoot(container);
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:4.000 kr.|17.130 kr.");
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
+    expect(container.querySelector("#scan-total").value).toBe("4.000");
     await tick(2300);
-    expect(posted4000Over()).toBe(false);
+    expect(closePosts().some((b) => b?.revenue_total_override === 21130)).toBe(false);
   }, 12000);
 
-  it("reopened draft (Fortsæt kladden): the same", async () => {
+  it("reopened draft (Fortsæt kladden): the same — the reopened draft is the one deleted", async () => {
     closes = [DRAFT];
     const { container } = renderPage();
     fireEvent.click(await screen.findByText("dcContinueDraft"));
@@ -195,14 +218,17 @@ describe("Start forfra on a card seeded from the form (review 1 / 7)", () => {
     shoot(container);
     await waitFor(() => expect(question()).not.toBeNull());
     await startOver();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/dcStartOverDeleteBody:.*17\.130 kr\./));
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    expect(del.mock.calls[0][0]).toBe(`/daily-close/${DRAFT.id}`);
     shoot(container);
-    await waitFor(() => expect(question()).not.toBeNull());
-    expect(question().textContent).toContain("scanSecondTotalBody:4.000 kr.|17.130 kr.");
+    await waitFor(() => expect(screen.getByText("scanResults")).toBeInTheDocument());
+    expect(question()).toBeNull();
     await tick(2300);
-    expect(posted4000Over()).toBe(false);
+    expect(closePosts().some((b) => b?.revenue_total_override === 21130)).toBe(false);
   }, 12000);
 
-  it("keeps a MOMS the owner typed: Start forfra resets only what a scan put in", async () => {
+  it("a MOMS the owner typed goes with everything else: the next close starts on Auto (was: kept — Start forfra now starts over)", async () => {
     const { container } = await typedClose();
     await toReview();
     typeMoms("3.000");
@@ -213,11 +239,12 @@ describe("Start forfra on a card seeded from the form (review 1 / 7)", () => {
     await startOver();
     fireEvent.click(screen.getByText("skipEnterManually"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
-    expect(container.querySelector("#dc-rev-food").value).toBe("17.130");
+    expect(container.querySelector("#dc-rev-food").value).toBe("");
+    fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "17.130" } });
     await toReview();
     const payload = await lockedPayload();
-    expect(payload.moms_mode).toBe("manual");
-    expect(payload.moms_total).toBe(3000);
+    expect(payload.moms_mode).toBe("auto");
+    expect(payload.moms_total).toBe(3426);
   }, 15000);
 
   it("an applied Z-bon thrown away with Start forfra is still a fresh start (no question)", async () => {
@@ -360,19 +387,23 @@ describe("a drawer count or a MOMS typed for another day (review 4)", () => {
     return view;
   };
 
+  // Round 23 (C): asked BEFORE the date moves (a useConfirm question) —
+  // answered no here: the form stays, nothing is filed for the new day.
   it("synced boxes + a typed drawer count and MOMS: moving the date asks, and files nothing for the new day", async () => {
     const { container } = await syncedWithCashAndMoms();
+    confirmAnswer = () => false;
     fireEvent.change(container.querySelector("#close-date"), { target: { value: "2026-09-26" } });
-    await waitFor(() => expect(choice()).not.toBeNull());
+    await waitFor(() => expect(asked.some((o) => /^dcMoveConfirmTitle/.test(o.title || ""))).toBe(true));
     await tick(2300);
     expect(drafts("2026-09-26")).toHaveLength(0);
+    expect(container.querySelector("#close-date").value).toBe("2026-09-25");
   }, 15000);
 
   it("\"Hent\" takes day A's MOMS and drawer count away with its sales", async () => {
     const { container } = await syncedWithCashAndMoms();
+    // (Round 23: "Hent … salg" is the question's third answer.)
+    confirmAnswer = () => "extra";
     fireEvent.change(container.querySelector("#close-date"), { target: { value: "2026-09-26" } });
-    await waitFor(() => expect(choice()).not.toBeNull());
-    fireEvent.click(screen.getByText(/^dcDateMoveFetch/));
     await waitFor(() => expect(drafts("2026-09-26")).toHaveLength(1), { timeout: 3500 });
     expect(drafts("2026-09-26")[0]).toMatchObject({
       revenue_breakdown: { food: 1100, drinks: 750 },
@@ -383,8 +414,12 @@ describe("a drawer count or a MOMS typed for another day (review 4)", () => {
   }, 15000);
 });
 
+// Round 23 (C, rewritten): there is no open date question any more — the
+// move is asked before the date changes. Review 6's point holds: nothing is
+// filed for the new day until the owner says so, and "Hent" is never offered
+// over a Z-bon's figures.
 describe("a scan summed onto figures typed for another day (review 6)", () => {
-  it("the date question stays open and nothing is filed for the new day until it is answered", async () => {
+  it("nothing is filed for the new day until the move is answered yes — and \"Hent\" is not offered over a Z-bon's figures", async () => {
     prefillByDate["2026-09-26"] = syncDay(1100, 750, 1250, 600);
     const { container } = renderPage();
     fireEvent.click(screen.getByText("skipEnterManually"));
@@ -393,25 +428,27 @@ describe("a scan summed onto figures typed for another day (review 6)", () => {
     await tick(30);
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "17.130" } });
     await waitFor(() => expect(drafts("2026-09-25")).toHaveLength(1), { timeout: 3500 });
-    fireEvent.change(container.querySelector("#close-date"), { target: { value: "2026-09-26" } });
-    await waitFor(() => expect(choice()).not.toBeNull());
 
     await toScanCard();
     shoot(container);
     await waitFor(() => expect(question()).not.toBeNull());
     fireEvent.click(screen.getByText(/scanSecondTotalSum/));
     await waitFor(() => expect(screen.getByText("scanMergedTerminals:2")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("useTheseValuesJumpReview"));
-    await screen.findByText("confirmAndLock");
-    // Still asked — and "Hent" is not offered over a Z-bon's figures.
-    expect(choice()).not.toBeNull();
-    expect(choice().textContent).not.toContain("dcDateMoveFetch");
+    fireEvent.click(screen.getByText("continueStepByStep"));
+    await waitFor(() => expect(container.querySelector("#close-date")).not.toBeNull());
+    confirmAnswer = () => false;
+    fireEvent.change(container.querySelector("#close-date"), { target: { value: "2026-09-26" } });
+    await waitFor(() => expect(asked.some((o) => /^dcMoveConfirmTitle/.test(o.title || ""))).toBe(true));
+    const q = asked.find((o) => /^dcMoveConfirmTitle/.test(o.title || ""));
+    expect(q.extraLabel).toBeUndefined();
     await tick(2300);
     expect(drafts("2026-09-26")).toHaveLength(0);
 
-    fireEvent.click(screen.getByText(/^dcDateMoveKeep/));
+    confirmAnswer = () => true;
+    fireEvent.change(container.querySelector("#close-date"), { target: { value: "2026-09-26" } });
     await waitFor(() => expect(drafts("2026-09-26")).toHaveLength(1), { timeout: 3500 });
     expect(drafts("2026-09-26")[0].revenue_total_override).toBe(21130);
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
   }, 15000);
 });
 

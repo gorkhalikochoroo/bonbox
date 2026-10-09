@@ -15,14 +15,16 @@
  * The reviewers' repros (round 20 sequences lane) are named regressions,
  * scripted step by step under the seed numbers the reviewers reported —
  * each FAILS on the round-20 page (ca9432d6):
- *   31252           Start forfra on a payments-only own till (finding 1);
+ *   31252           Start forfra on a payments-only own till (finding 1;
+ *                   round 23: rewritten — Start forfra deletes the draft);
  *   30015 / 30672 / 50756
  *                   left during a save, opened again (list first, a full
  *                   reload, a ?date= link), the next edit (finding 2);
  *   31176 / 40947   another device saves between the page's open and its
  *                   edit — the newest draft, or "keep mine" (finding 2);
  *   40001 / 40465   Start forfra while the photo's save is on its way
- *                   (finding 4);
+ *                   (finding 4; round 23: rewritten — the draft is deleted
+ *                   once that save has answered);
  *   payments only   never saved (finding 3).
  * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r21Sequences.test.jsx
  */
@@ -49,6 +51,11 @@ vi.mock("../hooks/useLanguage", () => ({
     setLang: () => {},
     LANGUAGES: [],
   }),
+}));
+// Round 23 — the page's questions (useConfirm) are answered by the harness
+// like the owner (closeSequenceHarness: __dcSeqConfirm).
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (opts) => Promise.resolve(globalThis.__dcSeqConfirm ? globalThis.__dcSeqConfirm(opts) : true),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
   useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
@@ -81,7 +88,11 @@ const stored = (S) => S.rows.get(key);
 
 // [name, seed, plan, server rows]
 const PLANS = [
-  ["finding 1 — Start forfra on a payments-only own till left the thrown-away Z-bon (17.030) in the stored draft (sequences lane, seed 31252)", 31252, async (A) => {
+  // Round 23 — rewritten for the confirmed delete: Start forfra deletes the
+  // day's draft (the summed bon AND the payments typed beside it — the
+  // question names its 18.264,50) and the form starts over empty; the
+  // thrown-away Z-bon is never left stored, because nothing is.
+  ["finding 1 — (round 23: Start forfra deletes the day's draft) Start forfra on a payments-only own till summed with a Z-bon: the thrown-away Z-bon (17.030) is never left in a stored draft (sequences lane, seed 31252)", 31252, async (A) => {
     await A.skip();
     await A.typeBox("pay", "mobilepay", "1.234,50");
     await A.toCard();
@@ -91,18 +102,16 @@ const PLANS = [
     await A.toCard();
     await A.startOver();
     await A.settleAll();
-    // What is stored is the day on screen: MobilePay 1.234,50, typed, no
-    // photo — never 18.264,50, the bon's lines, its photo or "Z-bon".
+    A.expect(String(A.dialogs.at(-1)?.message)).toMatch(/dcStartOverDeleteBody:.*18\.264,50/);
+    A.expect(stored(A.S), "nothing stored").toBeUndefined();
+    A.expect(A.where()).toBe("idle");
+    // Typed again from the empty start: a draft of exactly that.
+    await A.skip();
+    await A.typeBox("pay", "mobilepay", "1.234,50");
     const row = stored(A.S);
-    A.expect(row, "a draft of the payments").toBeTruthy();
-    A.expect(Number(row.revenue_total) || 0).toBe(0);
-    A.expect(row.revenue_breakdown).toEqual({});
     A.expect(row.payment_breakdown).toEqual({ mobilepay: 1234.5 });
     A.expect(row.receipt_photo || null).toBe(null);
     A.expect(row.source_meta?.kind).toBe("typed");
-    // Back to the form: the review holds that too (I1z).
-    await A.skip();
-    await A.toStep("review");
   }],
   ["finding 3 — payments only were never saved: leaving lost MobilePay 1.234,50 (sequences lane)", 31253, async (A) => {
     await A.skip();
@@ -182,7 +191,10 @@ const PLANS = [
     A.expect(row.payment_breakdown).toEqual({});
     A.expect(A.S.refused.length).toBe(1);
   }, [seededDraft()]],
-  ["finding 4 — Start forfra while the photo's save was answered late kept the thrown-away bon's photo on the typed draft (sequences lane, seed 40001)", 40001, async (A) => {
+  // Round 23 — rewritten for the confirmed delete: Start forfra waits for
+  // the photo's save to answer, then deletes the day's draft — the bon's
+  // photo with it — and the form starts over empty.
+  ["finding 4 — (round 23: Start forfra deletes the day's draft) Start forfra while the photo's save was answered late: the draft, the thrown-away bon's photo with it, is deleted once that save has answered (sequences lane, seed 40001)", 40001, async (A) => {
     await A.skip();
     await A.typeBox("rev", "food", "3.000");
     await A.toCard();
@@ -194,12 +206,11 @@ const PLANS = [
     await A.toCard();
     await A.startOver();
     await A.settleAll();
-    const row = stored(A.S);
-    A.expect(row.revenue_total).toBe(3000);
-    A.expect(row.receipt_photo || null).toBe(null);
-    A.expect(row.source_meta?.kind).toBe("typed");
+    A.expect(String(A.dialogs.at(-1)?.message)).toMatch(/dcStartOverDeleteBody:.*7\.000/);
+    A.expect(stored(A.S)).toBeUndefined();
+    A.expect(A.S.deletedRows.at(-1)?.receipt_photo).toBe(photoUrl("p1-b4000.jpg"));
   }],
-  ["finding 4 — the same with the save itself late, applied with \"Brug disse tal\" (sequences lane, seed 40465)", 40465, async (A) => {
+  ["finding 4 — (round 23: Start forfra deletes the day's draft) the same with the save itself late, applied with \"Brug disse tal\" (sequences lane, seed 40465)", 40465, async (A) => {
     await A.skip();
     await A.typeBox("rev", "food", "3.000");
     await A.toCard();
@@ -210,9 +221,7 @@ const PLANS = [
     await A.toCard();
     await A.startOver();
     await A.settleAll();
-    const row = stored(A.S);
-    A.expect(row.revenue_total).toBe(3000);
-    A.expect(row.receipt_photo || null).toBe(null);
+    A.expect(stored(A.S)).toBeUndefined();
     A.expect(A.S.posts.some((b) => b.receipt_photo === photoUrl("p1-b4000.jpg"))).toBe(true);
   }],
   // Round 21 review — a save's answer lost on the way back (stored): the

@@ -30,6 +30,11 @@ vi.mock("../hooks/useLanguage", () => ({
     LANGUAGES: [],
   }),
 }));
+// Round 23 — the page's questions (useConfirm) are answered by the harness
+// like the owner (closeSequenceHarness: __dcSeqConfirm).
+vi.mock("../hooks/useConfirm", () => ({
+  useConfirm: () => (opts) => Promise.resolve(globalThis.__dcSeqConfirm ? globalThis.__dcSeqConfirm(opts) : true),
+}));
 vi.mock("../hooks/useEntitlements", () => ({
   useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
 }));

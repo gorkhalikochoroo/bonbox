@@ -187,7 +187,9 @@ describe("B. a Z-report's own prefill is the photo's, not the owner's", () => {
     claude_notes: "To mulige aflæsninger af Kort",
   };
 
-  it("Start forfra deletes the photo's draft in one tap (as before round 20), and the count and notes go with the photo", async () => {
+  // Round 23 (A): asked first — the draft is stored — then deleted; the
+  // photo's count and notes go with it (unchanged).
+  it("Start forfra deletes the photo's draft (asked, naming 5.000), and the count and notes go with the photo", async () => {
     serve();
     await mount();
     await shootWith("b5000", "z.jpg", PF);
@@ -202,8 +204,8 @@ describe("B. a Z-report's own prefill is the photo's, not the owner's", () => {
     window.confirm.mockClear();
     tap(/^startOver$/);
     await flush();
-    // No "your cash count and your note stay": nothing of it was typed.
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
     expect(S.deletes).toEqual([id]);
     expect(rowFor(today)).toBeUndefined();
 
@@ -218,7 +220,11 @@ describe("B. a Z-report's own prefill is the photo's, not the owner's", () => {
     expect(body.cash_counted).toBeNull();
   });
 
-  it("what the owner typed beside the prefill is theirs: a note line added and a recount keep the draft, and the question names them", async () => {
+  // Round 23 (A, expectation changed): what the owner typed beside the
+  // prefill no longer keeps the draft — Start forfra is the owner's explicit
+  // choice to delete it (the question names the draft and its amount), and
+  // the form starts over empty.
+  it("a note line added and a recount beside the prefill: the question names the draft (5.000); answered yes, it is deleted and the form starts empty", async () => {
     serve();
     await mount();
     await shootWith("b5000", "z.jpg", PF);
@@ -234,20 +240,16 @@ describe("B. a Z-report's own prefill is the photo's, not the owner's", () => {
     tap(/^startOver$/);
     await flush();
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    const msg = window.confirm.mock.calls[0][0];
-    expect(msg).toContain("dcScanStartOverDraftKept:DcStartOverKeepsCount");
-    expect(msg).toContain("dcStartOverKeepsNote");
-    expect(S.deletes).toEqual([]);
-    expect(rowFor(today).id).toBe(id);
-    // The photo's lines went with it; the owner's line and count stay.
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(S.deletes).toEqual([id]);
     tap(/^skipEnterManually$/);
     await toStepWith("#cash-counted");
-    expect(q("#cash-counted").value).toBe("2.500");
+    expect(q("#cash-counted").value).toBe("");
     await toStepWith("#dc-notes");
-    expect(q("#dc-notes").value).toBe("Test");
+    expect(q("#dc-notes").value).toBe("");
   });
 
-  it("the prefill alone, the draft kept for a Lukket af typed: the question names Lukket af only", async () => {
+  it("a Lukket af typed beside the prefill: the same — the draft is named and deleted", async () => {
     serve();
     await mount();
     await shootWith("b5000", "z.jpg", PF);
@@ -259,17 +261,18 @@ describe("B. a Z-report's own prefill is the photo's, not the owner's", () => {
     window.confirm.mockClear();
     tap(/^startOver$/);
     await flush();
-    const msg = window.confirm.mock.calls[0][0];
-    expect(msg).toContain("dcScanStartOverDraftKept:DcStartOverKeepsClosedBy");
-    expect(msg).not.toMatch(/dcStartOverKeepsCount|dcStartOverKeepsNote/i);
-    expect(S.deletes).toEqual([]);
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(S.deletes).toHaveLength(1);
   });
 });
 
 /* ─── C ─────────────────────────────────────────────────────────────── */
 
+// Round 23 (A, expectations changed): a save on its way counts as filed —
+// Start forfra is asked (naming what that save files), waits for it to land,
+// and then deletes the day's draft on that very version.
 describe("C. Start forfra while the day's first save is still on its way", () => {
-  it("the reviewers' repro: note typed beside the photo, the first POST held, Start forfra, POST released → the draft is not deleted", async () => {
+  it("note typed beside the photo, the first POST held, Start forfra: asked, and once the POST lands the draft is deleted — nothing of it stays", async () => {
     serve();
     await mount();
     // A slow connection: every save waits (the scan itself goes through).
@@ -286,21 +289,18 @@ describe("C. Start forfra while the day's first save is still on its way", () =>
     window.confirm.mockClear();
     tap(/^startOver$/);
     await settle();
-    // Asked — the draft on its way holds the owner's note, and it stays.
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    const msg = window.confirm.mock.calls[0][0];
-    // (The list leads the sentence, so its first word is capitalised.)
-    expect(msg).toMatch(/dcScanStartOverDraftKept:DcStartOverKeepsNote/);
-    expect(msg).not.toContain("dcScanStartOverDraftGoes");
+    expect(window.confirm.mock.calls[0][0]).toMatch(/^dcStartOverDeleteBody:.*\|5\.000 kr\.$/);
+    expect(S.deletes).toEqual([]);
 
     S.holding.post = false;
     S.releaseHeld();
     await flush();
-    expect(S.deletes).toEqual([]);
-    expect(rowFor(today)).toMatchObject({ status: "draft", notes: "Test" });
+    expect(S.deletes).toHaveLength(1);
+    expect(rowFor(today)).toBeUndefined();
   });
 
-  it("nothing typed beside the photo, its save still on its way: one tap, and the draft goes once it lands", async () => {
+  it("nothing typed beside the photo, its save still on its way: asked too, and the draft goes once it lands", async () => {
     serve();
     await mount();
     S.holding.post = true;
@@ -312,7 +312,7 @@ describe("C. Start forfra while the day's first save is still on its way", () =>
     window.confirm.mockClear();
     tap(/^startOver$/);
     await settle();
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalledTimes(1);
     S.holding.post = false;
     S.releaseHeld();
     await flush();
