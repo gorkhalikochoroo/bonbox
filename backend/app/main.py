@@ -2667,11 +2667,15 @@ def _verify_audit_log_immutability(conn) -> None:
     if not str(engine.url).startswith("postgresql"):
         return
     try:
-        sentinel = _uuid.uuid4()
+        # As strings: audit_logs.id / user_id are VARCHAR(36) (GUID), and a
+        # raw uuid.UUID reaches Postgres typed as uuid — "operator does not
+        # exist: character varying = uuid", so the check never ran and every
+        # boot logged only "could not run" (found on Postgres 16, 9 Oct).
+        sentinel = str(_uuid.uuid4())
         conn.execute(_text(
             "INSERT INTO audit_logs (id, user_id, actor_type, action, entity_type, created_at) "
             "VALUES (:id, :uid, 'system.selftest', 'audit.selftest', 'system', :now)"
-        ), {"id": sentinel, "uid": _uuid.uuid4(), "now": _dt.utcnow()})
+        ), {"id": sentinel, "uid": str(_uuid.uuid4()), "now": _dt.utcnow()})
         conn.execute(_text("DELETE FROM audit_logs WHERE id = :id"), {"id": sentinel})
         still_there = conn.execute(_text(
             "SELECT 1 FROM audit_logs WHERE id = :id"
@@ -2689,6 +2693,10 @@ def _verify_audit_log_immutability(conn) -> None:
             pass
         conn.commit()
     except Exception as e:
+        try:
+            conn.rollback()  # a failed statement aborts the Postgres transaction
+        except Exception:  # noqa: BLE001
+            pass
         import logging as _lg
         _lg.getLogger("bonbox.security").warning(
             "audit_logs immutability self-test could not run: %s", e
