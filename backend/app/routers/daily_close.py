@@ -1368,8 +1368,16 @@ def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) 
 
 def _dead_draft_figures(dead) -> dict:
     """What a soft-deleted draft held, for the audit row of the close that
-    takes its place (close.restored `before`): its figures, cash, notes,
-    photo and source — the reused row's columns are the new close's."""
+    takes its place (close.restored `before`): its figures, cash, photo and
+    source — the reused row's columns are the new close's.
+
+    Never the draft's free-text note, only THAT it had one (had_notes). The
+    note can name staff or illness; audit_logs is append-only, left out of
+    the GDPR export (/auth/export-data) and kept by account erasure for the
+    legal hold — the note would become text the owner can neither see in an
+    export nor erase. While the draft row held it, both worked. No other
+    daily_close audit row holds free text either (a lock row keeps only a
+    digest of what prints, _content_signature)."""
     def _f(v):
         try:
             return None if v is None else round(float(v), 2)
@@ -1385,7 +1393,7 @@ def _dead_draft_figures(dead) -> dict:
         "cash_expected": _f(dead.cash_expected),
         "cash_float": _f(getattr(dead, "cash_float", None)),
         "tips_total": _f(dead.tips_total),
-        "notes": dead.notes,
+        "had_notes": bool((dead.notes or "").strip()),
         "closed_by": dead.closed_by,
         "receipt_photo": dead.receipt_photo,
         "source_meta": dead.source_meta,
@@ -2338,7 +2346,9 @@ def create_daily_close(
     # only, a date move). The deleted DRAFT is taken back as this new close:
     # every column is the new close's, and the audit trail keeps what the
     # deleted draft held (its figures, photo and source — `before` of
-    # close.restored), so nothing of it is lost from the record.
+    # close.restored), so nothing of it is lost from the record. Its
+    # free-text note is not copied there, only that it had one (GDPR:
+    # _dead_draft_figures).
     #
     # Only a draft, and only where the key collides. A soft-deleted LOCKED
     # kasserapport (deletes before the 2026-06-10 lock check let one through)

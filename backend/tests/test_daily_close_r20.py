@@ -212,7 +212,11 @@ def test_a_deleted_branch_draft_is_reused_and_its_figures_are_in_the_audit(db_se
     assert before["receipt_photo"] == "u1/kasserapport/bon5000.jpg"
     assert before["cash_counted"] == 980 and before["cash_float"] == 1500
     assert before["tips_total"] == 120
-    assert before["notes"] == "Kladde før" and before["closed_by"] == "Test"
+    assert before["closed_by"] == "Test"
+    # The draft's free-text note is not copied into the append-only trail
+    # (GDPR: not exportable, kept on erasure) — only that there was one.
+    assert before["had_notes"] is True and "notes" not in before
+    assert "Kladde før" not in (rows[0].before_state or "") + (rows[0].after_state or "")
     assert json.loads(before["source_meta"])["kind"] == "zbon"
     assert before["created_at"]
 
