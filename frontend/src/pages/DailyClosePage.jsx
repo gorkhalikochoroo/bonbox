@@ -9554,7 +9554,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // Keep the modal open with the server's own reason — a manager without
       // the right to unlock, a close already unlocked elsewhere, an offline
       // phone. The owner must know the kasserapport is still LOCKED.
-      setUnlockError(errText(e, t("dcUnlockFailed", "Could not unlock this close.")));
+      // 409 in_progress: "Send igen" is mailing it right now — unlock after.
+      setUnlockError(e?.response?.status === 409 && e?.response?.data?.detail?.code === "in_progress"
+        ? t("dcUnlockWhileSending", "This kasserapport is being sent right now. Wait a moment, then unlock it — it is still locked.")
+        : errText(e, t("dcUnlockFailed", "Could not unlock this close.")));
     } finally {
       setUnlocking(false);
     }

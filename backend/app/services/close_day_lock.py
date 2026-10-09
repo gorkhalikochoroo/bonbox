@@ -16,6 +16,13 @@ two-connection races on Postgres 16 (tests/test_pg_races.py), 9 Oct 2026:
 Postgres only: pg_advisory_xact_lock is released by the transaction's commit
 or rollback, so nothing can leak it (also safe behind a transaction pooler).
 SQLite serialises its writers itself; there it is a no-op.
+
+The one write that runs outside the lock is a mail's outcome (email_status,
+sent_to …): mail is never sent under the lock, so the outcome is written by
+one conditional UPDATE instead — only onto the version the mail was of
+(still locked, same closed_at, not deleted), keeping updated_at — and an
+unlock waits for a "Send igen" in flight (409 in_progress). Review, 9 Oct
+(routers/daily_close._persist_email_status; tests/test_pg_races.py (h)).
 """
 from __future__ import annotations
 

@@ -15,6 +15,9 @@ same-moment runs. The in-memory SQLite tests cannot express any of this. On
 row, an older build's save rewriting a locked kasserapport, and two first
 saves making two live drafts (or a 500); the fix is one writer per day
 (services/close_day_lock.py: pg_advisory_xact_lock per user/day/branch).
+(h), review 9 Oct: a mail's outcome written after the lock was released
+landed on a close unlocked, re-locked or deleted meanwhile (and bumped its
+version: the unlocking page's next save got 412) — gated inside the sender.
 
 How to run — ALONE, in its own pytest process (the app binds its engine when
 it is first imported; inside a full-suite run this file skips itself):
@@ -791,3 +794,183 @@ def test_g_audit_log_self_test_cries_when_the_rule_is_gone(caplog):
                            "ON DELETE TO audit_logs DO INSTEAD NOTHING"))
     crit = [r for r in caplog.records if r.name == "bonbox.security" and r.levelno == logging.CRITICAL]
     assert crit and "IMMUTABILITY CHECK FAILED" in crit[0].getMessage()
+
+
+# ═══ (h) the mail outcome never lands on another version of the day ═════
+# Review, 9 Oct: the resend's claim commits (the day lock goes with it), then
+# the mail goes and its outcome was written through the ORM — no lock, no
+# condition, and a bump of updated_at. An unlock meanwhile answered 200, the
+# draft got 'sent' and a newer stamp (the unlocking page's next save: 412
+# draft_changed), and an unlock → edit → re-lock meanwhile got the OLD mail's
+# outcome on the corrected version ("Sendt til revisor", 'Send igen' →
+# already_sent). Fix: unlock waits for a send in flight (409 in_progress); the
+# outcome is one conditional UPDATE (still locked, same closed_at, not
+# deleted) that keeps the version stamp.
+
+def _gate_mail(monkeypatch, sent, fail_for=()):
+    """A mail key (stub sender only) and a sender that stops at gate
+    'in_send' for an armed racer; `fail_for` racers' sends raise."""
+    import resend
+    monkeypatch.setattr(resend, "api_key", "re_stub_only_never_sent")
+
+    def _send(payload):
+        G.hit("in_send")
+        r = RACER.get()
+        if r in fail_for:
+            raise RuntimeError("stub send failure")
+        sent.append((r, payload))
+        return {"id": "stub"}
+
+    monkeypatch.setattr(resend.Emails, "send", _send)
+
+
+def _paid_user():
+    """A Starter account (no Stripe subscription: a granted plan) — the plan
+    that mails the kasserapport."""
+    uid = _user()
+    s = SessionLocal()
+    try:
+        s.query(User).filter(User.id == uuid.UUID(uid)).update({User.plan: "starter"})
+        s.commit()
+    finally:
+        s.close()
+    return uid
+
+
+def _row(close_id):
+    s = SessionLocal()
+    try:
+        r = s.query(DailyClose).filter(DailyClose.id == uuid.UUID(str(close_id))).one()
+        return {k: getattr(r, k) for k in (
+            "status", "is_deleted", "updated_at", "closed_at", "email_status",
+            "email_sent_to", "email_sent_at", "email_send_key", "revenue_total")}
+    finally:
+        s.close()
+
+
+def _iso(dt):
+    from app.routers.daily_close import _naive_utc
+    return _naive_utc(dt).isoformat() if dt else None
+
+
+def test_h_unlock_waits_for_a_resend_in_flight(monkeypatch):
+    """"Send igen" is mailing; another phone taps Lås op: refused with 409
+    in_progress (still locked), the mail's outcome lands on the locked close,
+    and once the send is done the unlock goes through and the unlocking
+    page's next save on the unlock's version is accepted."""
+    sent = []
+    uid = _paid_user(); day = _new_day()
+    c = _locked_close(uid, day)            # no mail key yet: failed_skipped
+    _gate_mail(monkeypatch, sent)
+    R = ("R", _resend, ("R", uid, c["id"], "resend-h1-key"))
+    U = ("U", _unlock, ("U", uid, c["id"]))
+    rr, ru, blocked = _interleave(R, "in_send", U)
+    print(f"\n[h resend/unlock] resend {rr.status_code} unlock {ru.status_code} {ru.text[:120]}")
+    _no_500(rr, ru)
+    assert rr.status_code == 200, rr.text
+    assert ru.status_code == 409 and _code(ru) == "in_progress", ru.text[:300]
+    assert len(sent) == 1
+    row = _row(c["id"])
+    assert row["status"] == "confirmed" and row["email_status"] == "sent", row
+    assert _audit_count(c["id"], "daily_close.unlock") == 0
+    # The send is done: the unlock goes through, and the page saves on it.
+    ru2 = _unlock("U", uid, c["id"])
+    assert ru2.status_code == 200, ru2.text
+    rs = _post("S", uid, _body(day, 6100, base_updated_at=ru2.json()["updated_at"]))
+    assert rs.status_code == 200, rs.text
+
+
+def test_h_lock_mail_never_stamps_a_close_unlocked_meanwhile(monkeypatch):
+    """The lock mail (no 'sending' claim) is on its way when another phone
+    unlocks: the unlock answers 200, the mail still goes (it is the version
+    that was locked), but its outcome is NOT written onto the draft — the
+    draft keeps the unlock's version stamp, and the unlocking page's next
+    save on that version is accepted (never a false 'saved elsewhere')."""
+    sent = []
+    uid = _paid_user(); day = _new_day()
+    v0 = _seed_draft(uid, day)
+    _gate_mail(monkeypatch, sent)
+    L = ("L", _post, ("L", uid, _lock_body(day, 5000, v0["updated_at"])))
+    U = ("U", _unlock, ("U", uid, v0["id"]))
+    rl, ru, blocked = _interleave(L, "in_send", U)
+    print(f"\n[h lockmail/unlock] lock {rl.status_code} unlock {ru.status_code}")
+    _no_500(rl, ru)
+    assert rl.status_code == 200 and ru.status_code == 200, (rl.text[:200], ru.text[:200])
+    assert len(sent) == 1                  # the locked version went out …
+    assert _audit_count(v0["id"], "close.auto_emailed") == 1   # … and the trail says so
+    row = _row(v0["id"])
+    assert row["status"] == "draft", row
+    assert row["email_status"] is None and row["email_sent_to"] is None, row
+    assert _iso(row["updated_at"]) == ru.json()["updated_at"], (row["updated_at"], ru.json()["updated_at"])
+    rs = _post("S", uid, _body(day, 5100, base_updated_at=ru.json()["updated_at"]))
+    assert rs.status_code == 200, rs.text
+
+
+def test_h_old_send_never_lands_on_the_corrected_version(monkeypatch):
+    """Worst case: a resend whose claim has gone stale (a hung worker) is
+    still mailing while the owner unlocks, corrects and re-locks — and the
+    re-lock's own mail fails. The old send's 'sent' must not land on the
+    corrected version: History keeps the correction's own outcome, and
+    'Send igen' sends it (never 'already_sent' for a version nobody got)."""
+    sent = []
+    uid = _paid_user(); day = _new_day()
+    c = _locked_close(uid, day)
+    _gate_mail(monkeypatch, sent, fail_for=("L2",))
+    monkeypatch.setattr(dcr, "_SENDING_STALE", timedelta(0))   # the claim counts as stale at once
+    reached, release = G.arm("R", "in_send")
+    t = Run(_resend, "R", uid, c["id"], "resend-h3-key"); t.start()
+    try:
+        assert reached.wait(10), "resend never reached the sender"
+        ru = _unlock("U", uid, c["id"])
+        assert ru.status_code == 200, ru.text
+        rl = _post("L2", uid, _lock_body(day, 7777, ru.json()["updated_at"]))
+        assert rl.status_code == 200 and rl.json()["status"] == "confirmed", rl.text[:300]
+        after_relock = _row(c["id"])
+        assert after_relock["email_status"] == "send_failed", after_relock
+    finally:
+        release.set()
+        t.join(30)
+    assert t.err is None, t.err
+    rr = t.res
+    print(f"\n[h stale resend/relock] resend {rr.status_code} row={_row(c['id'])}")
+    _no_500(rr)
+    assert rr.status_code == 200, rr.text
+    assert [r for r, _p in sent] == ["R"]          # the old version went out
+    row = _row(c["id"])
+    assert row["status"] == "confirmed" and float(row["revenue_total"]) == 7777.0
+    assert row["closed_at"] == after_relock["closed_at"]
+    # The correction's own outcome, untouched by the old send:
+    assert row["email_status"] == "send_failed" and row["email_sent_to"] is None, row
+    assert row["updated_at"] == after_relock["updated_at"], row
+    monkeypatch.setattr(dcr, "_SENDING_STALE", timedelta(minutes=3))
+    r2 = _resend("R2", uid, c["id"], "resend-h3-again")
+    assert r2.status_code == 200 and r2.json()["replayed"] is False, r2.text[:300]
+    assert [r for r, _p in sent] == ["R", "R2"]
+
+
+def test_h_old_send_never_writes_into_a_deleted_close(monkeypatch):
+    """A stale send still mailing while the owner unlocks and starts over
+    (the draft is deleted): the deleted row is not written to."""
+    sent = []
+    uid = _paid_user(); day = _new_day()
+    c = _locked_close(uid, day)
+    _gate_mail(monkeypatch, sent)
+    monkeypatch.setattr(dcr, "_SENDING_STALE", timedelta(0))
+    reached, release = G.arm("R", "in_send")
+    t = Run(_resend, "R", uid, c["id"], "resend-h4-key"); t.start()
+    try:
+        assert reached.wait(10), "resend never reached the sender"
+        ru = _unlock("U", uid, c["id"])
+        assert ru.status_code == 200, ru.text
+        rd = _delete("D", uid, c["id"], base=ru.json()["updated_at"])
+        assert rd.status_code in (200, 204), rd.text[:300]
+        after_delete = _row(c["id"])
+        assert after_delete["is_deleted"] is True
+    finally:
+        release.set()
+        t.join(30)
+    assert t.err is None, t.err
+    _no_500(t.res)
+    row = _row(c["id"])
+    assert row["is_deleted"] is True and row["updated_at"] == after_delete["updated_at"], row
+    assert row["email_sent_to"] is None and row["email_status"] == after_delete["email_status"], row

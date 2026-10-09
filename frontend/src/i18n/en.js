@@ -2860,6 +2860,7 @@ export const en = {
     dcUnlockModalBody: "This will allow editing. Enter a reason for the audit trail.",
     dcUnlockReasonPlaceholder: "e.g. Accountant found an error in cash count…",
     dcUnlockFailed: "Could not unlock this kasserapport.",
+    dcUnlockWhileSending: "This kasserapport is being sent right now. Wait a moment, then unlock it — it is still locked.",
     dcUnlockStillLocked: "The kasserapport is still locked.",
     // Delete a KLADDE (draft). Locked closes are records under Bogføringsloven
     // §10 and are never deletable — the button isn't offered for them and the

@@ -2751,6 +2751,7 @@ export const da = {
     dcUnlockModalBody: "Så kan tallene rettes. Skriv en grund til revisionssporet.",
     dcUnlockReasonPlaceholder: "fx Revisor fandt en fejl i kasseoptællingen…",
     dcUnlockFailed: "Kunne ikke låse denne kasserapport op.",
+    dcUnlockWhileSending: "Kasserapporten bliver sendt lige nu. Vent et øjeblik, og lås den så op — den er stadig låst.",
     dcUnlockStillLocked: "Kasserapporten er stadig låst.",
     // Slet en KLADDE. En låst lukning er regnskabsmateriale efter
     // Bogføringsloven §10 og kan aldrig slettes — knappen vises ikke for den,

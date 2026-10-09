@@ -779,23 +779,64 @@ def _close_attachment(db: Session, user: User, dc: DailyClose, profile) -> tuple
     return out["pdf"], out["filename"], out["doc_id"]
 
 
-def _persist_email_status(db: Session, dc: DailyClose, result: dict) -> None:
+def _still_locked_version(locked_at):
+    """WHERE clauses: the close is still the locked version a mail was built
+    from — not unlocked (status), not re-locked (closed_at), not deleted."""
+    from sqlalchemy import or_
+    return [
+        or_(DailyClose.status == "confirmed", DailyClose.status.is_(None)),
+        DailyClose.is_deleted.isnot(True),
+        (DailyClose.closed_at.is_(None) if locked_at is None
+         else DailyClose.closed_at == locked_at),
+    ]
+
+
+def _persist_email_status(db: Session, dc: DailyClose, result: dict, locked_at=None) -> None:
     """Write the lock-mail outcome onto the close so History can show it after
-    a reload. Never raises into the lock path."""
+    a reload. Never raises into the lock path.
+
+    The mail runs after the day's lock is released (never mail under a lock),
+    so this write cannot take it — it is ONE conditional UPDATE instead
+    (review, 9 Oct): it lands only while the close is still the version the
+    mail was built from (`locked_at` = its closed_at when the send began,
+    still locked, not deleted). An unlock, a re-lock or a Start forfra
+    meanwhile keeps its own state; the mail itself is on the audit trail
+    either way. It is send bookkeeping, not a new version of the figures:
+    updated_at is kept, so the page's next save on its version is never
+    taken for "saved elsewhere" (412 draft_changed)."""
     try:
-        dc.email_status = result.get("email_status")
-        dc.email_error = (result.get("email_error") or None)
-        dc.email_attempt_at = utc_now()
+        now = utc_now()
+        values = {
+            DailyClose.email_status: result.get("email_status"),
+            DailyClose.email_error: (result.get("email_error") or None),
+            DailyClose.email_attempt_at: now,
+            DailyClose.updated_at: DailyClose.updated_at,
+        }
         if result.get("sent_to"):
-            dc.email_sent_at = dc.email_attempt_at
-            dc.email_sent_to = ",".join(result["sent_to"])
-        db.commit()
+            values[DailyClose.email_sent_at] = now
+            values[DailyClose.email_sent_to] = ",".join(result["sent_to"])
+        n = (
+            db.query(DailyClose)
+            .filter(DailyClose.id == dc.id, *_still_locked_version(locked_at))
+            .update(values, synchronize_session=False)
+        )
+        db.commit()  # the audit rows recorded before this, whatever n is
+        if not n:
+            logger.info(
+                "close_auto_email: close_id=%s changed during the send (unlocked, "
+                "re-locked or deleted) — status %s not written onto it",
+                dc.id, result.get("email_status"),
+            )
     except Exception as e:  # noqa: BLE001
         logger.warning("close_auto_email: persisting status failed close_id=%s: %s", dc.id, e)
         try:
             db.rollback()
         except Exception:  # noqa: BLE001
             pass
+    try:
+        db.refresh(dc)
+    except Exception:  # noqa: BLE001 — hard-deleted meanwhile: nothing to show
+        pass
 
 
 def _ritual_from_row(dc: DailyClose) -> dict:
@@ -872,6 +913,10 @@ def _fire_close_auto_email(
         "upgrade_hint": None,
     }
 
+    # The version this mail is of: its outcome is written onto the close only
+    # while the close is still that version (_persist_email_status).
+    locked_at = dc.closed_at
+
     feature_on = has_feature(user, "close_auto_email")
     result["feature_available"] = feature_on
 
@@ -885,14 +930,14 @@ def _fire_close_auto_email(
             )
         except Exception:  # noqa: BLE001
             pass
-        _persist_email_status(db, dc, result)
+        _persist_email_status(db, dc, result, locked_at)
         return result
 
     pref_on = bool(getattr(user, "auto_email_on_close", True))
     result["preference_on"] = pref_on
     if not pref_on and not explicit:
         result["email_status"] = "skipped_preference_off"
-        _persist_email_status(db, dc, result)
+        _persist_email_status(db, dc, result, locked_at)
         result["push_status"] = _fire_close_push(db, user, dc)
         return result
 
@@ -995,7 +1040,7 @@ def _fire_close_auto_email(
             after={"email_status": "skipped_no_recipient", "message_id": None},
             ip_address=getattr(request.client, "host", None) if request.client else None,
         )
-        _persist_email_status(db, dc, result)
+        _persist_email_status(db, dc, result, locked_at)
         result["push_status"] = _fire_close_push(db, user, dc)
         return result
 
@@ -1006,7 +1051,7 @@ def _fire_close_auto_email(
         logger.exception("close_auto_email: PDF build failed close_id=%s: %s", dc.id, e)
         result["email_status"] = "failed_skipped"
         result["email_error"] = "pdf_build_failed"
-        _persist_email_status(db, dc, result)
+        _persist_email_status(db, dc, result, locked_at)
         return result
     pdf_hash = compute_document_hash(pdf_bytes)
     result["pdf_hash"] = pdf_hash
@@ -1213,7 +1258,7 @@ def _fire_close_auto_email(
     # The audit row and the status must survive the request: get_db does not
     # commit, so without this the "close.auto_emailed" row was only kept when
     # the Pro push path happened to commit.
-    _persist_email_status(db, dc, result)
+    _persist_email_status(db, dc, result, locked_at)
 
     if status != "sent":
         try:
@@ -3002,12 +3047,21 @@ def resend_close_email(
         ritual = _fire_close_auto_email(db, request, user, dc, explicit=True)
     finally:
         # Never leave a close stuck on 'sending' (the helper persists the real
-        # outcome; this only catches a path that did not).
+        # outcome; this only catches a path that did not). One conditional
+        # UPDATE, like the outcome itself: only THIS request's claim is taken
+        # back (a re-lock meanwhile cleared it; a takeover holds another key),
+        # never on a deleted close, and the version stamp is kept.
         try:
-            db.refresh(dc)
-            if dc.email_status == "sending":
-                dc.email_status = prev_status if prev_status != "sending" else None
-                db.commit()
+            db.query(DailyClose).filter(
+                DailyClose.id == dc.id,
+                DailyClose.email_status == "sending",
+                DailyClose.email_send_key == body.key,
+                DailyClose.is_deleted.isnot(True),
+            ).update({
+                DailyClose.email_status: prev_status if prev_status != "sending" else None,
+                DailyClose.updated_at: DailyClose.updated_at,
+            }, synchronize_session=False)
+            db.commit()
         except Exception:  # noqa: BLE001
             db.rollback()
     audit_service.record(
@@ -3099,6 +3153,20 @@ def unlock_daily_close(
     current_status = getattr(dc, "status", None) or "confirmed"
     if current_status != "confirmed":
         raise HTTPException(status_code=400, detail="Only confirmed closes can be unlocked")
+    # "Send igen" is mailing this kasserapport right now (its claim, under
+    # this same lock): the unlock waits for it (review, 9 Oct). Unlocked
+    # mid-send, the mail went out anyway and its outcome landed on the draft.
+    # A claim older than _SENDING_STALE (a crashed worker) does not hold it.
+    if (dc.email_status == "sending" and dc.email_attempt_at is not None
+            and dc.email_attempt_at > utc_now() - _SENDING_STALE):
+        danish = (user.currency or "DKK") == "DKK"
+        raise HTTPException(status_code=409, detail={
+            "code": "in_progress",
+            "message": ("Kasserapporten bliver sendt lige nu. Vent et øjeblik, og lås den så op "
+                        "— den er stadig låst." if danish else
+                        "This kasserapport is being sent right now. Wait a moment, then unlock "
+                        "it — it is still locked."),
+        })
     if not data.reason or not data.reason.strip():
         raise HTTPException(status_code=422, detail="A reason is required to unlock")
 

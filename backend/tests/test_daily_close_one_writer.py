@@ -297,3 +297,123 @@ def test_lock_is_taken_on_postgres_only(db_session):
     file run through a Postgres port) the advisory lock is taken."""
     on_pg = db_session.get_bind().dialect.name == "postgresql"
     assert lock_close_day(db_session, uuid.uuid4(), date(2026, 6, 5), None) is on_pg
+
+
+# ── 4. the mail outcome never lands on another version (review, 9 Oct) ────
+# The mail runs after the day's lock is released. Its outcome is one
+# conditional UPDATE (still locked, same closed_at, not deleted) that keeps
+# the version stamp; an unlock waits for a "Send igen" in flight.
+
+def _paid(db, email):
+    u = _user(db, email=email)
+    u.plan = "starter"   # the plan that mails the kasserapport (granted, no Stripe sub)
+    db.commit(); db.refresh(u)
+    return u
+
+
+def _locked(client, u, food=5000):
+    r0 = client.post("/api/daily-close", json=_body(1000, base_updated_at="1970-01-01T00:00:00"),
+                     headers=_auth(u))
+    assert r0.status_code == 200, r0.text
+    r = client.post("/api/daily-close", json=_body(
+        food, status="confirmed", acknowledge_anomaly=True, base_updated_at=r0.json()["updated_at"]),
+        headers=_auth(u))
+    assert r.status_code == 200 and r.json()["status"] == "confirmed", r.text
+    return r
+
+
+def _mail_key(monkeypatch, during_send=None):
+    """A mail key with a stub sender (nothing leaves the machine); runs
+    `during_send()` inside the send — another phone acting meanwhile."""
+    import resend
+    sent = []
+    monkeypatch.setattr(resend, "api_key", "re_stub_only_never_sent")
+
+    def _send(payload):
+        if during_send:
+            during_send()
+        sent.append(payload)
+        return {"id": "stub"}
+
+    monkeypatch.setattr(resend.Emails, "send", _send)
+    return sent
+
+
+def _behind_user(db, u, **values):
+    stamp = utc_now() + timedelta(seconds=5)
+    db.connection().execute(
+        DailyClose.__table__.update()
+        .where(DailyClose.__table__.c.user_id == u.id)
+        .values(updated_at=stamp, **values)
+    )
+    return stamp
+
+
+def _audits(db, cid, action):
+    return db.query(AuditLog).filter(
+        AuditLog.entity_id == uuid.UUID(str(cid)), AuditLog.action == action).count()
+
+
+def test_unlock_waits_for_a_send_in_flight(db_session, client):
+    u = _paid(db_session, "onewriter-unlock-sending@cafe.dk")
+    cid = _locked(client, u).json()["id"]
+    dc = db_session.query(DailyClose).filter(DailyClose.id == uuid.UUID(cid)).one()
+    dc.email_status = "sending"; dc.email_attempt_at = utc_now(); dc.email_send_key = "other-tab-key"
+    db_session.commit()
+    r = client.post(f"/api/daily-close/{cid}/unlock", json={"reason": "Forkert kortbeløb"}, headers=_auth(u))
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "in_progress", r.text
+    assert "stadig låst" in r.json()["detail"]["message"]
+    db_session.refresh(dc)
+    assert dc.status == "confirmed" and _audits(db_session, cid, "daily_close.unlock") == 0
+    # A claim left by a crashed worker (stale) does not hold the unlock.
+    dc.email_attempt_at = utc_now() - timedelta(minutes=10)
+    db_session.commit()
+    r = client.post(f"/api/daily-close/{cid}/unlock", json={"reason": "Forkert kortbeløb"}, headers=_auth(u))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "draft"
+
+
+def test_lock_mail_outcome_is_kept_without_moving_the_version(db_session, client, monkeypatch):
+    """Nobody else wrote: the outcome lands on the close, and its version
+    stamp is still the lock's (send bookkeeping is not a new version)."""
+    u = _paid(db_session, "onewriter-mail-plain@cafe.dk")
+    sent = _mail_key(monkeypatch)
+    r = _locked(client, u)
+    assert r.json()["close_ritual"]["email_status"] == "sent" and len(sent) == 1
+    rows = _rows(db_session, u)
+    assert len(rows) == 1 and rows[0].email_status == "sent" and rows[0].email_sent_to == u.email
+    assert dcr._naive_utc(rows[0].updated_at).isoformat() == r.json()["updated_at"]
+
+
+def test_lock_mail_outcome_never_lands_on_a_close_unlocked_meanwhile(db_session, client, monkeypatch):
+    u = _paid(db_session, "onewriter-mail-unlocked@cafe.dk")
+    stamp = {}
+
+    def _unlock_behind():
+        stamp["t"] = _behind_user(db_session, u, status="draft", unlocked_at=utc_now(),
+                                  unlock_reason="Forkert kortbeløb")
+
+    sent = _mail_key(monkeypatch, during_send=_unlock_behind)
+    r = _locked(client, u)
+    assert len(sent) == 1                                   # the locked version went out
+    assert _audits(db_session, r.json()["id"], "close.auto_emailed") == 1
+    rows = _rows(db_session, u)
+    assert len(rows) == 1 and rows[0].status == "draft"
+    assert rows[0].email_status is None and rows[0].email_sent_to is None
+    assert rows[0].updated_at == stamp["t"]                 # the unlock's version, untouched
+
+
+def test_lock_mail_outcome_never_lands_on_a_close_relocked_meanwhile(db_session, client, monkeypatch):
+    u = _paid(db_session, "onewriter-mail-relocked@cafe.dk")
+
+    def _relock_behind():
+        # Unlocked, corrected and locked again — a new closed_at, its own
+        # (not yet known) send status.
+        _behind_user(db_session, u, revenue_total=7777, closed_at=utc_now() + timedelta(seconds=1),
+                     email_status=None, email_sent_to=None, email_sent_at=None)
+
+    _mail_key(monkeypatch, during_send=_relock_behind)
+    _locked(client, u)
+    rows = _rows(db_session, u)
+    assert len(rows) == 1 and rows[0].status == "confirmed" and float(rows[0].revenue_total) == 7777.0
+    assert rows[0].email_status is None and rows[0].email_sent_to is None
