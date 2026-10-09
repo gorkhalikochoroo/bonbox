@@ -792,7 +792,14 @@ export default function DailyClosePage() {
   };
 
   useEffect(() => {
-    const goOn = () => { setIsOnline(true); doSync(); };
+    // The queue is synced after every "online" listener has run (round 22
+    // review): an open form takes its offline copy back first and sends the
+    // draft itself. Run at once, this listener — registered before a form
+    // mounted after a visit to History — sent the copy before the form took
+    // it back, and the form's own save then went too: one of the two was
+    // refused as "saved somewhere else" over the owner's own figures (and a
+    // date move waiting on the new day's save never finished).
+    const goOn = () => { setIsOnline(true); setTimeout(doSync, 0); };
     const goOff = () => setIsOnline(false);
     window.addEventListener("online", goOn);
     window.addEventListener("offline", goOff);
@@ -1517,6 +1524,11 @@ function closeSavesLanded() {
 }
 // How long a save (or the lock) waits for the day's save before it.
 const SAVE_TURN_WAIT_MS = 12000;
+// A take-back (Start forfra, a move) that could not reach the server while
+// the browser said online is tried again after this long — a few times
+// (round 22 review: CloseForm scheduleReleaseRetry).
+const RELEASE_RETRY_MS = 20000;
+const RELEASE_RETRY_MAX = 5;
 
 /** What a draft's payments add up to (payment_total, else its lines). */
 const paymentsOf = (dc) => {
@@ -1965,10 +1977,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // Every save id this form sent: a stored row whose last save is one of
   // these is the form's own (the server's last_save_id).
   const mySaveIdsRef = useRef(new Set());
+  // Drafts shown on the banner that the server said are the form's OWN lost
+  // create (their last save is one this form sent — round 22 review): a
+  // "Start forfra" over one of those replaces nothing of anyone else's.
+  const ownLostRowsRef = useRef(new WeakSet());
   const mountedRef = useRef(true);
+  // A take-back waiting to be tried again, online, on a timer (round 22
+  // review: scheduleReleaseRetry) — never after the form is gone.
+  const releaseRetryTimerRef = useRef(null);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(releaseRetryTimerRef.current);
+      releaseRetryTimerRef.current = null;
+    };
   }, []);
   // "Keep my numbers" answered: the save goes now, not two seconds later.
   const sendNowRef = useRef(false);
@@ -3921,7 +3944,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // of it), or replaced the banner's draft — that is the form's too.
     const lost = lostSaveRef.current[key];
     const id = data.id ?? own?.id ?? null;
-    const isCreated = own ? own.created : (Boolean(created) || Boolean(lost?.created));
+    // A replacement wins over a lost create (round 22 review): the draft
+    // the banner's "Start forfra" was tapped over is put back when the form
+    // takes its figures off the day — never deleted for an earlier save that
+    // got no answer — unless the server said that draft IS the form's own
+    // lost create (ownLostRowsRef): nothing of anyone else's to bring back.
+    const lostCreated = Boolean(lost?.created) && (!replacing || ownLostRowsRef.current.has(replacing));
+    const isCreated = own ? own.created : (Boolean(created) || lostCreated);
     ownRowsRef.current[key] = {
       id,
       created: isCreated,
@@ -4041,6 +4070,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
   /** The stored row's last save is one this form sent. */
   const lastSaveIsMine = (row) => Boolean(row?.last_save_id) && mySaveIdsRef.current.has(row.last_save_id);
+  /**
+   * The server said who wrote the row last (round 22 review). A row with no
+   * `last_save_id` at all is "couldn't check" — a backend that predates the
+   * read, or its audit query failed — never "saved somewhere else": three
+   * outcomes, not two. (null is said: a save with no id wrote it.)
+   */
+  const saveIdKnown = (row) => Boolean(row) && Object.prototype.hasOwnProperty.call(row, "last_save_id");
   /** The autosave looks again; `force`: whatever it holds is sent (the row may be gone or stale). */
   const requestRefile = (force = false) => {
     if (force) lastSentRef.current = null;
@@ -4063,10 +4099,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    * that turns out to be this form's once the saves answered stays ("kept").
    * Waits for every save on its way first; what it decides is decided after.
    */
-  const releaseDayDraft = async (key, { why = "move", keep = false, move = null } = {}) => {
+  const releaseDayDraft = async (key, { why = "move", keep = false, move = null, retrying = null } = {}) => {
     // A take-back of this day still waiting for the network is this one now.
     delete pendingReleaseRef.current[key];
     const gen0 = sendGenRef.current[key] || 0;
+    // The version of the day the form holds, before anything is forgotten:
+    // a take-back retried later goes on it (round 22 review).
+    const base0 = baseRef.current[key];
     // Start forfra emptied the day: the draft this form made for it is off
     // the list at once — figures typed while the saves before it answer are
     // filed as the day's new draft, never under the banner of the old one.
@@ -4100,8 +4139,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // answer at all) is not given up: it is done once the browser is online
     // again (retryReleases), asked first like any take-back after a save
     // with no answer — and dropped if the day is filed again meanwhile.
+    // …and tried again on a timer while the browser says online (round 22
+    // review): a read that timed out on a slow network, a 5xx — no "online"
+    // event ever comes for those, and the thrown-away bon stayed the day's
+    // draft with the page open. The version the form held is kept with it.
     const laterWhenOnline = (ownSnap, lostSnap) => {
-      pendingReleaseRef.current[key] = { why, keep, move, own: ownSnap || null, lost: lostSnap || null, gen: sendGenRef.current[key] || 0 };
+      const was = pendingReleaseRef.current[key];
+      pendingReleaseRef.current[key] = {
+        why, keep, move, own: ownSnap || null, lost: lostSnap || null, gen: sendGenRef.current[key] || 0,
+        base: base0 ?? null, tries: (retrying?.tries ?? was?.tries ?? 0) + 1,
+      };
+      scheduleReleaseRetry();
     };
     // Round 22 — a save of the day got no answer (stored, perhaps, its answer
     // lost): it MAY be the form's own, so the server is asked before anything
@@ -4128,6 +4176,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         laterWhenOnline(own, lost);
         undrop(own0?.id);
         forget();
+        // …and the lost save is still the form's best knowledge of the day
+        // (round 22 review): the next save follows it (base_save_id) on the
+        // version the form held. Forgotten, that save went on "no row known"
+        // and was refused against the form's own landed save — "Kladden er
+        // gemt et andet sted", offering the thrown-away bon's figures.
+        lostSaveRef.current[key] = lost;
+        if (base0 != null) baseRef.current[key] = base0;
         setOverwriteKey((prev) => (prev === key ? null : prev));
         onDraftSaved?.();
         return "stuck";
@@ -4153,6 +4208,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         };
         ownRowsRef.current[key] = own;
         onVersion = { base: row.updated_at || null, saveId: row.last_save_id };
+      } else if (!saveIdKnown(row) && (row.status || "confirmed") === "draft") {
+        // Couldn't check who wrote it last (round 22 review — a backend
+        // that predates the read, or its audit query failed): unknown is
+        // never "not mine". The server decides, as before round 22: the
+        // take-back goes on the version the form held before the lost save
+        // and follows that save (base_save_id) — a version anyone else wrote
+        // since is refused (draft_changed) and stays.
+        own = {
+          id: row.id,
+          created: own ? own.created : Boolean(lost.created),
+          before: own ? own.before : (lost.created ? null : (lost.replacing || null)),
+        };
+        ownRowsRef.current[key] = own;
+        onVersion = { base: base0 || NO_ROW_BASE, saveId: lost.id || null };
       } else {
         // Stored, and not by a save of this form's last: the lost save never
         // landed — the draft the banner replaced is there as it was — or the
@@ -4198,7 +4267,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (onVersion) {
         // The version the server said it holds, written by this form.
         if (onVersion.base) delParams.base_updated_at = onVersion.base;
-        delParams.base_save_id = onVersion.saveId;
+        if (onVersion.saveId) delParams.base_save_id = onVersion.saveId;
       } else {
         if (baseRef.current[key]) delParams.base_updated_at = baseRef.current[key];
         if (lostSaveRef.current[key]?.id) delParams.base_save_id = lostSaveRef.current[key].id;
@@ -4308,7 +4377,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     } catch {
       return;
     }
-    if (!row || lastSaveIsMine(row)) return;
+    // Couldn't check who wrote it last: it stays the form's (never let go of
+    // over a doubt — the next save meets any newer version and asks).
+    if (!row || !saveIdKnown(row) || lastSaveIsMine(row)) return;
     if ((sendGenRef.current[key] || 0) !== gen0 || pendingSaveRef.current?.key === key) return;
     // The "saved somewhere else" question is open for the day: it already
     // says so, and the owner answers it there.
@@ -4357,8 +4428,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if ((sendGenRef.current[key] || 0) !== p.gen) continue;
       if (p.own) ownRowsRef.current[key] = p.own;
       lostSaveRef.current[key] = p.lost || { id: null, runNo: 0, created: Boolean(p.own?.created), replacing: p.own?.before || null };
+      // The version the form held when it first tried (a take-back retried
+      // after its delete had forgotten it).
+      if (p.base != null) baseRef.current[key] = p.base;
       // eslint-disable-next-line no-await-in-loop
-      const outcome = await releaseDayDraft(key, { why: p.why, keep: p.keep, move: p.move });
+      const outcome = await releaseDayDraft(key, { why: p.why, keep: p.keep, move: p.move, retrying: p });
       if (p.move && (outcome === "deleted" || outcome === "none" || outcome === "reverted")) {
         setMovedNote((cur) => (cur && cur.from === p.move.from && cur.to === p.move.to
           ? { ...cur, kept: outcome === "reverted", copy: false } : cur));
@@ -4366,6 +4440,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
   };
   retryReleasesRef.current = retryReleases;
+  // Round 22 review — a take-back still waiting is tried again on a timer
+  // while the browser says online (a read that timed out, a 5xx: no "online"
+  // event comes for those). A few times; the "online" event still does it
+  // after that. Offline, the "online" event is the one that does it.
+  const scheduleReleaseRetry = () => {
+    if (releaseRetryTimerRef.current || !mountedRef.current) return;
+    const waiting = Object.values(pendingReleaseRef.current);
+    if (!waiting.some((p) => (p.tries || 0) <= RELEASE_RETRY_MAX)) return;
+    releaseRetryTimerRef.current = setTimeout(() => {
+      releaseRetryTimerRef.current = null;
+      if (!mountedRef.current) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      retryReleasesRef.current?.();
+    }, RELEASE_RETRY_MS);
+  };
   // Named when the venue has several, so "a draft for this day" says whose.
   const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
     ? (branches.find((b) => String(b.id) === String(existingForDate.branch_id))?.name || "")
@@ -4552,7 +4641,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           if (!was || was.runNo < runNo) {
             lostSaveRef.current[savingKey] = {
               id: saveId, runNo,
-              created: Boolean(was?.created) || savingCreates,
+              // A save replacing the banner's draft never makes the day the
+              // form's to delete (round 22 review) — unless that draft is the
+              // form's own lost create.
+              created: replacing && !ownLostRowsRef.current.has(replacing)
+                ? false : (Boolean(was?.created) || savingCreates),
               replacing: was?.replacing || replacing || null,
             };
           }
@@ -4565,13 +4658,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             requestRefile(true);
           }
           // The new day of a date move, filed — perhaps. Asked, never
-          // assumed: when the save that wrote the day last is this form's,
-          // the move finishes as on an answer (the old day's draft goes);
-          // otherwise it waits for the next answered save of the day.
+          // assumed: when the save that wrote the day last is THIS one (the
+          // one carrying the moved figures), the move finishes as on an
+          // answer (the old day's draft goes); otherwise it waits for the
+          // next answered save of the day. Any save of the form's was not
+          // proof (round 22 review): an earlier one already on the new day
+          // finished the move while the moved figures were on no server.
           const m = moveFromRef.current;
           if (m && savingKey !== m.fromKey) {
+            const landed = saveId;
             readDayFresh(savingKey)
-              .then((row) => { if (lastSaveIsMine(row)) finishMove(savingKey); })
+              .then((row) => { if (row && row.last_save_id === landed) finishMove(savingKey); })
               .catch(() => { /* offline: the next answered save finishes it */ });
           }
         }
@@ -4589,8 +4686,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // 22): said at once — the day's "already closed and locked" banner,
           // with the amount once History has the locked row — never the
           // owner's next edits refused in silence until the lock tap.
-          setLockedRowRejected(true);
-          onDraftSaved?.();
+          // Only for the day the form is on (round 22 review): the OLD day's
+          // save answering 409 after a date move marked the NEW day locked —
+          // its banner, "Ikke gemt", and the moved figures never saved.
+          if (savingKey === rowKeyRef.current) {
+            setLockedRowRejected(true);
+            onDraftSaved?.();
+          }
         }
       } finally {
         inflightRef.current.delete(tracker);
@@ -4675,8 +4777,25 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     let built = null;
     try { built = buildPayloadRef.current("draft"); } catch { built = null; }
     if (!built) return false;
-    const payload = { ...built, base_updated_at: baseFor(run.key) };
-    const lost = lostSaveRef.current[run.key];
+    // A date move answered ("Brug dem for {to}") and not finished — the new
+    // day's save got no answer, so the old day's draft was never taken back
+    // (round 22 review). The figures are kept on the day the server may
+    // already hold them on: a copy for the NEW day was sent once online
+    // while the old day still held them — the money on both days, the move
+    // dying with the form. On the old day's version, following its own save
+    // whose answer was lost: one day holds them, the latest figures, and the
+    // move is simply not done (the owner sees the draft on that day).
+    const m = moveFromRef.current;
+    const toOld = Boolean(m) && m.fromKey !== run.key && Boolean(ownRowsRef.current[m.fromKey]
+      || lostSaveRef.current[m.fromKey] || keyInflightRef.current[m.fromKey]?.size);
+    const dayKey = toOld ? m.fromKey : run.key;
+    const payload = { ...built, base_updated_at: baseFor(dayKey) };
+    if (toOld) {
+      const [fromDate, fromBranch] = String(m.fromKey).split("|");
+      payload.date = fromDate;
+      payload.branch_id = fromBranch || null;
+    }
+    const lost = lostSaveRef.current[dayKey];
     if (lost?.id) payload.base_save_id = lost.id;
     const prev = offlineCopyRef.current;
     if (prev && getOfflineQueue().some((it) => it.id === prev.id)) {
@@ -4723,7 +4842,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Going away OFFLINE (round 22): the waiting draft is kept on this device
     // (the offline queue sends it once online) — a request now only fails,
     // and a closing tab leaves no JS to keep it afterwards.
-    const onHide = () => { if (!keepOfflineCopy()) flush({ keepalive: true }); keepConflictCopy(); };
+    // The copy kept, the autosave's timer stops too (round 22 review), as the
+    // flush stopped it: the draft still waits here (pendingSaveRef) for the
+    // "online" event, the next change or the way out — never a request of
+    // its own while the copy is on the queue.
+    const onHide = () => {
+      if (keepOfflineCopy()) clearTimeout(autoSaveRef.current);
+      else flush({ keepalive: true });
+      keepConflictCopy();
+    };
     // Back (the tab shown again): the question is on screen again, and the
     // copy kept for the way out is not a second place to answer it — nor is
     // the offline copy (the draft is still waiting here).
@@ -5408,7 +5535,30 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   setOverwriteKey(`${businessDate}|${b || ""}`);
                   // The draft as it is now: filed back if the form takes its
                   // own figures off the day again (releaseDayDraft).
-                  overwriteSnapRef.current = { key: `${businessDate}|${b || ""}`, row: existingForDate };
+                  const snapKey = `${businessDate}|${b || ""}`;
+                  const snapRow = existingForDate;
+                  overwriteSnapRef.current = { key: snapKey, row: snapRow };
+                  // A save of the day got no answer and would have made its
+                  // row (round 22 review): the draft on the banner may be that
+                  // very save — the form's own. Asked: when the server says
+                  // its last save is one this form sent, there is nothing of
+                  // anyone else's to put back, and taking the figures off the
+                  // day deletes it; otherwise it is put back as it was.
+                  // Exactly the version on the banner, written last by a save
+                  // sent BEFORE this tap — never the form's own replacing save
+                  // landing first on a slow network.
+                  if (lostSaveRef.current[snapKey]?.created && snapRow?.id != null) {
+                    const sentBefore = new Set(mySaveIdsRef.current);
+                    readDayFresh(snapKey).then((row) => {
+                      if (!row || row.id !== snapRow.id || !saveIdKnown(row) || !row.last_save_id
+                        || !sentBefore.has(row.last_save_id) || row.updated_at !== snapRow.updated_at) return;
+                      ownLostRowsRef.current.add(snapRow);
+                      const o = ownRowsRef.current[snapKey];
+                      if (o && o.before === snapRow) ownRowsRef.current[snapKey] = { ...o, created: true, before: null };
+                      const l = lostSaveRef.current[snapKey];
+                      if (l && l.replacing === snapRow) lostSaveRef.current[snapKey] = { ...l, created: true };
+                    }).catch(() => { /* not asked: it is put back as it was */ });
+                  }
                 }}>{t("dcStartOverDraft", "Start over")}</Button>
               </>)}
             </div>

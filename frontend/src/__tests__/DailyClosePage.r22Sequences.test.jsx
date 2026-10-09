@@ -27,7 +27,10 @@
  * and the same class on the other paths the rule covers (a replaced draft
  * moved, the new day's save of a move losing its answer, the newest draft
  * locked elsewhere, leaving and coming back — 22009 / 22010 pass on dfb46ddb
- * too and pin it). FOUND: seeds this variant failed while the round was
+ * too and pin it); and from the round's own review, 22011 — the old day's
+ * save meeting another device's lock after "Brug dem" marked the NEW day
+ * locked (fails on 7c4dd7a0; the other review repros are focused tests in
+ * DailyClosePage.r22Review). FOUND: seeds this variant failed while the round was
  * built — 9157, 9204, 9259 and 9293 fail on dfb46ddb; 9474 pins the
  * harness's rule that a day locked elsewhere is never said "moved".
  * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r22Sequences.test.jsx
@@ -206,6 +209,22 @@ const PLANS = [
     await A.notes();
     A.expect(A.S.refused.length).toBe(0);
     A.expect(stored(A.S).payment_breakdown).toEqual({ card: 2000 });
+  }],
+  // Round 22 review — the old day's save answering 409 (another device
+  // locked it) after the figures were moved: the NEW day was said locked,
+  // "Ikke gemt", and the moved figures never saved.
+  ["round 22 review — a held save of today meets another device's lock after \"Brug dem\" for yesterday: yesterday saves, and no lock is said on it", 22011, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    await A.otherDeviceLocks();
+    A.slow("post", 2);
+    await A.typeBox("rev", "food", "3.500");
+    await A.moveDate(A.yesterday);
+    await A.settleAll();
+    A.expect(A.S.lockConflicts).toBeGreaterThan(0);
+    A.expect(A.hasText("dcDayAlreadyLocked")).toBe(false);
+    A.expect(stored(A.S, `${A.yesterday}|`)).toMatchObject({ status: "draft", revenue_breakdown: { food: 3500 } });
+    A.expect(stored(A.S)).toMatchObject({ status: "confirmed", revenue_breakdown: { food: 3000 } });
   }],
 ];
 

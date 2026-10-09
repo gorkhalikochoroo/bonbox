@@ -1389,14 +1389,19 @@ def _last_save_id(db, user, close_id) -> str | None:
     return sid if isinstance(sid, str) and sid else None
 
 
-def _last_save_ids(db, user, close_ids) -> dict:
+def _last_save_ids(db, user, close_ids) -> dict | None:
     """{str(close_id): save_id | None} for these closes, in ONE query (round
     22): the page's own id for the save that wrote each last, as
     _last_save_id reads it one row at a time. A page whose save got no answer
     (stored, the answer lost) reads its day with this before it takes a
     draft back — the row is its own exactly when the save that wrote it last
     is one the page sent. Bounded by the rows asked for (a day: one per
-    branch); History's list never asks for it."""
+    branch); History's list never asks for it.
+
+    None when the audit trail could not be read (round 22 review): "couldn't
+    check" is not "written by a save with no id" — the caller then names no
+    last_save_id at all, and the page treats the row as unknown, never as
+    saved somewhere else."""
     import json as _json
     ids = [cid for cid in close_ids if cid is not None]
     out = {str(cid): None for cid in ids}
@@ -1416,7 +1421,7 @@ def _last_save_ids(db, user, close_ids) -> dict:
             .all()
         )
     except Exception:  # noqa: BLE001
-        return out
+        return None
     seen = set()
     for entity_id, after_state in rows:
         k = str(entity_id)
@@ -3033,8 +3038,11 @@ def list_daily_closes(
     _fill_email_status_from_trail(db, user, closes, rows)
     if with_save_id:
         sids = _last_save_ids(db, user, [dc.id for dc in closes])
-        for dc, row in zip(closes, rows):
-            row["last_save_id"] = sids.get(str(dc.id))
+        # Not read (the audit query failed): no last_save_id at all — the
+        # page's "couldn't check", never None ("no id wrote it").
+        if sids is not None:
+            for dc, row in zip(closes, rows):
+                row["last_save_id"] = sids.get(str(dc.id))
     return rows
 
 
@@ -5005,8 +5013,11 @@ def get_daily_close(
     out = _to_response(dc)
     # Round 22: the page's id for the save that wrote it last — a page whose
     # save got no answer knows the row is its own exactly when this is one
-    # of the save ids it sent.
-    out["last_save_id"] = _last_save_id(db, user, dc.id)
+    # of the save ids it sent. Left out when it could not be read (round 22
+    # review: unknown, never "not the page's").
+    sids = _last_save_ids(db, user, [dc.id])
+    if sids is not None:
+        out["last_save_id"] = sids.get(str(dc.id))
     return out
 
 
@@ -5085,6 +5096,25 @@ def delete_daily_close(
         _changed = _draft_changed_since(dc, base_updated_at, base_save_id, db=db, user=user)
         if _changed is not None:
             raise HTTPException(status_code=412, detail=_changed)
+        # …and the version just checked is held until this delete commits
+        # (round 22 review), as a save's is (_claim_draft_version): the check
+        # reads the row without a lock and the delete's UPDATE has no version
+        # condition — another phone's save committing in between (it got 200)
+        # was deleted with this page's figures. A newer version committed
+        # first is read and checked like the first one (412 draft_changed, or
+        # the page's own save it follows — base_save_id); a row locked
+        # meanwhile keeps its 409.
+        if base_updated_at is not None and (dc.status or "").lower() == "draft":
+            from types import SimpleNamespace as _NS
+            _claim_draft_version(db, dc, _NS(base_updated_at=base_updated_at, base_save_id=base_save_id), user)
+            if (dc.status or "").lower() == "confirmed":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "close_locked",
+                        "message": "This close is locked. Unlock it first, then delete.",
+                    },
+                )
     dc.is_deleted = True
     dc.deleted_at = utc_now()
     # L7 — every delete leaves an audit trail (who, when, which date).
