@@ -11,6 +11,7 @@ import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatHours } from "../utils/hours";
 import { localIso, dateLocale } from "../utils/dateFormat";
@@ -173,6 +174,9 @@ const NO_PAY = { hours: 0, base_earned: 0, overtime: 0, overtime_hours: 0, tips:
 export default function StaffPayrollPage() {
   const { user, refreshUser } = useAuth();
   const { t, lang } = useLanguage();
+  // Only to order the before-send check like the server (send-to-revisor
+  // below); the send itself is gated by the server (402 → UpgradeNudge).
+  const { hasFeature: hasEntitlement, isReady: entitlementsReady } = useEntitlements();
   const currency = displayCurrency(user?.currency);
   // A manager reaches this tab (/staff/hours is not an ownerOnly destination)
   // and keeps the wage-cost estimate they build rotas against. The two payroll
@@ -639,7 +643,15 @@ export default function StaffPayrollPage() {
     // Said BEFORE the send, not after a confirm that promises "To: …, You
     // get a copy" (release gate, 9 Oct) — on a fresh read of the account
     // only; without one, the server decides (403 → the same line).
-    const heldNow = heldReasonForUser(await refreshUser?.());
+    // Only where confirming is the LAST wall, as the server orders it
+    // (plan 402, then opt-out, then confirm — revisor_mail.
+    // require_verified_revisor_sender): a plan without the direct send, an
+    // unknown plan, or a revisor who unsubscribed goes to the server, which
+    // answers with the wall that is really there (release gate review, 9 Oct).
+    const confirmIsTheLastWall = entitlementsReady
+      && hasEntitlement("direct_accountant_email")
+      && !profileQ.data?.accountant_opted_out;
+    const heldNow = confirmIsTheLastWall ? heldReasonForUser(await refreshUser?.()) : null;
     if (heldNow) {
       setHeldError(heldNow);
       return;
@@ -696,12 +708,15 @@ export default function StaffPayrollPage() {
     setError("");
     setSendToast("");
     try {
+      // One attempt per tap: a 5xx here may mean the server TRIED to mail
+      // the revisor — the interceptor's replay of a POST 503 could mail the
+      // revisor up to five times (release gate review, 9 Oct).
       const r = await api.post("/staff/payroll/send-to-accountant", {
         period_start: period.period_start,
         period_end: period.period_end,
         staff_ids: Array.from(selectedIds),
         cc_self: true,
-      });
+      }, { _noRetry: true });
       if (r.data?.ok) {
         setSendToast(
           (t("payrollSentToPlain", "Sent to") + " " + r.data.sent_to) +

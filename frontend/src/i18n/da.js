@@ -3602,7 +3602,7 @@ export const da = {
     // Cookie consent banner
     cookieBannerAria: "Cookiesamtykke",
     cookieBannerTitle: "Vi bruger cookies",
-    cookieBannerBody: "BonBox bruger nødvendige cookies for at holde dig logget ind. Indstillinger, du selv vælger, fx lyst/mørkt tema og tip, du har lukket, gemmes på din enhed, fordi BonBox skal bruge dem til det, du har bedt om — de bruges ikke til andet. To kategorier er valgfrie: Analyse (brugsstatistik: hvilke funktioner der bruges, og hvor appen fejler) og Markedsføring (koden fra QR-koden på en af vores trykte foldere gemmes på din enhed i op til 30 dage, så vi kan måle, hvilken folder der førte til en tilmelding). “Accepter alle” slår begge til.",
+    cookieBannerBody: "BonBox bruger nødvendige cookies for at holde dig logget ind. Indstillinger, du selv vælger, fx lyst/mørkt tema og tip, du har lukket, gemmes på din enhed, fordi BonBox skal bruge dem til det, du har bedt om — de bruges ikke til andet. To kategorier er valgfrie: Analyse (brugsstatistik: hvilke funktioner der bruges, og hvor appen fejler — registreres for loggede ind konti, indtil du afviser) og Markedsføring (kun hvis du slår den til: koden fra QR-koden på en af vores trykte foldere gemmes på din enhed i op til 30 dage, så vi kan måle, hvilken folder der førte til en tilmelding). “Accepter alle” slår begge til.",
     cookieAcceptAll: "Accepter alle",
     cookieDeclineNonEssential: "Afvis ikke-nødvendige",
     cookieCustomize: "Tilpas",

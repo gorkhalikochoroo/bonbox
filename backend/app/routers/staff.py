@@ -7641,8 +7641,13 @@ def send_payroll_to_accountant(
     cc = [user.email] if owner_copied else None
 
     if not ok:
+        # 502 when Resend was ASKED and failed: the outcome is not "nothing
+        # happened", and the app's interceptor replays a POST 503 ("not
+        # processed") up to four times — one tap could mail the revisor five
+        # times. 503 only when nothing was attempted (mail not configured), as
+        # daily_close does (release gate review, 9 Oct).
         raise HTTPException(
-            status_code=503,
+            status_code=503 if err == "email_not_configured" else 502,
             detail={
                 "code": "email_send_failed",
                 "reason": err or "unknown",

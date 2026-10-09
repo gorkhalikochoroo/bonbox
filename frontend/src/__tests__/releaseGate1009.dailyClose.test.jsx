@@ -28,6 +28,8 @@ let closes = [];
 let profile = {};
 let rangeCounts = null;
 let authUser = {};
+// The plan read: ready unless a test says the entitlements are still loading.
+let entitlementsReady = true;
 vi.mock("../services/api", () => ({
   default: { get: (...a) => get(...a), post: (...a) => post(...a), patch: vi.fn() },
 }));
@@ -47,7 +49,9 @@ vi.mock("../hooks/useLanguage", () => ({
   }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true }),
+  useEntitlements: () => ({
+    hasFeature: () => entitlementsReady, minPlanForFeature: () => null, isReady: entitlementsReady,
+  }),
 }));
 vi.mock("../components/BranchSelector", () => ({
   useBranch: () => ({ branchId: null, branchType: "restaurant", hasMultiBranch: false }),
@@ -90,6 +94,7 @@ beforeEach(() => {
   refreshUser.mockReset();
   refreshUser.mockResolvedValue(undefined);
   rangeCounts = null;
+  entitlementsReady = true;
   authUser = { ...CLAIM_USER };
   profile = { accountant_email: "pia@realrevisor.dk", company_name: "Testcafé ApS" };
   closes = [HELD_CLAIM];
@@ -197,6 +202,19 @@ describe("the period send says what will happen before the send (item 2)", () =>
     expect(link.closest("[role='alert']")).toHaveTextContent("dcMailHeldUnverified");
     expect(confirmMock).not.toHaveBeenCalled();
     expect(sendCalls()).toHaveLength(0);
+  });
+
+  it("while the plan is still loading, no held line ahead of the server's order (review, 9 Oct)", async () => {
+    // A Free owner's plan wall comes before "confirm" on the server; with
+    // the plan unknown the page must not send the owner to confirm first.
+    entitlementsReady = false;
+    refreshUser.mockResolvedValue({ ...CLAIM_USER, email_verified: false, claim_question_open: false });
+    await pickPeriod();
+    fireEvent.click(screen.getByRole("button", { name: /sendToAccountantBtn/ }));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    expect(refreshUser).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("dc-send-verify-now")).toBeNull();
+    expect(screen.queryByTestId("dc-send-claim-resend")).toBeNull();
   });
 
   it("a 403 with the open question (no fresh read) says it truly", async () => {

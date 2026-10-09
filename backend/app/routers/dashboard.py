@@ -1290,23 +1290,27 @@ def send_daily_brief_now(
         skip after the cron has already run).
       • Returns structured result; never raises on internal errors —
         send_brief_to_user already wraps in try/except.
-      • The same rules as the other "send a test mail to myself" buttons
+      • The same rule as the other "send a test mail to myself" buttons
         (/email/test-digest, -alerts, -welcome), sharing their counter: one
-        per 10 minutes and five a day per account (429). And only to a
-        CONFIRMED address (403 email_unverified): the address is whatever
-        was typed at signup until the code is entered, and force=True skips
-        the once-a-day stamp — so a throw-away signup with somebody else's
-        address could fill that inbox (release gate, 9 Oct).
+        per 10 minutes and five a day per account (429). The address is
+        whatever was typed at signup until the code is entered and
+        force=True skips the once-a-day stamp, so the ceiling — not a
+        confirmed-address wall — is what keeps a throw-away signup from
+        filling somebody else's inbox: the recorded self-test policy, the
+        same as the three test mails (release gate review, 9 Oct; an
+        unconfirmed or grandfathered owner keeps the button).
+      • A send that cannot go at all (plan without the brief mail, the
+        owner opted out, no usable address) answers as before and does NOT
+        use up the ceiling — nothing was attempted.
     """
-    if getattr(user, "email_verified", False) is not True:
-        raise HTTPException(status_code=403, detail={
-            "code": "email_unverified",
-            "message": ("Confirm your e-mail address first (Profile → Unverified) — "
-                        "then BonBox can send the brief to it."),
-            "message_da": ("Bekræft først din e-mailadresse (Profil → Ikke bekræftet) — "
-                           "så kan BonBox sende briefen til den."),
-        })
     from app.routers.email_settings import _enforce_self_test_ceiling, _record_self_test
+    from app.services.daily_brief_email import brief_send_blocker
+    try:
+        blocker = brief_send_blocker(user)
+    except Exception:  # noqa: BLE001 — send_brief_to_user decides then
+        blocker = None
+    if blocker:
+        return {"ok": False, "sent_at": None, "reason": blocker, "error": None}
     _enforce_self_test_ceiling(db, user)
     _record_self_test(db, user, "daily_brief")
     result = send_brief_to_user(db, user, force=True)

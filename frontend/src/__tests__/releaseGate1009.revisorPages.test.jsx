@@ -18,6 +18,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   get: vi.fn(), post: vi.fn(), refreshUser: vi.fn(),
   user: { id: 1, currency: "DKK", role: "owner", email_verified: true, claim_question_open: false },
+  // The plan's features (all on unless a test says otherwise).
+  features: null,
 }));
 vi.mock("../services/api", () => ({
   default: { get: (...a) => h.get(...a), post: (...a) => h.post(...a), patch: vi.fn() },
@@ -33,7 +35,10 @@ vi.mock("../hooks/useLanguage", () => ({
   LanguageProvider: ({ children }) => children,
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => "starter", isReady: true }),
+  useEntitlements: () => ({
+    hasFeature: (f) => (h.features ? h.features.includes(f) : true),
+    minPlanForFeature: () => "starter", isReady: true,
+  }),
 }));
 const confirmMock = vi.fn(async () => true);
 vi.mock("../hooks/useConfirm", async (orig) => ({ ...(await orig()), useConfirm: () => confirmMock }));
@@ -83,6 +88,7 @@ beforeEach(() => {
   h.get.mockReset(); h.post.mockReset(); h.refreshUser.mockReset();
   h.refreshUser.mockResolvedValue(undefined);
   h.user = { id: 1, currency: "DKK", role: "owner", email_verified: true, claim_question_open: false };
+  h.features = null;
   confirmMock.mockReset();
   confirmMock.mockImplementation(async () => true);
 });
@@ -168,5 +174,94 @@ describe("MOMS-angivelse → revisor", () => {
     fireEvent.click(send);
     await waitFor(() => expect(sends("/tax/filing-pdf/send-to-accountant")).toHaveLength(1));
     expect(confirmMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── Review of the release-gate fixes (9 Oct) ─────────────────────────────
+//   a. One POST per tap: both sends pass { _noRetry: true } — the server
+//      answers 5xx AFTER it asked Resend, and the interceptor replays a POST
+//      503 up to four times (five mails to the revisor from one tap).
+//   b. The before-send "held" line only where confirming is the LAST wall,
+//      as the server orders it: a plan without the direct send (payroll) or
+//      a revisor who unsubscribed goes to the server, which names the wall
+//      that is really there.
+const payrollCalls = () => sends("/staff/payroll/send-to-accountant");
+const taxCalls = () => sends("/tax/filing-pdf/send-to-accountant");
+
+describe("review: one POST per tap (_noRetry)", () => {
+  it("lønningsliste: the send carries _noRetry", async () => {
+    h.refreshUser.mockResolvedValue({ ...h.user });
+    h.post.mockResolvedValue({ data: { ok: true, sent_to: "pia@realrevisor.dk" } });
+    const send = await openPayroll();
+    fireEvent.click(send);
+    await waitFor(() => expect(payrollCalls()).toHaveLength(1));
+    expect(payrollCalls()[0][2]).toEqual(expect.objectContaining({ _noRetry: true }));
+  });
+
+  it("MOMS-angivelse: the send carries _noRetry", async () => {
+    h.refreshUser.mockResolvedValue({ ...h.user });
+    h.post.mockResolvedValue({ data: { ok: true, sent_to: "pia@realrevisor.dk" } });
+    const send = await openTax();
+    fireEvent.click(send);
+    await waitFor(() => expect(taxCalls()).toHaveLength(1));
+    expect(taxCalls()[0][2]).toEqual(expect.objectContaining({ _noRetry: true }));
+  });
+});
+
+describe("review: the held line only where confirming is the last wall", () => {
+  it("lønningsliste on a plan without the direct send: the server's 402 → upgrade, not 'confirm first'", async () => {
+    h.features = ["tax_filing_pdf"];       // no direct_accountant_email
+    h.refreshUser.mockResolvedValue({ ...h.user, email_verified: false });
+    h.post.mockImplementation((url) => (url === "/staff/payroll/send-to-accountant"
+      ? Promise.reject({ response: { status: 402, data: { detail: {
+        code: "plan_required", feature: "direct_accountant_email", required_plan: "starter" } } } })
+      : Promise.resolve({ data: {} })));
+    const send = await openPayroll();
+    fireEvent.click(send);
+    await waitFor(() => expect(payrollCalls()).toHaveLength(1));
+    expect(h.refreshUser).not.toHaveBeenCalled();
+    expect(await screen.findByText("Email payroll to your bogholder in one tap")).toBeInTheDocument();
+    expect(screen.queryByTestId("pay-send-verify-now")).toBeNull();
+    expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
+  });
+
+  it("lønningsliste with an unsubscribed revisor: the server's opt-out, not 'confirm first'", async () => {
+    PAYROLL["/business"] = { ...PAYROLL["/business"], accountant_opted_out: true };
+    try {
+      h.refreshUser.mockResolvedValue({ ...h.user, email_verified: false });
+      h.post.mockImplementation((url) => (url === "/staff/payroll/send-to-accountant"
+        ? Promise.reject({ response: { status: 409, data: { detail: { code: "accountant_opted_out" } } } })
+        : Promise.resolve({ data: {} })));
+      const send = await openPayroll();
+      fireEvent.click(send);
+      expect(await screen.findByText(
+        "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail.",
+      )).toBeInTheDocument();
+      expect(h.refreshUser).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("pay-send-verify-now")).toBeNull();
+    } finally {
+      delete PAYROLL["/business"].accountant_opted_out;
+    }
+  });
+
+  it("MOMS-angivelse with an unsubscribed revisor: the server's opt-out, not 'confirm first'", async () => {
+    TAX["/business"] = { ...TAX["/business"], accountant_opted_out: true };
+    try {
+      h.refreshUser.mockResolvedValue({ ...h.user, email_verified: false });
+      h.post.mockImplementation((url) => (String(url).includes("/tax/filing-pdf/send-to-accountant")
+        ? Promise.reject({ response: { status: 409, data: { detail: { code: "accountant_opted_out" } } } })
+        : Promise.resolve({ data: {} })));
+      const send = await openTax();
+      fireEvent.click(send);
+      await waitFor(() => expect(taxCalls()).toHaveLength(1));
+      expect(await screen.findByText(
+        "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. Download the PDF and send it from your own mail.",
+      )).toBeInTheDocument();
+      expect(h.refreshUser).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("filing-send-verify-now")).toBeNull();
+      expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
+    } finally {
+      delete TAX["/business"].accountant_opted_out;
+    }
   });
 });

@@ -48,6 +48,7 @@ vi.mock("../hooks/useEntitlements", () => ({
 }));
 
 import OnboardingPage from "../pages/OnboardingPage";
+import { en } from "../i18n/en";
 import RevisorInviteHeldNotice from "../components/RevisorInviteHeldNotice";
 import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 
@@ -120,6 +121,29 @@ describe("after the wizard, a held revisor invite", () => {
     await waitFor(() => expect(screen.getByTestId("landed")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Hide for now" }));
     expect(screen.queryByTestId("revisor-invite-held-after-onboarding")).toBeNull();
+  });
+});
+
+describe("after the wizard, an invite held while 'did you create this account?' is open (review, 9 Oct)", () => {
+  it("reads held_reason: names the mailed question, offers Send spørgsmålet igen — no Confirm now", async () => {
+    // The real wire shape (accountants.invite_accountant): the reason stays
+    // "email_unverified" — the only "held" value older builds know — and
+    // held_reason names the open question.
+    h.user = { ...OWNER, email_verified: true, claim_question_open: true };
+    h.post.mockImplementation((url) => (
+      url === "/accountants/invite"
+        ? Promise.resolve({ data: {
+          id: "g1", status: "pending", accept_url: "https://bonbox.dk/accept-invite/x",
+          email_sent: false, email_not_sent_reason: "email_unverified", held_reason: "claim_question_open",
+        } })
+        : Promise.resolve({ data: { ok: true } })
+    ));
+    await finishWithHeldInvite();
+    await waitFor(() => expect(screen.getByTestId("landed")).toBeInTheDocument());
+    const notice = screen.getByTestId("revisor-invite-held-after-onboarding");
+    expect(notice.textContent).toContain(en.onbRevisorInviteHeldClaimOpen);
+    expect(screen.getByTestId("revisor-invite-held-claim-resend")).toBeInTheDocument();
+    expect(screen.queryByText("Confirm now")).toBeNull();
   });
 });
 

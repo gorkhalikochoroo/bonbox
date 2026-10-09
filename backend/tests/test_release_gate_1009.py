@@ -12,8 +12,9 @@
 3. After a password reset the question mail says "Nej / Ved ikke" ends the
    password just chosen too.
 5. "Send a test now" (Daily Brief) is on the self-test ceiling (shared
-   counter, one per 10 minutes, five a day) and needs a confirmed address;
-   the cooldown never says a mail "was just sent".
+   counter, one per 10 minutes, five a day) — the ceiling only, like the
+   other test mails (review, 9 Oct: no confirmed-address wall); the
+   cooldown never says a mail "was just sent".
 9. A held revisor copy whose owner copy ALSO failed keeps both facts in
    email_error ("revisor_<reason>;<the copy's error>").
 11. The SQLite mirror adds business_profiles.timereg_period_json.
@@ -133,8 +134,12 @@ def test_the_held_revisor_invite_names_the_open_question(db_session, client, mai
     assert r.status_code in (200, 201), r.text
     body = r.json()
     assert body["email_sent"] is False
-    assert body["email_not_sent_reason"] == "claim_question_open"
-    assert body["mail_held"] == "claim_question_open"
+    # The true state in held_reason; email_not_sent_reason / mail_held stay
+    # "email_unverified" so app builds from before 9 Oct still read "held",
+    # never "Invitation sendt" (release gate review, 9 Oct).
+    assert body["held_reason"] == "claim_question_open"
+    assert body["email_not_sent_reason"] == "email_unverified"
+    assert body["mail_held"] == "email_unverified"
     assert _to(mailbox, "chosen@example.com") == []
 
 
@@ -284,13 +289,16 @@ def brief_sends(monkeypatch):
     return calls
 
 
-def test_send_now_needs_a_confirmed_address(db_session, client, brief_sends):
+def test_send_now_has_no_confirmed_address_wall_only_the_ceiling(db_session, client, brief_sends):
+    """Review (9 Oct): the recorded self-test policy is the shared ceiling
+    only — like /email/test-digest, -alerts, -welcome — so an unconfirmed
+    (or grandfathered) owner keeps the button, counted on that ceiling."""
     user = _owner(db_session, verified=False)
     r = _brief_now(client, user)
-    assert r.status_code == 403, r.text
-    d = r.json()["detail"]
-    assert d["code"] == "email_unverified" and d["message_da"] and d["message"]
-    assert brief_sends == []
+    assert r.status_code == 200, r.text
+    assert brief_sends == [OWNER]
+    assert _brief_now(client, user).status_code == 429
+    assert brief_sends == [OWNER]
 
 
 def test_send_now_once_then_a_cooldown_that_does_not_say_just_sent(db_session, client, brief_sends):

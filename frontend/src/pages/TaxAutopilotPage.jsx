@@ -604,7 +604,13 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
     // nothing. Say so BEFORE the send instead of a confirm that promises
     // "Your revisor gets …" (release gate, 9 Oct) — on a fresh read of the
     // account only; without one, the server decides (403 → the same line).
-    const heldNow = heldReasonForUser(await refreshUser?.());
+    // Never in front of a wall confirming would not move: with the revisor
+    // unsubscribed the server's own order answers (opt-out first, confirm
+    // last — revisor_mail.require_verified_revisor_sender; release gate
+    // review, 9 Oct). The plan wall never reaches here (locked → 402 modal).
+    const heldNow = businessProfile?.accountant_opted_out
+      ? null
+      : heldReasonForUser(await refreshUser?.());
     if (heldNow) {
       setError(heldNow === HELD_CLAIM_OPEN ? HELD_CLAIM_TEXT : HELD_UNVERIFIED_TEXT);
       return;
@@ -624,7 +630,10 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
     setError("");
     try {
       const url = `/tax/filing-pdf/send-to-accountant?period_start=${periodStart}&period_end=${periodEnd}`;
-      const r = await api.post(url, { cc_self: true });
+      // One attempt per tap: a 5xx here may mean the server TRIED to mail
+      // the revisor — the interceptor's replay of a POST 503 could mail the
+      // revisor up to five times (release gate review, 9 Oct).
+      const r = await api.post(url, { cc_self: true }, { _noRetry: true });
       if (r.data?.ok) {
         setStatus(`${t("filingPdfSent")} ${r.data.sent_to}`);
         setTimeout(() => setStatus(""), 6000);

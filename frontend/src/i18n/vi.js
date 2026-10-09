@@ -762,7 +762,7 @@ export const vi = {
   // Cookie consent banner
   cookieBannerAria: "Đồng ý cookie",
   cookieBannerTitle: "Chúng tôi sử dụng cookie",
-  cookieBannerBody: "BonBox dùng cookie thiết yếu để giữ bạn đăng nhập. Các cài đặt do bạn tự chọn, như giao diện sáng/tối và các mẹo đã đóng, được lưu trên thiết bị của bạn vì BonBox cần chúng để làm điều bạn yêu cầu — chúng không được dùng vào việc gì khác. Hai danh mục là tuỳ chọn: Phân tích (thống kê sử dụng: tính năng nào được dùng và ứng dụng lỗi ở đâu) và Tiếp thị (mã từ mã QR trên một tờ rơi in của chúng tôi được lưu trên thiết bị của bạn tối đa 30 ngày, để chúng tôi đo được tờ rơi nào dẫn đến một lượt đăng ký). “Chấp nhận tất cả” bật cả hai.",
+  cookieBannerBody: "BonBox dùng cookie thiết yếu để giữ bạn đăng nhập. Các cài đặt do bạn tự chọn, như giao diện sáng/tối và các mẹo đã đóng, được lưu trên thiết bị của bạn vì BonBox cần chúng để làm điều bạn yêu cầu — chúng không được dùng vào việc gì khác. Hai danh mục là tuỳ chọn: Phân tích (thống kê sử dụng: tính năng nào được dùng và ứng dụng lỗi ở đâu — được ghi lại cho các tài khoản đã đăng nhập cho đến khi bạn từ chối) và Tiếp thị (chỉ khi bạn bật: mã từ mã QR trên một tờ rơi in của chúng tôi được lưu trên thiết bị của bạn tối đa 30 ngày, để chúng tôi đo được tờ rơi nào dẫn đến một lượt đăng ký). “Chấp nhận tất cả” bật cả hai.",
   cookieAcceptAll: "Chấp nhận tất cả",
   cookieDeclineNonEssential: "Từ chối loại không thiết yếu",
   cookieCustomize: "Tuỳ chỉnh",

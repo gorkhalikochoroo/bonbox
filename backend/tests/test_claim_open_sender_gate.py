@@ -173,8 +173,11 @@ def test_the_revisor_invite_is_held_while_the_question_is_open(db_session, clien
                     json={"email": "chosen-revisor@example.com"}, headers=hdr)
     assert r.status_code in (200, 201), r.text
     assert r.json().get("email_sent") is False
-    # The true reason, not "email_unverified" (release gate, 9 Oct).
-    assert r.json().get("email_not_sent_reason") == "claim_question_open"
+    # The true reason (release gate, 9 Oct) in held_reason; the wire reason
+    # stays "email_unverified" — the only "held" value older app builds know
+    # (release gate review, 9 Oct).
+    assert r.json().get("held_reason") == "claim_question_open"
+    assert r.json().get("email_not_sent_reason") == "email_unverified"
     assert _to(mailbox, "chosen-revisor@example.com") == []
 
 

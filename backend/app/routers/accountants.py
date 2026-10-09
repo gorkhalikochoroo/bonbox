@@ -330,9 +330,12 @@ def invite_accountant(
     e-mail is confirmed". Copy about the held invite speaks of the invite.
     An unconfirmed owner's invite still CREATES the grant and returns the
     accept link (the revisor's access works, nothing is lost); only the mail
-    is held: email_sent=false, email_not_sent_reason="email_unverified" (or
-    "claim_question_open" for a confirmed address whose "did you create this
-    account?" question is still open).
+    is held: email_sent=false, email_not_sent_reason="email_unverified" —
+    for an unconfirmed address AND for a confirmed one whose "did you create
+    this account?" question is still open, so app builds from before 9 Oct
+    still read it as held — and held_reason names the true state
+    ("email_unverified" | "claim_question_open"), as the 403s carry
+    code + reason.
 
     One live link, one mail: re-posting the address of a PENDING grant whose
     link has not expired keeps that link (a link the owner already handed
@@ -484,16 +487,22 @@ def invite_accountant(
     _last_mailed = getattr(grant, "invite_mailed_at", None)
     # Held for an unconfirmed address ("email_unverified"), or for a
     # confirmed one whose "did you create this account?" question is still
-    # open ("claim_question_open" — the true reason, so the app never says
-    # "confirm your e-mail" to an owner whose address is confirmed).
+    # open ("claim_question_open"). On the wire (email_not_sent_reason) and
+    # on the row (invite_mail_held) BOTH stay "email_unverified": app builds
+    # from before this release — the bundled iOS owner app until its App
+    # Store update, web tabs open during the backend-first deploy — treat
+    # only that value as held and would otherwise say "Invitation sendt" for
+    # a mail BonBox held. The true state goes in held_reason, which the app
+    # reads so it never says "confirm your e-mail" to a confirmed address
+    # (the 403s split code / reason the same way; release gate review, 9 Oct).
     _held = held_sender_reason(user)
     if _held:
-        mail_held = _held
+        mail_held = "email_unverified"
     elif keep_link and _last_mailed and _last_mailed > now - timedelta(hours=24):
         mail_held = "recently_sent"
     else:
         mail_held = None
-    if mail_held in ("email_unverified", "claim_question_open") and _last_mailed is None:
+    if mail_held == "email_unverified" and _last_mailed is None:
         # Team → Revisor reads "saved · not e-mailed yet" from this, after a
         # reload too. (A link mailed earlier stays "mailed".)
         grant.invite_mail_held = mail_held
@@ -506,6 +515,8 @@ def invite_accountant(
     }
     if mail_held:
         _invite_after["mail_held"] = mail_held
+    if _held:
+        _invite_after["held_reason"] = _held
     audit_service.record(
         db,
         user=user,
@@ -553,6 +564,7 @@ def invite_accountant(
     resp.accept_url = accept_url  # copy-link fallback (invite response only)
     resp.email_sent = email_sent
     resp.email_not_sent_reason = mail_held
+    resp.held_reason = _held
     return resp
 
 

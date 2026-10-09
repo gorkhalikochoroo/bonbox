@@ -6280,8 +6280,12 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // confirm that promises "goes to {email}" (release gate, 9 Oct). Only
       // on a FRESH read of the account (an address confirmed in another tab
       // is not held here); without one, the server decides (403 → the same
-      // notice below).
-      const heldNow = heldReasonForUser(await refreshUser?.());
+      // notice below). Only once the plan is KNOWN to send directly: while
+      // it loads (null) the server's own order answers — plan first,
+      // confirm last (release gate review, 9 Oct).
+      const heldNow = directSendEntitled === true
+        ? heldReasonForUser(await refreshUser?.())
+        : null;
       if (heldNow) {
         setSendIssue({
           message: heldNow === HELD_CLAIM_OPEN

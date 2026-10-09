@@ -121,7 +121,10 @@ describe("Team → Revisor while the question is open (item 1)", () => {
     profileGets();
     h.post.mockImplementation((url) => (url === "/accountants/invite"
       ? Promise.resolve({ data: { id: "g1", status: "pending", accept_url: "https://bonbox.dk/accept-invite/t",
-        email_sent: false, email_not_sent_reason: "claim_question_open", mail_held: "claim_question_open" } })
+        // The real wire shape (accountants.invite_accountant): the reason
+        // stays "email_unverified", held_reason names the open question.
+        email_sent: false, email_not_sent_reason: "email_unverified", held_reason: "claim_question_open",
+        mail_held: "email_unverified" } })
       : Promise.resolve({ data: { ok: true, sent_to: "ejer@cafe.dk" } })));
     render(<MemoryRouter><RevisorSection /></MemoryRouter>);
     await act(async () => {});
@@ -136,7 +139,7 @@ describe("Team → Revisor while the question is open (item 1)", () => {
   it("a held row offers Send spørgsmålet igen, not Send invitation or Bekræft nu", async () => {
     h.me = { ...BASE_ME, claim_question_open: true };
     h.grants = [{ id: "g1", accountant_email: "anna@revisor.dk", accountant_name: "Anna", status: "pending",
-      invited_at: "2026-10-08T10:00:00Z", mail_held: "claim_question_open" }];
+      invited_at: "2026-10-08T10:00:00Z", mail_held: "email_unverified" }];
     profileGets();
     render(<MemoryRouter><RevisorSection /></MemoryRouter>);
     expect(await screen.findByTestId("revisor-grant-claim-resend-g1")).toBeInTheDocument();

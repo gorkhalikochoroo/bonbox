@@ -3738,7 +3738,7 @@ export const en = {
     // Cookie consent banner
     cookieBannerAria: "Cookie consent",
     cookieBannerTitle: "We use cookies",
-    cookieBannerBody: "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks) and Marketing (the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on.",
+    cookieBannerBody: "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks — recorded for signed-in accounts until you decline) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on.",
     cookieAcceptAll: "Accept all",
     cookieDeclineNonEssential: "Decline non-essential",
     cookieCustomize: "Customize",

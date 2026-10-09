@@ -139,6 +139,23 @@ def _newest_open_mail_at(db: Session, user: User):
     )
 
 
+def reset_in_open_question(db: Session, user_id) -> bool:
+    """A password reset is part of the account's OPEN question: one of its
+    unanswered tickets was made by a reset code. The password on the account
+    is then the one the inbox owner chose with that code, so "Nej / Ved ikke"
+    ends it too — whichever proof (a later login link, the app's "Send
+    spørgsmålet igen") asks the question next (release gate review, 9 Oct)."""
+    return (
+        db.query(AccountClaimTicket.id)
+        .filter(AccountClaimTicket.user_id == user_id,
+                AccountClaimTicket.via == "password_reset",
+                AccountClaimTicket.used_at.is_(None),
+                AccountClaimTicket.voided_at.is_(None))
+        .first()
+        is not None
+    )
+
+
 def _new_ticket(db: Session, user: User, *, kind: str, via: str, ttl: timedelta,
                 sign_in_ref=None) -> str:
     raw = secrets.token_urlsafe(32)
@@ -156,6 +173,9 @@ class ClaimAsk:
     via: str
     page_ticket: str | None = None
     mail_ticket: str | None = None
+    # A password reset is part of the open question (reset_in_open_question):
+    # the mail says "Nej / Ved ikke" ends the password chosen with the code.
+    after_reset: bool = False
 
 
 def ask_inbox_owner(db: Session, user: User, *, via: str, sign_in_ref=None,
@@ -189,7 +209,9 @@ def ask_inbox_owner(db: Session, user: User, *, via: str, sign_in_ref=None,
         user.email_verified = True
         user.verification_code = None
         user.verification_code_expires = None
-    ask = ClaimAsk(question=question_payload(user), via=via)
+    ask = ClaimAsk(question=question_payload(user), via=via,
+                   after_reset=(via == "password_reset"
+                                or (already_open and reset_in_open_question(db, user.id))))
     if not already_open:
         ask.mail_ticket = _new_ticket(db, user, kind="mail", via=via, ttl=MAIL_TTL)
         _audit(db, user, ASKED_ACTION, {"via": via}, ip_address)
@@ -217,7 +239,7 @@ def pending_ask(user: User) -> ClaimAsk | None:
 
 def question_email_html(lang: str, created: date, keep_url: str, secure_url: str,
                         with_apple: bool = False, via: str | None = None,
-                        again: bool = False) -> tuple[str, str]:
+                        again: bool = False, after_reset: bool = False) -> tuple[str, str]:
     """(subject, html) of the mail that asks the question, to the inbox that
     was just proven. No value anybody typed goes in it; the two links open a
     page that asks once more before anything happens (a mail scanner opening
@@ -233,16 +255,19 @@ def question_email_html(lang: str, created: date, keep_url: str, secure_url: str
     Asked after a password reset, "Nej / Ved ikke" also ends the password
     chosen with the reset code (services/auth.secure_account replaces the
     password, whichever it is) — the explanation says so (release gate,
-    9 Oct)."""
+    9 Oct). `after_reset`: a reset is part of the open question although
+    THIS proof was another (a login link the day after the reset): the
+    intro says what just happened, the question and "Nej" name the reset."""
     when = long_date(created, lang)
-    reset = via == "password_reset"
+    reset_now = via == "password_reset"
+    reset = reset_now or bool(after_reset)
     apple = with_apple or str(via or "").startswith("apple")
     if lang == "da":
         subject = "BonBox: Har du selv oprettet din konto?"
         if again:
             intro = ("Nogen, der er logget ind på din BonBox-konto, har bedt os sende dette "
                      "spørgsmål igen. Din e-mailadresse er bekræftet, men BonBox venter på dit svar.")
-        elif reset:
+        elif reset_now:
             intro = ("Du har netop valgt en ny adgangskode til BonBox med en kode fra din e-mail, "
                      "og din e-mailadresse er nu bekræftet.")
         else:
@@ -271,7 +296,7 @@ def question_email_html(lang: str, created: date, keep_url: str, secure_url: str
         if again:
             intro = ("Someone signed in to your BonBox account asked us to send this question "
                      "again. Your e-mail address is confirmed, but BonBox is waiting for your answer.")
-        elif reset:
+        elif reset_now:
             intro = ("You just chose a new BonBox password with a code from your e-mail, "
                      "and your e-mail address is now confirmed.")
         else:
@@ -332,7 +357,8 @@ def send_question_mail(user: User, ask: ClaimAsk | None, *, again: bool = False)
         lang = owner_lang(user)
         subject, html = question_email_html(
             lang, date.fromisoformat(ask.question["created_at"]),
-            f"{link}&answer=keep", f"{link}&answer=secure", via=ask.via, again=again)
+            f"{link}&answer=keep", f"{link}&answer=secure", via=ask.via, again=again,
+            after_reset=ask.after_reset)
         return bool(send_email(user.email, subject, html))
     except Exception:  # noqa: BLE001 — the question stays open; the next proof
         # of the inbox a day on mails it again (ask_inbox_owner, REMAIL_AFTER)
@@ -383,18 +409,26 @@ def reask_by_mail(db: Session, user: User, *, ip_address: str | None = None) -> 
              "svare der med det samme."),
             retry_after_hours=hours,
         )
-    # The question as it was first asked: after a password reset the page
-    # names the FIRST password (ticket_status reads via from the ticket).
-    via_row = (
-        db.query(AccountClaimTicket.via)
-        .filter(AccountClaimTicket.user_id == user.id,
-                AccountClaimTicket.used_at.is_(None),
-                AccountClaimTicket.voided_at.is_(None))
-        .order_by(AccountClaimTicket.created_at.desc())
-        .first()
-    )
-    via = (via_row[0] if via_row and via_row[0] else "magic_link")
-    ask = ClaimAsk(question=question_payload(user), via=via)
+    # The question as a whole, not its newest ticket: a reset anywhere in
+    # the open question means the password on the account was chosen with
+    # the reset code, so the mail (and the page — ticket_status) names the
+    # FIRST password and says "Nej" ends the new one too. A later login-link
+    # page ticket (via=magic_link) must not drop that (release gate review,
+    # 9 Oct). Otherwise: how the question was FIRST asked (oldest ticket).
+    if reset_in_open_question(db, user.id):
+        via = "password_reset"
+    else:
+        via_row = (
+            db.query(AccountClaimTicket.via)
+            .filter(AccountClaimTicket.user_id == user.id,
+                    AccountClaimTicket.used_at.is_(None),
+                    AccountClaimTicket.voided_at.is_(None))
+            .order_by(AccountClaimTicket.created_at.asc())
+            .first()
+        )
+        via = (via_row[0] if via_row and via_row[0] else "magic_link")
+    ask = ClaimAsk(question=question_payload(user), via=via,
+                   after_reset=(via == "password_reset"))
     ask.mail_ticket = _new_ticket(db, user, kind="mail", via=via, ttl=MAIL_TTL)
     _audit(db, user, ASKED_ACTION, {"via": via, "again": True, "in_app": True}, ip_address)
     db.flush()
@@ -497,7 +531,11 @@ def ticket_status(db: Session, raw: str) -> dict:
     question = question_payload(user)
     # Asked after a password reset: the owner has just chosen the current
     # password, so the page asks about the FIRST one (as the mail does).
-    question["after_reset"] = row.via == "password_reset"
+    # A reset anywhere in the OPEN question counts, not only on this ticket:
+    # a login-link page ticket made after a reset must still say "Nej" ends
+    # the password chosen with the code (release gate review, 9 Oct).
+    question["after_reset"] = row.via == "password_reset" or (
+        state == "open" and reset_in_open_question(db, user.id))
     return {"state": state, "decision": decision, "question": question}
 
 

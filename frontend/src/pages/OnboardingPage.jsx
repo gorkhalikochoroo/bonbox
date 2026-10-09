@@ -799,11 +799,13 @@ export default function OnboardingPage() {
         // and finish the wizard as usual — it is not an error. ("recently_sent"
         // = the same link went out by mail under 24 hours ago: it was sent.)
         // Held while "did you create this account?" waits for an answer
-        // (reason "claim_question_open"): the address IS confirmed — the
-        // notice names the mailed question, never "confirm your e-mail".
+        // (held_reason "claim_question_open"; the wire reason stays
+        // "email_unverified", the only "held" value older app builds know):
+        // the address IS confirmed — the notice names the mailed question,
+        // never "confirm your e-mail".
         const reason = res?.data?.email_not_sent_reason;
-        const heldClaim = res?.data?.email_sent === false && reason === "claim_question_open";
-        const held = heldClaim || (res?.data?.email_sent === false && reason === "email_unverified");
+        const held = res?.data?.email_sent === false && reason === "email_unverified";
+        const heldClaim = held && res?.data?.held_reason === "claim_question_open";
         inviteHeld = held ? (heldClaim ? "claim_question_open" : "email_unverified") : false;
         setRevisorMsg(heldClaim ? t("onbRevisorInviteHeldClaimOpen")
           : held ? t("onbRevisorInviteHeld") : t("onbRevisorInviteSent", { email }));

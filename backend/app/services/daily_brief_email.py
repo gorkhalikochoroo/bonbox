@@ -372,6 +372,21 @@ def _same_calendar_day_utc(a: datetime | None, b: datetime) -> bool:
 # Public API — send_brief_to_user
 # ─────────────────────────────────────────────────────────────────
 
+def brief_send_blocker(user: User) -> str | None:
+    """Why no brief would be mailed to this user at all, before anything is
+    built: 'feature_not_entitled' | 'user_opted_out' | 'invalid_email', or
+    None. The same three gates send_brief_to_user applies first — the
+    "Send a test now" route reads it so a send that cannot go never uses up
+    the self-test mail ceiling (release gate review, 9 Oct)."""
+    if not has_feature(user, "daily_brief_email"):
+        return "feature_not_entitled"
+    if not getattr(user, "daily_brief_email_enabled", True):
+        return "user_opted_out"
+    if not user.email or "@" not in user.email:
+        return "invalid_email"
+    return None
+
+
 def send_brief_to_user(
     db: Session,
     user: User,
@@ -405,19 +420,11 @@ def send_brief_to_user(
         "error": None,
     }
     try:
-        # 1. Entitlement gate
-        if not has_feature(user, "daily_brief_email"):
-            result["reason"] = "feature_not_entitled"
-            return result
-
-        # 2. Preference gate
-        if not getattr(user, "daily_brief_email_enabled", True):
-            result["reason"] = "user_opted_out"
-            return result
-
-        # 2.5. Recipient sanity
-        if not user.email or "@" not in user.email:
-            result["reason"] = "invalid_email"
+        # 1. Entitlement gate, 2. preference gate, 2.5. recipient sanity
+        # (brief_send_blocker — the send-now route reads the same gates).
+        blocker = brief_send_blocker(user)
+        if blocker:
+            result["reason"] = blocker
             return result
 
         # 3. Idempotency (skipped on force=True)

@@ -741,9 +741,9 @@ export default function ProfilePage() {
       }
     } catch (err) {
       // The server says why — the test-mail ceiling (429: one per 10
-      // minutes, five a day, shared with the other test mails) or an
-      // unconfirmed address (403) — in the owner's language. Anything
-      // else: "Couldn't send".
+      // minutes, five a day, shared with the other test mails), or a count
+      // it could not read (503) — in the owner's language. Anything else:
+      // "Couldn't send".
       const d = err?.response?.data?.detail;
       const st = err?.response?.status;
       const said = (st === 429 || st === 403 || st === 503) && d && typeof d === "object"

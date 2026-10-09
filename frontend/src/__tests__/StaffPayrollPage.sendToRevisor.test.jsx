@@ -147,7 +147,8 @@ describe("the send confirm says who, what and how approved", () => {
     fireEvent.click(sendBtn());
     await waitFor(() => expect(post).toHaveBeenCalledWith("/staff/payroll/send-to-accountant", expect.objectContaining({
       period_start: `${YEAR}-09-01`, period_end: `${YEAR}-09-30`,
-    })));
+    // One attempt per tap — never replayed by the interceptor (review, 9 Oct).
+    }), { _noRetry: true }));
   });
 
   it("with no revisor address the button is disabled, says why, and links to where it is set", async () => {

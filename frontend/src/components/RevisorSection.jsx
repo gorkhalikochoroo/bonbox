@@ -143,8 +143,12 @@ export default function RevisorSection() {
     setInviteLink(res.data?.accept_url || "");
     const reason = res.data?.email_not_sent_reason;
     const notNow = res.data?.email_sent === false;
-    const heldClaim = notNow && reason === "claim_question_open";
-    const held = notNow && (reason === "email_unverified" || heldClaim);
+    // Held for the owner's sender state: the reason stays "email_unverified"
+    // (the only "held" value older app builds know); held_reason says which
+    // — "claim_question_open" when the address IS confirmed and BonBox waits
+    // for the answer to the mailed question (release gate review, 9 Oct).
+    const held = notNow && reason === "email_unverified";
+    const heldClaim = held && res.data?.held_reason === "claim_question_open";
     setInviteHeldClaim(heldClaim);
     // The same link already went out by mail less than 24 hours ago: nothing
     // was sent now, but a mail DID leave — so "Didn't arrive?" stays true.
