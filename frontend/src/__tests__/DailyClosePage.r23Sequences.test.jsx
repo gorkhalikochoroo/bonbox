@@ -29,6 +29,13 @@
  * written with no save id, or whose writer could not be checked) and 23011 /
  * 23013 (a move's "Slet den" only once the new day holds the figures);
  * 23006 rewritten (an offline move says "Ikke gemt for {to} endnu").
+ * The round-23 fix-up: 23014 / 23015 (two devices + a lost answer — the
+ * re-send, once online and on leaving, is on the form's own version and is
+ * refused over the other phone's newer draft: asked, or kept as a failed copy).
+ * The re-send review: 23016 / 23018 / 23019 (a re-send refused while the form
+ * is on another day is kept as a failed copy — or, on the form's own version,
+ * sent again — never the figures a move took elsewhere) and 23017 ("Behold
+ * mine tal" on the scan card sends the refused figures).
  * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r23Sequences.test.jsx
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -70,7 +77,8 @@ vi.mock("../components/LiveKpisToday", () => ({ default: () => null }));
 vi.mock("../components/SmartScanModal", () => ({ default: () => null }));
 vi.mock("../utils/resizeImage", () => ({ resizeImageIfLarge: async (f) => f }));
 
-const { runSequence, createServer, STATS } = await import("../test/closeSequenceHarness");
+const { runSequence, createServer, STATS, NO_ROW_BASE } = await import("../test/closeSequenceHarness");
+const { getOfflineQueue, QUEUE_FAILED, QUEUE_ERR_DRAFT_CHANGED } = await import("../utils/dailyCloseQueue");
 const DailyClosePage = (await import("../pages/DailyClosePage")).default;
 
 const env = globalThis.process?.env || {};
@@ -87,6 +95,44 @@ const draft = (extra = {}) => ({
   moms_mode: "auto", moms_total: 2800, source_meta: { kind: "typed" }, closed_by: null, notes: null,
   ...extra,
 });
+// Round 23 fix-up — this phone's first save of today (3.000) is stored with
+// its answer lost; another phone saves the day over it; the line dies (the
+// form's re-sends die with it) and another visit's queued copy of yesterday
+// syncs — History is read again and lists the other phone's version.
+const lostThenOtherListed = async (A) => {
+  await A.skip();
+  A.S.holding.drop = true;
+  await A.typeBox("rev", "food", "3.000");
+  A.S.holding.drop = false;
+  A.expect(A.S.lostKeys.has(key)).toBe(true);
+  A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 3000 });
+  A.S.holding.dead = true;
+  await A.otherDeviceFigures(null, { saveId: "other-device" });
+  await A.queueCopy({ date: A.yesterday, revenue_breakdown: { food: 1000 }, payment_breakdown: { card: 1000 } });
+  A.expect(stored(A.S, `${A.yesterday}|`)).toMatchObject({ revenue_total: 1000 });
+  A.expect(A.hasText("dcDayHasDraft")).toBe(true);
+  otherPhoneKept(A);
+};
+const otherPhoneKept = (A) => {
+  A.expect(stored(A.S)).toMatchObject({ status: "draft", notes: "B" });
+  A.expect(stored(A.S).payment_breakdown.mobilepay).toBe(99);
+};
+// Round 23 re-send review — 3.000 stored with its answer lost, then
+// Drikkevarer 500 typed on a dead line (never stored: the form's re-sends die
+// with it), and another phone saves the day over the 3.000: the owner's
+// 3.000 + 500 is on no server — only in the form's re-send.
+const lostDeadThenOther = async (A) => {
+  await A.skip();
+  A.S.holding.drop = true;
+  await A.typeBox("rev", "food", "3.000");
+  A.S.holding.drop = false;
+  A.expect(A.S.lostKeys.has(key)).toBe(true);
+  A.slow("dead", 8);
+  await A.typeBox("rev", "drinks", "500");
+  A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000 });
+  await A.otherDeviceFigures(null, { saveId: "other-device" });
+  otherPhoneKept(A);
+};
 const payOnlyDraft = () => draft({
   revenue_total: 0, revenue_breakdown: {}, payment_breakdown: { mobilepay: 1234.5 }, moms_total: 0, payment_total: 1234.5,
 });
@@ -281,6 +327,111 @@ const PLANS = [
     A.expect(await A.deleteOld()).toBe(true);
     A.expect(stored(A.S)).toBeUndefined();
     A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
+  }],
+  // Round 23 fix-up — two devices and a lost answer: the re-sent save is on
+  // the version the FORM holds (never the one History lists by then).
+  ["fix-up (two devices + a lost answer, re-sent once ONLINE): 3.000 stored with its answer lost; another phone saves the day; the line dies and History is read again (it lists the other phone's version); online again the re-send is refused — \"Kladden er gemt et andet sted\" asks, the other phone's draft is kept; \"Behold mine tal\" then saves the owner's figures by choice", 23014, async (A) => {
+    await lostThenOtherListed(A);
+    A.S.holding.dead = false;
+    await A.online();
+    await A.settleAll();
+    otherPhoneKept(A);
+    A.expect(A.conflictShown()).toBe(true);
+    A.expect(A.S.refused.some((r) => r.date === A.today && r.base_updated_at === NO_ROW_BASE && r.base_save_id)).toBe(true);
+    await A.resolveConflict("keep");
+    await A.settleAll();
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 3000 });
+  }],
+  ["fix-up (the same, re-sent on LEAVING): the re-send as the form goes is refused — the owner's 3.000 is kept on this phone as a failed copy the queue never sends again, and the other phone's draft is kept", 23015, async (A) => {
+    await lostThenOtherListed(A);
+    A.S.holding.dead = false;
+    await A.reopen();
+    otherPhoneKept(A);
+    const kept = getOfflineQueue().filter((it) => it.payload?.date === A.today);
+    A.expect(kept).toHaveLength(1);
+    A.expect(kept[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED });
+    A.expect(kept[0].payload.revenue_breakdown).toEqual({ food: 3000 });
+    await A.online();
+    await A.settleAll();
+    otherPhoneKept(A);
+    A.expect(getOfflineQueue().filter((it) => it.payload?.date === A.today)).toHaveLength(1);
+  }],
+  // Round 23 re-send review — a re-send refused while the form is not on
+  // that day's boxes: never dropped in silence.
+  ["re-send review 1 (must-fix): the owner's 3.000 + 500 waiting to be re-sent, a move answered \"Hent {dag}s salg\" (the form on the other day); online, the re-send is refused — the 3.000 + 500 is kept on this phone as a failed copy (\"Ikke gemt\", DRAFT_CHANGED), the other phone's draft is kept", 23016, async (A) => {
+    await lostDeadThenOther(A);
+    await A.moveDate(A.twoDaysAgo, "extra");
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    A.expect(String(A.dialogs.at(-1)?.extraLabel)).toMatch(/dcDateMoveFetch/);
+    await A.online();
+    await A.settleAll();
+    otherPhoneKept(A);
+    A.expect(A.S.refused.some((r) => r.date === A.today && r.revenue_breakdown?.drinks === 500)).toBe(true);
+    const kept = getOfflineQueue().filter((it) => it.payload?.date === A.today);
+    A.expect(kept).toHaveLength(1);
+    A.expect(kept[0]).toMatchObject({ state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED });
+    A.expect(kept[0].payload.revenue_breakdown).toEqual({ food: 3000, drinks: 500 });
+    A.expect(A.hasText("dcQueueErrDraftChanged")).toBe(true);
+    // Kept for the owner — never sent again by itself.
+    const n = A.S.posts.length + A.S.refused.length;
+    await A.online();
+    await A.settleAll();
+    A.expect(A.S.posts.filter((b) => b.date === A.today).length + A.S.refused.filter((r) => r.date === A.today).length)
+      .toBeLessThanOrEqual(n);
+    otherPhoneKept(A);
+  }],
+  ["re-send review 1b: a save of the day refused on the form's OWN version (its earlier save landed with the answer lost, the one after it died) while the form is on another day (\"Hent {dag}s salg\") — it goes again itself on that version: the owner's newest figure (Kort 3.500) is stored, never the older re-send without it", 23018, async (A) => {
+    await A.skip();
+    A.S.holding.drop = true;
+    await A.typeBox("rev", "food", "3.000");
+    A.S.holding.drop = false;
+    A.slow("dead", 8);
+    await A.typeBox("rev", "drinks", "500");
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000 });
+    A.S.holding.dead = false;
+    A.slow("post", 3);
+    await A.typeBox("pay", "card", "3.500");
+    await A.moveDate(A.twoDaysAgo, "extra");
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    await A.online();
+    await A.settleAll();
+    A.expect(A.S.refused.some((r) => r.date === A.today && r.payment_breakdown?.card === 3500)).toBe(true);
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_breakdown: { food: 3000, drinks: 500 } });
+    A.expect(stored(A.S).payment_breakdown.card).toBe(3500);
+    A.expect(getOfflineQueue().filter((it) => it.payload?.date === A.today)).toHaveLength(0);
+  }],
+  ["re-send review 1 (the other side): \"Flyt tallene\" while the old day's save (Drikkevarer 500) is on its way, and another phone saves the old day — that save is refused after the move: its figures are on the new day now, so no copy of them is kept for the old day; the other phone's draft stays (said)", 23019, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000 });
+    A.slow("post", 3);
+    await A.typeBox("rev", "drinks", "500");
+    A.S.otherSave(key, (r) => { r.payment_breakdown = { mobilepay: 99 }; r.notes = "B"; }, { saveId: "other-device" });
+    await A.moveDate(A.yesterday, "yes");
+    await A.online();
+    await A.settleAll();
+    A.expect(A.S.refused.some((r) => r.date === A.today && r.revenue_breakdown?.drinks === 500)).toBe(true);
+    A.expect(stored(A.S, `${A.yesterday}|`).revenue_breakdown).toEqual({ food: 3000, drinks: 500 });
+    otherPhoneKept(A);
+    A.expect(getOfflineQueue().filter((it) => it.payload?.date === A.today)).toHaveLength(0);
+    A.expect(A.hasText("dcDateMovedFrom")).toBe(false);
+  }],
+  ["re-send review 2: the same on the scan card (a 4.000 bon in, its question open) — the re-send is refused there and asked; \"Behold mine tal\" sends the owner's 3.000 + 500 on the version it met (the autosave files nothing on the card)", 23017, async (A) => {
+    await lostDeadThenOther(A);
+    A.expect(await A.toCard()).toBe(true);
+    await A.shoot("b4000");
+    await A.online();
+    await A.settleAll();
+    A.expect(A.conflictShown()).toBe(true);
+    otherPhoneKept(A);
+    const stamp = stored(A.S).updated_at;
+    const n = A.S.posts.length;
+    await A.resolveConflict("keep");
+    await A.settleAll();
+    A.expect(A.conflictShown()).toBe(false);
+    const sent = A.S.posts.slice(n).filter((b) => b.date === A.today);
+    A.expect(sent.some((b) => b.base_updated_at === stamp && b.revenue_breakdown?.food === 3000 && b.revenue_breakdown?.drinks === 500)).toBe(true);
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000, drinks: 500 });
   }],
 ];
 
