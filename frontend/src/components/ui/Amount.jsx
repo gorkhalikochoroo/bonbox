@@ -3,7 +3,8 @@
  *
  * Renders a money figure so the NUMBER leads and the currency token
  * recedes: the amount in tabular-nums, then a de-emphasized, baseline-
- * aligned token at ~0.62em in gray-400, floored at the doctrine's 11px.
+ * aligned token at ~0.62em in gray-500 (gray-400 in dark), floored at the
+ * doctrine's 11px.
  * This is the single highest-leverage number-typography move — it makes a
  * figure read like a bank statement, not a spreadsheet cell. In small
  * contexts the floor wins and the size difference goes away; see the note
@@ -79,10 +80,22 @@ export default function Amount({ value, decimals = 0, sign = false, size, curren
         //
         // `length:` is the type hint — without it Tailwind can't tell an
         // arbitrary max() from a colour and emits no utility.
-        // data-amount-token: a hook for a page that sits on a darker card
-        // than this whisper was tuned for (Daily close lifts it in dark).
-        // No styling of its own — every other page is unchanged.
-        <span data-amount-token="" className="text-[length:max(11px,0.62em)] font-medium text-gray-400 dark:text-gray-500 ml-0.5">
+        // data-amount-token: a hook for a page whose surfaces are tinted
+        // past what this colour was measured on (Daily close sets its own).
+        //
+        // COLOUR (8 Oct 2026). Was gray-400 / dark gray-500: 2.6:1 on a white
+        // card and 2.5–3.0:1 on the dark cards — under the 4.5:1 small text
+        // needs, on the one token that says the figure is money. Now gray-500
+        // (4.8:1 on white, 4.6:1 on gray-50) and gray-400 in dark (5.6:1 on
+        // gray-800, 4.7:1 on a gray-700/50 panel; computed in Chromium). Size
+        // and weight still carry the whisper; the colour only has to be read.
+        // These greys are for LIGHT cards in light mode and DARK cards in dark
+        // mode. A surface that inverts that (a dark or saturated fill in light
+        // mode, a light chip in dark mode) must set the token itself through
+        // data-amount-token: the Tax countdown hero, the Pricing simulator
+        // (text-current) and the Waste selected cost chip (gray-300 / dark
+        // gray-600). Without it the "kr." measured 1.0:1 on the red hero (light mode).
+        <span data-amount-token="" className="text-[length:max(11px,0.62em)] font-medium text-gray-500 dark:text-gray-400 ml-0.5">
           {token}
         </span>
       )}

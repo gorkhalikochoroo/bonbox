@@ -284,7 +284,7 @@ export default function ScheduleGridV2() {
             {t("landingV2.schedule.totalRostered", "rostered")}
           </span>
           <span>
-            <strong className="font-semibold text-slate-900">≈9.123 kr.</strong>{" "}
+            <strong className="font-semibold tabular-nums text-slate-900">≈9.123 kr.</strong>{" "}
             {t("landingV2.schedule.totalWage", "wage cost, feriepenge in")}
           </span>
           <span className="font-medium text-bb-green">

@@ -399,7 +399,7 @@ export default function JobCardPage() {
                     <p className="text-xs text-gray-400">{p.quantity} × {formatOwnerMoney(p.unit_cost, currency, { decimals: 2 })}
                       {p.is_from_stock && ` · ${t("jcFromStock", "from stock")}`}</p>
                   </div>
-                  <span className="font-semibold dark:text-white">{formatOwnerMoney(p.total_cost, currency, { decimals: 2 })}</span>
+                  <span className="font-semibold tabular-nums dark:text-white">{formatOwnerMoney(p.total_cost, currency, { decimals: 2 })}</span>
                 </div>
               ))}
               {/* Add part form */}
@@ -439,7 +439,7 @@ export default function JobCardPage() {
                         comes from hoursUnit() like everything else. */}
                     <p className="text-xs text-gray-400">{l.mechanic_name} · {formatHours(l.hours, { lang, decimals: 2 })} × {formatOwnerMoney(l.hourly_rate, currency, { decimals: 2 })}/{hoursUnit(lang)}</p>
                   </div>
-                  <span className="font-semibold dark:text-white">{formatOwnerMoney(l.total_cost, currency, { decimals: 2 })}</span>
+                  <span className="font-semibold tabular-nums dark:text-white">{formatOwnerMoney(l.total_cost, currency, { decimals: 2 })}</span>
                 </div>
               ))}
               {/* Add labor form */}
@@ -464,15 +464,15 @@ export default function JobCardPage() {
         <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 border-t dark:border-gray-700">
           <div className="flex justify-between text-sm">
             <span className="text-gray-500 dark:text-gray-400">{t("jcPartsLabel", "Parts")}</span>
-            <span className="dark:text-gray-300">{formatOwnerMoney(job.parts_total, currency, { decimals: 2 })}</span>
+            <span className="tabular-nums dark:text-gray-300">{formatOwnerMoney(job.parts_total, currency, { decimals: 2 })}</span>
           </div>
           <div className="flex justify-between text-sm mt-1">
             <span className="text-gray-500 dark:text-gray-400">{t("jcLaborLabel", "Labor")}</span>
-            <span className="dark:text-gray-300">{formatOwnerMoney(job.labor_total, currency, { decimals: 2 })}</span>
+            <span className="tabular-nums dark:text-gray-300">{formatOwnerMoney(job.labor_total, currency, { decimals: 2 })}</span>
           </div>
           <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t dark:border-gray-600 dark:text-white">
             <span>{t("jcTotal", "Total")}</span>
-            <span>{formatOwnerMoney(job.grand_total, currency, { decimals: 2 })}</span>
+            <span className="tabular-nums">{formatOwnerMoney(job.grand_total, currency, { decimals: 2 })}</span>
           </div>
         </div>
       </div>

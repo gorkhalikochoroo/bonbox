@@ -1,0 +1,186 @@
+/* Extended-Latin and Vietnamese faces for Inter and Hanken Grotesk, loaded ON
+ * DEMAND (8 Oct 2026, typography fix 1 review).
+ *
+ * main.jsx imports only the latin file per weight. That alone sent every
+ * glyph outside latin to the system font, one letter at a time: Turkish UI
+ * text (tr is an offered language: ş ğ İ Ş on nearly every screen) and
+ * staff or guest names such as Łukasz, Dušan, Ștefan, Nguyễn. Before the
+ * subset change those letters were drawn in Inter and Hanken.
+ *
+ * fontsource's own latin-ext-<w>.css / vietnamese-<w>.css cannot be used for
+ * this: they carry no unicode-range, so the browser would download them on
+ * every page. These rules carry one, so a file is fetched only when the page
+ * actually draws a character in it. A Danish page (æ ø å é – € −) fetches
+ * nothing new.
+ *
+ * The ranges are fontsource's (inter/400.css) MINUS every code point the
+ * latin file already covers (U+0131, U+0152-0153, U+0304, U+0308, U+0329,
+ * U+2020; and for Vietnamese also what latin-ext covers). The latin files
+ * declare no range, so a rule declared after them is checked first for its
+ * own range; subtracting the overlap keeps the old resolution exactly: a
+ * character the latin file has is never the reason to fetch another file.
+ * This file must therefore be imported AFTER the latin imports.
+ *
+ * Still falls back to the system font (accepted in the audit): Cyrillic,
+ * Greek, and symbols outside these ranges (→ ≈ ✓).
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/inter/files/inter-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/inter/files/inter-vietnamese-400-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/inter/files/inter-latin-ext-500-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/inter/files/inter-vietnamese-500-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/inter/files/inter-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/inter/files/inter-vietnamese-600-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/inter/files/inter-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/inter/files/inter-vietnamese-700-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url('@fontsource/inter/files/inter-latin-ext-800-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url('@fontsource/inter/files/inter-vietnamese-800-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-vietnamese-400-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-latin-ext-500-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-vietnamese-500-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-vietnamese-600-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-vietnamese-700-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-latin-ext-800-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url('@fontsource/hanken-grotesk/files/hanken-grotesk-vietnamese-800-normal.woff2') format('woff2');
+  unicode-range: U+0300-0301,U+0303,U+0309,U+0323,U+1EA0-1EF1;
+}

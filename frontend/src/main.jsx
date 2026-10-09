@@ -15,25 +15,47 @@ import { createRoot } from 'react-dom/client'
 // 500 medium UI labels, 600 buttons + section headings, 700 H2/H1,
 // 800 hero. Each weight is ~15-20 KB woff2 = ~80 KB total, but cached
 // immutably so the cost is paid once per build hash.
-import '@fontsource/inter/400.css'
-import '@fontsource/inter/500.css'
-import '@fontsource/inter/600.css'
-import '@fontsource/inter/700.css'
+//
+// SUBSETS (8 Oct 2026): the latin file only, never the all-subset
+// `@fontsource/<family>/<weight>.css`. That file also carries the Cyrillic,
+// Greek, Vietnamese and latin-ext @font-face rules — and for Hanken, whose
+// Cyrillic files are under Vite's 4 KB inline limit, the font data itself,
+// base64'd into the stylesheet that must load before anything paints.
+// latin covers Danish (æ ø å é ü) and the Western punctuation (– — … € −).
+// Extended Latin (Turkish ş ğ İ, Polish Ł, Czech č, Romanian ș) and
+// Vietnamese come from ./fonts-ext-subsets.css, imported after the last
+// latin file below: hand-written @font-face rules WITH a unicode-range, so
+// those files download only on a page that draws such a letter. Cyrillic and
+// Greek are drawn by the next font in the stack, the system font.
+//
+// Do NOT add fontsource's latin-ext-<weight>.css beside these: its per-subset
+// files carry no unicode-range, so the browser treats latin-ext as a second
+// full copy of the face and downloads it for every page (measured: the
+// landing went from 10 to 20 font files).
+import '@fontsource/inter/latin-400.css'
+import '@fontsource/inter/latin-500.css'
+import '@fontsource/inter/latin-600.css'
+import '@fontsource/inter/latin-700.css'
 
 // Landing design system (design_handoff_bonbox_landing). Self-hosted, NOT
 // the Google Fonts <link> the handoff specifies — vercel.json sets
 // font-src 'self' data:, so a CDN font request is blocked outright in
 // production and the page would silently fall back to Inter.
-// Display face: Hanken Grotesk. Text face: Inter Tight.
-import '@fontsource/hanken-grotesk/400.css'
-import '@fontsource/hanken-grotesk/500.css'
-import '@fontsource/hanken-grotesk/600.css'
-import '@fontsource/hanken-grotesk/700.css'
-import '@fontsource/hanken-grotesk/800.css'
-import '@fontsource/inter-tight/400.css'
-import '@fontsource/inter-tight/500.css'
-import '@fontsource/inter-tight/600.css'
-import '@fontsource/inter/800.css'
+// Display face: Hanken Grotesk. Text face: Inter (--font-text in index.css).
+// Inter Tight, the handoff's text face, was dropped on 8 Oct 2026: it was a
+// third family on the landing, /join and the staff portal, cost ~67 KB on a
+// first visit to the landing, put the cookie banner (Inter) in a different
+// face from the page under it, and had no 700 loaded, so the staff portal's
+// 37 bold requests rendered as 600. Inter is already the app's face.
+// Same subset rule as Inter above: the latin file only.
+import '@fontsource/hanken-grotesk/latin-400.css'
+import '@fontsource/hanken-grotesk/latin-500.css'
+import '@fontsource/hanken-grotesk/latin-600.css'
+import '@fontsource/hanken-grotesk/latin-700.css'
+import '@fontsource/hanken-grotesk/latin-800.css'
+import '@fontsource/inter/latin-800.css'
+// After every latin import (see fonts-ext-subsets.css for why the order matters).
+import './fonts-ext-subsets.css'
 
 import './index.css'
 import App from './App.jsx'

@@ -177,13 +177,13 @@ export default function PricingV2() {
               )}
             </div>
             <div className="mb-[14px] flex flex-wrap items-baseline gap-2">
-              <span className="font-display text-[44px] font-extrabold tracking-[-0.03em] text-slate-900">
+              <span className="font-display text-[44px] font-extrabold tracking-[-0.03em] tabular-nums text-slate-900">
                 129
               </span>
               <span className="text-sm text-slate-500">
                 {t("landingV2.pricing.perMonth", "DKK / mo")}
               </span>
-              <span className="text-[13.5px] text-slate-400 line-through">
+              <span className="text-[13.5px] tabular-nums text-slate-400 line-through">
                 199
               </span>
               <span className="rounded-full bg-slate-100 px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-600">
@@ -286,13 +286,13 @@ export default function PricingV2() {
               )}
             </div>
             <div className="mb-[14px] flex flex-wrap items-baseline gap-2">
-              <span className="font-display text-[38px] font-extrabold tracking-[-0.03em] text-slate-900">
+              <span className="font-display text-[38px] font-extrabold tracking-[-0.03em] tabular-nums text-slate-900">
                 249
               </span>
               <span className="text-sm text-slate-500">
                 {t("landingV2.pricing.perMonth", "DKK / mo")}
               </span>
-              <span className="text-[13.5px] text-slate-400 line-through">
+              <span className="text-[13.5px] tabular-nums text-slate-400 line-through">
                 349
               </span>
               {/* Pro's 249 is rationed exactly like Starter's 129 — both come
