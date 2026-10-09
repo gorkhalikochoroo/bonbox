@@ -384,7 +384,10 @@ export default function RegisterPage() {
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
               </div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t("createYourAccount")}</h1>
-              <p className="text-gray-500 dark:text-gray-400 mt-1.5">{t("registerSubheading")}</p>
+              {/* Web: the door question first ("koster det noget, skal jeg give kort?") —
+                  shown on phones too, where the trial panel is hidden. Native
+                  keeps a price-free line (Apple 3.1.1). */}
+              <p className="text-gray-500 dark:text-gray-400 mt-1.5">{t(isNative ? "registerSubheading" : "registerSubheadingWeb")}</p>
             </div>
 
             {alreadyExists && (

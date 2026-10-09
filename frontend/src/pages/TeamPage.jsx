@@ -11,6 +11,8 @@ import { Icon } from "../components/ui";
 import RevisorSection from "../components/RevisorSection";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
+import { HELD_CLAIM_OPEN, HELD_UNVERIFIED, heldReasonFromError } from "../utils/senderGate";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -45,6 +47,24 @@ const ROLE_DESC_KEY = {
   viewer: "teamRoleDescViewer",
 };
 
+// A refused invite / resend, under the button that was tapped. Unconfirmed:
+// the one tap that fixes it ("Bekræft nu"). Question open: "Send spørgsmålet
+// igen" — never a "Bekræft nu" that leads nowhere (release gate, 9 Oct).
+function SendIssue({ t, issue, testId }) {
+  return (
+    <div role="alert" data-testid={testId}
+      className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
+      {issue.text}
+      {issue.held === HELD_UNVERIFIED && (
+        <Link to="/verify-email" className="ml-2 inline-flex items-center font-semibold underline underline-offset-2">
+          {t("verifyEmailNowCta")}
+        </Link>
+      )}
+      {issue.held === HELD_CLAIM_OPEN && <ClaimQuestionResend className="ml-2" />}
+    </div>
+  );
+}
+
 export default function TeamPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -65,6 +85,12 @@ export default function TeamPage() {
   // Toast-style result. NEVER carries a plaintext password or magic link.
   const [inviteResult, setInviteResult] = useState(null);
   const [error, setError] = useState("");
+  // A refused invite / resend is said NEXT TO the button that was tapped —
+  // on a phone the page-top banner sat ~1,200 px above it and nothing near
+  // the button changed (release gate, 9 Oct). { text, held } for the form;
+  // { id, text, held } for one pending row.
+  const [inviteIssue, setInviteIssue] = useState(null);
+  const [resendIssue, setResendIssue] = useState(null);
 
   // Confirm dialog — replaces native window.confirm().
   const [confirmState, setConfirmState] = useState(null);
@@ -111,16 +137,22 @@ export default function TeamPage() {
   // owner's language (the server's own message is English).
   const inviteErrText = (err, fallback) => {
     const code = err?.response?.data?.detail?.code;
+    // The address IS confirmed but "did you create this account?" is open:
+    // say that, never "confirm your e-mail first" (release gate, 9 Oct).
+    if (heldReasonFromError(err) === HELD_CLAIM_OPEN) return t("claimOpenSendHeld");
     if (code === "email_unverified") return t("sendNeedsVerifiedEmail");
     if (code === "team_invite_invitee_cap" || code === "team_invite_cooldown") return t("teamInviteMailCap");
     if (code === "team_invite_daily_cap") return t("teamInviteDailyCap");
     return errText(err, fallback);
   };
 
+  const sendIssue = (err, fallback) => ({ text: inviteErrText(err, fallback), held: heldReasonFromError(err) });
+
   const handleInvite = async () => {
     if (!email.trim()) return;
     setInviting(true);
     setError("");
+    setInviteIssue(null);
     try {
       const res = await api.post("/team/invite", { email: email.trim(), role, name: name.trim() });
       // res.data is { status, email, role, email_sent, expires_at, invite_token_sent }
@@ -128,21 +160,23 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(inviteErrText(err, t("teamInviteFailed")));
+      setInviteIssue(sendIssue(err, t("teamInviteFailed")));
     }
     setInviting(false);
   };
 
   const handleResend = async (memberId) => {
     setError("");
+    setResendIssue(null);
     try {
       const res = await api.post(`/team/${memberId}/resend-invite`);
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(inviteErrText(err, t("teamResendFailed")));
+      setResendIssue({ id: memberId, ...sendIssue(err, t("teamResendFailed")) });
     }
   };
+
 
   const handleRevokeInvite = (memberId, emailAddr) => {
     setConfirmState({
@@ -377,6 +411,7 @@ export default function TeamPage() {
                 >
                   {inviting ? t("teamInviteSending") : t("teamInviteSend")}
                 </button>
+                {inviteIssue && <SendIssue t={t} issue={inviteIssue} testId="team-invite-issue" />}
               </>
             )}
           </div>
@@ -394,7 +429,8 @@ export default function TeamPage() {
             </h3>
             <div className="space-y-2">
               {pendingInvites.map((p) => (
-                <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/40">
+                <div key={p.id} className="space-y-2">
+                <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/40">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.email}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -419,6 +455,8 @@ export default function TeamPage() {
                       {t("teamPendingRevoke")}
                     </button>
                   </div>
+                </div>
+                {resendIssue?.id === p.id && <SendIssue t={t} issue={resendIssue} testId="team-resend-issue" />}
                 </div>
               ))}
             </div>

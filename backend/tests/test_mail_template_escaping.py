@@ -42,11 +42,22 @@ def _is_escape_call(node) -> bool:
     return name in ESCAPERS
 
 
+# Mail builders whose names don't end in "email_html" (review, 8 Oct: the
+# order, digest and alert mails escaped the guard by name alone).
+EXTRA_BUILDERS = {"_format_order_email"}
+
+
+def _is_builder_name(name: str) -> bool:
+    return (name.endswith("email_html")
+            or (name.startswith("build_") and name.endswith("_html"))
+            or name in EXTRA_BUILDERS)
+
+
 def _builders():
     for path in sorted(APP.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for fn in ast.walk(tree):
-            if isinstance(fn, ast.FunctionDef) and fn.name.endswith("email_html"):
+            if isinstance(fn, ast.FunctionDef) and _is_builder_name(fn.name):
                 yield path, fn
 
 
@@ -76,7 +87,8 @@ def _raw_param_interpolations(fn):
 def test_guard_finds_the_builders():
     names = {fn.name for _, fn in _builders()}
     assert {"_welcome_email_html", "_admin_signup_email_html",
-            "build_shift_email_html", "_invite_email_html"} <= names, names
+            "build_shift_email_html", "_invite_email_html",
+            "build_digest_html", "build_alert_html", "_format_order_email"} <= names, names
 
 
 def test_no_email_html_builder_interpolates_a_typed_parameter_raw():
@@ -121,3 +133,41 @@ def test_shift_mail_escapes_names_and_times(lang):
     assert "<img" not in html
     assert '"><b>' not in html
     assert "&lt;img" in html
+
+
+# ── Digest + expense-alert mails (review, 8 Oct) ──────────────────────────
+# Both go to user.email — possibly an unconfirmed address someone else owns —
+# from the test buttons and from the scheduled daily job, so owner-typed text
+# (business name, category names, expense descriptions, item names/units)
+# must not reach the HTML raw.
+
+def _digest_data(**over):
+    data = {
+        "date": "Monday, 05 October 2026", "currency": "DKK",
+        "revenue": 1000.0, "expenses": 400.0, "profit": 600.0, "margin": 60.0,
+        "wow_change": 5.0, "mtd_revenue": 9000.0,
+        "top_expenses": [(EVIL, 300.0)],
+        "low_stock": [(EVIL, 1.0, EVIL)],
+        "business_name": EVIL,
+    }
+    data.update(over)
+    return data
+
+
+def test_digest_mail_escapes_owner_text():
+    from app.services.digest_service import build_digest_html
+    html = build_digest_html(_digest_data())
+    assert "<img" not in html
+    assert html.count("&lt;img") == 4
+
+
+def test_alert_mail_escapes_business_name_and_messages():
+    from app.services.alert_service import build_alert_html
+    alerts = [
+        {"type": "category_spike", "message": f"{EVIL} costs jumped 40% this week"},
+        {"type": "large_transaction", "message": f"Large expense: {EVIL} (900 DKK)"},
+    ]
+    html = build_alert_html(alerts, EVIL)
+    assert "<img" not in html
+    assert html.count("&lt;img") == 3
+    assert "2 alert(s)" in html

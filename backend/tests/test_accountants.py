@@ -1135,9 +1135,11 @@ def test_invite_opt_out_link_stops_the_next_invite(client, db, monkeypatch, engi
 
 def test_a_held_invite_self_accepted_by_the_inviter_is_not_a_verified_login(client, db, monkeypatch):
     """No link ever reached the revisor's inbox, so the login made from it
-    is not 'verified': the real inbox owner's first e-mail link takes the
-    account over (password replaced, every session signed out)."""
+    is not 'verified': the real inbox owner's first e-mail link ASKS whether
+    they made it (Manoj, 8 Oct) and "Nej / Ved ikke" takes the account over
+    (password replaced, every session signed out)."""
     from app.services import magic_link_service
+    from app.services.claim_decision import decide, pending_ask
     owner = _owner(db, plan="starter", verified=False)
     _override_user(owner)
     _capture_sends(monkeypatch)
@@ -1154,10 +1156,19 @@ def test_a_held_invite_self_accepted_by_the_inviter_is_not_a_verified_login(clie
 
     raw, _row = magic_link_service.create_token(db, "victim@regnskab.dk")
     user = magic_link_service.verify_token(db, raw)
+    ask = pending_ask(user)
     db.commit()
     db.refresh(acct)
     assert user.id == acct.id
     assert acct.email_verified is True
+    # Asked, not claimed: nothing replaced until the inbox owner answers.
+    assert ask is not None and ask.page_ticket
+    assert verify_password("inviter-chosen-pw", acct.password_hash)
+    assert int(acct.token_version or 0) == tv_before
+
+    decide(db, ask.page_ticket, "secure")
+    db.commit()
+    db.refresh(acct)
     assert not verify_password("inviter-chosen-pw", acct.password_hash)
     assert int(acct.token_version or 0) == tv_before + 1
 

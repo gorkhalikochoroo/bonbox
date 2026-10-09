@@ -5,7 +5,10 @@ Google Places API for nearby business discovery (with OSM fallback).
 Manual price tracking + comparison analytics.
 """
 
+import copy
 import logging
+import threading
+import time
 from datetime import date
 from math import radians, cos, sin, asin, sqrt
 
@@ -33,12 +36,108 @@ def _haversine(lat1, lon1, lat2, lon2):
 
 # ── Google Places Discovery ─────────────────────────────────
 
-def discover_nearby(lat: float, lon: float, keyword: str = None, radius: int = 1500) -> dict:
-    """Discover nearby businesses — Google Places first, OSM fallback."""
+# The Nearby Search type filter every lookup sends (part of the cache key).
+_GOOGLE_PLACES_TYPES = "restaurant|cafe|bar|bakery|food|meal_delivery|meal_takeaway"
+
+# Process-local cache of Google results (sweep, 8 Oct): every /discover and
+# /cuisine-market request used to make one paid Nearby Search on the platform
+# key. Nearby businesses do not change by the hour, so a venue reloading its
+# page — or two venues on the same street (≈100 m cells) — cost one call per
+# PLACES_CACHE_TTL_SECONDS. Only Google answers are kept (the OSM fallback is
+# free); copies go in and out, so a caller's "already_tracked" marks never
+# reach the cached rows another venue is served.
+PLACES_CACHE_TTL_SECONDS = 12 * 3600
+_PLACES_CACHE_MAX = 2000
+# What may NOT be served from that cache as it was stored (review, 8 Oct):
+#   • distance_m — measured from the FIRST requester's exact point; the cell
+#     is ~100 m and shared across venues, so a hit is re-measured from the
+#     caller's own lat/lon and re-sorted;
+#   • open_now — true at fetch time only; after OPEN_NOW_FRESH_SECONDS a hit
+#     says "unknown" (None — the page then shows no Open/Closed chip) rather
+#     than a 10:00 "Open" at 21:00.
+OPEN_NOW_FRESH_SECONDS = 10 * 60
+_places_cache: dict[tuple, tuple[float, dict]] = {}
+_places_cache_lock = threading.Lock()
+
+
+def _now_seconds() -> float:
+    return time.monotonic()
+
+
+def places_cache_key(lat: float, lon: float, keyword: str | None, radius: int) -> tuple:
+    return (round(float(lat), 3), round(float(lon), 3),
+            (keyword or "").strip().lower(), int(radius), _GOOGLE_PLACES_TYPES)
+
+
+def _cached_places_entry(key: tuple) -> tuple[float, dict] | None:
+    """(age in seconds, a copy) of a live cache entry, else None."""
+    with _places_cache_lock:
+        hit = _places_cache.get(key)
+        if hit is None:
+            return None
+        stored_at, result = hit
+        age = _now_seconds() - stored_at
+        if age >= PLACES_CACHE_TTL_SECONDS:
+            _places_cache.pop(key, None)
+            return None
+        return age, copy.deepcopy(result)
+
+
+def _cached_places(key: tuple) -> dict | None:
+    entry = _cached_places_entry(key)
+    return None if entry is None else entry[1]
+
+
+def _as_seen_from(result: dict, lat: float, lon: float, age: float) -> dict:
+    """A cached answer made true for THIS caller, now: distances from the
+    caller's own point (and the list re-sorted by them); open_now dropped
+    once it is older than OPEN_NOW_FRESH_SECONDS."""
+    places = result.get("places") or []
+    for p in places:
+        p_lat, p_lon = p.get("latitude"), p.get("longitude")
+        if p_lat and p_lon:
+            p["distance_m"] = round(_haversine(lat, lon, p_lat, p_lon))
+        if age >= OPEN_NOW_FRESH_SECONDS:
+            p["open_now"] = None
+    places.sort(key=lambda p: p.get("distance_m") or 99999)
+    return result
+
+
+def _store_places(key: tuple, result: dict) -> None:
+    with _places_cache_lock:
+        if len(_places_cache) >= _PLACES_CACHE_MAX:
+            # Drop the oldest entries first; the cache is a cost bound, not a store.
+            for k, _ in sorted(_places_cache.items(), key=lambda kv: kv[1][0])[: _PLACES_CACHE_MAX // 10 or 1]:
+                _places_cache.pop(k, None)
+        _places_cache[key] = (_now_seconds(), copy.deepcopy(result))
+
+
+def _reset_places_cache_for_tests() -> None:
+    with _places_cache_lock:
+        _places_cache.clear()
+
+
+def discover_nearby(lat: float, lon: float, keyword: str = None, radius: int = 1500,
+                    *, before_google_call=None) -> dict:
+    """Discover nearby businesses — Google Places first, OSM fallback.
+
+    A cached Google answer for the same rounded location / keyword / radius
+    is served without a call. `before_google_call`, when given, runs right
+    before a call that WILL reach Google (a cache miss with a key set): the
+    caller's per-account ceiling — it may raise to stop the call."""
     api_key = settings.GOOGLE_PLACES_API_KEY
     if api_key:
+        key = places_cache_key(lat, lon, keyword, radius)
+        entry = _cached_places_entry(key)
+        if entry is not None:
+            age, cached = entry
+            return _as_seen_from(cached, lat, lon, age)
+        if before_google_call is not None:
+            before_google_call()
         try:
-            return _search_google_places(lat, lon, keyword, radius, api_key)
+            result = _search_google_places(lat, lon, keyword, radius, api_key)
+            _store_places(key, result)
+            return copy.deepcopy(result)
         except Exception as e:
             logger.warning(f"Google Places failed, falling back to OSM: {e}")
 
@@ -53,7 +152,7 @@ def _search_google_places(lat: float, lon: float, keyword: str, radius: int, api
     params = {
         "location": f"{lat},{lon}",
         "radius": radius,
-        "type": "restaurant|cafe|bar|bakery|food|meal_delivery|meal_takeaway",
+        "type": _GOOGLE_PLACES_TYPES,
         "key": api_key,
     }
     if keyword:

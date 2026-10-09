@@ -11,6 +11,7 @@ import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatHours } from "../utils/hours";
 import { localIso, dateLocale } from "../utils/dateFormat";
@@ -20,6 +21,8 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } fro
 import { isStaffMemberRole } from "../config/navManifest";
 import { contractLabel } from "../config/scheduleGrid";
 import { revisorAddress } from "../utils/closeEmail";
+import { HELD_CLAIM_OPEN, heldReasonForUser, heldReasonFromError } from "../utils/senderGate";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -169,8 +172,11 @@ const NO_PAY = { hours: 0, base_earned: 0, overtime: 0, overtime_hours: 0, tips:
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
 export default function StaffPayrollPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { t, lang } = useLanguage();
+  // Only to order the before-send check like the server (send-to-revisor
+  // below); the send itself is gated by the server (402 → UpgradeNudge).
+  const { hasFeature: hasEntitlement, isReady: entitlementsReady } = useEntitlements();
   const currency = displayCurrency(user?.currency);
   // A manager reaches this tab (/staff/hours is not an ownerOnly destination)
   // and keeps the wage-cost estimate they build rotas against. The two payroll
@@ -624,8 +630,32 @@ export default function StaffPayrollPage() {
   const showDkFiles = isDanish && !isStaffSeat
     && !(dkEstimate && !dkQ.failed && !dkLoading && dkEstimate.staff_count === 0);
 
+  // Mail to the revisor is held for an unconfirmed e-mail ("Bekræft nu"), or
+  // while "did you create this account?" waits for the answer to the mailed
+  // question ("Send spørgsmålet igen" — the address IS confirmed).
+  const setHeldError = (held) => (held === HELD_CLAIM_OPEN
+    ? setError(t("dcMailHeldClaimOpen", "Not sent to your revisor — BonBox is waiting for your answer to the question we e-mailed you (did you create this account yourself?)"), "claim")
+    : setError(t("dcMailHeldUnverified", "Not sent to your revisor — confirm your e-mail first"), "verify"));
+
   const sendToAccountant = async () => {
     if (!canSend) return;
+    // Held right now: BonBox would send the revisor nothing (and no copy).
+    // Said BEFORE the send, not after a confirm that promises "To: …, You
+    // get a copy" (release gate, 9 Oct) — on a fresh read of the account
+    // only; without one, the server decides (403 → the same line).
+    // Only where confirming is the LAST wall, as the server orders it
+    // (plan 402, then opt-out, then confirm — revisor_mail.
+    // require_verified_revisor_sender): a plan without the direct send, an
+    // unknown plan, or a revisor who unsubscribed goes to the server, which
+    // answers with the wall that is really there (release gate review, 9 Oct).
+    const confirmIsTheLastWall = entitlementsReady
+      && hasEntitlement("direct_accountant_email")
+      && !profileQ.data?.accountant_opted_out;
+    const heldNow = confirmIsTheLastWall ? heldReasonForUser(await refreshUser?.()) : null;
+    if (heldNow) {
+      setHeldError(heldNow);
+      return;
+    }
     // A pay report leaves the building on this tap. The confirm used to read
     // "8 medarbejdere, 1. sep. 26 – 30. sep. 26. Du får en kopi." — not WHO
     // gets it (a hover tooltip said "angiv adressen under Profil"), not WHAT
@@ -678,12 +708,15 @@ export default function StaffPayrollPage() {
     setError("");
     setSendToast("");
     try {
+      // One attempt per tap: a 5xx here may mean the server TRIED to mail
+      // the revisor — the interceptor's replay of a POST 503 could mail the
+      // revisor up to five times (release gate review, 9 Oct).
       const r = await api.post("/staff/payroll/send-to-accountant", {
         period_start: period.period_start,
         period_end: period.period_end,
         staff_ids: Array.from(selectedIds),
         cc_self: true,
-      });
+      }, { _noRetry: true });
       if (r.data?.ok) {
         setSendToast(
           (t("payrollSentToPlain", "Sent to") + " " + r.data.sent_to) +
@@ -722,6 +755,11 @@ export default function StaffPayrollPage() {
         // A retry can never work: the revisor stopped BonBox mail. The file
         // still exists — offer it, in the owner's language.
         setError(t("dcSendOptedOut", "Your revisor has unsubscribed from BonBox mail, so BonBox won't send it. You can send the file from your own mail."), "download");
+      } else if (err?.response?.status === 403 && detail?.code === "email_unverified") {
+        // Mail to the revisor waits for the owner's own confirmed e-mail (or
+        // the answer to the mailed question). Nothing was mailed: "Bekræft
+        // nu" / "Send spørgsmålet igen", or the PDF for the owner's own mail.
+        setHeldError(heldReasonFromError(err));
       } else if (err?.response?.status === 429 && detail?.code === "revisor_daily_cap") {
         setError(t("dcSendDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Send this one from your own mail, or try tomorrow."), "download");
       } else {
@@ -1537,6 +1575,29 @@ export default function StaffPayrollPage() {
                     {t("paySetEmail", "Set your revisor's email")}
                     <Icon name="ChevronRight" size={14} />
                   </Link>
+                )}
+                {error.action === "verify" && (
+                  <span className="inline-flex flex-wrap items-center gap-x-3">
+                    <Link to="/verify-email?now=1" data-testid="pay-send-verify-now" className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                      {t("verifyEmailNowCta", "Confirm now")}
+                      <Icon name="ChevronRight" size={14} />
+                    </Link>
+                    <button type="button" onClick={generatePdf}
+                      className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                      {t("payDownloadToSendYourself", "Download the PDF")}
+                      <Icon name="ChevronRight" size={14} />
+                    </button>
+                  </span>
+                )}
+                {error.action === "claim" && (
+                  <span className="inline-flex flex-wrap items-center gap-x-3">
+                    <ClaimQuestionResend testId="pay-send-claim-resend" className="min-h-[40px] sm:min-h-0" />
+                    <button type="button" onClick={generatePdf}
+                      className="inline-flex items-center gap-0.5 min-h-[40px] sm:min-h-0 font-medium underline underline-offset-2">
+                      {t("payDownloadToSendYourself", "Download the PDF")}
+                      <Icon name="ChevronRight" size={14} />
+                    </button>
+                  </span>
                 )}
                 {error.action === "download" && (
                   <button type="button" onClick={generatePdf}

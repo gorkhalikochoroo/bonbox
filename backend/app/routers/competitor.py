@@ -4,7 +4,12 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from datetime import timedelta
+
+import threading
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Path as FastAPIPath
 from pydantic import BaseModel
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
@@ -21,10 +26,60 @@ from app.services.competitor_service import (
     add_price_check, delete_competitor, discover_nearby,
 )
 from app.services.menu_extractor import extract_menu_from_image
+from app.utils.client_ip import client_ip
+from slowapi import Limiter
 
 logger = logging.getLogger("bonbox.competitor")
 
 router = APIRouter()
+_limiter = Limiter(key_func=client_ip)
+
+
+# ── Google Places lookups: a per-account ceiling ──────────────────────────
+# /discover and /cuisine-market make a paid Google Places Nearby Search on the
+# platform key. competitor_service caches the answers (12 h, by rounded
+# location / keyword / radius), so only a cache MISS reaches Google — and
+# only those are counted here, per account, from audit_logs (sweep, 8 Oct).
+PLACES_LOOKUP_ACTION = "competitor.places_lookup"
+PLACES_LOOKUPS_PER_DAY = 30
+
+
+def _places_lookup_ceiling(db: Session, user: User):
+    """A callable for discover_nearby(before_google_call=…): 429 at the daily
+    ceiling, 503 when the count fails; otherwise the call is counted first."""
+    def _check() -> None:
+        from app.models.audit_log import AuditLog
+        from app.utils.time import utc_now
+        try:
+            n = (
+                db.query(func.count(AuditLog.id))
+                .filter(AuditLog.user_id == user.id,
+                        AuditLog.action == PLACES_LOOKUP_ACTION,
+                        AuditLog.created_at >= utc_now() - timedelta(days=1))
+                .scalar() or 0
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("places lookup count failed (user=%s)", user.id)
+            raise HTTPException(status_code=503, detail={
+                "code": "places_lookup_unavailable",
+                "message": "Couldn't scan right now. Try again in a minute.",
+                "message_da": "Kunne ikke søge lige nu. Prøv igen om et minut.",
+            })
+        if n >= PLACES_LOOKUPS_PER_DAY:
+            raise HTTPException(status_code=429, detail={
+                "code": "places_lookup_daily_cap",
+                "cap": PLACES_LOOKUPS_PER_DAY,
+                "message": (f"BonBox has looked up nearby places {PLACES_LOOKUPS_PER_DAY} times for you "
+                            "in the last 24 hours, the most it does a day. Searches you already ran "
+                            "still show; try a new one tomorrow."),
+                "message_da": (f"BonBox har slået steder i nærheden op {PLACES_LOOKUPS_PER_DAY} gange for dig "
+                               "det seneste døgn, og flere gør BonBox ikke på en dag. Søgninger, du "
+                               "allerede har lavet, vises stadig; prøv en ny i morgen."),
+            })
+        from app.services import audit_service
+        audit_service.record(db, user, PLACES_LOOKUP_ACTION, "competitor")
+        db.commit()
+    return _check
 
 
 # Common menu items per vertical — populated when the user has nothing in
@@ -183,7 +238,9 @@ def competitor_insights(
 
 
 @router.get("/discover")
+@_limiter.limit("10/minute")
 def discover(
+    request: Request,
     keyword: Optional[str] = Query(None),
     radius: int = Query(1500, ge=500, le=5000),
     db: Session = Depends(get_db),
@@ -200,7 +257,8 @@ def discover(
         Competitor.user_id == current_user.id, Competitor.place_id.isnot(None)
     ).all()
     tracked_ids = {r[0] for r in tracked}
-    result = discover_nearby(lat, lon, keyword, radius)
+    result = discover_nearby(lat, lon, keyword, radius,
+                             before_google_call=_places_lookup_ceiling(db, current_user))
     # Mark already-tracked places
     for p in result.get("places", []):
         p["already_tracked"] = p.get("place_id", "") in tracked_ids
@@ -208,7 +266,9 @@ def discover(
 
 
 @router.get("/cuisine-market")
+@_limiter.limit("10/minute")
 def cuisine_market(
+    request: Request,
     radius: int = Query(3000, ge=500, le=10000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -275,10 +335,13 @@ def cuisine_market(
     # without a type constraint.
     bt = (current_user.business_type or "").lower()
     use_type = bt if bt in {"restaurant", "cafe", "bar", "bakery"} else None
+    _ceiling = _places_lookup_ceiling(db, current_user)
     try:
         result = discover_nearby(lat, lon, cuisine, radius, place_type=use_type) \
             if "place_type" in discover_nearby.__code__.co_varnames \
-            else discover_nearby(lat, lon, cuisine, radius)
+            else discover_nearby(lat, lon, cuisine, radius, before_google_call=_ceiling)
+    except HTTPException:
+        raise  # the per-account ceiling (429/503) — said, not swallowed
     except Exception as e:  # noqa: BLE001
         logger.warning("cuisine_market discover failed: %s", e)
         return {
@@ -423,6 +486,83 @@ def _verify_competitor(competitor_id: str, db: Session, user: User) -> Competito
     return comp
 
 
+# ── Google photos: the key stays on the server (review, 8 Oct) ─────────────
+# /photos used to hand the browser `view_url = …&key=<platform key>`: any
+# account could add a competitor from any public place_id and read the key in
+# clear text, and with it skip every per-account ceiling. Now the list carries
+# references only; thumbnails load through /{id}/photo/{ref} below, which adds
+# the key server-side. The Place Details call is cached per place (the same
+# TTL as discovery) and a cache miss counts against the per-account Places
+# ceiling; photo bytes are cached too, so re-opening the picker is free.
+_PHOTO_THUMB_WIDTH = 400
+_PLACE_PHOTOS_MAX = 1000
+_PHOTO_BYTES_MAX = 120
+_place_photos_cache: dict[str, tuple[float, list[dict]]] = {}
+_photo_bytes_cache: dict[tuple[str, int], tuple[float, bytes, str]] = {}
+_photo_cache_lock = threading.Lock()
+
+
+def _reset_photo_caches_for_tests() -> None:
+    with _photo_cache_lock:
+        _place_photos_cache.clear()
+        _photo_bytes_cache.clear()
+
+
+def _cache_now() -> float:
+    from app.services import competitor_service
+    return competitor_service._now_seconds()
+
+
+def _cache_ttl() -> float:
+    from app.services import competitor_service
+    return competitor_service.PLACES_CACHE_TTL_SECONDS
+
+
+def _evict_oldest(cache: dict, limit: int) -> None:
+    if len(cache) >= limit:
+        for k, _ in sorted(cache.items(), key=lambda kv: kv[1][0])[: limit // 10 or 1]:
+            cache.pop(k, None)
+
+
+def _place_photo_refs(db: Session, user: User, place_id: str) -> tuple[list[dict] | None, str | None]:
+    """The photos Google lists for a place: (list, None), or (None, reason).
+    A cache miss runs the per-account Places ceiling first (429/503 raise)."""
+    with _photo_cache_lock:
+        hit = _place_photos_cache.get(place_id)
+        if hit is not None and _cache_now() - hit[0] < _cache_ttl():
+            return [dict(p) for p in hit[1]], None
+    key = getattr(settings, "GOOGLE_PLACES_API_KEY", None)
+    if not key:
+        return None, "no_api_key"
+    _places_lookup_ceiling(db, user)()
+    try:
+        resp = httpx.get(
+            "https://maps.googleapis.com/maps/api/place/details/json",
+            params={
+                "place_id": place_id,
+                "fields": "photos",  # only this field — cheapest billing
+                "key": key,
+            },
+            timeout=8.0,
+        )
+        data = resp.json()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("place details fetch failed for %s: %s", place_id, e)
+        return None, "fetch_error"
+    if data.get("status") not in ("OK", "ZERO_RESULTS"):
+        return None, f"api_status:{data.get('status', 'UNKNOWN')}"
+    photos = []
+    for p in ((data.get("result") or {}).get("photos") or [])[:10]:
+        ref = p.get("photo_reference")
+        if ref:
+            photos.append({"photo_reference": ref, "width": p.get("width"),
+                           "height": p.get("height")})
+    with _photo_cache_lock:
+        _evict_oldest(_place_photos_cache, _PLACE_PHOTOS_MAX)
+        _place_photos_cache[place_id] = (_cache_now(), [dict(p) for p in photos])
+    return photos, None
+
+
 @router.get("/{competitor_id}/photos")
 def list_competitor_photos(
     competitor_id: str,
@@ -430,12 +570,13 @@ def list_competitor_photos(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Fetch up to N Google Places photos for the competitor.
+    """Up to N Google Places photos for the competitor, as references:
+    {photo_reference, width, height}. The picker loads each thumbnail through
+    GET /{competitor_id}/photo/{photo_reference} — never a Google URL, so the
+    platform key never reaches the browser.
 
-    Calls Place Details with `fields=photos` (cheap — billed per
-    *fields requested*, not per field). Returns a list of
-    {photo_reference, width, height, view_url} the frontend can render
-    in a picker grid.
+    One Place Details call per place per cache window (`fields=photos`),
+    counted against the per-account Places ceiling (429 past it).
 
     Falls back gracefully to an empty list (no error thrown) when:
       • No GOOGLE_PLACES_API_KEY is configured
@@ -447,51 +588,58 @@ def list_competitor_photos(
 
     if not comp.place_id:
         return {"photos": [], "reason": "no_place_id"}
-    key = getattr(settings, "GOOGLE_PLACES_API_KEY", None)
-    if not key:
+    if not getattr(settings, "GOOGLE_PLACES_API_KEY", None):
         return {"photos": [], "reason": "no_api_key"}
-
-    try:
-        resp = httpx.get(
-            "https://maps.googleapis.com/maps/api/place/details/json",
-            params={
-                "place_id": comp.place_id,
-                "fields": "photos",  # only this field — cheapest billing
-                "key": key,
-            },
-            timeout=8.0,
-        )
-        data = resp.json()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("place details fetch failed for %s: %s", comp.place_id, e)
-        return {"photos": [], "reason": "fetch_error"}
-
-    if data.get("status") not in ("OK", "ZERO_RESULTS"):
-        return {"photos": [], "reason": f"api_status:{data.get('status', 'UNKNOWN')}"}
-
-    photos = (data.get("result") or {}).get("photos") or []
-    out = []
-    for p in photos[:max_count]:
-        ref = p.get("photo_reference")
-        if not ref:
-            continue
-        out.append({
-            "photo_reference": ref,
-            "width": p.get("width"),
-            "height": p.get("height"),
-            # Proxy URL the frontend can use directly — we don't expose
-            # the API key in the response, only in the URL the browser
-            # follows. Google caches these aggressively.
-            "view_url": (
-                "https://maps.googleapis.com/maps/api/place/photo"
-                f"?maxwidth=800&photo_reference={ref}&key={key}"
-            ),
-        })
-    return {"photos": out}
+    photos, reason = _place_photo_refs(db, current_user, comp.place_id)
+    if photos is None:
+        return {"photos": [], "reason": reason}
+    return {"photos": photos[:max_count]}
 
 
-def _fetch_photo_bytes(photo_reference: str) -> tuple[bytes | None, str]:
-    """Download a Google Places photo by reference. Returns (bytes, media_type)."""
+@router.get("/{competitor_id}/photo/{photo_reference}")
+@_limiter.limit("60/minute")
+def competitor_photo(
+    request: Request,
+    competitor_id: str,
+    photo_reference: str = FastAPIPath(..., min_length=10, max_length=2000,
+                                       pattern=r"^[A-Za-z0-9_\-]+$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """One competitor photo thumbnail, fetched server-side (the key never
+    leaves the server). Owner-scoped (404 for another venue's competitor),
+    and only a reference Google listed for THIS competitor's place — the
+    proxy is not a way to fetch arbitrary Google photos on the platform key."""
+    comp = _verify_competitor(competitor_id, db, current_user)
+    if not comp.place_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    photos, _reason = _place_photo_refs(db, current_user, comp.place_id)
+    if not photos or photo_reference not in {p["photo_reference"] for p in photos}:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    cache_key = (photo_reference, _PHOTO_THUMB_WIDTH)
+    with _photo_cache_lock:
+        hit = _photo_bytes_cache.get(cache_key)
+        if hit is not None and _cache_now() - hit[0] < _cache_ttl():
+            content, media_type = hit[1], hit[2]
+        else:
+            content, media_type = None, ""
+    if content is None:
+        content, media_type = _fetch_photo_bytes(photo_reference, max_width=_PHOTO_THUMB_WIDTH)
+        if not content:
+            raise HTTPException(status_code=502, detail="Couldn't fetch the photo from Google.")
+        media_type = (media_type or "image/jpeg").split(";")[0].strip()
+        if not media_type.startswith("image/"):
+            raise HTTPException(status_code=502, detail="Couldn't fetch the photo from Google.")
+        with _photo_cache_lock:
+            _evict_oldest(_photo_bytes_cache, _PHOTO_BYTES_MAX)
+            _photo_bytes_cache[cache_key] = (_cache_now(), content, media_type)
+    return Response(content=content, media_type=media_type,
+                    headers={"Cache-Control": "private, max-age=3600"})
+
+
+def _fetch_photo_bytes(photo_reference: str, max_width: int = 1600) -> tuple[bytes | None, str]:
+    """Download a Google Places photo by reference. Returns (bytes, media_type).
+    The key is added here, server-side; it never reaches the browser."""
     key = getattr(settings, "GOOGLE_PLACES_API_KEY", None)
     if not key:
         return None, ""
@@ -502,7 +650,7 @@ def _fetch_photo_bytes(photo_reference: str) -> tuple[bytes | None, str]:
             resp = client.get(
                 "https://maps.googleapis.com/maps/api/place/photo",
                 params={
-                    "maxwidth": 1600,  # bigger than display, better OCR
+                    "maxwidth": max_width,  # 1600 default: bigger than display, better OCR
                     "photo_reference": photo_reference,
                     "key": key,
                 },

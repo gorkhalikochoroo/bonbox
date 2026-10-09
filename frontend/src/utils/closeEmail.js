@@ -1,3 +1,5 @@
+import { HELD_CLAIM_OPEN, HELD_UNVERIFIED, heldReasonFromSkip } from "./senderGate";
+
 /**
  * The lock mail to the revisor — what the page needs to show and resend it.
  *
@@ -57,13 +59,34 @@ export function identityIsDemo(profile) {
  *         failed) | "opted_out" | "pref_off" | "no_recipient" | "sending" |
  *         "unchanged" (re-locked with nothing changed: the revisor already
  *         holds these figures, so no new mail went) |
- *         "unrecorded" (locked before the send status was kept) | "none"
+ *         "unrecorded" (locked before the send status was kept) |
+ *         "unverified" (the revisor got nothing because the owner's own
+ *         e-mail is not confirmed — "Ikke sendt til revisoren — bekræft din
+ *         e-mail først"; `ownerSent` when the owner's own copy went: "Sendt
+ *         til dig {when} — ikke til revisoren: bekræft din e-mail først") |
+ *         "unverified_owner_failed" (the same, and the owner's own copy
+ *         failed too — both said) |
+ *         "claim_open" / "claim_open_owner_failed" (the address IS
+ *         confirmed, but "Har du selv oprettet denne konto?" waits for the
+ *         answer to the mailed question — said in those words, with "Send
+ *         spørgsmålet igen", never "bekræft din e-mail"; release gate,
+ *         9 Oct) | "none"
+ *   ownerConfirmed: the owner's own e-mail is confirmed. Only `false` turns a
+ *     held send into "unverified"; once confirmed, the ordinary line takes
+ *     over ("Sent to you — not to your revisor" + Send to revisor).
+ *   claimOpen: the question is open right now (/auth/me
+ *     claim_question_open, or a Send igen answered 403 with that reason).
+ *     A held day reads "claim_open" while it is; once answered, the
+ *     ordinary line takes over.
+ *   error: the persisted email_error. A held day keeps its marker
+ *     ("revisor_email_unverified" / "revisor_claim_question_open"), and when
+ *     the owner's own copy failed too, that error after a ";" — both said.
  *   demo: the saved revisor is demo-seeder sample data (never mailed).
  *   identity: the business is still the demo's sample company — a real
  *     revisor is saved but gets nothing until the owner fixes Profile. No
  *     send button is offered (acct is ""), the row says why.
  */
-export function closeEmailState({ status, sentTo = [], skip = null, profile = null, error = null }) {
+export function closeEmailState({ status, sentTo = [], skip = null, profile = null, error = null, ownerConfirmed = true, claimOpen = false }) {
   const raw = String(profile?.accountant_email || "").trim().toLowerCase();
   const demo = Boolean(profile?.accountant_is_demo) || skip === "demo_recipient";
   const identity = !demo && Boolean(raw) && (identityIsDemo(profile) || skip === "demo_identity");
@@ -74,6 +97,28 @@ export function closeEmailState({ status, sentTo = [], skip = null, profile = nu
     return { kind: "revisor", acct: raw, demo: false, identity: false };
   }
   const acct = demo || identity ? "" : raw;
+  // Held for an unconfirmed owner, or while "did you create this account?"
+  // is open: the lock's skip ("email_unverified" / "claim_question_open"),
+  // the marker persisted on the close (so History says it after a reload),
+  // or a 403 from Send igen. Said in the words of what blocks a send NOW:
+  // the open question first (the address is confirmed then), else the
+  // unconfirmed address.
+  const held = heldReasonFromSkip(skip) || heldReasonFromSkip(error);
+  const now = !held ? null
+    : claimOpen === true ? HELD_CLAIM_OPEN
+      : ownerConfirmed === false ? HELD_UNVERIFIED : null;
+  if (now && acct && status !== "sending" && !profile?.accountant_opted_out) {
+    const base = now === HELD_CLAIM_OPEN ? "claim_open" : "unverified";
+    // Say what happened to the owner's OWN copy too (review, 9 Oct): that it
+    // went, or that it failed — never hidden behind the held line.
+    if ((status === "sent" || status === "partial") && to.length) {
+      return { kind: base, ownerSent: true, acct, demo, identity };
+    }
+    if (FAILED.has(status) || status === "partial") {
+      return { kind: `${base}_owner_failed`, acct, demo, identity };
+    }
+    return { kind: base, ownerSent: false, acct, demo, identity };
+  }
   if (skip === "unchanged" || error === "revisor_unchanged") {
     if (status === "sent" || status === "partial") return { kind: "unchanged", acct, demo, identity };
   }
@@ -104,9 +149,18 @@ function closeEmailKind({ status, to, skip, profile, acct }) {
   return { kind: "none", acct };
 }
 
+/** The owner's own copy's error in a persisted email_error — after the held
+ *  marker ("revisor_<reason>;<error>") when both are kept. */
+export function ownerCopyError(error) {
+  const e = String(error || "");
+  if (!e.startsWith("revisor_")) return e;
+  const i = e.indexOf(";");
+  return i >= 0 ? e.slice(i + 1) : "";
+}
+
 /** i18n key for the honest cause of a failed send. */
 export function emailErrorKey(error) {
-  const e = String(error || "");
+  const e = ownerCopyError(error);
   if (e === "email_not_configured") return "dcMailErrNotConfigured";
   if (e === "pdf_build_failed") return "dcMailErrPdf";
   if (e === "attachment_too_large") return "dcMailErrTooLarge";

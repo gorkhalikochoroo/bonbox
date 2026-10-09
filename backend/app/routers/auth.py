@@ -748,6 +748,7 @@ def apple_auth(
     # — that risks hijacking an existing account if someone re-uses
     # the same relay alias.
     user = db.query(User).filter(User.apple_user_id == apple_sub).first()
+    found_by_sub = user is not None
     # Everything below keys on the e-mail (lookup, link, create): only on an
     # address Apple says it verified.
     if not user and email and not claim_is_true(claims.get("email_verified")):
@@ -768,15 +769,35 @@ def apple_auth(
             # active /oauth/* path is already guarded.
             user.apple_user_id = apple_sub
             # The link stays (decision above), but an account whose address
-            # was never confirmed may have been pre-registered by someone
-            # else: Apple just proved the inbox, so that party's password
-            # and sessions go and the address is confirmed (review, 8 Oct).
-            # A confirmed account is untouched.
-            from app.services.auth import claim_unverified_account
-            claim_unverified_account(db, user, via="apple_legacy",
-                                     ip_address=client_ip(request))
+            # was never confirmed may have been made by the inbox owner — or
+            # pre-registered by someone else. Apple just proved the inbox:
+            # the address is confirmed and the inbox owner is ASKED whether
+            # they made it (Manoj, 8 Oct; services/claim_decision.py) —
+            # nothing is replaced until they answer. Old iOS builds cannot
+            # show the question, so it goes by the one notice mail (Keep /
+            # Secure links). A confirmed account with no open question is
+            # untouched.
+            from app.services.claim_decision import ask_inbox_owner, send_question_mail
+            _ask = ask_inbox_owner(db, user, via="apple_legacy", page_ticket=False,
+                                   ip_address=client_ip(request))
             db.commit()
             db.refresh(user)
+            send_question_mail(user, _ask)
+    elif found_by_sub:
+        # This Apple ID was linked when Apple proved the inbox. A question
+        # still unanswered is asked again: the mail goes again once the last
+        # one is a day old (lost, failed to send, or expired) — an old iOS
+        # build has no other way to answer (review, 9 Oct). Nothing else
+        # happens here; a confirmed account with no question is untouched.
+        from app.services.claim_decision import (
+            ask_inbox_owner, question_open, send_question_mail,
+        )
+        if question_open(db, user):
+            _ask = ask_inbox_owner(db, user, via="apple_legacy", page_ticket=False,
+                                   ip_address=client_ip(request))
+            db.commit()
+            db.refresh(user)
+            send_question_mail(user, _ask)
 
     is_new = False
     if not user:
@@ -941,9 +962,29 @@ def verify_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Verify user email with the 6-digit code."""
+    """Verify user email with the 6-digit code.
+
+    A per-ACCOUNT limit on wrong codes (review, 8 Oct), the pattern of the
+    password reset ceilings: email_verified now unlocks third-party mail and
+    decides whether an e-mail-link sign-in asks the inbox owner whether they
+    made the account (services/claim_decision.py), so the code
+    must not be brute-forceable from rotating IPs. Every wrong code is an
+    audit row; _VERIFY_MAX_FAILED_PER_CODE wrong codes burn the live code;
+    _VERIFY_MAX_FAILED_PER_DAY in 24 hours pause confirming (429). The
+    read-compare-count runs under a row lock (FOR UPDATE; SQLite ignores it
+    and serialises writers anyway).
+    """
     if current_user.email_verified:
         return {"message": "Email already verified", "email_verified": True}
+    current_user = (
+        db.query(User).filter(User.id == current_user.id)
+        .populate_existing().with_for_update().first()
+    ) or current_user
+
+    _failed_today = _reset_events_24h(db, current_user, _VERIFY_FAILED_ACTION)
+    if _failed_today is not None and _failed_today >= _VERIFY_MAX_FAILED_PER_DAY:
+        db.commit()  # release the row lock
+        raise _verification_paused()
 
     if not current_user.verification_code:
         raise HTTPException(status_code=400, detail="No verification code found. Please request a new one.")
@@ -955,6 +996,23 @@ def verify_email(
         (current_user.verification_code or "").encode("utf-8"),
         (data.code or "").encode("utf-8"),
     ):
+        _reset_audit(db, current_user, _VERIFY_FAILED_ACTION, request)
+        # Wrong codes against THIS code: those since it was issued (a code
+        # lives _VERIFY_CODE_TTL_MIN, so issue time = expiry − TTL).
+        _expires = current_user.verification_code_expires
+        _issued_at = (_expires - timedelta(minutes=_VERIFY_CODE_TTL_MIN)) if _expires \
+            else utc_now() - timedelta(minutes=_VERIFY_CODE_TTL_MIN)
+        _against_code = _audit_events_since(db, current_user, _VERIFY_FAILED_ACTION, _issued_at)
+        if _against_code is not None and _against_code >= _VERIFY_MAX_FAILED_PER_CODE:
+            current_user.verification_code = None
+            current_user.verification_code_expires = None
+            db.commit()
+            raise HTTPException(status_code=400, detail={
+                "code": "verification_code_burned",
+                "message": "Too many wrong tries with this code, so it no longer works. Ask for a new code.",
+                "message_da": "For mange forkerte forsøg med denne kode, så den virker ikke længere. Bed om en ny kode.",
+            })
+        db.commit()
         raise HTTPException(status_code=400, detail="Invalid verification code")
 
     current_user.email_verified = True
@@ -987,6 +1045,12 @@ def resend_verification(
     """Resend email verification code."""
     if current_user.email_verified:
         return {"message": "Email already verified"}
+
+    # Confirming is paused after too many wrong codes (verify_email): a code
+    # mailed now could not be used, so none is sent.
+    _failed_today = _reset_events_24h(db, current_user, _VERIFY_FAILED_ACTION)
+    if _failed_today is not None and _failed_today >= _VERIFY_MAX_FAILED_PER_DAY:
+        raise _verification_paused()
 
     # A per-account ceiling (the per-IP limiter above is per minute only):
     # the address is unconfirmed — possibly someone else's — so the account
@@ -1070,6 +1134,22 @@ def update_profile(
             raise HTTPException(status_code=403, detail={
                 "code": "password_required",
                 "message": "Enter your current password to change your login email.",
+            })
+        # A login link landed here before this address was ever confirmed and
+        # the inbox owner has not yet said whether they made this account
+        # (services/claim_decision.py). Until they answer, the address stays:
+        # otherwise whoever set the password could move the account to an
+        # address of their own and out of the inbox owner's reach.
+        from app.services.claim_decision import question_open as _claim_question_open
+        if _claim_question_open(db, current_user):
+            raise HTTPException(status_code=409, detail={
+                "code": "claim_question_open",
+                "message": ("This account is waiting for an answer: did you create it yourself? "
+                            "Answer from the link in the e-mail we sent, or sign in with a login link. "
+                            "Then you can change the e-mail."),
+                "message_da": ("Kontoen venter på et svar: Har du selv oprettet den? "
+                               "Svar via linket i den mail, vi har sendt, eller log ind med et login-link. "
+                               "Så kan du ændre e-mailen bagefter."),
             })
         existing = db.query(User).filter(User.email == data.email).first()
         if existing:
@@ -1227,6 +1307,8 @@ _RESET_MAX_FAILED = 5
 _RESET_ISSUED_ACTION = "auth.reset_code_issued"
 _RESET_FAILED_ACTION = "auth.reset_code_failed"
 _RESET_LOCKED_ACTION = "auth.reset_locked"
+# One notice per window when the issuance ceiling is hit (review, 8 Oct).
+_RESET_CAP_NOTICE_ACTION = "auth.reset_cap_notice"
 
 
 # Verification codes mailed after signup (resend, or a changed login e-mail)
@@ -1234,6 +1316,38 @@ _RESET_LOCKED_ACTION = "auth.reset_locked"
 # rows like the reset codes below (review, 8 Oct).
 _VERIFY_CODE_SENT_ACTION = "auth.verification_code_sent"
 _VERIFY_CODES_PER_DAY = 5
+# Wrong verification codes (review, 8 Oct): per code, then per day.
+_VERIFY_CODE_TTL_MIN = 30
+_VERIFY_FAILED_ACTION = "auth.verification_code_failed"
+_VERIFY_MAX_FAILED_PER_CODE = 5
+_VERIFY_MAX_FAILED_PER_DAY = 10
+
+
+def _verification_paused() -> HTTPException:
+    return HTTPException(status_code=429, detail={
+        "code": "verification_paused",
+        "cap": _VERIFY_MAX_FAILED_PER_DAY,
+        "message": ("Too many wrong codes today. Confirming your e-mail is paused for 24 hours; "
+                    "try again tomorrow with a new code."),
+        "message_da": ("For mange forkerte koder i dag. Bekræftelse af din e-mail er sat på pause "
+                       "i 24 timer; prøv igen i morgen med en ny kode."),
+    })
+
+
+def _audit_events_since(db: Session, user: User, action: str, since) -> int | None:
+    """How many `action` audit rows this account has since `since`; None
+    when the count itself failed."""
+    try:
+        from app.models.audit_log import AuditLog
+        return (
+            db.query(AuditLog)
+            .filter(AuditLog.user_id == user.id, AuditLog.action == action,
+                    AuditLog.created_at >= since)
+            .count()
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("audit count failed (%s): %s", action, e)
+        return None
 _EMAIL_CHANGED_ACTION = "auth.email_changed"
 _EMAIL_CHANGES_PER_DAY = 3
 
@@ -1297,6 +1411,38 @@ def _reset_locked_email_html(lang: str) -> tuple[str, str]:
     return subject, html
 
 
+def _reset_cap_email_html(lang: str) -> tuple[str, str]:
+    """(subject, html) of the one mail an owner gets when the day's reset
+    codes are used up — whoever pressed "forgot password" that often, the
+    owner's own reset would otherwise silently send nothing for 24 hours."""
+    if lang == "da":
+        subject = "BonBox — nulstilling af adgangskode er sat på pause"
+        lines = (
+            f"Der er bedt om {_RESET_CODES_PER_DAY} nulstillingskoder til din BonBox-konto det seneste døgn.",
+            "Der sendes derfor ikke flere koder i 24 timer.",
+            "Din adgangskode er ikke ændret. Var det ikke dig, behøver du ikke gøre noget.",
+            "Du kan stadig logge ind med din adgangskode eller et login-link.",
+        )
+    else:
+        subject = "BonBox — password reset paused"
+        lines = (
+            f"{_RESET_CODES_PER_DAY} password reset codes were requested for your BonBox account in the last 24 hours.",
+            "No more codes will be sent for 24 hours.",
+            "Your password has not changed. If this wasn't you, there is nothing you need to do.",
+            "You can still sign in with your password or a login link.",
+        )
+    body = "".join(
+        f'<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 12px">{line}</p>'
+        for line in lines
+    )
+    html = (
+        "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+        "max-width:480px;margin:0 auto;padding:32px 24px;background:#fff\">"
+        f"{body}</div>"
+    )
+    return subject, html
+
+
 @router.post("/forgot-password")
 @limiter.limit("5/minute")
 def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session = Depends(get_db)):
@@ -1339,6 +1485,19 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
     # counting failure never blocks the owner (n is None → not over).
     _issued = _reset_events_24h(db, user, _RESET_ISSUED_ACTION)
     if _issued is not None and _issued >= _RESET_CODES_PER_DAY:
+        # The first over-cap request in the window tells the owner (ONE
+        # mail, gated by its own audit row) — otherwise their own reset just
+        # silently sends nothing. Same generic answer either way.
+        _noticed = _reset_events_24h(db, user, _RESET_CAP_NOTICE_ACTION)
+        if _noticed == 0:
+            _reset_audit(db, user, _RESET_CAP_NOTICE_ACTION, request)
+            db.commit()
+            try:
+                from app.services.owner_language import owner_lang
+                subj, html = _reset_cap_email_html(owner_lang(user))
+                send_email(user.email, subj, html)
+            except Exception:  # noqa: BLE001
+                logger.warning("reset cap notice failed for user %s", user.id)
         return {"message": "If an account exists with that email, we've sent a reset code."}
     _failed = _reset_events_24h(db, user, _RESET_FAILED_ACTION)
     if _failed is not None and _failed >= _RESET_MAX_FAILED:
@@ -1479,7 +1638,20 @@ def reset_password(
     except Exception:  # noqa: BLE001 — audit is best-effort, never block the reset
         pass
 
+    # The code proves the inbox, like a login link. On an account whose
+    # address was never confirmed (or whose question is unanswered) the
+    # password and sessions are replaced above, but the revisor grants and
+    # host-stand links whoever set the first password handed out are not:
+    # the inbox owner is ASKED, by mail, whether they made the account
+    # (services/claim_decision.py) — "Nej / Ved ikke" closes them. A
+    # confirmed account with no open question is untouched (review, 9 Oct).
+    from app.services.claim_decision import ask_inbox_owner, send_question_mail
+    _ask = ask_inbox_owner(db, user, via="password_reset", page_ticket=False,
+                           ip_address=client_ip(request))
+
     db.commit()
+    db.refresh(user)
+    send_question_mail(user, _ask)
 
     # Sign the user straight in on THIS device with a fresh token at the new
     # version (the email-code holder is, by construction, the account owner).

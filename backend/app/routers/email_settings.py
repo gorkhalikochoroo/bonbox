@@ -17,7 +17,8 @@ router = APIRouter()
 
 # ─── Test mails to the account's own address: a ceiling ─────────────────
 #
-# /test-digest, /test-alerts and /test-welcome mail the account's OWN
+# /test-digest, /test-alerts, /test-welcome (and the Daily Brief's
+# /dashboard/daily-brief/send-now, on the same counter) mail the account's OWN
 # address — but that address is whatever was typed at signup, unproven until
 # the code is entered. Without a ceiling a throw-away signup with somebody
 # else's address (and its own text as business_name) could loop a button and
@@ -50,11 +51,20 @@ def _enforce_self_test_ceiling(db: Session, user: User) -> None:
         })
     newest = rows[0].get("_at") if rows else None
     if newest is not None and newest > utc_now() - timedelta(minutes=SELF_TEST_MAIL_COOLDOWN_MINUTES):
+        # Counted when a send STARTS (_record_self_test), so the last one may
+        # have failed — the words say what the rule is and when the next one
+        # can go, never "a test mail was just sent" (release gate, 9 Oct).
+        import math
+        left = max(1, math.ceil(
+            ((newest + timedelta(minutes=SELF_TEST_MAIL_COOLDOWN_MINUTES)) - utc_now()).total_seconds() / 60))
         raise HTTPException(status_code=429, detail={
             "code": "self_test_mail_cooldown",
-            "message": f"A test mail was just sent. Wait {SELF_TEST_MAIL_COOLDOWN_MINUTES} minutes before the next one.",
-            "message_da": f"Der er lige sendt en testmail. Vent {SELF_TEST_MAIL_COOLDOWN_MINUTES} minutter før den næste.",
+            "message": (f"BonBox sends one test mail every {SELF_TEST_MAIL_COOLDOWN_MINUTES} minutes. "
+                        f"Try again in {left} minute{'s' if left != 1 else ''}."),
+            "message_da": (f"BonBox sender én testmail hvert {SELF_TEST_MAIL_COOLDOWN_MINUTES}. minut. "
+                           f"Prøv igen om {left} minut{'ter' if left != 1 else ''}."),
             "cooldown_minutes": SELF_TEST_MAIL_COOLDOWN_MINUTES,
+            "retry_after_minutes": left,
         })
 
 
@@ -178,7 +188,8 @@ def run_digest_now(
     (allowlist + role + verified + account age, audited; anyone else gets the
     guard's generic 404). It depended on get_current_user alone: any signup
     could mail every BonBox user, up to the global per-IP limit (review,
-    8 Oct). The Render cron runs the job without this route."""
+    8 Oct). No frontend calls this route; the job itself still runs directly
+    with `python -m app.jobs.daily_digest_job`."""
     from app.jobs.daily_digest_job import run_daily_digest
     run_daily_digest()
     return {"status": "done"}

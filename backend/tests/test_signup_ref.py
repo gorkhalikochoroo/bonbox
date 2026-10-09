@@ -13,6 +13,10 @@ Apple completion. These tests pin what the backend does with it:
   • a sign-in to an existing account never adds or replaces a code
   • the migration and the SQLite mirror both carry the column
   • the owner's own data export includes it (it is stored about them)
+  • a valid code is always stored on a new account (no end date), and the
+    nightly maintenance clears it once the account is more than 12 months
+    (SIGNUP_REF_RETENTION_DAYS = 365) old — Manoj's decision 2, 8 Oct 2026,
+    promised on /privacy and /cookies
 
 No mail leaves the test: send_email is replaced by a list.
 
@@ -21,6 +25,7 @@ Run:
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -34,7 +39,9 @@ from app import models as _all_models  # noqa: F401
 from app.main import app, _db_ready
 from app.models.user import User
 from app.services.auth import hash_password
-from app.services.signup_ref import apply_signup_ref, clean_signup_ref, ref_prefix
+from app.services.signup_ref import (
+    SIGNUP_REF_RETENTION_DAYS, apply_signup_ref, clean_signup_ref, purge_signup_refs, ref_prefix,
+)
 
 _db_ready.set()
 
@@ -166,6 +173,14 @@ def test_prefix_is_round_and_argument():
     assert ref_prefix("r2-b-10") == "r2-b"
     assert ref_prefix("flyer-01") == "other"
     assert ref_prefix(None) is None
+
+
+def test_qr_test_code_is_kept_and_rolls_up_under_other():
+    # The frontend (utils/signupRef.js) keeps only fieldwork codes and
+    # "test-NN"; a test code must be stored here and never count as a round.
+    assert clean_signup_ref("test-01") == "test-01"
+    assert ref_prefix("test-01") == "other"
+    assert ref_prefix("test-99") == "other"
 
 
 # ── Register + e-mail verification ───────────────────────────────────
@@ -426,3 +441,92 @@ def test_owner_data_export_includes_the_ref(db_session, client):
     assert e.status_code == 200, e.text
     text = e.text
     assert "signup_ref" in text and "r1-a-03" in text
+
+
+# ── Retention: deleted 12 months after the account was created ─────
+#
+# Manoj's decision 2 (8 Oct 2026) replaced the fixed 31 Jan 2027 date: the
+# code is kept on an account for 12 months after signup. /privacy and
+# /cookies say "deleted 12 months after you create your account".
+
+
+def _age_account(db_session, email, days, now):
+    u = db_session.query(User).filter(User.email == email).one()
+    u.created_at = now - timedelta(days=days)
+    db_session.commit()
+    return u
+
+
+def _ref_of(db_session, email):
+    db_session.expire_all()
+    return db_session.query(User).filter(User.email == email).one().signup_ref
+
+
+def test_retention_is_the_12_months_the_privacy_policy_promises():
+    assert SIGNUP_REF_RETENTION_DAYS == 365
+
+
+def test_apply_always_stores_a_valid_code_for_a_new_account(monkeypatch):
+    # No end date: even with the clock past the old 31 Jan 2027 rule, a new
+    # account keeps the code it signed up with.
+    import app.utils.time as _time
+    monkeypatch.setattr(_time, "utc_now", lambda: datetime(2027, 2, 1, 12, 0))
+
+    class U:
+        signup_ref = None
+    u = U()
+    assert apply_signup_ref(u, "r1-a-03") is True
+    assert u.signup_ref == "r1-a-03"
+    # …and still never overwrites, never stores an invalid code.
+    assert apply_signup_ref(u, "r2-b-07") is False
+    assert u.signup_ref == "r1-a-03"
+    fresh = U()
+    assert apply_signup_ref(fresh, "R1-A-03") is False
+    assert fresh.signup_ref is None
+
+
+def test_purge_clears_only_accounts_older_than_12_months(db_session, client):
+    now = datetime(2027, 10, 20, 3, 0)
+    _, young = _register(client, signup_ref="r1-a-03")
+    _, on_day = _register(client, signup_ref="r1-a-04")
+    _, old = _register(client, signup_ref="r2-b-07")
+    _, no_code = _register(client)
+    _age_account(db_session, young, 364, now)
+    _age_account(db_session, on_day, 365, now)
+    _age_account(db_session, old, 366, now)
+    _age_account(db_session, no_code, 400, now)
+
+    assert purge_signup_refs(db_session, now) == 1
+    db_session.commit()
+    assert _ref_of(db_session, young) == "r1-a-03"   # 364 days: kept
+    assert _ref_of(db_session, on_day) == "r1-a-04"  # exactly 365 days: kept until next night
+    assert _ref_of(db_session, old) is None          # 366 days: cleared
+    assert _ref_of(db_session, no_code) is None
+    assert db_session.query(User).count() == 4  # accounts stay, only the code goes
+    # Idempotent: nothing more is due the same night.
+    assert purge_signup_refs(db_session, now) == 0
+    # Two nights later the 365-day account is past the line too; the 364-day
+    # one (now 366) as well.
+    assert purge_signup_refs(db_session, now + timedelta(days=2)) == 2
+    db_session.commit()
+    assert db_session.query(User).filter(User.signup_ref.isnot(None)).count() == 0
+
+
+def test_nightly_job_boundary_364_kept_366_cleared(db_session, client, monkeypatch):
+    import inspect
+    import app.jobs.retention_and_patterns as job
+
+    now = datetime(2027, 10, 20, 3, 0)
+    _, kept = _register(client, signup_ref="r1-a-05")
+    _, cleared = _register(client, signup_ref="r2-b-08")
+    _age_account(db_session, kept, 364, now)
+    _age_account(db_session, cleared, 366, now)
+    monkeypatch.setattr(job, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(job, "utc_now", lambda: now)
+
+    assert job.purge_expired_signup_refs() == 1
+    assert _ref_of(db_session, kept) == "r1-a-05"
+    assert _ref_of(db_session, cleared) is None
+    assert job.purge_expired_signup_refs() == 0
+    # …and daily_maintenance calls it.
+    assert "purge_expired_signup_refs()" in inspect.getsource(job.daily_maintenance)

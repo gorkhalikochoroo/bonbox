@@ -636,15 +636,37 @@ def test_send_to_accountant_refuses_a_recipient_other_than_the_saved_one(db_sess
     _tax._limiter.reset()
 
 
-def test_send_to_accountant_email_failure_returns_503(db_session, client):
-    """If Resend is down, return 503 so the frontend can fall back
-    to a download + mailto path."""
+def test_send_to_accountant_email_failure_returns_502(db_session, client):
+    """If Resend was asked and failed, return a named error so the frontend
+    can fall back to a download + mailto path — 502, never 503: the app's
+    interceptor replays a POST 503 ("nothing was processed") up to four
+    times, and this send WAS attempted (release gate review, 9 Oct)."""
     user = _make_user(db_session, plan="pro")
     _make_profile(db_session, user, accountant_email="revisor@dk.dk")
 
     with patch(
         "app.services.email_service.send_email_with_attachment",
         return_value=(False, "resend_unavailable"),
+    ):
+        r = client.post(
+            "/api/tax/filing-pdf/send-to-accountant"
+            "?period_start=2026-05-01&period_end=2026-05-31",
+            json={"cc_self": True},
+            headers=_auth_headers(user),
+        )
+
+    assert r.status_code == 502
+    assert r.json()["detail"]["code"] == "email_send_failed"
+
+
+def test_send_to_accountant_mail_not_configured_returns_503(db_session, client):
+    """Nothing attempted (no mail key): 503 stays — a replay is harmless."""
+    user = _make_user(db_session, plan="pro")
+    _make_profile(db_session, user, accountant_email="revisor@dk.dk")
+
+    with patch(
+        "app.services.email_service.send_email_with_attachment",
+        return_value=(False, "email_not_configured"),
     ):
         r = client.post(
             "/api/tax/filing-pdf/send-to-accountant"

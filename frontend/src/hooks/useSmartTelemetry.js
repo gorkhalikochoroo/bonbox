@@ -18,12 +18,16 @@
  * Privacy:
  *   • Falls back to silent no-op on network failure (telemetry MUST
  *     never block UX).
- *   • Server respects `analytics_opt_out` on the user model — we send
- *     blindly, the server drops if opted out.
+ *   • Declining Analytics in the cookie banner stops it on this device
+ *     (same check as useEventLog — /cookies promises usage events stop
+ *     there).
+ *   • Server respects `analytics_opt_out` on the user model (Profile →
+ *     pause) — the server drops the event if opted out.
  *   • Detail field is sanitised — only known keys get through, no
  *     free-text or item names that would carry tenant data.
  */
 import api from "../services/api";
+import { analyticsDeclined } from "./useEventLog";
 
 const ALLOWED_PAGES = new Set([
   "smart_staffing",
@@ -68,6 +72,7 @@ export function useSmartTelemetry() {
   function track(event, page, detail = null) {
     if (!ALLOWED_EVENTS.has(event)) return;
     if (!ALLOWED_PAGES.has(page)) return;
+    if (analyticsDeclined()) return;
     const body = { event, page, detail: _sanitiseDetail(detail) };
     // Migration 013 (kulturarrangør sprint): `/api/events` now serves
     // the cultural-event entity CRUD; analytics telemetry lives at

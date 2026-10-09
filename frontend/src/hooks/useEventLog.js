@@ -9,7 +9,9 @@ import { getCookieConsent } from "../components/CookieConsent";
 // stops it: nothing is queued, and anything queued before the choice is
 // dropped rather than sent. (Before any choice, this first-party log — no
 // cookie, nothing stored on the device — runs as before.)
-function analyticsDeclined() {
+// Exported so every client-side usage event (useSmartTelemetry too) obeys the
+// same "no".
+export function analyticsDeclined() {
   const c = getCookieConsent();
   return !!c && c.analytics === false;
 }

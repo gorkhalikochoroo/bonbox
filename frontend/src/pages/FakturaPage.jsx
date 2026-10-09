@@ -16,6 +16,7 @@ import HowItWorksCard from "../components/HowItWorksCard";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, TabPills } from "../components/ui";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { HELD_CLAIM_OPEN, heldReasonFromError, remailClaimQuestion, remailResultText } from "../utils/senderGate";
 import { isMoneyRejected, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 
@@ -477,6 +478,7 @@ const OWN_MAIL_FALLBACK_CODES = new Set([
 ]);
 
 function useInvoiceActions(invoice, customer, onChanged, t) {
+  const { lang } = useLanguage();
   const toast = useToast();
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -500,6 +502,17 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
     }
   };
 
+  // "Send spørgsmålet igen" from the refusal toast: the outcome in its own toast.
+  const resendQuestion = async () => {
+    let out;
+    try {
+      out = remailResultText(await remailClaimQuestion(api), t, lang);
+    } catch (err) {
+      out = remailResultText(err, t, lang);
+    }
+    toast({ message: out.text, severity: out.ok ? "success" : "warn" });
+  };
+
   const handleSend = async () => {
     if (!customer?.email) {
       toast({ message: t("customerHasNoEmail"), severity: "critical" });
@@ -519,9 +532,12 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       //    manual re-attach on iPhone Safari. Reply-to is the owner's
       //    email so the customer can reply directly.
       try {
+        // One attempt per tap (release gate, 9 Oct): a 503 here means the
+        // server TRIED to mail and the provider failed — the interceptor's
+        // replay of a "nothing was processed" 503 sent up to five mails.
         const r = await api.post(`/invoices/${invoice.id}/send-email`, {
           cc_self: true,
-        });
+        }, { _noRetry: true });
         if (r.data?.ok) {
           toast({
             message:
@@ -538,6 +554,14 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
         // user always has a working path. 4xx (no_recipient, plan-cap)
         // we surface directly.
         const status = sendErr.response?.status;
+        if (!sendErr.response) {
+          // No answer: it may or may not have gone. Say so before the
+          // owner sends it a second time themselves.
+          ownMail = { reason: t("invoiceMailUnknown"), notice: t("invoiceMailUnknownOwnMail") };
+        } else if (status >= 500) {
+          // The server tried and the mail service failed: nothing went.
+          ownMail = { reason: t("invoiceMailFailed"), notice: t("invoiceMailFailedOwnMail") };
+        }
         if (status && status >= 400 && status < 500 && status !== 402) {
           const detail = sendErr.response?.data?.detail;
           // The server's third-party mail rules answer with a code; say it
@@ -549,14 +573,26 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
             // got (review, 8 Oct). Say why BonBox did not mail it, then
             // continue to the PDF + own-mail path below. An unconfirmed
             // account also gets the one tap that fixes it.
-            const unverified = code === "email_unverified";
-            ownMail = {
-              reason: unverified ? t("sendNeedsVerifiedEmail") : t("invoiceMailDailyCap"),
-              notice: unverified ? t("invoiceMailUnverifiedOwnMail") : t("invoiceMailCapOwnMail"),
-              action: unverified
-                ? { label: t("verifyEmailNowCta"), onClick: () => navigate("/verify-email") }
-                : undefined,
-            };
+            const held = heldReasonFromError(sendErr);
+            if (held === HELD_CLAIM_OPEN) {
+              // The address IS confirmed; the answer to the mailed question
+              // is missing. No "Bekræft nu" (it leads nowhere here) — the
+              // question can be e-mailed again instead (release gate, 9 Oct).
+              ownMail = {
+                reason: t("claimOpenSendHeld"),
+                notice: t("claimOpenInvoiceOwnMail"),
+                action: { label: t("claimResendQuestion"), onClick: resendQuestion },
+              };
+            } else {
+              const unverified = code === "email_unverified";
+              ownMail = {
+                reason: unverified ? t("sendNeedsVerifiedEmail") : t("invoiceMailDailyCap"),
+                notice: unverified ? t("invoiceMailUnverifiedOwnMail") : t("invoiceMailCapOwnMail"),
+                action: unverified
+                  ? { label: t("verifyEmailNowCta"), onClick: () => navigate("/verify-email") }
+                  : undefined,
+              };
+            }
           } else {
             toast({
               message:

@@ -9,14 +9,25 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  * Design:
  *  • First-visit users see a banner with three actions: Accept all / Decline
  *    non-essential / Customize.
- *  • Customize opens an inline drawer with 4 categories. "Strictly necessary"
- *    is locked on (auth, CSRF, session). The other three default OFF —
- *    Datatilsynet's guidance is "consent must be opt-in, not opt-out."
+ *  • Customize opens an inline drawer with 3 categories. "Strictly necessary"
+ *    is locked on (auth, CSRF, session — and the settings the owner chooses
+ *    themselves). Analytics and Marketing default OFF — Datatilsynet's
+ *    guidance is "consent must be opt-in, not opt-out."
+ *  • There is NO "Preferences" switch (removed 8 Oct 2026, Manoj). It did
+ *    nothing: no code read getCookieConsent().functional, and theme, language,
+ *    dismissed tips and the like were stored whatever it said. Settings a
+ *    person chooses themselves are storage they asked for (ePrivacy Art. 5(3)
+ *    "strictly necessary in order to provide a service explicitly requested"),
+ *    so the banner and /cookies say that plainly instead of offering a switch
+ *    that changed nothing. An answer saved by an older banner may still carry
+ *    a "functional" key: it is read past, never needed, and never written.
  *  • Choices persist in localStorage with a version stamp so we can re-prompt
  *    if the policy changes, and a timestamp so we can re-prompt every 12
  *    months (best practice; required for some Datatilsynet interpretations).
- *  • Re-open via the `bonbox-open-cookie-settings` window event — wire from
- *    a footer link or settings page.
+ *  • Re-open via the `bonbox-open-cookie-settings` window event —
+ *    <CookieSettingsButton /> below is that link: the /cookies, /privacy and
+ *    landing footers and Profile → Privacy & data carry it, which is what
+ *    the drawer's "change it anytime via the link in the footer" refers to.
  *
  * Tax-jurisdiction note: this banner serves DK/EU users; same pattern works
  * for non-EU but the legal force is EU/EEA-bound. Banner shows in the user's
@@ -29,7 +40,21 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  */
 
 const STORAGE_KEY = "bonbox_cookie_consent";
-const VERSION = 1; // bump if the categories/wording change materially
+// Bump if the categories/wording change materially — but a bump makes
+// getCookieConsent() return null for everyone, and the usage log
+// (useEventLog.js) only stops on an explicit analytics:false, so earlier
+// "no" answers would be logged again until re-answered. The 8 Oct 2026 flyer
+// sentence in Marketing is handled by MARKETING_TEXT below instead.
+const VERSION = 1;
+// Which Marketing text the answer was given to, stamped on every answer this
+// banner saves (beside VERSION, so it forgets nobody's answer):
+//   (absent) — an answer saved before this stamp existed: the Marketing text
+//              did not name the flyer code (production until this release)
+//   2        — Marketing names the printed flyer's campaign code (8 Oct 2026)
+// utils/signupRef.js keeps the code on the device only for a Marketing "yes"
+// stamped >= 2. Bump this when the Marketing text changes again, and say in
+// signupRef.js which stamps still count.
+export const MARKETING_TEXT = 2;
 const TWELVE_MONTHS_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
@@ -79,12 +104,44 @@ export function getCookieConsent() {
 
   if (!parsed.choices || typeof parsed.choices !== "object") return null;
 
+  // An older answer's "functional" key (the removed Preferences switch) is
+  // ignored: the record still loads, and nothing depended on that value.
   return {
     necessary: true, // never trust stored value — always force-on
-    functional: !!parsed.choices.functional,
     analytics: !!parsed.choices.analytics,
     marketing: !!parsed.choices.marketing,
   };
+}
+
+/**
+ * When the stored answer was given (ms since epoch), or null when there is no
+ * valid answer (same checks as getCookieConsent). Lets a consumer tell an
+ * answer given to today's wording from one given to an older text — see
+ * FLYER_TEXT_SINCE in utils/signupRef.js.
+ */
+export function getCookieConsentTime() {
+  if (!getCookieConsent()) return null;
+  try {
+    const ts = new Date(JSON.parse(localStorage.getItem(STORAGE_KEY)).timestamp).getTime();
+    return Number.isFinite(ts) ? ts : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The MARKETING_TEXT stamp on the stored answer, or null when there is no
+ * valid answer (same checks as getCookieConsent) or the answer carries no
+ * stamp (saved by an older banner).
+ */
+export function getCookieConsentMarketingText() {
+  if (!getCookieConsent()) return null;
+  try {
+    const n = JSON.parse(localStorage.getItem(STORAGE_KEY)).marketingText;
+    return Number.isInteger(n) ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Honor browser DoNotTrack signal. If user set DNT=1, default everything off. */
@@ -102,7 +159,6 @@ function saveConsent(choices) {
   // against component bugs that try to disable strictly-necessary cookies.
   const safe = {
     necessary: true,
-    functional: !!choices.functional,
     analytics: !!choices.analytics,
     marketing: !!choices.marketing,
   };
@@ -111,6 +167,7 @@ function saveConsent(choices) {
       STORAGE_KEY,
       JSON.stringify({
         version: VERSION,
+        marketingText: MARKETING_TEXT,
         timestamp: new Date().toISOString(),
         choices: safe,
       }),
@@ -132,7 +189,6 @@ export default function CookieConsent() {
   const [drawer, setDrawer] = useState(false); // customize drawer
   const [choices, setChoices] = useState({
     necessary: true,
-    functional: false,
     analytics: false,
     marketing: false,
   });
@@ -177,7 +233,7 @@ export default function CookieConsent() {
     // (consent banners can't be skipped under EU rules) but pre-fill with
     // everything OFF so a default Accept-All click still respects DNT.
     if (userHasDNT()) {
-      setChoices({ necessary: true, functional: false, analytics: false, marketing: false });
+      setChoices({ necessary: true, analytics: false, marketing: false });
     }
 
     // Show banner if no valid consent saved — after a beat, so a guest
@@ -222,13 +278,13 @@ export default function CookieConsent() {
   if (!open) return null;
 
   const acceptAll = () => {
-    const all = { necessary: true, functional: true, analytics: true, marketing: true };
+    const all = { necessary: true, analytics: true, marketing: true };
     saveConsent(all);
     setOpen(false);
     setDrawer(false);
   };
   const declineAll = () => {
-    const min = { necessary: true, functional: false, analytics: false, marketing: false };
+    const min = { necessary: true, analytics: false, marketing: false };
     saveConsent(min);
     setOpen(false);
     setDrawer(false);
@@ -306,7 +362,7 @@ export default function CookieConsent() {
                   </p>
                   <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
                     {t("cookieBannerBody") ||
-                      "BonBox uses essential cookies to keep you signed in. With your consent we may also use cookies to remember your preferences and to understand how the app is used."}
+                      "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks — recorded for signed-in accounts until you decline) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on."}
                   </p>
                 </div>
               </div>
@@ -371,12 +427,6 @@ export default function CookieConsent() {
                   locked
                 />
                 <Category
-                  titleKey="cookieCatFunctional"
-                  descKey="cookieCatFunctionalDesc"
-                  value={choices.functional}
-                  onChange={(v) => setChoices((c) => ({ ...c, functional: v }))}
-                />
-                <Category
                   titleKey="cookieCatAnalytics"
                   descKey="cookieCatAnalyticsDesc"
                   value={choices.analytics}
@@ -418,4 +468,26 @@ export default function CookieConsent() {
  */
 export function openCookieSettings() {
   window.dispatchEvent(new CustomEvent("bonbox-open-cookie-settings"));
+}
+
+/**
+ * "Cookie settings" — reopens the banner's drawer on the current answer, so
+ * consent can be changed or withdrawn as easily as it was given (GDPR Art.
+ * 7(3)). Renders as a plain text button; pass the surrounding link styling.
+ */
+export function CookieSettingsButton({ className = "", label }) {
+  const { t } = useLanguage();
+  // The staff Scheduler build never opens the banner (nothing there needs
+  // consent), so a button there would do nothing — render none.
+  if (import.meta.env.VITE_APP_MODE === "scheduler") return null;
+  return (
+    <button
+      type="button"
+      onClick={openCookieSettings}
+      className={className}
+      data-cookie-settings="open"
+    >
+      {label || t("cookieSettings")}
+    </button>
+  );
 }

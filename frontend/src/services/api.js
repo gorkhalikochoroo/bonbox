@@ -294,6 +294,52 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * What a 401 does, from the page the browser is on and the request that got
+ * it: `redirect` — send the browser to /login; `wipeToken` — drop the stored
+ * bearer token. A pure function (exported for tests) so the rules can be
+ * read and checked in one place.
+ */
+export function on401(path, reqUrl = "") {
+  const isAuthPage = path === "/login" || path === "/register" || path.startsWith("/forgot") || path.startsWith("/reset") || path.startsWith("/s/");
+  // /login/magic and /login/claim answer a link from a mail: a forged or
+  // unknown login-link token is a 401 from verify, and the page itself
+  // says "Dette link er ugyldigt" + "Få et nyt link" — the redirect to
+  // /login said nothing (release gate, 9 Oct). Never redirected; a
+  // stale token is still wiped as before.
+  const isLinkLanding = path.startsWith("/login/");
+  // Don't redirect on auth-probe endpoints — those are silent
+  // "are we logged in?" checks (called by AuthProvider on every
+  // public page load too). Without this, an expired-token visitor
+  // landing on `/` would get bounced to `/login` instead of seeing
+  // the marketing landing page. Probes belong to the calling code,
+  // not the global redirect.
+  const isAuthProbe =
+    reqUrl.includes("/auth/me") ||
+    reqUrl.includes("/billing/me") ||
+    // Entitlements is a silent "what plan are you on?" probe fired by
+    // EntitlementsProvider on EVERY page load (incl. logged-out public
+    // pages). A 401 here just means "not signed in" — it must never
+    // bounce a visitor to /login, exactly like /auth/me + /billing/me.
+    reqUrl.includes("/billing/entitlements") ||
+    reqUrl.endsWith("/auth/refresh");
+  // Don't redirect on landing/marketing OR public deep-link routes —
+  // those work fine without auth, and bouncing visitors to /login is
+  // bad UX. The /r/ (reservation booking), /e/ (event) and /t/ (ticket)
+  // pages are customer-facing: a guest scanning a QR is logged out by
+  // definition, so a 401 from any incidental authed call (entitlements,
+  // features, …) must NOT hijack their booking flow into /login.
+  const isPublicRoute =
+    path === "/" || path === "/landing" || path === "/pricing" ||
+    path === "/contact" || path === "/privacy" || path === "/terms" ||
+    path === "/cookies" ||
+    path.startsWith("/r/") || path.startsWith("/e/") || path.startsWith("/t/");
+  return {
+    redirect: !isAuthPage && !isLinkLanding && !isAuthProbe && !isPublicRoute,
+    wipeToken: !isAuthPage,
+  };
+}
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -306,44 +352,14 @@ api.interceptors.response.use(
       try { setRevealProof(null); triggerDeviceLock(); } catch { /* no-op */ }
     }
     if (err.response?.status === 401) {
-      const path = window.location.pathname;
-      const isAuthPage = path === "/login" || path === "/register" || path.startsWith("/forgot") || path.startsWith("/reset") || path.startsWith("/s/");
-      // Don't redirect on auth-probe endpoints — those are silent
-      // "are we logged in?" checks (called by AuthProvider on every
-      // public page load too). Without this, an expired-token visitor
-      // landing on `/` would get bounced to `/login` instead of seeing
-      // the marketing landing page. Probes belong to the calling code,
-      // not the global redirect.
-      const reqUrl = err.config?.url || "";
-      const isAuthProbe =
-        reqUrl.includes("/auth/me") ||
-        reqUrl.includes("/billing/me") ||
-        // Entitlements is a silent "what plan are you on?" probe fired by
-        // EntitlementsProvider on EVERY page load (incl. logged-out public
-        // pages). A 401 here just means "not signed in" — it must never
-        // bounce a visitor to /login, exactly like /auth/me + /billing/me.
-        reqUrl.includes("/billing/entitlements") ||
-        reqUrl.endsWith("/auth/refresh");
-      // Don't redirect on landing/marketing OR public deep-link routes —
-      // those work fine without auth, and bouncing visitors to /login is
-      // bad UX. The /r/ (reservation booking), /e/ (event) and /t/ (ticket)
-      // pages are customer-facing: a guest scanning a QR is logged out by
-      // definition, so a 401 from any incidental authed call (entitlements,
-      // features, …) must NOT hijack their booking flow into /login.
-      const isPublicRoute =
-        path === "/" || path === "/landing" || path === "/pricing" ||
-        path === "/contact" || path === "/privacy" || path === "/terms" ||
-        path === "/cookies" ||
-        path.startsWith("/r/") || path.startsWith("/e/") || path.startsWith("/t/");
-      if (!isAuthPage && !isAuthProbe && !isPublicRoute) {
+      const { redirect, wipeToken } = on401(window.location.pathname, err.config?.url || "");
+      if (redirect) {
         localStorage.removeItem("token");
         window.location.href = "/login";
-      } else {
+      } else if (wipeToken) {
         // Still wipe the stale token so subsequent calls don't keep
         // sending it. Calling code's .catch handler decides what to do.
-        if (!isAuthPage) {
-          try { localStorage.removeItem("token"); } catch {}
-        }
+        try { localStorage.removeItem("token"); } catch {}
       }
     }
     return Promise.reject(err);

@@ -1528,9 +1528,16 @@ def inventory_autopilot_apply(
     The user's own email is used as Reply-To so the supplier can hit
     Reply and reach the owner directly (not noreply@bonbox.dk).
 
-    Tier-gated: Pro+ only.
+    Tier-gated: Pro+ only. Mails only for a confirmed account, within a
+    daily total and a per-mailbox daily limit (review, 8 Oct).
     """
     _enforce_inventory_autopilot_tier(user)
+    # A third party is mailed under the BonBox sender: only for an account
+    # whose own address is confirmed — the same rule as faktura mail and
+    # team invites (review, 8 Oct). A fresh, unconfirmed trial passes the
+    # tier gate above, so this is the gate that stops a squatted signup.
+    from app.services.revisor_mail import require_verified_sender
+    require_verified_sender(user)
 
     # Audit P3 (Task #81): per-user daily cap on distinct supplier
     # recipients.  Stops a hostile owner from using BonBox's Resend
@@ -1540,6 +1547,8 @@ def inventory_autopilot_apply(
     # a 5x safety margin for restaurants with deeper supply chains
     # while shutting down the abuse vector decisively.
     _MAX_RECIPIENTS_PER_DAY = 50
+    _MAX_ORDER_MAILS_PER_DAY = 100
+    _MAX_ORDER_MAILS_PER_ADDRESS_PER_DAY = 3
     from datetime import datetime, timedelta
     from sqlalchemy import and_
     from app.models.audit_log import AuditLog
@@ -1556,25 +1565,55 @@ def inventory_autopilot_apply(
         .all()
     )
     # AuditLog.after_state is JSON text — count unique supplier_email values
+    # (and keep every one, repeats included, for the per-mailbox limit below).
     import json as _json
     recipients_today: set[str] = set()
+    mailed_today: list[str] = []
     for r in rows:
         try:
             data = _json.loads(r.after_state or "{}")
             se = (data.get("supplier_email") or "").strip().lower()
             if se:
                 recipients_today.add(se)
+                mailed_today.append(se)
         except Exception:  # noqa: BLE001
             # Defensive: a malformed audit row should never bring down
             # the apply path.  Treat as "no recipient recorded".
             continue
     # Also count the unique recipients in THIS request so a single
-    # giant batch can't bypass the cap.
-    incoming_recipients = {
-        (line.supplier_email or "").strip().lower()
-        for line in body.items
-        if (getattr(line, "supplier_email", None) or "").strip()
-    }
+    # giant batch can't bypass the cap — the addresses that will ACTUALLY be
+    # mailed. apply_reorder uses the line's supplier_email, else the item's
+    # STORED one; counting the body alone let 500 stored addresses go out in
+    # one call before the cap saw them (sweep, 8 Oct). Resolved the same way
+    # here, from the caller's OWN items only (a foreign id is refused by the
+    # service's tenant check below, never read into this count).
+    _line_ids = []
+    for line in body.items:
+        try:
+            _line_ids.append(uuid.UUID(str(line.item_id)))
+        except (TypeError, ValueError):
+            continue
+    _stored_email = {
+        str(_id): (_email or "")
+        for _id, _email in (
+            db.query(InventoryItem.id, InventoryItem.supplier_email)
+            .filter(InventoryItem.id.in_(_line_ids), InventoryItem.user_id == user.id)
+            .all()
+        )
+    } if _line_ids else {}
+    incoming_recipients = set()
+    # The groups apply_reorder will mail: one mail per stripped address as
+    # typed (it does not lowercase), so this is never fewer than the mails.
+    incoming_groups: set[str] = set()
+    for line in body.items:
+        _key = str(line.item_id)
+        if _key not in _stored_email:
+            continue
+        _typed = (line.supplier_email or _stored_email[_key] or "").strip()
+        _addr = _typed.lower()
+        if _addr and "@" in _addr:
+            incoming_recipients.add(_addr)
+            incoming_groups.add(_typed)
     projected = len(recipients_today | incoming_recipients)
     if projected > _MAX_RECIPIENTS_PER_DAY:
         raise HTTPException(
@@ -1590,6 +1629,57 @@ def inventory_autopilot_apply(
                 "projected": projected,
             },
         )
+
+    # The distinct cap alone let the SAME addresses be mailed again and again
+    # (4 calls/min/IP × 50 = 200 mails a minute from one account; review,
+    # 8 Oct). Two more ceilings, from the same audit rows (one row = one
+    # supplier mail actually sent):
+    #   • a daily TOTAL per account — a real venue sends a handful of orders;
+    #   • a daily limit per MAILBOX (services/mailbox.py folds "+tags" and
+    #     Gmail dots), so one stranger's inbox cannot be the target.
+    from app.services.mailbox import canonical_mailbox, count_same_mailbox
+    if len(mailed_today) + len(incoming_groups) > _MAX_ORDER_MAILS_PER_DAY:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "daily_order_mail_cap",
+                "cap": _MAX_ORDER_MAILS_PER_DAY,
+                "sent_today": len(mailed_today),
+                "message": (
+                    f"BonBox has sent {len(mailed_today)} supplier orders for you in the last "
+                    f"24 hours and sends at most {_MAX_ORDER_MAILS_PER_DAY} a day. "
+                    "Send the rest yourself, or try again tomorrow."
+                ),
+                "message_da": (
+                    f"BonBox har sendt {len(mailed_today)} leverandørordrer for dig det seneste "
+                    f"døgn og sender højst {_MAX_ORDER_MAILS_PER_DAY} om dagen. "
+                    "Send resten selv, eller prøv igen i morgen."
+                ),
+            },
+        )
+    _incoming_by_box: dict[str, int] = {}
+    for _typed in incoming_groups:
+        _box = canonical_mailbox(_typed)
+        _incoming_by_box[_box] = _incoming_by_box.get(_box, 0) + 1
+    for _box, _n_new in _incoming_by_box.items():
+        if count_same_mailbox(mailed_today, _box) + _n_new > _MAX_ORDER_MAILS_PER_ADDRESS_PER_DAY:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "supplier_address_daily_cap",
+                    "cap": _MAX_ORDER_MAILS_PER_ADDRESS_PER_DAY,
+                    "message": (
+                        f"BonBox has already mailed this supplier {_MAX_ORDER_MAILS_PER_ADDRESS_PER_DAY} "
+                        "times in the last 24 hours, the most it sends to one address. "
+                        "Contact the supplier yourself, or try again tomorrow."
+                    ),
+                    "message_da": (
+                        f"BonBox har allerede mailet denne leverandør {_MAX_ORDER_MAILS_PER_ADDRESS_PER_DAY} "
+                        "gange det seneste døgn, og flere sender BonBox ikke til én adresse. "
+                        "Kontakt selv leverandøren, eller prøv igen i morgen."
+                    ),
+                },
+            )
 
     from app.services import inventory_autopilot
 

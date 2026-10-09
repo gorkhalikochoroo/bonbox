@@ -229,9 +229,10 @@ describe("step 4 — an unconfirmed owner's invite is saved, not mailed (8 Oct)"
     expect(screen.queryByRole("alert")).toBeNull();
     expect(h.post).toHaveBeenCalledWith("/auth/onboarding/complete");
     // The wizard unmounts on finish: the held state travels with the
-    // redirect so the landing page can say it (RevisorInviteHeldNotice).
+    // redirect so the landing page can say it (RevisorInviteHeldNotice),
+    // with the reason it was held (production's claim-question rule).
     expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", {
-      replace: true, state: { revisorInviteHeld: true },
+      replace: true, state: { revisorInviteHeld: true, revisorInviteHeldReason: "email_unverified" },
     });
   });
 

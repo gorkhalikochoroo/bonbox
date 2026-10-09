@@ -27,9 +27,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -38,11 +38,14 @@ from app.database import get_db
 from app.models.user import User
 from app.models.wine import Wine, WineSale
 from app.services.auth import get_current_user
+from app.utils.client_ip import client_ip
 from app.utils.time import utc_now
+from slowapi import Limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_limiter = Limiter(key_func=client_ip)
 
 
 # ── Schemas ──────────────────────────────────────────────────
@@ -765,16 +768,80 @@ _WINE_SCAN_PROMPT = (
 )
 
 
+# ── Label scan: a per-account ceiling on the paid vision call ────────────
+# Each scan sends the photo to the Anthropic API on the platform key. Nothing
+# but the app-wide per-IP default stood in front of it (sweep, 8 Oct): one
+# free account could run up the shared AI budget for every venue. Counted
+# from audit_logs (the repo's usage counter); a wine list added bottle by
+# bottle on day one fits well inside the daily ceiling.
+WINE_SCAN_ACTION = "wine.label_scanned"
+WINE_SCANS_PER_MINUTE = 6
+WINE_SCANS_PER_DAY = 60
+
+
+def _wine_scans_since(db: Session, user: User, since) -> int:
+    from app.models.audit_log import AuditLog
+    return int(
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.user_id == user.id,
+                AuditLog.action == WINE_SCAN_ACTION,
+                AuditLog.created_at >= since)
+        .scalar() or 0
+    )
+
+
+def _enforce_wine_scan_ceiling(db: Session, user: User) -> None:
+    """429 at the minute or the daily ceiling; 503 when the count itself
+    fails (nothing is lost by scanning again in a moment). Then the scan is
+    counted BEFORE the call, so parallel uploads count too."""
+    now = utc_now()
+    try:
+        last_day = _wine_scans_since(db, user, now - timedelta(days=1))
+        last_minute = _wine_scans_since(db, user, now - timedelta(minutes=1))
+    except Exception:  # noqa: BLE001
+        logger.warning("wine scan count failed (user=%s)", user.id)
+        raise HTTPException(status_code=503, detail={
+            "code": "wine_scan_unavailable",
+            "message": "The label scan is unavailable right now. Try again in a moment.",
+            "message_da": "Etiketscanning er ikke tilgængelig lige nu. Prøv igen om lidt.",
+        })
+    if last_day >= WINE_SCANS_PER_DAY:
+        raise HTTPException(status_code=429, detail={
+            "code": "wine_scan_daily_cap",
+            "cap": WINE_SCANS_PER_DAY,
+            "message": (f"You have scanned {WINE_SCANS_PER_DAY} labels in the last 24 hours, "
+                        "the most BonBox reads a day. Add the rest by hand, or scan again tomorrow."),
+            "message_da": (f"Du har scannet {WINE_SCANS_PER_DAY} etiketter det seneste døgn, og flere "
+                           "læser BonBox ikke på en dag. Tilføj resten i hånden, eller scan igen i morgen."),
+        })
+    if last_minute >= WINE_SCANS_PER_MINUTE:
+        raise HTTPException(status_code=429, detail={
+            "code": "wine_scan_minute_cap",
+            "cap": WINE_SCANS_PER_MINUTE,
+            "message": "Too many scans in a minute. Wait a moment, then try again.",
+            "message_da": "For mange scanninger på et minut. Vent et øjeblik, og prøv igen.",
+        })
+    from app.services import audit_service
+    audit_service.record(db, user, WINE_SCAN_ACTION, "wine")
+    db.commit()
+
+
 @router.post("/scan")
+@_limiter.limit("6/minute")
 async def scan_bottle_label(
+    request: Request,
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Upload a photo of a wine label → Claude Vision extracts details.
 
     Multi-layer defense:
+      0) Per-account ceiling (WINE_SCANS_PER_MINUTE / WINE_SCANS_PER_DAY,
+         audit_logs) + an explicit per-IP limiter — the call is paid
       1) File size + type validation
-      2) Try/except around the Anthropic call
+      2) Try/except around the Anthropic call — awaited, so a 30 s
+         round-trip never freezes the event loop for every other request
       3) Strict JSON parsing with markdown-block tolerance
       4) _validate_scan_output() coerces every field to a safe value
       5) On failure: structured error JSON (frontend shows the SoftErrorBanner)
@@ -795,6 +862,9 @@ async def scan_bottle_label(
         # Anthropic vision accepts these; reject others before the upload round-trip
         raise HTTPException(400, "Unsupported image format — use JPEG, PNG, or WebP")
 
+    # Layer 0 — counted only for a photo that will actually be sent.
+    _enforce_wine_scan_ceiling(db, user)
+
     b64 = base64.b64encode(image_data).decode()
 
     raw_text = ""
@@ -802,31 +872,31 @@ async def scan_bottle_label(
         import httpx
 
         api_key = settings.ANTHROPIC_API_KEY
-        resp = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-5",
-                "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
-                # Lower temp for deterministic, factual extraction (no creative guesses)
-                "temperature": 0.1,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": media_type, "data": b64},
-                        },
-                        {"type": "text", "text": _WINE_SCAN_PROMPT},
-                    ],
-                }],
-            },
-            timeout=30.0,
-        )
+        async with httpx.AsyncClient(timeout=30.0) as _client:
+            resp = await _client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-5",
+                    "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
+                    # Lower temp for deterministic, factual extraction (no creative guesses)
+                    "temperature": 0.1,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {"type": "base64", "media_type": media_type, "data": b64},
+                            },
+                            {"type": "text", "text": _WINE_SCAN_PROMPT},
+                        ],
+                    }],
+                },
+            )
 
         if resp.status_code != 200:
             logger.warning("Anthropic API non-200: %d %s", resp.status_code, resp.text[:200])
@@ -1001,16 +1071,55 @@ h2{{font-size:15px;color:#722f37;text-transform:uppercase;letter-spacing:2px;bor
 # ── AI Sommelier ─────────────────────────────────────────────
 
 class SommelierQuery(BaseModel):
-    query: str  # e.g. "Something fruity under 400 DKK"
+    # e.g. "Something fruity under 400 DKK". Bounded: it goes into a paid
+    # prompt on the platform key (review, 8 Oct).
+    query: str = Field(..., max_length=300)
+
+
+# The AI answer is a paid Anthropic call on the platform key, with the whole
+# wine list in the prompt. Like the label scan: an explicit per-IP limiter and
+# a per-account daily ceiling counted from audit_logs (review, 8 Oct). At the
+# ceiling — or when the count fails — the owner still gets an answer: the free
+# keyword match below, never an error.
+SOMMELIER_AI_ACTION = "wine.sommelier_ai"
+SOMMELIER_AI_PER_DAY = 60
+
+
+def _sommelier_ai_allowed(db: Session, user: User) -> bool:
+    """True when this account may make one more AI call today; the call is
+    counted first (so parallel requests count too)."""
+    from app.models.audit_log import AuditLog
+    try:
+        n = int(
+            db.query(func.count(AuditLog.id))
+            .filter(AuditLog.user_id == user.id,
+                    AuditLog.action == SOMMELIER_AI_ACTION,
+                    AuditLog.created_at >= utc_now() - timedelta(days=1))
+            .scalar() or 0
+        )
+    except Exception:  # noqa: BLE001 — couldn't count → the free answer
+        logger.warning("sommelier count failed (user=%s)", user.id)
+        return False
+    if n >= SOMMELIER_AI_PER_DAY:
+        return False
+    from app.services import audit_service
+    audit_service.record(db, user, SOMMELIER_AI_ACTION, "wine")
+    db.commit()
+    return True
 
 
 @router.post("/sommelier")
+@_limiter.limit("10/minute")
 def ai_sommelier(
+    request: Request,
     body: SommelierQuery,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """AI sommelier — natural language search across current stock."""
+    """AI sommelier — natural language search across current stock.
+
+    The AI path runs within SOMMELIER_AI_PER_DAY per account; past it the
+    keyword match answers."""
     wines = (
         db.query(Wine)
         .filter(Wine.user_id == user.id, Wine.is_deleted.isnot(True), Wine.stock_qty > 0)
@@ -1022,8 +1131,9 @@ def ai_sommelier(
     query = body.query.lower()
     currency = user.currency or "DKK"
 
-    # If Claude API available, use it for smart matching
-    if settings.ANTHROPIC_API_KEY:
+    # If Claude API available, use it for smart matching — within the
+    # account's daily ceiling.
+    if settings.ANTHROPIC_API_KEY and _sommelier_ai_allowed(db, user):
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)

@@ -41,38 +41,62 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def claim_unverified_account(db: Session, user: User, *, via: str,
-                             ip_address: str | None = None) -> bool:
-    """The inbox owner just proved this address (an e-mail link, or Apple's
-    verified claim) and lands in an account whose address was NEVER
-    confirmed. Whoever created that account did not prove the inbox, so
-    nothing they hold may survive the hand-over (account pre-hijacking,
-    review 8 Oct): the password they set is replaced by a random one, every
-    session they hold is revoked (token_version), the pending code is
-    cleared, and the address is now confirmed. Audited.
+def _close_access_handed_out(db: Session, user: User) -> tuple[int, int]:
+    """Revisor grants (pending and active) and host-stand devices this account
+    handed out: closed. Returns (grants, stand links) closed.
 
-    An already-confirmed account is untouched (returns False): its owner
-    proved the inbox once, so this is the same person signing in again.
-    The caller commits and mints the session AFTER this (new token_version).
-    """
-    if getattr(user, "email_verified", False) is True:
-        return False
+    These two are credentials held by SOMEONE ELSE that keep reading this
+    account's books / reservations and guest data without its password, so a
+    password + token_version reset alone left them open (review, 8 Oct: a
+    squatter's revisor JWT still switched into the books after the claim).
+    Both are re-checked on every request, so closing the row closes access.
+    Staff portal links and team logins are NOT touched here — see the
+    release notes (a decision for Manoj: a real owner's staff would lose
+    their portal links)."""
+    from app.models.accountant_grant import AccountantGrant
+    from app.models.stand_link import StandLink
+    from app.utils.time import utc_now
+    now = utc_now()
+    grants = (
+        db.query(AccountantGrant)
+        .filter(AccountantGrant.owner_user_id == user.id,
+                AccountantGrant.status.in_(("pending", "active")))
+        .all()
+    )
+    for g in grants:
+        g.status = "revoked"
+        g.revoked_at = now
+        g.invite_token = None
+    stands = (
+        db.query(StandLink)
+        .filter(StandLink.user_id == user.id, StandLink.active.is_(True))
+        .all()
+    )
+    for link in stands:
+        link.active = False
+        link.revoked_at = now
+    return len(grants), len(stands)
+
+
+def secure_account(db: Session, user: User) -> tuple[int, int]:
+    """The inbox owner answered "No / Not sure" to "did you create this
+    account yourself and choose the password?" (services/claim_decision.py,
+    Manoj's decision 8 Oct). Whoever set that password keeps nothing: the
+    password is replaced by a random one, every session is revoked
+    (token_version), a pending code is cleared, the address stays confirmed,
+    and the revisor grants and host-stand devices the account handed out are
+    closed (_close_access_handed_out). Returns (grants, stand links) closed.
+
+    Never called on a sign-in by itself — a login link only ASKS. The caller
+    audits (auth.claim.secured), commits, and mints a new session for the
+    browser that answered when it should have one."""
     import secrets as _secrets
     user.password_hash = hash_password(_secrets.token_urlsafe(32))
     user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
     user.verification_code = None
     user.verification_code_expires = None
     user.email_verified = True
-    try:
-        from app.services import audit_service
-        audit_service.record(
-            db, user, "auth.unverified_account_claimed", "user",
-            entity_id=user.id, after={"via": via, "token_version": user.token_version},
-            ip_address=ip_address,
-        )
-    except Exception:  # noqa: BLE001 — audit is best-effort, never block the sign-in
-        pass
-    return True
+    return _close_access_handed_out(db, user)
 
 
 def create_access_token(

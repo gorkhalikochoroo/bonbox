@@ -33,6 +33,7 @@
 import { Link } from "react-router-dom";
 import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { CookieSettingsButton } from "../../CookieConsent";
 
 // Registry values, not copy. Deliberately outside t().
 //
@@ -126,6 +127,9 @@ export default function FooterV2() {
                 {l.label}
               </Link>
             ))}
+            {/* Reopens the cookie banner's drawer — the footer link its
+                "change it anytime via the link in the footer" means. */}
+            <CookieSettingsButton className={`${LINK_CLASS} text-left`} />
           </nav>
         </div>
       </div>

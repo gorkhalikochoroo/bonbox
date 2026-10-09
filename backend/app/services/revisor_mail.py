@@ -597,35 +597,170 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
 # * a daily ceiling counted from audit_logs (the repo's usage counter), like
 #   the revisor cap — fail-open on a counting error, for the same reason.
 
+# Names what the gate holds back, and only that (RELEASE_GATE 5, review
+# 8 Oct): guest, shift and gavekort mail still go out for an unconfirmed
+# account, so a general "BonBox mails no one else" is untrue. What waits:
+# fakturaer, team invitations, supplier orders (order autopilot) and mail to
+# the revisor (require_verified_revisor_sender below, and the held invite).
+# The frontend's sendNeedsVerifiedEmail (en/da) says the same.
 VERIFY_EMAIL_FIRST_MESSAGE_EN = (
     "Confirm your own e-mail address first (Profile → Unverified). "
-    "BonBox only sends mail to others for a confirmed account."
+    "Until it is confirmed, BonBox does not send fakturaer, team invitations, "
+    "supplier orders or mail to your revisor for you."
 )
 VERIFY_EMAIL_FIRST_MESSAGE_DA = (
     "Bekræft først din egen e-mailadresse (Profil → Ikke bekræftet). "
-    "BonBox sender kun mail til andre for en bekræftet konto."
+    "Indtil den er bekræftet, sender BonBox ikke fakturaer, medarbejderinvitationer, "
+    "leverandørordrer eller mail til din revisor for dig."
+)
+# The faktura refusal leads with what still works. An OLD app (an open tab,
+# the bundled iOS build) shows the server's message as it is, after it has
+# already locked the faktura as sent, and its "Profile → Unverified" path can
+# be a dead end there (review, 8 Oct) — the PDF from the owner's own mail is
+# the way forward that works in every build.
+INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_EN = (
+    "BonBox did not e-mail this faktura: your own e-mail address is not confirmed yet. "
+    "Download the PDF and send it from your own e-mail, or confirm your address "
+    "(Profile → Unverified) and send it again."
+)
+INVOICE_VERIFY_EMAIL_FIRST_MESSAGE_DA = (
+    "BonBox har ikke mailet denne faktura: din egen e-mailadresse er ikke bekræftet endnu. "
+    "Hent PDF'en og send den fra din egen e-mail, eller bekræft din adresse "
+    "(Profil → Ikke bekræftet) og send den igen."
 )
 
 
+# The address IS confirmed, but the inbox owner has not yet answered "did you
+# create this account yourself?" (services/claim_decision.py) — whoever set
+# the password may still hold a session. Same code as an unconfirmed address
+# (every app build handles it: nothing sent, the owner's own mail offered),
+# with a message that says what actually waits. Mirrors the profile 409.
+CLAIM_OPEN_MESSAGE_EN = (
+    "Your e-mail address is confirmed, but BonBox is waiting for your answer to the "
+    "question we e-mailed you: did you create this account yourself? Until you answer "
+    "from the link in that e-mail, BonBox does not send fakturaer, team invitations, "
+    "supplier orders or mail to your revisor for you. Can't find the e-mail? Sign in "
+    "with a login link and we'll ask you again."
+)
+CLAIM_OPEN_MESSAGE_DA = (
+    "Din e-mailadresse er bekræftet, men BonBox venter på dit svar på spørgsmålet, "
+    "vi har mailet dig: Har du selv oprettet denne konto? Indtil du svarer via linket "
+    "i mailen, sender BonBox ikke fakturaer, medarbejderinvitationer, leverandørordrer "
+    "eller mail til din revisor for dig. Kan du ikke finde mailen? Log ind med et "
+    "login-link, så spørger vi igen."
+)
+
+
+def claim_question_pending(user: Any) -> bool:
+    """True while the account has an unanswered "did you create it?" question
+    (services/claim_decision.py). A login link (or Apple, or a reset code)
+    confirmed the address, but whoever set the password before that still
+    holds their sessions until the inbox owner answers — so the account does
+    not count as a confirmed sender yet (review, 9 Oct).
+
+    Read through the account row's own session (the request's). A row with
+    no session, or a lookup that fails, counts as pending: when BonBox cannot
+    tell, it does not mail a third party. A non-row (a test double) has no
+    tickets."""
+    from sqlalchemy.orm import object_session
+    from sqlalchemy.orm.exc import UnmappedInstanceError
+    try:
+        db = object_session(user)
+    except UnmappedInstanceError:
+        return False
+    if db is None:
+        return True
+    try:
+        from app.services.claim_decision import question_open_for
+        return question_open_for(db, user.id)
+    except Exception:  # noqa: BLE001 — fail closed: no third-party mail
+        logger.warning("claim question lookup failed for %s", getattr(user, "id", None))
+        return True
+
+
 def sender_is_verified(user: Any) -> bool:
-    """True only when the account's own address is confirmed. The non-raising
-    form, for a path that still does its work but holds the mail (the revisor
-    invite: the grant is created, nothing is e-mailed)."""
-    return getattr(user, "email_verified", False) is True
+    """True only when the account's own address is confirmed AND no "did you
+    create it?" question is waiting for the inbox owner's answer. The
+    non-raising form, for a path that still does its work but holds the mail
+    (the revisor invite: the grant is created, nothing is e-mailed)."""
+    if getattr(user, "email_verified", False) is not True:
+        return False
+    return not claim_question_pending(user)
 
 
-def require_verified_sender(user: Any) -> None:
-    """403 email_unverified unless the account's own address is confirmed."""
-    if sender_is_verified(user):
-        return
+def held_sender_reason(user: Any) -> str | None:
+    """Why BonBox holds third-party mail for this account, in the words the
+    app shows: None (a confirmed sender), "email_unverified" (the account's
+    own address is not confirmed) or "claim_question_open" (the address IS
+    confirmed, but "did you create this account yourself?" waits for the
+    inbox owner's answer). The skip reason of the lock mail and the held
+    revisor invite — so no screen says "confirm your e-mail" to an owner
+    whose address is confirmed (release gate, 9 Oct)."""
+    if getattr(user, "email_verified", False) is not True:
+        return "email_unverified"
+    return "claim_question_open" if claim_question_pending(user) else None
+
+
+def require_verified_sender(user: Any, *, message: str | None = None,
+                            message_da: str | None = None) -> None:
+    """403 email_unverified unless the account's own address is confirmed
+    (and no claim question is open). A surface may pass its own (true, more
+    specific) message pair for the unconfirmed address; an open question
+    always says so instead."""
+    if getattr(user, "email_verified", False) is True:
+        if not claim_question_pending(user):
+            return
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_unverified",
+                "reason": "claim_question_open",
+                "message": CLAIM_OPEN_MESSAGE_EN,
+                "message_da": CLAIM_OPEN_MESSAGE_DA,
+            },
+        )
     raise HTTPException(
         status_code=403,
         detail={
             "code": "email_unverified",
-            "message": VERIFY_EMAIL_FIRST_MESSAGE_EN,
-            "message_da": VERIFY_EMAIL_FIRST_MESSAGE_DA,
+            "message": message or VERIFY_EMAIL_FIRST_MESSAGE_EN,
+            "message_da": message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA,
         },
     )
+
+
+# ─── Mail to the revisor: a confirmed owner only (Manoj, 8 Oct) ───────────
+#
+# Every mail BonBox sends a revisor needs the owner's own e-mail confirmed:
+# the invite (accountants.invite_accountant, held — the grant is still made),
+# the lock mail's revisor copy (daily_close._fire_close_auto_email: skip
+# "email_unverified", the lock and the owner's own copy still happen), and the
+# owner's explicit sends — "Send igen", the period bundle, the
+# MOMS-angivelse and the lønningsliste — which answer 403 email_unverified
+# BEFORE anything is mailed (no revisor mail, no "Kopi:" of a mail that never
+# went). The file itself is never held back: every one of those screens
+# downloads it for the owner's own mail.
+#
+# The message leads with what happened, in the words the Daily close card
+# uses, and says what still works. An OLD app (an open tab, the bundled iOS
+# build) shows the server's message as it is.
+REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_EN = (
+    "Not sent to your revisor — confirm your e-mail first (Profile → Unverified). "
+    "Until then, download the file and send it from your own e-mail."
+)
+REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_DA = (
+    "Ikke sendt til revisoren — bekræft din e-mail først (Profil → Ikke bekræftet). "
+    "Indtil da kan du hente filen og sende den fra din egen e-mail."
+)
+
+
+def require_verified_revisor_sender(user: Any) -> None:
+    """403 email_unverified for an owner-initiated send to the revisor while
+    the account's own e-mail is unconfirmed. Call it after the checks that
+    confirming would not fix (no revisor saved, sample data, opt-out), so the
+    owner is not sent to confirm only to meet another wall."""
+    require_verified_sender(user, message=REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_EN,
+                            message_da=REVISOR_VERIFY_EMAIL_FIRST_MESSAGE_DA)
 
 
 def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | None:

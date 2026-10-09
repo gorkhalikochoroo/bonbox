@@ -95,29 +95,46 @@ def build_digest_data(user: User, db: Session) -> dict:
 
 
 def build_digest_html(data: dict) -> str:
-    """Build HTML email for daily digest."""
-    cur = data["currency"]
-    wow_color = "#16a34a" if data["wow_change"] >= 0 else "#dc2626"
-    wow_arrow = "+" if data["wow_change"] >= 0 else ""
-    profit_color = "#16a34a" if data["profit"] >= 0 else "#dc2626"
+    """Build HTML email for daily digest.
+
+    Owner-typed text (business name, category names, item names and units)
+    goes through revisor_mail.esc, the one mail escape: the digest goes to
+    user.email, which may be an unconfirmed address someone else owns
+    (review, 8 Oct). Numbers are read out as numbers first, so no part of
+    `data` reaches the HTML unconverted."""
+    from app.services.revisor_mail import esc
+    cur = esc(data["currency"])
+    business_name = esc(data["business_name"])
+    date_label = esc(data["date"])
+    revenue = float(data["revenue"] or 0)
+    expenses = float(data["expenses"] or 0)
+    profit = float(data["profit"] or 0)
+    margin = data["margin"]
+    wow_change = data["wow_change"]
+    mtd_revenue = float(data["mtd_revenue"] or 0)
+    top_expenses = data["top_expenses"]
+    low_stock = data["low_stock"]
+    wow_color = "#16a34a" if wow_change >= 0 else "#dc2626"
+    wow_arrow = "+" if wow_change >= 0 else ""
+    profit_color = "#16a34a" if profit >= 0 else "#dc2626"
 
     # Top expenses rows
     exp_rows = ""
-    for name, amt in data["top_expenses"]:
-        pct = round(amt / data["expenses"] * 100) if data["expenses"] > 0 else 0
+    for name, amt in top_expenses:
+        pct = round(amt / expenses * 100) if expenses > 0 else 0
         exp_rows += f"""
         <tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:14px;color:#334155">{name}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:14px;color:#334155">{esc(name)}</td>
           <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:14px;color:#334155;text-align:right">{amt:,.0f} {cur}</td>
           <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:14px;color:#94a3b8;text-align:right">{pct}%</td>
         </tr>"""
 
     # Low stock alerts
     stock_section = ""
-    if data["low_stock"]:
+    if low_stock:
         stock_items = ""
-        for name, qty, unit in data["low_stock"]:
-            stock_items += f'<li style="padding:4px 0;font-size:14px;color:#dc2626">{name}: {qty:.0f} {unit} remaining</li>'
+        for name, qty, unit in low_stock:
+            stock_items += f'<li style="padding:4px 0;font-size:14px;color:#dc2626">{esc(name)}: {qty:.0f} {esc(unit)} remaining</li>'
         stock_section = f"""
         <div style="margin-top:24px;padding:16px;background:#fef2f2;border-radius:12px;border:1px solid #fecaca">
           <h3 style="margin:0 0 8px;font-size:16px;color:#991b1b">Low Stock Alerts</h3>
@@ -135,8 +152,8 @@ def build_digest_html(data: dict) -> str:
       <div style="display:inline-block;width:48px;height:48px;background:#3b82f6;border-radius:14px;line-height:48px;text-align:center">
         <span style="color:white;font-size:20px;font-weight:bold">B</span>
       </div>
-      <h1 style="margin:12px 0 4px;font-size:22px;color:#1e293b">{data['business_name']}</h1>
-      <p style="margin:0;font-size:14px;color:#94a3b8">{data['date']}</p>
+      <h1 style="margin:12px 0 4px;font-size:22px;color:#1e293b">{business_name}</h1>
+      <p style="margin:0;font-size:14px;color:#94a3b8">{date_label}</p>
     </div>
 
     <!-- KPI Cards -->
@@ -145,22 +162,22 @@ def build_digest_html(data: dict) -> str:
         <tr>
           <td style="padding:20px;text-align:center;width:25%;border-bottom:1px solid #f1f5f9">
             <p style="margin:0;font-size:12px;color:#94a3b8;text-transform:uppercase">Revenue</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:#1e293b">{data['revenue']:,.0f}</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:#1e293b">{revenue:,.0f}</p>
             <p style="margin:2px 0 0;font-size:12px;color:#94a3b8">{cur}</p>
           </td>
           <td style="padding:20px;text-align:center;width:25%;border-bottom:1px solid #f1f5f9;border-left:1px solid #f1f5f9">
             <p style="margin:0;font-size:12px;color:#94a3b8;text-transform:uppercase">Expenses</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:#1e293b">{data['expenses']:,.0f}</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:#1e293b">{expenses:,.0f}</p>
             <p style="margin:2px 0 0;font-size:12px;color:#94a3b8">{cur}</p>
           </td>
           <td style="padding:20px;text-align:center;width:25%;border-bottom:1px solid #f1f5f9;border-left:1px solid #f1f5f9">
             <p style="margin:0;font-size:12px;color:#94a3b8;text-transform:uppercase">Profit</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:{profit_color}">{data['profit']:,.0f}</p>
-            <p style="margin:2px 0 0;font-size:12px;color:#94a3b8">{data['margin']}% margin</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:{profit_color}">{profit:,.0f}</p>
+            <p style="margin:2px 0 0;font-size:12px;color:#94a3b8">{margin}% margin</p>
           </td>
           <td style="padding:20px;text-align:center;width:25%;border-bottom:1px solid #f1f5f9;border-left:1px solid #f1f5f9">
             <p style="margin:0;font-size:12px;color:#94a3b8;text-transform:uppercase">vs Last Week</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:{wow_color}">{wow_arrow}{data['wow_change']}%</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:{wow_color}">{wow_arrow}{wow_change}%</p>
             <p style="margin:2px 0 0;font-size:12px;color:#94a3b8">same day</p>
           </td>
         </tr>
@@ -168,12 +185,12 @@ def build_digest_html(data: dict) -> str:
 
       <!-- MTD -->
       <div style="padding:12px 20px;background:#f8fafc;text-align:center">
-        <span style="font-size:13px;color:#64748b">Month-to-date revenue: <strong>{data['mtd_revenue']:,.0f} {cur}</strong></span>
+        <span style="font-size:13px;color:#64748b">Month-to-date revenue: <strong>{mtd_revenue:,.0f} {cur}</strong></span>
       </div>
     </div>
 
     <!-- Top Expenses -->
-    {"" if not data["top_expenses"] else f'''
+    {"" if not top_expenses else f'''
     <div style="margin-top:24px;background:white;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0">
       <div style="padding:16px 20px;border-bottom:1px solid #f1f5f9">
         <h3 style="margin:0;font-size:16px;color:#1e293b">Top Expenses</h3>

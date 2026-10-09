@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { withSignupRef, clearSignupRef } from "../utils/signupRef";
+import ClaimQuestion from "../components/ClaimQuestion";
 
 /**
  * Magic-link landing page (Task #61).
@@ -15,6 +16,15 @@ import { withSignupRef, clearSignupRef } from "../utils/signupRef";
  *   2. POST /auth/magic-link/verify on mount
  *   3. On success → store JWT (native) / rely on HttpOnly cookie (web)
  *      → setUser in AuthContext → redirect to /dashboard
+ *   3b. The account's address had never been confirmed (or an earlier
+ *      question is unanswered) → the answer carries claim_question +
+ *      claim_ticket: ask "Har du selv oprettet denne BonBox-konto den
+ *      <dato> og valgt adgangskoden?" (components/ClaimQuestion.jsx).
+ *      Ja → POST /auth/claim-decision keep → dashboard. Nej / Ved ikke →
+ *      secure → "Din konto er sikret" + "Vælg en ny adgangskode" (opens
+ *      /forgot-password with the address filled in and the code already
+ *      sent — router state, never the URL). No skip:
+ *      leaving the page leaves the question open (the mail asks too).
  *   4. On error → render an inline "expired or used" message with a
  *      button back to /login (where the user can request a new link)
  *
@@ -36,8 +46,27 @@ export default function LoginMagicPage() {
   // tolerate either case so a future refactor doesn't break us.
   const auth = useAuth() || {};
 
-  const [state, setState] = useState("verifying"); // verifying | success | error
+  // verifying | success | claimed | question | secured | questionClosed | error
+  const [state, setState] = useState("verifying");
   const [errorCode, setErrorCode] = useState("");
+  // An older backend answered password_reset: it had already replaced the
+  // password and signed other devices out (the "claimed" notice). Kept for
+  // that answer; the current backend asks instead (below).
+  const [accessClosed, setAccessClosed] = useState(false);
+  // The link landed in an account whose address was never confirmed: the
+  // address is now confirmed and this browser signed in, but nothing else
+  // changed — the inbox owner is ASKED whether they made the account
+  // (backend services/claim_decision.py, Manoj 8 Oct). The ticket that
+  // answers lives only here, in memory: never in the URL or storage.
+  const [question, setQuestion] = useState(null); // { createdAt, ticket }
+  const [answering, setAnswering] = useState(false);
+  const [answerError, setAnswerError] = useState("");
+  const [closedNote, setClosedNote] = useState(""); // expired / already answered
+  // The signed-in address, for "Vælg en ny adgangskode": handed to
+  // /forgot-password as router state (never in the URL), which fills it in
+  // and sends the code at once — the owner types only the code and the new
+  // password.
+  const [accountEmail, setAccountEmail] = useState("");
 
   useEffect(() => {
     // Defensive: short / empty tokens never reach the network. The
@@ -64,6 +93,22 @@ export default function LoginMagicPage() {
         // the backend just set.
         if (access && typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
           try { localStorage.setItem("token", access); } catch { /* ignore */ }
+        }
+        setAccountEmail(String(res?.data?.user?.email || ""));
+        if (res?.data?.password_reset) {
+          setAccessClosed(!!res?.data?.access_closed);
+          setState("claimed");
+          return;
+        }
+        if (res?.data?.claim_question && res?.data?.claim_ticket) {
+          // No redirect, no skip: the owner answers (or closes the page and
+          // the question stays open — the notice mail carries it too).
+          setQuestion({
+            createdAt: res.data.claim_question.created_at,
+            ticket: res.data.claim_ticket,
+          });
+          setState("question");
+          return;
         }
         setState("success");
         // Force a fresh /auth/me round-trip on the next page so the
@@ -104,10 +149,50 @@ export default function LoginMagicPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const answer = async (choice) => {
+    if (!question || answering) return;
+    setAnswering(true);
+    setAnswerError("");
+    try {
+      const res = await api.post("/auth/claim-decision", { ticket: question.ticket, answer: choice });
+      if (choice === "keep") {
+        setState("success");
+        setTimeout(() => { window.location.href = "/dashboard"; }, 250);
+        return;
+      }
+      // "secure": every session was signed out, this browser got a new one.
+      const access = res?.data?.access_token;
+      if (access && typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
+        try { localStorage.setItem("token", access); } catch { /* ignore */ }
+      }
+      if (res?.data?.user?.email) setAccountEmail(String(res.data.user.email));
+      setAccessClosed(!!res?.data?.access_closed);
+      setState("secured");
+    } catch (err) {
+      const status = err?.response?.status;
+      const code = err?.response?.data?.detail?.code || "";
+      if (status === 410 || code === "claim_ticket_expired") {
+        setClosedNote(t("claimExpired"));
+        setState("questionClosed");
+      } else if (status === 409 || code === "claim_already_decided") {
+        setClosedNote(t("claimDecided"));
+        setState("questionClosed");
+      } else {
+        setAnswerError(t("claimFailed"));
+      }
+    } finally {
+      setAnswering(false);
+    }
+  };
+
   const headline = state === "verifying"
     ? (t("magicLinkVerifying") || "Signing you in…")
     : state === "success"
     ? (t("magicLinkSuccess") || "You're in. Redirecting…")
+    : state === "claimed" || state === "question" || state === "questionClosed"
+    ? t("magicLinkClaimedTitle")
+    : state === "secured"
+    ? t("claimSecuredTitle")
     : errorCode === "expired"
     ? (t("magicLinkExpired") || "This link has expired.")
     : errorCode === "used"
@@ -120,6 +205,14 @@ export default function LoginMagicPage() {
     ? (t("magicLinkVerifyingSub") || "Hang tight, this takes a second.")
     : state === "success"
     ? ""
+    : state === "claimed"
+    ? t("magicLinkClaimedBody")
+    : state === "question"
+    ? ""
+    : state === "questionClosed"
+    ? closedNote
+    : state === "secured"
+    ? t("claimSecuredBody")
     : (t("magicLinkErrorSub") || "Request a new link and we'll get you in.");
 
   return (
@@ -144,7 +237,7 @@ export default function LoginMagicPage() {
             </svg>
           </div>
         )}
-        {state === "success" && (
+        {(state === "success" || state === "claimed" || state === "question" || state === "secured") && (
           <div className="flex justify-center mb-4">
             <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -170,6 +263,76 @@ export default function LoginMagicPage() {
           <p className="text-[14px] text-gray-500 mt-2 leading-relaxed">
             {sub}
           </p>
+        )}
+
+        {state === "claimed" && (
+          <div className="mt-5" data-testid="magic-link-claimed">
+            {accessClosed && (
+              <p className="text-[14px] text-gray-500 leading-relaxed mb-4">
+                {t("magicLinkClaimedAccessClosed")}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/dashboard"; }}
+              className="inline-block bg-[#22c55e] hover:bg-[#16a34a] text-white px-5 py-2.5 rounded-lg text-[14px] font-medium transition"
+            >
+              {t("magicLinkClaimedContinue")}
+            </button>
+            <p className="text-[13px] text-gray-500 mt-4">
+              <Link to="/forgot-password" state={accountEmail ? { email: accountEmail } : undefined}
+                className="underline underline-offset-2 hover:text-gray-800">
+                {t("magicLinkClaimedSetPassword")}
+              </Link>
+            </p>
+          </div>
+        )}
+
+        {state === "question" && question && (
+          <ClaimQuestion
+            createdAt={question.createdAt}
+            onAnswer={answer}
+            busy={answering}
+            error={answerError}
+          />
+        )}
+
+        {state === "secured" && (
+          <div className="mt-5" data-testid="claim-secured">
+            {accessClosed && (
+              <p className="text-[14px] text-gray-500 leading-relaxed mb-4">
+                {t("magicLinkClaimedAccessClosed")}
+              </p>
+            )}
+            <Link
+              to="/forgot-password"
+              state={accountEmail ? { email: accountEmail } : undefined}
+              className="inline-block bg-[#22c55e] hover:bg-[#16a34a] text-white px-5 py-2.5 rounded-lg text-[14px] font-medium transition"
+            >
+              {t("magicLinkClaimedSetPassword")}
+            </Link>
+            <p className="text-[13px] text-gray-500 mt-4">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/dashboard"; }}
+                className="underline underline-offset-2 hover:text-gray-800"
+              >
+                {t("magicLinkClaimedContinue")}
+              </button>
+            </p>
+          </div>
+        )}
+
+        {state === "questionClosed" && (
+          <div className="mt-6" data-testid="claim-closed">
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/dashboard"; }}
+              className="inline-block bg-[#22c55e] hover:bg-[#16a34a] text-white px-5 py-2.5 rounded-lg text-[14px] font-medium transition"
+            >
+              {t("magicLinkClaimedContinue")}
+            </button>
+          </div>
         )}
 
         {state === "error" && (

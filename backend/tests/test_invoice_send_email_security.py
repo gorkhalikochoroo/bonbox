@@ -222,3 +222,31 @@ def test_route_has_an_explicit_limiter_and_still_reads_the_body(client, db):
     assert codes[10] == 429, codes
     # The body was a body: the note reached the mail.
     assert "Hej" in client.sent[0]["html"]
+
+
+def test_the_unverified_refusal_names_the_pdf_way_forward(client, db):
+    """Review, 8 Oct: an OLD app (open tab / bundled iOS build) shows the
+    server's message as it is, after it already locked the faktura as sent —
+    and its Profile → Unverified path can be a dead end. So this refusal
+    itself says what still works: the PDF, sent from the owner's own mail."""
+    owner = _owner(db, verified=False)
+    inv = _invoice(db, owner)
+    r = client.post(f"/api/invoices/{inv.id}/send-email", json={"cc_self": False})
+    assert r.status_code == 403, r.text
+    d = r.json()["detail"]
+    assert d["code"] == "email_unverified"
+    assert "PDF" in d["message"] and "own e-mail" in d["message"]
+    assert "PDF" in d["message_da"] and "egen e-mail" in d["message_da"]
+
+
+def test_the_general_refusal_claims_only_what_is_gated():
+    """RELEASE_GATE 5 (claims are true): guest, shift and gavekort mail
+    still go out for an unconfirmed account, so the refusal must not say
+    BonBox mails no one else — it names what it holds back (mail to the
+    revisor is held too since 8 Oct: test_revisor_mail_confirmed_sender)."""
+    from app.services import revisor_mail
+    for text in (revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_EN, revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_DA):
+        low = text.lower()
+        assert "mail to others" not in low and "mail til andre" not in low
+    assert "fakturaer" in revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_EN
+    assert "fakturaer" in revisor_mail.VERIFY_EMAIL_FIRST_MESSAGE_DA

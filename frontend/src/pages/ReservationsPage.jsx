@@ -4538,6 +4538,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               : t("rsvpCancelledDone", "The booking for {name} is cancelled.", { name: doneName }),
         });
       }
+      // The venue reached its daily guest-mail ceiling: the change is saved,
+      // but the guest was not e-mailed — say so, so the owner tells them.
+      const gSkip = resp?.data?.guest_email_skipped;
+      if (gSkip?.code === "guest_email_owner_cap") {
+        toast({ severity: "notice", message: t("rsvpGuestMailOwnerCap", { cap: gSkip.cap }) });
+      } else if (gSkip?.code === "guest_email_address_cap") {
+        // This guest's address was already mailed enough today (per-mailbox bound).
+        toast({ severity: "notice", message: t("rsvpGuestMailAddressCap", { cap: gSkip.cap }) });
+      }
       if (finishFirst) {
         toast({
           severity: "success",
@@ -4907,6 +4916,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               ? t("rsvpEditKeptPastClose", "Saved — {name} sits until {time}, after closing.", { name, time: hm(kept.ends) })
               : t("rsvpEditKeptSaved", "Saved — {name} is kept as typed.", { name }),
         });
+      }
+      // Moved, but the venue reached its daily guest-mail ceiling: saved, the
+      // guest was not e-mailed — say so, so the owner tells them.
+      const gSkip = res?.data?.guest_email_skipped;
+      if (gSkip?.code === "guest_email_owner_cap") {
+        toast({ severity: "notice", message: t("rsvpGuestMailOwnerCap", { cap: gSkip.cap }) });
+      } else if (gSkip?.code === "guest_email_address_cap") {
+        // This guest's address was already mailed enough today (per-mailbox bound).
+        toast({ severity: "notice", message: t("rsvpGuestMailAddressCap", { cap: gSkip.cap }) });
       }
       setEditRes(null);
       setSelected(null);

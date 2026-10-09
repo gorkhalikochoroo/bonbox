@@ -204,7 +204,10 @@ class User(Base):
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Which printed door-visit code the account came from ("r1-a-03" = round
     # 1, argument A, visit 3), or NULL. Written once at account creation and
-    # never overwritten; a code, never personal data. services/signup_ref.py.
+    # never overwritten. A short code, not a name or e-mail — but once stored
+    # on an account it is pseudonymous personal data about that account;
+    # never return it next to an account outside the user's own export.
+    # services/signup_ref.py.
     signup_ref: Mapped[str | None] = mapped_column(String(24), nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
@@ -228,6 +231,27 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+    @property
+    def claim_question_open(self) -> bool:
+        """For display only (UserResponse): "did you create this account
+        yourself?" waits for the inbox owner's answer (services/
+        claim_decision.py). While it does, BonBox holds mail to third
+        parties (revisor_mail.sender_is_verified) — and the app says so in
+        those words, never "confirm your e-mail" (release gate, 9 Oct).
+        Read through the row's own session without flushing anything; a
+        detached row or a failed lookup reads False (the send gate itself
+        fails closed and its refusal names the reason)."""
+        try:
+            from sqlalchemy.orm import object_session
+            db = object_session(self)
+            if db is None or self.id is None:
+                return False
+            from app.services.claim_decision import question_open_for
+            with db.no_autoflush:
+                return bool(question_open_for(db, self.id))
+        except Exception:  # noqa: BLE001 — display only
+            return False
 
     sales: Mapped[list["Sale"]] = relationship(back_populates="user")
     expense_categories: Mapped[list["ExpenseCategory"]] = relationship(back_populates="user")

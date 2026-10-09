@@ -48,7 +48,9 @@ vi.mock("../hooks/useEntitlements", () => ({
 }));
 
 import OnboardingPage from "../pages/OnboardingPage";
+import { en } from "../i18n/en";
 import RevisorInviteHeldNotice from "../components/RevisorInviteHeldNotice";
+import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 import { postLoginPath } from "../utils/verifySkip";
 
 const OWNER = {
@@ -74,6 +76,9 @@ beforeEach(() => {
   ));
 });
 
+// The wizard lands a café on "Du er klar" (/getting-started), which shows the
+// notice (FirstStepsPage renders RevisorInviteHeldNotice); the landing route
+// here stands in for it.
 function App() {
   return (
     <MemoryRouter initialEntries={["/onboarding"]}>
@@ -91,10 +96,12 @@ function App() {
 async function finishWithHeldInvite() {
   render(<App />);
   fireEvent.click(screen.getByText("Get started"));
+  // Step 2 (business) and step 3 (tax, with the revisor's no-mail line).
   await act(async () => { fireEvent.click(screen.getByText("Next")); });
   await screen.findByTestId("onb-acct-no-mail");
   await act(async () => { fireEvent.click(screen.getByText("Next")); });
   await screen.findByTestId("onb-explore-sample");
+  await waitFor(() => expect(document.getElementById("onb-revisor-email")).not.toBeNull());
   fireEvent.change(document.getElementById("onb-revisor-email"), { target: { value: "revisor@regnskab.dk" } });
   await act(async () => { fireEvent.click(screen.getByText("Send invite & finish")); });
 }
@@ -120,6 +127,47 @@ describe("after the wizard, a held revisor invite", () => {
   });
 });
 
+describe("after the wizard, an invite held while 'did you create this account?' is open (review, 9 Oct)", () => {
+  it("reads held_reason: names the mailed question, offers Send spørgsmålet igen — no Confirm now", async () => {
+    // The real wire shape (accountants.invite_accountant): the reason stays
+    // "email_unverified" — the only "held" value older builds know — and
+    // held_reason names the open question.
+    h.user = { ...OWNER, email_verified: true, claim_question_open: true };
+    h.post.mockImplementation((url) => (
+      url === "/accountants/invite"
+        ? Promise.resolve({ data: {
+          id: "g1", status: "pending", accept_url: "https://bonbox.dk/accept-invite/x",
+          email_sent: false, email_not_sent_reason: "email_unverified", held_reason: "claim_question_open",
+        } })
+        : Promise.resolve({ data: { ok: true } })
+    ));
+    await finishWithHeldInvite();
+    await waitFor(() => expect(screen.getByTestId("landed")).toBeInTheDocument());
+    const notice = screen.getByTestId("revisor-invite-held-after-onboarding");
+    expect(notice.textContent).toContain(en.onbRevisorInviteHeldClaimOpen);
+    expect(screen.getByTestId("revisor-invite-held-claim-resend")).toBeInTheDocument();
+    expect(screen.queryByText("Confirm now")).toBeNull();
+  });
+});
+
+describe("after the wizard, a mailed revisor invite", () => {
+  it("carries nothing past the redirect (no held notice)", async () => {
+    // The app-layout twin of onboardingOwnBusinessFirst's "a confirmed
+    // owner's mailed invite still says sent".
+    h.user = { ...OWNER, email_verified: true };
+    h.post.mockImplementation((url) => (
+      url === "/accountants/invite"
+        ? Promise.resolve({ data: { id: "g1", status: "pending", email_sent: true, email_not_sent_reason: null } })
+        : Promise.resolve({ data: { ok: true } })
+    ));
+    await finishWithHeldInvite();
+    await waitFor(() => expect(screen.getByTestId("landed")).toBeInTheDocument());
+    expect(h.post).toHaveBeenCalledWith("/accountants/invite", { email: "revisor@regnskab.dk", name: null });
+    expect(h.post).toHaveBeenCalledWith("/auth/onboarding/complete");
+    expect(screen.queryByTestId("revisor-invite-held-after-onboarding")).toBeNull();
+  });
+});
+
 describe("RevisorInviteHeldNotice", () => {
   const at = (state) => render(
     <MemoryRouter initialEntries={[{ pathname: "/dashboard", state }]}>
@@ -141,9 +189,15 @@ describe("RevisorInviteHeldNotice", () => {
 
 describe("a revisor login and the verification wall", () => {
   it("is never sent to /verify-email, confirmed or not", () => {
+    expect(verifyWallSkipsRole({ id: "a1", role: "accountant", email_verified: false })).toBe(true);
+    expect(verifyWallSkipsRole({ id: "a2", role: "Accountant", email_verified: true })).toBe(true);
+    // An owner (or a team member) in the same state still meets it.
+    expect(verifyWallSkipsRole({ id: "o1", role: "owner", email_verified: false })).toBe(false);
+    expect(verifyWallSkipsRole({ id: "m1", role: "manager", email_verified: false })).toBe(false);
+    expect(verifyWallSkipsRole(null)).toBe(false);
+    // The sign-in landing (utils/verifySkip.postLoginPath) applies it.
     const created_at = "2026-10-08T10:00:00";
     expect(postLoginPath({ id: "a1", role: "accountant", email_verified: false, created_at })).toBe("/dashboard");
-    // An owner in the same state still meets it.
     expect(postLoginPath({ id: "o1", role: "owner", email_verified: false, created_at })).toBe("/verify-email");
   });
 });

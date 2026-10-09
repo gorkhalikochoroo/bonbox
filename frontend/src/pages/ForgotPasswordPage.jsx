@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -8,8 +8,15 @@ const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray
 
 export default function ForgotPasswordPage() {
   const { t } = useLanguage();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Arrived from "Vælg en ny adgangskode" right after securing the account
+  // (LoginMagicPage): the address comes as router state — never in the URL —
+  // and the code is sent at once, so only the code and the new password
+  // are left to type.
+  const handedEmail = typeof location.state?.email === "string" ? location.state.email.trim() : "";
   const [step, setStep] = useState(1);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(handedEmail);
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -17,12 +24,11 @@ export default function ForgotPasswordPage() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleRequestReset = async (e) => {
-    e.preventDefault();
+  const requestCode = async (address) => {
     setError("");
     setLoading(true);
     try {
-      await api.post("/auth/forgot-password", { email });
+      await api.post("/auth/forgot-password", { email: address });
       setStep(2);
     } catch (err) {
       setError(errText(err, t("somethingWentWrong")));
@@ -30,6 +36,23 @@ export default function ForgotPasswordPage() {
       setLoading(false);
     }
   };
+
+  const handleRequestReset = async (e) => {
+    e?.preventDefault?.();
+    await requestCode(email);
+  };
+
+  // One code per hand-over: the state is dropped at once, so a reload (or
+  // React's double effect in development) does not mail a second code.
+  const sentForHandOver = useRef(false);
+  useEffect(() => {
+    if (!handedEmail || sentForHandOver.current) return;
+    sentForHandOver.current = true;
+    navigate(location.pathname, { replace: true, state: null });
+    requestCode(handedEmail);
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleResetPassword = async (e) => {
     e.preventDefault();

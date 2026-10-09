@@ -17,23 +17,61 @@
  *     the e-mail link, which carries the code in its own URL (the backend
  *     adds &ref= to the link it mails).
  *   • In local storage (bonbox_signup_ref, 30 days) ONLY while the cookie
- *     banner's Analytics choice is on. Given later → written then; withdrawn
- *     → removed. Without it, nothing about the code touches the device.
- *   Listed on /cookies and /privacy.
+ *     banner's Marketing choice is on — counting which printed flyer brought
+ *     an account is channel measurement, which is what that category says it
+ *     is for; Analytics is the in-app usage log. Given later → written then;
+ *     withdrawn → removed. Without it, nothing about the code touches the
+ *     device.
+ *   • A Marketing "yes" counts only when the banner that saved it stamped
+ *     it MARKETING_TEXT >= 2 (components/CookieConsent.jsx) — i.e. it was
+ *     given to the text that names the flyer code. Production's banner
+ *     before this release saved no stamp, so a "yes" given there — even on
+ *     8 Oct, the day this text was written — was given to a text that did
+ *     not mention the code; the code then stays in memory until the visitor
+ *     answers the banner again (Cookie settings in the footer). A stamp
+ *     cannot predate the release that writes it, so no deploy-time date is
+ *     needed. (Bumping the banner's VERSION instead would also forget every
+ *     Analytics "no", and the usage log only stops on an explicit "no".)
+ *   • Every page load first drops a copy that is past 30 days or held
+ *     without consent, so "up to 30 days" is a deletion, not just a value
+ *     that is ignored.
+ *   Listed on /cookies and /privacy (which also say the e-mail sign-in link
+ *   carries the code).
  *
  * Rules:
- *   • Only [a-z0-9-]{1,24} is kept — anything else is ignored, silently.
+ *   • Only a fieldwork code is kept: r<round>-<argument>-<visit> ("r1-a-03"),
+ *     the same pattern as _FIELDWORK_RE in backend/app/services/signup_ref.py,
+ *     or a QR test code "test-NN" (the backend accepts it and rolls it up
+ *     under "other", so it never counts as a door visit). Anything else —
+ *     a directory's or newsletter's ?ref=site — is ignored, silently: not
+ *     kept, not stored, not sent. (The backend's own rule stays the wider
+ *     [a-z0-9-]{1,24}; every code allowed here passes it.)
  *   • First code wins while it is fresh (30 days); a second QR does not
  *     replace it, matching "never overwrite" on the server.
- *   • It is a code, never personal data. Storage failures (private mode,
- *     blocked storage) are swallowed — a lost ref must never cost a signup.
+ *   • A short code, not a name or e-mail — but once stored on an account it
+ *     is pseudonymous personal data about that account; never return it next
+ *     to an account outside the user's own export. Storage failures (private
+ *     mode, blocked storage) are swallowed — a lost ref must never cost a
+ *     signup.
  */
-import { getCookieConsent } from "../components/CookieConsent";
+import {
+  getCookieConsent, getCookieConsentTime, getCookieConsentMarketingText,
+} from "../components/CookieConsent";
 
 const KEY = "bonbox_signup_ref";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const REF_RE = /^[a-z0-9-]{1,24}$/;
+// r1-a-03 (round 1–99, argument a–z, visit 1–999) — mirrors the backend's
+// _FIELDWORK_RE — or test-01 … test-99 for checking a QR end to end.
+const REF_RE = /^(?:r\d{1,2}-[a-z]-\d{1,3}|test-\d{2})$/;
 const CONSENT_EVENT = "bonbox-cookie-consent-changed";
+// The first MARKETING_TEXT stamp whose Marketing text names the flyer code.
+export const FLYER_MARKETING_TEXT = 2;
+// A floor only, kept as a second check: the flyer sentence was written on
+// 8 Oct 2026 (Copenhagen), so no answer older than this can have been given
+// to it. It is NOT the go-live time — production showed the old text after
+// this moment; the MARKETING_TEXT stamp above is what proves which text an
+// answer was given to.
+export const FLYER_TEXT_SINCE = Date.parse("2026-10-08T00:00:00+02:00");
 
 // This page load's code: { ref, at } or null.
 let memory = null;
@@ -44,9 +82,14 @@ export function cleanSignupRef(raw) {
   return REF_RE.test(value) ? value : null;
 }
 
-function analyticsAllowed() {
+/** Marketing consent, given to the text that names the flyer code. */
+function storageAllowed() {
   try {
-    return !!getCookieConsent()?.analytics;
+    if (!getCookieConsent()?.marketing) return false;
+    const text = getCookieConsentMarketingText();
+    if (text === null || text < FLYER_MARKETING_TEXT) return false;
+    const at = getCookieConsentTime();
+    return at !== null && at >= FLYER_TEXT_SINCE;
   } catch {
     return false;
   }
@@ -62,9 +105,9 @@ function writeStored() {
 }
 
 function readStored(now) {
-  // Not read without Analytics consent — and a copy from before a
+  // Not read without Marketing consent — and a copy from before a
   // withdrawal is dropped.
-  if (!analyticsAllowed()) {
+  if (!storageAllowed()) {
     removeStored();
     return null;
   }
@@ -95,11 +138,14 @@ function kept(now) {
 /** Keep the ?ref= code from the current URL, if it is valid and none is kept. */
 export function captureSignupRef(search = typeof window !== "undefined" ? window.location.search : "", now = Date.now()) {
   try {
+    // Runs on every page load (main.jsx): drop a copy past 30 days or held
+    // without consent, whether or not this URL carries a code.
+    const already = kept(now);
     const ref = cleanSignupRef(new URLSearchParams(search || "").get("ref"));
     if (!ref) return null;
-    if (kept(now)) return null; // first code wins
+    if (already) return null; // first code wins
     memory = { ref, at: now };
-    if (analyticsAllowed()) writeStored();
+    if (storageAllowed()) writeStored();
     return ref;
   } catch {
     return null;
@@ -107,11 +153,11 @@ export function captureSignupRef(search = typeof window !== "undefined" ? window
 }
 
 /**
- * The cookie banner was answered (or re-answered). Analytics on → keep this
+ * The cookie banner was answered (or re-answered). Marketing on → keep this
  * page load's code for 30 days; off → remove any kept copy from the device.
  */
 export function onCookieConsentChanged(choices) {
-  if (choices?.analytics) writeStored();
+  if (choices?.marketing) writeStored();
   else removeStored();
 }
 

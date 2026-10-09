@@ -17,9 +17,11 @@ Design notes:
     The service layer additionally lowercases + trims before storage
     so casing variants don't split the rate-limit bucket.
 """
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Literal, Optional
 
-from app.schemas.auth import SignupRefMixin
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.schemas.auth import ClaimQuestion, SignupRefMixin, UserResponse
 
 
 class MagicLinkRequest(SignupRefMixin):
@@ -73,3 +75,48 @@ class MagicLinkResponse(BaseModel):
 
     ok: bool = True
     message: str
+
+
+# ── "Did you create this account yourself?" (services/claim_decision.py) ──
+# The ticket is the ONLY input that picks the account: extra="forbid" refuses
+# an account id (or anything else) with a 422 instead of ignoring it.
+
+
+class ClaimTicketIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticket: str = Field(..., min_length=43, max_length=128)
+
+    @field_validator("ticket")
+    @classmethod
+    def strip_whitespace(cls, v: str) -> str:
+        return v.strip()
+
+
+class ClaimDecisionIn(ClaimTicketIn):
+    answer: Literal["keep", "secure"]
+
+
+class ClaimStatusQuestion(ClaimQuestion):
+    """The mail's landing page: the question, plus whether a password reset
+    opened it — the owner then just chose the current password, so the page
+    asks about the first one."""
+    after_reset: bool = False
+
+
+class ClaimStatusResponse(BaseModel):
+    state: Literal["open", "decided", "expired"]
+    decision: Optional[Literal["keep", "secure"]] = None
+    question: ClaimStatusQuestion
+
+
+class ClaimDecisionResponse(BaseModel):
+    decision: Literal["keep", "secure"]
+    already_decided: bool = False
+    # "secure" closed revisor grants / host-stand devices the account had given.
+    access_closed: bool = False
+    # Only for "secure" answered with the page's ticket: the fresh session of
+    # the browser that answered (its old one was signed out with the rest).
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    user: Optional[UserResponse] = None

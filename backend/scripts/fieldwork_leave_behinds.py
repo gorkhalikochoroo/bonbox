@@ -16,6 +16,8 @@ codes; a code must match the signup-ref rule and name argument a or b.
 A SCRIPT, NOT A ROUTE: pure, no database, no network, no personal data. The
 output belongs in founder-private/, never in the repo.
 
+To test a QR, stop at the signup page, or use a code outside the rounds (e.g. test-01); an account created through a real round code counts as a door-visit signup — add its id to app/services/internal_accounts.py if it happens.
+
 PRECONDITION — DO NOT HAND OUT A SHEET UNTIL THE CODE-KEEPING BUILD IS LIVE.
 Production before it ignores ?ref=, and a visit whose code was dropped is lost
 for good (it does not show up later as a 0). Both halves must be deployed:

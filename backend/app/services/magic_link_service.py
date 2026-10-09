@@ -269,12 +269,15 @@ def verify_token(
         )
     else:
         # The click proves the inbox. An account at this address that was
-        # never confirmed may have been pre-registered by someone else with a
-        # password of their own: the click confirms the address and removes
-        # that password and every session it opened (review, 8 Oct). A
-        # confirmed account is untouched.
-        from app.services.auth import claim_unverified_account
-        claim_unverified_account(db, user, via="magic_link", ip_address=used_ip)
+        # never confirmed may have been made by the inbox owner — or
+        # pre-registered by someone else with a password of their own. The
+        # click confirms the address and signs this browser in, and the inbox
+        # owner is ASKED whether they made it (Manoj, 8 Oct): nothing else
+        # changes until they answer (services/claim_decision.py). An
+        # unanswered earlier question is asked again. A confirmed account
+        # with no open question is untouched.
+        from app.services.claim_decision import ask_inbox_owner
+        ask_inbox_owner(db, user, via="magic_link", sign_in_ref=row.id, ip_address=used_ip)
 
     # Burn the token. Re-issue rejected via used_at check above.
     row.used_at = now

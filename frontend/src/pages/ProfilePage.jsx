@@ -50,6 +50,7 @@ import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import DeviceShareSettingsCard from "../components/DeviceShareSettingsCard";
 import { resetAllTips } from "../components/DismissibleTip";
+import { CookieSettingsButton } from "../components/CookieConsent";
 import { localIso } from "../utils/dateFormat";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
@@ -738,8 +739,16 @@ export default function ProfilePage() {
       } else {
         setBriefTestMsg(t("briefSendFailedToast"));
       }
-    } catch {
-      setBriefTestMsg(t("briefSendFailedToast"));
+    } catch (err) {
+      // The server says why — the test-mail ceiling (429: one per 10
+      // minutes, five a day, shared with the other test mails), or a count
+      // it could not read (503) — in the owner's language. Anything else:
+      // "Couldn't send".
+      const d = err?.response?.data?.detail;
+      const st = err?.response?.status;
+      const said = (st === 429 || st === 403 || st === 503) && d && typeof d === "object"
+        ? (lang === "da" ? d.message_da : d.message) : "";
+      setBriefTestMsg(said || t("briefSendFailedToast"));
     }
     setSendingBriefTest(false);
     setTimeout(() => setBriefTestMsg(""), 4000);
@@ -801,10 +810,17 @@ export default function ProfilePage() {
       setSuccess(t("profileUpdated"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      const code = err?.response?.data?.detail?.code;
+      const detail = err?.response?.data?.detail;
+      const code = detail?.code;
       setError(code === "password_required"
         ? t("profileEmailPwWrong", "That password isn't right. Signed up with Google, Apple or a login link? Set a password with “Forgot?” on the login page first.")
-        : errText(err, t("failedToUpdateProfile")));
+        // 429: the login e-mail was changed a few times today; 409: a login
+        // link asked "did you create this account yourself?" and nobody has
+        // answered yet, so the address stays put — the server words both in
+        // both languages.
+        : ((code === "email_change_daily_cap" || code === "claim_question_open")
+            && (lang === "da" ? detail.message_da : detail.message))
+          || errText(err, t("failedToUpdateProfile")));
     }
     setSaving(false);
   };
@@ -1456,6 +1472,19 @@ export default function ProfilePage() {
                       {autoSendOnPlan
                         ? t("accountantAutoSendExplain", "What: the day's kasserapport as a PDF (plus the Z-bon photo if you scanned one). When: the moment the day is locked. To: {email}. You get a copy. Your revisor can unsubscribe with one click, and you'll see it here. Unticked, your revisor only gets what you send with Send.", { email: (!accountantFormIsDemo && accountantForm.accountant_email.trim()) || "—" })
                         : t("accountantAutoSendFreeNote", "Automatic sending on lock is on Starter. On your plan you send it yourself from History or the period export.")}
+                      {/* What actually happens on lock while BonBox holds
+                          revisor mail: the owner's copy only (release gate,
+                          9 Oct) — never just "the moment the day is locked". */}
+                      {autoSendOnPlan && accountantForm.accountant_email.trim() && !accountantFormIsDemo && user?.email_verified === false && (
+                        <span className="block mt-1 text-amber-700 dark:text-amber-300" data-testid="accountant-auto-send-held">
+                          {t("accountantAutoSendHeldUnverified", "Right now your revisor gets nothing: your e-mail isn't confirmed yet, so only your own copy goes when a day is locked.")}
+                        </span>
+                      )}
+                      {autoSendOnPlan && accountantForm.accountant_email.trim() && !accountantFormIsDemo && user?.email_verified === true && user?.claim_question_open === true && (
+                        <span className="block mt-1 text-amber-700 dark:text-amber-300" data-testid="accountant-auto-send-held">
+                          {t("accountantAutoSendHeldClaimOpen", "Right now your revisor gets nothing: BonBox is waiting for your answer to the question we e-mailed you, so only your own copy goes when a day is locked.")}
+                        </span>
+                      )}
                     </span>
                   </span>
                 </label>
@@ -1841,6 +1870,10 @@ export default function ProfilePage() {
                   onChange={toggleAnalyticsOptOut}
                 />
                 {privacyMsg && <Message tone="info">{privacyMsg}</Message>}
+                {/* Reopens the cookie banner's drawer on this device's answer,
+                    so Analytics/Marketing consent can be changed or withdrawn
+                    here, not only by clearing site data. */}
+                <CookieSettingsButton className="text-[13px] font-medium text-blue-600 dark:text-blue-400 hover:underline" />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-200 dark:border-gray-800">
                   GDPR: BonBox processes analytics under legitimate-interest basis. Your right to opt
                   out is respected here. To delete all your data, see the Danger Zone below.

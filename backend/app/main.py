@@ -1087,11 +1087,26 @@ _migrations = [
     # been through it once (or explicitly skipped) and we leave them on
     # /dashboard. Users can re-trigger the wizard from Profile, which
     # nulls this back out.
-    # Backfill: existing users get NOW() so they don't suddenly get
-    # forced through onboarding after this deploy. New signups land
-    # with NULL (column default) and are walked through the flow.
+    # New signups land with NULL (column default) and are walked through
+    # the flow.
+    #
+    # NO BACKFILL HERE ANY MORE (hotfix, 8 Oct 2026). This list used to
+    # carry a one-time backfill right after the ADD COLUMN:
+    #   UPDATE users SET onboarding_completed_at = NOW()
+    #   WHERE onboarding_completed_at IS NULL AND created_at < NOW() - INTERVAL '1 day'
+    # so the owners who existed when the column was added were not forced
+    # through the new wizard. But _migration_already_applied never skips an
+    # UPDATE, so it ran on EVERY startup: at each deploy every account older
+    # than a day that had not finished the wizard was stamped "onboarding
+    # finished". Owners who never finished never saw the wizard again, the
+    # onboarding_finished count in /admin/signup-refs was meaningless, and
+    # the stamp — always after ACTIVATION_DISCLOSURE_LAUNCH_AT — moved those
+    # accounts into the activation-disclosure cohort (routers/activation.py
+    # _is_in_scope). The backfill's job was done at the first
+    # deploy after Migration 042; it must not come back. The SQLite mirror
+    # (_add below) never had it. Pinned by
+    # tests/test_onboarding_not_restamped_on_startup.py.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMP",
-    "UPDATE users SET onboarding_completed_at = NOW() WHERE onboarding_completed_at IS NULL AND created_at < NOW() - INTERVAL '1 day'",
 
     # ── Migration 043: magic_link_tokens (Task #61) ──────────────────────
     # Single-use, sha256-hashed sign-in tokens for passwordless login.
@@ -2610,6 +2625,30 @@ _migrations = [
     # backfill — an existing row reads "unknown", exactly as before.
     "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mailed_at TIMESTAMP",
     "ALTER TABLE accountant_grants ADD COLUMN IF NOT EXISTS invite_mail_held VARCHAR(32)",
+    # ── Migration (2026-10-08): account_claim_tickets — ask the inbox owner ─
+    # Net-new table backing app/models/account_claim_ticket.py: a login link on
+    # a never-confirmed account asks "did you create this account yourself?"
+    # instead of replacing the password (services/claim_decision.py). Additive:
+    # no existing table is touched, nothing references it. create_all() builds
+    # it from the model on Postgres AND SQLite before this list runs (see the
+    # floor_fixtures note above); this is the create_all-bypassed net, with the
+    # types create_all produces (GUID → VARCHAR(36)). The RLS sweep above
+    # gives it the anon deny on every boot.
+    """CREATE TABLE IF NOT EXISTS account_claim_tickets (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        token_hash VARCHAR(64) NOT NULL UNIQUE,
+        kind VARCHAR(8) NOT NULL,
+        via VARCHAR(20) NOT NULL,
+        sign_in_ref VARCHAR(36),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        answer VARCHAR(8),
+        voided_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_user_id ON account_claim_tickets (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_token_hash ON account_claim_tickets (token_hash)",
 ]
 
 
@@ -3251,6 +3290,10 @@ def _run_migrations():
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")
+            # Mirror of the time-registration period (63d051d2, 22 Sep). It
+            # shipped with the PG ALTER only, so every BusinessProfile query
+            # 500'd on a dev DB from before it (release gate, 9 Oct).
+            ok += _add("business_profiles", "timereg_period_json", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -3997,6 +4040,13 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # is the wrong layer of defence here, just like /login + /register.
     "/api/auth/magic-link/request",
     "/api/auth/magic-link/verify",
+    # "Did you create this account yourself?" — answered with a single-use
+    # ticket (the page's, or the one in the notice mail), which is the only
+    # credential: no cookie is read, so CSRF is the wrong layer here too. A
+    # browser that still holds a session (maybe a stale one) must not get a
+    # 403 for it. Rate-limited per IP; services/claim_decision.py.
+    "/api/auth/claim-decision",
+    "/api/auth/claim-decision/status",
     # Stripe webhook is signed; CSRF would just block legitimate Stripe POSTs.
     # The handler verifies Stripe-Signature inside, no cookie is involved.
     "/api/billing/stripe/webhook",

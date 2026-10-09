@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { CookieSettingsButton } from "../components/CookieConsent";
 
 function Section({ title, children }) {
   return (
@@ -34,9 +35,11 @@ function Table({ headers, rows }) {
 // (PrivacyEn / PrivacyDa), so a reviewer can read — and a lawyer can approve —
 // each version top to bottom. Keep the two in step: same sections, same order,
 // same links. If you change one, change the other in the same commit.
+// cookieSettings reopens the consent banner's drawer (CookieSettingsButton) —
+// the footer link the drawer itself points to.
 const CHROME = {
-  en: { terms: "Terms", cookies: "Cookies", back: "Back to BonBox" },
-  da: { terms: "Vilkår", cookies: "Cookies", back: "Tilbage til BonBox" },
+  en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
+  da: { terms: "Vilkår", cookies: "Cookies", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
 };
 
 function PrivacyEn() {
@@ -72,7 +75,7 @@ function PrivacyEn() {
             <li>Password — stored as a bcrypt hash (we never store your actual password)</li>
             <li>Name (optional) — to personalize your experience</li>
             <li>Preferred language — to display BonBox in your chosen language</li>
-            <li>Campaign code from a printed flyer, if any — the short code (for example <code>r1-a-03</code>) from the QR on a BonBox flyer you signed up from, so we can count which round of visits led to accounts. It is only counted, never used to contact you, and is included in your data export. Legal basis for this one item: our legitimate interest in knowing which visits work (GDPR Article 6(1)(f)).</li>
+            <li>Campaign code from a printed flyer, if any — the short code (for example <code>r1-a-03</code>) from the QR on a BonBox flyer you signed up from. It is kept with your account so BonBox can count, per printed code (one code is one visit), how many accounts were created and how far they got in BonBox: e-mail confirmed, setup finished, first daily close, staff link made and opened, active in the last 7 days. We note which venue we left each flyer at, so the numbers for one code show how far that venue's account got. Only the founder sees them. The code itself is never used to contact you, is never shared, and is included in your data export. It is deleted 12 months after you create your account, or earlier if you delete your account. If you ask for an e-mail sign-in link, the code is added to that link, so an account created from it can carry it. On your device it is kept for up to 30 days, and only if you allow Marketing in the cookie banner (see the <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">Cookie Policy</Link>). Legal basis for this one item: our legitimate interest in knowing which visits work (GDPR Article 6(1)(f)).</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Performance of contract (GDPR Article 6(1)(b)).</p>
 
@@ -117,6 +120,7 @@ function PrivacyEn() {
             <li>Device type (desktop, mobile, tablet)</li>
           </ul>
           <p className="mt-1">We do not use third-party tracking cookies. We do not use Google Analytics, Meta Pixel, or similar advertising trackers.</p>
+          <p className="mt-1" data-testid="privacy-own-settings">Settings you choose yourself in BonBox (for example light/dark theme and dismissed tips) are stored on your device because they are necessary for what you asked BonBox to do. They are not used for anything else (see the <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">Cookie Policy</Link>).</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Legitimate interest (GDPR Article 6(1)(f)).</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Product analytics events</h3>
@@ -128,7 +132,7 @@ function PrivacyEn() {
             <li>Token usage of AI Copilot conversations (metadata only — used for cost monitoring, not content)</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account.
+            <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account, except the record of each AI chat turn, Smart Sale Entry and upgrade checkout that BonBox needs to enforce your plan's limits.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Retention:</strong> Product analytics events are automatically deleted after 180 days. Aggregated counts may be retained longer in anonymised form for product improvement.
@@ -211,6 +215,7 @@ function PrivacyEn() {
             headers={["Data type", "Retention period"]}
             rows={[
               ["Account data", "Until you delete your account"],
+              ["Campaign code from a printed flyer (on the account)", "Deleted 12 months after you create your account, or earlier if you delete your account"],
               ["Business profile (incl. logo)", "Until you delete your account"],
               ["Financial data (sales, expenses, inventory)", "Until you delete your account"],
               ["Fakturaer + customer records", "6 years (Bogføringsloven §12 minimum) — adjustable 5–10 years"],
@@ -327,7 +332,7 @@ function PrivacyDa() {
             <li>Adgangskode — gemt som en bcrypt-hash (vi gemmer aldrig selve din adgangskode)</li>
             <li>Navn (valgfrit) — for at gøre din oplevelse personlig</li>
             <li>Foretrukket sprog — for at vise BonBox på det sprog, du har valgt</li>
-            <li>Kampagnekode fra en trykt folder, hvis der er en — den korte kode (fx <code>r1-a-03</code>) fra QR-koden på en BonBox-folder, du oprettede dig fra, så vi kan tælle, hvilken besøgsrunde der førte til konti. Den bliver kun talt, bruges aldrig til at kontakte dig og er med i din dataeksport. Retsgrundlag for netop dette punkt: vores legitime interesse i at vide, hvilke besøg der virker (databeskyttelsesforordningens artikel 6, stk. 1, litra f).</li>
+            <li>Kampagnekode fra en trykt folder, hvis der er en — den korte kode (fx <code>r1-a-03</code>) fra QR-koden på en BonBox-folder, som du brugte, da du oprettede din konto. Den gemmes sammen med din konto, så BonBox kan tælle, pr. trykt kode (én kode er ét besøg), hvor mange konti der blev oprettet, og hvor langt de er nået i BonBox: e-mail bekræftet, opsætning færdig, første daglige lukning (kasserapport), medarbejderlink lavet og åbnet, aktiv inden for de seneste 7 dage. Vi noterer, hvilket sted vi har afleveret hver folder, så tallene for én kode viser, hvor langt det steds konto er nået. Kun stifteren ser dem. Selve koden bruges aldrig til at kontakte dig, deles aldrig med andre og er med i din dataeksport. Den slettes 12 måneder efter, at du har oprettet din konto, eller tidligere, hvis du sletter kontoen. Beder du om et login-link på e-mail, sættes koden på linket, så en konto, der oprettes fra det, kan få den med. På din enhed gemmes den i op til 30 dage, og kun hvis du tillader Markedsføring i cookiebanneret (se <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">cookiepolitikken</Link>). Retsgrundlag for netop dette punkt: vores legitime interesse i at vide, hvilke besøg der virker (databeskyttelsesforordningens artikel 6, stk. 1, litra f).</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Opfyldelse af kontrakt (databeskyttelsesforordningens artikel 6, stk. 1, litra b).</p>
 
@@ -372,6 +377,7 @@ function PrivacyDa() {
             <li>Enhedstype (computer, mobil, tablet)</li>
           </ul>
           <p className="mt-1">Vi bruger ikke sporingscookies fra tredjeparter. Vi bruger ikke Google Analytics, Meta Pixel eller lignende sporingsværktøjer til annoncering.</p>
+          <p className="mt-1" data-testid="privacy-own-settings">Indstillinger, du selv vælger i BonBox (fx lyst/mørkt tema og tip, du har lukket), gemmes på din enhed, fordi de er nødvendige for det, du har bedt BonBox om. De bruges ikke til andet (se <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">cookiepolitikken</Link>).</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f).</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Hændelser til produktanalyse</h3>
@@ -383,7 +389,7 @@ function PrivacyDa() {
             <li>Tokenforbrug i samtaler med AI Copilot (kun metadata — bruges til at overvåge omkostninger, ikke indhold)</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            <strong>Du kan til enhver tid sætte analysen på pause</strong> under <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profil → Privatliv & data</Link>. Mens den er sat på pause, registreres der ingen nye hændelser for din konto.
+            <strong>Du kan til enhver tid sætte analysen på pause</strong> under <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profil → Privatliv & data</Link>. Mens den er sat på pause, registreres der ingen nye hændelser for din konto, bortset fra registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Opbevaring:</strong> Hændelser til produktanalyse slettes automatisk efter 180 dage. Samlede optællinger kan opbevares længere i anonymiseret form med henblik på at forbedre produktet.
@@ -466,6 +472,7 @@ function PrivacyDa() {
             headers={["Datatype", "Opbevaringsperiode"]}
             rows={[
               ["Kontooplysninger", "Indtil du sletter din konto"],
+              ["Kampagnekode fra en trykt folder (på kontoen)", "Slettes 12 måneder efter, at du har oprettet din konto, eller tidligere, hvis du sletter kontoen"],
               ["Virksomhedsprofil (inkl. logo)", "Indtil du sletter din konto"],
               ["Økonomiske data (salg, udgifter, lager)", "Indtil du sletter din konto"],
               ["Fakturaer + kundeoplysninger", "6 år (minimum efter bogføringslovens § 12) — kan justeres til 5–10 år"],
@@ -580,9 +587,10 @@ export default function PrivacyPolicyPage() {
 
         <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <Link to="/" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">&larr; {c.back}</Link>
-          <div className="flex gap-4 text-sm text-gray-400">
+          <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-sm text-gray-400">
             <Link to="/terms" className="hover:text-gray-600 dark:hover:text-gray-300 transition">{c.terms}</Link>
             <Link to="/cookies" className="hover:text-gray-600 dark:hover:text-gray-300 transition">{c.cookies}</Link>
+            <CookieSettingsButton label={c.cookieSettings} className="hover:text-gray-600 dark:hover:text-gray-300 transition" />
           </div>
         </div>
       </div>

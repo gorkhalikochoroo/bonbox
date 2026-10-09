@@ -120,6 +120,11 @@ class UserResponse(BaseModel):
     monthly_goal: float = 0
     role: str = "owner"
     email_verified: bool = False
+    # The address is confirmed, but "did you create this account yourself?"
+    # waits for the inbox owner's answer (models/user.claim_question_open):
+    # third-party mail is held, and the app names that reason — with "Send
+    # spørgsmålet igen" — instead of "confirm your e-mail".
+    claim_question_open: bool = False
     analytics_opt_out: bool = False
     timezone: str = "Europe/Copenhagen"
     plan: str = "free"
@@ -269,3 +274,27 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ClaimQuestion(BaseModel):
+    """"Did you create this BonBox account yourself on <created_at> and choose
+    the password?" — asked when a login link lands in an account whose address
+    was never confirmed (services/claim_decision.py). The creation DATE only."""
+    created_at: str
+    has_password: bool = True
+
+
+class MagicLinkSessionToken(Token):
+    """/auth/magic-link/verify: the Token shape, plus the question for the
+    inbox owner when the link landed in a never-confirmed account (or one
+    whose question is still unanswered): `claim_question` and `claim_ticket`,
+    the single-use 30-minute ticket that answers it (POST
+    /auth/claim-decision). Absent on an ordinary sign-in.
+
+    password_reset / access_closed are kept for app builds that read them; a
+    login link no longer replaces a password by itself, so both stay False
+    here (the answer endpoint reports what "secure" closed)."""
+    password_reset: bool = False
+    access_closed: bool = False
+    claim_question: ClaimQuestion | None = None
+    claim_ticket: str | None = None

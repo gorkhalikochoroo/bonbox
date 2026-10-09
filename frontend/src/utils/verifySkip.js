@@ -17,6 +17,8 @@
  * the session flag does — the old behaviour.
  */
 
+import { verifyWallSkipsRole } from "./verifyWallRole";
+
 export const VERIFY_SKIP_DAYS = 7;
 export const VERIFY_SKIP_MS = VERIFY_SKIP_DAYS * 24 * 60 * 60 * 1000;
 const SESSION_FLAG = "skip_email_verify";
@@ -72,17 +74,10 @@ export function verifyWallExempt(pathname) {
  */
 export const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
 
-/**
- * A revisor login is never sent to the verification wall. Its session is
- * read-only — the server refuses the code request and the code check for an
- * accountant — so the wall would be a dead end. And a revisor login made from
- * an invite link that was never e-mailed is deliberately left unconfirmed
- * (server: accountant_signup): that flag only decides that the inbox owner's
- * first e-mail sign-in takes the login over. It is not a step for the revisor.
- */
-export function verifyWallSkipsRole(user) {
-  return String(user?.role || "").toLowerCase() === "accountant";
-}
+// A revisor login is never sent to the verification wall — the rule lives in
+// utils/verifyWallRole (production's home for it); re-exported here so the
+// 7-day skip's callers keep one import.
+export { verifyWallSkipsRole };
 
 export function postLoginPath(user, now = Date.now()) {
   if (
