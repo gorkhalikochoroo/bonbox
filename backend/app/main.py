@@ -4815,6 +4815,12 @@ _REFRESH_EXEMPT_PATHS = frozenset({
     "/api/auth/oauth/apple",
     "/api/auth/apple",
     "/api/auth/refresh",
+    # These two bump token_version and mint THIS device's new token
+    # themselves. A midway refresh here would re-mint from the request's OLD
+    # token (old `tv`) and overwrite that cookie, signing the device out on its
+    # next request (found with CMS-2).
+    "/api/auth/sign-out-all",
+    "/api/auth/change-password",
     "/api/billing/stripe/webhook",
     "/api/health",
     "/api/health/db",
