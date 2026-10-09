@@ -1294,6 +1294,12 @@ export default function DailyClosePage() {
           focusCloseId={historyFocusId}
           onFocusConsumed={() => setHistoryFocusId(null)}
           onDismissLastLocked={() => setLastLockedClose(null)}
+          // Release R-c — a close unlocked from History is no longer the one
+          // the top card calls locked ("Aftenens kasserapport er låst" stayed
+          // over a draft until a reload): this session's lock result for it
+          // goes (the card then follows History, read again at once).
+          onUnlocked={(row) => setLastLockedClose((cur) => (cur && row && (String(cur.id) === String(row.id)
+            || (cur.id == null && closeRowKey(cur) === closeRowKey(row))) ? null : cur))}
           onEdit={(dc) => openDraftFresh(dc, { tab: "close" })} />}
         {tab === "insights" && <InsightsView data={insights} currency={currency} t={t}
           loading={insightsQ.loading} failed={insightsQ.failed} isOnline={isOnline}
@@ -8927,6 +8933,18 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
         {btn(t("dcMailSendAgain", "Send again"))}
       </span>
     );
+  } else if (kind === "failed_owner_only") {
+    // Release R-c — a revisor is saved, but this mail was never theirs
+    // (automatic sending to them off, the day's cap, a sample day, figures
+    // unchanged): only the owner's own copy failed. Named as that — it said
+    // "Ikke sendt til revisor — …" with the copy's cause. The button sends
+    // to the revisor (and the owner's copy) — what tapping it does.
+    line = (
+      <span className={`${textCls} text-amber-700 dark:text-amber-300 inline-flex items-center gap-2 flex-wrap`} data-testid="dc-mail-owner-copy-failed-not-revisor">
+        <span className="inline-flex items-center gap-1"><Icon name="AlertTriangle" size={13} /> {t("dcMailOwnerCopyFailedNotRevisor", "Your copy was not sent — {reason}. Your revisor was not a recipient of this mail.", { reason })}</span>
+        {acct && !profile?.accountant_opted_out && btn(t("dcMailSendToRevisor", "Send to revisor"))}
+      </span>
+    );
   } else if (kind === "opted_out") {
     line = (
       <span className={`${textCls} text-gray-600 dark:text-gray-400 inline-flex items-center gap-1`}>
@@ -9223,7 +9241,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
 function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked,
-  loading = false, failed = false, isOnline = true, focusCloseId = null, onFocusConsumed }) {
+  loading = false, failed = false, isOnline = true, focusCloseId = null, onFocusConsumed, onUnlocked }) {
   const { user, refreshUser } = useAuth();
   const confirm = useConfirm();
   // Tri-state: null while /billing/me is loading. Only a KNOWN "no" changes
@@ -9902,8 +9920,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     setUnlockError("");
     try {
       await api.post(`/daily-close/${unlockId}/unlock`, { reason: unlockReason.trim() });
+      // The row as History listed it (its day), for the card above.
+      const unlockedRow = (data || []).find((r) => r.id === unlockId) || { id: unlockId };
       setUnlockId(null);
       setUnlockReason("");
+      onUnlocked?.(unlockedRow);
       onRefresh();
     } catch (e) {
       // Keep the modal open with the server's own reason — a manager without

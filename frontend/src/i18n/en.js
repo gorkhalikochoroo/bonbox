@@ -8643,6 +8643,7 @@ export const en = {
     dcRecentSendLineOne: "{from} – {to} · {format} · 1 locked · to {email} · {when}",
     dcMailUnrecorded: "Send to revisor: not recorded",
     dcMailOwnerCopyFailed: "Your copy was not sent — {reason}",
+    dcMailOwnerCopyFailedNotRevisor: "Your copy was not sent — {reason}. Your revisor was not a recipient of this mail.",
     dcUnlockRevisorHasAuto: "Your revisor ({email}) already has the locked version ({when}). If you change something and lock it again, they automatically get a corrected kasserapport — marked \"Rettet\" and with the reason you write here. Locked again unchanged, no new mail is sent.",
     dcUnlockRevisorHas: "Your revisor ({email}) already has the locked version ({when}). When you send it again after the correction, it is marked \"Rettet kasserapport\" and carries the reason you write here.",
     dcMailSending: "Sending to your revisor…",

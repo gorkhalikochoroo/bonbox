@@ -8352,6 +8352,7 @@ export const da = {
     dcRecentSendLineOne: "{from} – {to} · {format} · 1 låst · til {email} · {when}",
     dcMailUnrecorded: "Afsendelse til revisor: ikke registreret",
     dcMailOwnerCopyFailed: "Din kopi blev ikke sendt — {reason}",
+    dcMailOwnerCopyFailedNotRevisor: "Din kopi blev ikke sendt — {reason}. Revisoren var ikke modtager af denne mail.",
     dcUnlockRevisorHasAuto: "Din revisor ({email}) har allerede den låste version ({when}). Ændrer du noget og låser igen, får revisoren automatisk en rettet kasserapport — mærket „Rettet“ og med den begrundelse, du skriver her. Låser du igen uden ændringer, sendes der ingen ny mail.",
     dcUnlockRevisorHas: "Din revisor ({email}) har allerede den låste version ({when}). Når du sender den igen efter rettelsen, er den mærket „Rettet kasserapport“ og har den begrundelse, du skriver her, med.",
     dcMailSending: "Sendes til din revisor…",

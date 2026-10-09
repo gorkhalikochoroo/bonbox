@@ -791,6 +791,29 @@ def _still_locked_version(locked_at):
     ]
 
 
+# Release R-c — the revisor was NOT a recipient of this lock mail, by design
+# (accountant_skip_reason): automatic sending to them off, the day's cap on
+# revisor mail, a sample day, or figures unchanged since the version they hold.
+# A failed send then failed only for the owner's own copy. The reason is kept
+# on the close beside the copy's error — "revisor_<reason>;<error>", the held
+# reasons' form — so History says "Din kopi blev ikke sendt — …" after a
+# reload, never "Ikke sendt til revisor — …" with a cause that was not theirs.
+# ("same_as_owner" is not here: the owner's copy IS the revisor's address.)
+_REVISOR_LEFT_OUT = frozenset({"auto_send_off", "daily_cap", "demo_close", "unchanged"})
+
+
+def _mark_revisor_left_out(result: dict, skip) -> None:
+    """Prefix email_error with the left-out reason when only the owner's own
+    copy was tried and it failed. email_error is VARCHAR(64)."""
+    if skip not in _REVISOR_LEFT_OUT or result.get("sent_to"):
+        return
+    if result.get("email_status") not in ("failed_skipped", "send_failed"):
+        return
+    owner_err = result.get("email_error")
+    marker = f"revisor_{skip}"
+    result["email_error"] = (f"{marker};{owner_err}" if owner_err else marker)[:64]
+
+
 def _persist_email_status(db: Session, dc: DailyClose, result: dict, locked_at=None) -> None:
     """Write the lock-mail outcome onto the close so History can show it after
     a reload. Never raises into the lock path.
@@ -1051,6 +1074,8 @@ def _fire_close_auto_email(
         logger.exception("close_auto_email: PDF build failed close_id=%s: %s", dc.id, e)
         result["email_status"] = "failed_skipped"
         result["email_error"] = "pdf_build_failed"
+        if owner_email:
+            _mark_revisor_left_out(result, skip)
         _persist_email_status(db, dc, result, locked_at)
         return result
     pdf_hash = compute_document_hash(pdf_bytes)
@@ -1228,6 +1253,7 @@ def _fire_close_auto_email(
         owner_err = result["email_error"]
         result["email_error"] = (f"{marker};{owner_err}" if owner_err else marker)[:64]
     result["sent_to"] = sent_to
+    _mark_revisor_left_out(result, skip)
     result["accountant_included"] = bool(include_acct and acct in sent_to)
     result["has_scan"] = any(r.get("has_scan") for _who, r in sends)
 
