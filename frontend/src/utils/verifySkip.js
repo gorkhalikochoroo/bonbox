@@ -10,7 +10,10 @@
  *
  * The old session flag ("skip_email_verify") is still read and still written:
  * the native signup sets it, and a tab that skipped before this change keeps
- * its skip.
+ * its skip. It now names the account it is for (release gate R-b, 9 Oct: a
+ * plain "1" skipped the wall for EVERY account signing in in that tab, also
+ * after "Log ud"), and logout removes it (forgetSessionVerifySkip). A bare
+ * "1" — an older build, or no account id known — is still honoured.
  *
  * Every storage access is wrapped: private mode / blocked storage must never
  * throw into a route guard. Without storage the skip simply lasts as long as
@@ -30,14 +33,17 @@ function keyFor(userId) {
 
 /** Remember "skip for now" for this account for 7 days from `now`. */
 export function rememberVerifySkip(userId, now = Date.now()) {
-  try { sessionStorage.setItem(SESSION_FLAG, "1"); } catch { /* storage blocked */ }
+  const forWhom = userId != null && String(userId) !== "" ? String(userId) : "1";
+  try { sessionStorage.setItem(SESSION_FLAG, forWhom); } catch { /* storage blocked */ }
   try { localStorage.setItem(keyFor(userId), String(now + VERIFY_SKIP_MS)); } catch { /* storage blocked */ }
 }
 
 /** Is a skip in force for this account right now? */
 export function verifySkipActive(userId, now = Date.now()) {
   try {
-    if (sessionStorage.getItem(SESSION_FLAG)) return true;
+    const flag = sessionStorage.getItem(SESSION_FLAG);
+    // This account's, or a bare "1" (older build / no id known).
+    if (flag && (flag === "1" || (userId != null && flag === String(userId)))) return true;
   } catch { /* storage blocked */ }
   try {
     const until = parseInt(localStorage.getItem(keyFor(userId)) || "0", 10);
@@ -51,6 +57,12 @@ export function verifySkipActive(userId, now = Date.now()) {
 export function clearVerifySkip(userId) {
   try { sessionStorage.removeItem(SESSION_FLAG); } catch { /* storage blocked */ }
   try { localStorage.removeItem(keyFor(userId)); } catch { /* storage blocked */ }
+}
+
+/** "Log ud": the tab's skip is not handed to the next account that signs in
+ *  on this device. (Each account's own 7-day skip stays with it.) */
+export function forgetSessionVerifySkip() {
+  try { sessionStorage.removeItem(SESSION_FLAG); } catch { /* storage blocked */ }
 }
 
 /**

@@ -26,15 +26,17 @@ export default function DemoActiveBanner() {
 
   useEffect(() => {
     let alive = true;
-    api
-      .get("/demo/status")
+    // scope=has_demo: the one answer this banner needs (one query) — it is
+    // asked on every dashboard load. (An older server ignores the scope and
+    // answers in full; has_demo is in it.)
+    const read = () => api.get("/demo/status", { params: { scope: "has_demo" } });
+    read()
       .then((r) => alive && setHasDemo(!!r?.data?.has_demo))
       .catch(() => alive && setHasDemo(false));
     // Re-sync on data changes (dashboard dispatches this event after
     // mutations) so the banner disappears the moment seed/clear runs.
     const onSync = () => {
-      api
-        .get("/demo/status")
+      read()
         .then((r) => alive && setHasDemo(!!r?.data?.has_demo))
         .catch(() => {});
     };

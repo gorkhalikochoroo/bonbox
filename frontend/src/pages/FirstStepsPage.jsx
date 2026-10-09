@@ -28,7 +28,6 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, Icon } from "../components/ui";
-import { errText } from "../utils/errText";
 import { publicUrl } from "../utils/publicUrl";
 import RevisorInviteHeldNotice from "../components/RevisorInviteHeldNotice";
 
@@ -37,7 +36,7 @@ const FIELD =
 
 export default function FirstStepsPage() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const isOwner = String(user?.role || "owner").toLowerCase() === "owner";
 
@@ -76,10 +75,28 @@ export default function FirstStepsPage() {
       });
       setName("");
     } catch (err) {
-      setError(errText(err, t("firstStepsInviteFailed", "Couldn't make the invite — try again.")));
+      setError(inviteErrorText(err));
     } finally {
       setBusy(false);
     }
+  };
+
+  // Said in the owner's language (release gate R-b): never axios's English
+  // "Network Error", nor the server's English detail or code ("cap_exceeded")
+  // on the Danish card. A full roster is said as such — "prøv igen" would not
+  // help there; anything else is the retry line (a retry never creates the
+  // staff member twice — pendingMember above).
+  const inviteErrorText = (err) => {
+    const detail = err?.response?.data?.detail;
+    if (err?.response?.status === 402 && detail && typeof detail === "object"
+      && detail.error === "cap_exceeded" && Number.isFinite(Number(detail.limit)) && Number(detail.limit) >= 0) {
+      return t("firstStepsInviteCapFull", "Your plan has room for {limit} staff members, and they are all in use — so no invite was made.", { limit: Number(detail.limit) });
+    }
+    const worded = detail && typeof detail === "object"
+      ? (lang === "da" ? detail.message_da : detail.message)
+      : null;
+    if (typeof worded === "string" && worded.trim()) return worded;
+    return t("firstStepsInviteFailed", "Couldn't make the invite — try again.");
   };
 
   const copyLink = async () => {

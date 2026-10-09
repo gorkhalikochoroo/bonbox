@@ -7612,6 +7612,7 @@ export const da = {
     firstStepsNamePlaceholder: "fx Sofie",
     firstStepsMakeInvite: "Lav invitation",
     firstStepsInviteFailed: "Invitationen kunne ikke laves — prøv igen.",
+    firstStepsInviteCapFull: "Din plan har plads til {limit} medarbejdere, og de er alle i brug — så der blev ikke lavet en invitation.",
     firstStepsInviteReady: "{name} kan forbinde nu:",
     firstStepsQrAria: "QR-kode med personens link",
     firstStepsCodeLabel: "Kode",

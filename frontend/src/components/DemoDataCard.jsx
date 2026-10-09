@@ -78,12 +78,26 @@ export default function DemoDataCard({ forceShow = false }) {
   if (!status) return null;
   // The two conditions where we should not render
   if (status.has_real || status.has_demo) return null;
+  // The seed this card would send is refused (keep_profile: an account
+  // already in use — staff, its own tables or bookings). Not offered, never
+  // a tap that only answers "you have real data". (An older server sends no
+  // `seedable`: shown as before.)
+  if (status.seedable === false) return null;
 
   const onSeed = async () => {
     setLoading(true);
     setError("");
     try {
-      await api.post("/demo/seed");
+      // The owner's own details (company, CVR, address, revisor) are on the
+      // profile: the sample rows go in BESIDE them — never the sample
+      // company over them (release gate R-b; the onboarding wizard's
+      // "Udforsk med eksempeldata" already did this). An account with no
+      // details of its own keeps the full sample, sample company included.
+      if (status.own_profile) {
+        await api.post("/demo/seed", null, { params: { keep_profile: true } });
+      } else {
+        await api.post("/demo/seed");
+      }
       // Tell the rest of the dashboard to refresh — DailyBrief, summary,
       // breakdown, etc. all listen for this event.
       try {

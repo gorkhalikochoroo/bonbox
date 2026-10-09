@@ -1192,11 +1192,35 @@ def clear_for_user(db: Session, user: User) -> dict:
     return {"ok": True, "deleted": deleted, "kept": kept}
 
 
-def status_for_user(db: Session, user: User) -> dict:
+# What the owner can have typed into their business profile: the company
+# block and the revisor. (country / source / cutoff are defaults or settings,
+# not "the owner's details".)
+_OWNER_DETAIL_FIELDS = (
+    "company_name", "org_number", "vat_number", "address", "city", "zipcode",
+    "phone", "email", "accountant_email",
+)
+
+
+def profile_has_owner_details(db: Session, user_id) -> bool:
+    """The business profile holds details the OWNER put there — not the
+    sample company, not an empty signup row. The dashboard's "Prøv med
+    eksempeldata" then seeds with keep_profile, so those details are never
+    overwritten (release gate R-b, 9 Oct)."""
+    from app.services.revisor_mail import is_demo_profile
+    p = db.query(BusinessProfile).filter_by(user_id=user_id).first()
+    if p is None or is_demo_profile(p) or _load_snapshot(p) is not None:
+        return False
+    return any(str(getattr(p, f, None) or "").strip() for f in _OWNER_DETAIL_FIELDS)
+
+
+def status_for_user(db: Session, user: User, *, scope: str | None = None) -> dict:
     """Lightweight status read — frontend asks 'should I show the
-    Seed button or the Clear button?'"""
+    Seed button or the Clear button?'
+
+    scope="has_demo" (the sample-data banner, read on every dashboard
+    load): has_demo only — one query, not the real-row counts."""
     if user is None:
-        return {"has_demo": False, "has_real": False}
+        return {"has_demo": False} if scope == "has_demo" else {"has_demo": False, "has_real": False}
     has_demo = (
         db.query(Expense)
         .filter(Expense.user_id == user.id,
@@ -1204,5 +1228,33 @@ def status_for_user(db: Session, user: User) -> dict:
                 Expense.is_deleted.isnot(True))
         .count()
     ) > 0
+    if scope == "has_demo":
+        return {"has_demo": bool(has_demo)}
     has_real = _count_non_demo_rows(db, user.id) > 0
     return {"has_demo": bool(has_demo), "has_real": bool(has_real)}
+
+
+def seed_choice_for_user(db: Session, user: User, status: dict | None = None) -> dict:
+    """Which seed the app sends, and whether it would be accepted (release
+    gate R-b, 9 Oct — the dashboard card wrote the sample company over the
+    owner's typed details):
+
+      own_profile: the profile holds the owner's own details — the seed is
+        keep_profile (never the sample company over them).
+      seedable: that seed would be accepted. keep_profile also refuses an
+        account in use (staff, its own tables or bookings).
+
+    `status` is status_for_user's answer when the caller already has it."""
+    if user is None:
+        return {"own_profile": False, "seedable": False}
+    st = status if status is not None else status_for_user(db, user)
+    own_profile = profile_has_owner_details(db, user.id)
+    if st.get("has_demo") or st.get("has_real"):
+        seedable = False
+    elif own_profile:
+        # No real rows (has_real is False, a verified profile included): only
+        # the keep_profile in-use gate is left to refuse.
+        seedable = _count_in_use_rows(db, user.id) == 0
+    else:
+        seedable = True
+    return {"own_profile": bool(own_profile), "seedable": bool(seedable)}

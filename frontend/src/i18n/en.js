@@ -7892,6 +7892,7 @@ export const en = {
     firstStepsNamePlaceholder: "e.g. Sofie",
     firstStepsMakeInvite: "Make invite",
     firstStepsInviteFailed: "Couldn't make the invite — try again.",
+    firstStepsInviteCapFull: "Your plan has room for {limit} staff members, and they are all in use — so no invite was made.",
     firstStepsInviteReady: "{name} can connect now:",
     firstStepsQrAria: "QR code with their link",
     firstStepsCodeLabel: "Code",

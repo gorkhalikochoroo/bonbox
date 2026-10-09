@@ -44,6 +44,7 @@ from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.demo_seed import (
     clear_for_user,
+    seed_choice_for_user,
     seed_for_user,
     status_for_user,
 )
@@ -70,6 +71,7 @@ def _client_ip(request: Request) -> str | None:
 
 @router.get("/status")
 def get_demo_status(
+    scope: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
@@ -78,8 +80,15 @@ def get_demo_status(
     Returns a dict with two booleans:
       has_demo: at least one row tagged " · demo" exists for this user
       has_real: at least one row of real (non-demo) data exists
+    and (release gate R-b): own_profile — the owner's own details are on the
+    profile, so the app seeds with keep_profile; seedable — that seed would be
+    accepted. `?scope=has_demo` (the sample-data banner, read on every
+    dashboard load) returns has_demo only.
     """
-    return status_for_user(db, user)
+    st = status_for_user(db, user, scope=scope)
+    if scope == "has_demo":
+        return st
+    return {**st, **seed_choice_for_user(db, user, st)}
 
 
 @router.post("/seed")

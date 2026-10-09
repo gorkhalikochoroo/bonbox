@@ -216,10 +216,14 @@ export const DASHBOARD_CARD_SET = {
       component: "SmartDriftBanner",
       renderIf: (ctx) => !!ctx?.driftActive,
     },
+    // Always asked: DemoActiveBanner reads /demo/status itself and renders
+    // nothing without sample data. Gated on ctx.isDemoData it never showed —
+    // that came from user.is_demo_data_active, which no server sends
+    // (release gate R-b: sample figures on the dashboard with no label).
     {
       id: "demo",
       component: "DemoActiveBanner",
-      renderIf: (ctx) => !!ctx?.isDemoData,
+      renderIf: () => true,
     },
     // Anomaly watchdog — "things to review" (sale/expense outliers, unusual
     // hours, failed logins, mass deletions…). Self-fetches /dashboard/anomalies

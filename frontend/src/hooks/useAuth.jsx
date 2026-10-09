@@ -4,6 +4,7 @@ import { trackEvent } from "./useEventLog";
 import { clearStoredMode } from "../lib/appMode";
 import { withSignupRef, clearSignupRef } from "../utils/signupRef";
 import { verifyWallSkipsRole } from "../utils/verifyWallRole";
+import { forgetSessionVerifySkip } from "../utils/verifySkip";
 
 const AuthContext = createContext(null);
 
@@ -183,8 +184,10 @@ export function AuthProvider({ children }) {
     // its own at ACCESS_TOKEN_EXPIRE_MINUTES.
     try { await api.post("/auth/logout"); } catch {}
     try { localStorage.removeItem("token"); } catch {}
-    // Shared device: the next account must not inherit this one's mode.
+    // Shared device: the next account must not inherit this one's mode —
+    // nor this tab's "Spring over for nu" on the verify wall (release gate R-b).
     clearStoredMode();
+    forgetSessionVerifySkip();
     setUser(null);
   };
 
