@@ -2056,6 +2056,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   /** The version a save of `key` is built on: the form's own, else the listed row's, else "no row known". */
   const baseFor = (key) => {
     if (Object.prototype.hasOwnProperty.call(baseRef.current, key)) return baseRef.current[key];
+    // Round 23 fix-up — a save of the day got no answer: whatever follows it
+    // (the same draft sent again once online, on the way out or with the
+    // next change, its copy kept on this device, the lock) is built on the
+    // version the FORM holds — the one that lost save was built on — and
+    // names it (base_save_id): the version it wrote, if it landed, is the
+    // form's own. Never on the version History lists: History lists what the
+    // server holds NOW — another phone's newer draft included — and a save on
+    // that version was stored over it with nobody asked.
+    const lost = lostSaveRef.current[key];
+    const failed = failedBodyRef.current[key];
+    if (lost || failed) return lost?.base || failed?.base || NO_ROW_BASE;
     const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
     if (listed) return listed.updated_at || null;
     return NO_ROW_BASE;
@@ -4179,15 +4190,35 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const sentBefore = at >= 0 ? wire.slice(0, at) : wire;
     if (sentBefore.length) await settledWithin(sentBefore, SAVE_TURN_WAIT_MS);
     if (superseded()) return "superseded";
-    if (stamp && ownStampsRef.current[key]?.has(stamp)) {
-      noteStamp(key, stamp);
+    let ownStamp = stamp && ownStampsRef.current[key]?.has(stamp) ? stamp : null;
+    // Round 23 fix-up — a save that followed one whose answer was lost
+    // (base_save_id) met a newer version: it may be the form's OWN — another
+    // save of its own with no answer landed (two answers lost in a row, and
+    // base_save_id names only the last). Asked, never assumed: the day read
+    // fresh is the form's own exactly when the save that wrote it last is one
+    // this form sent. Anyone else's — or a read that cannot say — is asked
+    // about below, never saved over.
+    if (!ownStamp && body?.base_save_id) {
+      try {
+        const row = await readDayFresh(key);
+        if (row && (row.status || "confirmed") === "draft" && row.updated_at && lastSaveIsMine(row)) {
+          ownStamp = row.updated_at;
+          // The day as stored is the form's own: what an answer would have said.
+          noteSaved(key, {}, { data: row });
+          if (mountedRef.current) setOwnDraftKeys((p) => (p.has(key) ? p : new Set(p).add(key)));
+        }
+      } catch { /* cannot ask (offline): the owner is asked below */ }
+      if (superseded()) return "superseded";
+    }
+    if (ownStamp) {
+      noteStamp(key, ownStamp);
       if (via === "lock" || mountedRef.current) {
         if (via !== "lock" && key === rowKeyRef.current) { sendNowRef.current = true; requestRefile(true); }
         return "own";
       }
       // Left already: the change goes again on its own newer version.
       try {
-        await api.post("/daily-close", { ...body, base_updated_at: stamp });
+        await api.post("/daily-close", { ...body, base_updated_at: ownStamp });
         return "own";
       } catch { /* kept as a copy below */ }
     }
@@ -4845,7 +4876,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // of the day) follows it, and a delete asks the server first.
         if (!err?.response && saveId) {
           const was = lostSaveRef.current[savingKey];
-          if (!was || was.runNo < runNo) lostSaveRef.current[savingKey] = { id: saveId, runNo };
+          // (`base`: the version it was built on — what a save that follows
+          // it is built on too, never History's.)
+          if (!was || was.runNo < runNo) lostSaveRef.current[savingKey] = { id: saveId, runNo, base: body.base_updated_at };
           // Round 23 — the owner's figures as sent, kept until a save of the
           // day answers: sent again on the way out and once online, also when
           // the form has gone back to the scan card since (the waiting save
@@ -4854,7 +4887,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           const f = failedBodyRef.current[savingKey];
           if (!f || f.runNo <= runNo) {
             const { base_updated_at: _b, save_id: _s, base_save_id: _f, ...built } = body;
-            failedBodyRef.current[savingKey] = { body: built, runNo, ledger: ledgerAtBuild };
+            failedBodyRef.current[savingKey] = { body: built, runNo, ledger: ledgerAtBuild, base: body.base_updated_at };
           }
           // Still the form's latest for the day (nothing newer waiting or
           // sent): the same draft waits for the page to be left, the
@@ -5085,6 +5118,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const onTheirWay = closeSavesOnTheirWay();
       onTheirWay.add(tracker);
       sendGenRef.current[key] = (sendGenRef.current[key] || 0) + 1;
+      let again = false;
       (async () => api.post("/daily-close", payload,
         keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined))()
         .then((res) => {
@@ -5102,13 +5136,26 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         })
         .catch(async (err) => {
           if (!err?.response) {
-            // Still no answer: it waits for the next way out, or "online".
-            lostSaveRef.current[key] = { id: saveId, runNo: f.runNo };
+            // Still no answer: it waits for the next way out, or "online" —
+            // on the same version (round 23 fix-up: the form's, never History's).
+            lostSaveRef.current[key] = { id: saveId, runNo: f.runNo, base: payload.base_updated_at };
             return;
           }
           if (failedBodyRef.current[key] === f) delete failedBodyRef.current[key];
           if (isDraftChanged(err)) {
-            await draftRefused(key, payload, err, null, "draft", f.runNo);
+            // Round 23 fix-up — refused for a version saved elsewhere: the
+            // owner is asked ("Kladden er gemt et andet sted"; the page gone:
+            // a failed copy on this device, never sent again by itself).
+            const out = await draftRefused(key, payload, err, null, "draft", f.runNo);
+            // The version it met is the form's own (an earlier save of its
+            // own landed, its answer lost): the same figures go again on it —
+            // unless the form files the day itself now (its own save carries
+            // them, or newer ones). A few times at most.
+            if (out === "own" && mountedRef.current && !failedBodyRef.current[key]
+              && !(key === rowKeyRef.current && formFilesRef.current) && (f.ownAgain || 0) < 3) {
+              failedBodyRef.current[key] = { ...f, ownAgain: (f.ownAgain || 0) + 1 };
+              again = true;
+            }
           } else if (err.response.status === 409 && key === rowKeyRef.current && mountedRef.current) {
             setLockedRowRejected(true);
             onDraftSaved?.();
@@ -5119,6 +5166,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           keyInflightRef.current[key]?.delete(tracker);
           onTheirWay.delete(tracker);
           answered();
+          if (again) sendFailedBodies({ keepalive });
         });
     }
   };
