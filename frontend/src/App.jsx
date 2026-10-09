@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "
 import { setStandToken } from "./services/standAuth";
 import { reportClientError } from "./utils/reportClientError";
 import { verifySkipActive, verifyWallExempt } from "./utils/verifySkip";
+import { completedOnboardingRedirect } from "./utils/onboardingFinish";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { canUsePersonalMode, homeFor } from "./lib/appMode";
 import { isStaffMemberRole } from "./config/navManifest";
@@ -547,7 +548,7 @@ function ProtectedRoute({ children }) {
  * If the user has already finished, we kick them to /dashboard so the
  * wizard can't be re-entered casually (they can re-trigger from Profile).
  */
-function OnboardingRoute() {
+export function OnboardingRoute() {
   const { user, loading, needsEmailVerification } = useAuth();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace />;
@@ -557,7 +558,14 @@ function OnboardingRoute() {
   }
   const role = (user.role || "owner").toLowerCase();
   if (role !== "owner") return <Navigate to="/dashboard" replace />;
-  if (user.onboarding_completed_at) return <Navigate to="/dashboard" replace />;
+  if (user.onboarding_completed_at) {
+    // The wizard's own finish in progress: its destination ("Du er klar") and
+    // router state (the held revisor invite) win — refreshUser renders the
+    // completed user before the finish navigation commits (React Router 7
+    // transitions; release gate R-b). Otherwise: the dashboard, as before.
+    const { to, state } = completedOnboardingRedirect();
+    return <Navigate to={to} state={state} replace />;
+  }
   return <OnboardingPage />;
 }
 

@@ -56,6 +56,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
+import { completedOnboardingRedirect, setFinishTarget } from "../utils/onboardingFinish";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
@@ -867,6 +868,11 @@ export default function OnboardingPage() {
    *  `dest` is validated against our known routes by the caller. */
   const finishOnboarding = async (dest = "/dashboard", navState) => {
     setFinishing(true);
+    const safeDest = typeof dest === "string" && dest.startsWith("/") ? dest : "/dashboard";
+    // Recorded BEFORE refreshUser: the completed user renders before this
+    // navigation commits, and the /onboarding guards then send the owner
+    // here (with the same state), never to /dashboard (release gate R-b).
+    setFinishTarget(safeDest, navState);
     try {
       await api.post("/auth/onboarding/complete");
       // Refresh the local user object so AuthProvider.user.onboarding_completed_at
@@ -878,7 +884,7 @@ export default function OnboardingPage() {
     } finally {
       setFinishing(false);
       navigate(
-        typeof dest === "string" && dest.startsWith("/") ? dest : "/dashboard",
+        safeDest,
         // Only a held revisor invite carries state (shown after the redirect).
         navState ? { replace: true, state: navState } : { replace: true },
       );
@@ -912,10 +918,13 @@ export default function OnboardingPage() {
   };
 
   // If somehow the user has already completed onboarding (e.g. tab
-  // reopened post-finish) bounce them to /dashboard right away.
+  // reopened post-finish) bounce them to /dashboard right away — unless it is
+  // this wizard's own finish in progress: then its destination and router
+  // state win (utils/onboardingFinish).
   useEffect(() => {
     if (user?.onboarding_completed_at) {
-      navigate("/dashboard", { replace: true });
+      const { to, state } = completedOnboardingRedirect();
+      navigate(to, state ? { replace: true, state } : { replace: true });
     }
   }, [user, navigate]);
 
