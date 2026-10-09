@@ -164,7 +164,7 @@ export const STATS = {
   // Round 23: Start forfra that could not be done (said, nothing changed),
   // the questions' wording checked, a move answered no / "Hent salg", the
   // scan refused offline (B), a scan whose connection dropped.
-  M6failed: 0, M6said: 0, MVsaid: 0, MVno: 0, MVfetch: 0, MVcopy: 0, B: 0, Bdrop: 0,
+  M6failed: 0, M6said: 0, MVsaid: 0, MVno: 0, MVfetch: 0, MVcopy: 0, B: 0, Bdrop: 0, MVnothing: 0,
   // Round 23 review: D (no draft deleted on a guess of whose it is), a
   // move's new day said moved/copied TO holds a stored row (MT), a move whose
   // new day is unconfirmed (MVpending — no "Slet den"), "Slet den" tapped,
@@ -1124,6 +1124,14 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       const row = S.rows.get(key);
       const onTo = onForm() && q("#close-date")?.value === mv.to;
       STATS.MV += 1;
+      // The question said nothing is saved for the old day (so nothing is
+      // deleted there): no save of this page lands there with the figures
+      // after it — they went to the new day (R-c review: the 750 on both).
+      if (mv.saidNothing && row && row.status === "draft" && S.verOf(row) > mv.fromVer) {
+        STATS.MVnothing += 1;
+        expect(S.writer.get(key) === S.mountNow, fail("MV a day said to hold nothing gets nothing of the moved figures",
+          `asked "nothing saved for ${mv.from}", yet a save of this page stored ${brief(row)} there after the figures went to ${mv.to}`)).toBe(false);
+      }
       if (r22 && S.lostKeys.has(key)) STATS.MVlost += 1;
       const MV = "MV a day reported moved is not on the old date";
       // The day the "Flyttet fra" note names (the first day of a chain of
@@ -1921,9 +1929,14 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         expect(Boolean(S.rows.get(`${from}|`)), fail("MV a day said still there is still there",
           `the page says ${from}'s draft is still there; nothing is stored for it`)).toBe(true);
       }
-      if (!slowStep || lostStep() || offlineStep()) {
-        pendingMove = { from, to, filed: filedFrom || postedHere.has(from), posts: S.posts.length, deletes: deletes0 };
-      }
+      // (Round 23 R-c review: also when the step's saves are still on their
+      // way — a save of the old day held over the move landed there as well,
+      // the figures on both days, and MV never looked: checked once they
+      // have arrived. And the question: what it said the old day holds.)
+      pendingMove = {
+        from, to, filed: filedFrom || postedHere.has(from), posts: S.posts.length, deletes: deletes0,
+        saidNothing: /dcMoveConfirmBodyNothing/.test(String(asked.message)), fromVer: S.verOf(S.rows.get(`${from}|`)),
+      };
     });
     // (A move's old day is deleted once the new day's save has answered —
     // perhaps in a later step: still the move's.)
