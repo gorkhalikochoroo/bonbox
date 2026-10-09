@@ -2076,6 +2076,53 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (listed) return listed.updated_at || null;
     return NO_ROW_BASE;
   };
+  // Round 23 R-c — the days the form LET GO OF: a date move answered "Hent
+  // {dag}s salg" takes every figure of the old day off the boxes (its draft
+  // stays as it is stored). The form kept treating that draft as its own —
+  // coming back, an empty form stood over it with no banner and the first
+  // keystroke was saved over it on the form's own version (12.000 kr. gone);
+  // a move of other figures onto it skipped "{dag} har allerede en kladde".
+  // { key: the last save number built BEFORE the release }: a save of the
+  // day built after it (the boxes as they are now) is not the form's own —
+  // it goes on the version History lists (or "no row known"), like a first
+  // visit's, never on the form's stamp nor following its earlier saves, and
+  // a refusal is asked about. Its earlier saves (the old figures, re-sent)
+  // stay its own. Let go of until the owner takes the day back: continues
+  // its draft, starts it over, keeps their numbers over it, or a save of the
+  // boxes is stored for it.
+  const releasedRef = useRef({});
+  const [releasedKeys, setReleasedKeys] = useState(() => new Set());
+  const releaseDay = (key) => {
+    releasedRef.current[key] = runNoRef.current;
+    setReleasedKeys((p) => (p.has(key) ? p : new Set(p).add(key)));
+  };
+  const unreleaseDay = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(releasedRef.current, key)) return;
+    delete releasedRef.current[key];
+    setReleasedKeys((p) => { if (!p.has(key)) return p; const n = new Set(p); n.delete(key); return n; });
+  };
+  /** The day is let go of — for a save built as number `runNo` (null: one built now). */
+  const releasedFor = (key, runNo = null) => Object.prototype.hasOwnProperty.call(releasedRef.current, key)
+    && (runNo == null || runNo > releasedRef.current[key]);
+  /** The version a save of `key` (save number `runNo`, null: built now) goes on. */
+  const saveBaseFor = (key, runNo = null) => {
+    if (!releasedFor(key, runNo)) return baseFor(key);
+    // A save of the boxes that got no answer since: what follows it goes on
+    // the version it was built on (and names it — saveFollowsFor).
+    const lost = lostSaveRef.current[key];
+    if (lost && releasedFor(key, lost.runNo)) return lost.base ?? NO_ROW_BASE;
+    const failed = failedBodyRef.current[key];
+    if (failed && releasedFor(key, failed.runNo)) return failed.base ?? NO_ROW_BASE;
+    const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
+    return listed ? listed.updated_at || null : NO_ROW_BASE;
+  };
+  /** The save of `key` with no answer that a save built as number `runNo` follows (base_save_id) — never one from before the day was let go of. */
+  const saveFollowsFor = (key, runNo = null) => {
+    const lost = lostSaveRef.current[key];
+    if (!lost?.id) return null;
+    if (releasedFor(key, runNo) && !releasedFor(key, lost.runNo)) return null;
+    return lost.id;
+  };
   /** A save of the form's was answered with this version of the day. */
   /** A save of `key` built before a move took the day's figures elsewhere (round 23 re-send review). */
   const movedOff = (key, runNo) => {
@@ -2338,6 +2385,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       filedScanKeysRef.current.delete(loadedKey);
       // The version opened: the next save is built on it.
       baseRef.current[loadedKey] = dc.updated_at || null;
+      // The owner took the day back (round 23 R-c): its draft is on the form.
+      unreleaseDay(loadedKey);
       // Opened (the newest draft, or a close from History): a draft of the
       // day that got no answer is not sent over what the owner chose to open.
       delete failedBodyRef.current[loadedKey];
@@ -3129,7 +3178,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       && (!branchId || (dc.branch_id || null) === nextBranch)
       && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
     const targetKey = target ? closeRowKey(target) : null;
-    const targetOwn = Boolean(target) && (ownDraftKeys.has(targetKey) || Boolean(ownRowsRef.current[targetKey])
+    // (Never a day the form let go of — "Hent {dag}s salg": its draft is
+    // not on the form, and is never moved onto without the question.)
+    const targetOwn = Boolean(target) && !releasedFor(targetKey) && (ownDraftKeys.has(targetKey) || Boolean(ownRowsRef.current[targetKey])
       || (pending?.keys || []).includes(targetKey));
     moveBusyRef.current = true;
     setMoveBusy(true);
@@ -3183,7 +3234,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // figures were typed for (and a day they passed through on the way,
       // moved again before it was filed) — never the day they go to.
       const keys = [...(pending?.keys || [])];
-      const curHolds = Boolean(ownRowsRef.current[curKey] || lostSaveRef.current[curKey]
+      // (A day the form let go of holds a draft that is not on the form: never
+      // deleted for figures typed over it since — round 23 R-c.)
+      const curHolds = !releasedFor(curKey) && Boolean(ownRowsRef.current[curKey] || lostSaveRef.current[curKey]
         || keyInflightRef.current[curKey]?.size || failedBodyRef.current[curKey]
         || pendingSaveRef.current?.key === curKey || ownDraftKeys.has(curKey));
       if (curHolds && !keys.includes(curKey)) keys.push(curKey);
@@ -3227,6 +3280,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // 17.130 was saved as "indtastet" on a 1.850 day, a drawer count
         // against another day's register. The new day's sync fills the boxes.
         flushWaitingSave();
+        // Round 23 R-c — the old day's figures leave the boxes; its draft
+        // stays: the form lets go of the day (its saves already sent stay
+        // its own). Back on it, its draft is said before any typing ("Der er
+        // allerede en kladde"), and nothing is moved onto it unasked.
+        releaseDay(curKey);
         act(resetTills);
         boxesHoldPhotosRef.current = false;
         salesFillRef.current = null;
@@ -4110,11 +4168,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         && (dc.status || "confirmed") === "confirmed")
         || { date: businessDate, branch_id: fileBranchId || null, status: "confirmed", revenue_total: null };
     }
-    if (editingDate || ownDraftKeys.has(rowKey)) return null;
+    // A day the form let go of ("Hent {dag}s salg" — round 23 R-c) is not
+    // the form's own any more, whatever it saved there before.
+    const released = releasedKeys.has(rowKey);
+    if (editingDate || (ownDraftKeys.has(rowKey) && !released)) return null;
     const fresh = (dc) => {
       const o = rowOverrides[dc.id];
       return o && o.listed === existingCloses ? { ...dc, ...o.row } : dc;
     };
+    // (Not listed yet — its save still on its way, or its answer lost: a
+    // save of the boxes goes on the version History lists, or "no row
+    // known", and is refused and asked about over a stored draft —
+    // saveBaseFor.)
     return (existingCloses || []).map(fresh).find((dc) =>
       String(dc.date || "").slice(0, 10) === businessDate
       // "All branches" picked: any branch's close for the day is the one
@@ -4123,7 +4188,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       && (!branchId || (dc.branch_id || null) === fileBranchId)
       // A draft this form deleted is gone, whatever History still lists.
       && !dc.is_deleted && !droppedIds.has(dc.id)) || null;
-  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey, droppedIds, rowOverrides, lockedRowRejected]);
+  }, [existingCloses, businessDate, branchId, fileBranchId, editingDate, ownDraftKeys, rowKey, droppedIds, rowOverrides, lockedRowRejected, releasedKeys]);
 
   // The removal audit's B2, restored: a draft this form filed that is gone
   // from History (deleted in another tab or on another phone) is filed
@@ -4201,7 +4266,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const sentBefore = at >= 0 ? wire.slice(0, at) : wire;
     if (sentBefore.length) await settledWithin(sentBefore, SAVE_TURN_WAIT_MS);
     if (superseded()) return "superseded";
-    let ownStamp = stamp && ownStampsRef.current[key]?.has(stamp) ? stamp : null;
+    // A save of a day the form let go of, built since (round 23 R-c): the
+    // stored draft is not on the form — whoever wrote it (this form's
+    // earlier saves too), the owner is asked, never saved over it again.
+    const letGo = via === "lock" ? releasedFor(key) : releasedFor(key, runNo);
+    let ownStamp = !letGo && stamp && ownStampsRef.current[key]?.has(stamp) ? stamp : null;
     // Round 23 fix-up — a save that followed one whose answer was lost
     // (base_save_id) met a newer version: it may be the form's OWN — another
     // save of its own with no answer landed (two answers lost in a row, and
@@ -4209,7 +4278,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // fresh is the form's own exactly when the save that wrote it last is one
     // this form sent. Anyone else's — or a read that cannot say — is asked
     // about below, never saved over.
-    if (!ownStamp && body?.base_save_id) {
+    if (!ownStamp && !letGo && body?.base_save_id) {
       try {
         const row = await readDayFresh(key);
         if (row && (row.status || "confirmed") === "draft" && row.updated_at && lastSaveIsMine(row)) {
@@ -4292,6 +4361,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     delete sentBodyRef.current[key];
     filedScanKeysRef.current.delete(key);
     setOwnDraftKeys((prev) => { if (!prev.has(key)) return prev; const n = new Set(prev); n.delete(key); return n; });
+    // (Nothing of the day's is the form's to let go of any more.)
+    unreleaseDay(key);
   };
   const undropId = (rid) => {
     if (rid == null) return;
@@ -4851,14 +4922,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // sent the change again (round 21 review).
           if ((sentNoRef.current[savingKey] || 0) > runNo) return;
         }
-        body.base_updated_at = baseFor(savingKey);
+        // (A day the form let go of — round 23 R-c: on the version History
+        // lists, never following a save from before; see saveBaseFor.)
+        const letGo = releasedFor(savingKey, runNo);
+        body.base_updated_at = saveBaseFor(savingKey, runNo);
         saveId = newSaveId();
         body.save_id = saveId;
         mySaveIdsRef.current.add(saveId);
-        if (followsId) body.base_save_id = followsId;
+        if (followsId && !letGo) body.base_save_id = followsId;
         // A save of the day got no answer (it may have landed): this one
         // follows it — the version it wrote is the form's own.
-        else if (lostSaveRef.current[savingKey]?.id) body.base_save_id = lostSaveRef.current[savingKey].id;
+        else if (saveFollowsFor(savingKey, runNo)) body.base_save_id = saveFollowsFor(savingKey, runNo);
         sentNoRef.current[savingKey] = Math.max(sentNoRef.current[savingKey] || 0, runNo);
         saveIdOfRef.current.set(tracker, saveId);
         if (!keyWireRef.current[savingKey]) keyWireRef.current[savingKey] = new Set();
@@ -4883,6 +4957,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           lastSentRef.current = JSON.stringify({ ...built, receipt_photo: null });
         }
         setOwnDraftKeys((prev) => (prev.has(savingKey) ? prev : new Set(prev).add(savingKey)));
+        // A save of the boxes was stored for a day the form had let go of
+        // (on the version History lists — round 23 R-c): the day's draft is
+        // the form's own again.
+        if (letGo) unreleaseDay(savingKey);
         onDraftSaved?.();
         setDraftSaved(true);
         setTimeout(() => setDraftSaved(false), 3000);
@@ -4941,6 +5019,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // owner's own moved figures), and the move finishes.
                 noteSaved(savingKey, body, { data: row });
                 setOwnDraftKeys((p) => (p.has(savingKey) ? p : new Set(p).add(savingKey)));
+                if (releasedFor(savingKey, runNo)) unreleaseDay(savingKey);
                 if (lostSaveRef.current[savingKey]?.id === landed) delete lostSaveRef.current[savingKey];
                 if (retryArmedRef.current === sent) { retryArmedRef.current = null; lastSentRef.current = sent; }
                 finishMove(savingKey);
@@ -5076,9 +5155,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // (Round 23: a date move is confirmed before the date changes — the copy
     // is the day the form is on, the one the owner chose.)
     const dayKey = run.key;
-    const payload = { ...built, base_updated_at: baseFor(dayKey) };
-    const lost = lostSaveRef.current[dayKey];
-    if (lost?.id) payload.base_save_id = lost.id;
+    // (The boxes as they are now: a day the form let go of goes on the
+    // version History lists — round 23 R-c, saveBaseFor.)
+    const payload = { ...built, base_updated_at: saveBaseFor(dayKey) };
+    const follows = saveFollowsFor(dayKey);
+    if (follows) payload.base_save_id = follows;
     const prev = offlineCopyRef.current;
     if (prev && getOfflineQueue().some((it) => it.id === prev.id)) {
       updateQueueItem(prev.id, { payload });
@@ -5100,9 +5181,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     for (const [key, f] of Object.entries(failedBodyRef.current)) {
       // The waiting save files this day itself (its own copy, above).
       if (pendingSaveRef.current?.key === key && formFilesRef.current) continue;
-      const payload = { ...f.body, base_updated_at: baseFor(key) };
-      const lost = lostSaveRef.current[key];
-      if (lost?.id) payload.base_save_id = lost.id;
+      // (The figures as they were sent, save number f.runNo — round 23 R-c.)
+      const payload = { ...f.body, base_updated_at: saveBaseFor(key, f.runNo) };
+      const follows = saveFollowsFor(key, f.runNo);
+      if (follows) payload.base_save_id = follows;
       const prevId = failedCopiesRef.current[key];
       if (prevId && getOfflineQueue().some((it) => it.id === prevId)) {
         updateQueueItem(prevId, { payload });
@@ -5136,12 +5218,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const sendFailedBodies = ({ keepalive = false } = {}) => {
     for (const [key, f] of Object.entries(failedBodyRef.current)) {
       if (pendingSaveRef.current?.key === key || keyInflightRef.current[key]?.size || startingOverRef.current === key) continue;
-      const payload = { ...f.body, base_updated_at: baseFor(key) };
+      // (The figures as they were sent, save number f.runNo: a day the form
+      // let go of since keeps its earlier figures' own version — round 23
+      // R-c, saveBaseFor.)
+      const payload = { ...f.body, base_updated_at: saveBaseFor(key, f.runNo) };
       const saveId = newSaveId();
       payload.save_id = saveId;
       mySaveIdsRef.current.add(saveId);
-      const lost = lostSaveRef.current[key];
-      if (lost?.id) payload.base_save_id = lost.id;
+      const follows = saveFollowsFor(key, f.runNo);
+      if (follows) payload.base_save_id = follows;
       let answered;
       const tracker = new Promise((r) => { answered = r; });
       inflightRef.current.add(tracker);
@@ -5163,6 +5248,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           }
           if (mountedRef.current) {
             setOwnDraftKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+            // The boxes' figures (sent after the form let go of the day —
+            // round 23 R-c) are the day's draft now: the form's own again.
+            if (releasedFor(key, f.runNo)) unreleaseDay(key);
             onDraftSaved?.();
           }
         })
@@ -5327,10 +5415,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // on another phone since is never locked over in silence — the owner is
     // asked, and an offline-queued lock that meets one stays as a failed copy.
     const lockKey = `${payload.date}|${payload.branch_id || ""}`;
-    payload.base_updated_at = baseFor(lockKey);
+    // (A day the form let go of — round 23 R-c: on the version History
+    // lists; a draft there not on the form is asked about, never locked over.)
+    payload.base_updated_at = saveBaseFor(lockKey);
     // A draft save of the day got no answer (it may have landed): the lock —
     // queued offline too — follows it; its version is the form's own.
-    if (lostSaveRef.current[lockKey]?.id) payload.base_save_id = lostSaveRef.current[lockKey].id;
+    if (saveFollowsFor(lockKey)) payload.base_save_id = saveFollowsFor(lockKey);
 
     if (!navigator.onLine) {
       // A queue write can be refused (quota, Safari private mode). Saying
@@ -5879,6 +5969,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     // Sent again on the version it met: the owner's figures are saved over it.
     baseRef.current[c.key] = c.stamp || baseRef.current[c.key] || null;
+    // The owner chose their numbers for the day: it is the form's own again
+    // (round 23 R-c — a day let go of by "Hent {dag}s salg").
+    unreleaseDay(c.key);
     if (c.current) {
       // What the server holds for the day now (its photo, its source): ""
       // never clears a photo this form did not file.

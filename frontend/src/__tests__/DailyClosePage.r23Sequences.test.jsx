@@ -36,8 +36,14 @@
  * is on another day is kept as a failed copy — or, on the form's own version,
  * sent again — never the figures a move took elsewhere) and 23017 ("Behold
  * mine tal" on the scan card sends the refused figures).
+ * Round 23 R-c (the re-rate's sequences finding): 23020 / 23021 — after
+ * "Hent {dag}s salg" the day left behind is not the form's: back on it, its
+ * stored draft is said before any typing and nothing is saved over it; a
+ * move of other figures onto it is asked "{dag} har allerede en kladde" —
+ * and 23022, the same with the old day's answer lost.
  * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r23Sequences.test.jsx
  */
+import { fireEvent } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
@@ -432,6 +438,82 @@ const PLANS = [
     const sent = A.S.posts.slice(n).filter((b) => b.date === A.today);
     A.expect(sent.some((b) => b.base_updated_at === stamp && b.revenue_breakdown?.food === 3000 && b.revenue_breakdown?.drinks === 500)).toBe(true);
     A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000, drinks: 500 });
+  }],
+  // Round 23 R-c — the sequences lane's blocking finding: after "Hent
+  // {dag}s salg" the day left behind is not the form's any more (its figures
+  // are off the boxes). Coming back, its stored draft is said before any
+  // typing, nothing is saved over it, and nothing is moved onto it.
+  ["R-c 1, R1 (sequences finding): 12.000 saved for today, moved to the day before yesterday (POS sales) answered \"Hent {dag}s salg\", back to today with nothing typed — the banner names today's stored 12.000 before any typing; a figure typed under it saves nothing; continued, the next figure is added to the 12.000", 23020, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "12.000");
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 12000 });
+    await A.moveDate(A.twoDaysAgo, "extra");
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+    // Back with only the POS figures on the form: no question (nothing of
+    // the owner's goes with the date) — the step itself, so the banner is
+    // looked at before anything answers it.
+    const asked = A.dialogs.length;
+    const el = A.q("#close-date");
+    await A.step(`date → ${A.today} (nothing typed)`, async () => {
+      fireEvent.change(el, { target: { value: A.today } });
+      for (let i = 0; i < 4; i++) await A.settle();
+    });
+    A.expect(A.dialogs.length).toBe(asked);
+    A.expect(A.q("#close-date").value).toBe(A.today);
+    A.expect(A.hasText("dcDayHasDraftBody:12.000")).toBe(true);
+    // A figure typed under the banner is never saved over the stored draft.
+    const n = A.S.posts.filter((b) => b.date === A.today).length;
+    A.expect(await A.toStep("s1")).toBe(true);
+    const drinks = A.q("#dc-rev-drinks");
+    A.expect(Boolean(drinks)).toBe(true);
+    fireEvent.change(drinks, { target: { value: "750" } });
+    // (Leaving sends a save that is waiting: whatever the page would file goes now.)
+    await A.settleAll();
+    A.expect(A.S.posts.filter((b) => b.date === A.today).length).toBe(n);
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 12000 });
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+    // Continued: the stored draft is on the form, and the next figure joins it.
+    await A.continueDraft();
+    await A.typeBox("rev", "drinks", "750");
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000, drinks: 750 });
+  }],
+  ["R-c 1, R2 (sequences finding): the same, then Takeaway 300 typed on the day before yesterday and the figures moved back to today — asked \"{today} har allerede en kladde\", never \"Flyt tallene\" over it: nothing moves, today keeps its 12.000, the day before yesterday keeps its 300", 23021, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "12.000");
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 12000 });
+    await A.moveDate(A.twoDaysAgo, "extra");
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    await A.typeBox("rev", "takeaway", "300");
+    A.expect(stored(A.S, `${A.twoDaysAgo}|`).revenue_breakdown.takeaway).toBe(300);
+    await A.moveDate(A.today, "yes");
+    A.expect(String(A.dialogs.at(-1)?.title)).toMatch(/dcMoveTargetDraftTitle/);
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 12000 });
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+    A.expect(stored(A.S, `${A.twoDaysAgo}|`).revenue_breakdown.takeaway).toBe(300);
+  }],
+  ["R-c 1, the same with the 12.000's answer LOST (stored, never heard): back on today, a figure typed is never saved over it — the banner says the draft, or the save is refused and \"Kladden er gemt et andet sted\" asks", 23022, async (A) => {
+    await A.skip();
+    A.slow("drop", 1);
+    await A.typeBox("rev", "food", "12.000");
+    A.expect(A.S.lostKeys.has(key)).toBe(true);
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 12000 });
+    await A.moveDate(A.twoDaysAgo, "extra");
+    A.expect(A.q("#close-date").value).toBe(A.twoDaysAgo);
+    const el = A.q("#close-date");
+    await A.step(`date → ${A.today} (nothing typed)`, async () => {
+      fireEvent.change(el, { target: { value: A.today } });
+      for (let i = 0; i < 4; i++) await A.settle();
+    });
+    A.expect(A.q("#close-date").value).toBe(A.today);
+    A.expect(await A.toStep("s1")).toBe(true);
+    const drinks = A.q("#dc-rev-drinks");
+    A.expect(Boolean(drinks)).toBe(true);
+    await A.step("rev.drinks=750 (raw)", async () => { fireEvent.change(drinks, { target: { value: "750" } }); });
+    await A.settleAll();
+    A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
+    A.expect(A.hasText("dcDayHasDraftBody:12.000") || A.conflictShown()).toBe(true);
   }],
 ];
 
