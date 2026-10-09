@@ -229,14 +229,14 @@ describe("daily close — a reopened draft files only its own photo", () => {
     fireEvent.click(screen.getByText("continueStepByStep"));
     await waitFor(() => expect(container.querySelector("#close-date")).not.toBeNull());
     // Round 23 (path changed): figures are never moved onto a day that holds
-    // another draft — the question says so, and "Åbn Historik" opens it
-    // there; the draft is continued from History (Rediger).
+    // another draft — the question says so, and its "Fortsæt kladden" is the
+    // one tap that continues that draft (round 23 review: restored — it was
+    // a detour through History).
     const asked = [];
     window.confirm = (m) => { asked.push(m); return true; };
     fireEvent.change(container.querySelector("#close-date"), { target: { value: past } });
     await waitFor(() => expect(asked.length).toBe(1));
-    expect(asked[0]).toMatch(/dcMoveTargetBody/);
-    fireEvent.click(await screen.findByText("edit"));
+    expect(asked[0]).toMatch(/dcMoveTargetDraftBody/);
     await waitFor(() => expect(container.querySelector("#dc-rev-food").value).toBe("5.000"));
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "5.100" } });
     fireEvent.click(screen.getByRole("tab", { name: "historyTab" }));

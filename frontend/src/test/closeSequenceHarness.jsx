@@ -115,6 +115,25 @@
  *       names the old day's draft when there is one;
  *   B   offline, no scan: "← Scan Z-bon" is gray with its reason, and a photo
  *       picked (or a scan whose connection drops) changes nothing.
+ * Round 23 review — and to:
+ *   D   no draft is deleted on a guess of whose it is: every delete the page
+ *       makes (the card's Start forfra, a move's old day, "Slet den") removes
+ *       a version this visit's FORM held (opened, or written by its own
+ *       save) — never one another device, another visit, or an offline
+ *       queue's copy wrote that the form was never given (the banner's Start
+ *       forfra deletes the version it showed: M6). MV's round-22 branch
+ *       ("another device's version deleted with the moved figures") is back;
+ *   MT  the line under the date: a day said moved or copied TO holds a
+ *       stored row, a day said moved FROM holds no draft, and while the new
+ *       day's save is unconfirmed ("Ikke gemt for {to} endnu") nothing is
+ *       offered to delete.
+ * with writers that send no save id (another phone's queued copy; another
+ * visit's copy on this phone's queue), day reads that cannot say who wrote a
+ * day last (no last_save_id), a dead line (the form's saves die, the browser
+ * online), "Slet den" and "Prøv igen" tapped, and Start forfra tapped with
+ * the save of "Brug disse tal" still on its way (never released first). The
+ * new knobs draw from a stream of their own (`rnd2`): every earlier seed's
+ * own choices are unchanged.
  * Retired with round 23 (they held automatic behaviour that is gone): F3
  * (Start forfra kept a draft holding the owner's fields — it now deletes the
  * draft by the owner's confirmed choice), the replaced-draft checks of M6 /
@@ -133,6 +152,7 @@ import { MemoryRouter } from "react-router-dom";
 import { expect } from "vitest";
 import { businessTodayIso, dateLocale } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
+import { addToOfflineQueue } from "../utils/dailyCloseQueue";
 
 /** How many times each invariant was actually checked (SEQ_STATS=1 prints them). */
 export const STATS = {
@@ -145,6 +165,12 @@ export const STATS = {
   // the questions' wording checked, a move answered no / "Hent salg", the
   // scan refused offline (B), a scan whose connection dropped.
   M6failed: 0, M6said: 0, MVsaid: 0, MVno: 0, MVfetch: 0, MVcopy: 0, B: 0, Bdrop: 0,
+  // Round 23 review: D (no draft deleted on a guess of whose it is), a
+  // move's new day said moved/copied TO holds a stored row (MT), a move whose
+  // new day is unconfirmed (MVpending — no "Slet den"), "Slet den" tapped,
+  // Start forfra tapped with a save on its way (M6race), saves that died on
+  // a dead line, writers with no save id, day reads that could not check.
+  D: 0, Dother: 0, MT: 0, MVpending: 0, MVdeleteOld: 0, M6race: 0, deadSaves: 0, noIdWriters: 0, unknownReads: 0,
 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
@@ -255,6 +281,20 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
     S.formSeen.set(mount, m);
   };
   S.formSeenBy = (mount, key) => S.formSeen.get(mount)?.get(key) || 0;
+  // Round 23 review — the versions each mount's form HOLDS for D: opened
+  // (read by id) or written by its own save — never a copy the offline queue
+  // sent (it carries no save id: another visit's figures, synced by whichever
+  // visit is open; the form there never held them). And whether a day was
+  // written last by such a copy.
+  S.formHeld = new Map();
+  S.formHold = (mount, key, v) => {
+    if (mount == null) return;
+    const m = S.formHeld.get(mount) || new Map();
+    if ((m.get(key) || 0) < v) m.set(key, v);
+    S.formHeld.set(mount, m);
+  };
+  S.formHeldBy = (mount, key) => S.formHeld.get(mount)?.get(key) || 0;
+  S.byQueue = new Map();
   // Saves that landed over a version their page never received (R), saves
   // refused as draft_changed, and who wrote each row last.
   S.stale = [];
@@ -269,15 +309,22 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
     S.rows.set(keyOf(r), r);
   });
   // Another device saves the day behind the page's back: a new version.
-  S.otherSave = (key, change) => {
+  // Round 23 review — `saveId: null`: written by a save with NO id (another
+  // phone's — or another visit's — offline-queue copy, a review's lock):
+  // the day read then names last_save_id null, never "other-device".
+  S.otherSave = (key, change, { saveId = "other-device" } = {}) => {
     const row = S.rows.get(key);
     if (!row) return null;
     change(row);
     S.bump(row);
     S.writer.set(key, "other");
-    S.lastSaveId.set(key, "other-device");
+    S.lastSaveId.set(key, saveId);
     return row;
   };
+  // Round 23 review — the server could not read who wrote a day last (its
+  // audit read failed): a day read names no last_save_id at all ("couldn't
+  // check" — never "written by a save with no id").
+  S.saveIdUnknown = false;
   // Round 22 — another device LOCKS the day behind the page's back: the row
   // is confirmed (a new version), and the page's next save of it meets the
   // lock (409). `lockHits`: every save (or lock) that met one, by visit.
@@ -422,7 +469,20 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
     S.dead.set(entry[0], id);
     S.deletes.push(id);
     // Round 23 — the row as it was when deleted (M6: the question named it).
-    S.deletedRows.push({ ...entry[1] });
+    // Round 23 review — and whose version it was: who wrote it last, its
+    // version, which version the deleting visit's FORM held (and was shown
+    // in a list), and the owner's action that asked for it (D).
+    S.deletedRows.push({
+      ...entry[1],
+      __writer: S.writer.get(entry[0]) ?? null,
+      __ver: S.verOf(entry[1]),
+      __mount: S.mountNow,
+      __formSeen: S.formSeenBy(S.mountNow, entry[0]),
+      __formHeld: S.formHeldBy(S.mountNow, entry[0]),
+      __byQueue: Boolean(S.byQueue.get(entry[0])) && S.writer.get(entry[0]) !== "other",
+      __seen: S.seenBy(S.mountNow, entry[0]),
+      __action: S.actionNow || null,
+    });
     return Promise.resolve({ data: null });
   };
   // A slow network: while `holding` is set, each save (or delete) waits in
@@ -432,7 +492,7 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
   // `drop` (round 21 review): a save reaches the server and is stored, and
   // its answer is LOST (a dropped socket, a 4G handoff, the timeout): the
   // page gets a network error with no response.
-  S.holding = { post: false, del: false, answer: false, drop: false, offline: false };
+  S.holding = { post: false, del: false, answer: false, drop: false, offline: false, dead: false };
   S.held = [];
   S.releaseHeld = () => { const h = S.held.splice(0); h.forEach((go) => go()); return h.length; };
   const offlineErr = () => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
@@ -461,7 +521,7 @@ export function installApi(S, get, post, del = null) {
         return (!p.from || d >= p.from) && (!p.to || d <= p.to) && (!p.branch_id || (r.branch_id || null) === p.branch_id);
       });
       hits.forEach(([k, r]) => S.see(S.mountNow, k, S.verOf(r)));
-      return Promise.resolve({ data: hits.map(([k, r]) => ({ ...r, ...(p.with_save_id ? { last_save_id: S.lastSaveId.get(k) || null } : {}) })) });
+      return Promise.resolve({ data: hits.map(([k, r]) => ({ ...r, ...(p.with_save_id && !S.saveIdUnknown ? { last_save_id: S.lastSaveId.get(k) || null } : {}) })) });
     }
     if (url === "/daily-close") {
       // The list answers at once — before a save still on its way lands.
@@ -478,6 +538,7 @@ export function installApi(S, get, post, del = null) {
       if (!hit) return Promise.reject(Object.assign(new Error("gone"), { response: { status: 404, data: {} } }));
       S.see(S.mountNow, hit[0], S.verOf(hit[1]));
       S.formSee(S.mountNow, hit[0], S.verOf(hit[1]));
+      S.formHold(S.mountNow, hit[0], S.verOf(hit[1]));
       return Promise.resolve({ data: { ...hit[1] } });
     }
     if (url === "/daily-close/prefill") return Promise.resolve({ data: S.syncedDates.has(cfg?.params?.date) ? SYNCED_DAY : EMPTY_DAY });
@@ -501,6 +562,14 @@ export function installApi(S, get, post, del = null) {
     if (url === "/daily-close") {
       // Offline (r22): never reaches the server — nothing stored, no answer.
       if (S.holding.offline) return S.offlineErr();
+      // Round 23 review — a dead line while the browser says online: the
+      // form's save (it carries a save_id) dies on its way — never stored,
+      // no answer. (A copy the offline queue sends has none, and gets
+      // through: another visit's queued copy, synced by this page.)
+      if (S.holding.dead && body?.save_id) {
+        STATS.deadSaves += 1;
+        return S.offlineErr();
+      }
       const copy = JSON.parse(JSON.stringify(body));
       // What the day held when the page SENT it (a held save arrives later).
       const tags = S.tagAtSend ? S.tagAtSend(copy) : {};
@@ -540,6 +609,8 @@ export function installApi(S, get, post, del = null) {
         S.writer.set(key, tags.__mount != null ? tags.__mount : "page");
         S.see(tags.__mount, key, S.verOf(row));
         S.formSee(tags.__mount, key, S.verOf(row));
+        if (!tags.__queued) S.formHold(tags.__mount, key, S.verOf(row));
+        S.byQueue.set(key, Boolean(tags.__queued));
         return Promise.resolve({ data: { ...row } });
       };
       // Behind anything still on its way: requests arrive in the order sent.
@@ -702,6 +773,10 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const rnd = mulberry32(seed * 7919 + 13);
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const chance = (p) => rnd() < p;
+  // Round 23 review — the new knobs draw from a stream of their own, so every
+  // earlier seed's choices (and its named regressions) stay what they were.
+  const rnd2 = mulberry32(seed * 104729 + 7);
+  const chance2 = (p) => rnd2() < p;
   const today = businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
   const yesterday = shiftIso(today, -1);
   const twoDaysAgo = shiftIso(today, -2);
@@ -733,6 +808,10 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   if (opening === "momsfri") exemptByDate[today] = 2000;
   const S = givenS || createServer({ exemptByDate, rows: seededRows, syncedDates: [twoDaysAgo] });
   installApi(S, get, post, del);
+  // r23 (round 23 review): now and then the server cannot read who wrote a
+  // day last — every day read of the sequence names no last_save_id.
+  if (r23 && !plan && chance2(0.12)) { S.saveIdUnknown = true; STATS.unknownReads += 1; }
+  S.actionNow = null;
   // This device's remembered float (r20: not the one the seeded drafts were
   // counted with).
   if (r20) { try { localStorage.setItem(FLOAT_KEY, String(DEVICE_FLOAT)); } catch { /* private mode */ } }
@@ -811,7 +890,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // r22 — a step whose saves reach the server at once and lose their
   // answers: nothing is held, so what it filed is checked like any step's
   // (MV, M6) — the page must ask the server, not wait for an answer.
-  const lostStep = () => r22 && slowStep && S.holding.drop;
+  // (Round 23 review: or they die on a dead line — never stored, no answer,
+  // the browser online: nothing is held either.)
+  const lostStep = () => r22 && slowStep && (S.holding.drop || S.holding.dead);
   // r22 — a step taken OFFLINE (the browser says so; the day's requests fail
   // and store nothing). Online again at its end: checked once settled.
   const offlineStep = () => r22 && slowStep && S.holding.offline;
@@ -969,6 +1050,57 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     return Number(last.replace(/\./g, "").replace(",", "."));
   };
   const shortDay = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+  // D (round 23 review) — no draft is deleted on a guess of whose it is.
+  // Every delete the page made (Start forfra on the card, a move's old day,
+  // "Slet den") removed a version this visit's FORM held — never one another
+  // device (or another visit of the page) wrote that the form was never
+  // given. (The banner's Start forfra deletes the version the banner SHOWED,
+  // and the server refuses any other: checked by M6.) The server refuses
+  // such a delete only when the page sends the version it holds — a delete
+  // on History's version (or none) went through.
+  let deletesChecked = 0;
+  const checkDeletes = () => {
+    for (const d of S.deletedRows.slice(deletesChecked)) {
+      STATS.D += 1;
+      if (d.__action === "banner") continue;
+      const others = d.__writer === "other" || d.__writer === "seed" || d.__byQueue
+        || (typeof d.__writer === "number" && d.__writer !== d.__mount);
+      if (!others) continue;
+      STATS.Dother += 1;
+      const who = d.__writer === "other" ? "another device" : d.__writer === "seed" ? "whoever filed it before this visit"
+        : d.__byQueue ? "an offline-queue copy (no save id)" : `visit ${d.__writer}`;
+      expect(d.__formHeld >= d.__ver, fail("D no draft is deleted on a guess of whose it is",
+        `${String(d.date).slice(0, 10)}: ${d.__action || "a delete"} removed version ${d.__ver} written by ${who} — this visit's form held version ${d.__formHeld} (${brief(d)})`)).toBe(true);
+    }
+    deletesChecked = S.deletedRows.length;
+  };
+  // MT (round 23 review) — the line under the date: a day said moved FROM
+  // holds no draft; the day said moved or copied TO holds a stored row (the
+  // figures are on a server); and while the new day's save is unconfirmed
+  // ("Ikke gemt for {to} endnu") nothing is offered to delete.
+  const checkMoveNote = () => {
+    const note = q('[data-testid="dc-date-moved"]');
+    if (!note || !onForm()) return;
+    const on = q("#close-date")?.value;
+    const t = note.textContent;
+    if (/dcDateMovedNotSavedYet:/.test(t)) {
+      STATS.MVpending += 1;
+      expect(Boolean(findBtn(/^dcDateMovedDeleteOld$/)), fail("MT nothing is deleted for a move not saved yet",
+        `"${t}" with "Slet den" offered`)).toBe(false);
+      return;
+    }
+    if (!/dcDateMovedFrom:|dcDateMovedCopied:|dcDateMovedMaybeCopied:/.test(t) || !on) return;
+    STATS.MT += 1;
+    expect(Boolean(S.rows.get(`${on}|`)), fail("MT a day reported moved or copied TO holds the figures",
+      `"${t}" on ${on}, which holds nothing on the server`)).toBe(true);
+    const from = /dcDateMovedFrom:/.test(t)
+      ? [today, yesterday, twoDaysAgo].find((d) => t.includes(`dcDateMovedFrom:${shortDay(d)}`)) : null;
+    if (from) {
+      const r = S.rows.get(`${from}|`);
+      expect(!r || r.status !== "draft", fail("MV a day reported moved is not on the old date",
+        `"${t}" — ${from} still holds ${brief(r)}`)).toBe(true);
+    }
+  };
   const storedChecks = async () => {
     // The page's own follow-ups (a draft deleted once the saves have
     // answered) run on the saves' answers.
@@ -979,6 +1111,8 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       startOverCheck = null;
       checkStartOver({ ...e, failed: Boolean(q('[data-testid="dc-start-over-failed"]')), at: where() });
     }
+    checkDeletes();
+    checkMoveNote();
     // MV (round 23) — a move answered "Flyt tallene": once the new day is
     // filed, "Flyttet fra" only when the old day's draft is gone; an old day
     // still holding a draft is said on the new day ("Kopieret til … står der
@@ -1012,6 +1146,17 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         // Locked on another device since: that lock stands — never "moved".
         STATS.newerElsewhere += 1;
         if (onTo) expect(namedDay === mv.from, fail(MV, `${mv.from} was locked elsewhere, yet the page says the figures moved`)).toBe(false);
+      } else if (S.writer.get(key) === "other"
+        && S.deletedRows.slice(mv.deletes).some((d) => `${String(d.date).slice(0, 10)}|${d.branch_id || ""}` === key && d.__writer === "other")) {
+        // Round 22's branch, restored (round 23 review): another device
+        // saved the old day since — its version is never deleted with the
+        // moved figures (the delete goes on the version this form holds, and
+        // the server refuses any other). Deleted, it was a version this form
+        // held (it opened it): D says which.
+        STATS.newerElsewhere += 1;
+        const gone = S.deletedRows.slice(mv.deletes).filter((d) => `${String(d.date).slice(0, 10)}|${d.branch_id || ""}` === key && d.__writer === "other");
+        expect(gone.every((d) => d.__formHeld >= d.__ver), fail(MV,
+          `${mv.from}: another device's version of the draft was deleted with the moved figures (${gone.map(brief).join(", ")})`)).toBe(true);
       } else if (onTo && mv.filed) {
         expect(Boolean(namedDay), fail(MV, `${mv.from}'s draft is gone and the figures are on ${mv.to}, and nothing says they moved`)).toBe(true);
       }
@@ -1160,7 +1305,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       slowLeft -= 1;
       if (slowLeft <= 0) {
         slowStep = false;
-        S.holding.post = false; S.holding.del = false; S.holding.answer = false; S.holding.drop = false; S.holding.offline = false;
+        S.holding.post = false; S.holding.del = false; S.holding.answer = false; S.holding.drop = false; S.holding.offline = false; S.holding.dead = false;
         // r22: online again — the page's waiting draft goes.
         if (offline) await goOnline();
       }
@@ -1306,7 +1451,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         // r23: offline now and then lasts a few steps — the owner keeps
         // working (typing, the card, Start forfra, a move) with no network.
         if (r23 && how === "offline") slowLeft = 1 + Math.floor(rnd() * 3);
-        if (how === "answer") { S.holding.answer = true; label += " (slow answers)"; } else if (how === "drop") {
+        if (how === "answer") { S.holding.answer = true; label += " (slow answers)"; } else if (how === "drop" && r23 && chance2(0.35)) {
+          // Round 23 review — a dead line, the browser online: the form's
+          // saves never land and get no answer.
+          S.holding.dead = true;
+          label += " (dead line)";
+        } else if (how === "drop") {
           S.holding.drop = true;
           label += " (answers lost)";
         } else if (how === "offline") {
@@ -1617,17 +1767,20 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // answered yes (r23: now and then no — nothing changes).
   const doStartOver = async (source = "card") => {
     if (source === "card" && where() !== "card") return;
-    if (!findBtn(source === "banner" ? /^dcStartOverDraft$/ : /^startOver$/)) return;
-    // Whatever is still on its way arrives first (the page waits for it).
-    await arriveAll();
+    // Round 23 review — tapped with a save still on its way (a slow step
+    // before it, or a named regression's held save): the page waits for that
+    // save to answer before its delete ("Sletter kladden…"). Nothing is
+    // released first — that race is what this taps into.
     const btn = findBtn(source === "banner" ? /^dcStartOverDraft$/ : /^startOver$/);
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
+    if (S.held.length) STATS.M6race += 1;
     const day = businessDayShown() || today;
     const yes = !r23 || Boolean(plan) || chance(0.9);
     const deletesBefore = S.deletedRows.length;
     const n0 = dialogs.length;
     answerNext = yes;
-    await step(`Start forfra${source === "banner" ? " (banner)" : ""}${yes ? "" : " — no"}`, async () => {
+    S.actionNow = source;
+    await step(`Start forfra${source === "banner" ? " (banner)" : ""}${yes ? "" : " — no"}${S.held.length ? " (a save on its way)" : ""}`, async () => {
       fireEvent.click(btn);
       for (let i = 0; i < 8; i++) await settle();
     }, () => {
@@ -1653,6 +1806,16 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       if (!failed) resetDay();
       checkStartOver({ ...e, failed, at: where() });
     }, { noHold: true });
+    // The owner waits for "Sletter kladden…" (the card and the banner wait
+    // too): what was on its way arrives, the page's delete answers, and M6 is
+    // checked on what it did — before anything else is tapped.
+    if (startOverCheck) {
+      for (let i = 0; i < 12 && (S.held.length || hasText("dcStartOverDeleting")); i++) { await arriveAll(); await settle(); }
+      const e = startOverCheck;
+      startOverCheck = null;
+      checkStartOver({ ...e, failed: Boolean(q('[data-testid="dc-start-over-failed"]')), at: where() });
+      checkDeletes();
+    }
   };
   const startOver = () => doStartOver("card");
   const bannerStartOver = () => doStartOver("banner");
@@ -1710,6 +1873,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const fromRow = S.rows.get(`${from}|`);
     const filedFrom = postedHere.has(from) && Boolean(fromRow) && fromRow.status === "draft";
     const n0 = dialogs.length;
+    const deletes0 = S.deletedRows.length;
     let chosen = null;
     answerNext = (o) => {
       if (/dcMoveTarget/.test(String(o.title || ""))) { chosen = "target"; return false; }
@@ -1718,6 +1882,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       chosen = a;
       return a === "yes" ? true : a === "extra" ? "extra" : false;
     };
+    S.actionNow = "move";
     await step(`date → ${to}`, async () => {
       fireEvent.change(el, { target: { value: to } });
       for (let i = 0; i < 4; i++) await settle();
@@ -1757,10 +1922,56 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
           `the page says ${from}'s draft is still there; nothing is stored for it`)).toBe(true);
       }
       if (!slowStep || lostStep() || offlineStep()) {
-        pendingMove = { from, to, filed: filedFrom || postedHere.has(from), posts: S.posts.length };
+        pendingMove = { from, to, filed: filedFrom || postedHere.has(from), posts: S.posts.length, deletes: deletes0 };
       }
     });
+    // (A move's old day is deleted once the new day's save has answered —
+    // perhaps in a later step: still the move's.)
+    // Round 23 review — "Slet den", tapped now and then when it is offered
+    // (the old day's delete could not be done): checked by MT / MV / D.
+    if (r23 && !plan && findBtn(/^dcDateMovedDeleteOld$/) && chance2(0.6)) await deleteOld();
     await ensureForm();
+  };
+  // r23 (round 23 review) — "Brug disse tal" with its save still on its way
+  // (held, or its answer late) over the next two steps: straight back to the
+  // card and Start forfra. The page waits for that save, then deletes exactly
+  // what it stored (M6), never a version anyone else wrote (D).
+  const raceReady = () => r23 && !plan && !slowStep && !S.held.length && !navigatorOffline()
+    && !Object.values(S.holding).some(Boolean) && where() === "card" && !q('[data-testid="dc-terminal-question"]')
+    && !hasText("dcDayHasDraft") && !hasText("dcDayAlreadyLocked") && !conflictShown();
+  const applyOnItsWay = async (how) => {
+    slowStep = true;
+    slowLeft = 2;
+    if (chance2(0.5)) S.holding.answer = true;
+    else { S.holding.post = true; S.holding.del = true; }
+    await apply(how);
+    if (!S.held.length) return;
+    if (!(await toCard()) || where() !== "card") return;
+    await startOver();
+  };
+  const appliedOnItsWay = async () => {
+    if (!raceReady()) return;
+    // Another bon onto the card (a change the next "Brug disse tal" files).
+    await shoot(BON_KEYS[Math.floor(rnd2() * BON_KEYS.length)]);
+    if (q('[data-testid="dc-terminal-question"]')) await answer("sum");
+    if (!raceReady()) return;
+    await applyOnItsWay(chance2(0.5) ? "review" : "steps");
+  };
+  const deleteOld = async () => {
+    const b = findBtn(/^dcDateMovedDeleteOld$/);
+    if (!b || b.disabled) return false;
+    STATS.MVdeleteOld += 1;
+    S.actionNow = "deleteOld";
+    await step("Slet den", async () => { fireEvent.click(b); for (let i = 0; i < 6; i++) await settle(); });
+    return true;
+  };
+  // Round 23 review — "Prøv igen" on "Ikke gemt for {to} endnu".
+  const retryMove = async () => {
+    const b = findBtn(/^dcDateMovedRetry$/);
+    if (!b || b.disabled) return false;
+    S.actionNow = "move";
+    await step("Prøv igen", async () => { fireEvent.click(b); for (let i = 0; i < 6; i++) await settle(); });
+    return true;
   };
   // Review variant: a move, then another before the first can matter
   // (round 23: the new day is filed at once, so the second move moves the
@@ -1932,18 +2143,22 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     await checkpoint();
   };
   // Another device saves the day's figures (a new version of the row).
-  const otherDeviceFigures = async (change = null) => {
+  const otherDeviceFigures = async (change = null, { saveId } = {}) => {
     await arriveAll();
     const date = businessDayShown();
     const key = `${date}|`;
     const row = date && S.rows.get(key);
     if (!row || row.status !== "draft") return;
-    await step(`another device saves ${date}`, () => {
+    // r23 (round 23 review): now and then its offline queue's copy — a save
+    // with no id (the day read then says last_save_id null).
+    const noId = typeof saveId !== "undefined" ? saveId === null : (r23 && !plan && chance2(0.3));
+    if (noId) STATS.noIdWriters += 1;
+    await step(`another device saves ${date}${noId ? " (its queued copy, no save id)" : ""}`, () => {
       S.otherSave(key, change || ((r) => {
         r.payment_breakdown = { ...(r.payment_breakdown || {}), mobilepay: r2(Number(r.payment_breakdown?.mobilepay || 0) + 99) };
         r.payment_total = r2(Object.values(r.payment_breakdown).reduce((a, x) => a + Number(x || 0), 0));
         r.notes = `${r.notes || ""}B`;
-      }));
+      }), { saveId: noId ? null : "other-device" });
     });
   };
   // r22 — another device LOCKS the day in view (the draft this page holds).
@@ -1995,12 +2210,24 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       if (!(await toCard())) return;
       await shoot(pick(chance(0.15) ? ["page"] : BON_KEYS));
       if (q('[data-testid="dc-terminal-question"]')) await answer(pick(["sum", "sum", "replace", "drop"]));
-      await apply(pick(["review", "steps"]));
+      const how = pick(["review", "steps"]);
+      // (r23, round 23 review: now and then applied with its save on its
+      // way, and Start forfra straight after.)
+      if (raceReady() && chance2(0.3)) await applyOnItsWay(how);
+      else await apply(how);
     }],
     // Back to the card after a saved photo: Fortryd or Start forfra, then on.
     [5, async () => {
       if (!(await toCard())) return;
       if (where() !== "card") return;
+      // r23 (round 23 review): now and then "Brug disse tal", and straight
+      // back to the card and Start forfra with that save still on its way
+      // (held, or its answer late) — the page waits for it, then deletes
+      // exactly what it stored (M6).
+      if (r23 && !slowStep && !S.held.length && !q('[data-testid="dc-terminal-question"]') && chance2(0.35)) {
+        await appliedOnItsWay();
+        return;
+      }
       if (chance(0.45)) await fortryd();
       if (where() === "card" && (q('[data-testid="dc-terminal-question"]') ? chance(0.5) : chance(0.6))) await startOver();
       if (where() === "card") {
@@ -2087,11 +2314,24 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         moveDate, otherDeviceLocks, bannerStartOver,
         // Round 23: what the page asked (useConfirm), and the next answer.
         dialogs, answerNext: (a) => { answerNext = a; },
+        // Round 23 review: "Slet den" / "Prøv igen" under the date; another
+        // visit's copy on this phone's offline queue, synced now (no save id
+        // — the page reads History again once it lands).
+        deleteOld, retryMove,
+        queueCopy: async (payload) => {
+          addToOfflineQueue({ branch_id: null, status: "draft", base_updated_at: NO_ROW_BASE, ...payload });
+          STATS.noIdWriters += 1;
+          await step(`another visit's queued copy of ${payload.date} synced`, async () => {
+            await act(async () => { window.dispatchEvent(new Event("online")); await new Promise((r) => setTimeout(r, 0)); });
+            for (let i = 0; i < 6; i++) await settle();
+          });
+        },
         slow: (mode = "post", steps = 1) => {
           slowStep = true;
           slowLeft = steps;
           if (mode === "answer") S.holding.answer = true;
           else if (mode === "drop") S.holding.drop = true;
+          else if (mode === "dead") S.holding.dead = true;
           else if (mode === "offline") {
             S.holding.offline = true;
             setOnline(false);

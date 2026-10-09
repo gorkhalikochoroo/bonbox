@@ -24,7 +24,11 @@
  * plan): 23001–23004; and the narrowings' own paths: 23005–23008. The
  * reviewers' biased seeds (80263, 80294, 80309, 80787, 80961, 80221) were
  * built on their private plan API, not this harness, so they cannot be
- * replayed by number: their scripts are 23001–23004.
+ * replayed by number: their scripts are 23001–23004. The round-23 review's
+ * repros: 23009 / 23010 (Start forfra after a lost save never deletes a draft
+ * written with no save id, or whose writer could not be checked) and 23011 /
+ * 23013 (a move's "Slet den" only once the new day holds the figures);
+ * 23006 rewritten (an offline move says "Ikke gemt for {to} endnu").
  * Replay one: SEQ_FROM=<seed> SEQ_COUNT=1 npx vitest run src/__tests__/DailyClosePage.r23Sequences.test.jsx
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -176,12 +180,14 @@ const PLANS = [
     A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000 });
     A.expect(A.hasText("dcDateMovedFrom")).toBe(false);
   }],
-  ["C offline: a move made offline says \"Kopieret til … står der stadig\" — never \"Flyttet\"; online again the figures land on the new day and the old draft goes", 23006, async (A) => {
+  ["C offline: a move made offline says \"Ikke gemt for {to} endnu — intet er slettet for {from}\" (round 23 review: never \"Kopieret til\" — nothing is on the new day yet — and no \"Slet den\"), never \"Flyttet\"; online again the figures land on the new day and the old draft goes", 23006, async (A) => {
     await A.skip();
     await A.typeBox("rev", "food", "3.000");
     await A.slow("offline", 3);
     await A.moveDate(A.yesterday);
-    A.expect(A.hasText("dcDateMovedCopied")).toBe(true);
+    A.expect(A.hasText("dcDateMovedNotSavedYet")).toBe(true);
+    A.expect(A.hasText("dcDateMovedCopied")).toBe(false);
+    A.expect(Boolean(A.findBtn(/^dcDateMovedDeleteOld$/))).toBe(false);
     A.expect(A.hasText("dcDateMovedFrom")).toBe(false);
     A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 3000 });
     await A.online();
@@ -208,6 +214,74 @@ const PLANS = [
     A.expect(A.hasText("dcDayHasDraft")).toBe(false);
     A.expect(A.where()).toBe("idle");
   }, [draft()]],
+  // Round 23 review — the reviewers' repros, step by step.
+  ["review 1 (must-fix): 3.000 typed on a dead line (never lands), \"← Scan Z-bon\", a bon summed; another visit's queued copy files the day at 8.000 (no save id) and History lists it; the card's Start forfra — refused: the 8.000 is kept, the banner shows it and says why (D: never deleted on History's version)", 23009, async (A) => {
+    await A.skip();
+    A.slow("dead", 8);
+    await A.typeBox("rev", "food", "3.000");
+    A.expect(stored(A.S)).toBeUndefined();
+    await A.toCard();
+    await A.shoot("b5000");
+    await A.answer("sum");
+    await A.queueCopy({ date: A.today, revenue_breakdown: { food: 8000 }, payment_breakdown: { card: 8000 } });
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 8000 });
+    A.expect(A.S.lastSaveId.get(key)).toBe(null);
+    await A.startOver();
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 8000 });
+    A.expect(A.S.deletes).toEqual([]);
+    A.expect(A.hasText("dcDayHasDraftBody:8.000")).toBe(true);
+    A.expect(A.hasText("dcStartOverNotDeletedChanged:8.000")).toBe(true);
+    await A.online();
+  }],
+  ["review 1 (P1c): the same with the other phone's own save (an id) and a day read that cannot say who wrote it (no last_save_id) — \"couldn't check\" is never \"delete\"", 23010, async (A) => {
+    await A.skip();
+    A.slow("dead", 8);
+    await A.typeBox("rev", "food", "3.000");
+    await A.toCard();
+    await A.shoot("b5000");
+    await A.answer("sum");
+    await A.queueCopy({ date: A.today, revenue_breakdown: { food: 8000 }, payment_breakdown: { card: 8000 } });
+    A.S.lastSaveId.set(key, "other-device");
+    A.S.saveIdUnknown = true;
+    await A.startOver();
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 8000 });
+    A.expect(A.S.deletes).toEqual([]);
+    A.expect(A.hasText("dcStartOverNotDeletedChanged")).toBe(true);
+    await A.online();
+  }],
+  ["review 2/3 (must-fix): 14.000 filed for today, the line dies (the browser online), moved to yesterday — its save gets no answer: \"Ikke gemt for {to} endnu\", no \"Slet den\", nothing deleted; the line back, \"Prøv igen\": yesterday holds 14.000, today's draft goes, \"Flyttet fra\" (MT: a day said moved TO holds the figures)", 23011, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "14.000");
+    A.expect(stored(A.S).revenue_total).toBe(14000);
+    A.slow("dead", 2);
+    await A.moveDate(A.yesterday);
+    A.expect(A.hasText("dcDateMovedNotSavedYet")).toBe(true);
+    A.expect(A.hasText("dcDateMovedCopied")).toBe(false);
+    A.expect(await A.deleteOld()).toBe(false);
+    A.expect(A.S.deletes).toEqual([]);
+    A.expect(stored(A.S).revenue_total).toBe(14000);
+    A.expect(stored(A.S, `${A.yesterday}|`)).toBeUndefined();
+    // The line comes back by itself (no "online" event): one tap.
+    A.S.holding.dead = false;
+    A.expect(await A.retryMove()).toBe(true);
+    await A.settleAll();
+    A.expect(stored(A.S, `${A.yesterday}|`).revenue_total).toBe(14000);
+    A.expect(stored(A.S)).toBeUndefined();
+    A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
+  }],
+  ["review 2/3: the old day's delete gets no answer after the new day landed — \"Kopieret til … står der stadig\" with \"Slet den\"; tapped: deleted, \"Flyttet fra\" — and the new day holds the figures", 23013, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "14.000");
+    const del = A.S.remove;
+    A.S.remove = () => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
+    await A.moveDate(A.yesterday);
+    A.S.remove = del;
+    A.expect(A.hasText("dcDateMovedCopied")).toBe(true);
+    A.expect(stored(A.S, `${A.yesterday}|`).revenue_total).toBe(14000);
+    A.expect(await A.deleteOld()).toBe(true);
+    A.expect(stored(A.S)).toBeUndefined();
+    A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
+  }],
 ];
 
 // Found by this variant while round 23 was built.
@@ -279,5 +353,17 @@ describe("daily close — round 23 sequences (Start forfra deletes, no scan offl
     expect(STATS.B).toBeGreaterThan(0);
     expect(STATS.Bdrop).toBeGreaterThan(0);
     expect(STATS.LK).toBeGreaterThan(0);
+    // Round 23 review: every delete held to D; the line under the date held
+    // to MT (and "Ikke gemt endnu" with no "Slet den"); "Slet den" tapped;
+    // Start forfra tapped with a save on its way; saves dying on a dead
+    // line; writers with no save id; day reads that could not check.
+    expect(STATS.D).toBeGreaterThan(0);
+    expect(STATS.MT).toBeGreaterThan(0);
+    expect(STATS.MVpending).toBeGreaterThan(0);
+    expect(STATS.MVdeleteOld).toBeGreaterThan(0);
+    expect(STATS.M6race).toBeGreaterThan(0);
+    expect(STATS.deadSaves).toBeGreaterThan(0);
+    expect(STATS.noIdWriters).toBeGreaterThan(0);
+    expect(STATS.unknownReads).toBeGreaterThan(0);
   });
 });

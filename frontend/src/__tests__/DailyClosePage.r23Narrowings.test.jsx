@@ -383,7 +383,7 @@ describe("C. a date move with figures is asked first", () => {
     expect(del).not.toHaveBeenCalled();
   });
 
-  it("a day that holds another close is never moved onto: said, with History one tap away — the figures stay", async () => {
+  it("a day that holds another draft is never moved onto: said, with \"Fortsæt kladden\" as its one tap — answered \"Bliv\", the figures stay", async () => {
     serve([{ ...DRAFT, id: "y1", date: yesterday, revenue_total: 800, revenue_breakdown: { food: 800 }, payment_breakdown: { card: 800 } }]);
     await mount();
     await typed("3000");
@@ -391,9 +391,44 @@ describe("C. a date move with figures is asked first", () => {
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
     await flush();
     expect(asked.at(-1).title).toMatch(/^dcMoveTargetDraftTitle:/);
-    expect(asked.at(-1).confirmLabel).toBe("dcOpenHistory");
+    expect(asked.at(-1).message).toMatch(/^dcMoveTargetDraftBody:/);
+    expect(asked.at(-1).confirmLabel).toBe("dcContinueDraft");
     expect(q("#close-date").value).toBe(today);
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 800 });
+    expect(rowFor()).toMatchObject({ revenue_total: 3000 });
+  });
+
+  // Round 23 review — the one tap restored (it had become a detour through
+  // History): "Fortsæt kladden" opens that day's draft; the figures typed
+  // stay with their own day, and nothing is moved onto the draft.
+  it("…answered \"Fortsæt kladden\": that day's draft is open in one tap; the figures typed stay filed for their own day", async () => {
+    serve([{ ...DRAFT, id: "y1", date: yesterday, revenue_total: 800, revenue_breakdown: { food: 800 }, payment_breakdown: { card: 800 } }]);
+    await mount();
+    tap(/^skipEnterManually$/);
+    await waitFor(() => expect(q("#dc-rev-food")).not.toBeNull());
+    keyIn(q("#dc-rev-food"), "3000");
+    // (Still waiting to be sent when the date is picked: it goes first.)
+    fireEvent.change(q("#close-date"), { target: { value: yesterday } });
+    await flush();
+    expect(asked.at(-1).confirmLabel).toBe("dcContinueDraft");
+    await waitFor(() => expect(q("#close-date").value).toBe(yesterday));
+    await waitFor(() => expect(q("#dc-rev-food").value).toBe("800"));
+    expect(rowFor()).toMatchObject({ revenue_total: 3000 });
+    expect(rowFor(yesterday)).toMatchObject({ revenue_total: 800 });
+    expect(del).not.toHaveBeenCalled();
+    expect(text()).not.toContain("dcDayHasDraft");
+  });
+
+  it("a day already locked: never moved onto — \"Åbn Historik\" is its one tap", async () => {
+    serve([{ ...DRAFT, id: "y1", date: yesterday, status: "confirmed", revenue_total: 800, revenue_breakdown: { food: 800 }, payment_breakdown: { card: 800 } }]);
+    await mount();
+    await typed("3000");
+    answer = () => false;
+    fireEvent.change(q("#close-date"), { target: { value: yesterday } });
+    await flush();
+    expect(asked.at(-1).title).toMatch(/^dcMoveTargetLockedTitle:/);
+    expect(asked.at(-1).confirmLabel).toBe("dcOpenHistory");
+    expect(q("#close-date").value).toBe(today);
     expect(rowFor()).toMatchObject({ revenue_total: 3000 });
   });
 

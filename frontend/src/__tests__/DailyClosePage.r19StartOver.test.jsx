@@ -394,8 +394,11 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     expect(rowFor(yesterday)).toBeUndefined();
     expect(rowFor(today)).toMatchObject({ revenue_total: 14000 });
     expect(S.deletes).toEqual([]);
-    // (Round 23: said — the old day still has its draft, never "moved".)
-    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedCopied:/);
+    // (Round 23: said — the old day still has its draft, never "moved".
+    // Round 23 review: nothing is stored for yesterday, so never "Kopieret
+    // til" either — "Ikke gemt for {to} endnu", and no "Slet den".)
+    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedNotSavedYet:/);
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeFalsy();
     // Back online: the next change files yesterday, then today's goes.
     post.mockImplementation(realPost);
     keyIn(q("#dc-rev-drinks"), "100");

@@ -204,6 +204,9 @@ const PLANS = [
     A.slow("answer", 3);
     await A.apply("steps");
     await A.toCard();
+    // (Round 23 review: tapped with that answer still on its way — the
+    // harness no longer lets it arrive first.)
+    A.expect(A.S.held.length).toBeGreaterThan(0);
     await A.startOver();
     await A.settleAll();
     A.expect(String(A.dialogs.at(-1)?.message)).toMatch(/dcStartOverDeleteBody:.*7\.000/);
@@ -219,6 +222,8 @@ const PLANS = [
     A.slow("post", 3);
     await A.apply("review");
     await A.toCard();
+    // (Round 23 review: tapped with the save itself still on its way.)
+    A.expect(A.S.held.length).toBeGreaterThan(0);
     await A.startOver();
     await A.settleAll();
     A.expect(stored(A.S)).toBeUndefined();

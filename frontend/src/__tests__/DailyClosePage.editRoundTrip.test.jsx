@@ -164,7 +164,10 @@ describe("daily close — a branch's close, with All branches picked", () => {
     fireEvent.click(await screen.findByText("dcStartOverDraft"));
     await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     expect(del.mock.calls[0][0]).toBe(`/daily-close/${BASE.id}`);
-    expect(del.mock.calls[0][1].params.base_updated_at).toBe(BASE.updated_at ?? null);
+    // (Round 23 review: never a delete with no version — the server checks
+    // nothing without one. A row shown with no updated_at is deleted on "no
+    // version known" (NO_ROW_BASE): anything stored since is refused, kept.)
+    expect(del.mock.calls[0][1].params.base_updated_at).toBe(BASE.updated_at ?? "1970-01-01T00:00:00");
     fireEvent.click(await screen.findByText("skipEnterManually"));
     await waitFor(() => expect(container.querySelector("#dc-rev-food")).not.toBeNull());
     fireEvent.change(container.querySelector("#dc-rev-food"), { target: { value: "900" } });

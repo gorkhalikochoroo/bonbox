@@ -1128,14 +1128,27 @@ export default function DailyClosePage() {
                 </span>
               </p>
             )}
+            {/* Round 23 review — the gray "Snap your Z-report" says why on
+                screen (a title= tooltip never shows on a phone, nor on a
+                disabled button): on History and Insights the wizard's own
+                line is not mounted. */}
+            {!isOnline && (
+              <p id="dc-hero-scan-offline" data-testid="dc-hero-scan-offline" role="status"
+                className="text-[13px] text-amber-800 dark:text-amber-200 mt-2 flex items-start gap-1.5">
+                <Icon name="Info" size={14} className="shrink-0 mt-0.5" />
+                <span>{t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online")}</span>
+              </p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2 shrink-0 w-full sm:w-auto">
             <Button
               variant="main"
               onClick={() => heroScanInputRef.current?.click()}
-              // Round 23: scanning needs internet (CloseForm says why).
+              // Round 23: scanning needs internet (said on the card, under
+              // its text — the tooltip alone never showed on a phone).
               disabled={!isOnline}
               title={!isOnline ? t("dcScanNeedsInternet", "Scanning needs internet — type the figures in, or scan when you're back online") : undefined}
+              aria-describedby={!isOnline ? "dc-hero-scan-offline" : undefined}
               className="w-full sm:w-auto max-lg:h-10"
             >
               {t("closeScanCta", "Snap your Z-report")}
@@ -1478,6 +1491,11 @@ const closeRowKey = (dc) => `${String(dc?.date || "").slice(0, 10)}|${dc?.branch
    A form that knew of no row for the day says so with a base far in the past:
    a draft filed since (by anyone) is newer. */
 const NO_ROW_BASE = "1970-01-01T00:00:00";
+// Round 23 review — the earliest close date the date field takes (a year
+// typed digit by digit passes through 0002, 0020, 0202 …), and how long a
+// typed date waits for the next key before it is taken.
+const DATE_MIN = "2000-01-01";
+const DATE_TYPING_PAUSE_MS = 900;
 /** The page's own id for one save (kept on its audit row; base_save_id names it). */
 const newSaveId = () => {
   try {
@@ -2147,6 +2165,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // was filed for this day, and the day it came from keeps its draft.
     moveFromRef.current = null;
     setMovedNote(null);
+    // (Round 23 review: what Start forfra said is not said over the draft
+    // loaded now.)
+    setStartOverFailed(null);
     // An edited close is filed against ITS OWN date, never today — mark the
     // date as chosen before the prefill for that date can resolve.
     if (dc.date) {
@@ -3069,7 +3090,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       setBusinessDate(next);
       return;
     }
-    const dayName = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "long" });
+    // (With the year when the two days are not in the same one: "8. oktober
+    // 2025", never a question that reads like today's.)
+    const sameYear = String(next).slice(0, 4) === String(businessDate).slice(0, 4);
+    const dayName = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(dateLocale(),
+      sameYear ? { day: "numeric", month: "long" } : { day: "numeric", month: "long", year: "numeric" });
     const curKey = `${businessDate}|${fileBranchId || ""}`;
     // The new day is filed under the branch picked at the top of the page (a
     // new day lets go of a branch the banner set — see the effect on
@@ -3089,17 +3114,29 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     try {
       if (target && !targetOwn) {
         const locked = (target.status || "confirmed") === "confirmed";
-        const ans = await askConfirm({
-          title: locked
-            ? t("dcMoveTargetLockedTitle", "{to} is already closed and locked", { to: dayName(next) })
-            : t("dcMoveTargetDraftTitle", "{to} already has a draft", { to: dayName(next) }),
+        // A draft there: "Fortsæt kladden" is the one tap (round 23 review —
+        // it was a detour through History). The figures on the form stay
+        // with {from} (the save waiting for it goes first); nothing is moved
+        // onto that draft. A locked day: opened from History.
+        const ans = await askConfirm(locked ? {
+          title: t("dcMoveTargetLockedTitle", "{to} is already closed and locked", { to: dayName(next) }),
           message: t("dcMoveTargetBody", "Your figures stay on {from} — nothing is moved. Open the {to} close from History, or pick another day.", {
             from: dayName(businessDate), to: dayName(next),
           }),
           confirmLabel: t("dcOpenHistory", "Open History"),
           cancelLabel: t("dcMoveConfirmNo", "Stay on {from}", { from: dayName(businessDate) }),
+        } : {
+          title: t("dcMoveTargetDraftTitle", "{to} already has a draft", { to: dayName(next) }),
+          message: t("dcMoveTargetDraftBody", "Your figures stay on {from} — nothing is moved. Continue the {to} draft, or stay on {from}.", {
+            from: dayName(businessDate), to: dayName(next),
+          }),
+          confirmLabel: t("dcContinueDraft", "Continue the draft"),
+          cancelLabel: t("dcMoveConfirmNo", "Stay on {from}", { from: dayName(businessDate) }),
         });
-        if (ans === true && mountedRef.current) onShowHistory?.(target.id);
+        if (ans !== true || !mountedRef.current) return;
+        if (locked) { onShowHistory?.(target.id); return; }
+        flushWaitingSave();
+        onContinueDraft?.(target);
         return;
       }
       // The new day's POS sales: "Hent {dag}s salg" is offered when it has
@@ -3188,6 +3225,45 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       moveBusyRef.current = false;
       if (mountedRef.current) setMoveBusy(false);
     }
+  };
+
+  // Round 23 review — a date TYPED is asked about once it is the date the
+  // owner means, not on every segment: a type=date input reports a value as
+  // soon as one keystroke makes a valid date ("1" of "15" → the 1st; a year
+  // typed reads 0002, 0020, 0202…), and the move's question popped after one
+  // key, the field disabled under it. Typed (a key went down in the field):
+  // the date is taken on Enter, on leaving the field, or once the typing has
+  // paused; a pick from the calendar (no key) is taken at once, as before.
+  // A date outside DATE_MIN … today is never taken.
+  const [dateTyped, setDateTyped] = useState(null);
+  const dateKeyRef = useRef(false);
+  const dateTimerRef = useRef(null);
+  const moveDateRef = useRef(moveDate);
+  moveDateRef.current = moveDate;
+  useEffect(() => () => clearTimeout(dateTimerRef.current), []);
+  const takeDate = (v) => {
+    clearTimeout(dateTimerRef.current);
+    setDateTyped(null);
+    if (!v || v < DATE_MIN || v > businessTodayIso(cutoffHour)) return;
+    moveDateRef.current(v);
+  };
+  const onDateKeyDown = (e) => {
+    if (e.key === "Enter") {
+      if (dateTyped != null) { e.preventDefault(); takeDate(dateTyped); }
+      return;
+    }
+    if (e.key !== "Tab") dateKeyRef.current = true;
+  };
+  const onDateChange = (e) => {
+    const v = e.target.value;
+    if (!dateKeyRef.current) { takeDate(v); return; }
+    setDateTyped(v);
+    clearTimeout(dateTimerRef.current);
+    dateTimerRef.current = setTimeout(() => takeDate(v), DATE_TYPING_PAUSE_MS);
+  };
+  const onDateBlur = () => {
+    dateKeyRef.current = false;
+    if (dateTyped != null) takeDate(dateTyped);
   };
 
   // Prefill from real data
@@ -4193,7 +4269,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    * `shown` (the banner's Start forfra): the draft the owner saw and chose —
    * deleted on exactly that version, whoever wrote it.
    */
-  const deleteDayDraft = async (key, { forMove = false, shown = null } = {}) => {
+  const deleteDayDraft = async (key, { forMove = false, shown = null, out = null } = {}) => {
     const gen0 = sendGenRef.current[key] || 0;
     await savesSettled();
     // A move's old day the owner went back to (or filed again) meanwhile:
@@ -4204,8 +4280,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
     let id = shown?.id ?? own?.id ?? listed?.id ?? null;
     if (id == null && !lost) return "none";
-    const params = { base_updated_at: shown?.updated_at || baseFor(key) };
+    // Round 23 review — deleted only on a version this form HOLDS (the one
+    // it opened, or its own save was answered with) — or, from the banner,
+    // the version shown: never on History's listed version (that is whoever
+    // wrote it last — another phone's), and never with no version at all
+    // (the server checks nothing without one: a row read with no updated_at
+    // would have deleted whatever is stored now). A form that holds none
+    // sends NO_ROW_BASE: only its own lost save's version (base_save_id) can
+    // then be deleted; anything else is refused (412) and kept.
+    const held = Object.prototype.hasOwnProperty.call(baseRef.current, key) ? baseRef.current[key] : null;
+    const params = { base_updated_at: (shown ? shown.updated_at : held) || NO_ROW_BASE };
     if (lost?.id) params.base_save_id = lost.id;
+    // The row as stored now, when the server kept it (out.row): the page
+    // says what it holds ("Ikke slettet … nu 15.000 kr.").
+    const kept = (row) => { if (out && row) out.row = row; };
     if (lost) {
       let row;
       try {
@@ -4214,21 +4302,32 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         return err?.response ? "error" : "offline";
       }
       if (!row) { forgetDay(key); onDraftSaved?.(); return "none"; }
-      if ((row.status || "confirmed") !== "draft") { forgetDay(key); onDraftSaved?.(); return "locked"; }
+      if ((row.status || "confirmed") !== "draft") { kept(row); forgetDay(key); onDraftSaved?.(); return "locked"; }
       // Written last by a save of someone else's (the server said so): it is
       // that version now — kept, and shown; no delete is even tried.
       if (row.last_save_id && !lastSaveIsMine(row)) {
+        kept(row);
         forgetDay(key);
         setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
         onDraftSaved?.();
         return "changed";
       }
       id = row.id;
-      // Written last by a save of this form's: that very version is the
-      // form's own (anyone else's since is refused by the server).
       if (lastSaveIsMine(row)) {
+        // Written last by a save of this form's: that very version is the
+        // form's own (anyone else's since is refused by the server).
         if (row.updated_at) params.base_updated_at = row.updated_at;
         params.base_save_id = row.last_save_id;
+      } else {
+        // Round 23 review — written last by a save with no id (an offline
+        // queue's copy, the review's lock, another phone's queued copy), or
+        // who wrote it could not be checked (no last_save_id: the audit read
+        // failed). Never "the form's" on a guess, and never deleted on the
+        // version History lists (that is the other writer's own): only the
+        // version this form holds — or the one its own lost save wrote
+        // (base_save_id) — is deleted. Anything else is refused (412) and
+        // kept, and the page shows it.
+        params.base_updated_at = held || NO_ROW_BASE;
       }
     }
     // Off the list before the delete goes: the day's banner never offers the
@@ -4246,6 +4345,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           const cur = err.response.data?.detail?.current;
           forgetDay(key);
           if (cur && typeof cur === "object" && cur.id != null) {
+            kept(cur);
             setRowOverrides((prev) => ({ ...prev, [cur.id]: { row: cur, listed: existingClosesRef.current } }));
           }
           onDraftSaved?.();
@@ -4262,6 +4362,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     forgetDay(key);
     delete failedBodyRef.current[key];
+    // What an earlier Start forfra said of this draft is no longer true.
+    setStartOverFailed((cur) => (cur && cur.key === key ? null : cur));
     // Nothing of the day is filed now: the next figures typed for it go.
     if (key === rowKeyRef.current) lastSentRef.current = null;
     onDraftSaved?.();
@@ -4309,6 +4411,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const deleteMovedOld = async () => {
     const n = movedNote;
     if (!n || n.state !== "copy" || moveBusyRef.current) return;
+    // Round 23 review — never while the new day's save is unconfirmed
+    // ("pending": no answer, and the day read did not show it landed): the
+    // old day's draft may be the only stored copy of the figures.
+    if (n.stuck.some((s) => s.outcome === "pending")) return;
     moveBusyRef.current = true;
     setMoveBusy(true);
     const epoch = formEpochRef.current;
@@ -4326,6 +4432,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!mountedRef.current || formEpochRef.current !== epoch) return;
     const next = moveNoteOf(n, outcomes);
     setMovedNote(next.state === "copy" ? { ...next, tried: true } : next);
+  };
+  // Round 23 review — the new day's save of a move got no answer and was not
+  // seen landing ("pending"): "Prøv igen" sends the figures for it now. Its
+  // answer finishes the move (the old day's draft goes then, never before).
+  const retryMovedSave = () => {
+    const m = moveFromRef.current;
+    if (!m || m.toKey !== rowKeyRef.current) return;
+    if (pendingSaveRef.current) { flushWaitingSave(); return; }
+    retryArmedRef.current = null;
+    sendNowRef.current = true;
+    requestRefile(true);
   };
   /** A stored draft's figure, as the banner says it ("12.000 kr.", or "kun betalinger på 1.234,50 kr."). */
   const draftFigureOf = (row) => {
@@ -4345,7 +4462,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return { revenue_total: Math.round(total * 100) / 100, payment_breakdown: b?.payment_breakdown || {} };
   };
   // Round 23 — Start forfra could not reach the server ("offline") or was
-  // refused ("error"): nothing changed, and the page says so.
+  // refused ("error"): nothing changed, and the page says so. Round 23
+  // review — also when the server KEPT the draft: saved on another device
+  // meanwhile ("changed", with what it holds now) or locked there ("locked").
+  // { outcome, key, amount } — said only where that day's draft is (its
+  // banner, or the card of that day), never under another day's.
   const [startOverFailed, setStartOverFailed] = useState(null);
   // …and while its delete is on its way the card and the banner wait: a
   // photo or "Brug disse tal" now would be emptied the moment it answers.
@@ -4428,8 +4549,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
    * delete that could not be done (offline, an error) changes nothing here
    * and says so.
    */
+  const startOverReadingRef = useRef(false);
   const startOverDay = async (source) => {
-    if (startingOverRef.current) return;
+    if (startingOverRef.current || startOverReadingRef.current) return;
     const bannerRow = source === "banner" ? existingForDate : null;
     const key = bannerRow ? closeRowKey(bannerRow) : rowKey;
     const own = ownRowsRef.current[key];
@@ -4440,10 +4562,25 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const filed = Boolean(bannerRow) || Boolean(own || sentBody || lostSaveRef.current[key]
       || keyInflightRef.current[key]?.size || failedBodyRef.current[key])
       || (Boolean(listed) && (Boolean(editingDate) || ownDraftKeys.has(key)));
-    const figure = bannerRow ? draftFigureOf(bannerRow)
+    let figure = bannerRow ? draftFigureOf(bannerRow)
       : sentBody ? draftFigureOf(rowOfBody(sentBody))
         : own?.row ? draftFigureOf(own.row)
           : listed ? draftFigureOf(listed) : "";
+    // Round 23 review — a save of the day got no answer: what is stored may
+    // not be what the form last sent (an earlier save of its own landed, the
+    // last one never did). Read first when it can be: the question names the
+    // draft as STORED when it is the form's own — the one the delete removes.
+    // (Anyone else's is never deleted: refused, and said after.)
+    if (!bannerRow && lostSaveRef.current[key] && !(typeof navigator !== "undefined" && navigator.onLine === false)) {
+      startOverReadingRef.current = true;
+      try {
+        const row = await readDayFresh(key);
+        if (row && (row.status || "confirmed") === "draft" && lastSaveIsMine(row)) figure = draftFigureOf(row);
+      } catch { /* the delete asks again (and says so when it cannot) */ } finally {
+        startOverReadingRef.current = false;
+      }
+      if (!mountedRef.current) return;
+    }
     const day = String(key).split("|")[0];
     let ok = true;
     if (filed) {
@@ -4494,8 +4631,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     retryArmedRef.current = null;
     setStartOverFailed(null);
     let outcome = "none";
+    const out = {};
     try {
-      if (filedNow) outcome = await deleteDayDraft(key, { shown: bannerRow });
+      if (filedNow) outcome = await deleteDayDraft(key, { shown: bannerRow, out });
     } finally {
       startingOverRef.current = null;
       if (mountedRef.current) setStartOverBusy(false);
@@ -4505,7 +4643,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Not deleted: nothing changes, and the page says so. What the form
       // holds is what the day keeps (sent again — the delete may have gone
       // through with its answer lost).
-      setStartOverFailed(outcome);
+      setStartOverFailed({ outcome, key });
       requestRefile(true);
       return;
     }
@@ -4513,6 +4651,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // close is filed under that branch, not beside it.
     if (bannerRow) setFileBranchOverride(bannerRow.branch_id || null);
     resetFormEmpty();
+    // Round 23 review — the server kept it (saved on another device
+    // meanwhile, or locked there): the form starts over as asked, and the
+    // day's banner shows that draft — with why it was not deleted, and what
+    // it holds now (the owner was told "slettes").
+    if (outcome === "changed" || outcome === "locked") {
+      setStartOverFailed({ outcome, key, amount: outcome === "changed" && out.row ? draftFigureOf(out.row) : "" });
+    }
   };
   // Named when the venue has several, so "a draft for this day" says whose.
   const existingBranchName = existingForDate?.branch_id && (branches || []).length > 1
@@ -5556,19 +5701,40 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // by exactly its height in the same frame, so the focused field stays
   // where it was; the amber "Ikke gemt" slot brings the question into view
   // on a tap. The same for the day's lock banner arriving while typing.
-  const keepFocusedInPlace = (box) => {
-    if (!box || typeof document === "undefined") return;
+  // Round 23 review — by how far the field MOVED, not by the box's height:
+  // inserted above the viewport (the review step, 500–1.200 px below), the
+  // browser's own scroll anchoring (Chrome, Firefox, Android) already keeps
+  // the field in place, and scrolling by the height on top moved it up under
+  // the header. Measured before the commit that inserts the box (the render
+  // that raises it — `typingTopRef`) and after it, in the same frame: 0 when
+  // the browser anchored, the full shift where it does not (iOS WebKit).
+  const typingTopRef = useRef(null);
+  const typingField = () => {
+    if (typeof document === "undefined") return null;
     const f = document.activeElement;
-    if (!f || !/^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)) return;
+    return f && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName) ? f : null;
+  };
+  const noteTypingTop = () => {
+    if (typingTopRef.current != null) return;
+    const f = typingField();
+    try { typingTopRef.current = f ? { el: f, top: f.getBoundingClientRect().top } : null; } catch { typingTopRef.current = null; }
+  };
+  const keepFocusedInPlace = (box) => {
+    const before = typingTopRef.current;
+    typingTopRef.current = null;
+    if (!box || !before) return;
+    const f = typingField();
+    if (!f || f !== before.el) return;
     // Only a field BELOW the inserted box moves.
     if (!(box.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)) return;
-    let margin = 0;
-    try { margin = parseFloat(window.getComputedStyle(box).marginBottom) || 0; } catch { margin = 0; }
-    const h = (box.offsetHeight || 0) + margin;
-    if (h > 0) window.scrollBy?.(0, h);
+    let shift = 0;
+    try { shift = f.getBoundingClientRect().top - before.top; } catch { shift = 0; }
+    if (Math.abs(shift) >= 1) window.scrollBy?.(0, shift);
   };
   const conflictWhileTyping = conflictHere && draftConflict?.via !== "lock";
   const conflictShownRef = useRef(false);
+  // (The render that puts the question in: where the field is now.)
+  if (conflictWhileTyping && !conflictShownRef.current) noteTypingTop();
   useLayoutEffect(() => {
     const was = conflictShownRef.current;
     conflictShownRef.current = conflictWhileTyping;
@@ -5705,23 +5871,36 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const existingBannerBoxRef = useRef(null);
   const lockWhileTyping = Boolean(lockedRowRejected) && existingBlocks && !conflictHere;
   const lockShownRef = useRef(false);
+  if (lockWhileTyping && !lockShownRef.current) noteTypingTop();
   useLayoutEffect(() => {
     const was = lockShownRef.current;
     lockShownRef.current = lockWhileTyping;
     if (lockWhileTyping && !was) keepFocusedInPlace(existingBannerBoxRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockWhileTyping]);
-  // Start forfra could not be done (round 23): said where it was tapped.
-  const startOverFailedEl = startOverFailed ? (
-    <p role="alert" data-testid="dc-start-over-failed" className="mt-2 text-[13px] text-red-700 dark:text-red-300 flex items-start gap-1.5">
+  // Start forfra could not be done (round 23): said where it was tapped —
+  // and only there (round 23 review: keyed to the day it was tapped for; it
+  // showed under another day's banner, or a later scan card).
+  const startOverFailedFor = (k) => (startOverFailed && k && startOverFailed.key === k ? (
+    <p role="alert" data-testid="dc-start-over-failed" data-outcome={startOverFailed.outcome}
+      className="mt-2 text-[13px] text-red-700 dark:text-red-300 flex items-start gap-1.5">
       <Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" />
       <span>
-        {startOverFailed === "offline"
+        {startOverFailed.outcome === "offline"
           ? t("dcStartOverNotDeletedOffline", "The draft was not deleted — there is no connection. Try again when you're online.")
-          : t("dcStartOverNotDeleted", "The draft was not deleted. Try again.")}
+          : startOverFailed.outcome === "changed"
+            ? (startOverFailed.amount
+              ? t("dcStartOverNotDeletedChanged", "Not deleted — the draft was saved on another device meanwhile (now {amount}). Continue it, or start over again.", { amount: startOverFailed.amount })
+              : t("dcStartOverNotDeletedChangedNoAmount", "Not deleted — the draft was saved on another device meanwhile. Continue it, or start over again."))
+            : startOverFailed.outcome === "locked"
+              ? t("dcStartOverNotDeletedLocked", "Not deleted — the day was locked on another device.")
+              : t("dcStartOverNotDeleted", "The draft was not deleted. Try again.")}
       </span>
     </p>
-  ) : null;
+  ) : null);
+  // A day moved to (or another branch picked, or a draft loaded): what Start
+  // forfra said about another day is not said here any more.
+  useEffect(() => { setStartOverFailed(null); }, [businessDate, branchId]);
   const existingBannerEl = existingBlocks && !conflictHere ? (
           <div ref={existingBannerBoxRef} className="mb-4">
           <SectionBanner
@@ -5762,7 +5941,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 </Button>
               </>)}
             </div>
-            {!existingLocked && startOverFailedEl}
+            {startOverFailedFor(existingForDate ? closeRowKey(existingForDate) : null)}
           </SectionBanner>
           </div>
   ) : null;
@@ -6741,7 +6920,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               </button>
             </div>
             {!pendingScan && scanOfflineEl}
-            {startOverFailedEl}
+            {startOverFailedFor(rowKey)}
           </div>
         )}
 
@@ -6752,10 +6931,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           <label htmlFor="close-date" className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
             <Icon name="Calendar" size={14} /> {t("dateLabel", "Date")}
           </label>
-          <input id="close-date" type="date" value={businessDate}
+          <input id="close-date" type="date" value={dateTyped ?? businessDate}
             disabled={Boolean(editingDate) || moveBusy}
+            min={DATE_MIN}
             max={businessTodayIso(cutoffHour)}
-            onChange={e => moveDate(e.target.value)}
+            onKeyDown={onDateKeyDown}
+            onChange={onDateChange}
+            onBlur={onDateBlur}
             className="px-3 py-1.5 min-h-10 max-sm:h-11 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== businessTodayIso(cutoffHour) && (
             <span className="text-[11px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
@@ -6790,6 +6972,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 <Icon name="CalendarCheck" size={14} className="shrink-0" />
                 <span>{t("dcDateMovedFrom", "Moved from {from}", { from: short(movedNote.from) })}</span>
               </p>
+            );
+          }
+          // Round 23 review — the new day's save is not confirmed ("pending":
+          // no answer, not seen landing): nothing was copied, and nothing may
+          // be deleted — said so ("Ikke gemt for {to} endnu — intet er slettet
+          // for {from}"), with "Prøv igen" (its answer finishes the move).
+          if (movedNote.stuck.some((x) => x.outcome === "pending")) {
+            return (
+              <div data-testid="dc-date-moved" data-state="pending" className="mb-4 -mt-1 text-[13px] text-amber-900 dark:text-amber-100 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="flex items-center gap-1.5">
+                  <Icon name="CalendarClock" size={14} className="shrink-0" />
+                  {t("dcDateMovedNotSavedYet", "Not saved for {to} yet — nothing is deleted for {from}", { to: short(movedNote.to), from: short(movedNote.from) })}
+                </span>
+                <Button size="sm" variant="secondary" className="min-h-10" disabled={moveBusy || isOnline === false} onClick={retryMovedSave}>
+                  {t("dcDateMovedRetry", "Try again")}
+                </Button>
+              </div>
             );
           }
           // The first day known to still hold a draft is named; when none is

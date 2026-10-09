@@ -247,11 +247,21 @@ describe("1. a figure whose save got no answer is never dropped by going back to
 /* ─── 2 ─────────────────────────────────────────────────────────────── */
 
 describe("2. \"Kladden er gemt et andet sted\" never moves the field being typed in", () => {
-  it("an autosave refused while typing in Kort: the page scrolls by the card's height in the same frame — the field stays put, the caret stays", async () => {
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get() { return this.getAttribute?.("data-testid") === "dc-draft-changed" ? 341 : 0; },
-    });
+  // The page's geometry, as a browser lays it out: Kort sits at `top` while
+  // the question is not on the page, and `top + 341` once it is put in above
+  // it — unless the browser's own scroll anchoring already kept it in place
+  // (`anchored`: Chrome, Firefox, Android; iOS WebKit does not anchor).
+  const realRect = Element.prototype.getBoundingClientRect;
+  afterEach(() => { Element.prototype.getBoundingClientRect = realRect; });
+  const layout = ({ anchored = false } = {}) => {
+    Element.prototype.getBoundingClientRect = function rect() {
+      if (this.id !== "dc-pay-card") return realRect.call(this);
+      const shifted = !anchored && Boolean(document.querySelector('[data-testid="dc-draft-changed"]'));
+      const top = 600 + (shifted ? 341 : 0);
+      return { top, bottom: top + 40, left: 0, right: 300, width: 300, height: 40, x: 0, y: top, toJSON() {} };
+    };
+  };
+  const typeWhileSavedElsewhere = async () => {
     serve([DRAFT]);
     await mount();
     tap(/^dcContinueDraft$/);
@@ -263,8 +273,24 @@ describe("2. \"Kladden er gemt et andet sted\" never moves the field being typed
     keyIn(kort, "12.050");
     await flush();
     expect(q('[data-testid="dc-draft-changed"]')).not.toBeNull();
+    return kort;
+  };
+
+  it("an autosave refused while typing in Kort (no scroll anchoring — iOS): the page scrolls by exactly how far the field moved, in the same frame — the field stays put, the caret stays", async () => {
+    layout();
+    const kort = await typeWhileSavedElsewhere();
     expect(window.scrollBy).toHaveBeenCalledWith(0, 341);
     expect(window.scrollBy).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(kort);
+  });
+
+  // Round 23 review — scrolling by the question's HEIGHT moved the field up
+  // by that much where the browser had already kept it in place (the
+  // question put in above the viewport, on the review step).
+  it("…the browser already kept the field in place (scroll anchoring — Chrome, Android): no scroll on top of it", async () => {
+    layout({ anchored: true });
+    const kort = await typeWhileSavedElsewhere();
+    expect(window.scrollBy).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(kort);
   });
 

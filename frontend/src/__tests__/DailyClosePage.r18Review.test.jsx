@@ -192,26 +192,16 @@ describe("2. Fortsæt kladden after a date move", () => {
     expect(stored(today).notes).toContain("Gavekort solgt");
     await backToStepOne(view.container).catch(() => {});
     // Round 23 (path changed): figures are never moved onto a day that holds
-    // another draft — the question says so; "Åbn Historik" opens it there,
-    // and it is continued from History (Rediger).
+    // another draft — the question says so, and its "Fortsæt kladden" is the
+    // one tap that continues it (round 23 review: restored — it was a detour
+    // through History).
     const asked = [];
     const was = window.confirm;
     window.confirm = (m) => { asked.push(m); return true; };
     fireEvent.change(view.container.querySelector("#close-date"), { target: { value: yesterday } });
     await waitFor(() => expect(asked.length).toBe(1));
     window.confirm = was;
-    expect(asked[0]).toMatch(/^dcMoveTargetBody/);
-    // Yesterday's row (800) — today's own draft is listed too.
-    const edits = await screen.findAllByText("edit");
-    // (The smallest box around one "edit" that names 800 is yesterday's row.)
-    const yBtn = edits.find((b) => {
-      for (let n = b.parentElement; n; n = n.parentElement) {
-        if ([...n.querySelectorAll("button")].filter((x) => x.textContent.includes("edit")).length > 1) return false;
-        if (/800/.test(n.textContent) && !/1\.000/.test(n.textContent)) return true;
-      }
-      return false;
-    });
-    fireEvent.click(yBtn);
+    expect(asked[0]).toMatch(/^dcMoveTargetDraftBody/);
     await waitFor(() => expect(view.container.querySelector("#dc-rev-treatments")?.value).toBe("800"));
     const before = S.posts.length;
     await settle(2300);

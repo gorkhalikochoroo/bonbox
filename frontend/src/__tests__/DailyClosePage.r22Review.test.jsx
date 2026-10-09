@@ -192,7 +192,11 @@ describe("review 1 — a date move made offline and the page left offline never 
       await goOffline();
       await pickDay(yesterday);
       await settle();
-      expect(text()).toContain("dcDateMovedCopied");
+      // (Round 23 review: yesterday's save got no answer — nothing is stored
+      // for it, so never "Kopieret til" either: "Ikke gemt for {to} endnu —
+      // intet er slettet for {from}", and no "Slet den".)
+      expect(text()).toContain("dcDateMovedNotSavedYet");
+      expect(btn(/^dcDateMovedDeleteOld$/)).toBeFalsy();
       expect(text()).not.toContain("dcDateMovedFrom");
       keyIn(q("#dc-rev-food"), "3500");
       view.unmount();
@@ -580,8 +584,12 @@ describe("review 7 — a move finishes only when the moved save itself landed", 
     // Never "moved" on yesterday's older save: today still holds 3.000.
     expect(rowFor()).toMatchObject({ status: "draft", revenue_breakdown: { food: 3000 } });
     expect(text()).not.toContain("dcDateMovedFrom");
-    // (Round 23: said — today still has its draft.)
-    expect(text()).toContain("dcDateMovedCopied");
+    // (Round 23: said — today still has its draft. Round 23 review: the
+    // moved figures are on no server, so not "Kopieret til" but "Ikke gemt
+    // for {to} endnu", and no "Slet den" — today's draft may be their only
+    // stored copy.)
+    expect(text()).toContain("dcDateMovedNotSavedYet");
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeFalsy();
   });
 });
 
