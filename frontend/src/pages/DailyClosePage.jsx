@@ -656,6 +656,11 @@ export default function DailyClosePage() {
       // the same way: said as it is, never "check the numbers".
       : it?.errorCode === QUEUE_ERR_DELETED_LOCKED
         ? t("dcQueueErrDeletedLocked", "A deleted, locked kasserapport is kept for this date (bookkeeping law), so nothing was saved. This copy stays on this phone — contact support.")
+        // Round 23 R-c review — the figures a day held when the form let go of
+        // it ("Hent {dag}s salg"), never stored: said as that, never "saved
+        // somewhere else" (nothing may be stored for the day at all).
+        : it?.errorCode === QUEUE_ERR_DRAFT_CHANGED && it.letGo
+          ? t("dcQueueErrLetGo", "These figures were not saved before you fetched another day's sales. Save them as the day's draft (it replaces what is saved now), or remove this copy.")
         // The day's draft was saved somewhere else after this copy was made:
         // nothing was overwritten, and the newer draft is the stored one.
         : it?.errorCode === QUEUE_ERR_DRAFT_CHANGED
@@ -681,24 +686,18 @@ export default function DailyClosePage() {
    * it. Changed yet again since: it stays, with that newer version's stamp.
    */
   const [keepingId, setKeepingId] = useState(null);
-  // Round 23 R-c — one "Behold mine tal" per day. The day whose own figures
-  // are on the wizard's screen ({ key, keep }: the form's "keep what is on
-  // screen"): a refused copy of THAT day kept on this phone answers with the
-  // form's figures — the same thing as the form's own "Behold mine tal",
-  // never an earlier visit's figures that are not on screen. Answered either
-  // way, the day's refused draft copies are done with.
+  // Round 23 R-c — the day whose own figures are on the wizard's screen
+  // ({ key }). A refused copy of THAT day kept on this phone holds figures
+  // typed earlier on this phone (on no server): it always says what it holds
+  // ("Din kopi: 5.000 kr."), and its button says it stores the copy ("Gem
+  // kopien (5.000 kr.) i stedet") — never a second "Behold mine tal" beside
+  // the wizard's, and never answered (dropped) by the wizard's own answer
+  // (R-c review: the copy's 5.000 vanished unseen).
   const [formDay, setFormDay] = useState(null);
   const queueKeyOf = (it) => closeRowKey(it?.payload);
   const isDayDraftCopy = (it) => it?.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED
     && (it.payload?.status || "draft") !== "confirmed";
   const formHoldsCopyDay = (it) => Boolean(formDay?.key) && isDayDraftCopy(it) && queueKeyOf(it) === formDay.key;
-  const answerDayCopies = (key) => {
-    const drop = getOfflineQueue().filter((it) => isDayDraftCopy(it) && queueKeyOf(it) === key);
-    if (!drop.length) return;
-    let next = null;
-    drop.forEach((it) => { next = removeFromOfflineQueue(it.id); });
-    setQueue(next);
-  };
   /** What a refused copy holds, as its row says it ("Din kopi: 8.000 kr."). */
   const copyFigure = (it) => {
     const row = storedRowOfBody(it?.payload);
@@ -1014,10 +1013,10 @@ export default function DailyClosePage() {
                   : it.state === QUEUE_ALREADY_SAVED
                     ? t("dcQueueErrLocked", "This date is already locked in your kasserapport, so nothing was changed. You can remove this copy.")
                     : queueErrorText(it)}
-                {/* Round 23 R-c — what the copy's "Behold mine tal" stores is
-                    on screen: its own figure, when the wizard is not showing
-                    that day (when it is, the button keeps the wizard's). */}
-                {isDayDraftCopy(it) && !formHoldsCopyDay(it) && (
+                {/* Round 23 R-c — what the copy's button stores is on screen:
+                    its own figure, always (R-c review: hidden while the wizard
+                    showed the day, it was dropped unseen). */}
+                {isDayDraftCopy(it) && (
                   <span className="block mt-0.5 font-semibold" data-testid="dc-queue-copy-holds">
                     {t("dcQueueCopyHolds", "Your copy: {amount}", { amount: copyFigure(it) })}
                   </span>
@@ -1038,19 +1037,19 @@ export default function DailyClosePage() {
               {/* Every row that is NOT waiting on the owner's confirmation gets
                   a way out. Without it a close the server already holds sits
                   under a permanent alarm with no button at all. */}
-              {/* Round 23 R-c — for the day on the wizard's screen, the same
-                  thing as the wizard's own "Behold mine tal": what is on
-                  screen is stored (formDay.keep). */}
-              {it.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED && (formHoldsCopyDay(it) ? (
-                <Button variant="secondary" size="sm" onClick={() => formDay.keep?.()} data-testid="dc-queue-keep-mine">
-                  {t("dcDraftChangedKeep", "Keep my numbers")}
-                </Button>
-              ) : (
+              {/* Round 23 R-c review — it stores the copy, always. For the
+                  day on the wizard's screen it says so in its own words
+                  ("Gem kopien (5.000 kr.) i stedet"): the wizard's own
+                  "Behold mine tal" keeps what is on screen, this one the
+                  copy — two different things never under one label. */}
+              {it.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED && (
                 <Button variant="secondary" size="sm" onClick={() => keepQueuedCopy(it)} disabled={!isOnline || keepingId === it.id}
                   data-testid="dc-queue-keep-mine">
-                  {t("dcDraftChangedKeep", "Keep my numbers")}
+                  {formHoldsCopyDay(it)
+                    ? t("dcQueueKeepCopyInstead", "Save the copy ({amount}) instead", { amount: copyFigure(it) })
+                    : t("dcDraftChangedKeep", "Keep my numbers")}
                 </Button>
-              ))}
+              )}
               {it.state !== QUEUE_NEEDS_CONFIRMATION && (
                 <Button variant="secondary" size="sm" onClick={() => dropQueuedClose(it)}
                   iconLeft={<Icon name="Trash2" size={14} />}>
@@ -1274,8 +1273,7 @@ export default function DailyClosePage() {
           onContinueDraft={(dc) => openDraftFresh(dc)}
           onShowHistory={(id) => { setHistoryFocusId(id || null); setTab("history"); }}
           onEditingChange={setFormEditingDate}
-          onFormDay={(key, keep) => setFormDay(key ? { key, keep } : null)}
-          onKeptOnScreen={answerDayCopies} />}
+          onFormDay={(key) => setFormDay(key ? { key } : null)} />}
         {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
           // The three outcomes, handed down whole. A child that only receives
           // `data` cannot tell an empty list from an unanswered request, which
@@ -1620,7 +1618,7 @@ const filesSomething = (revenue, payments) => revenue > 0 || payments > 0;
 /** What a built payload was made of (not sent): the day it is for, and whether its source was read off photos. */
 const payloadInfo = new WeakMap();
 
-function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange, onFormDay, onKeptOnScreen }) {
+function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange, onFormDay }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -2021,6 +2019,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const keyWireRef = useRef({});
   // Each save on its way → its id (base_save_id of the save that follows it).
   const saveIdOfRef = useRef(new Map());
+  // …and its save number (round 23 R-c review: a save of a day the form let
+  // go of, built SINCE, goes with a date move — one from before does not).
+  const inflightRunRef = useRef(new Map());
   // Round 21 review — every save's body is numbered as it is BUILT
   // (runNoRef); `sentNoRef` per day: the newest of those already SENT. A save
   // that waited its turn while a newer one went at once (the page going
@@ -2183,6 +2184,54 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!lost?.id) return null;
     if (releasedFor(key, runNo) && !releasedFor(key, lost.runNo)) return null;
     return lost.id;
+  };
+  /**
+   * Round 23 R-c review — a save of `key` built SINCE the form let go of it
+   * (the boxes as they are now): waiting, on its way, unanswered, or failed.
+   * A date move takes those figures with it, so the day goes in its "keys"
+   * (named in the question, its draft deleted once the new day holds them):
+   * left out, a save of them still on its way landed on the old day as well
+   * — the 750 counted on both days, and the question said "nothing saved".
+   */
+  const savingSince = (key) => Boolean(pendingSaveRef.current?.key === key
+    || [...(keyInflightRef.current[key] || [])].some((tr) => releasedFor(key, inflightRunRef.current.get(tr) ?? -1))
+    || (lostSaveRef.current[key] && releasedFor(key, lostSaveRef.current[key].runNo))
+    || (failedBodyRef.current[key] && releasedFor(key, failedBodyRef.current[key].runNo)));
+  /**
+   * Round 23 R-c review — the figures a day held when the form let go of it
+   * that are on no server (a save of them got no answer: failedBodyRef,
+   * built BEFORE the release — 12.000 typed on a dead line). They are not on
+   * the boxes any more: a save of the boxes since was taken as "the owner's
+   * later figures" and dropped them (or, failing too, replaced them), and a
+   * date move deleted them with its own. From the first save of the day's
+   * boxes since (and a move or lock of them), they are kept on this phone as
+   * a copy the owner decides on — "Din kopi: 12.000 kr.", stored by their
+   * tap or removed — never sent by themselves over what is saved since.
+   */
+  const letGoCopiesRef = useRef({});
+  const keepLetGoFigures = (key) => {
+    const f = failedBodyRef.current[key];
+    if (!f || !releasedFor(key) || releasedFor(key, f.runNo)) return;
+    // (On the version they were built on — following their own save whose
+    // answer was lost, which may have stored them.)
+    const payload = { ...f.body, base_updated_at: f.base ?? NO_ROW_BASE };
+    const lost = lostSaveRef.current[key];
+    if (lost?.id && !releasedFor(key, lost.runNo)) payload.base_save_id = lost.id;
+    const item = addFailedToOfflineQueue(payload, { errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: null, httpStatus: null, letGo: true });
+    // (Could not be kept — a full device: they stay where they are.)
+    if (!item) return;
+    delete failedBodyRef.current[key];
+    letGoCopiesRef.current[key] = item.id;
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+  };
+  /** The day's boxes were stored since (`stamp`): the copy kept of its earlier figures names that version — one tap stores the copy over it, by choice. */
+  const stampLetGoCopy = (key, stamp) => {
+    const id = letGoCopiesRef.current[key];
+    if (!id || !stamp) return;
+    delete letGoCopiesRef.current[key];
+    if (!getOfflineQueue().some((it) => it.id === id && it.state === QUEUE_FAILED)) return;
+    updateQueueItem(id, { conflictStamp: stamp });
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
   };
   /** A save of the form's was answered with this version of the day. */
   /** A save of `key` built before a move took the day's figures elsewhere (round 23 re-send review). */
@@ -3295,11 +3344,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // figures were typed for (and a day they passed through on the way,
       // moved again before it was filed) — never the day they go to.
       const keys = [...(pending?.keys || [])];
-      // (A day the form let go of holds a draft that is not on the form: never
-      // deleted for figures typed over it since — round 23 R-c.)
-      const curHolds = !releasedFor(curKey) && Boolean(ownRowsRef.current[curKey] || lostSaveRef.current[curKey]
-        || keyInflightRef.current[curKey]?.size || failedBodyRef.current[curKey]
-        || pendingSaveRef.current?.key === curKey || ownDraftKeys.has(curKey));
+      // A day the form let go of (round 23 R-c): only what the form saved or
+      // is saving for it SINCE goes with the figures (R-c review) — its
+      // draft from before is not on the form, never deleted for them (the
+      // delete is on the version the form holds — deleteDayDraft).
+      const curHolds = releasedFor(curKey) ? savingSince(curKey)
+        : Boolean(ownRowsRef.current[curKey] || lostSaveRef.current[curKey]
+          || keyInflightRef.current[curKey]?.size || failedBodyRef.current[curKey]
+          || pendingSaveRef.current?.key === curKey || ownDraftKeys.has(curKey));
       if (curHolds && !keys.includes(curKey)) keys.push(curKey);
       const goes = keys.filter((k) => k !== nextKey);
       const from = pending?.from && !String(nextKey).startsWith(`${pending.from}|`) ? pending.from : businessDate;
@@ -3326,7 +3378,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         moveFromRef.current = goes.length ? { from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current } : null;
         // The figures are the new day's now: a draft of them that got no
         // answer on the old day is never sent there again.
-        goes.forEach((k) => { delete failedBodyRef.current[k]; movedAwayRef.current[k] = runNoRef.current; });
+        // (Not the figures a day let go of held then, on no server — kept on
+        // this phone as a copy: round 23 R-c review.)
+        goes.forEach((k) => { keepLetGoFigures(k); delete failedBodyRef.current[k]; movedAwayRef.current[k] = runNoRef.current; });
         // The new day is filed at once, not two seconds later — its answer
         // finishes the move.
         sendNowRef.current = true;
@@ -4456,8 +4510,32 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // A move's old day the owner went back to (or filed again) meanwhile:
     // its draft is the owner's figures again — never deleted for the move.
     if (forMove && (key === rowKeyRef.current || (sendGenRef.current[key] || 0) !== gen0)) return "refiled";
-    const own = ownRowsRef.current[key];
-    const lost = shown ? null : lostSaveRef.current[key];
+    // Round 23 R-c review — a day the form let go of ("Hent {dag}s salg"),
+    // none of its saves since stored with an answer (one that is makes the
+    // day the form's again): what it holds was written before the form let
+    // go of it, or by someone else — not the figures moved, never deleted for
+    // them (it stays, and is said: "… står der stadig"). Only a save of the
+    // day's own since whose answer was lost may have written the moved
+    // figures there: deleted only when the save that wrote the day last is
+    // that one.
+    const letGoDay = forMove && releasedFor(key);
+    const lostAny = shown ? null : lostSaveRef.current[key];
+    if (letGoDay && !(lostAny && releasedFor(key, lostAny.runNo))) {
+      let row;
+      try {
+        row = await readDayFresh(key);
+      } catch (err) {
+        return err?.response ? "error" : "offline";
+      }
+      if (!row) return "none";
+      if (out) out.row = row;
+      setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+      onDraftSaved?.();
+      return (row.status || "confirmed") !== "draft" ? "locked" : "changed";
+    }
+    const mine = (row) => (letGoDay ? Boolean(row?.last_save_id) && row.last_save_id === lostAny?.id : lastSaveIsMine(row));
+    const own = letGoDay ? null : ownRowsRef.current[key];
+    const lost = lostAny;
     const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
     let id = shown?.id ?? own?.id ?? listed?.id ?? null;
     if (id == null && !lost) return "none";
@@ -4469,7 +4547,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // would have deleted whatever is stored now). A form that holds none
     // sends NO_ROW_BASE: only its own lost save's version (base_save_id) can
     // then be deleted; anything else is refused (412) and kept.
-    const held = Object.prototype.hasOwnProperty.call(baseRef.current, key) ? baseRef.current[key] : null;
+    // (A day let go of: the version it holds is from before — never.)
+    const held = !letGoDay && Object.prototype.hasOwnProperty.call(baseRef.current, key) ? baseRef.current[key] : null;
     const params = { base_updated_at: (shown ? shown.updated_at : held) || NO_ROW_BASE };
     if (lost?.id) params.base_save_id = lost.id;
     // The row as stored now, when the server kept it (out.row): the page
@@ -4486,7 +4565,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if ((row.status || "confirmed") !== "draft") { kept(row); forgetDay(key); onDraftSaved?.(); return "locked"; }
       // Written last by a save of someone else's (the server said so): it is
       // that version now — kept, and shown; no delete is even tried.
-      if (row.last_save_id && !lastSaveIsMine(row)) {
+      if (row.last_save_id && !mine(row)) {
         kept(row);
         forgetDay(key);
         setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
@@ -4494,7 +4573,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         return "changed";
       }
       id = row.id;
-      if (lastSaveIsMine(row)) {
+      if (mine(row)) {
         // Written last by a save of this form's: that very version is the
         // form's own (anyone else's since is refused by the server).
         if (row.updated_at) params.base_updated_at = row.updated_at;
@@ -4951,6 +5030,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const ahead = [...(keyInflightRef.current[savingKey] || [])];
       if (!keyInflightRef.current[savingKey]) keyInflightRef.current[savingKey] = new Set();
       keyInflightRef.current[savingKey].add(tracker);
+      inflightRunRef.current.set(tracker, runNo);
       // Any later visit of this page lists the day once this has landed.
       const onTheirWay = closeSavesOnTheirWay();
       onTheirWay.add(tracker);
@@ -4981,6 +5061,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // (A day the form let go of — round 23 R-c: on the version History
         // lists, never following a save from before; see saveBaseFor.)
         const letGo = releasedFor(savingKey, runNo);
+        // (The day's earlier figures on no server are not these: kept as a
+        // copy before these go — round 23 R-c review.)
+        if (letGo) keepLetGoFigures(savingKey);
         body.base_updated_at = saveBaseFor(savingKey, runNo);
         saveId = newSaveId();
         body.save_id = saveId;
@@ -5015,8 +5098,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         setOwnDraftKeys((prev) => (prev.has(savingKey) ? prev : new Set(prev).add(savingKey)));
         // A save of the boxes was stored for a day the form had let go of
         // (on the version History lists — round 23 R-c): the day's draft is
-        // the form's own again.
-        if (letGo) unreleaseDay(savingKey);
+        // the form's own again. (A copy kept of its earlier figures names
+        // this version: stored over it only by the owner's tap.)
+        if (letGo) { stampLetGoCopy(savingKey, res?.data?.updated_at); unreleaseDay(savingKey); }
         onDraftSaved?.();
         setDraftSaved(true);
         setTimeout(() => setDraftSaved(false), 3000);
@@ -5075,7 +5159,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 // owner's own moved figures), and the move finishes.
                 noteSaved(savingKey, body, { data: row });
                 setOwnDraftKeys((p) => (p.has(savingKey) ? p : new Set(p).add(savingKey)));
-                if (releasedFor(savingKey, runNo)) unreleaseDay(savingKey);
+                if (releasedFor(savingKey, runNo)) { stampLetGoCopy(savingKey, row.updated_at); unreleaseDay(savingKey); }
                 if (lostSaveRef.current[savingKey]?.id === landed) delete lostSaveRef.current[savingKey];
                 if (retryArmedRef.current === sent) { retryArmedRef.current = null; lastSentRef.current = sent; }
                 finishMove(savingKey);
@@ -5128,6 +5212,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         keyInflightRef.current[savingKey]?.delete(tracker);
         keyWireRef.current[savingKey]?.delete(tracker);
         saveIdOfRef.current.delete(tracker);
+        inflightRunRef.current.delete(tracker);
         onTheirWay.delete(tracker);
         answered();
         savesInFlightRef.current -= 1;
@@ -5288,6 +5373,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       inflightRef.current.add(tracker);
       if (!keyInflightRef.current[key]) keyInflightRef.current[key] = new Set();
       keyInflightRef.current[key].add(tracker);
+      inflightRunRef.current.set(tracker, f.runNo);
       const onTheirWay = closeSavesOnTheirWay();
       onTheirWay.add(tracker);
       sendGenRef.current[key] = (sendGenRef.current[key] || 0) + 1;
@@ -5306,7 +5392,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             setOwnDraftKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
             // The boxes' figures (sent after the form let go of the day —
             // round 23 R-c) are the day's draft now: the form's own again.
-            if (releasedFor(key, f.runNo)) unreleaseDay(key);
+            if (releasedFor(key, f.runNo)) { stampLetGoCopy(key, res?.data?.updated_at); unreleaseDay(key); }
             onDraftSaved?.();
           }
         })
@@ -5340,6 +5426,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         .finally(() => {
           inflightRef.current.delete(tracker);
           keyInflightRef.current[key]?.delete(tracker);
+          inflightRunRef.current.delete(tracker);
           onTheirWay.delete(tracker);
           answered();
           if (again) sendFailedBodies({ keepalive });
@@ -5472,7 +5559,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // asked, and an offline-queued lock that meets one stays as a failed copy.
     const lockKey = `${payload.date}|${payload.branch_id || ""}`;
     // (A day the form let go of — round 23 R-c: on the version History
-    // lists; a draft there not on the form is asked about, never locked over.)
+    // lists; a draft there not on the form is asked about, never locked over.
+    // Its earlier figures on no server are kept as a copy — R-c review.)
+    keepLetGoFigures(lockKey);
     payload.base_updated_at = saveBaseFor(lockKey);
     // A draft save of the day got no answer (it may have landed): the lock —
     // queued offline too — follows it; its version is the form's own.
@@ -5784,14 +5873,26 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // the lines on screen add up — and only its PLACE is held: a line that was
   // on screen when focus moved into the boxes below it keeps its slot if it
   // would vanish (the total typed down to the categories, or emptied), so
-  // the box being typed in never moves. In the total box — the one box that
-  // changes it — the place is kept from the tap on, so a line that appears
-  // while the total is typed (a bon whose lines added up) moves nothing
-  // either.
+  // the box being typed in never moves. R-c review — and nothing mounts
+  // either: with no line on screen when focus came into the boxes below it
+  // (a bon whose lines add up — the common case), a slot reserved on the tap
+  // pushed the total box down at the very moment it was tapped (and the
+  // payment box up at the Tab on). The line's place is what was on screen
+  // when focus came in or was handed on: a line (or its kept slot) stays
+  // there, following the total; none stays none — a line the total typed now
+  // calls for appears once focus leaves the boxes.
   const unsplitOnScreen = (u) => Boolean(u?.show) && Math.abs(Number(u?.amount) || 0) >= 0.005;
+  const unsplitLiveOn = unsplitOnScreen(cardLive.unsplit);
+  // Focus in a box below the line (the total, the payments): a category box
+  // sits above it, so the line moves nothing there and follows freely.
+  const heldBelowUnsplit = Boolean(held) && !String(held.focusId || "").startsWith("scan-rev-");
+  const unsplitPlace = heldBelowUnsplit
+    ? (held.unsplitPlaced ? (unsplitLiveOn ? "line" : "slot") : "none")
+    : (unsplitLiveOn ? "line" : "none");
   const cardUnsplitShown = {
     ...cardLive.unsplit,
-    reserve: Boolean(held) && (unsplitOnScreen(held.unsplit) || held.focusId === "scan-total"),
+    show: unsplitPlace === "line",
+    reserve: unsplitPlace === "slot",
   };
   const heldReads = cardShown.reads;
   const heldMergeNow = cardShown.mergeNow;
@@ -5805,17 +5906,22 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const onCardFocus = (e) => {
     if (e.target?.tagName !== "INPUT") return;
     const focusId = String(e.target.id || "");
+    // (The "Ikke fordelt" line's place as it is on screen now — round 23 R-c
+    // review: nothing mounts or goes on the tap.)
+    const unsplitPlaced = unsplitPlace !== "none";
     setCardHeld((prev) => (prev && prev.moving && prev.at === heldHere
       ? { ...prev, moving: false, focusId }
-      : { ...cardLive, at: heldHere, focusId }));
+      : { ...cardLive, at: heldHere, focusId, unsplitPlaced }));
   };
   const onCardBlur = (e) => {
     if (e.target?.tagName !== "INPUT") return;
     const next = e.relatedTarget;
     if (next && next.tagName === "INPUT" && e.currentTarget?.contains?.(next)) {
-      // (The "Ikke fordelt" line as it is on screen at the hand-off: its
-      // place is what is held for the next box — round 23 R-c.)
-      setCardHeld((prev) => (prev ? { ...prev, moving: true, unsplit: cardLive.unsplit } : prev));
+      // (The "Ikke fordelt" line's place as it is on screen at the hand-off
+      // — a line, its kept slot, or none: what is held for the next box —
+      // round 23 R-c review.)
+      const unsplitPlaced = unsplitPlace !== "none";
+      setCardHeld((prev) => (prev ? { ...prev, moving: true, unsplitPlaced } : prev));
       return;
     }
     setCardHeld(null);
@@ -6076,9 +6182,6 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // draft" banner does not stand in front of the save the owner chose.
     setOwnDraftKeys((prev) => (prev.has(c.key) ? prev : new Set(prev).add(c.key)));
     setDraftConflict(null);
-    // Round 23 R-c — one answer for the day: a refused copy of it kept on
-    // this phone (an earlier visit's figures) is answered by this choice too.
-    if (c.via !== "lock") onKeptOnScreen?.(c.key);
     if (c.via === "lock") { handleSubmit(); return; }
     // Round 23 re-send review — the form files nothing for the day as it
     // stands (the scan card, a bon's question open): the autosave would send
@@ -6097,34 +6200,20 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     sendNowRef.current = true;
     requestRefile(true);
   };
-  // Round 23 R-c — "Behold mine tal" for the day on screen, wherever it is
-  // tapped (this card, or the page's copy of the day kept on this phone):
-  // what is on screen is stored. With the question open: as the card. With
-  // none: the form's figures are filed now.
-  const keepOnScreen = () => {
-    if (draftConflict && draftConflict.key === rowKeyRef.current) {
-      if (draftConflict.via !== "lock") keepMyDraft();
-      return;
-    }
-    sendNowRef.current = true;
-    requestRefile(true);
-    onKeptOnScreen?.(rowKeyRef.current);
-  };
-  const keepOnScreenRef = useRef(keepOnScreen);
-  keepOnScreenRef.current = keepOnScreen;
   // The day whose own figures the form shows (not a banner's draft, not a
-  // locked day): the page's queue answers a copy of it with these. (Not
-  // while the form's question is a refused LOCK — its answer is "Behold
-  // mine tal og lås", another action under another label.)
+  // locked day): a copy of it kept on this phone names itself on its button
+  // ("Gem kopien … i stedet" — round 23 R-c review). (Not while the form's
+  // question is a refused LOCK — its answer is "Behold mine tal og lås",
+  // another label.)
   const screenDayKey = !existingBlocks && !lockedRowRejected && deletedLockedRow == null
     && !(conflictHere && draftConflict?.via === "lock")
     && (conflictHere || (formIsTheDay && filesSomething(savedRevenue, paymentTotal))) ? rowKey : null;
   useEffect(() => {
-    onFormDay?.(screenDayKey, screenDayKey ? () => keepOnScreenRef.current?.() : null);
+    onFormDay?.(screenDayKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenDayKey]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => () => onFormDay?.(null, null), []);
+  useEffect(() => () => onFormDay?.(null), []);
   const conflictFigure = (() => {
     const cur = draftConflict ? (draftConflict.current ? newestForConflict(draftConflict) : null) : null;
     if (!cur) return "";

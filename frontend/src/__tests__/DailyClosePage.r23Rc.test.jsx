@@ -5,12 +5,15 @@
  *     it) — the lines on screen always add up. It follows the total, and a
  *     line that would vanish while focus is on the card keeps its place (the
  *     box being typed in never moves).
- *  3. One "Behold mine tal" per day: the conflict card's and the queued
- *     copy's do the same thing — store exactly what is on screen (the form's
- *     figures), and both questions for the day are answered. A queued copy of
- *     a day the form does not show says what it holds, and its "Behold mine
- *     tal" stores exactly that. A newer draft of the day landed since the
- *     question: the card names it, and "Hent den nyeste kladde" opens it.
+ *  3. One "Behold mine tal" per day: the conflict card's stores exactly what
+ *     is on screen (the form's figures). A refused copy of the same day kept
+ *     on this phone (figures typed earlier here, on no server) always says
+ *     what it holds, and its button says it stores the copy ("Gem kopien
+ *     (5.000 kr.) i stedet") — it is never answered (dropped) by the card's
+ *     answer (R-c review). A queued copy of a day the form does not show
+ *     says what it holds, and its "Behold mine tal" stores exactly that. A
+ *     newer draft of the day landed since the question: the card names it,
+ *     and "Hent den nyeste kladde" opens it.
  * (Item 1 — "Hent {dag}s salg" lets go of the old day — is the sequence
  * harness's named plans 23020–23022 in DailyClosePage.r23Sequences.)
  * Strings are asserted by key (t echoes key + values).
@@ -113,8 +116,8 @@ describe("R-c 2 — \"Ikke fordelt på kategori\" is never stale while a box bel
     raw_text: "BON", ocr_available: true,
     revenue: { food: 12000, drinks: 1500 }, revenue_total: 22000, moms_total: 4400, payments: { card: 22000 },
   };
-  const shoot = async (container) => {
-    S.nextScan = BON;
+  const shoot = async (container, bon = BON) => {
+    S.nextScan = bon;
     const input = [...container.querySelectorAll('input[type="file"]')].at(-1);
     fireEvent.change(input, { target: { files: [new File(["b"], "b.jpg", { type: "image/jpeg", lastModified: 1 })] } });
     await waitFor(() => expect(screen.queryByText("readingZReport")).toBeNull());
@@ -178,11 +181,48 @@ describe("R-c 2 — \"Ikke fordelt på kategori\" is never stale while a box bel
     expect(unsplit()).toBe("");
     expect(q('[data-testid="dc-unsplit-slot"]')).toBeNull();
   });
+
+  // R-c review — the common case: a bon whose lines add up (no line). A slot
+  // reserved on the tap pushed the total box down the moment it was tapped,
+  // and the payment box up at the Tab on.
+  /** The blocks (div/p) above a box on the card — their count and order. */
+  const above = (input) => {
+    const card = q('[data-testid="dc-scan-result-date"]').parentElement;
+    return [...card.querySelectorAll("div,p")]
+      .filter((el) => !el.contains(input) && (el.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING))
+      .map((el) => el.tagName + (el.getAttribute("data-testid") ? `#${el.getAttribute("data-testid")}` : ""))
+      .join(",");
+  };
+  it("lines that add up: the tap on the total mounts nothing above it, nor typing it up, nor the Tab on to a payment box — the line appears, live, once focus leaves", async () => {
+    serve();
+    const { container } = await mount("scanZReportTitle");
+    await shoot(container, { ...BON, revenue: { food: 12000, drinks: 1500 }, revenue_total: 13500, moms_total: 2700, payments: { card: 13500 } });
+    expect(unsplit()).toBe("");
+    const total = q("#scan-total");
+    const before = above(total);
+    act(() => { total.focus(); });
+    fireEvent.focus(total);
+    expect(above(total)).toBe(before);
+    expect(q('[data-testid="dc-unsplit-slot"]')).toBeNull();
+    fireEvent.change(total, { target: { value: "" } });
+    for (const ch of "15000") {
+      fireEvent.change(total, { target: { value: total.value + ch } });
+      expect(above(total)).toBe(before);
+    }
+    const pay = q("#scan-pay-cash") || q('[id^="scan-pay-"]');
+    expect(pay).not.toBeNull();
+    const payBefore = above(pay);
+    tabTo(total, pay);
+    expect(above(pay)).toBe(payBefore);
+    fireEvent.blur(pay);
+    // Settled: the total's unsplit part, never a stale figure.
+    expect(unsplit()).toContain("1.500");
+  });
 });
 
 /* ─── 3. one "Behold mine tal" per day ────────────────────────────────── */
 
-describe("R-c 3 — the conflict card's and the queued copy's \"Behold mine tal\" for the same day do the same thing", () => {
+describe("R-c 3 — one \"Behold mine tal\" per day; the queued copy of the same day says what it holds and stores exactly that", () => {
   // The other phone's draft of today; another visit's copy of today on this
   // phone, refused when it was sent (the other phone had saved since).
   const otherDraft = () => ({
@@ -213,11 +253,29 @@ describe("R-c 3 — the conflict card's and the queued copy's \"Behold mine tal\
     await fire("pageshow");
     await waitFor(() => expect(q('[data-testid="dc-draft-changed"]')).not.toBeNull());
     expect(rowFor()).toMatchObject({ revenue_total: 3198, notes: "B2" });
-    // Two answers for the same day on screen — one wording.
-    expect(keepButtons()).toHaveLength(2);
-    expect(q('[data-testid="dc-queue-keep-mine"]').textContent.trim()).toBe("dcDraftChangedKeep");
+    // One "Behold mine tal" (the card's); the copy says what it holds, and its
+    // button names what it stores (R-c review: two identical buttons did two
+    // different things).
+    expect(keepButtons()).toHaveLength(1);
+    expect(text()).toMatch(/dcQueueCopyHolds:5\.000/);
+    expect(q('[data-testid="dc-queue-keep-mine"]').textContent.trim()).toMatch(/^dcQueueKeepCopyInstead:5\.000/);
   };
-  /** What is on screen is what is stored, and both questions for the day are answered. */
+  /** The copy is still on this phone, says what it holds, and its own button stores exactly that. */
+  const copyStoredByItsButton = async () => {
+    expect(copiesOf()).toHaveLength(1);
+    expect(text()).toMatch(/dcQueueCopyHolds:5\.000/);
+    // (On the version it met: saved again since, it meets the newest first —
+    // kept, with that version's stamp — and the next tap stores it.)
+    for (let i = 0; i < 3 && copiesOf().length; i++) {
+      fireEvent.click(q('[data-testid="dc-queue-keep-mine"]'));
+      await settleMany(10);
+      if (copiesOf().length) expect(text()).toMatch(/dcQueueCopyHolds:5\.000/);
+    }
+    await waitFor(() => expect(copiesOf()).toHaveLength(0));
+    expect(rowFor().revenue_breakdown).toEqual({ food: 5000 });
+    expect(rowFor().payment_breakdown).toEqual({ cash: 5000 });
+  };
+  /** What is on screen is what is stored — and the day's copy is not answered by it. */
   const onScreenStored = async () => {
     await settleMany(10);
     await fire("pagehide");
@@ -228,23 +286,27 @@ describe("R-c 3 — the conflict card's and the queued copy's \"Behold mine tal\
     expect(row.payment_breakdown).toEqual({ card: 3099 });
     expect(row.notes || "").toBe("B");
     expect(q('[data-testid="dc-draft-changed"]')).toBeNull();
-    expect(copiesOf()).toHaveLength(0);
-    expect(keepButtons()).toHaveLength(0);
-    // Nothing else stored it after: the copy's 5.000 never reached the day.
+    // The copy's 5.000 (typed earlier on this phone, on no server) is still
+    // here — never dropped by the card's answer — and was never sent by it.
+    expect(copiesOf()).toHaveLength(1);
     expect(S.posts.some((b) => b.date === today && b.payment_breakdown?.cash === 5000)).toBe(false);
   };
 
-  it("the queued copy's button stores what is on screen (the form's figures), never the earlier visit's copy", async () => {
+  it("the queued copy's button stores the copy (its 5.000, as it says) — never the form's figures, and the card's question stays", async () => {
     await twoQuestions();
-    fireEvent.click(q('[data-testid="dc-queue-keep-mine"]'));
-    await onScreenStored();
+    const n = S.posts.length;
+    await copyStoredByItsButton();
+    // Nothing of the form's was sent by it: only the copy.
+    expect(S.posts.slice(n).every((b) => b.payment_breakdown?.cash === 5000)).toBe(true);
+    expect(q('[data-testid="dc-draft-changed"]')).not.toBeNull();
   }, 15000);
 
-  it("the conflict card's button: the same — what is on screen is stored, and the copy's question for the day is answered too", async () => {
+  it("the conflict card's button stores what is on screen — and the day's copy survives it, says what it holds, and its button still stores it", async () => {
     await twoQuestions();
     const card = q('[data-testid="dc-draft-changed"]');
     fireEvent.click([...card.querySelectorAll("button")].find((b) => b.textContent.trim() === "dcDraftChangedKeep"));
     await onScreenStored();
+    await copyStoredByItsButton();
   }, 15000);
 
   it("a newer draft of the day landed since the question (a copy from this phone's queue): the card names it, and \"Hent den nyeste kladde\" opens it — offline too, never the stale version", async () => {

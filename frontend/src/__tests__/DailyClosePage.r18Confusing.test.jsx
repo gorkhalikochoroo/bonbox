@@ -271,10 +271,13 @@ describe("6. nothing above the box being typed in moves while typing (summed car
       .map((el) => el.tagName)
       .join(",");
   };
+  // (Round 23 R-c review: "before" is taken BEFORE the tap — a block mounted
+  // by the focus itself moved the box at the moment it was tapped, and a
+  // snapshot taken after focus() could not see it.)
   const typeWatching = (container, input, value) => {
-    act(() => { input.focus(); });
     const before = above(container, input);
-    const seen = [];
+    act(() => { input.focus(); });
+    const seen = [above(container, input)];
     fireEvent.change(input, { target: { value: "" } });
     seen.push(above(container, input));
     for (let i = 1; i <= value.length; i++) {
@@ -298,10 +301,20 @@ describe("6. nothing above the box being typed in moves while typing (summed car
     mad.seen.forEach((s) => expect(s).toBe(mad.before));
     act(() => { container.querySelector("#scan-rev-food").blur(); });
 
-    const total = typeWatching(container, container.querySelector("#scan-total"), "20130,50");
+    const totalBox = container.querySelector("#scan-total");
+    const total = typeWatching(container, totalBox, "20130,50");
     total.seen.forEach((s) => expect(s).toBe(total.before));
-    // Leaving the box shows the final state, once.
-    act(() => { container.querySelector("#scan-total").blur(); });
+    // Tab on to a payment box: nothing above it mounts or goes either.
+    const pay = container.querySelector('[id^="scan-pay-"]');
+    expect(pay).not.toBeNull();
+    const payBefore = above(container, pay);
+    act(() => {
+      fireEvent.blur(totalBox, { relatedTarget: pay });
+      fireEvent.focus(pay, { relatedTarget: totalBox });
+    });
+    expect(above(container, pay)).toBe(payBefore);
+    // Leaving the boxes shows the final state, once.
+    act(() => { fireEvent.blur(pay); });
     expect(container.textContent).toContain("dcUnsplitRevenue");
   });
 });
