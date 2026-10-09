@@ -1,0 +1,1 @@
+function e(e,t=6){let n=e??t;return typeof n!=`number`||!Number.isFinite(n)||!Number.isInteger(n)||n<0||n>23?t:n}function t(e,t){return!Array.isArray(e)||!t?null:e.find(e=>String(e?.date||``).slice(0,10)===t&&e?.status===`confirmed`)||null}export{e as n,t};

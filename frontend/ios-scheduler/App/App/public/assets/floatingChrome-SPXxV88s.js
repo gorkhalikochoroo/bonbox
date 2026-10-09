@@ -1,0 +1,1 @@
+var e=[`/subscription`];function t(t){return typeof t==`string`?e.some(e=>t.startsWith(e)):!1}export{t};

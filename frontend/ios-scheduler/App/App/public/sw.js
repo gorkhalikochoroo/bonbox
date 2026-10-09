@@ -1,4 +1,6 @@
-const CACHE_NAME = "bonbox-v8";
+const CACHE_NAME = "bonbox-v9";
+// 2026-09-27 — v9: the dev-server guard below. Bumping the key clears the
+// source modules v8 had cached cache-first on developer/test devices.
 // 2026-05-25 — API cache key bumped (was bonbox-api-v1). The previous
 // SW served /api/dashboard/* via stale-while-revalidate with a 5-min
 // TTL, which meant after an optimistic-add on Sales/Expenses the very
@@ -157,6 +159,18 @@ self.addEventListener("fetch", (event) => {
 
   // Auth endpoints: NEVER cache (security — tokens, credentials, PII)
   if (isAuthApi(request.url)) return;
+
+  // The Vite DEV server's modules (/src/…, /@vite/…, /node_modules/.vite/…)
+  // are never cached. They fell through to the cache-first branch at the
+  // bottom, so a phone or simulator testing a local build kept running the
+  // code it saw first — every edit after that was invisible. Production
+  // never serves these paths (its code is under /assets/).
+  try {
+    const path = new URL(request.url).pathname;
+    if (path.startsWith("/src/") || path.startsWith("/@") || path.startsWith("/node_modules/")) return;
+  } catch {
+    /* unparseable URL — fall through to the normal rules */
+  }
 
   // ALL /api/* GETs: NetworkOnly. BonBox is a financial app — every
   // dashboard / sales / expenses / faktura / inventory / billing /
