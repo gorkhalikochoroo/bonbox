@@ -8522,6 +8522,7 @@ export const en = {
     dcMoveTargetLockedTitle: "{to} is already closed and locked",
     dcMoveTargetBody: "Your figures stay on {from} — nothing is moved. Open the {to} close from History, or pick another day.",
     dcDateMovedCopied: "Copied to {to} — the draft for {from} is still there",
+    dcDateMovedCopiedLocked: "Copied to {to} — {from} is locked and stays as it is",
     dcDateMovedDeleteOld: "Delete it",
     dcDateMovedDeleteOffline: "Not deleted — there is no connection. Try again when you're online.",
     dcDraftNotSavedShort: "Not saved",

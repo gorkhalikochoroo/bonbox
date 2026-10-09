@@ -38,6 +38,7 @@ import {
   QUEUE_ERR_SERVER,
   QUEUE_FAILED,
   QUEUE_NEEDS_CONFIRMATION,
+  QUEUE_WAITING_NETWORK,
 } from "../utils/dailyCloseQueue";
 import {
   headlineTotal,
@@ -4473,6 +4474,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
   /** The stored row's last save is one this form sent. */
   const lastSaveIsMine = (row) => Boolean(row?.last_save_id) && mySaveIdsRef.current.has(row.last_save_id);
+  /**
+   * Release R-c — a copy of the day kept on this phone that the offline queue
+   * still sends by itself (waiting for the network, or failed for a reason
+   * it retries): it may file the day after the form has looked. (A copy
+   * refused as "saved somewhere else" waits for the owner — never sent by
+   * itself.)
+   */
+  const queuedCopyMayFile = (key) => getOfflineQueue().some((it) => closeRowKey(it?.payload) === key
+    && (it.state === QUEUE_WAITING_NETWORK || (it.state === QUEUE_FAILED && it.errorCode !== QUEUE_ERR_DRAFT_CHANGED
+      && it.errorCode !== QUEUE_ERR_DELETED_LOCKED)));
   /** The autosave looks again; `force`: whatever it holds is sent (the row may be gone or stale). */
   const requestRefile = (force = false) => {
     if (force) lastSentRef.current = null;
@@ -4549,7 +4560,32 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const lost = lostAny;
     const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
     let id = shown?.id ?? own?.id ?? listed?.id ?? null;
-    if (id == null && !lost) return "none";
+    if (id == null && !lost) {
+      if (!forMove) return "none";
+      // Release R-c (sequence lane) — a move's old day the form holds NO
+      // version of: its own saves of it got no answer (offline — on no
+      // server), and History lists nothing there. That is not "nothing is
+      // stored": another visit's copy kept on this phone (the offline queue,
+      // sent once online), or another phone, may have filed the day — said
+      // "Flyttet fra" while it still held that draft. The server is asked
+      // first: a row there is not the form's (never deleted for the move — no
+      // version of it was held), kept and said ("… står der stadig", or the
+      // day is locked); none, while a copy on this phone may still file the
+      // day, is not known yet ("queued": "… kan stadig stå der").
+      let row;
+      try {
+        row = await readDayFresh(key);
+      } catch (err) {
+        return err?.response ? "error" : "offline";
+      }
+      if (row) {
+        if (out) out.row = row;
+        setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+        onDraftSaved?.();
+        return (row.status || "confirmed") !== "draft" ? "locked" : "changed";
+      }
+      return queuedCopyMayFile(key) ? "queued" : "none";
+    }
     // Round 23 review — deleted only on a version this form HOLDS (the one
     // it opened, or its own save was answered with) — or, from the banner,
     // the version shown: never on History's listed version (that is whoever
@@ -4655,7 +4691,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // said so (refused, locked), or the form knows it is stored.
       known: o.outcome === "changed" || o.outcome === "locked" || draftKnownStored(o.key),
     }));
-    if (!stuck.length) return { from: m.from, to: m.to, state: "moved" };
+    // (The days the figures left — the line looks at History again for
+    // them: a draft landing there later is never said "Flyttet fra".)
+    if (!stuck.length) return { from: m.from, to: m.to, state: "moved", keys: outcomes.map((o) => o.key) };
     return { from: m.from, to: m.to, state: "copy", stuck };
   };
   // A move answered "Flyt tallene", and the new day's save landed: the old
@@ -7390,7 +7428,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             Never "Flyttet" unless the old draft is gone. */}
         {movedNote && movedNote.to === businessDate && (() => {
           const short = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
-          if (movedNote.state !== "copy") {
+          // Release R-c — what History lists for a day the figures left, as
+          // the server holds it now (never a draft this form deleted).
+          const listedRowOf = (k) => (existingCloses || []).find((dc) => closeRowKey(dc) === k
+            && !dc.is_deleted && !droppedIds.has(dc.id));
+          // "Flyttet fra" only while no day the figures left holds a draft:
+          // one that landed there after the move (another visit's copy kept
+          // on this phone, synced once online) is said as still there.
+          const landedSince = movedNote.state !== "copy"
+            ? (movedNote.keys || []).find((k) => (listedRowOf(k)?.status || "") === "draft") : null;
+          if (movedNote.state !== "copy" && !landedSince) {
             return (
               <p data-testid="dc-date-moved" className="mb-4 -mt-1 text-[13px] text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
                 <Icon name="CalendarCheck" size={14} className="shrink-0" />
@@ -7402,7 +7449,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // no answer, not seen landing): nothing was copied, and nothing may
           // be deleted — said so ("Ikke gemt for {to} endnu — intet er slettet
           // for {from}"), with "Prøv igen" (its answer finishes the move).
-          if (movedNote.stuck.some((x) => x.outcome === "pending")) {
+          const stuck = landedSince ? [{ key: landedSince, outcome: "changed", known: true }] : movedNote.stuck;
+          if (stuck.some((x) => x.outcome === "pending")) {
             return (
               <div data-testid="dc-date-moved" data-state="pending" className="mb-4 -mt-1 text-[13px] text-amber-900 dark:text-amber-100 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="flex items-center gap-1.5">
@@ -7417,18 +7465,30 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           }
           // The first day known to still hold a draft is named; when none is
           // known (its save got no answer), the line says it MAY still be there.
-          const knownStuck = movedNote.stuck.find((x) => x.known);
-          const named = knownStuck || movedNote.stuck[0];
+          // (A day a copy on this phone was still to file — "queued" — is
+          // known once History lists its draft: the copy landed there.)
+          const knownStuck = stuck.find((x) => x.known
+            || (x.outcome === "queued" && (listedRowOf(x.key)?.status || "") === "draft"));
+          const named = knownStuck || stuck[0];
           const stays = named?.key ? String(named.key).split("|")[0] : movedNote.from;
-          const canDelete = movedNote.stuck.some((x) => x.outcome !== "changed" && x.outcome !== "locked");
-          const stillOffline = movedNote.tried && movedNote.stuck.some((x) => x.outcome === "offline");
+          // Release R-c (sequence lane) — a day locked (on another device):
+          // said as locked, never "kladden … står der stadig" — it is no draft.
+          const namedRow = named?.key ? listedRowOf(named.key) : null;
+          const namedLocked = named?.outcome === "locked"
+            || Boolean(namedRow && (namedRow.status || "confirmed") !== "draft");
+          // ("queued": nothing stored there yet that this form could delete —
+          // a copy on this phone may still file it.)
+          const canDelete = stuck.some((x) => x.outcome !== "changed" && x.outcome !== "locked" && x.outcome !== "queued");
+          const stillOffline = movedNote.tried && stuck.some((x) => x.outcome === "offline");
           return (
             <div data-testid="dc-date-moved" data-state="copy" className="mb-4 -mt-1 text-[13px] text-amber-900 dark:text-amber-100 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="flex items-center gap-1.5">
                 <Icon name="CalendarClock" size={14} className="shrink-0" />
-                {knownStuck
-                  ? t("dcDateMovedCopied", "Copied to {to} — the draft for {from} is still there", { to: short(movedNote.to), from: short(stays) })
-                  : t("dcDateMovedMaybeCopied", "Copied to {to} — the draft for {from} may still be there", { to: short(movedNote.to), from: short(stays) })}
+                {namedLocked
+                  ? t("dcDateMovedCopiedLocked", "Copied to {to} — {from} is locked and stays as it is", { to: short(movedNote.to), from: short(stays) })
+                  : knownStuck
+                    ? t("dcDateMovedCopied", "Copied to {to} — the draft for {from} is still there", { to: short(movedNote.to), from: short(stays) })
+                    : t("dcDateMovedMaybeCopied", "Copied to {to} — the draft for {from} may still be there", { to: short(movedNote.to), from: short(stays) })}
               </span>
               {canDelete && (
                 <Button size="sm" variant="secondary" className="min-h-10" disabled={moveBusy} onClick={deleteMovedOld}>

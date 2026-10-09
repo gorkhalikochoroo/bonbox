@@ -8231,6 +8231,7 @@ export const da = {
     dcMoveTargetLockedTitle: "{to} er allerede lukket og låst",
     dcMoveTargetBody: "Dine tal bliver på {from} — der flyttes ikke noget. Åbn {to} fra Historik, eller vælg en anden dag.",
     dcDateMovedCopied: "Kopieret til {to} — kladden for {from} står der stadig",
+    dcDateMovedCopiedLocked: "Kopieret til {to} — {from} er låst og står uændret",
     dcDateMovedDeleteOld: "Slet den",
     dcDateMovedDeleteOffline: "Ikke slettet — der er ingen forbindelse. Prøv igen, når du er online.",
     dcDraftNotSavedShort: "Ikke gemt",

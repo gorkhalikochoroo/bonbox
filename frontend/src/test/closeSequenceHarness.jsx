@@ -161,6 +161,8 @@ export const STATS = {
   // Round 22: answers lost (stored, never heard), MV / M6 checked on a day
   // with one, and LK.
   lostAnswers: 0, MVlost: 0, M6lost: 0, LK: 0, offlineSteps: 0, M6offline: 0,
+  // Release R-c: a move off a day locked elsewhere, checked for its wording.
+  MVlocked: 0,
   // Round 23: Start forfra that could not be done (said, nothing changed),
   // the questions' wording checked, a move answered no / "Hent salg", the
   // scan refused offline (B), a scan whose connection dropped.
@@ -1089,7 +1091,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         `"${t}" with "Slet den" offered`)).toBe(false);
       return;
     }
-    if (!/dcDateMovedFrom:|dcDateMovedCopied:|dcDateMovedMaybeCopied:/.test(t) || !on) return;
+    if (!/dcDateMovedFrom:|dcDateMovedCopied:|dcDateMovedCopiedLocked:|dcDateMovedMaybeCopied:/.test(t) || !on) return;
     STATS.MT += 1;
     expect(Boolean(S.rows.get(`${on}|`)), fail("MT a day reported moved or copied TO holds the figures",
       `"${t}" on ${on}, which holds nothing on the server`)).toBe(true);
@@ -1154,6 +1156,15 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         // Locked on another device since: that lock stands — never "moved".
         STATS.newerElsewhere += 1;
         if (onTo) expect(namedDay === mv.from, fail(MV, `${mv.from} was locked elsewhere, yet the page says the figures moved`)).toBe(false);
+        // Release R-c (sequence lane) — and never called a draft: "kladden …
+        // står der stadig" of a locked day is false; the line says it is
+        // locked ("… er låst og står uændret").
+        if (onTo) {
+          STATS.MVlocked += 1;
+          const pair = `${shortDay(mv.to)}|${shortDay(mv.from)}`;
+          expect(hasText(`dcDateMovedCopied:${pair}`) || hasText(`dcDateMovedMaybeCopied:${pair}`),
+            fail("MV a day locked elsewhere is said locked, never a draft", `${mv.from} is locked (${brief(row)}), yet the line under the date calls it a draft`)).toBe(false);
+        }
       } else if (S.writer.get(key) === "other"
         && S.deletedRows.slice(mv.deletes).some((d) => `${String(d.date).slice(0, 10)}|${d.branch_id || ""}` === key && d.__writer === "other")) {
         // Round 22's branch, restored (round 23 review): another device
