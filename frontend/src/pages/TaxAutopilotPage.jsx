@@ -524,7 +524,7 @@ function MetricCard({ label, value, sub, color, currency }) {
    one tap away if I upgrade".
    ────────────────────────────────────────────────────────────── */
 function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   // Own hook call: this is a separate component from TaxAutopilotPage, so the
   // plan it advertises has to be resolved here. tax_filing_pdf moved to
   // Starter on 2026-07-12 and both the badge and the 402 dialog kept
@@ -682,9 +682,30 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
       } else if (e?.response?.status === 429) {
         setError(t("filingPdfDailyCap", "BonBox has sent your revisor the most mails it sends in a day. Download the PDF and send it from your own mail, or try tomorrow."));
         setTimeout(() => setError(""), 10000);
+      } else if (e?.response?.status === 503 && e?.response?.data?.detail?.reason === "email_not_configured") {
+        // Nothing was attempted. Said in the owner's language — never the
+        // server's English sentence (R-a follow-up, 9 Oct).
+        setError(t("filingPdfSendNotConfigured", "Sending from BonBox isn't set up here, so nothing was sent. Download the PDF and send it from your own mail."));
+        setTimeout(() => setError(""), 10000);
+      } else if (e?.response?.status === 502 && e?.response?.data?.detail?.code === "email_send_failed") {
+        // The mail service answered with an error. The owner's copy is only
+        // sent after the revisor's send succeeds, so no copy is coming.
+        setError(t("filingPdfSendProviderFailed", "The mail service reported an error, so the momsangivelse most likely did not reach {email} — and no copy was sent to you. Download the PDF and send it from your own mail, or try again in a moment.", { email: accountantEmail }));
+        setTimeout(() => setError(""), 15000);
+      } else if (e?.response?.status === 500 && e?.response?.data?.detail?.code === "pdf_generation_failed") {
+        // The PDF was never built: nothing was mailed.
+        setError(t("filingPdfSendBuildFailed", "BonBox couldn't make the momsangivelse PDF, so nothing was sent. Try again in a moment."));
+        setTimeout(() => setError(""), 10000);
+      } else if (!e?.response || e.response.status >= 500) {
+        // No answer (or one we can't read): BonBox can't tell whether the
+        // revisor got it — "try again" could mail it twice.
+        setError(t("filingPdfSendUnknown", "BonBox got no clear answer, so it can't tell whether the momsangivelse reached {email}. Check your inbox for your copy before you send it again or another way.", { email: accountantEmail }));
+        setTimeout(() => setError(""), 15000);
       } else {
+        // Anything else the server words: its Danish for a Danish owner.
+        const d = e?.response?.data?.detail;
         setError(
-          e?.response?.data?.detail?.message || t("filingPdfSendFailed"),
+          (lang === "da" && d?.message_da) || d?.message || t("filingPdfSendFailed"),
         );
         setTimeout(() => setError(""), 6000);
       }

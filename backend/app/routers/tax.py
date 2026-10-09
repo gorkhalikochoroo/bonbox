@@ -446,7 +446,8 @@ def tax_filing_send_to_accountant(
             status_code=500,
             detail={
                 "code": "pdf_generation_failed",
-                "message": "Could not generate the filing PDF. Please try again.",
+                "message": "Could not generate the filing PDF, so nothing was sent. Please try again.",
+                "message_da": "BonBox kunne ikke lave PDF'en til momsangivelsen, så intet blev sendt. Prøv igen.",
             },
         )
 
@@ -507,6 +508,10 @@ def tax_filing_send_to_accountant(
         # times — one tap could mail the revisor five times. 503 only when
         # nothing was attempted (mail not configured), as daily_close does
         # (release gate review, 9 Oct).
+        # message_da: the Danish twin the app shows a Danish owner (R-a
+        # follow-up, 9 Oct; the app also words these codes itself). The
+        # owner's copy only goes after the revisor's send succeeds
+        # (send_file_to_revisor), so no copy is coming either.
         raise HTTPException(
             status_code=503 if err == "email_not_configured" else 502,
             detail={
@@ -515,6 +520,14 @@ def tax_filing_send_to_accountant(
                 "message": (
                     "Couldn't send email right now. The file is still "
                     "available to download."
+                ),
+                "message_da": (
+                    "Afsendelse fra BonBox er ikke sat op her, så intet blev sendt. "
+                    "Hent PDF'en og send den fra din egen mail."
+                ) if err == "email_not_configured" else (
+                    "Mailtjenesten svarede med en fejl, så momsangivelsen nåede sandsynligvis "
+                    "ikke frem til din revisor — og du får ingen kopi. Hent PDF'en og send den "
+                    "fra din egen mail, eller prøv igen om lidt."
                 ),
             },
         )
