@@ -28,6 +28,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
 from sqlalchemy import func
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -1568,6 +1569,29 @@ def _claim_draft_version(db, existing, data, user) -> None:
     })
 
 
+def _lock_close_day(db, user_id, day, branch_id) -> None:
+    """One writer per day (R-b, 9 Oct): every write to one (user, day,
+    branch) waits here for the one before it to commit, then reads the day
+    fresh. Postgres: pg_advisory_xact_lock(hashtextextended('daily_close:'
+    ||user||':'||day||':'||branch-or-'-', 0)), released at commit/rollback;
+    SQLite: no-op (it serialises writers itself). See
+    services/close_day_lock.py and tests/test_pg_races.py."""
+    from app.services.close_day_lock import lock_close_day
+    lock_close_day(db, user_id, day, branch_id)
+
+
+def _lock_close_row(db, user, dc) -> bool:
+    """_lock_close_day for a close loaded by id, then the row read again
+    under the lock (what another write committed while this one waited).
+    False when the row is gone (hard-deleted meanwhile)."""
+    _lock_close_day(db, user.id, dc.date, dc.branch_id)
+    try:
+        db.refresh(dc)
+    except InvalidRequestError:  # "Could not refresh instance": the row is gone
+        return False
+    return True
+
+
 def _clean_source_meta(meta) -> str | None:
     """Keep only the known, bounded keys of the client's source description
     (see DailyClose.source_meta) and store it as JSON text."""
@@ -1876,6 +1900,13 @@ def create_daily_close(
     data.closed_by = _clip_text(data.closed_by, CLOSED_BY_MAX)
     data.notes = _clip_text(data.notes, NOTES_MAX)
 
+    # One writer per day (R-b, 9 Oct): wait for any other save, lock, delete
+    # or unlock of this day to commit, so the read below sees its result —
+    # two saves no longer both read "no close yet" (two live drafts, or a 500
+    # on the unique key), and a save never writes over a close another
+    # request locked or deleted after this one read it.
+    _lock_close_day(db, user.id, data.date, data.branch_id)
+
     # Check for existing close on same date+branch (upsert)
     existing = (
         db.query(DailyClose)
@@ -1907,6 +1938,13 @@ def create_daily_close(
     if (existing is not None and data.base_updated_at is not None
             and (getattr(existing, "status", None) or "confirmed") == "draft"):
         _claim_draft_version(db, existing, data, user)
+    # A row the claim found deleted meanwhile is no close any more (R-b,
+    # 9 Oct): its update branch wrote the save's figures INTO the deleted row
+    # and answered 200 — no live row held them. The save is filed as the
+    # day's close instead (a new row, or for a venue with branches the dead
+    # draft taken back by the rule below).
+    if existing is not None and existing.is_deleted:
+        existing = None
 
     # Revenue total: when the OCR detected a bottom-line total
     # (revenue_total_override) AND the user didn't fully reconcile the
@@ -2161,6 +2199,20 @@ def create_daily_close(
                     "delta_pct": _anomaly.get("delta_pct"),
                 },
             }
+
+    # A save with no base_updated_at (an older app build, a queued copy) has
+    # no version check and no claim: its first read of the row may be older
+    # than a lock or a delete that committed since. Read the row again, held
+    # until this save commits, so a close locked meanwhile gets the locked-row
+    # 409 below — never its figures rewritten under status 'confirmed' — and
+    # a close deleted meanwhile is filed again rather than written into.
+    if existing is not None and data.base_updated_at is None:
+        try:
+            db.refresh(existing, with_for_update=True)
+        except InvalidRequestError:  # hard-deleted meanwhile
+            existing = None
+        if existing is not None and existing.is_deleted:
+            existing = None
 
     if existing:
         # Block edits to confirmed (locked) entries — must unlock first.
@@ -2819,6 +2871,12 @@ def resend_close_email(
     ).first()
     if not dc:
         raise HTTPException(status_code=404, detail="Daily close not found")
+    # One writer per day (R-b, 9 Oct), held until the send is claimed (the
+    # commit below, before any mail goes): an unlock or delete of this day
+    # that was writing is seen here — a close unlocked meanwhile is refused
+    # as not locked, never sent as the kasserapport it no longer is.
+    if not _lock_close_row(db, user, dc) or dc.is_deleted:
+        raise HTTPException(status_code=404, detail="Daily close not found")
     if (getattr(dc, "status", None) or "confirmed") != "confirmed":
         raise HTTPException(status_code=409, detail={
             "code": "not_locked",
@@ -3033,6 +3091,10 @@ def unlock_daily_close(
         DailyClose.is_deleted.isnot(True),
     ).first()
     if not dc:
+        raise HTTPException(status_code=404, detail="Daily close not found")
+    # One writer per day (R-b, 9 Oct): the status checked below is the one
+    # after any save / lock / delete / unlock of this day that was writing.
+    if not _lock_close_row(db, user, dc) or dc.is_deleted:
         raise HTTPException(status_code=404, detail="Daily close not found")
     current_status = getattr(dc, "status", None) or "confirmed"
     if current_status != "confirmed":
@@ -5139,6 +5201,11 @@ def delete_daily_close(
         DailyClose.user_id == user.id,
     ).first()
     if not dc:
+        raise HTTPException(status_code=404, detail="Daily close not found")
+    # One writer per day (R-b, 9 Oct): a save of this day that committed
+    # while this delete waited is read now — checked below like any other
+    # version, never deleted unseen.
+    if not _lock_close_row(db, user, dc):
         raise HTTPException(status_code=404, detail="Daily close not found")
     # A locked (status=="confirmed") close is the legal kasserapport for
     # that day under Bogføringsloven §10 — it must NOT be deletable without

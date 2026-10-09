@@ -1166,7 +1166,22 @@ def clear_for_user(db: Session, user: User) -> dict:
                 DailyClose.notes.like("% · demo"))
         .all()
     )
-    for c in demo_closes:
+    # One writer per day (R-b, 9 Oct): a save the owner sent on a sample
+    # day while this ran turned it into their own close (the save drops the
+    # " · demo" marker) — the DELETE below, keyed on the id alone, then
+    # removed the owner's real figures. Each day is locked against its
+    # saves (in one fixed order) and read again; a day that is no longer
+    # sample data is kept.
+    from sqlalchemy.exc import InvalidRequestError
+    from app.services.close_day_lock import lock_close_day
+    for c in sorted(demo_closes, key=lambda c: (str(c.date), str(c.branch_id or ""))):
+        if lock_close_day(db, user.id, c.date, c.branch_id):
+            try:
+                db.refresh(c)
+            except InvalidRequestError:  # already gone
+                continue
+            if not (c.notes or "").endswith(" · demo"):
+                continue
         db.delete(c)
         deleted["closes"] += 1
 
