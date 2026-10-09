@@ -19,7 +19,7 @@
  *   • No data fetched — this is static onboarding copy. Any "is this
  *     step done?" logic belongs in the orchestrator's renderIf, not here.
  */
-import React from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
@@ -73,6 +73,12 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
   // tile is hidden on /connections. So we ONLY surface that step when the
   // backend says the integration is genuinely wired up.
   const { bank_connect_enabled: bankConnectEnabled } = useFeatures();
+  // Is the sample-data card on screen? (DemoDataCard says: true / false, or
+  // null while it reads /demo/status.) The "two ways" header and the "eller
+  // start med dine rigtige tal" divider are said only when it is — an
+  // account in use, one with data of its own, or a "Nej tak" gets the one
+  // path, never a promise of a card that is not there (review fix, 9 Oct).
+  const [demoOffered, setDemoOffered] = useState(null);
 
   // ── Archetype-aware HERO step ──────────────────────────────────────────
   // The hero (step 1, gray-900 Button) must be the first win that fits THIS
@@ -219,10 +225,15 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
           {t("dashFirstRunTitle", "Welcome to BonBox")}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-          {t(
-            "dashFirstRunSubtitleTwoWays",
-            "Two ways to begin: explore with sample data to see the whole thing at once, or start your first close and watch your dashboard fill in.",
-          )}
+          {demoOffered === true
+            ? t(
+                "dashFirstRunSubtitleTwoWays",
+                "Two ways to begin: explore with sample data to see the whole thing at once, or start your first close and watch your dashboard fill in.",
+              )
+            : t(
+                "dashFirstRunSubtitleOnePath",
+                "Start with your real numbers — your dashboard fills in as you go.",
+              )}
         </p>
       </header>
 
@@ -232,15 +243,21 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
           Visually amber/secondary so the gray-900 kasserapport CTA below stays
           the hero — the wedge still leads. Honest: DemoActiveBanner + ` · demo`
           tags mean seeded data never masquerades as real. */}
-      <DemoDataCard forceShow />
+      <DemoDataCard forceShow onAvailabilityChange={setDemoOffered} />
 
-      <div className="flex items-center gap-3 my-6" aria-hidden="true">
-        <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
-        <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-          {t("dashFirstRunOrStartReal", "or start with your real numbers")}
-        </span>
-        <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
-      </div>
+      {demoOffered === true && (
+        <div
+          className="flex items-center gap-3 my-6"
+          aria-hidden="true"
+          data-testid="first-run-or-divider"
+        >
+          <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
+          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            {t("dashFirstRunOrStartReal", "or start with your real numbers")}
+          </span>
+          <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
+        </div>
+      )}
 
       <ol className="space-y-5">
         {steps.map((step, i) => (

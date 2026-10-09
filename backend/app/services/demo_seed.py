@@ -861,16 +861,15 @@ def _count_non_demo_rows(db: Session, user_id, *, include_verified_profile: bool
     )
 
 
-def _count_in_use_rows(db: Session, user_id) -> int:
-    """Signs a venue is already running on BonBox even with no closes or
-    expenses: its own (non-demo) bookings, its own bookable tables, and a staff
-    roster. seed_for_user's keep_profile mode refuses on any of them — it no
-    longer has the CVR-verified gate, and sample tables (is_active, so real
-    capacity for the public booking page) and tonight's sample bookings must
-    never land on a live host stand. Kept out of _count_non_demo_rows so the
-    default seed and "Ryd demodata" rules are unchanged."""
+def _count_live_stand_rows(db: Session, user_id) -> int:
+    """The venue's own (non-demo) bookings and bookable tables — a host
+    stand / public booking page in use. Both seeds refuse on them: the sample
+    tables are is_active (real capacity on the public booking page) and
+    tonight's sample bookings would sit on the live host stand (release gate
+    R-b review, 9 Oct: the default seed had no such check, so an owner with
+    an empty profile who takes real bookings was offered — and given — the
+    sample tables and bookings from the dashboard card)."""
     from sqlalchemy import or_
-    from app.models.staff import StaffMember
     real_bookings = (
         db.query(Reservation)
         .filter(Reservation.user_id == user_id, Reservation.is_deleted.isnot(True))
@@ -885,6 +884,20 @@ def _count_in_use_rows(db: Session, user_id) -> int:
         .filter(~BookableResource.label.like("% · demo"))
         .count()
     )
+    return int(real_bookings + real_tables)
+
+
+def _count_in_use_rows(db: Session, user_id) -> int:
+    """Signs a venue is already running on BonBox even with no closes or
+    expenses: its own (non-demo) bookings, its own bookable tables, and a staff
+    roster. seed_for_user's keep_profile mode refuses on any of them — it no
+    longer has the CVR-verified gate, and sample tables (is_active, so real
+    capacity for the public booking page) and tonight's sample bookings must
+    never land on a live host stand. Kept out of _count_non_demo_rows so the
+    "Ryd demodata" rules are unchanged. The default seed refuses on the
+    bookings and tables only (_count_live_stand_rows) — a staff roster alone
+    is counted for keep_profile only, as before."""
+    from app.models.staff import StaffMember
     # Every staff member, active or not: staff are only ever deactivated, and
     # a roster at all means the venue has used BonBox for real.
     staff = (
@@ -893,7 +906,7 @@ def _count_in_use_rows(db: Session, user_id) -> int:
                 StaffMember.is_deleted.isnot(True))
         .count()
     )
-    return int(real_bookings + real_tables + staff)
+    return int(_count_live_stand_rows(db, user_id) + staff)
 
 
 def _seed_reservations(db: Session, user: User, mark_demo: bool = True) -> dict:
@@ -984,6 +997,9 @@ def seed_for_user(db: Session, user: User, *, keep_profile: bool = False) -> dic
       2. Refuse if the user has already-seeded demo rows — they
          should clear first.
       3. Tenant-scoped end-to-end — only writes for this user_id.
+      4. Refuse a live host stand — the account's own bookings or tables
+         (_count_live_stand_rows): the sample tables are bookable capacity
+         and tonight's sample bookings would sit on the stand.
 
     `keep_profile` (the onboarding wizard's "Udforsk med eksempeldata"): the
     owner has just typed their OWN business in — name, CVR, address, day
@@ -1013,12 +1029,16 @@ def seed_for_user(db: Session, user: User, *, keep_profile: bool = False) -> dic
     # Block when there's any real data. keep_profile drops the verified-
     # profile signal (the profile is not touched) and adds the account-in-use
     # one instead (bookings, tables, staff — what a live venue has even with
-    # no closes or expenses yet).
+    # no closes or expenses yet). The default seed keeps the verified-profile
+    # signal and refuses a live host stand too (own bookings or tables): its
+    # sample tables and tonight's bookings would land on it all the same.
     real_count = _count_non_demo_rows(
         db, user.id, include_verified_profile=not keep_profile,
     )
     if keep_profile:
         real_count += _count_in_use_rows(db, user.id)
+    else:
+        real_count += _count_live_stand_rows(db, user.id)
     if real_count > 0:
         return {
             "ok": False,
@@ -1242,7 +1262,8 @@ def seed_choice_for_user(db: Session, user: User, status: dict | None = None) ->
       own_profile: the profile holds the owner's own details — the seed is
         keep_profile (never the sample company over them).
       seedable: that seed would be accepted. keep_profile also refuses an
-        account in use (staff, its own tables or bookings).
+        account in use (staff, its own tables or bookings); the default seed
+        refuses a live host stand (its own tables or bookings).
 
     `status` is status_for_user's answer when the caller already has it."""
     if user is None:
@@ -1256,5 +1277,7 @@ def seed_choice_for_user(db: Session, user: User, status: dict | None = None) ->
         # the keep_profile in-use gate is left to refuse.
         seedable = _count_in_use_rows(db, user.id) == 0
     else:
-        seedable = True
+        # The default seed: has_real already covers its real-row gate (a
+        # verified profile included); its live-stand gate is the rest.
+        seedable = _count_live_stand_rows(db, user.id) == 0
     return {"own_profile": bool(own_profile), "seedable": bool(seedable)}

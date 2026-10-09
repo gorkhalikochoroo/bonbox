@@ -261,7 +261,7 @@ def test_keep_profile_refuses_a_real_booking_alone_and_a_staff_roster_alone(db_s
 
 
 def test_the_default_seed_rules_are_unchanged_by_the_in_use_gate(db_session):
-    """Tables / staff are counted for keep_profile only — the dashboard's own
+    """Staff are counted for keep_profile only — the dashboard's own
     "Load demo" on an unverified account keeps its round-6 behaviour."""
     from app.models.staff import StaffMember
     user = _owner(db_session)

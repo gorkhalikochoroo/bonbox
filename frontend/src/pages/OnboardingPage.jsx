@@ -56,7 +56,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
-import { completedOnboardingRedirect, setFinishTarget } from "../utils/onboardingFinish";
+import { completedOnboardingRedirect, finishTargetReached, setFinishTarget } from "../utils/onboardingFinish";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
@@ -872,6 +872,8 @@ export default function OnboardingPage() {
     // Recorded BEFORE refreshUser: the completed user renders before this
     // navigation commits, and the /onboarding guards then send the owner
     // here (with the same state), never to /dashboard (release gate R-b).
+    // It holds however long the requests take; its short expiry starts only
+    // once the navigation below has run.
     setFinishTarget(safeDest, navState);
     try {
       await api.post("/auth/onboarding/complete");
@@ -888,6 +890,7 @@ export default function OnboardingPage() {
         // Only a held revisor invite carries state (shown after the redirect).
         navState ? { replace: true, state: navState } : { replace: true },
       );
+      finishTargetReached();
     }
   };
 

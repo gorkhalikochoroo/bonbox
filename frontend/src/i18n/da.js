@@ -8120,6 +8120,7 @@ export const da = {
     dashFirstRunSubtitleTwoWays:
       "To måder at starte på: udforsk med eksempeldata og se det hele på én gang, eller lav din første afslutning og se dit overblik fyldes op.",
     dashFirstRunOrStartReal: "eller start med dine rigtige tal",
+    dashFirstRunSubtitleOnePath: "Start med dine rigtige tal — dit overblik fyldes op, efterhånden som du arbejder.",
     dashFirstRunStep1Title: "Tilslut MobilePay eller Aiia",
     dashFirstRunStep1Body:
       "Træk bank- og betalingsdata ind, så afstemningen sker automatisk — eller spring over og log manuelt indtil videre.",
@@ -8819,6 +8820,8 @@ export const da = {
     demoActiveBanner: 'Viser eksempeldata, så du kan udforske. Ryd det, når du er klar til at tilføje dine egne.',
     demoActiveClearing: 'Rydder…',
     demoActiveClear: 'Ryd eksempeldata',
+    demoActiveBannerMember: "Kontoen viser eksempeldata — det er ikke rigtige tal. Kun ejeren kan rydde dem.",
+    demoActiveClearFailed: "Eksempeldata kunne ikke ryddes — prøv igen.",
     demoSeedError: 'Kunne ikke indlæse eksempeldata. Prøv igen.',
     demoCardAria: 'Prøv BonBox med eksempeldata',
     demoCardTitle: 'Se BonBox i aktion',

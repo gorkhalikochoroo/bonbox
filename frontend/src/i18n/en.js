@@ -8402,6 +8402,7 @@ export const en = {
     dashFirstRunSubtitleTwoWays:
       "Two ways to begin: explore with sample data to see the whole thing at once, or start your first close and watch your dashboard fill in.",
     dashFirstRunOrStartReal: "or start with your real numbers",
+    dashFirstRunSubtitleOnePath: "Start with your real numbers — your dashboard fills in as you go.",
     dashFirstRunStep1Title: "Connect MobilePay or Aiia",
     dashFirstRunStep1Body:
       "Pull in your bank + payment data so reconciliation is automatic — or skip and log manually for now.",
@@ -9136,6 +9137,8 @@ export const en = {
     demoActiveBanner: 'Showing sample data so you can explore. Clear it whenever you\'re ready to add your own.',
     demoActiveClearing: 'Clearing…',
     demoActiveClear: 'Clear sample data',
+    demoActiveBannerMember: "This account is showing sample data — these are not real figures. Only the owner can clear it.",
+    demoActiveClearFailed: "The sample data could not be cleared — try again.",
     demoSeedError: 'Could not load sample data. Please try again.',
     demoCardAria: 'Try BonBox with sample data',
     demoCardTitle: 'See BonBox in action',

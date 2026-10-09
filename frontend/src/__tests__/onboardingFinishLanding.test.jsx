@@ -78,7 +78,9 @@ vi.mock("../hooks/useEntitlements", () => ({
 const { AuthProvider } = await import("../hooks/useAuth");
 const { OnboardingRoute } = await import("../App");
 const RevisorInviteHeldNotice = (await import("../components/RevisorInviteHeldNotice")).default;
-const { clearFinishTarget } = await import("../utils/onboardingFinish");
+const {
+  clearFinishTarget, completedOnboardingRedirect, finishTargetReached, setFinishTarget, FINISH_TARGET_TTL_MS,
+} = await import("../utils/onboardingFinish");
 
 const OWNER = {
   id: "u1", email: "ejer@cafe.dk", business_name: "Café Solsikken", business_type: "cafe",
@@ -140,6 +142,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.useRealTimers();
   clearFinishTarget();
   window.history.replaceState(null, "", "/");
 });
@@ -181,5 +184,77 @@ describe("the wizard's finish lands where it says (real router, real guards)", (
     });
     await waitFor(() => expect(window.location.pathname).toBe("/dashboard"));
     expect(await screen.findByText("DASHBOARD")).toBeInTheDocument();
+  });
+});
+
+// Review fix (9 Oct): the target's 10 s window used to start BEFORE the POST
+// and the GET /auth/me. A finish on a slow phone network or a cold server
+// (services/api.js retries a 503 / failed GET on a 2/4/8/12 s backoff) let it
+// lapse before the completed user rendered, and the guards sent the owner to
+// /dashboard with no state — the R-b blocker again, on slow connections only.
+describe("a slow finish still lands on 'Du er klar' (the window starts after the finish's own navigation)", () => {
+  function slowMe() {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    h.get.mockImplementation((url) => {
+      if (url === "/pillars/preset") return Promise.resolve({ data: { suggested: [] } });
+      if (url === "/auth/me") {
+        return gate.then(() => ({ data: { ...OWNER, onboarding_completed_at: "2026-10-09T13:03:35" } }));
+      }
+      return Promise.resolve({ data: {} });
+    });
+    return () => release();
+  }
+
+  it("/auth/me answering 15 s after the tap: the held-invite finish still ends on /getting-started with its state", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-09T13:03:00Z"));
+    const releaseMe = slowMe();
+    await toStep4();
+    fireEvent.change(document.getElementById("onb-revisor-email"), { target: { value: "anna@revisor.dk" } });
+    await act(async () => { fireEvent.click(screen.getByText("onbStep4Finish")); });
+    for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(window.location.pathname).toBe("/onboarding"); // still waiting on /auth/me
+    vi.setSystemTime(new Date(Date.now() + 15_000));
+    // Released outside act(), as in the browser: the finish's own navigation
+    // (a transition) is called before React renders the completed user, so
+    // the guard's redirect comes LAST — the order the R-b blocker had.
+    releaseMe();
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(await screen.findByText("DU_ER_KLAR")).toBeInTheDocument();
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(window.location.pathname).toBe("/getting-started");
+    expect(screen.queryByText("DASHBOARD")).toBeNull();
+    expect(window.history.state?.usr).toMatchObject({ revisorInviteHeld: true, revisorInviteHeldReason: "email_unverified" });
+    expect(screen.getByTestId("revisor-invite-held-after-onboarding").textContent).toContain("onbRevisorInviteHeld");
+  });
+
+  it("once the finish has landed, its window lapses on its own: the back button to /onboarding is the dashboard again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-09T13:03:00Z"));
+    await toStep4();
+    await act(async () => { fireEvent.click(screen.getByText("onbFinishToFirstWin")); });
+    await screen.findByText("DU_ER_KLAR");
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    vi.setSystemTime(new Date(Date.now() + FINISH_TARGET_TTL_MS + 1_000));
+    // No clearFinishTarget() here: the lapse alone must do it.
+    await act(async () => {
+      window.history.pushState(null, "", "/onboarding");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(window.location.pathname).toBe("/dashboard"));
+    expect(await screen.findByText("DASHBOARD")).toBeInTheDocument();
+  });
+
+  it("the target: no expiry while in flight, the short window only after the finish's navigation", () => {
+    const t0 = 1_000_000;
+    setFinishTarget("/getting-started", { revisorInviteHeld: true });
+    expect(completedOnboardingRedirect(t0 + 60_000)).toEqual({ to: "/getting-started", state: { revisorInviteHeld: true } });
+    finishTargetReached(t0 + 60_000);
+    expect(completedOnboardingRedirect(t0 + 60_000 + FINISH_TARGET_TTL_MS - 1).to).toBe("/getting-started");
+    expect(completedOnboardingRedirect(t0 + 60_000 + FINISH_TARGET_TTL_MS + 1)).toEqual({ to: "/dashboard", state: null });
+    // A bad destination is never recorded.
+    setFinishTarget("https://evil.example/x");
+    expect(completedOnboardingRedirect(t0).to).toBe("/dashboard");
   });
 });

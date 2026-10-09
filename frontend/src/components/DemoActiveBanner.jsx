@@ -16,13 +16,21 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
+import { useAuth } from "../hooks/useAuth";
 import { Icon } from "./ui";
 
 export default function DemoActiveBanner() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const confirm = useConfirm();
+  const { user } = useAuth();
+  // Only the owner's own session can clear: an invited member (manager /
+  // cashier / viewer) or a revisor sees the owner's dashboard, but the server
+  // refuses their POST /demo/clear (403 read_only). They get the label — this
+  // is sample data — and no button that cannot work (review fix, 9 Oct).
+  const canClear = !!user && String(user.role || "owner").toLowerCase() === "owner";
   const [hasDemo, setHasDemo] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +56,7 @@ export default function DemoActiveBanner() {
   }, []);
 
   const onClear = async () => {
-    if (clearing) return;
+    if (clearing || !canClear) return;
     // One tap used to clear — and took the revisor and bank details the
     // owner had saved on the demo profile. Now it says what goes and what
     // stays (the server keeps everything the owner typed), and asks.
@@ -61,6 +69,7 @@ export default function DemoActiveBanner() {
     });
     if (ok !== true) return;
     setClearing(true);
+    setClearError("");
     try {
       await api.post("/demo/clear");
       setHasDemo(false);
@@ -73,7 +82,17 @@ export default function DemoActiveBanner() {
       // state — there are 20+ subscribers; a single event won't reach
       // them all reliably.
       setTimeout(() => window.location.reload(), 150);
-    } catch {
+    } catch (err) {
+      // Said, in the owner's language — never a button that silently resets.
+      const detail = err?.response?.data?.detail;
+      const worded = detail && typeof detail === "object"
+        ? (lang === "da" ? detail.message_da : detail.message)
+        : null;
+      setClearError(
+        typeof worded === "string" && worded.trim()
+          ? worded
+          : t("demoActiveClearFailed", "The sample data could not be cleared — try again."),
+      );
       setClearing(false);
     }
   };
@@ -94,32 +113,51 @@ export default function DemoActiveBanner() {
           size={16}
           className="text-amber-600 dark:text-amber-400 shrink-0"
         />
-        <p className="text-xs sm:text-sm text-amber-800 dark:text-amber-200 truncate">
-          {t(
-            "demoActiveBanner",
-            "Showing sample data so you can explore. Clear it whenever you're ready to add your own.",
+        <div className="min-w-0">
+          <p
+            className={
+              "text-xs sm:text-sm text-amber-800 dark:text-amber-200 " +
+              (canClear ? "truncate" : "leading-snug")
+            }
+          >
+            {canClear
+              ? t(
+                  "demoActiveBanner",
+                  "Showing sample data so you can explore. Clear it whenever you're ready to add your own.",
+                )
+              : t(
+                  "demoActiveBannerMember",
+                  "This account is showing sample data — these are not real figures. Only the owner can clear it.",
+                )}
+          </p>
+          {clearError && (
+            <p role="alert" className="mt-0.5 text-xs text-red-700 dark:text-red-300">
+              {clearError}
+            </p>
           )}
-        </p>
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={onClear}
-        disabled={clearing}
-        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5
-                   rounded-lg text-xs font-medium
-                   bg-amber-100 hover:bg-amber-200
-                   dark:bg-amber-900/30 dark:hover:bg-amber-900/50
-                   text-amber-900 dark:text-amber-100
-                   disabled:opacity-60 disabled:cursor-wait
-                   focus:outline-none focus-visible:ring-2
-                   focus-visible:ring-amber-500 focus-visible:ring-offset-2
-                   dark:focus-visible:ring-offset-gray-900"
-      >
-        <Icon name="Eraser" size={14} />
-        {clearing
-          ? t("demoActiveClearing", "Clearing…")
-          : t("demoActiveClear", "Clear sample data")}
-      </button>
+      {canClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={clearing}
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5
+                     rounded-lg text-xs font-medium
+                     bg-amber-100 hover:bg-amber-200
+                     dark:bg-amber-900/30 dark:hover:bg-amber-900/50
+                     text-amber-900 dark:text-amber-100
+                     disabled:opacity-60 disabled:cursor-wait
+                     focus:outline-none focus-visible:ring-2
+                     focus-visible:ring-amber-500 focus-visible:ring-offset-2
+                     dark:focus-visible:ring-offset-gray-900"
+        >
+          <Icon name="Eraser" size={14} />
+          {clearing
+            ? t("demoActiveClearing", "Clearing…")
+            : t("demoActiveClear", "Clear sample data")}
+        </button>
+      )}
     </div>
   );
 }

@@ -172,3 +172,105 @@ def test_keep_profile_seed_from_the_card_leaves_the_typed_details(db_session):
     assert (p.company_name, p.org_number, p.address) == ("Cafe Afslut Gate", "31415926", "Afslutvej 4")
     assert not p.accountant_email  # no sample revisor in the empty slot
     assert _status(db_session, user)["has_demo"] is True
+
+
+# ── Review fixes (9 Oct): the default seed refuses a live host stand too ────
+#
+# An owner whose profile holds none of their own details (skipped the wizard
+# at step 1 — the empty signup profile) but who takes real bookings at their
+# own tables, with no closes / expenses / sales yet, still has the first-run
+# dashboard. The card sent the default seed, which put 4 is_active sample
+# tables (real capacity on the public booking page) and tonight's sample
+# bookings on the live host stand. A staff roster alone is still counted for
+# keep_profile only (test_demo_seed_keep_profile.py keeps that rule).
+
+def _table(db, user, label="Bord 7"):
+    from app.models.bookable_resource import BookableResource
+    t = BookableResource(user_id=user.id, kind="table", label=label,
+                         capacity_seats=4, is_active=True)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return t
+
+
+def _booking(db, user, resource_id=None):
+    from datetime import timedelta
+    from app.models.reservation import Reservation
+    from app.utils.time import utc_now
+    start = utc_now().replace(tzinfo=None, microsecond=0) + timedelta(days=1)
+    db.add(Reservation(user_id=user.id, resource_id=resource_id, guest_name="Gæst",
+                       party_size=2, starts_at=start,
+                       ends_at=start + timedelta(minutes=90), duration_min=90,
+                       status="confirmed", source="public"))
+    db.commit()
+
+
+def _sample_tables(db, user):
+    from app.models.bookable_resource import BookableResource
+    return {r.label for r in db.query(BookableResource).filter_by(user_id=user.id)
+            if r.label.endswith(" · demo")}
+
+
+def test_the_default_seed_refuses_a_venue_with_its_own_tables(db_session):
+    user = _owner(db_session)
+    _table(db_session, user)
+    st = _status(db_session, user)
+    assert st["has_real"] is False and st["own_profile"] is False
+    assert st["seedable"] is False  # the card is not offered
+    res = seed_for_user(db_session, user)
+    assert res["ok"] is False and res["reason"] == "user has real data"
+    assert _sample_tables(db_session, user) == set()
+    p = db_session.query(BusinessProfile).filter_by(user_id=user.id).first()
+    assert p is None or p.company_name != "Mirabelle ApS"
+
+
+def test_the_default_seed_refuses_a_venue_with_its_own_bookings(db_session):
+    user = _owner(db_session)
+    _profile(db_session, user, country="DK")  # the empty signup profile
+    _booking(db_session, user)
+    st = _status(db_session, user)
+    assert st["own_profile"] is False and st["seedable"] is False
+    assert seed_for_user(db_session, user)["ok"] is False
+    assert _sample_tables(db_session, user) == set()
+
+
+def test_the_route_refuses_the_default_seed_on_a_live_stand(db_session):
+    user = _owner(db_session)
+    t = _table(db_session, user)
+    _booking(db_session, user, resource_id=t.id)
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        from app.routers.demo import limiter
+        limiter.reset()
+    except Exception:
+        pass
+    c = TestClient(app)
+    assert c.get("/api/demo/status").json()["seedable"] is False
+    r = c.post("/api/demo/seed")
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["reason"] == "user has real data"
+    assert _sample_tables(db_session, user) == set()
+
+
+def test_a_staff_roster_alone_still_gets_the_default_seed(db_session):
+    """Unchanged: staff are not a live stand — the default seed adds no staff
+    and no shifts. (keep_profile still counts the roster.)"""
+    from app.models.staff import StaffMember
+    user = _owner(db_session)
+    db_session.add(StaffMember(user_id=user.id, name="Mads"))
+    db_session.commit()
+    st = _status(db_session, user)
+    assert st["own_profile"] is False and st["seedable"] is True
+    assert seed_for_user(db_session, user)["ok"] is True
+
+
+def test_sample_tables_of_a_cleared_seed_never_block_a_new_one(db_session):
+    """The live-stand gate counts the venue's OWN rows only: an account whose
+    sample was cleared can load it again."""
+    from app.services.demo_seed import clear_for_user
+    user = _owner(db_session)
+    assert seed_for_user(db_session, user)["ok"] is True
+    assert clear_for_user(db_session, user)["ok"] is True
+    assert _status(db_session, user)["seedable"] is True
+    assert seed_for_user(db_session, user)["ok"] is True

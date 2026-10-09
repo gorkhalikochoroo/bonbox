@@ -45,7 +45,7 @@ function _dismissFor(days = 30) {
   }
 }
 
-export default function DemoDataCard({ forceShow = false }) {
+export default function DemoDataCard({ forceShow = false, onAvailabilityChange }) {
   const { t } = useLanguage();
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -74,13 +74,27 @@ export default function DemoDataCard({ forceShow = false }) {
     };
   }, [hidden]);
 
+  // Whether the card is on screen: true / false, or null while the status is
+  // still being read. The first-run dashboard words its header from this, so
+  // it never promises "udforsk med eksempeldata" over an empty slot (review
+  // fix, 9 Oct).
+  const offered = hidden
+    ? false
+    : !status
+      ? null
+      : !(status.has_real || status.has_demo || status.seedable === false);
+  useEffect(() => {
+    if (typeof onAvailabilityChange === "function") onAvailabilityChange(offered);
+  }, [offered, onAvailabilityChange]);
+
   if (hidden) return null;
   if (!status) return null;
   // The two conditions where we should not render
   if (status.has_real || status.has_demo) return null;
   // The seed this card would send is refused (keep_profile: an account
-  // already in use — staff, its own tables or bookings). Not offered, never
-  // a tap that only answers "you have real data". (An older server sends no
+  // already in use — staff, its own tables or bookings; the default seed: a
+  // live host stand — its own tables or bookings). Not offered, never a tap
+  // that only answers "you have real data". (An older server sends no
   // `seedable`: shown as before.)
   if (status.seedable === false) return null;
 

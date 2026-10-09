@@ -21,6 +21,7 @@ vi.mock("../hooks/useLanguage", () => ({
   useLanguage: () => ({ t: (k) => k, lang: "da" }),
 }));
 vi.mock("../hooks/useConfirm", () => ({ useConfirm: () => async () => true }));
+vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1", role: "owner" } }) }));
 
 import DemoDataCard from "../components/DemoDataCard";
 import DemoActiveBanner from "../components/DemoActiveBanner";

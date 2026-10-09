@@ -12,28 +12,43 @@
  * held-invite line were never shown after the wizard).
  *
  * The wizard records its destination here before it refreshes the user; the
- * guards send a completed user THERE (with the same state) while it is fresh,
- * and to /dashboard otherwise. The completed-user bounce itself stays: it is
+ * guards send a completed user THERE (with the same state) while the finish
+ * is in flight and for a short while after its own navigation, and to
+ * /dashboard otherwise. The completed-user bounce itself stays: it is
  * what keeps the back button out of the wizard.
  */
 
-// A finish is one click and one round-trip; after this the guards go back
-// to /dashboard.
+// How long the finish's destination still wins AFTER the finish has
+// navigated there (a re-render of the /onboarding guard before that
+// navigation commits). There is no limit while the finish is still in flight:
+// the POST /auth/onboarding/complete and the GET /auth/me before it can take
+// far longer than this on a slow phone or a cold server (services/api.js
+// retries a 503 and a failed GET on a 2/4/8/12 s backoff — ~26 s), and the
+// completed user renders the moment /auth/me answers (review fix, 9 Oct: a
+// 10 s window started before the requests sent a slow finish to /dashboard).
 export const FINISH_TARGET_TTL_MS = 10_000;
 
 let target = null;
 
-/** The wizard is finishing: it is going to `to` (with router `state`). */
-export function setFinishTarget(to, state, now = Date.now()) {
+/** The wizard is finishing: it is going to `to` (with router `state`). It
+ *  holds, with no expiry, until finishTargetReached() is called. */
+export function setFinishTarget(to, state) {
   target = typeof to === "string" && to.startsWith("/")
-    ? { to, state: state || null, at: now }
+    ? { to, state: state || null, reachedAt: null }
     : null;
+}
+
+/** The finish has run its own navigation: from now on its destination lapses
+ *  after FINISH_TARGET_TTL_MS, and the guards go back to /dashboard (what
+ *  keeps the back button out of the wizard). */
+export function finishTargetReached(now = Date.now()) {
+  if (target && target.reachedAt == null) target.reachedAt = now;
 }
 
 /** The finish in progress — { to, state } — or null. */
 export function finishTarget(now = Date.now()) {
   if (!target) return null;
-  if (now - target.at > FINISH_TARGET_TTL_MS) {
+  if (target.reachedAt != null && now - target.reachedAt > FINISH_TARGET_TTL_MS) {
     target = null;
     return null;
   }
