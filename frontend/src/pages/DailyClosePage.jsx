@@ -1392,8 +1392,17 @@ function shortRangeDay(iso) {
 // The part of the saved total that no category line carries — a Z-bon read
 // as a total (or one line), or a total corrected below its lines. Without it
 // the review's rows did not add up to the total it was about to lock.
-function UnsplitLine({ amount, show, currency, t, decimals = LEDGER_DECIMALS }) {
-  if (!show || Math.abs(amount) < 0.005) return null;
+function UnsplitLine({ amount, show, currency, t, decimals = LEDGER_DECIMALS, reserve = false }) {
+  if (!show || Math.abs(amount) < 0.005) {
+    // Round 23 R-c — the line follows the total while a box below it is
+    // typed in (a held figure did not add up); one that would vanish
+    // meanwhile keeps its place, so the box being typed in never moves.
+    return reserve ? (
+      <div aria-hidden="true" data-testid="dc-unsplit-slot" className="flex justify-between gap-3 text-[13px] py-0.5">
+        <span>{"\u00a0"}</span>
+      </div>
+    ) : null;
+  }
   return (
     <div className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-500 dark:text-gray-400 tabular-nums">
       <span>{amount > 0 ? t("dcUnsplitRevenue", "Not split by category") : t("dcCorrectedDown", "Corrected down by hand")}</span>
@@ -5721,8 +5730,22 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // The "Ikke fordelt" line sits BELOW the category boxes: typing a category
   // moves nothing above the caret, so it follows each keystroke there (held,
   // the lines, the unsplit figure and the total did not add up while typing).
-  // Held only for the boxes below it (the total, payments, tips).
-  const cardUnsplitShown = (held && !held.unsplitLive ? held : cardLive).unsplit;
+  // Round 23 R-c — and above the total box: held for the boxes below it, it
+  // showed the figure from before the category typing (Takeaway 3.000, Tab:
+  // 12.000 + 1.500 + 3.000 + 6.500 beside a total of 22.000) and, typed in
+  // the total, a figure off the new total. It is always the live figure now —
+  // the lines on screen add up — and only its PLACE is held: a line that was
+  // on screen when focus moved into the boxes below it keeps its slot if it
+  // would vanish (the total typed down to the categories, or emptied), so
+  // the box being typed in never moves. In the total box — the one box that
+  // changes it — the place is kept from the tap on, so a line that appears
+  // while the total is typed (a bon whose lines added up) moves nothing
+  // either.
+  const unsplitOnScreen = (u) => Boolean(u?.show) && Math.abs(Number(u?.amount) || 0) >= 0.005;
+  const cardUnsplitShown = {
+    ...cardLive.unsplit,
+    reserve: Boolean(held) && (unsplitOnScreen(held.unsplit) || held.focusId === "scan-total"),
+  };
   const heldReads = cardShown.reads;
   const heldMergeNow = cardShown.mergeNow;
   const heldMergeNames = cardShown.mergeNames;
@@ -5734,16 +5757,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // outside) — or the step changes.
   const onCardFocus = (e) => {
     if (e.target?.tagName !== "INPUT") return;
-    const unsplitLive = String(e.target.id || "").startsWith("scan-rev-");
+    const focusId = String(e.target.id || "");
     setCardHeld((prev) => (prev && prev.moving && prev.at === heldHere
-      ? { ...prev, moving: false, unsplitLive }
-      : { ...cardLive, at: heldHere, unsplitLive }));
+      ? { ...prev, moving: false, focusId }
+      : { ...cardLive, at: heldHere, focusId }));
   };
   const onCardBlur = (e) => {
     if (e.target?.tagName !== "INPUT") return;
     const next = e.relatedTarget;
     if (next && next.tagName === "INPUT" && e.currentTarget?.contains?.(next)) {
-      setCardHeld((prev) => (prev ? { ...prev, moving: true } : prev));
+      // (The "Ikke fordelt" line as it is on screen at the hand-off: its
+      // place is what is held for the next box — round 23 R-c.)
+      setCardHeld((prev) => (prev ? { ...prev, moving: true, unsplit: cardLive.unsplit } : prev));
       return;
     }
     setCardHeld(null);
@@ -6765,7 +6790,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {/* The card's lines add up to the total it saves: the part no
                   category carries (a bon read as a total) is its own line. */}
               <UnsplitLine amount={cardUnsplitShown.amount} show={cardUnsplitShown.show} currency={currency} t={t}
-                decimals={cardUnsplitShown.decimals} />
+                decimals={cardUnsplitShown.decimals} reserve={cardUnsplitShown.reserve} />
               {/* Money on this card goes through formatOwnerMoney. It used to
                   be a bare `toLocaleString() + currency code`, which uses the
                   BROWSER locale: a Danish owner on an English phone read

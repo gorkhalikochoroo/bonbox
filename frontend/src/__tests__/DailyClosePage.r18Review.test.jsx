@@ -427,7 +427,11 @@ describe("9. the card's \"Ikke fordelt\" line while a box has focus", () => {
   const unsplitText = (container) => [...container.querySelectorAll("span")]
     .find((el) => el.textContent === "dcUnsplitRevenue")?.parentElement?.textContent || "";
 
-  it("typing a category (above it) moves it with each key; typing the total (below it) holds it until the box is left", async () => {
+  // Round 23 R-c: typing the total (below it) no longer HOLDS the figure —
+  // held, the lines did not add up (1.000 + 1.500 beside a total of 3.000).
+  // The figure follows the total; only the line's PLACE is held while the
+  // box has focus (a line that would vanish keeps its slot: nothing moves).
+  it("typing a category (above it) moves it with each key; typing the total (below it) moves its figure with the total and holds its place until the box is left", async () => {
     const { container } = renderPage();
     await screen.findByText("skipEnterManually");
     await shoot(container, T2500, "t.jpg");
@@ -441,8 +445,17 @@ describe("9. the card's \"Ikke fordelt\" line while a box has focus", () => {
     fireEvent.focus(total);
     fireEvent.change(total, { target: { value: "" } });
     typeOn(total, "3000");
-    expect(unsplitText(container)).toContain("1.500");
+    expect(unsplitText(container)).toContain("2.000");
+    expect(unsplitText(container)).not.toContain("1.500");
+    // Typed down to the categories: nothing unsplit, and its place is kept.
+    fireEvent.change(total, { target: { value: "" } });
+    typeOn(total, "1000");
+    expect(unsplitText(container)).toBe("");
+    expect(container.querySelector('[data-testid="dc-unsplit-slot"]')).not.toBeNull();
+    fireEvent.change(total, { target: { value: "" } });
+    typeOn(total, "3000");
     fireEvent.blur(total);
     expect(unsplitText(container)).toContain("2.000");
+    expect(container.querySelector('[data-testid="dc-unsplit-slot"]')).toBeNull();
   });
 });
