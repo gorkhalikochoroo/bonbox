@@ -4710,30 +4710,14 @@ async def add_security_headers(request: Request, call_next):
 
 
 # --- Request body size limit ---
-# Reject huge bodies before they hit the handler. Prevents memory-exhaustion
-# DoS where an attacker streams a 1GB request to a handler that never reads
-# Content-Length. Receipt OCR uploads are the largest legitimate payload at
-# ~5MB; we set a generous 10MB cap.
-_MAX_REQUEST_BYTES = 10 * 1024 * 1024  # 10 MB
-
-
-@app.middleware("http")
-async def enforce_request_size(request: Request, call_next):
-    # Trust Content-Length header for the cheap rejection path. Real clients
-    # always send it; missing/zero is fine (GET/empty bodies). For chunked
-    # uploads without Content-Length the underlying ASGI server (uvicorn)
-    # has its own request-line limits.
-    cl = request.headers.get("content-length")
-    if cl and cl.isdigit() and int(cl) > _MAX_REQUEST_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "detail": f"Request body too large (max {_MAX_REQUEST_BYTES // (1024*1024)} MB)",
-                "_error": True,
-                "_recoverable": False,
-            },
-        )
-    return await call_next(request)
+# Reject huge bodies before they hit the handler. Receipt OCR uploads are the
+# largest legitimate payload at ~5MB; the cap is a generous 10MB, and 64KB for
+# urlencoded forms. It used to be an @app.middleware here that only trusted
+# Content-Length — a chunked body has none and skipped it (INFRA-02). It is
+# now app/utils/body_limit.BodySizeLimitMiddleware, which counts the bytes
+# actually received; it is registered just inside CORS at the bottom of this
+# file so its 413 still carries the CORS headers.
+_MAX_REQUEST_BYTES = 10 * 1024 * 1024  # 10 MB — see app/utils/body_limit.py
 
 
 # --- Sliding-refresh middleware (30d session, midway re-mint) ---
@@ -5086,6 +5070,16 @@ async def server_timing(request: Request, call_next):
     except Exception:  # noqa: BLE001 — timing must never break a response
         pass
     return response
+
+
+# --- Request body cap (INFRA-02) — just inside CORS ---
+# Counts the body bytes actually received (chunked included), 10 MB overall
+# and 64 KB for urlencoded forms. Registered after every other middleware so
+# it wraps every layer that could read the body, and before CORS so the 413
+# it returns still carries Access-Control-Allow-Origin.
+from app.utils.body_limit import BodySizeLimitMiddleware  # noqa: E402
+
+app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=_MAX_REQUEST_BYTES)
 
 
 # --- CORS layer registration — keep last (outermost) ---

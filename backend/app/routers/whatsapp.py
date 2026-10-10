@@ -88,6 +88,12 @@ async def whatsapp_webhook(
     The Twilio signature is checked FIRST — before anything is read or
     written. The form's From decides whose books the bot writes to, so an
     unsigned or forged request is refused (403), fail-closed (sweep, 8 Oct)."""
+    # Refuse before parsing anything when the request cannot possibly be
+    # signed (no header, or no token configured) — the form parse itself is
+    # work a logged-out sender should not get for free (INFRA-02). Same 403
+    # the full check below gives.
+    if not request.headers.get("X-Twilio-Signature") or not (TWILIO_TOKEN or "").strip():
+        raise HTTPException(status_code=403, detail="Invalid or missing Twilio signature")
     form_data = await request.form()
     if not _twilio_signature_ok(form_data, request.headers.get("X-Twilio-Signature")):
         raise HTTPException(status_code=403, detail="Invalid or missing Twilio signature")
