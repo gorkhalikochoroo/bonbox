@@ -613,3 +613,57 @@ def test_a_minted_link_survives_a_later_staffers_error(client, db, mails, monkey
     db.expire_all()
     assert db.query(StaffLink).filter_by(staff_id=anna.id, active=True).count() == 1
     assert db.query(AuditLog).filter_by(action=guard.STAFF_MAIL_ACTION).count() == 1
+
+
+@pytest.mark.parametrize("lang", ["da", "en"])
+def test_the_403_message_is_in_the_owners_language_for_older_apps(client, db, mails, lang):
+    """An older app (the bundled iOS build, a tab open across the deploy)
+    shows `message` as it is: a Danish owner reads Danish there too."""
+    owner = _owner(db, verified=False)
+    anna = _staff(db, owner)
+    week = _next_monday()
+    _shift(db, owner, anna, status="published", week=week)
+    _as(owner)
+    want = guard.STAFF_MAIL_HELD_DA if lang == "da" else guard.STAFF_MAIL_HELD_EN
+    r = client.post("/api/staff/schedules/email",
+                    json={"week_start": week.isoformat(), "lang": lang, "cc_self": True})
+    assert r.status_code == 403, r.text
+    d = r.json()["detail"]
+    assert (d["message"], d["message_da"]) == (want, guard.STAFF_MAIL_HELD_DA)
+    r = client.post("/api/staff/schedules/share-with-staff",
+                    json={"week_start": week.isoformat()}, params={"lang": lang})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["message"] == want
+    assert mails == []
+
+
+def test_the_claim_question_403_is_in_danish_for_a_danish_owner(client, db, mails):
+    from app.services.revisor_mail import CLAIM_OPEN_MESSAGE_DA
+    owner = _owner(db, verified=True)
+    _open_claim_question(db, owner)
+    anna = _staff(db, owner)
+    week = _next_monday()
+    _shift(db, owner, anna, status="published", week=week)
+    _as(owner)
+    r = client.post("/api/staff/schedules/email",
+                    json={"week_start": week.isoformat(), "lang": "da", "cc_self": True})
+    assert r.status_code == 403, r.text
+    d = r.json()["detail"]
+    assert d["reason"] == "claim_question_open"
+    assert d["message"] == d["message_da"] == CLAIM_OPEN_MESSAGE_DA
+
+
+def test_require_verified_sender_without_lang_keeps_english_message():
+    """Every other caller passes no lang: `message` stays English, as before."""
+    from fastapi import HTTPException
+    from app.services.revisor_mail import (
+        VERIFY_EMAIL_FIRST_MESSAGE_DA, VERIFY_EMAIL_FIRST_MESSAGE_EN, require_verified_sender,
+    )
+
+    class _U:
+        email_verified = False
+
+    with pytest.raises(HTTPException) as e:
+        require_verified_sender(_U())
+    assert e.value.detail["message"] == VERIFY_EMAIL_FIRST_MESSAGE_EN
+    assert e.value.detail["message_da"] == VERIFY_EMAIL_FIRST_MESSAGE_DA

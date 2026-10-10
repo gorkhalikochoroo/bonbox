@@ -709,11 +709,17 @@ def held_sender_reason(user: Any) -> str | None:
 
 
 def require_verified_sender(user: Any, *, message: str | None = None,
-                            message_da: str | None = None) -> None:
+                            message_da: str | None = None,
+                            lang: str | None = None) -> None:
     """403 email_unverified unless the account's own address is confirmed
     (and no claim question is open). A surface may pass its own (true, more
     specific) message pair for the unconfirmed address; an open question
-    always says so instead."""
+    always says so instead.
+
+    `lang="da"` puts the Danish text in `message` too (`message_da` stays):
+    an older app build shows `message` as it is. Without `lang`, `message`
+    stays English, as every caller had it."""
+    da = (lang or "").lower() == "da"
     if getattr(user, "email_verified", False) is True:
         if not claim_question_pending(user):
             return
@@ -722,16 +728,18 @@ def require_verified_sender(user: Any, *, message: str | None = None,
             detail={
                 "code": "email_unverified",
                 "reason": "claim_question_open",
-                "message": CLAIM_OPEN_MESSAGE_EN,
+                "message": CLAIM_OPEN_MESSAGE_DA if da else CLAIM_OPEN_MESSAGE_EN,
                 "message_da": CLAIM_OPEN_MESSAGE_DA,
             },
         )
+    en = message or VERIFY_EMAIL_FIRST_MESSAGE_EN
+    da_text = message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA
     raise HTTPException(
         status_code=403,
         detail={
             "code": "email_unverified",
-            "message": message or VERIFY_EMAIL_FIRST_MESSAGE_EN,
-            "message_da": message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA,
+            "message": da_text if da else en,
+            "message_da": da_text,
         },
     )
 

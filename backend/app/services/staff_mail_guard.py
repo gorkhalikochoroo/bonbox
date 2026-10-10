@@ -309,8 +309,10 @@ def preflight_explicit_send(db, owner, addresses, lang: str) -> StaffMailGate:
 
     sendable = [a for a in (sendable_email(x) for x in addresses) if a]
     if sendable:
+        # `message` in the owner's language: an older app (the bundled iOS
+        # build, a tab open across the deploy) shows `message` as it is.
         require_verified_sender(owner, message=STAFF_MAIL_HELD_EN,
-                                message_da=STAFF_MAIL_HELD_DA)
+                                message_da=STAFF_MAIL_HELD_DA, lang=lang)
     gate = StaffMailGate.load(db, owner)
     if gate.owner_sent is None:
         return gate  # unreadable: each send re-reads it in its turn, or fails closed
