@@ -5550,6 +5550,8 @@ export const en = {
     publishStatHours: "total hours",
     publishStatCost: "est. labor",
     publishNotifyNote: "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+    publishNotifyNoteHeldUnverified: "Your staff are told in the app (and by push if they've opened their portal). E-mails go out only once your own e-mail is confirmed.",
+    publishNotifyNoteHeldClaimOpen: "Your staff are told in the app (and by push if they've opened their portal). E-mails go out only once you've answered the question we e-mailed you: did you create this account yourself?",
     publishConfirmCta: "Publish Week",
     publishedState: "Published",
     publishedTitle: "Week published",

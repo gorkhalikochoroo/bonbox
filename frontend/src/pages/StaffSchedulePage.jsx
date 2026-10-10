@@ -75,7 +75,7 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } fro
 import Sheet from "../components/ui/Sheet";
 import { useLocation, Link as RouterLink } from "react-router-dom";
 import ClaimQuestionResend from "../components/ClaimQuestionResend";
-import { heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
+import { heldReasonForUser, heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
@@ -1133,7 +1133,7 @@ function ClockGeofenceSettings({ className = "" }) {
 }
 
 export default function StaffSchedulePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const { branchId } = useBranch();
@@ -1932,6 +1932,15 @@ export default function StaffSchedulePage() {
     setError("");
     setPublishResult(null);
     const summary = computePublishSummary();
+    // Will the publish e-mail anyone? Asked of the server NOW, alongside the
+    // Shield fetch below: since R-f an owner whose own e-mail is unconfirmed,
+    // or whose "did you create this account?" question is open, sends staff
+    // no e-mail (services/staff_mail_guard -> held_sender_reason). The sheet
+    // used to promise one regardless. /auth/me carries the two facts that
+    // rule reads (email_verified, claim_question_open) and heldReasonForUser
+    // applies it in the server's order. A failed refresh keeps the copy we
+    // already have.
+    const mePromise = refreshUser ? refreshUser() : Promise.resolve(null);
     // Vagtplan Shield — refetch week-load at the publish moment (the state
     // copy can be stale if shifts were just added) and attach warnings.
     // Fail-soft: a fetch error publishes without warnings, never blocks.
@@ -1977,11 +1986,16 @@ export default function StaffSchedulePage() {
     );
     const weekStaff = staff.filter((m) => weekStaffIds.has(String(m.id)));
     const noContact = weekStaff.filter((m) => !(m.email || m.phone)).map((m) => m.name);
+    let me = null;
+    try { me = await mePromise; } catch { me = null; }
     setPublishConfirm({
       ...summary,
       shield,
       unreachable: weekStaff.length > 0 && noContact.length === weekStaff.length,
       noContact,
+      // null = the mail goes; "email_unverified" / "claim_question_open" =
+      // held (the in-app alert and the push still go).
+      mailHeld: heldReasonForUser(me || user),
     });
   };
 
@@ -7921,6 +7935,29 @@ function StaffMailHeldLine({ reason, t }) {
   );
 }
 
+/** The notify note BEFORE publishing, while the owner's staff mail is held:
+ *  what still reaches staff (the in-app alert, and a push for those who have
+ *  opened their portal), when the e-mails will go, and the one tap — the same
+ *  pair as StaffMailHeldLine after the publish. */
+function PublishHeldNote({ reason, t }) {
+  const claimOpen = reason === HELD_CLAIM_OPEN;
+  return (
+    <>
+      {claimOpen ? t("publishNotifyNoteHeldClaimOpen") : t("publishNotifyNoteHeldUnverified")}{" "}
+      {claimOpen ? (
+        <ClaimQuestionResend testId="publish-held-claim-resend" />
+      ) : (
+        <RouterLink
+          to="/verify-email?now=1"
+          className="font-semibold underline underline-offset-2 whitespace-nowrap"
+        >
+          {t("verifyEmailNowCta")}
+        </RouterLink>
+      )}
+    </>
+  );
+}
+
 function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm, onClose, onShare, t, lang }) {
   // The Shield warnings below arrive as raw numbers and used to be pasted into
   // catalogue strings that typed the hour unit themselves, so a Danish owner
@@ -8199,14 +8236,22 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
             {/* Honest notify note — no count promised here; the success
                 banner reports the server's real number after publish. Not
                 shown when nobody can be reached: it promised an email the
-                amber box right above had just said nobody would get. */}
+                amber box right above had just said nobody would get.
+                While BonBox holds the owner's staff mail (summary.mailHeld,
+                the server's held_sender_reason rule) it does not promise an
+                e-mail: it says what still reaches staff, and offers the one
+                tap that releases the mail. */}
             {!summary.unreachable && (
               <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
                 <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {t(
-                    "publishNotifyNote",
-                    "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed" data-testid="publish-notify-note">
+                  {summary.mailHeld ? (
+                    <PublishHeldNote reason={summary.mailHeld} t={t} />
+                  ) : (
+                    t(
+                      "publishNotifyNote",
+                      "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+                    )
                   )}
                 </p>
               </div>

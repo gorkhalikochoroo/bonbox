@@ -5377,6 +5377,8 @@ export const da = {
     publishStatHours: "timer i alt",
     publishStatCost: "anslået løn",
     publishNotifyNote: "Medarbejdere med ændrede vagter får en e-mail (og en push, hvis de har åbnet deres portal).",
+    publishNotifyNoteHeldUnverified: "Dit personale får besked i appen (og en push, hvis de har åbnet deres portal). E-mails sendes først, når din egen e-mail er bekræftet.",
+    publishNotifyNoteHeldClaimOpen: "Dit personale får besked i appen (og en push, hvis de har åbnet deres portal). E-mails sendes først, når du har svaret på spørgsmålet, vi har mailet dig: Har du selv oprettet denne konto?",
     publishConfirmCta: "Udgiv ugen",
     publishedState: "Udgivet",
     publishedTitle: "Ugen er udgivet",

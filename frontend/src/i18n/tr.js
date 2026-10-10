@@ -4340,6 +4340,8 @@ export const tr = {
   publishStatHours: "toplam saat",
   publishStatCost: "tahmini işçilik",
   publishNotifyNote: "Vardiyası değişen çalışanlar e-posta alır (portalını açtıysa push da).",
+  publishNotifyNoteHeldUnverified: "Çalışanların uygulamada bilgilendirilir (portalını açtıysa push da). E-postalar ancak kendi e-postan onaylandığında gönderilir.",
+  publishNotifyNoteHeldClaimOpen: "Çalışanların uygulamada bilgilendirilir (portalını açtıysa push da). E-postalar ancak sana e-postayla sorduğumuz soruyu yanıtladığında gönderilir: Bu hesabı kendin mi oluşturdun?",
   publishConfirmCta: "Haftayı Yayınla",
   publishedState: "Yayınlandı",
   publishedTitle: "Hafta yayınlandı",
