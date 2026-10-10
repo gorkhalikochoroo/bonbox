@@ -3289,6 +3289,10 @@ def publish_week(
     # Over a ceiling → named in `skipped_mail_limit_names`. Count unreadable →
     # `notify_count` is null (the sheet: "could not confirm whether anyone was
     # notified"), never "today's e-mail limit is reached" — none was.
+    # Held and nobody mailed → `notify_count` is null too, not 0: app builds
+    # from before `mail_held` read 0 as "nobody has an e-mail on file", which
+    # is false here (someone does, and the in-app alert went). null gives them
+    # their honest "could not confirm"; this build reads `mail_held` first.
     limit_names: list[str] = []
     mail_held = None
     count_unknown = False
@@ -3367,7 +3371,9 @@ def publish_week(
         "published": updated,
         "week_start": week_start.isoformat(),
         "changed_staff": len(changes),
-        "notify_count": None if count_unknown else notify_count,
+        "notify_count": (
+            None if count_unknown or (mail_held and notify_count == 0) else notify_count
+        ),
         "skipped_no_email_names": skipped_names,
         "skipped_mail_limit_names": limit_names,
         # None, "email_unverified" or "claim_question_open" (senderGate.js).

@@ -242,10 +242,35 @@ def test_publish_says_why_nobody_was_mailed(client, db, mails, pushes):
                        params={"week_start": MONDAY.isoformat()}).json()
     assert body["published"] == 1
     assert body["mail_held"] == "email_unverified"
-    assert body["notify_count"] == 0, "nobody is e-mailed — the count must say so"
+    # Nobody is e-mailed, and the count must not claim a number: null, not 0.
+    # 0 is what app builds from before mail_held read as "none of the
+    # affected staff have an e-mail" — false, Anna has one (push-2 review).
+    # null gives them their honest "could not confirm whether anyone was told".
+    assert "notify_count" in body and body["notify_count"] is None
+    assert body["skipped_no_email_names"] == []
+    assert body["skipped_mail_limit_names"] == []
     # ...and the background send (TestClient runs it) indeed mails nobody.
     assert mails == []
     assert pushes == [str(anna.id)]
+
+
+def test_a_held_publish_still_names_who_has_no_address(client, db, mails, pushes):
+    """Held, one staffer with an address and one without: the count is null
+    (held), the no-address staffer is still named, nobody is mailed."""
+    owner = _owner(db, verified=False)
+    anna = _staff(db, owner, name="Anna", email="anna@cafe.dk")
+    nomail = _staff(db, owner, name="NoMail", email=None)
+    _shift(db, owner, anna)
+    _shift(db, owner, nomail, day=1)
+    _as(owner)
+    body = client.post("/api/staff/schedules/publish",
+                       params={"week_start": MONDAY.isoformat()}).json()
+    assert body["published"] == 2
+    assert body["mail_held"] == "email_unverified"
+    assert "notify_count" in body and body["notify_count"] is None
+    assert body["skipped_no_email_names"] == ["NoMail"]
+    assert mails == []
+    assert sorted(pushes) == sorted([str(anna.id), str(nomail.id)])
 
 
 def test_publish_names_the_claim_question(client, db, mails, pushes):
@@ -257,7 +282,8 @@ def test_publish_names_the_claim_question(client, db, mails, pushes):
     body = client.post("/api/staff/schedules/publish",
                        params={"week_start": MONDAY.isoformat()}).json()
     assert body["mail_held"] == "claim_question_open"
-    assert body["notify_count"] == 0
+    assert "notify_count" in body and body["notify_count"] is None
+    assert mails == []
 
 
 def test_explicit_sends_refuse_an_unconfirmed_owner_before_anything(client, db, mails):

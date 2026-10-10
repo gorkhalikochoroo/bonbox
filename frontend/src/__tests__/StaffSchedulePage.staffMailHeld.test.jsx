@@ -122,6 +122,34 @@ describe("staff mail held or limited (SEC-1)", () => {
     expect(within(line).queryByRole("link", { name: "Bekræft nu" })).toBeNull();
   });
 
+  // Since the push-2 review the server answers a held publish with
+  // notify_count null (not 0), so app builds from before mail_held say "could
+  // not confirm" instead of "nobody has an e-mail". This build must still
+  // show the held line, and neither the "could not confirm" sentence nor the
+  // "nobody was told" headline.
+  it.each(["email_unverified", "claim_question_open"])(
+    "held with notify_count null (%s): the held line, not 'could not confirm'",
+    async (held) => {
+      const sheet = await publishWith({
+        published: 1, changed_staff: 1, notify_count: null,
+        skipped_no_email_names: [], skipped_mail_limit_names: [], mail_held: held,
+      });
+      expect(within(sheet).getByTestId("publish-mail-held")).toBeInTheDocument();
+      expect(within(sheet).queryByText("Vi kunne ikke bekræfte, om nogen fik besked.")).toBeNull();
+      expect(within(sheet).queryByText(/ingen af de berørte medarbejdere/i)).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Udgivet — men ingen fik besked" })).toBeNull();
+    },
+  );
+
+  it("held with notify_count null still names who has no address", async () => {
+    const sheet = await publishWith({
+      published: 2, changed_staff: 2, notify_count: null,
+      skipped_no_email_names: ["Bo"], skipped_mail_limit_names: [], mail_held: "email_unverified",
+    });
+    expect(within(sheet).getByTestId("publish-mail-held")).toBeInTheDocument();
+    expect(within(sheet).getByText("Ikke sendt e-mail (ingen adresse registreret): Bo")).toBeInTheDocument();
+  });
+
   it("names who was not e-mailed because of the daily limit", async () => {
     const sheet = await publishWith({
       published: 2, notify_count: 1, skipped_no_email_names: [], mail_held: null,
