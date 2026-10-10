@@ -4428,11 +4428,14 @@ def prefill_daily_close(
 # Tightened 2026-05-28 with the Opus 4.7 OCR upgrade — now ~5x cost
 # per call, so the per-IP burst limit drops AND a daily ceiling is
 # added. 6/min handles legitimate multi-terminal owners (one Z-report
-# per terminal at end of day); the 80/day per-IP ceiling defends
+# per terminal at end of day); the 150/day per-IP ceiling defends
 # against slow-and-steady abuse from a single IP across multiple
 # accounts. The per-user PLAN_CAPS cap below enforces the tier limit
-# (Free=3/day, Starter=20/day, Pro=100/day) independently.
-@_limiter.limit("6/minute;80/day")
+# (Free=3/day, Starter=20/day, Pro=100/day) independently. The per-IP
+# day must never sit below Pro's own 100 (it was 80 — a Pro venue on one
+# Wi-Fi hit the IP ceiling before its plan's), with room for retakes,
+# which the plan counter does not count (it counts saved closes).
+@_limiter.limit("6/minute;150/day")
 def scan_z_report(
     request: Request,
     file: UploadFile = File(...),
