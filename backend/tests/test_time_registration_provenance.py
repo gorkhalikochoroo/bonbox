@@ -132,14 +132,34 @@ class TestKildeIsNotOverstated:
         assert r.status_code in (200, 201), r.text
         assert r.json()["total_hours"] == pytest.approx(6.5, abs=0.01)
 
-    def test_the_real_punch_clock_keeps_its_claim(self, client, db):
-        """A caller that genuinely IS the clock says so, and must be believed."""
+    def test_the_real_punch_clock_keeps_its_claim(self, client, db, monkeypatch):
+        """The real punch clock (staff portal clock-in/out) is believed; since
+        449af13d the owner's POST /staff/hours may never claim "clock"."""
+        from datetime import datetime
+        from app.models.staff import StaffLink
+        from app.routers import staff_portal as sp
         u = _cafe(db)
         m = _staff(db, u)
-        r = _log(client, m, date(2026, 6, 12),
-                 start_time="08:00", end_time="12:00", entry_method="clock")
-        assert r.status_code in (200, 201), r.text
-        assert r.json()["entry_method"] == "clock"
+        db.add(StaffLink(id=uuid.uuid4(), user_id=u.id, staff_id=m.id, token="kilde-tok", active=True))
+        db.commit()
+        day = date(2026, 6, 12)
+        now = {"dt": datetime(2026, 6, 12, 8, 0)}
+        monkeypatch.setattr(sp, "now_local", lambda owner: now["dt"])
+        monkeypatch.setattr(sp, "business_today_local", lambda owner: day)
+        sp.limiter.reset()
+        assert client.post("/api/portal/kilde-tok/clock-in").status_code == 200
+        now["dt"] = datetime(2026, 6, 12, 12, 0)
+        assert client.post("/api/portal/kilde-tok/clock-out").status_code == 200
+        r = client.get("/api/staff/hours", params={"from": day.isoformat(), "to": day.isoformat()})
+        assert r.status_code == 200, r.text
+        rows = [e for e in r.json() if e["staff_id"] == str(m.id)]
+        assert [e["entry_method"] for e in rows] == ["clock"]
+        # ...and the statutory register prints it as a punch-clock reading.
+        csv = client.get("/api/staff/time-registration/export.csv",
+                         params={"from": day.isoformat(), "to": day.isoformat()})
+        assert csv.status_code == 200, csv.text
+        lines = csv.content.decode("utf-8-sig").splitlines()
+        assert [ln.split(";")[-1] for ln in lines[1:]] == ["Stempelur"]
 
 
 class TestDepartedStaffStayInTheRegister:
