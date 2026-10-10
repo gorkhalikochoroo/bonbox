@@ -329,7 +329,7 @@ export const np = {
   teamSeatsUsedOfCap: "{cap} मध्ये {used} सिट प्रयोग (मालिक + स्टाफ)",
   teamAtCapHint: "सिट सीमा पुगेको — थपको लागि अपग्रेड",
   teamCapHitTitle: "तपाईंको योजनामा {cap} सिट",
-  teamCapHitBody: "Pro मा अपग्रेड गर्नुहोस् — ५ सिट, वा Business — असीमित।",
+  teamCapHitBody: "थप सिटका लागि योजनाहरू हेर्नुहोस्।",
   seePlans: "योजनाहरू हेर्नुहोस्",
   bar: "Bar",
   barPageTitle: "Bar — Pour",

@@ -1096,7 +1096,7 @@ export const vi = {
   teamSeatsUsedOfCap: "{used} trong {cap} ghế đã dùng (chủ + nhân viên)",
   teamAtCapHint: "Đã chạm giới hạn ghế — nâng cấp để có thêm",
   teamCapHitTitle: "{cap} ghế trên gói của bạn",
-  teamCapHitBody: "Nâng cấp Pro để có 5 ghế, hoặc Business để không giới hạn.",
+  teamCapHitBody: "Xem các gói để có thêm ghế.",
   seePlans: "Xem gói",
   bar: "Bar",
   barPageTitle: "Bar — Rót",

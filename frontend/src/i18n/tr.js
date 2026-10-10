@@ -1099,7 +1099,7 @@ export const tr = {
   teamSeatsUsedOfCap: "{cap} koltuktan {used} kullanıldı (sahip + personel)",
   teamAtCapHint: "Koltuk limiti aşıldı — daha fazlası için yükselt",
   teamCapHitTitle: "Planınızda {cap} koltuk",
-  teamCapHitBody: "5 koltuk için Pro'ya, sınırsız için Business'a yükselt.",
+  teamCapHitBody: "Daha fazla koltuk için planlara göz at.",
   seePlans: "Planları gör",
   bar: "Bar",
   barPageTitle: "Bar — Servis",

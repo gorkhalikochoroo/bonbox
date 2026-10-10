@@ -3462,7 +3462,7 @@ export const da = {
     teamSeatsUsedOfCap: "{used} af {cap} pladser brugt (ejer + medarbejdere)",
     teamAtCapHint: "Pladsgrænse nået — opgrader for flere",
     teamCapHitTitle: "{cap} pladser på din plan",
-    teamCapHitBody: "Opgrader til Pro for 5 pladser, eller til Business for ubegrænset.",
+    teamCapHitBody: "Se planerne for flere pladser.",
     seePlans: "Se planer",
     // DK i18n leak fix — TeamPage chrome (Danish locale).
     teamInviteCta: "+ Inviter medarbejder",

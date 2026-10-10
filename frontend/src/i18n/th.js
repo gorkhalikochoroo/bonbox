@@ -1090,7 +1090,7 @@ export const th = {
   teamSeatsUsedOfCap: "ใช้ {used} จาก {cap} ที่นั่ง (เจ้าของ + พนักงาน)",
   teamAtCapHint: "ถึงจำกัดที่นั่ง — อัปเกรดเพื่อเพิ่ม",
   teamCapHitTitle: "{cap} ที่นั่งในแพลนของคุณ",
-  teamCapHitBody: "อัปเกรด Pro เพื่อ 5 ที่นั่ง หรือ Business เพื่อไม่จำกัด",
+  teamCapHitBody: "ดูแพลนเพื่อรับที่นั่งเพิ่ม",
   seePlans: "ดูแพลน",
   bar: "บาร์",
   barPageTitle: "บาร์ — รินขาย",

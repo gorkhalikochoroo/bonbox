@@ -3592,7 +3592,7 @@ export const en = {
     teamSeatsUsedOfCap: "{used} of {cap} seats used (owner + staff)",
     teamAtCapHint: "Seat limit reached on your plan — upgrade for more",
     teamCapHitTitle: "{cap} seats on your plan",
-    teamCapHitBody: "Upgrade to Pro for 5 seats, or to Business for unlimited.",
+    teamCapHitBody: "See plans for more seats.",
     seePlans: "See plans",
     // DK i18n leak fix — TeamPage chrome. `medarbejder` is DK-only; the EN
     // CTA stays "Invite team member" so the noun reads naturally for owners

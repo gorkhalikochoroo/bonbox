@@ -262,8 +262,10 @@ export default function TeamPage() {
       </FadeIn>
 
       {/* Cap-hit banner — appears when at seat cap, even if invite form is closed.
-          App Store compliance (Apple 3.1.1): the body pitches "Upgrade to Pro /
-          Business", so the banner is hidden on native. Web unchanged. */}
+          App Store compliance (Apple 3.1.1): the body points to the plans
+          ("See plans for more seats"), so the banner is hidden on native. Web
+          unchanged. The owner holds a seat too (routers/team.py), and there is
+          no "Business" plan — the body names no plan or number. */}
       {teamAtCap && isOwner && !isNativeApp() && (
         <FadeIn>
           <div className="px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
