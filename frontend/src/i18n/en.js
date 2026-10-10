@@ -7038,7 +7038,7 @@ export const en = {
     trialDescription: "No card required. Full Pro access for 14 days, then it'll switch to a basic free plan unless you decide to upgrade.",
     trialBenefit1: "Built in Copenhagen · database in Ireland",
     trialBenefit2: "Cancel anytime · Export your data",
-    trialBenefit3: "Founding price from 129 kr/mo for the first 100 paying customers \u2014 locked while you stay",
+    trialBenefit3: "Founding price from 129 kr/mo for the first 100 paying customers \u2014 kept as long as your subscription stays active",
     registerSubheading: "Get started today.",
     registerSubheadingWeb: "14 days free · no card · then a free plan",
     passwordRequirements: "8+ characters with letters and numbers",

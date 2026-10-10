@@ -700,8 +700,12 @@ export default function SubscriptionPage() {
                 {t("pricingTrialStep2Title") || "Pick your path"}
               </div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">→ {t("pricingTrialStep2BodyLock", "Lock in founding rate: add a card now — your founding price (Starter 129 / Pro 249) is kept as long as your subscription stays active")}</span>
-                <span className="block mt-1">→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
+                {/* R-e: a personal account cannot buy a plan, so it is not
+                    offered the lock-in path here either (no dead-end step). */}
+                {!businessOnlyBlocked && (
+                  <span className="block">→ {t("pricingTrialStep2BodyLock", "Lock in founding rate: add a card now — your founding price (Starter 129 / Pro 249) is kept as long as your subscription stays active")}</span>
+                )}
+                <span className={businessOnlyBlocked ? "block" : "block mt-1"}>→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
               </div>
             </div>
             <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-800 sm:pl-5">
@@ -712,8 +716,10 @@ export default function SubscriptionPage() {
                 {t("pricingTrialStep3Title") || "What actually happens"}
               </div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
-                <span className="block mt-1">{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
+                {!businessOnlyBlocked && (
+                  <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
+                )}
+                <span className={businessOnlyBlocked ? "block" : "block mt-1"}>{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
               </div>
             </div>
           </div>

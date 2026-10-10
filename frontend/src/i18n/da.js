@@ -6834,7 +6834,7 @@ export const da = {
     trialDescription: "Intet kort påkrævet. Fuld Pro-adgang i 14 dage, derefter skifter den til en basis gratis plan, medmindre du vælger at opgradere.",
     trialBenefit1: "Lavet i København · database i Irland",
     trialBenefit2: "Opsig når som helst · Eksporter dine data",
-    trialBenefit3: "Stifterpris fra 129 kr./md for de første 100 betalende kunder – låst, så længe I er kunde",
+    trialBenefit3: "Stifterpris fra 129 kr./md for de første 100 betalende kunder – den gælder, så længe abonnementet er aktivt",
     registerSubheading: "Kom i gang i dag.",
     registerSubheadingWeb: "14 dage gratis · intet betalingskort · derefter en gratis plan",
     passwordRequirements: "8+ tegn med bogstaver og tal",

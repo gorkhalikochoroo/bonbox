@@ -181,6 +181,21 @@ describe("Register page acceptance line (LEG-11 / PQ-03)", () => {
     expect(register.mock.calls[0][0].accept_terms).toBe(true);
   });
 
+  it("with a Google button the line sits beside the Google/Apple row, outside the form, once", async () => {
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "test-client.apps.googleusercontent.com");
+    try {
+      authState = { register: vi.fn(), googleLogin: vi.fn(), googleOauthLogin: vi.fn(), appleOauthLogin: vi.fn() };
+      const { container } = render(<MemoryRouter initialEntries={["/register"]}><RegisterPage /></MemoryRouter>);
+      const lines = screen.getAllByTestId("signup-terms-line");
+      expect(lines).toHaveLength(1);
+      expect(container.querySelector("form").contains(lines[0])).toBe(false);
+      // It comes before the e-mail form in reading order (the OAuth row is above it).
+      expect(lines[0].compareDocumentPosition(container.querySelector("form")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("English line", () => {
     langCode = "en";
     authState = { register: vi.fn(), googleLogin: vi.fn(), googleOauthLogin: vi.fn(), appleOauthLogin: vi.fn() };
@@ -229,6 +244,20 @@ describe("Subscription page: businesses only (LEG-12)", () => {
       fireEvent.click(b);
     });
     expect(post).not.toHaveBeenCalledWith("/billing/stripe/checkout-session", expect.anything());
+  });
+
+  it("a personal account in its trial is not offered the lock-in path", async () => {
+    const trialBilling = { ...billing, plan: "trial", trial_active: true, trial_days_remaining: 9 };
+    authState = { user: { id: "p2", email: "privat2@gmail.com", business_type: "personal" }, refreshUser: vi.fn() };
+    get.mockImplementation((url) =>
+      Promise.resolve({ data: url === "/billing/me" ? trialBilling : url === "/waitlist/status" ? [] : {} }));
+    render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+    await screen.findByTestId("business-only-notice");
+    // The free path is still explained; the card-and-lock path is not.
+    expect(screen.getByText((c) => c.includes(da.pricingTrialStep2BodyDoNothing))).toBeTruthy();
+    expect(screen.queryByText((c) => c.includes(da.pricingTrialStep2BodyLock))).toBeNull();
+    expect(screen.queryByText(da.pricingTrialStep3BodyLocked)).toBeNull();
+    expect(screen.queryByRole("button", { name: da.pricingLockInRate })).toBeNull();
   });
 
   it("a business account keeps its buttons", async () => {
