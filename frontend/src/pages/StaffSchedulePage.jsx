@@ -76,6 +76,7 @@ import Sheet from "../components/ui/Sheet";
 import { useLocation, Link as RouterLink } from "react-router-dom";
 import ClaimQuestionResend from "../components/ClaimQuestionResend";
 import { heldReasonForUser, heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
+import { emailOk } from "../utils/guestContact";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
@@ -1994,7 +1995,9 @@ export default function StaffSchedulePage() {
     // told" news only came after, on the success screen. And BY NAME: the
     // owner's next step is "get Anna's number", which a count does not say.
     const weekStaffIds = new Set(
-      shifts.filter((sh) => sh.status !== "published").map((sh) => String(sh.staff_id)),
+      shifts
+        .filter((sh) => sh.status !== "published" && sh.staff_id != null)
+        .map((sh) => String(sh.staff_id)),
     );
     const weekStaff = staff.filter((m) => weekStaffIds.has(String(m.id)));
     const noContact = weekStaff.filter((m) => !(m.email || m.phone)).map((m) => m.name);
@@ -2002,7 +2005,31 @@ export default function StaffSchedulePage() {
     // someone could have been mailed" (publish_week: mail_held): with no
     // address on file the true reason is "no address", and confirming the
     // owner's own e-mail would still mail nobody.
-    const canMail = weekStaff.some((m) => String(m.email || "").trim() !== "");
+    //
+    // THREE outcomes, not two (gotcha: a boolean erases "couldn't check"):
+    //   true  = the roster was read and someone affected has an address;
+    //   false = the roster was read, every affected staffer is in it, and
+    //           none has an address;
+    //   null  = we could not tell: /staff/members failed or has not answered
+    //           yet, or a draft belongs to someone missing from the roster we
+    //           hold. A failed read used to look like "nobody has an e-mail",
+    //           and the sheet then said so about staff the server WOULD mail
+    //           (and hid "Bekræft nu" from an unconfirmed owner).
+    // "Has an address" = passes emailOk (utils/guestContact), the shape check
+    // the client already uses. The client has no copy of the server's
+    // sendable_email (utils/email_address, email_validator); emailOk drops
+    // the obvious non-addresses ("bo") the server would skip, and rows are
+    // strict-validated on write, so the two rarely disagree.
+    const rosterRead = !staffQ.failed && !(staffQ.loading && !staffQ.refreshing);
+    const anyMailable = weekStaff.some((m) => emailOk(m.email));
+    const rosterHasEveryone = weekStaff.length === weekStaffIds.size;
+    const canMail = !rosterRead
+      ? null
+      : anyMailable
+        ? true
+        : rosterHasEveryone && weekStaff.length > 0
+          ? false
+          : null;
     let me = null;
     try { me = await mePromise; } catch { me = null; }
     const ent = await entPromise;
@@ -2023,11 +2050,12 @@ export default function StaffSchedulePage() {
       noContact,
       canMail,
       pushOnPlan,
-      // null = the mail goes (or nobody has an address — see canMail);
+      // null = the mail goes (or nobody has an address, or we could not
+      // tell — see canMail; neither says "held");
       // "email_unverified" / "claim_question_open" = held (the in-app alert,
       // and the push on a plan with it, still go). Nothing is queued: a held
       // mail is dropped, not sent later.
-      mailHeld: canMail ? heldReasonForUser(me || user) : null,
+      mailHeld: canMail === true ? heldReasonForUser(me || user) : null,
     });
   };
 
@@ -7969,9 +7997,10 @@ function StaffMailHeldLine({ reason, t }) {
 
 /** The notify note BEFORE publishing, while the owner's staff mail is held:
  *  what still reaches staff (the in-app alert, and — only on a plan with
- *  schedule_publish_push — a push for those who have opened their portal),
- *  that BonBox sends staff no e-mail until the hold is released (a held mail
- *  is dropped, never sent later), and the one tap — the same pair as
+ *  schedule_publish_push — a push for those who have turned on notifications
+ *  in their portal), that BonBox sends staff no e-mail until the hold is
+ *  released, that this week's e-mails are not sent afterwards (a held mail is
+ *  dropped, never queued), and the one tap — the same pair as
  *  StaffMailHeldLine after the publish. */
 function PublishHeldNote({ reason, push, t }) {
   const claimOpen = reason === HELD_CLAIM_OPEN;
@@ -8264,7 +8293,7 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 {/* The push clause only on a plan that sends one
                     (schedule_publish_push); on Free it was a false promise. */}
                 {summary.pushOnPlan
-                  ? t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've opened their portal get a push. Share their portal links after publishing.")
+                  ? t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've turned on notifications in their portal get a push. Share their portal links after publishing.")
                   : t("publishNobodyReachableNoPush", "None of these staff has an email or phone on file — they only see the change in their portal. Share their portal links after publishing.")}
               </div>
             )}
@@ -8290,15 +8319,23 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed" data-testid="publish-notify-note">
                   {summary.canMail === false ? (
+                    /* Said the way the result says it after publishing
+                       (notify_count 0 → "nobody was told"): no e-mail goes,
+                       and the in-app alert is a row in their portal's
+                       Alerts feed — seen only when they open the portal. */
                     summary.pushOnPlan
-                      ? t("publishNotifyNoteNoEmail", "Staff whose shifts changed are told in the app (and by push if they've opened their portal). None of them has an e-mail on file, so no e-mails are sent.")
-                      : t("publishNotifyNoteNoEmailNoPush", "Staff whose shifts changed are told in the app. None of them has an e-mail on file, so no e-mails are sent.")
+                      ? t("publishNotifyNoteNoEmail", "None of the staff whose shifts changed has an e-mail on file, so no e-mails are sent — they see the change when they open their portal (and a push if they've turned on notifications in their portal).")
+                      : t("publishNotifyNoteNoEmailNoPush", "None of the staff whose shifts changed has an e-mail on file, so no e-mails are sent — they only see the change if they open their portal.")
+                  ) : summary.canMail == null ? (
+                    /* Roster unread (or someone missing from it): say we could
+                       not check — never "no e-mail" and never "held". */
+                    t("publishNotifyNoteUnknown", "We couldn't check in advance which of the staff whose shifts changed get an e-mail.")
                   ) : summary.mailHeld ? (
                     <PublishHeldNote reason={summary.mailHeld} push={!!summary.pushOnPlan} t={t} />
                   ) : summary.pushOnPlan ? (
                     t(
                       "publishNotifyNote",
-                      "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+                      "Staff whose shifts changed get an email (and a push if they've turned on notifications in their portal).",
                     )
                   ) : (
                     t("publishNotifyNoteNoPush", "Staff whose shifts changed get an email.")

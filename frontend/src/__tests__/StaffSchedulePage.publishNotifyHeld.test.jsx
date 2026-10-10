@@ -56,6 +56,10 @@ const ANNA = { id: "a", name: "Anna", role: "server", active: true, contract_typ
 const BO_MAIL = { id: "b", name: "Bo", role: "bar", active: true, contract_type: "part", base_rate: 160, email: "bo@cafe.dk" };
 const BO_PHONE = { ...BO_MAIL, email: null, phone: "+4512345678" };
 const BO_NOTHING = { ...BO_MAIL, email: null, phone: null };
+// A legacy row whose "address" the server's sendable_email would skip: the
+// client counts addresses with emailOk (utils/guestContact), so this is "no
+// e-mail on file", not a mail BonBox could hold.
+const BO_BAD_MAIL = { ...BO_MAIL, email: "bo", phone: "+4512345678" };
 const SHIFTS = [
   { id: "s1", staff_id: "a", date: TODAY, start_time: "17:00", end_time: "23:30", break_minutes: 45, status: "published" },
   { id: "s2", staff_id: "b", date: TODAY, start_time: "10:00", end_time: "16:00", break_minutes: 0, status: "draft" },
@@ -71,7 +75,9 @@ function routeGet(url) {
   if (u.includes("/billing/entitlements")) {
     return entFresh === FAIL ? Promise.reject({ response: { status: 503 } }) : Promise.resolve({ data: entFresh });
   }
-  if (u.includes("/staff/members")) return Promise.resolve({ data: staffRows });
+  if (u.includes("/staff/members")) {
+    return staffRows === FAIL ? Promise.reject({ response: { status: 503 } }) : Promise.resolve({ data: staffRows });
+  }
   if (u.includes("/staff/schedules/week-cost")) return Promise.reject({ response: { status: 404 } });
   if (u.includes("/staff/schedules/week-load")) return Promise.resolve({ data: { staff: [] } });
   if (u.includes("/staff/schedules/forecast")) return Promise.reject({ response: { status: 402 } });
@@ -82,23 +88,26 @@ function routeGet(url) {
   return Promise.resolve({ data: [] });
 }
 
+const PUSH_DA = "(og en push, hvis de har slået notifikationer til i deres portal)";
+const NOT_LATER_DA = "Denne uges e-mails sendes ikke bagefter.";
 const DA = {
-  today: "Medarbejdere med ændrede vagter får en e-mail (og en push, hvis de har åbnet deres portal).",
+  today: `Medarbejdere med ændrede vagter får en e-mail ${PUSH_DA}.`,
   todayNoPush: "Medarbejdere med ændrede vagter får en e-mail.",
   heldUnverified:
-    "Medarbejdere med ændrede vagter får besked i appen (og en push, hvis de har åbnet deres portal). BonBox sender ingen e-mails til personalet, før din egen e-mail er bekræftet.",
+    `Medarbejdere med ændrede vagter får besked i appen ${PUSH_DA}. BonBox sender ingen e-mails til personalet, før din egen e-mail er bekræftet. ${NOT_LATER_DA}`,
   heldUnverifiedNoPush:
-    "Medarbejdere med ændrede vagter får besked i appen. BonBox sender ingen e-mails til personalet, før din egen e-mail er bekræftet.",
+    `Medarbejdere med ændrede vagter får besked i appen. BonBox sender ingen e-mails til personalet, før din egen e-mail er bekræftet. ${NOT_LATER_DA}`,
   heldClaim:
-    "Medarbejdere med ændrede vagter får besked i appen (og en push, hvis de har åbnet deres portal). BonBox sender ingen e-mails til personalet, før du har svaret på spørgsmålet, vi har mailet dig: Har du selv oprettet denne konto?",
+    `Medarbejdere med ændrede vagter får besked i appen ${PUSH_DA}. BonBox sender ingen e-mails til personalet, før du har svaret på spørgsmålet, vi har mailet dig: Har du selv oprettet denne konto? ${NOT_LATER_DA}`,
   heldClaimNoPush:
-    "Medarbejdere med ændrede vagter får besked i appen. BonBox sender ingen e-mails til personalet, før du har svaret på spørgsmålet, vi har mailet dig: Har du selv oprettet denne konto?",
+    `Medarbejdere med ændrede vagter får besked i appen. BonBox sender ingen e-mails til personalet, før du har svaret på spørgsmålet, vi har mailet dig: Har du selv oprettet denne konto? ${NOT_LATER_DA}`,
   noEmail:
-    "Medarbejdere med ændrede vagter får besked i appen (og en push, hvis de har åbnet deres portal). Ingen af dem har en e-mail registreret, så der sendes ingen e-mails.",
+    `Ingen af medarbejderne med ændrede vagter har en e-mail registreret, så der sendes ingen e-mails — de ser ændringen, når de åbner deres portal ${PUSH_DA}.`,
   noEmailNoPush:
-    "Medarbejdere med ændrede vagter får besked i appen. Ingen af dem har en e-mail registreret, så der sendes ingen e-mails.",
+    "Ingen af medarbejderne med ændrede vagter har en e-mail registreret, så der sendes ingen e-mails — de ser kun ændringen, hvis de åbner deres portal.",
+  unknown: "Vi kunne ikke tjekke på forhånd, hvem af medarbejderne med ændrede vagter der får en e-mail.",
   nobody:
-    "Ingen af disse medarbejdere har e-mail eller telefon registreret — kun dem, der har åbnet deres portal, får en push. Del deres portallinks, når du har udgivet.",
+    "Ingen af disse medarbejdere har e-mail eller telefon registreret — kun dem, der har slået notifikationer til i deres portal, får en push. Del deres portallinks, når du har udgivet.",
   nobodyNoPush:
     "Ingen af disse medarbejdere har e-mail eller telefon registreret — de ser kun ændringen i deres portal. Del deres portallinks, når du har udgivet.",
 };
@@ -127,6 +136,10 @@ beforeEach(() => {
 });
 
 const TIME = { da: "17.00–23.30", en: /17:00/, tr: /17[.:]00/ };
+const LOAD_FAILED = {
+  da: "Ugen kunne ikke hentes, så intet herunder er det fulde billede endnu.",
+  en: "This week couldn't be loaded, so nothing below is the full picture yet.",
+};
 const PUBLISH_TITLE = { da: "Udgiv ugen", en: "Publish week" };
 const SHEET_NAME = { da: "Udgiv denne uge?", en: "Publish this week?", tr: "Bu hafta yayınlansın mı?" };
 
@@ -143,7 +156,12 @@ async function openSheet(me, { lang = "da" } = {}) {
       </MemoryRouter>,
     );
   });
-  await screen.findAllByText(TIME[lang], {}, { timeout: 8000 });
+  if (staffRows === FAIL) {
+    // No roster → no grid rows to wait for; the page says it could not load.
+    await screen.findByText(LOAD_FAILED[lang], {}, { timeout: 8000 });
+  } else {
+    await screen.findAllByText(TIME[lang], {}, { timeout: 8000 });
+  }
   const publishBtn = PUBLISH_TITLE[lang]
     ? screen.getByTitle(PUBLISH_TITLE[lang])
     : screen.getByTitle((title, el) => el?.tagName === "BUTTON" && /yayınla/i.test(title || ""));
@@ -155,29 +173,42 @@ async function openSheet(me, { lang = "da" } = {}) {
 
 const noteIn = (sheet) => within(sheet).getByTestId("publish-notify-note");
 
-// Every state: plan with/without push × held or not × staff with/without e-mail.
-const MATRIX = [
-  // [plan, me, Bo, expected sentence, the one tap]
-  ["push", "confirmed", BO_MAIL, DA.today, null],
-  ["free", "confirmed", BO_MAIL, DA.todayNoPush, null],
-  ["push", "unverified", BO_MAIL, DA.heldUnverified, "verify"],
-  ["free", "unverified", BO_MAIL, DA.heldUnverifiedNoPush, "verify"],
-  ["push", "claim", BO_MAIL, DA.heldClaim, "claim"],
-  ["free", "claim", BO_MAIL, DA.heldClaimNoPush, "claim"],
-  ["push", "confirmed", BO_PHONE, DA.noEmail, null],
-  ["free", "confirmed", BO_PHONE, DA.noEmailNoPush, null],
-  ["push", "unverified", BO_PHONE, DA.noEmail, null],
-  ["free", "unverified", BO_PHONE, DA.noEmailNoPush, null],
-  ["push", "claim", BO_PHONE, DA.noEmail, null],
-  ["free", "claim", BO_PHONE, DA.noEmailNoPush, null],
-];
+// Every state: plan with/without push × owner confirmed / unverified / claim
+// question open × the affected staffer mailable / nobody mailable / roster
+// unreadable. Three outcomes for "can anyone be mailed", never two.
+const ROSTERS = {
+  mailable: () => [ANNA, BO_MAIL],
+  nobody: () => [ANNA, BO_PHONE],
+  nobodyBadAddress: () => [ANNA, BO_BAD_MAIL],
+  // /staff/members answered 503 — "Noget gik galt" on the page.
+  unknownFailed: () => FAIL,
+  // Read fine, but Bo (who holds the draft) is not in it.
+  unknownMissing: () => [ANNA],
+};
+const EXPECT = {
+  mailable: {
+    confirmed: { push: [DA.today, null], free: [DA.todayNoPush, null] },
+    unverified: { push: [DA.heldUnverified, "verify"], free: [DA.heldUnverifiedNoPush, "verify"] },
+    claim: { push: [DA.heldClaim, "claim"], free: [DA.heldClaimNoPush, "claim"] },
+  },
+};
+const MATRIX = [];
+for (const plan of ["push", "free"]) {
+  for (const me of ["confirmed", "unverified", "claim"]) {
+    MATRIX.push([plan, me, "mailable", ...EXPECT.mailable[me][plan]]);
+    MATRIX.push([plan, me, "nobody", plan === "push" ? DA.noEmail : DA.noEmailNoPush, null]);
+    MATRIX.push([plan, me, "nobodyBadAddress", plan === "push" ? DA.noEmail : DA.noEmailNoPush, null]);
+    MATRIX.push([plan, me, "unknownFailed", DA.unknown, null]);
+    MATRIX.push([plan, me, "unknownMissing", DA.unknown, null]);
+  }
+}
 
 describe("Udgiv denne uge? — every state says only what the publish will do", () => {
   it.each(MATRIX)(
-    "plan=%s, owner=%s, Bo=%o → the true sentence",
-    async (plan, me, bo, expected, tap) => {
+    "plan=%s, owner=%s, roster=%s → the true sentence",
+    async (plan, me, roster, expected, tap) => {
       entFresh = PLAN[plan];
-      staffRows = [ANNA, bo];
+      staffRows = ROSTERS[roster]();
       const note = noteIn(await openSheet(ME[me]));
       const verify = within(note).queryByRole("link", { name: "Bekræft nu" });
       const resend = within(note).queryByRole("button", { name: "Send spørgsmålet igen" });
@@ -195,14 +226,31 @@ describe("Udgiv denne uge? — every state says only what the publish will do", 
           expect(resend).toBeInTheDocument();
           expect(verify).toBeNull();
         }
+        // Held: one short sentence says this week's e-mails do not go later.
+        expect(note.textContent).toContain(NOT_LATER_DA);
       }
       // Never "the e-mails go out later": a held mail is dropped, not queued.
       expect(note.textContent).not.toMatch(/sendes først|går først/);
-      // A push is only named on a plan that sends one.
-      if (plan === "free") expect(note.textContent).not.toMatch(/push/i);
-      else expect(note.textContent).toContain("push");
-      // No e-mail on file → no e-mail promised.
-      if (bo === BO_PHONE) expect(note.textContent).not.toContain("får en e-mail");
+      // The push is promised only to those who turned notifications on.
+      expect(note.textContent).not.toContain("har åbnet deres portal");
+      if (roster.startsWith("unknown")) {
+        // Could not check → neither "no e-mail" nor "held" (both would be
+        // claims about staff we could not read), and no channel promised.
+        expect(note.textContent).not.toContain("har en e-mail registreret");
+        expect(note.textContent).not.toContain("BonBox sender ingen e-mails");
+        expect(note.textContent).not.toMatch(/push/i);
+      } else if (plan === "free") {
+        // A push is only named on a plan that sends one.
+        expect(note.textContent).not.toMatch(/push/i);
+      } else {
+        expect(note.textContent).toContain(PUSH_DA);
+      }
+      // No e-mail on file → no e-mail promised, and not "told in the app"
+      // either: the result after publishing says nobody was told.
+      if (roster.startsWith("nobody")) {
+        expect(note.textContent).not.toContain("får en e-mail");
+        expect(note.textContent).not.toContain("får besked");
+      }
     },
     15000,
   );
@@ -296,7 +344,7 @@ describe("English and Turkish", () => {
     entFresh = PLAN.push;
     const note = noteIn(await openSheet(ME.unverified, { lang: "en" }));
     expect(note.textContent).toBe(
-      "Staff whose shifts changed are told in the app (and by push if they've opened their portal). BonBox sends your staff no e-mails until your own e-mail is confirmed. Confirm now",
+      "Staff whose shifts changed are told in the app (and by push if they've turned on notifications in their portal). BonBox sends your staff no e-mails until your own e-mail is confirmed. This week's e-mails won't be sent afterwards. Confirm now",
     );
     expect(within(note).getByRole("link", { name: "Confirm now" })).toBeInTheDocument();
   }, 15000);
@@ -305,7 +353,7 @@ describe("English and Turkish", () => {
     const note = noteIn(await openSheet(ME.claim, { lang: "en" }));
     expect(
       note.textContent.startsWith(
-        "Staff whose shifts changed are told in the app. BonBox sends your staff no e-mails until you've answered the question we e-mailed you: did you create this account yourself? ",
+        "Staff whose shifts changed are told in the app. BonBox sends your staff no e-mails until you've answered the question we e-mailed you: did you create this account yourself? This week's e-mails won't be sent afterwards. ",
       ),
     ).toBe(true);
     expect(within(note).getByRole("button", { name: "Send the question again" })).toBeInTheDocument();
@@ -321,14 +369,72 @@ describe("English and Turkish", () => {
     staffRows = [ANNA, BO_PHONE];
     const note = noteIn(await openSheet(ME.unverified, { lang: "en" }));
     expect(note.textContent).toBe(
-      "Staff whose shifts changed are told in the app. None of them has an e-mail on file, so no e-mails are sent.",
+      "None of the staff whose shifts changed has an e-mail on file, so no e-mails are sent — they only see the change if they open their portal.",
+    );
+  }, 15000);
+
+  it("English, no e-mail on file, push plan", async () => {
+    staffRows = [ANNA, BO_PHONE];
+    entFresh = PLAN.push;
+    const note = noteIn(await openSheet(ME.confirmed, { lang: "en" }));
+    expect(note.textContent).toBe(
+      "None of the staff whose shifts changed has an e-mail on file, so no e-mails are sent — they see the change when they open their portal (and a push if they've turned on notifications in their portal).",
+    );
+  }, 15000);
+
+  it("English, push plan, confirmed: an e-mail and a push for those who turned notifications on", async () => {
+    entFresh = PLAN.push;
+    const note = noteIn(await openSheet(ME.confirmed, { lang: "en" }));
+    expect(note.textContent).toBe(
+      "Staff whose shifts changed get an email (and a push if they've turned on notifications in their portal).",
+    );
+  }, 15000);
+
+  it("English, roster unreadable, unconfirmed owner: could not check — no held wording, no Confirm now", async () => {
+    staffRows = FAIL;
+    localStorage.setItem("lang", "en");
+    refreshUser.mockResolvedValue(ME.unverified);
+    await act(async () => {
+      render(
+        <MemoryRouter>
+          <LanguageProvider>
+            <StaffSchedulePage />
+          </LanguageProvider>
+        </MemoryRouter>,
+      );
+    });
+    await screen.findByText(LOAD_FAILED.en, {}, { timeout: 8000 });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(PUBLISH_TITLE.en));
+    });
+    const note = noteIn(await screen.findByRole("dialog", { name: SHEET_NAME.en }));
+    expect(note.textContent).toBe(
+      "We couldn't check in advance which of the staff whose shifts changed get an e-mail.",
+    );
+    expect(within(note).queryByRole("link", { name: "Confirm now" })).toBeNull();
+  }, 15000);
+
+  it("Turkish, the draft staffer missing from the roster: the could-not-check sentence in Turkish", async () => {
+    staffRows = [ANNA];
+    const note = noteIn(await openSheet(ME.unverified, { lang: "tr" }));
+    expect(note.textContent).toBe(
+      "Vardiyası değişen çalışanlardan hangilerinin e-posta alacağını önceden kontrol edemedik.",
+    );
+  }, 15000);
+
+  it("Turkish, no e-mail on file, push plan: the precise push clause", async () => {
+    staffRows = [ANNA, BO_PHONE];
+    entFresh = PLAN.push;
+    const note = noteIn(await openSheet(ME.confirmed, { lang: "tr" }));
+    expect(note.textContent).toBe(
+      "Vardiyası değişen çalışanların hiçbirinin kayıtlı e-postası yok, bu yüzden e-posta gönderilmez — değişikliği portallarını açtıklarında görürler (portalında bildirimleri açtıysa push da).",
     );
   }, 15000);
 
   it("Turkish, unconfirmed, Free: Turkish sentence and a Turkish tap", async () => {
     const note = noteIn(await openSheet(ME.unverified, { lang: "tr" }));
     expect(note.textContent).toBe(
-      "Vardiyası değişen çalışanlar uygulamada bilgilendirilir. Kendi e-postan onaylanana kadar BonBox çalışanlarına e-posta göndermez. Şimdi onayla",
+      "Vardiyası değişen çalışanlar uygulamada bilgilendirilir. Kendi e-postan onaylanana kadar BonBox çalışanlarına e-posta göndermez. Bu haftanın e-postaları sonradan gönderilmez. Şimdi onayla",
     );
     expect(within(note).getByRole("link", { name: "Şimdi onayla" })).toBeInTheDocument();
   }, 15000);
@@ -336,5 +442,30 @@ describe("English and Turkish", () => {
   it("Turkish, claim question open: the resend tap is Turkish too", async () => {
     const note = noteIn(await openSheet(ME.claim, { lang: "tr" }));
     expect(within(note).getByRole("button", { name: "Soruyu tekrar gönder" })).toBeInTheDocument();
+  }, 15000);
+});
+
+describe("no e-mail on file: the sheet before publishing and the result after say the same thing", () => {
+  it("Free: 'no e-mails, only if they open their portal' → 'nobody was told'", async () => {
+    staffRows = [ANNA, BO_PHONE];
+    api.post.mockImplementation((url) =>
+      String(url).includes("/staff/schedules/publish")
+        ? Promise.resolve({
+            data: { published: 1, changed_staff: 1, notify_count: 0, skipped_no_email_names: ["Bo"], mail_held: null },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    const sheet = await openSheet(ME.confirmed);
+    const before = noteIn(sheet).textContent;
+    expect(before).toBe(DA.noEmailNoPush);
+    // Before: no e-mail, and nobody is "told" — they only see it in the portal.
+    expect(before).not.toMatch(/får besked|får en e-mail/);
+    await act(async () => {
+      fireEvent.click(within(sheet).getByRole("button", { name: /Udgiv ugen/ }));
+    });
+    // After: the server's notify_count 0 — the same fact, as the headline.
+    const after = await screen.findByRole("dialog", { name: "Udgivet — men ingen fik besked" });
+    expect(within(after).getByText("Der blev ikke sendt noget. Ingen af de berørte medarbejdere har en e-mail.")).toBeInTheDocument();
+    expect(within(after).queryByText(/får besked i appen/)).toBeNull();
   }, 15000);
 });
