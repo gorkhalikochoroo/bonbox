@@ -67,5 +67,5 @@
       ]
     }
   ],
-  "ignoreCommand": "bash -c 'PREV=\"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\"; git cat-file -e \"$PREV^{commit}\" 2>/dev/null || exit 1; if git diff --quiet \"$PREV\" HEAD -- . \":(exclude)ios\" \":(exclude)ios-scheduler\"; then exit 0; else exit 1; fi'"
+  "ignoreCommand": "exit 0"
 }
