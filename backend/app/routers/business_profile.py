@@ -23,6 +23,8 @@ Endpoints:
 import uuid
 from datetime import datetime, timedelta
 
+import anyio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from slowapi import Limiter
@@ -243,7 +245,7 @@ class ReverifyResponse(BaseModel):
 
 @router.post("/reverify", response_model=ReverifyResponse)
 @_limiter.limit("10/minute")
-async def reverify_profile(
+def reverify_profile(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -305,8 +307,11 @@ async def reverify_profile(
                 headers={"Retry-After": str(wait_seconds)},
             )
 
+    # A plain `def` (its DB work runs in the threadpool, never waiting for a
+    # pool connection on the event loop); the async register lookup is run
+    # on the loop from this worker thread.
     try:
-        results = await lookup_business(profile.org_number, profile.country or "DK")
+        results = anyio.from_thread.run(lookup_business, profile.org_number, profile.country or "DK")
     except LookupError as e:
         raise HTTPException(status_code=503, detail=str(e))
 

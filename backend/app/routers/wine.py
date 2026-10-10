@@ -29,6 +29,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -868,8 +869,10 @@ async def scan_bottle_label(
     # process-wide). Taken BEFORE the ceiling counts this scan, so a 503
     # "busy, try again" never uses up one of the owner's scans.
     async with vision_slot_async(user):
-        # Layer 0 — counted only for a photo that will actually be sent.
-        _enforce_wine_scan_ceiling(db, user)
+        # Layer 0 — counted only for a photo that will actually be sent. In a
+        # worker thread: its count + audit row must not wait for a pool
+        # connection on the event loop.
+        await run_in_threadpool(_enforce_wine_scan_ceiling, db, user)
 
         b64 = base64.b64encode(image_data).decode()
 

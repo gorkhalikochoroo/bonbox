@@ -4,6 +4,7 @@ import string
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -103,6 +104,16 @@ async def whatsapp_webhook(
     if not body or not from_number:
         return Response(content="<Response></Response>", media_type="application/xml")
 
+    # The DB work (log, lookup, the bot's reply) runs in a worker thread: on
+    # the event loop its pool checkouts froze every request whenever the
+    # pool was exhausted (R-d round 3).
+    return await run_in_threadpool(_handle_inbound_message, db, body, from_number)
+
+
+def _handle_inbound_message(db: Session, body: str, from_number: str) -> Response:
+    """A signed, non-empty inbound WhatsApp message: log it, link / verify
+    the phone or let the bot answer. Blocking DB work — runs in the
+    threadpool (whatsapp_webhook)."""
     # Log inbound message
     db.add(WhatsAppMessage(phone_number=from_number, direction="inbound", body=body))
     db.commit()

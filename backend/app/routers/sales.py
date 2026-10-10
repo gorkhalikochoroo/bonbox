@@ -553,7 +553,7 @@ def returns_summary(
 
 @router.post("/import-csv")
 @limiter.limit("10/minute")
-async def import_csv(
+def import_csv(
     request: Request,
     file: UploadFile = File(...),
     dry_run: bool = False,
@@ -629,7 +629,9 @@ async def import_csv(
     if file.content_type not in ("text/csv", "application/vnd.ms-excel", "text/plain"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
 
-    content = await file.read()
+    # A plain `def`: FastAPI runs it in the threadpool, so its DB work never
+    # waits for a pool connection on the event loop (R-d round 3).
+    content = file.file.read()
 
     # Validate file size
     if len(content) > MAX_CSV_SIZE:
@@ -938,7 +940,7 @@ class CsvRollbackRequest(BaseModel):
 
 @router.post("/import-csv/rollback")
 @limiter.limit("10/minute")
-async def rollback_csv_import(
+def rollback_csv_import(
     request: Request,
     body: CsvRollbackRequest,
     db: Session = Depends(get_db),

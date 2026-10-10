@@ -47,7 +47,7 @@ def list_formats():
 
 # ── Preview (parse without saving) ───────────────────────
 @router.post("/preview", response_model=BankImportPreviewResponse)
-async def preview_csv(
+def preview_csv(
     file: UploadFile = File(...),
     bank: str | None = Query(None, description="Override auto-detection"),
     db: Session = Depends(get_db),
@@ -57,8 +57,9 @@ async def preview_csv(
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Please upload a .csv file")
 
-    # Read file content (try multiple encodings)
-    raw = await file.read()
+    # Read file content (try multiple encodings). A plain `def`: its DB work
+    # (category suggestions) runs in the threadpool, never on the event loop.
+    raw = file.file.read()
     if len(raw) > 5 * 1024 * 1024:  # 5MB limit
         raise HTTPException(400, "File too large (max 5MB)")
 
