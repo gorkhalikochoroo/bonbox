@@ -585,3 +585,31 @@ def test_explicit_sends_with_an_unreadable_count_report_not_sent_not_a_limit(
     assert r.json()["failed"][0]["reason"] == "count_unavailable"
     assert r.json()["skipped_mail_limit_names"] == []
     assert mails == []
+
+
+def test_a_minted_link_survives_a_later_staffers_error(client, db, mails, monkeypatch):
+    """Each staffer's mail is one committed turn: Anna's link (already in her
+    inbox) is not rolled back when the next staffer's send throws."""
+    from app.models.staff import StaffLink
+    owner = _owner(db)
+    anna = _staff(db, owner, name="Anna", email="anna@cafe.dk")
+    bo = _staff(db, owner, name="Bo", email="bo@cafe.dk")
+    week = _next_monday()
+    _shift(db, owner, anna, status="published", week=week)
+    _shift(db, owner, bo, day=1, status="published", week=week)
+    _as(owner)
+
+    def _send(to=None, subject=None, html=None, **k):
+        if to == "bo@cafe.dk":
+            raise RuntimeError("provider exploded")
+        mails.append({"to": to, "subject": subject})
+        return True
+
+    monkeypatch.setattr(staff_router, "send_email", _send)
+    r = client.post("/api/staff/schedules/share-with-staff",
+                    json={"week_start": week.isoformat()}, params={"lang": "da"})
+    assert r.status_code == 200, r.text
+    assert [m["to"] for m in mails] == ["anna@cafe.dk"]
+    db.expire_all()
+    assert db.query(StaffLink).filter_by(staff_id=anna.id, active=True).count() == 1
+    assert db.query(AuditLog).filter_by(action=guard.STAFF_MAIL_ACTION).count() == 1

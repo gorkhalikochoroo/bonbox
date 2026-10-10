@@ -1942,7 +1942,11 @@ def share_with_staff(
             except Exception:  # noqa: BLE001
                 pass
             email_failed_count += 1
-            logger.exception(
+            # This module has no top-level logger: `logger` here was a
+            # NameError, so one staffer's error answered 500 for the whole
+            # share (found by the review fix-up test, 10 Oct).
+            import logging
+            logging.getLogger(__name__).exception(
                 "share_with_staff: per-staff error for staff_id=%s: %s",
                 member.id, exc,
             )
