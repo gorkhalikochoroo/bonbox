@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -7,6 +7,7 @@ import { verifyWallExempt } from "../utils/verifySkip";
 import {
   TERMS_EXISTING_FROM,
   TERMS_VERSION,
+  copenhagenMidnightMs,
   termsDate,
   termsNoticeWindowOpen,
 } from "../legal/terms";
@@ -14,16 +15,21 @@ import {
 /**
  * "Vi har opdateret vores Handelsbetingelser" — the in-app notice to EXISTING
  * accounts (Manoj, 10 Oct 2026, decision a: in-app only, no e-mail; the Terms
- * apply to existing accounts from TERMS_EXISTING_FROM, 14 days after their
- * date, as the 13 May Terms §14 promise).
+ * apply to existing accounts from TERMS_EXISTING_FROM, the deploy day + 15
+ * days, so the owner gets at least the 14 days the 13 May Terms §14 promise).
  *
  * Who sees it is the server's answer (user.terms_notice_due from /auth/me,
- * services/terms.py): the account owner, account from before the Terms'
- * date, no acceptance of the current version, not closed, before
+ * services/terms.py): every account owner without an acceptance of the
+ * current version (whenever the account was created), not closed, before
  * TERMS_EXISTING_FROM. This row adds two local guards: it stops at 00:00
- * Copenhagen on that date even in a tab opened before it, and it is never on
- * the day's close (nothing competes with the close — same rule as
- * VerifyEmailReminder).
+ * Copenhagen on that date even in a tab opened before it (it re-checks the
+ * clock when the tab gets focus or becomes visible, and at the cut-off
+ * itself), and it is never on the day's close (nothing competes with the
+ * close — same rule as VerifyEmailReminder).
+ *
+ * It lives in Layout, so pages outside Layout never show it: public pages,
+ * /verify-email, /onboarding, /getting-started and the stand views
+ * (/reservations/stand, /staff/schedule/stand, /stand/…).
  *
  * The × closes it for the account on every device
  * (POST /auth/terms-notice/dismiss) and on this device at once (localStorage,
@@ -45,6 +51,26 @@ export default function TermsUpdateNotice() {
   const location = useLocation();
   const [closed, setClosed] = useState(false);
   const [open, setOpen] = useState(false);
+  const due = !!user && user.terms_notice_due === true;
+  // Re-read the clock: a tab left open across 00:00 Copenhagen on
+  // TERMS_EXISTING_FROM drops the row when it is looked at again (focus /
+  // visible) or, if it stays in front, at the cut-off itself.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!due || typeof window === "undefined") return undefined;
+    const recheck = () => setClockTick((n) => n + 1);
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    let timer;
+    const left = copenhagenMidnightMs(TERMS_EXISTING_FROM) - Date.now();
+    // setTimeout holds at most ~24.8 days; beyond that focus/visibility do it.
+    if (left > 0 && left < 2147483647) timer = setTimeout(recheck, left + 1000);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+      if (timer) clearTimeout(timer);
+    };
+  }, [due]);
 
   if (closed || !user || user.terms_notice_due !== true) return null;
   if (!termsNoticeWindowOpen()) return null;
@@ -108,10 +134,11 @@ export default function TermsUpdateNotice() {
       {open && (
         <div id="terms-update-notice-changes" className="pb-1.5 text-gray-600 dark:text-gray-400">
           <ul className="list-disc pl-5 space-y-0.5">
+            <li>{t("termsNoticeChangeCaps", "Every plan, Free included, has usage caps, and we may change, limit or remove features and usage caps with reasonable notice. This replaces the promise in the earlier terms that existing free functionality stays available and that we do not charge retroactively for features you already use for free.")}</li>
+            <li>{t("termsNoticeChangeBusiness", "Paid subscriptions are for businesses only.")}</li>
             <li>{t("termsNoticeChangeRenewal", "Starter and Pro renew automatically every month. A cancellation takes effect at the end of the period you have paid for, and we do not refund part of a period.")}</li>
             <li>{t("termsNoticeChangeFounding", "You keep the founding price as long as your subscription stays active without a break.")}</li>
             <li>{t("termsNoticeChangePrice", "We give at least 30 days' notice by e-mail before a price change applies to your running subscription.")}</li>
-            <li>{t("termsNoticeChangeBusiness", "Paid subscriptions are for businesses only.")}</li>
           </ul>
           <p className="mt-1">
             {t("termsNoticeObject", "If you do not want to continue on the new terms, you can cancel your subscription or delete your account before {date}.", { date })}

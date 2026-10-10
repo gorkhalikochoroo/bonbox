@@ -3,20 +3,26 @@ The in-app notice of the new Terms for EXISTING accounts (R-e follow-up).
 
 Manoj, 10 Oct 2026, decision (a): existing accounts are told about the new
 Handelsbetingelser by an in-app notice ONLY (no e-mail); the Terms apply to
-them from TERMS_EXISTING_FROM (24 Oct 2026 = TERMS_VERSION + 14 days, the
-notice the live 13 May Terms §14 promise). New sign-ups accept them at once.
+them from TERMS_EXISTING_FROM (the deploy day + 15 days, so the notice is at
+least the 14 full days the live 13 May Terms §14 promise). New sign-ups that
+accept them at sign-up are bound at once.
+
+The two dates are RELEASE-TIME constants (services/terms.py and
+frontend/src/legal/terms.js, set on the day R-e ships). Every time below is
+derived from them, so moving the dates needs no change here.
 
 These tests pin:
-  • who is told: the account OWNER of an account created before the Terms'
-    date, with no acceptance of the current version, who has not closed the
-    notice, before TERMS_EXISTING_FROM — and nobody else (staff, a new
-    account, an account that accepted at sign-up or at checkout, after the
-    date, after closing it)
+  • who is told: every account OWNER with no acceptance of the current
+    version (NULL or older), whenever the account was created, who has not
+    closed the notice, before TERMS_EXISTING_FROM — and nobody else (staff,
+    an account that accepted at sign-up or at checkout, after the date,
+    after closing it)
   • the notice stops on its own at 00:00 Copenhagen on TERMS_EXISTING_FROM
   • closing it is remembered per ACCOUNT on the server, and it is notice,
     never acceptance: terms_version / terms_accepted_at are not written
   • /auth/me carries the flag; staff get 403 from the close endpoint
-  • the two dates: >= 14 days apart, the same in backend and frontend
+  • the two dates: real ISO days, the same in backend and frontend, and at
+    least 14 full days from the END of the deploy day (>= 15 calendar days)
   • the migration + SQLite mirror carry the column; the export includes it
 
 No mail leaves the test; time is pinned (never the wall clock).
@@ -25,7 +31,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,18 +47,19 @@ from app.main import app, _db_ready
 from app.models.user import User
 from app.services.auth import create_access_token, hash_password
 from app.services.terms import (
-    TERMS_EXISTING_FROM, TERMS_NOTICE_MIN_DAYS, TERMS_VERSION,
+    TERMS_EXISTING_FROM, TERMS_NOTICE_GAP_DAYS, TERMS_NOTICE_MIN_DAYS, TERMS_VERSION,
     _notice_gap_days, apply_checkout_terms_acceptance, dismiss_terms_notice,
     dk_midnight_utc, terms_notice_due,
 )
 
 _db_ready.set()
 
-# Naive UTC, like the DB columns.
-BEFORE_RELEASE = datetime(2026, 9, 1, 12, 0)          # an existing account
-DURING_NOTICE = datetime(2026, 10, 12, 9, 0)          # between the two dates
-LAST_MINUTE = datetime(2026, 10, 23, 21, 59)          # 23:59 Copenhagen, 23 Oct
-EFFECTIVE = datetime(2026, 10, 23, 22, 0)             # 00:00 Copenhagen, 24 Oct
+# Naive UTC, like the DB columns — all derived from the two release-time dates.
+RELEASE_DAY = dk_midnight_utc(TERMS_VERSION)                   # 00:00 Copenhagen, deploy day
+EFFECTIVE = dk_midnight_utc(TERMS_EXISTING_FROM)               # 00:00 Copenhagen, Terms apply
+LAST_MINUTE = EFFECTIVE - timedelta(minutes=1)                 # 23:59 Copenhagen, the day before
+DURING_NOTICE = RELEASE_DAY + timedelta(days=2, hours=9)       # between the two dates
+BEFORE_RELEASE = RELEASE_DAY - timedelta(days=40)              # an existing account
 
 
 def _owner(**kw):
@@ -66,16 +73,42 @@ def _owner(**kw):
 # ─────────────────────────── the rule ───────────────────────────
 
 def test_dates_are_copenhagen_midnight():
-    # CEST (UTC+2) on both dates — DST ends 25 Oct 2026.
-    assert dk_midnight_utc(TERMS_VERSION) == datetime(2026, 10, 9, 22, 0)
-    assert dk_midnight_utc(TERMS_EXISTING_FROM) == EFFECTIVE
+    # Summer time (UTC+2) up to and including 25 Oct 2026 — DST ends at 03:00
+    # that day, so 00:00 on the 25th is still summer time — winter time
+    # (UTC+1) after.
+    assert dk_midnight_utc("2026-10-10") == datetime(2026, 10, 9, 22, 0)
+    assert dk_midnight_utc("2026-10-14") == datetime(2026, 10, 13, 22, 0)
+    assert dk_midnight_utc("2026-10-25") == datetime(2026, 10, 24, 22, 0)
+    assert dk_midnight_utc("2026-10-29") == datetime(2026, 10, 28, 23, 0)
+    assert dk_midnight_utc("2026-12-01") == datetime(2026, 11, 30, 23, 0)
 
 
-def test_the_two_dates_and_the_14_days():
-    assert TERMS_VERSION == "2026-10-10"
-    assert TERMS_EXISTING_FROM == "2026-10-24"
+def test_the_two_dates_and_the_15_days():
+    # Real ISO days (a typo fails here, not in production).
+    v = date.fromisoformat(TERMS_VERSION)
+    e = date.fromisoformat(TERMS_EXISTING_FROM)
+    assert v.isoformat() == TERMS_VERSION and e.isoformat() == TERMS_EXISTING_FROM
+    # The live Terms §14 promise 14 days; the deploy day is only part of one.
     assert TERMS_NOTICE_MIN_DAYS == 14
-    assert _notice_gap_days() >= TERMS_NOTICE_MIN_DAYS
+    assert TERMS_NOTICE_GAP_DAYS == 15
+    assert _notice_gap_days() >= TERMS_NOTICE_GAP_DAYS
+    assert e >= v + timedelta(days=15)
+    # In real hours: even a deploy at 23:59 on the deploy day leaves at least
+    # 14 x 24 h before 00:00 Copenhagen on TERMS_EXISTING_FROM (a spring
+    # clock change inside the window costs an hour and would fail this).
+    end_of_deploy_day = dk_midnight_utc((v + timedelta(days=1)).isoformat())
+    assert EFFECTIVE - end_of_deploy_day >= timedelta(days=TERMS_NOTICE_MIN_DAYS)
+
+
+def test_frontend_carries_the_same_two_dates():
+    """ONE place per side: frontend/src/legal/terms.js exports both dates and
+    they must equal the server's (the Terms page and the notice print them;
+    the server decides who is told and stamps the version)."""
+    src = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "legal" / "terms.js").read_text()
+    v = re.findall(r'export const TERMS_VERSION\s*=\s*"([^"]+)"', src)
+    e = re.findall(r'export const TERMS_EXISTING_FROM\s*=\s*"([^"]+)"', src)
+    assert v == [TERMS_VERSION], v
+    assert e == [TERMS_EXISTING_FROM], e
 
 
 def test_frontend_carries_the_same_existing_accounts_date():
@@ -111,12 +144,22 @@ def test_staff_and_other_roles_are_never_told(kw):
     assert terms_notice_due(_owner(**kw), DURING_NOTICE) is False
 
 
-def test_a_new_account_is_never_told():
-    # Created on or after 00:00 Copenhagen on the Terms' date.
-    assert terms_notice_due(_owner(created_at=datetime(2026, 10, 9, 22, 0)), DURING_NOTICE) is False
-    assert terms_notice_due(_owner(created_at=datetime(2026, 10, 11, 8, 0)), DURING_NOTICE) is False
-    # One minute before still counts as existing.
-    assert terms_notice_due(_owner(created_at=datetime(2026, 10, 9, 21, 59)), DURING_NOTICE) is True
+def test_a_new_account_that_accepted_is_not_told():
+    # Created on or after the deploy day and stamped at sign-up (web /register
+    # and /login send accept_terms).
+    for created in (RELEASE_DAY, RELEASE_DAY + timedelta(days=1, hours=8), DURING_NOTICE):
+        assert terms_notice_due(_owner(created_at=created, terms_version=TERMS_VERSION), DURING_NOTICE) is False
+
+
+def test_the_rule_tells_a_new_account_without_acceptance():
+    # Review, 10 Oct: the creation time no longer decides. Signed up on the
+    # deploy day before the release went live (old sign-up page, no
+    # acceptance), or through the owner iOS app 2.1 (Apple sign-in sends no
+    # accept_terms) — no acceptance on record, so the owner is told.
+    for created in (RELEASE_DAY, RELEASE_DAY + timedelta(hours=11), DURING_NOTICE, LAST_MINUTE):
+        assert terms_notice_due(_owner(created_at=created), LAST_MINUTE) is True
+    # One minute before the deploy day: an existing account, told as before.
+    assert terms_notice_due(_owner(created_at=RELEASE_DAY - timedelta(minutes=1)), DURING_NOTICE) is True
 
 
 def test_an_account_that_accepted_the_current_terms_is_not_told():
@@ -138,8 +181,10 @@ def test_closing_is_notice_never_acceptance():
 
 
 def test_odd_rows_read_false_and_never_raise():
-    assert terms_notice_due(_owner(created_at="not a date"), DURING_NOTICE) is False
     assert terms_notice_due(_owner(terms_version=20261010), DURING_NOTICE) is False
+    assert terms_notice_due(_owner(), "not a time") is False
+    # created_at is no longer read: an odd value neither raises nor hides it.
+    assert terms_notice_due(_owner(created_at="not a date"), DURING_NOTICE) is True
 
 
 # ─────────────────────────── the API ───────────────────────────
@@ -253,6 +298,26 @@ def test_a_new_account_that_accepted_at_sign_up_is_not_told(db_session, client, 
     client.cookies.clear()
     me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {r.json()['access_token']}"})
     assert me.json()["terms_notice_due"] is False
+
+
+def test_a_new_account_without_acceptance_is_told(db_session, client, during_notice):
+    """A sign-up that sent no accept_terms (an app build from before the
+    acceptance line, e.g. owner iOS 2.1) accepted nothing: /me tells the
+    owner, and nothing is stamped."""
+    body = {"email": f"ny-{uuid.uuid4().hex[:8]}@cafe.dk", "password": "Validpass1",
+            "business_name": "Ny Café", "business_type": "cafe", "currency": "DKK"}
+    r = client.post("/api/auth/register", json=body)
+    assert r.status_code == 201, r.text
+    db_session.expire_all()
+    row = db_session.query(User).filter(User.email == body["email"]).first()
+    assert row.terms_version is None and row.terms_accepted_at is None
+    # Created after the release went live (the wall clock is not the
+    # release's clock): still told, because it accepted nothing.
+    row.created_at = RELEASE_DAY + timedelta(hours=11)
+    db_session.commit()
+    client.cookies.clear()
+    me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {r.json()['access_token']}"})
+    assert me.json()["terms_notice_due"] is True
 
 
 def test_after_the_date_nobody_is_told(db_session, client, monkeypatch):

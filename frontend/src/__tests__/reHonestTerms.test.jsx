@@ -186,7 +186,10 @@ describe("Terms page (P0-1)", () => {
 
 describe("legal/terms.js", () => {
   it("formats the version as the page date", () => {
-    expect(TERMS_VERSION).toBe("2026-10-10");
+    // TERMS_VERSION is a release-time constant (set on the deploy day, see
+    // src/legal/terms.js): a real ISO day, never pinned to one value here.
+    expect(TERMS_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(termsDate(TERMS_VERSION, "da")).toMatch(/^\d{1,2}\. [a-zæø]+ \d{4}$/);
     expect(termsDate("2026-10-10", "da")).toBe("10. oktober 2026");
     expect(termsDate("2026-10-10", "en")).toBe("10 October 2026");
   });

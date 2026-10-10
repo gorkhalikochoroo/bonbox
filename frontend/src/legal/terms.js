@@ -1,19 +1,36 @@
-/* The Terms of Service version — ONE place.
+/* ═══════════════════════════════════════════════════════════════════════
+   !!! RELEASE-TIME DATES — PROVISIONAL — SET BOTH ON THE DAY R-e SHIPS !!!
 
-   TermsPage shows it as "Sidst opdateret" / "Last updated"; the backend
-   stamps the same value on a new account that accepted the Terms
-   (backend/app/services/terms.py TERMS_VERSION). backend
-   tests/test_terms_acceptance.py fails if the two ever differ, so change
-   both — and the Terms text — in one commit. */
-export const TERMS_VERSION = "2026-10-10";
+   TERMS_VERSION       = the day R-e is deployed (Copenhagen date).
+   TERMS_EXISTING_FROM = that day + 15 days.
+
+   The values below (14 Oct / 29 Oct 2026) are a GUESS at the ship day — R-e
+   ships after R-c, R-d/R-f and Manoj's Stripe settings. They are only true
+   if R-e is deployed on 14 Oct 2026.
+
+   These two lines and the two in backend/app/services/terms.py are the ONLY
+   places the dates live; the Terms page, the in-app notice and the tests
+   read them from here. backend tests/test_terms_notice.py fails if the two
+   files differ; src/__tests__/reTermsTransition.test.jsx fails if the gap is
+   under 15 days. Gate line in bonbox-lab-state/releases.md ("R-e at push").
+
+   Why +15 and not +14: the live 13 May Terms §14 promise notice "mindst 14
+   dage, før ændringerne træder i kraft". The notice can only appear once the
+   release is live, part-way through the deploy day, and the Terms apply from
+   00:00 Copenhagen on TERMS_EXISTING_FROM.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* The Terms of Service version. TermsPage shows it as "Sidst opdateret" /
+   "Last updated"; the backend stamps the same value on an account that
+   accepts the Terms. Change it — and the Terms text — in one commit. It is
+   also the date the Terms apply to NEW accounts from. */
+export const TERMS_VERSION = "2026-10-14";
 
 /* The date these Terms apply to EXISTING accounts from (Manoj, 10 Oct 2026):
-   TERMS_VERSION + 14 days — the notice the 13 May Terms §14 promise. New
-   accounts accept them at once (from TERMS_VERSION). Same value as
-   backend/app/services/terms.py TERMS_EXISTING_FROM (a backend test fails if
-   they differ). The Terms page prints both dates; the in-app notice
-   (components/TermsUpdateNotice) runs until this one. */
-export const TERMS_EXISTING_FROM = "2026-10-24";
+   every account without an acceptance of TERMS_VERSION. The Terms page
+   prints both dates; the in-app notice (components/TermsUpdateNotice) runs
+   until 00:00 Copenhagen on this one. */
+export const TERMS_EXISTING_FROM = "2026-10-29";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).

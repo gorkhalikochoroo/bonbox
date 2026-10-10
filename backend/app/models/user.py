@@ -209,8 +209,8 @@ class User(Base):
     # never return it next to an account outside the user's own export.
     # services/signup_ref.py.
     signup_ref: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    # Which Terms of Service version the account holder accepted ("2026-10-10"),
-    # and when. Written at creation when the sign-up page showed the
+    # Which Terms of Service version the account holder accepted (an ISO day,
+    # services/terms.py TERMS_VERSION), and when. Written at creation when the sign-up page showed the
     # acceptance line and the client said so (accept_terms=true), and at
     # checkout when the buyer accepted the Terms beside the buy button (or on
     # Stripe's page) and the record was missing or older. NULL = no acceptance

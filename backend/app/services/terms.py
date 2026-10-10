@@ -36,10 +36,12 @@ STRIPE_TOS_CONSENT on). A record that already names the current version is
 never touched, so the first acceptance time is kept.
 
 Existing accounts (Manoj, 10 Oct 2026, decision a): the Terms apply to them
-from TERMS_EXISTING_FROM (TERMS_VERSION + 14 days); they are told by an
-in-app notice only, never by e-mail. terms_notice_due() says who sees it;
-dismiss_terms_notice() records that the owner closed it — notice, never
-acceptance (terms_version / terms_accepted_at are not written).
+from TERMS_EXISTING_FROM (the deploy day + 15 days, see the dates below);
+they are told by an in-app notice only, never by e-mail. terms_notice_due()
+says who sees it: every OWNER without an acceptance of the current version
+(terms_version NULL or older), whenever the account was created, until
+TERMS_EXISTING_FROM. dismiss_terms_notice() records that the owner closed it —
+notice, never acceptance (terms_version / terms_accepted_at are not written).
 
 Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1): a
 'personal' (Privatøkonomi) account cannot start a paid checkout —
@@ -53,21 +55,44 @@ from zoneinfo import ZoneInfo
 
 from app.utils.time import utc_now
 
-# The Terms text dated 10 October 2026 (Handelsbetingelser with §8
-# "Abonnement og betaling"). Same value as frontend/src/legal/terms.js.
-# It is also the date the Terms apply to NEW accounts from (an account created
-# on or after it, Copenhagen time, accepted them when it was created).
-TERMS_VERSION = "2026-10-10"
+# ═══════════════════════════════════════════════════════════════════════
+#  !!! RELEASE-TIME DATES — PROVISIONAL — SET BOTH ON THE DAY R-e SHIPS !!!
+#
+#  TERMS_VERSION       = the day R-e is deployed (Copenhagen date).
+#  TERMS_EXISTING_FROM = that day + 15 days.
+#
+#  The values below (14 Oct / 29 Oct 2026) are a GUESS at the ship day — R-e
+#  ships after R-c, R-d/R-f and Manoj's Stripe settings. They are only true
+#  if R-e is deployed on 14 Oct 2026.
+#
+#  These two lines and the two in frontend/src/legal/terms.js are the ONLY
+#  places the dates live; the Terms page, the in-app notice and every test
+#  read them from there. tests/test_terms_notice.py fails if the two files
+#  differ or the gap is under TERMS_NOTICE_GAP_DAYS. Gate line in
+#  bonbox-lab-state/releases.md ("R-e at push").
+#
+#  Why +15 and not +14: the live 13 May Terms §14 promise notice "mindst 14
+#  dage, før ændringerne træder i kraft". The notice can only appear once the
+#  release is live, part-way through the deploy day, and the Terms apply from
+#  00:00 Copenhagen on TERMS_EXISTING_FROM — so deploy day + 14 would give
+#  less than 14 full days.
+# ═══════════════════════════════════════════════════════════════════════
+
+# The Terms text (Handelsbetingelser with §8 "Abonnement og betaling"); the
+# "Sidst opdateret" date on /terms and the version stamped on an acceptance.
+# It is also the date the Terms apply to NEW accounts from (an account that
+# accepts them at sign-up is bound at once).
+TERMS_VERSION = "2026-10-14"
 
 # The date the Terms apply to EXISTING accounts from (Manoj, 10 Oct 2026,
-# decision a). The live Terms of 13 May promise at least 14 days' notice of
-# significant changes (§14), so this is TERMS_VERSION + 14 days; the in-app
-# notice (terms_notice_due below) runs until it. Same value as
-# frontend/src/legal/terms.js TERMS_EXISTING_FROM — a test fails if the two
-# differ or if the gap is shorter than TERMS_NOTICE_MIN_DAYS. If the release
-# ships after TERMS_VERSION, move BOTH dates (and the Terms page follows).
-TERMS_EXISTING_FROM = "2026-10-24"
+# decision a): every account without an acceptance of TERMS_VERSION. The
+# in-app notice (terms_notice_due below) runs until 00:00 Copenhagen on it.
+TERMS_EXISTING_FROM = "2026-10-29"
+
+# The live Terms' promise (§14) ...
 TERMS_NOTICE_MIN_DAYS = 14
+# ... plus the deploy day, which is only part of a day of notice.
+TERMS_NOTICE_GAP_DAYS = TERMS_NOTICE_MIN_DAYS + 1
 
 _DK = ZoneInfo("Europe/Copenhagen")
 
@@ -155,10 +180,11 @@ def terms_notice_due(user, now: datetime | None = None) -> bool:
       • the account owner (staff and other roles never see it);
       • no acceptance of the current Terms on record (terms_version NULL or
         older than TERMS_VERSION) — an account that accepted them at sign-up
-        or at checkout has nothing to be told;
-      • created before the Terms' date (00:00 Copenhagen on TERMS_VERSION) —
-        a newer account is a new account the Terms apply to at once; an
-        unknown created_at counts as older;
+        or at checkout has nothing to be told. WHEN the account was created
+        does not matter (review, 10 Oct): an account created on the deploy
+        day before the release went live, or through an app build that sends
+        no accept_terms (owner iOS app 2.1), has accepted nothing either and
+        is told like any existing account;
       • before TERMS_EXISTING_FROM (00:00 Copenhagen) — the notice stops on
         its own once the Terms apply;
       • not closed by the owner for this TERMS_VERSION.
@@ -174,9 +200,6 @@ def terms_notice_due(user, now: datetime | None = None) -> bool:
             return False
         now = now or utc_now()
         if now >= dk_midnight_utc(TERMS_EXISTING_FROM):
-            return False
-        created = getattr(user, "created_at", None)
-        if created is not None and created >= dk_midnight_utc(TERMS_VERSION):
             return False
         return True
     except Exception:  # noqa: BLE001 — a display flag must never cost /auth/me
@@ -196,6 +219,6 @@ def dismiss_terms_notice(user) -> bool:
 
 
 def _notice_gap_days() -> int:
-    """Days between the Terms' date and the date they apply to existing
-    accounts (tests pin it at >= TERMS_NOTICE_MIN_DAYS)."""
+    """Calendar days between the Terms' date and the date they apply to
+    existing accounts (tests pin it at >= TERMS_NOTICE_GAP_DAYS)."""
     return (date.fromisoformat(TERMS_EXISTING_FROM) - date.fromisoformat(TERMS_VERSION)) // timedelta(days=1)

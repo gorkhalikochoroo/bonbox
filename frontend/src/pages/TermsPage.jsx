@@ -2,8 +2,9 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 // The date shown is the TERMS_VERSION the server stamps on an account that
 // accepts these terms (src/legal/terms.js ↔ backend/app/services/terms.py).
-// TERMS_EXISTING_FROM is the date they apply to accounts created before
-// TERMS_VERSION (14 days later; the in-app notice runs until then).
+// TERMS_EXISTING_FROM is the date they apply to existing accounts (every
+// account without an acceptance of TERMS_VERSION) — the deploy day + 15 days;
+// the in-app notice runs until then. Both are release-time constants.
 import { TERMS_EXISTING_FROM, TERMS_VERSION, termsDate } from "../legal/terms";
 
 function Section({ num, title, children }) {

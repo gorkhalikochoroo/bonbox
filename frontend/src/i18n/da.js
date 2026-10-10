@@ -2663,6 +2663,7 @@ export const da = {
     termsNoticeRead: "Læs betingelserne",
     termsNoticeWhatChanged: "Hvad er ændret?",
     termsNoticeHide: "Skjul",
+    termsNoticeChangeCaps: "Alle planer, også Free, har forbrugslofter, og vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel. Det erstatter løftet i de tidligere betingelser om, at den eksisterende gratis funktionalitet forbliver tilgængelig, og at vi ikke med tilbagevirkende kraft opkræver betaling for funktioner, du allerede bruger gratis.",
     termsNoticeChangeRenewal: "Starter og Pro fornyes automatisk hver måned. En opsigelse får virkning ved udgangen af den periode, du har betalt for, og vi refunderer ikke for en del af en periode.",
     termsNoticeChangeFounding: "Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse.",
     termsNoticeChangePrice: "En prisændring på dit løbende abonnement varsler vi pr. e-mail mindst 30 dage, før den får virkning.",
