@@ -1015,9 +1015,12 @@ def upload_receipt(
     # Validate file size
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
-    # One vision slot for the save + read (at most 3 photo reads at once;
-    # a 4th waits briefly, then 503 "busy, try again" before anything is
-    # stored).
+    # One vision slot for the save + read (at most 4 photo reads at once;
+    # another waits briefly, then 503 "busy, try again" before anything is
+    # stored). A photo decode refused by image_guard.decode_slot is a 503
+    # too — during the read it comes AFTER the save, so the photo is
+    # already stored (content-addressed: the retry re-uses it) while no
+    # sale exists yet; safe to retry.
     with vision_slot(user, db=db):
         # save_receipt_photo validates the content with PIL.verify(); on a
         # spoofed-header non-image upload it raises ValueError → 400 here.

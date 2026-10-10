@@ -40,8 +40,12 @@ photo goes through here (INFRA-03):
    logo — holds one of ``DECODE_MAX_CONCURRENT`` (2) process-wide slots for
    the decode itself, never for the vendor call that follows. A decode that
    cannot get a slot within ``DECODE_WAIT_S`` raises ``DecodeBusyError``
-   (an ``AIBusyError``: the same 503 "busy, try again", before anything is
-   stored). Measured under Linux, 1 CPU / 2 GB, no swap (10 Oct): one decode
+   (an ``AIBusyError``: the same 503 "busy, try again"). Refused at the
+   photo's save, nothing is stored; refused during the read that follows
+   the save (receipt / sale upload, Z-report scan), the photo is already
+   stored — content-addressed, so the retry re-uses it — and nothing is in
+   the books. Either way the 503 is safe to retry. Measured under Linux,
+   1 CPU / 2 GB, no swap (10 Oct): one decode
    of a 48 MP phone photo peaks at ~340-390 MB, and the per-format
    ceilings keep every other admitted format at or under that, so two at
    once stay under ~0.8 GB whatever else is in flight.
@@ -139,7 +143,8 @@ class DecodeBusyError(ai_limits.AIBusyError):
 
     An ``AIBusyError``, so the routes and main.py answer it exactly like a
     busy vision slot: 503 + Retry-After with the busy text in the owner's
-    language, raised before anything is stored or counted.
+    language, before anything is counted or booked (the module docstring
+    says what may already be stored when a READ is refused).
     """
 
 
