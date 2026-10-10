@@ -3482,7 +3482,7 @@ export const en = {
     // FAQ
     faqHeading: "Common questions",
     faqQ1: "What happens when my 14-day trial ends?",
-    faqA1: "It depends on whether you locked in. If you did NOT lock in: you drop to Free automatically. Every feature stays, only the usage caps come back, your data is untouched, and you're never charged. If you DID lock in (clicked 'Lock in founding rate' and added a card): your card is charged the founding rate (Starter 129 kr/mo or Pro 249 kr/mo) on day 15 and monthly after, at the founding rate for as long as your subscription stays active. Either way: no surprises — the trial banner counts the days down, and you choose.",
+    faqA1: "It depends on whether you locked in. If you did NOT lock in: you drop to Free automatically. Every feature stays, only the usage caps come back, your data is untouched, and you're never charged. If you DID lock in (clicked 'Lock in founding rate' and added a card): your card is charged the founding rate (Starter 129 kr/mo or Pro 249 kr/mo) on day 15 and monthly after, for as long as your subscription stays active. Either way: no surprises — the trial banner counts the days down, and you choose.",
     faqQ2: "Why does Free have every feature, just with caps?",
     faqA2: "Because feature-gating is a tax on small shops. A side-business owner shouldn't be locked out of AI insights just because they only do 50 sales a month — they need the insights MORE than a busy shop does. Caps mean Free users get full value, and only upgrade when they've actually outgrown what Free can support.",
     faqQ3: "How does the founding-member price work?",
