@@ -598,11 +598,14 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
 #   the revisor cap — fail-open on a counting error, for the same reason.
 
 # Names what the gate holds back, and only that (RELEASE_GATE 5, review
-# 8 Oct): guest, shift and gavekort mail still go out for an unconfirmed
-# account, so a general "BonBox mails no one else" is untrue. What waits:
-# fakturaer, team invitations, supplier orders (order autopilot) and mail to
-# the revisor (require_verified_revisor_sender below, and the held invite).
-# The frontend's sendNeedsVerifiedEmail (en/da) says the same.
+# 8 Oct): guest and gavekort mail still go out for an unconfirmed account, so
+# a general "BonBox mails no one else" is untrue. What waits: fakturaer, team
+# invitations, supplier orders (order autopilot) and mail to the revisor
+# (require_verified_revisor_sender below, and the held invite). The
+# frontend's sendNeedsVerifiedEmail (en/da) says the same. Since R-f staff
+# schedule mail waits too (services/staff_mail_guard) — it says so on the
+# Vagtplan itself (staffMailHeld*); this list does not name it yet (wording
+# call for Manoj).
 VERIFY_EMAIL_FIRST_MESSAGE_EN = (
     "Confirm your own e-mail address first (Profile → Unverified). "
     "Until it is confirmed, BonBox does not send fakturaer, team invitations, "
