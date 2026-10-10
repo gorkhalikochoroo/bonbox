@@ -213,7 +213,10 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
                   <span className="text-emerald-600">✓</span>
                   <span>{snapshot.caps.team_users === -1
                     ? (t("upgradeUnlimitedTeam") || "Unlimited team members")
-                    : (t("upgradeNumTeam") || "{n} team members").replace("{n}", snapshot.caps.team_users)}
+                    // The owner holds one of the plan's seats (routers/team.py),
+                    // so Starter's 3 is "you + 2" — the number shown is who
+                    // the owner can invite, as on the plan cards.
+                    : (t("upgradeNumTeam") || "You + {n} team members").replace("{n}", Math.max(0, snapshot.caps.team_users - 1))}
                   </span>
                 </li>
               )}

@@ -164,7 +164,7 @@ const buildTiers = (t) => [
       { text: t("featStarterFaktura30", "Faktura — up to 30 / month, emailed direct to customer") || "Faktura — up to 30 / month, emailed direct to customer" },
       { text: t("featStarterKreditnota", "Proper kreditnota flow — Bogføringsloven §7 compliant") || "Proper kreditnota flow — Bogføringsloven §7 compliant" },
       { text: t("featStarterHistory31", "31 days of history + Dinero / Billy / e-conomic CSV templates") || "31 days of history + Dinero / Billy / e-conomic CSV templates" },
-      { text: t("featStarterTeam3", "Up to 3 team members with role permissions") || "Up to 3 team members with role permissions" },
+      { text: t("featStarterTeam3", "You + 2 team members with role permissions") || "You + 2 team members with role permissions" },
       { text: t("featStarterAnomaly", "AI anomaly detection — flags a misread amount before close") || "AI anomaly detection — flags a misread amount before close" },
       { text: t("featStarterKhata", "Khata — unlimited") || "Khata — unlimited" },
       { text: t("featStarterBrief3", "AI brief — 3 refreshes / day, more chat capacity") || "AI brief — 3 refreshes / day, more chat capacity" },
@@ -202,7 +202,7 @@ const buildTiers = (t) => [
       // and priority support. (Autopilot, MOMS filing PDF, loyalty signal,
       // close/expiry push, bulk staff email + reservation insights all moved
       // up to the Starter list above.)
-      { text: t("featProMulti3", "3 branches, 5 team members") || "3 branches, 5 team members" },
+      { text: t("featProMulti3", "3 locations, you + 4 team members") || "3 locations, you + 4 team members" },
       { text: t("featProMultiTerm", "Multi-terminal close — merge Z-reports from every POS into one PDF") || "Multi-terminal close — merge Z-reports from every POS into one PDF" },
       { text: t("featProFakturaUnlimited", "Faktura — unlimited") || "Faktura — unlimited" },
       { text: t("featProReceipt500", "Receipt OCR — 500 / month, AI vision-grade accuracy") || "Receipt OCR — 500 / month, AI vision-grade accuracy" },

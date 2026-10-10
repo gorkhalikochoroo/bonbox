@@ -2022,7 +2022,7 @@ export const np = {
   upgradeFullYearExport: "पूरा-वर्ष एकाउन्टेन्ट निर्यात",
   upgradeMaybeLater: "पछि",
   upgradeNumBranches: "{n} व्यवसाय",
-  upgradeNumTeam: "{n} टोली सदस्य",
+  upgradeNumTeam: "तपाईं + {n} टोली सदस्य",
   upgradePrioritySupport: "प्राथमिकता सहयोग",
   upgradeRequired: "आवश्यक",
   upgradeUnlimitedBranches: "असीमित व्यवसाय",

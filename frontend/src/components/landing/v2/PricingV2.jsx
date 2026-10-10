@@ -268,7 +268,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.starter.f8",
-                  "3 team members with role permissions"
+                  "You + 2 team members with role permissions"
                 )}
               </Feature>
             </div>
@@ -329,7 +329,7 @@ export default function PricingV2() {
             </div>
             <div className={featureList}>
               <Feature>
-                {t("landingV2.pricing.pro.f1", "3 branches, 5 team members")}
+                {t("landingV2.pricing.pro.f1", "3 locations, you + 4 team members")}
               </Feature>
               <Feature>
                 {t(
