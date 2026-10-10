@@ -23,10 +23,19 @@ were never brought in. The same rules, one place:
      usage counter, as billing.py / revisor_mail do — no new table): one
      `staff_mail.sent` row per delivered mail, the address kept only as a
      fingerprint of its mailbox ("anna+x@" counts as "anna@").
-       STAFF_MAIL_OWNER_DAILY_CAP      mails per owner
-       STAFF_MAIL_RECIPIENT_DAILY_CAP  mails per mailbox
+       owner_daily_cap(db, owner)      mails per owner: the larger of
+                                       STAFF_MAIL_OWNER_DAILY_CAP (100) and
+                                       STAFF_MAIL_PER_STAFF_DAILY (2) × the
+                                       owner's active staff with a sendable
+                                       address — a publish and one "Send
+                                       ugens vagtplan" for everyone, the
+                                       same day, on any roster the plan
+                                       allows (Pro: 200 staff → 400)
+       STAFF_MAIL_RECIPIENT_DAILY_CAP  mails per mailbox (10, flat)
      A venue publishing its week and editing a few shifts never gets near
-     them; a misused account stops there. When the count cannot be read, no
+     them; a misused account stops there. The owner ceiling grows only with
+     staff the owner added, inside the plan's roster cap, and each of those
+     mailboxes still gets at most 10 a day. When the count cannot be read, no
      mail goes (fail closed) — the in-app alert and the push are unaffected.
   4. One mail at a time per owner (StaffMailGate.turn): the count is re-read
      under an owner lock, the mail is sent and its counter row committed
@@ -41,7 +50,8 @@ were never brought in. The same rules, one place:
      the push still go.
 
 The explicit sends keep their own older budget too
-(routers/staff._check_staff_email_budget: 10 sends / 100 recipients a day).
+(routers/staff._check_staff_email_budget: 10 sends a day, and recipients
+scaled the same way — owner_daily_cap with its own floor of 100).
 """
 from __future__ import annotations
 
@@ -62,7 +72,12 @@ from app.utils.email_address import sendable_email
 logger = logging.getLogger("bonbox.staff_mail_guard")
 
 STAFF_MAIL_ACTION = "staff_mail.sent"
+# The owner ceiling's floor. The ceiling itself is owner_daily_cap(): it
+# grows to STAFF_MAIL_PER_STAFF_DAILY mails per active staffer with a
+# sendable address, so a Pro roster of 60 can be published to and sent the
+# week's PDF on the same day (60 + 60 = 120), which a flat 100 refused whole.
 STAFF_MAIL_OWNER_DAILY_CAP = 100
+STAFF_MAIL_PER_STAFF_DAILY = 2
 STAFF_MAIL_RECIPIENT_DAILY_CAP = 10
 
 # Why one staffer was not mailed (the in-app alert and push are separate).
@@ -189,6 +204,48 @@ def _take_db_turn(db, owner_id, deadline: float) -> bool:
         return False
 
 
+def mailable_staff_count(db, owner) -> int | None:
+    """The owner's staff a schedule mail could reach: active, not deleted
+    (a roster seat, as routers/staff.count_active_staff counts it) and one
+    ordinary mailbox on file (utils.email_address.sendable_email). None when
+    it cannot be read. The query runs in a SAVEPOINT, as third_party_sends
+    does, so a failure here cannot abort the caller's transaction."""
+    owner_id = getattr(owner, "id", None)
+    if owner_id is None:
+        return None
+    try:
+        from app.models.staff import StaffMember
+        with db.begin_nested():
+            rows = (
+                db.query(StaffMember.email)
+                .filter(
+                    StaffMember.user_id == owner_id,
+                    StaffMember.is_deleted.isnot(True),
+                    StaffMember.active.is_(True),
+                    StaffMember.email.isnot(None),
+                )
+                .all()
+            )
+        return sum(1 for (e,) in rows if sendable_email(e))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("staff mail: roster count failed for owner %s: %s", owner_id, e)
+        return None
+
+
+def owner_daily_cap(db, owner, floor: int | None = None) -> int:
+    """Staff mails one owner may send in a rolling 24 hours: the larger of
+    `floor` (STAFF_MAIL_OWNER_DAILY_CAP unless given) and
+    STAFF_MAIL_PER_STAFF_DAILY × mailable_staff_count. Every plan: Free's
+    roster cap of 3 keeps it at the floor; Starter (50 staff) stays at 100;
+    Pro (200 staff) reaches at most 400. When the roster cannot be read the
+    floor applies — the ceiling as it was, never a higher one."""
+    base = STAFF_MAIL_OWNER_DAILY_CAP if floor is None else floor
+    n = mailable_staff_count(db, owner)
+    if not n:
+        return base
+    return max(base, STAFF_MAIL_PER_STAFF_DAILY * n)
+
+
 def _tally(rows: list[dict]) -> tuple[int, dict[str, int]]:
     per: dict[str, int] = {}
     for r in rows:
@@ -213,18 +270,22 @@ class StaffMailGate:
     "N will be e-mailed", the explicit sends' all-or-nothing check)."""
 
     def __init__(self, owner: Any, held: str | None, owner_sent: int | None,
-                 per_recipient: dict[str, int]):
+                 per_recipient: dict[str, int], cap: int | None = None):
         self.owner = owner
         self.held = held
         self._owner_sent = owner_sent
         self._per_recipient = per_recipient
+        #: This owner's ceiling over 24 hours (owner_daily_cap), read once
+        #: per batch: a batch does not add staff while it sends.
+        self.cap = STAFF_MAIL_OWNER_DAILY_CAP if cap is None else cap
 
     @classmethod
     def load(cls, db, owner) -> "StaffMailGate":
         if owner is None:
             return cls(None, "email_unverified", None, {})
         held = held_sender_reason(owner)
-        gate = cls(owner, held, None, {})
+        cap = STAFF_MAIL_OWNER_DAILY_CAP if held else owner_daily_cap(db, owner)
+        gate = cls(owner, held, None, {}, cap)
         gate._reload_counts(db)
         return gate
 
@@ -292,7 +353,7 @@ class StaffMailGate:
             return None, SKIP_HELD
         if self._owner_sent is None:
             return None, SKIP_UNKNOWN
-        if self._owner_sent >= STAFF_MAIL_OWNER_DAILY_CAP:
+        if self._owner_sent >= self.cap:
             return None, SKIP_LIMIT
         if self._per_recipient.get(recipient_key(addr), 0) >= STAFF_MAIL_RECIPIENT_DAILY_CAP:
             return None, SKIP_LIMIT
@@ -320,7 +381,8 @@ class StaffMailGate:
         self.take(address)
 
     def copy(self) -> "StaffMailGate":
-        return StaffMailGate(self.owner, self.held, self._owner_sent, dict(self._per_recipient))
+        return StaffMailGate(self.owner, self.held, self._owner_sent,
+                             dict(self._per_recipient), self.cap)
 
     def recipient_count(self, address: str) -> int:
         return self._per_recipient.get(recipient_key(address), 0)
@@ -342,18 +404,22 @@ STAFF_MAIL_HELD_DA = (
 )
 
 
-def staff_mail_daily_cap_detail(lang: str) -> dict:
+def staff_mail_daily_cap_detail(lang: str, cap: int | None = None) -> dict:
+    """The 429 for an explicit send over the owner's ceiling, naming THIS
+    owner's computed ceiling (owner_daily_cap), not the floor."""
+    if cap is None:
+        cap = STAFF_MAIL_OWNER_DAILY_CAP
     da = (lang or "").lower() == "da"
     return {
         "code": "staff_mail_daily_cap",
         "message": (
-            f"BonBox sender højst {STAFF_MAIL_OWNER_DAILY_CAP} mails om dagen til dit "
+            f"BonBox sender højst {cap} mails om dagen til dit "
             "personale. Prøv igen i morgen — eller del vagtplanen som PDF."
             if da else
-            f"BonBox sends at most {STAFF_MAIL_OWNER_DAILY_CAP} e-mails a day to your "
+            f"BonBox sends at most {cap} e-mails a day to your "
             "staff. Try again tomorrow — or share the schedule as a PDF."
         ),
-        "cap": STAFF_MAIL_OWNER_DAILY_CAP,
+        "cap": cap,
     }
 
 
@@ -389,6 +455,6 @@ def preflight_explicit_send(db, owner, addresses, lang: str) -> StaffMailGate:
             continue
         sim.take(addr)
         wanted += 1
-    if wanted and gate.owner_sent + wanted > STAFF_MAIL_OWNER_DAILY_CAP:
-        raise HTTPException(status_code=429, detail=staff_mail_daily_cap_detail(lang))
+    if wanted and gate.owner_sent + wanted > gate.cap:
+        raise HTTPException(status_code=429, detail=staff_mail_daily_cap_detail(lang, gate.cap))
     return gate

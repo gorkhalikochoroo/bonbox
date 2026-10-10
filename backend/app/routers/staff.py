@@ -3708,13 +3708,16 @@ class _EmailScheduleRequest(BaseModel):
 # Both owner-to-staff mailers — "Send ugens vagtplan" and "Del med
 # personalet" — send real email from BonBox's domain, one of them with the
 # owner's own words at the top. Per owner per 24 hours: at most
-# _STAFF_EMAIL_CALLS_PER_DAY sends and _STAFF_EMAIL_RECIPIENTS_PER_DAY emails,
-# counted from the audit row each send already writes (audit_logs are the
-# usage counters; same shape as the supplier-email cap in inventory.py). A
-# double-tap, a retry loop or a misused account stops here; a venue sending
-# its roster and a few re-sends never gets near it.
+# _STAFF_EMAIL_CALLS_PER_DAY sends, and as many emails as the larger of
+# _STAFF_EMAIL_RECIPIENTS_PER_DAY and 2 per active staffer with a sendable
+# address (staff_mail_guard.owner_daily_cap — a Pro roster of 60 can send
+# the week twice; a flat 100 refused the second send whole), counted from
+# the audit row each send already writes (audit_logs are the usage counters;
+# same shape as the supplier-email cap in inventory.py). A double-tap, a
+# retry loop or a misused account stops here; a venue sending its roster
+# and a few re-sends never gets near it.
 _STAFF_EMAIL_CALLS_PER_DAY = 10
-_STAFF_EMAIL_RECIPIENTS_PER_DAY = 100
+_STAFF_EMAIL_RECIPIENTS_PER_DAY = 100  # the floor; see owner_daily_cap
 # audit action -> the `after` field that holds how many emails left.
 _STAFF_EMAIL_ACTIONS = {
     "staff_schedule.email_bulk": "sent",
@@ -3742,19 +3745,25 @@ def _check_staff_email_budget(db: Session, user: User, incoming: int, lang: str)
             already += int((json.loads(after or "{}") or {}).get(_STAFF_EMAIL_ACTIONS[action]) or 0)
         except Exception:  # noqa: BLE001 — a malformed row counts as nothing sent
             continue
-    if len(rows) >= _STAFF_EMAIL_CALLS_PER_DAY or already + max(0, incoming) > _STAFF_EMAIL_RECIPIENTS_PER_DAY:
+    from app.services.staff_mail_guard import owner_daily_cap
+    recipients_cap = owner_daily_cap(db, user, floor=_STAFF_EMAIL_RECIPIENTS_PER_DAY)
+    if len(rows) >= _STAFF_EMAIL_CALLS_PER_DAY or already + max(0, incoming) > recipients_cap:
         da = (lang or "").lower() == "da"
         raise HTTPException(
             status_code=429,
             detail={
                 "code": "staff_email_daily_cap",
                 "message": (
-                    "Du har sendt mange mails til personalet det seneste døgn. "
+                    "Du har sendt mange mails til personalet det seneste døgn "
+                    f"(højst {_STAFF_EMAIL_CALLS_PER_DAY} udsendelser og {recipients_cap} mails). "
                     "Prøv igen i morgen — eller del vagtplanen som PDF."
                     if da else
-                    "You have sent a lot of staff emails in the last 24 hours. "
+                    "You have sent a lot of staff emails in the last 24 hours "
+                    f"(at most {_STAFF_EMAIL_CALLS_PER_DAY} sends and {recipients_cap} e-mails). "
                     "Try again tomorrow — or share the schedule as a PDF."
                 ),
+                "cap": recipients_cap,
+                "sends_cap": _STAFF_EMAIL_CALLS_PER_DAY,
             },
         )
 

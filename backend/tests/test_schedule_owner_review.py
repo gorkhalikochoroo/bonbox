@@ -686,6 +686,11 @@ def test_both_staff_mailers_share_one_recipient_budget(client, db, monkeypatch):
     sent_to = []
     _stub_mail(monkeypatch, sent_to)
     monkeypatch.setattr(staff_router, "_STAFF_EMAIL_RECIPIENTS_PER_DAY", 4)
+    # The budget is the larger of that floor and 2 per mailable staffer
+    # (staff_mail_guard.owner_daily_cap); at 1 per staffer the floor of 4
+    # binds for these three, so the shared budget is still what is tested.
+    from app.services import staff_mail_guard
+    monkeypatch.setattr(staff_mail_guard, "STAFF_MAIL_PER_STAFF_DAILY", 1)
     owner = _owner(db)
     anna = _staff(db, owner, name="Anna")
     bo = _staff(db, owner, name="Bo")

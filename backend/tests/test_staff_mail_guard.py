@@ -11,8 +11,11 @@ These pin services/staff_mail_guard on every path that sends one:
     is open) mails nobody: the automatic paths still write the in-app alert and
     fire the push, publish says why (mail_held), the explicit sends answer 403
     email_unverified before anything is sent;
-  • per owner at most 100 staff mails a day, per mailbox at most 10 (a "+tag"
-    is the same mailbox), counted from audit_logs; boundaries both sides;
+  • per owner at most max(100, 2 × active staff with a sendable address)
+    staff mails a day, per mailbox at most 10 (a "+tag" is the same mailbox),
+    counted from audit_logs; boundaries both sides; a 60-staff Pro venue can
+    publish and send the week's PDF the same day, a 210th mail on a 100-staff
+    roster (ceiling 200) is refused;
   • an unreadable count mails nobody;
   • a staff address must be one ordinary mailbox; a new shift is draft or
     published;
@@ -441,6 +444,154 @@ def test_explicit_send_skips_a_mailbox_at_its_ceiling_by_name(client, db, mails)
     assert r.status_code == 200, r.text
     assert r.json()["skipped_mail_limit_names"] == ["Anna"]
     assert r.json()["sent"] == 1
+
+
+# ─── 2b. the owner ceiling follows the roster ────────────────────────────
+
+
+def _roster(db, owner, n, *, week=None, prefix="s"):
+    """n active staff with their own mailbox, each with a draft shift in
+    `week` when given."""
+    out = []
+    for i in range(n):
+        m = StaffMember(id=uuid.uuid4(), user_id=owner.id, name=f"{prefix.upper()}{i:03d}",
+                        role="server", active=True, is_deleted=False,
+                        email=f"{prefix}{i}@cafe.dk")
+        db.add(m)
+        out.append(m)
+    db.commit()
+    if week is not None:
+        for m in out:
+            db.add(Schedule(id=uuid.uuid4(), user_id=owner.id, staff_id=m.id, date=week,
+                            start_time="16:00", end_time="23:00", break_minutes=0,
+                            role_on_shift="server", status="draft"))
+        db.commit()
+    return out
+
+
+def test_owner_cap_is_two_per_mailable_staffer_with_a_floor_of_100(db, monkeypatch):
+    owner = _owner(db)
+    assert guard.owner_daily_cap(db, owner) == 100, "no staff: the floor"
+    _roster(db, owner, 3)
+    assert guard.owner_daily_cap(db, owner) == 100, "a Free-sized roster stays at the floor"
+    _roster(db, owner, 47, prefix="t")
+    assert guard.owner_daily_cap(db, owner) == 100, "50 staff (Starter's roster cap): 2 × 50 = 100"
+    _roster(db, owner, 10, prefix="u")
+    assert guard.owner_daily_cap(db, owner) == 120, "60 staff: 2 × 60"
+    # Who does not count: no address, not one ordinary mailbox, deactivated,
+    # deleted — a staffer BonBox could not mail adds no room.
+    for kw in ({"email": None}, {"email": "anna@cafe"}, {"active": False},
+               {"is_deleted": True}):
+        fields = {"email": f"x{uuid.uuid4().hex[:6]}@cafe.dk", "active": True,
+                  "is_deleted": False, **kw}
+        db.add(StaffMember(id=uuid.uuid4(), user_id=owner.id, name="X", role="server", **fields))
+    db.commit()
+    assert guard.owner_daily_cap(db, owner) == 120
+    # Another owner's staff never count.
+    other = _owner(db, email="other@bonbox.dk")
+    assert guard.owner_daily_cap(db, other) == 100
+    # Unreadable roster: the floor, never more.
+    def _boom(*a, **k):
+        raise RuntimeError("db gone")
+    monkeypatch.setattr(guard, "sendable_email", _boom)
+    assert guard.owner_daily_cap(db, owner) == 100
+
+
+def test_a_60_staff_pro_venue_can_publish_and_send_the_week_the_same_day(client, db, mails, pushes):
+    owner = _owner(db, plan="pro")
+    week = _next_monday()
+    _roster(db, owner, 60, week=week)
+    _as(owner)
+    pub = client.post("/api/staff/schedules/publish",
+                      params={"week_start": week.isoformat(), "lang": "da"})
+    assert pub.status_code == 200, pub.text
+    assert pub.json()["notify_count"] == 60
+    assert pub.json()["skipped_mail_limit_names"] == []
+    assert len(mails) == 60, "publish mailed every staffer"
+    # "Send ugens vagtplan" the same day: 60 + 60 = 120 — a flat 100 refused
+    # this whole send; the ceiling is now 2 × 60 = 120.
+    r = client.post("/api/staff/schedules/email",
+                    json={"week_start": week.isoformat(), "lang": "da", "cc_self": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["sent"] == 60
+    assert r.json()["skipped_mail_limit_names"] == []
+    assert len(mails) == 120
+    assert db.query(AuditLog).filter_by(action=guard.STAFF_MAIL_ACTION).count() == 120
+    # The ceiling is reached exactly: the next shift-edit mail is held, the
+    # push still goes.
+    anna = db.query(StaffMember).filter_by(user_id=owner.id, name="S000").one()
+    ns.send_single_shift_notification(db, owner.id, anna.id, _change(), "shift_changed")
+    assert len(mails) == 120
+
+
+def test_a_60_staff_venue_can_send_the_week_twice_under_the_older_budget(client, db, mails):
+    """routers/staff._check_staff_email_budget scales the same way: two
+    explicit sends of 60 (120 recipients) used to stop at its flat 100."""
+    owner = _owner(db, plan="pro")
+    week = _next_monday()
+    staff = _roster(db, owner, 60, week=week)
+    db.query(Schedule).filter(Schedule.user_id == owner.id).update({"status": "published"})
+    db.commit()
+    _as(owner)
+    body = {"week_start": week.isoformat(), "lang": "en", "cc_self": False}
+    for _ in range(2):
+        r = client.post("/api/staff/schedules/email", json=body)
+        assert r.status_code == 200, r.text
+        assert r.json()["sent"] == len(staff)
+    third = client.post("/api/staff/schedules/email", json=body)
+    assert third.status_code == 429, third.text
+    assert len(mails) == 120
+
+
+def test_a_210_mail_attempt_on_a_100_staff_roster_is_capped_at_200(client, db, mails, pushes):
+    owner = _owner(db, plan="pro")
+    week = _next_monday()
+    _roster(db, owner, 100, week=week)
+    assert guard.owner_daily_cap(db, owner) == 200
+    # 110 mails already today, to other mailboxes (one each, so no mailbox
+    # is at its own 10).
+    for i in range(110):
+        _prior_mails(db, owner, 1, address=f"old{i}@cafe.dk")
+    _as(owner)
+    db.query(Schedule).filter(Schedule.user_id == owner.id).update({"status": "published"})
+    db.commit()
+    body = {"week_start": week.isoformat(), "lang": "da", "cc_self": False}
+    r = client.post("/api/staff/schedules/email", json=body)
+    assert r.status_code == 429, r.text
+    detail = r.json()["detail"]
+    assert detail["code"] == "staff_mail_daily_cap"
+    assert detail["cap"] == 200
+    assert "højst 200 mails om dagen" in detail["message"], "the computed ceiling, not 100"
+    assert mails == [], "all or nothing: 110 + 100 = 210 > 200"
+    en = client.post("/api/staff/schedules/email", json={**body, "lang": "en"})
+    assert en.status_code == 429
+    assert "at most 200 e-mails a day" in en.json()["detail"]["message"]
+    # The automatic path stops at the same ceiling: 90 of the 100 go, the
+    # other 10 are named.
+    staff = db.query(StaffMember).filter_by(user_id=owner.id).all()
+    changes = {str(m.id): [_change("added")] for m in staff}
+    ns.send_shift_notifications(db, owner.id, changes, "Uge 1", week_start=week)
+    assert len(mails) == 90
+    assert db.query(AuditLog).filter_by(action=guard.STAFF_MAIL_ACTION).count() == 200
+    assert len(pushes) == 100, "the push is not capped by the mail ceiling"
+
+
+def test_the_older_budget_429_names_its_computed_numbers(client, db, mails, monkeypatch):
+    monkeypatch.setattr(staff_router, "_STAFF_EMAIL_CALLS_PER_DAY", 1)
+    owner = _owner(db)
+    week = _next_monday()
+    _roster(db, owner, 60, week=week)
+    db.query(Schedule).filter(Schedule.user_id == owner.id).update({"status": "published"})
+    db.commit()
+    _as(owner)
+    body = {"week_start": week.isoformat(), "lang": "da", "cc_self": False}
+    assert client.post("/api/staff/schedules/email", json=body).status_code == 200
+    r = client.post("/api/staff/schedules/email", json=body)
+    assert r.status_code == 429
+    d = r.json()["detail"]
+    assert d["code"] == "staff_email_daily_cap"
+    assert d["cap"] == 120 and d["sends_cap"] == 1
+    assert "højst 1 udsendelser og 120 mails" in d["message"]
 
 
 # ─── 3. strict address, status ───────────────────────────────────────────
