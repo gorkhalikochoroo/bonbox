@@ -1,0 +1,15 @@
+# gitleaks config. Keeps the full built-in ruleset and adds ONE narrow allowlist.
+[extend]
+useDefault = true
+
+# Only generic-api-key, and only inside the committed Scheduler web bundle.
+# That folder is Vite build output that Capacitor packs into the iOS app, so
+# it has to stay committed. Its minified translation objects, such as
+# {key:`dash...`}, trip the entropy check on every release: all 209 such hits
+# in the 5 Oct scan were translation-key identifiers. Every provider rule
+# (stripe, aws, gcp, github and the rest) still scans these files.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Generated Scheduler bundle: minified translation-key objects"
+paths = ['''^frontend/ios-scheduler/App/App/public/assets/[^/]+\.js$''']
