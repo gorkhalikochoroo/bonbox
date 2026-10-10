@@ -243,3 +243,57 @@ def test_a_real_jpeg_still_goes_through_the_z_report_scan(db, as_user, local_rec
     )
     assert r.status_code == 200, r.text
     assert len(seen) == 1
+
+
+# ─── R-d fix-up: a decode-canvas ceiling (uploads decode in parallel) ──
+
+def _canvas(fmt: str, size: tuple[int, int], **kw) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (250, 250, 250)).save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+def test_a_jpeg_over_the_canvas_ceiling_is_decoded_smaller_never_refused(monkeypatch):
+    monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
+    img = image_guard.open_upload_image(_canvas("JPEG", (400, 300)))
+    assert img.size[0] * img.size[1] <= 100 * 100
+    assert img.size[0] * img.size[1] >= 100 * 100 // 4
+    img.load()
+    assert img.convert("RGB").size == img.size
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "WEBP", "BMP", "GIF", "TIFF"])
+def test_another_format_over_the_canvas_ceiling_is_refused_before_decode(monkeypatch, fmt):
+    monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
+    raw = _canvas(fmt, (400, 300))
+    from PIL import ImageFile
+
+    loads = []
+    real_load = ImageFile.ImageFile.load
+    monkeypatch.setattr(ImageFile.ImageFile, "load", lambda self: loads.append(1) or real_load(self))
+    with pytest.raises(image_guard.UnsupportedImageError):
+        image_guard.open_upload_image(raw)
+    assert loads == [], "nothing may be decoded before the refusal"
+
+
+def test_photos_up_to_the_ceiling_are_untouched():
+    # The real ceiling is above the largest default phone modes
+    # (iPhone 48 MP = 8064x6048, Samsung 50 MP = 8160x6120).
+    assert image_guard.UPLOAD_MAX_PIXELS >= 8160 * 6120
+    img = image_guard.open_upload_image(_canvas("JPEG", (640, 480)))
+    assert img.size == (640, 480)
+
+
+def test_an_oversized_canvas_is_refused_on_the_receipt_upload(db, as_user, local_receipts, monkeypatch):
+    monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
+    u = _owner(db)
+    as_user(u)
+    r = _post(
+        "/api/expenses/upload-receipt",
+        files={"file": ("kvittering.png", _canvas("PNG", (400, 300)), "image/png")},
+        headers=_ip(),
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == image_guard.refusal_message("da")
+    assert list(local_receipts.iterdir()) == []
+

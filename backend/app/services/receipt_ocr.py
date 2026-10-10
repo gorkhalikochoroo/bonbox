@@ -1210,7 +1210,11 @@ def save_receipt_photo_ex(
 
     try:
         img = open_upload_image(file_bytes)  # re-open after verify()
-        img = img.convert("RGB")
+        # convert() on an image that is already RGB only makes a full copy
+        # (same pixels) — skipping it halves the peak memory of the common
+        # phone-JPEG save, which matters now that saves run in parallel.
+        if img.mode != "RGB":
+            img = img.convert("RGB")
         img.save(filepath, "JPEG", quality=85)
         jpeg_bytes = filepath.read_bytes()
     except Exception as e:

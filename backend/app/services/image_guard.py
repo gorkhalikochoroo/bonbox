@@ -12,6 +12,19 @@ photo goes through here (INFRA-03):
    allow-list, so even a file whose header slipped past (1) can only be
    parsed by one of these decoders.
 
+3. A canvas ceiling (``UPLOAD_MAX_PIXELS``). The byte caps bound the
+   compressed file, not what it decodes to: a small, highly compressed
+   upload can declare a 100M+ px canvas (~300 MB as RGB, double that
+   after ``convert``). Since R-d these decodes run in parallel worker
+   threads, so ``open_upload_image`` reads the header size (``Image.open``
+   is lazy) and, before anything is decoded:
+     * a JPEG over the ceiling is decoded at a reduced scale (Pillow's
+       ``draft``: 1/2, 1/4 ... in the JPEG decoder itself) to at most the
+       ceiling — never refused;
+     * any other format over the ceiling is refused like an unreadable
+       file. 50 MP is above the largest default phone mode (iPhone 48 MP =
+       48.8M px, Samsung 50 MP = 49.9M px).
+
 The allow-list is what the product accepts today: the pickers send
 ``image/*`` (iPhone HEIC/JPEG, Android JPEG/WebP, screenshots PNG,
 desktop BMP/TIFF/GIF), /sales/upload-receipt names GIF, /kasserapport
@@ -23,6 +36,7 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 from pathlib import Path
 from typing import Union
 
@@ -39,6 +53,9 @@ except Exception as _e:  # noqa: BLE001
 
 #: Pillow format ids an uploaded photo may be decoded as.
 UPLOAD_IMAGE_FORMATS: tuple[str, ...] = ("JPEG", "PNG", "WEBP", "HEIF", "GIF", "BMP", "TIFF")
+
+#: Largest canvas (width x height) an uploaded photo is decoded at.
+UPLOAD_MAX_PIXELS = 50_000_000
 
 # ISO-BMFF major brands that mean HEIC/HEIF (not AVIF, which no BonBox
 # path has ever decoded).
@@ -119,6 +136,31 @@ def open_upload_image(src: Union[bytes, str, Path]) -> Image.Image:
             check_upload_image(fh.read(16))
         fp = str(src)
     try:
-        return Image.open(fp, formats=_decode_formats())
+        img = Image.open(fp, formats=_decode_formats())
     except Image.UnidentifiedImageError as e:
         raise UnsupportedImageError(str(e)) from e
+    return _bound_canvas(img)
+
+
+def _bound_canvas(img: Image.Image) -> Image.Image:
+    """Apply ``UPLOAD_MAX_PIXELS`` to a just-opened (not yet decoded) image."""
+    w, h = img.size
+    pixels = w * h
+    if pixels <= UPLOAD_MAX_PIXELS:
+        return img
+    if img.format in ("JPEG", "MPO"):
+        # draft() picks the largest JPEG scale (1/2, 1/4, 1/8) whose result
+        # is still >= the requested size. Asking for half of the size that
+        # would exactly fit makes the chosen scale land at or under the
+        # ceiling (and never below a quarter of it).
+        f = math.sqrt(UPLOAD_MAX_PIXELS / pixels)
+        try:
+            img.draft(img.mode, (max(1, int(w * f / 2)), max(1, int(h * f / 2))))
+        except Exception as e:  # noqa: BLE001
+            logger.info("upload JPEG draft failed (%sx%s): %s", w, h, e)
+        if img.size[0] * img.size[1] <= UPLOAD_MAX_PIXELS:
+            logger.info("upload JPEG %sx%s decoded at %sx%s", w, h, *img.size)
+            return img
+    logger.info("upload refused before decode: %s canvas %sx%s", img.format, w, h)
+    img.close()
+    raise UnsupportedImageError("canvas over UPLOAD_MAX_PIXELS")
