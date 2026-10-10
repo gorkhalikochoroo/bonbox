@@ -81,6 +81,7 @@ from app.models.email_message import EmailMessage
 from app.models.expense import Expense, ExpenseCategory
 from app.models.receipt_intake import ReceiptIntake
 from app.models.user import User
+from app.services.ai_limits import counted_use
 from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.billing import (
@@ -529,9 +530,44 @@ def _process_inbound_email(
 
     # L3 + L10 — cap check. Throttle without dropping the row so the
     # owner sees "X arrived but you're over the cap" in /inbox/me.
+    #
+    # The webhook pipeline runs in the threadpool (OPS-02), so two emails
+    # for one venue can be processed at once, and this row only becomes
+    # visible to the other's count when it is committed at the end. The
+    # count therefore runs under a per-account lock and includes the
+    # emails still in flight (counted_use); the final commit hands this
+    # email's reservation back.
     cap = get_cap(user, "inbox_messages_per_month")
+    counted = {"used": 0}
+
+    def _check(in_flight: int) -> int:
+        if cap < 0:
+            return 0
+        # `used` already includes this row (it's in the 'received' state).
+        counted["used"] = count_messages_this_month(db, user.id) + in_flight
+        return 0 if counted["used"] > cap else 1
+
+    with counted_use(user, "inbox_messages_per_month", _check) as use:
+        return _process_within_cap(
+            db, user, em, payload, cap=cap, used=counted["used"], use=use,
+            source=source, ip_address=ip_address,
+        )
+
+
+def _process_within_cap(
+    db: Session,
+    user: User,
+    em: EmailMessage,
+    payload: dict,
+    *,
+    cap: int,
+    used: int,
+    use: Any,
+    source: str,
+    ip_address: str | None,
+) -> dict[str, Any]:
+    """The rest of the pipeline, run while this email holds its cap reservation."""
     if cap >= 0:
-        used = count_messages_this_month(db, user.id)
         # `used` already includes this row (it's in the 'received'
         # state). Compare to cap+1 since we want over-cap to mean
         # "this row is the (cap+1)'th".
@@ -560,7 +596,8 @@ def _process_inbound_email(
         em.status = "rejected"
         em.reason = "too_many_attachments"
         _audit_receive(db, user, em, source=source, ip_address=ip_address)
-        db.commit()
+        with use.recording():
+            db.commit()
         return {"status": "rejected", "reason": em.reason,
                 "email_message_id": str(em.id)}
 
@@ -601,7 +638,10 @@ def _process_inbound_email(
         em.reason = em.reason or "all_attachments_rejected"
 
     _audit_receive(db, user, em, source=source, ip_address=ip_address)
-    db.commit()
+    # This email's row is what counts toward the monthly cap: committed
+    # under the cap lock, which hands the reservation back.
+    with use.recording():
+        db.commit()
     return {
         "status": em.status,
         "drafted": drafted,

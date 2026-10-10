@@ -26,7 +26,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.services.ai_limits import vision_slot
+from app.services.ai_limits import counted_use, release_db_connection, vision_slot
 from app.models.kasserapport import KasserapportExtraction
 from app.models.user import User
 from app.services.auth import get_current_user
@@ -165,14 +165,38 @@ def extract(
         )
 
     # Defense-3: per-tier daily cap (PLAN_CAPS["kasse_extracts_per_day"]).
+    # The extraction row that counts is written AFTER the read, and this
+    # route runs in the threadpool — so the count runs under a per-account
+    # lock and includes the reads still in flight (counted_use); the row's
+    # commit below hands the reservation back. Without it, parallel
+    # requests would all pass the check before any of them wrote its row.
     plan = effective_plan(user) or "free"
     cap = get_cap(user, "kasse_extracts_per_day")
-    used = _today_count(db, user)
-    if used >= cap:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Daily kasserapport scan limit reached ({used}/{cap}). Upgrade or try again tomorrow.",
+    used = 0
+
+    def _check(in_flight: int) -> None:
+        nonlocal used
+        used = _today_count(db, user)
+        if used + in_flight >= cap:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Daily kasserapport scan limit reached ({used + in_flight}/{cap}). Upgrade or try again tomorrow.",
+            )
+
+    with counted_use(user, "kasse_extracts_per_day", _check) as use:
+        return _extract_counted(
+            request, file=file, body=body, fmt_or_reason=fmt_or_reason,
+            skip_classifier=skip_classifier, validated_terminal_id=validated_terminal_id,
+            db=db, user=user, plan=plan, cap=cap, used=used, use=use,
         )
+
+
+def _extract_counted(
+    request: Request, *, file: UploadFile, body: bytes, fmt_or_reason,
+    skip_classifier: bool, validated_terminal_id, db: Session, user: User,
+    plan: str, cap: int, used: int, use,
+):
+    """The rest of /extract, run while this request holds its cap reservation."""
 
     # Defense-4: idempotency. Compute image hash; if this exact image has
     # been scanned by this user in the last 30 minutes, return the cached
@@ -221,10 +245,14 @@ def extract(
     # `user.id` for tenant scoping.
     def _examples_fetcher(detected_pos: str) -> list:
         try:
-            return fetch_few_shot_examples(db, user.id, detected_pos)
+            examples = fetch_few_shot_examples(db, user.id, detected_pos)
         except Exception as e:  # noqa: BLE001
             logger.warning("kasserapport: few-shot fetch failed (non-fatal): %s", e)
             return []
+        # Runs in the middle of the vision read: hand the pooled connection
+        # back again so the rest of the read does not hold it.
+        release_db_connection(db)
+        return examples
 
     # Write to a temp file for the extractor (Pillow needs a path)
     tmp = NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix or ".jpg")
@@ -236,9 +264,11 @@ def extract(
         # Run the pipeline. examples_fetcher is invoked after Layer 2
         # detects the POS system, so this owner's past good extractions
         # of THE SAME format get injected as worked examples.
-        # One vision slot: at most 4 photo reads at once; a 5th waits
-        # briefly, then 503 "busy, try again" before anything is logged.
-        with vision_slot(user):
+        # One vision slot: at most 4 photo reads at once (2 per account); a
+        # further read waits briefly, then 503 "busy, try again" before
+        # anything is logged. db=: the pooled connection goes back to the
+        # pool while this request waits and reads.
+        with vision_slot(user, db=db):
             result = extract_kasserapport_full(
                 tmp.name,
                 skip_classifier=skip_classifier,
@@ -315,8 +345,11 @@ def extract(
             image_sha256=result.image_sha256 or img_hash,
             prompt_version=result.prompt_version,
         )
-        db.add(log_row)
-        db.commit()
+        # The row that counts toward the daily cap: committed under the
+        # cap lock, which hands this request's reservation back.
+        with use.recording():
+            db.add(log_row)
+            db.commit()
     except Exception as e:  # noqa: BLE001
         logger.warning("kasserapport: extraction logging failed: %s", e)
         db.rollback()

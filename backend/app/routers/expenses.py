@@ -39,7 +39,7 @@ from app.services.cash_sync import (
 )
 from app.services.expense_status import not_pending, is_pending as _is_pending
 from app.services.receipt_ocr import parse_expense_receipt
-from app.services.ai_limits import vision_slot
+from app.services.ai_limits import AIBusyError, counted_use, vision_slot
 from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
 from app.services.owner_language import owner_lang
 from app.services.billing import PLAN_CAPS, get_cap, effective_plan
@@ -520,7 +520,7 @@ def parse_receipt(
     # One vision slot (at most 4 photo reads at once). Outside the try on
     # purpose: "busy" must reach the owner as a 503, not be swallowed into
     # an empty read like an OCR failure.
-    with vision_slot(user):
+    with vision_slot(user, db=db):
         try:
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(body)
@@ -1304,17 +1304,34 @@ def burst_scan(
     from app.services.receipt_ocr import save_receipt_photo_ex, parse_expense_receipt
 
     cap = get_cap(user, "expense_receipt_scans_per_month")
-    used = _count_receipt_scans_this_month(db, user.id) if cap >= 0 else 0
+    used = 0
+    allowed = len(files)
+
+    # The drafts that count toward the monthly cap are committed at the
+    # END of the pile, and this route runs in the threadpool — two piles
+    # sent together would each see the same count and each fill the rest
+    # of the month's cap. counted_use counts under a per-account lock and
+    # reserves this pile's share until its drafts are committed.
+    def _check(in_flight: int) -> int:
+        nonlocal used, allowed
+        if cap < 0:
+            return 0
+        used = _count_receipt_scans_this_month(db, user.id)
+        allowed = max(0, cap - used - in_flight)
+        return min(len(files), allowed)
 
     created, skipped, cap_reached = [], 0, False
     # A plain `def` (OPS-02 / P0-3) — the OCR loop runs in the threadpool.
-    # The whole pile holds ONE vision slot, taken before anything is
-    # stored (so a 503 "busy" is safe for the browser to retry): a pile
-    # is one owner's sequential reads and never takes more than one of
-    # the 4 slots.
-    with vision_slot(user):
+    # Each receipt holds a vision slot only for its own save + read (at most
+    # 2 per account, 4 in all), so a long pile never keeps a slot from
+    # other venues for minutes. The FIRST stored photo needs a slot or the
+    # whole pile gets the 503 "busy, try again" — nothing stored yet, so
+    # the browser's automatic retry is safe. Once drafts exist, a receipt
+    # that cannot get a slot is still stored and lands as a draft without
+    # the read ('Mangler beløb'), exactly like an OCR failure.
+    with counted_use(user, "expense_receipt_scans_per_month", _check) as use:
         for f in files:
-            if cap >= 0 and (used + len(created)) >= cap:
+            if cap >= 0 and len(created) >= allowed:
                 cap_reached = True
                 break
             if not f.content_type or not f.content_type.startswith("image/"):
@@ -1324,21 +1341,30 @@ def burst_scan(
             if len(raw) > 5 * 1024 * 1024:
                 skipped += 1
                 continue
+
+            parsed = {"vendor": None, "amount": None, "date": None}
             try:
-                stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
+                with vision_slot(user, db=db):
+                    stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
+                    # OCR the file we just wrote for THIS receipt. The old
+                    # newest-by-mtime glob was worst here: a pile of receipts
+                    # is uploaded in one request, so every draft in the batch
+                    # raced to read whichever file happened to land last.
+                    try:
+                        parsed = parse_expense_receipt(local)
+                    except Exception:  # noqa: BLE001 — OCR must never block the draft
+                        pass
             except ValueError:
                 skipped += 1
                 continue
-
-            parsed = {"vendor": None, "amount": None, "date": None}
-            # OCR the file we just wrote for THIS receipt. The old newest-by-
-            # mtime glob was worst here: a pile of receipts is uploaded in one
-            # request, so every draft in the batch raced to read whichever
-            # file happened to land last.
-            try:
-                parsed = parse_expense_receipt(local)
-            except Exception:  # noqa: BLE001 — OCR must never block the draft
-                pass
+            except AIBusyError:
+                if not created:
+                    raise  # nothing stored yet: the 503 is safe to retry
+                try:
+                    stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
+                except ValueError:
+                    skipped += 1
+                    continue
 
             amount = parsed.get("amount") or 0
             vendor = parsed.get("vendor")
@@ -1423,7 +1449,10 @@ def burst_scan(
             db.add(draft)
             created.append(draft)
 
-    db.commit()
+        # The drafts are the rows that count toward the monthly cap:
+        # committed under the cap lock, which hands the reservation back.
+        with use.recording():
+            db.commit()
     for d in created:
         db.refresh(d)
     return {
@@ -1526,7 +1555,7 @@ def upload_expense_receipt(
     # One vision slot for the save + both reads (at most 4 photo reads at
     # once; a 5th waits briefly, then 503 "busy, try again" before the
     # photo is stored).
-    with vision_slot(user):
+    with vision_slot(user, db=db):
         try:
             stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
         except UnsupportedImageError:

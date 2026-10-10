@@ -3975,7 +3975,7 @@ def scan_z_report(
     # One vision slot for the save + read (at most 4 photo reads run at
     # once; a 5th waits briefly, then gets a 503 "busy, try again" BEFORE
     # anything is stored, so the browser's automatic retry is safe).
-    with vision_slot(user):
+    with vision_slot(user, db=db):
         try:
             image_url, local_path = save_receipt_photo_ex(
                 file_bytes,

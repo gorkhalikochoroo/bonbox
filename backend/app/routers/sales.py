@@ -1018,7 +1018,7 @@ def upload_receipt(
     # One vision slot for the save + read (at most 4 photo reads at once;
     # a 5th waits briefly, then 503 "busy, try again" before anything is
     # stored).
-    with vision_slot(user):
+    with vision_slot(user, db=db):
         # save_receipt_photo validates the content with PIL.verify(); on a
         # spoofed-header non-image upload it raises ValueError → 400 here.
         # Bytes outside the image allow-list (a PSD renamed .jpg) are
