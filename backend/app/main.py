@@ -6021,8 +6021,19 @@ _READY_PROBE_TTL_S = 15.0
 _ready_probe = {"ts": 0.0, "ok": True}
 
 
+def _ready_db_probe() -> bool:
+    """SELECT 1 through the pool — blocking; health_ready runs it in a
+    worker thread."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
 @app.api_route("/api/health/ready", methods=["GET", "HEAD"])
-def health_ready():
+async def health_ready():
     """Readiness probe — this is what render.yaml's healthCheckPath points at.
 
     Unlike /api/health (a static liveness 200) and /api/health/db (a bare
@@ -6045,6 +6056,11 @@ def health_ready():
     external-DB outage Render may restart the service repeatedly — preferable
     to routing traffic into guaranteed 500s; pool_pre_ping recovers stale
     connections once the DB returns.
+
+    ``async`` (R-d round 3): the cached answer — almost every poll — is
+    served on the event loop and never waits for one of the 32 worker
+    threads, which a burst of photo reads and decode-gate waits can hold
+    all at once. Only the stale-cache SELECT 1 runs in a worker thread.
     """
     if not _db_ready.is_set():
         return JSONResponse(
@@ -6055,12 +6071,9 @@ def health_ready():
     import time as _t
     now = _t.monotonic()
     if now - _ready_probe["ts"] > _READY_PROBE_TTL_S:
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            _ready_probe["ok"] = True
-        except Exception:
-            _ready_probe["ok"] = False
+        from starlette.concurrency import run_in_threadpool as _run_in_threadpool
+
+        _ready_probe["ok"] = await _run_in_threadpool(_ready_db_probe)
         _ready_probe["ts"] = now
     if not _ready_probe["ok"]:
         return JSONResponse(
