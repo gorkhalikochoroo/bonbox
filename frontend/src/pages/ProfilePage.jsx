@@ -839,10 +839,20 @@ export default function ProfilePage() {
     }
     setChangingPw(true);
     try {
-      await api.post("/auth/change-password", {
+      const res = await api.post("/auth/change-password", {
         current_password: passwords.current_password,
         new_password: passwords.new_password,
       });
+      // The change signs every other session out (token_version bump) and
+      // returns THIS device's new token. The native app keeps its token in
+      // storage — replace it, or the next request uses the revoked one and the
+      // app signs itself out. Web keeps no token in storage (the cookie was
+      // re-set by the server), so nothing is written there.
+      try {
+        if (res?.data?.token && localStorage.getItem("token")) {
+          localStorage.setItem("token", res.data.token);
+        }
+      } catch { /* private mode — the cookie covers web */ }
       setPwSuccess(t("passwordChanged"));
       setPasswords({ current_password: "", new_password: "", confirm_password: "" });
       setTimeout(() => setPwSuccess(""), 3000);

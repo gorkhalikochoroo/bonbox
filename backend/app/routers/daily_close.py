@@ -1116,8 +1116,19 @@ def _fire_close_auto_email(
 
     # The revisor's copy first: it carries the opt-out and List-Unsubscribe,
     # which must apply to the revisor only — the owner's own copy has neither.
+    unsub_url = None
     if include_acct:
-        unsub_url = revisor_unsubscribe_url(user.id, acct)
+        # SEC-7: in production without a signing key no opt-out link can be
+        # made, and a revisor mail without one is not sent. The lock and the
+        # owner's copy still happen; the copy says the revisor's was NOT sent.
+        from app.utils.email_unsubscribe_token import UnsubscribeKeyUnset
+        try:
+            unsub_url = revisor_unsubscribe_url(user.id, acct)
+        except UnsubscribeKeyUnset:
+            logger.error("close_auto_email: no unsubscribe signing key — revisor copy not sent")
+            sends.append(("revisor", {"status": "send_failed", "sent_to": [],
+                                      "has_scan": False, "error": "unsubscribe_key_unset"}))
+    if include_acct and unsub_url:
         subject, html = _build_close_email_html(
             **common, audience="revisor", correction=acct_correction,
             accountant_name=getattr(profile, "accountant_name", None),

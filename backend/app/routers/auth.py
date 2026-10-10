@@ -904,6 +904,23 @@ def logout(request: Request, response: Response):
     return {"status": "ok"}
 
 
+def _shared_device_claims_of(request: Request) -> dict:
+    """The shared-device claims (`sd` + `dn`) of the token THIS request carries,
+    as create_access_token kwargs — {} for a normal session.
+
+    CMS-2: a re-mint that keeps the device signed in (sign-out-all, password
+    change) must carry the "Delt enhed" state forward exactly like the
+    sliding-refresh middleware does, or the PIN curtain drops for good without
+    the password. Reads the same token get_current_user authenticated (bearer
+    wins, then the session cookie) via device_pin._current_token.
+    """
+    from app.routers.device_pin import _current_token
+    _, payload = _current_token(request)
+    if not payload.get("sd"):
+        return {}
+    return {"shared_device": True, "device_nonce": payload.get("dn")}
+
+
 @router.post("/sign-out-all")
 def sign_out_all(
     request: Request,
@@ -948,8 +965,14 @@ def sign_out_all(
 
     db.commit()
 
-    # Keep THIS device signed in with a fresh token at the new version.
-    fresh = create_access_token(str(principal.id), principal.token_version)
+    # Keep THIS device signed in with a fresh token at the new version — in the
+    # SAME shared-device ("Delt enhed") state it was in (CMS-2). Lifting the
+    # curtain needs the account password (device-pin/disable-shared); "sign out
+    # other devices" is one tap on /profile and must never do it as a side effect.
+    fresh = create_access_token(
+        str(principal.id), principal.token_version,
+        **_shared_device_claims_of(request),
+    )
     _set_auth_cookie(response, fresh, request)
     return {"status": "ok", "token": fresh}
 
@@ -1279,8 +1302,13 @@ def change_password(
 
     db.commit()
 
-    # Keep THIS device signed in with a fresh token at the new version.
-    fresh = create_access_token(str(principal.id), principal.token_version)
+    # Keep THIS device signed in with a fresh token at the new version, in the
+    # same shared-device state (CMS-2): changing the password is not the
+    # "un-share this device" decision — that has its own password-gated route.
+    fresh = create_access_token(
+        str(principal.id), principal.token_version,
+        **_shared_device_claims_of(request),
+    )
     _set_auth_cookie(response, fresh, request)
     return {"message": "Password changed successfully", "token": fresh}
 

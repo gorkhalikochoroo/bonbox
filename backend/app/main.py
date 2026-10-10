@@ -45,6 +45,7 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
+from app.utils.request_path import routed_path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -3721,7 +3722,7 @@ async def _global_exception_handler(request: Request, exc: Exception):
     Logs the full stack trace for diagnosis, but returns a safe shape to the
     client so the frontend can render a graceful error banner.
     """
-    path = request.url.path
+    path = routed_path(request)
     # Don't log stack traces for client-cancelled requests
     if exc.__class__.__name__ in ("ClientDisconnect", "CancelledError"):
         return JSONResponse(status_code=499, content={"detail": "Client disconnected"})
@@ -3836,7 +3837,7 @@ async def _http_exception_sanitizer(request: Request, exc: _StarletteHTTPExcepti
     if status_code >= 500 and is_prod:
         _error_logger.error(
             "HTTPException %s on %s %s: %s",
-            status_code, request.method, request.url.path, exc.detail,
+            status_code, request.method, routed_path(request), exc.detail,
         )
         return JSONResponse(
             status_code=status_code,
@@ -4013,7 +4014,7 @@ def _init_db():
 # --- DB readiness middleware: block API requests until DB is ready ---
 @app.middleware("http")
 async def db_readiness_gate(request: Request, call_next):
-    path = request.url.path
+    path = routed_path(request)
     # Always allow health checks, root, docs, and CORS preflight through
     if path in ("/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive", "/api/config/features", "/api/email/unsubscribe", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
@@ -4061,7 +4062,7 @@ async def cloudflare_origin_guard(request: Request, call_next):
     if (
         secret
         and request.method != "OPTIONS"
-        and request.url.path not in _ORIGIN_GUARD_EXEMPT
+        and routed_path(request) not in _ORIGIN_GUARD_EXEMPT
     ):
         import hmac
         presented = request.headers.get(_ORIGIN_GUARD_HEADER, "")
@@ -4128,7 +4129,7 @@ _ADMIN_MAX_TRACKED_IPS = 5000
 
 @app.middleware("http")
 async def admin_scan_blocker(request: Request, call_next):
-    if not request.url.path.startswith("/api/admin"):
+    if not routed_path(request).startswith("/api/admin"):
         return await call_next(request)
     import time
     ip = client_ip(request) if request else "unknown"
@@ -4188,7 +4189,7 @@ _COARSE_EXEMPT = frozenset(
 
 @app.middleware("http")
 async def coarse_ip_ceiling(request: Request, call_next):
-    path = request.url.path
+    path = routed_path(request)
     if request.method == "OPTIONS" or path in _COARSE_EXEMPT:
         return await call_next(request)
 
@@ -4278,7 +4279,7 @@ async def csrf_protect(request: Request, call_next):
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         return await call_next(request)
-    path = request.url.path
+    path = routed_path(request)
     if path in _CSRF_EXEMPT_PATHS or path.startswith("/api/portal"):
         return await call_next(request)
     # Only enforce on authenticated cookie-based requests. If there's no
@@ -4487,7 +4488,7 @@ async def accountant_write_guard(request: Request, call_next):
         return await call_next(request)
 
     role = (row[0] or "").lower() if row[0] else ""
-    path = request.url.path or ""
+    path = routed_path(request) or ""
 
     if role == "accountant":
         if _is_path_allowlisted_for_accountant_write(path):
@@ -4683,7 +4684,7 @@ def _is_manager_denied_path(path: str) -> bool:
 async def member_read_guard(request: Request, call_next):
     if request.method not in ("GET", "HEAD"):
         return await call_next(request)
-    path = request.url.path or ""
+    path = routed_path(request) or ""
     if not _is_sensitive_member_read_path(path):
         return await call_next(request)  # cheap common path — no DB lookup
 
@@ -4814,7 +4815,7 @@ async def shared_device_pin_gate(request: Request, call_next):
     prefixes = (
         _SHARED_DEVICE_DENY_PREFIXES if is_read else _SHARED_DEVICE_DENY_WRITE_PREFIXES
     )
-    path = request.url.path or ""
+    path = routed_path(request) or ""
     if not any(path.startswith(p) for p in prefixes):
         return await call_next(request)  # cheap common path — no decode/DB
     bearer = request.headers.get("authorization", "")
@@ -4884,13 +4885,13 @@ async def add_security_headers(request: Request, call_next):
     # revisor or owner opens from their inbox) gets its own policy that allows
     # exactly its own stylesheet by hash — nothing else is loosened.
     csp = "default-src 'none'; frame-ancestors 'none'"
-    if (request.url.path == "/api/email/unsubscribe"
+    if (routed_path(request) == "/api/email/unsubscribe"
             and "text/html" in (response.headers.get("content-type") or "")):
         from app.routers.email_unsubscribe import PAGE_CSP
         csp = PAGE_CSP
     response.headers["Content-Security-Policy"] = csp
     # Cache nothing for /api/admin/* — security telemetry should never be cached
-    if request.url.path.startswith("/api/admin"):
+    if routed_path(request).startswith("/api/admin"):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
         response.headers["Pragma"] = "no-cache"
     if is_prod:
@@ -4987,6 +4988,12 @@ _REFRESH_EXEMPT_PATHS = frozenset({
     "/api/auth/oauth/apple",
     "/api/auth/apple",
     "/api/auth/refresh",
+    # These two bump token_version and mint THIS device's new token
+    # themselves. A midway refresh here would re-mint from the request's OLD
+    # token (old `tv`) and overwrite that cookie, signing the device out on its
+    # next request (found with CMS-2).
+    "/api/auth/sign-out-all",
+    "/api/auth/change-password",
     "/api/billing/stripe/webhook",
     "/api/health",
     "/api/health/db",
@@ -5057,7 +5064,7 @@ async def sliding_refresh_middleware(request: Request, call_next):
         return response
 
     try:
-        path = request.url.path or ""
+        path = routed_path(request) or ""
         if path in _REFRESH_EXEMPT_PATHS:
             return response
         # Static asset / preflight — nothing to refresh.

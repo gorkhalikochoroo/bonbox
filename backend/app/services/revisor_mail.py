@@ -598,11 +598,14 @@ def enforce_revisor_daily_cap(db, user, *, cap: int = REVISOR_DAILY_CAP) -> None
 #   the revisor cap — fail-open on a counting error, for the same reason.
 
 # Names what the gate holds back, and only that (RELEASE_GATE 5, review
-# 8 Oct): guest, shift and gavekort mail still go out for an unconfirmed
-# account, so a general "BonBox mails no one else" is untrue. What waits:
-# fakturaer, team invitations, supplier orders (order autopilot) and mail to
-# the revisor (require_verified_revisor_sender below, and the held invite).
-# The frontend's sendNeedsVerifiedEmail (en/da) says the same.
+# 8 Oct): guest and gavekort mail still go out for an unconfirmed account, so
+# a general "BonBox mails no one else" is untrue. What waits: fakturaer, team
+# invitations, supplier orders (order autopilot) and mail to the revisor
+# (require_verified_revisor_sender below, and the held invite). The
+# frontend's sendNeedsVerifiedEmail (en/da) says the same. Since R-f staff
+# schedule mail waits too (services/staff_mail_guard) — it says so on the
+# Vagtplan itself (staffMailHeld*); this list does not name it yet (wording
+# call for Manoj).
 VERIFY_EMAIL_FIRST_MESSAGE_EN = (
     "Confirm your own e-mail address first (Profile → Unverified). "
     "Until it is confirmed, BonBox does not send fakturaer, team invitations, "
@@ -672,7 +675,11 @@ def claim_question_pending(user: Any) -> bool:
         return True
     try:
         from app.services.claim_decision import question_open_for
-        return question_open_for(db, user.id)
+        # In a SAVEPOINT: on Postgres a failed statement aborts the whole
+        # transaction, and the caller (a publish, a shift edit's in-app
+        # alert) must still be able to write and commit (review, 10 Oct).
+        with db.begin_nested():
+            return question_open_for(db, user.id)
     except Exception:  # noqa: BLE001 — fail closed: no third-party mail
         logger.warning("claim question lookup failed for %s", getattr(user, "id", None))
         return True
@@ -702,11 +709,17 @@ def held_sender_reason(user: Any) -> str | None:
 
 
 def require_verified_sender(user: Any, *, message: str | None = None,
-                            message_da: str | None = None) -> None:
+                            message_da: str | None = None,
+                            lang: str | None = None) -> None:
     """403 email_unverified unless the account's own address is confirmed
     (and no claim question is open). A surface may pass its own (true, more
     specific) message pair for the unconfirmed address; an open question
-    always says so instead."""
+    always says so instead.
+
+    `lang="da"` puts the Danish text in `message` too (`message_da` stays):
+    an older app build shows `message` as it is. Without `lang`, `message`
+    stays English, as every caller had it."""
+    da = (lang or "").lower() == "da"
     if getattr(user, "email_verified", False) is True:
         if not claim_question_pending(user):
             return
@@ -715,16 +728,18 @@ def require_verified_sender(user: Any, *, message: str | None = None,
             detail={
                 "code": "email_unverified",
                 "reason": "claim_question_open",
-                "message": CLAIM_OPEN_MESSAGE_EN,
+                "message": CLAIM_OPEN_MESSAGE_DA if da else CLAIM_OPEN_MESSAGE_EN,
                 "message_da": CLAIM_OPEN_MESSAGE_DA,
             },
         )
+    en = message or VERIFY_EMAIL_FIRST_MESSAGE_EN
+    da_text = message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA
     raise HTTPException(
         status_code=403,
         detail={
             "code": "email_unverified",
-            "message": message or VERIFY_EMAIL_FIRST_MESSAGE_EN,
-            "message_da": message_da or VERIFY_EMAIL_FIRST_MESSAGE_DA,
+            "message": da_text if da else en,
+            "message_da": da_text,
         },
     )
 
@@ -767,22 +782,29 @@ def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | Non
     """The `after` payloads of this account's audit rows for `actions` in the
     last `hours`, newest first, each with its row time under "_at" and its
     action under "_action". None when
-    the query itself failed (the caller decides; the caps fail open)."""
+    the query itself failed (the caller decides; the caps fail open, the staff
+    mail fails closed).
+
+    The query runs in a SAVEPOINT: on Postgres a failed statement (a statement
+    timeout, a dropped connection) aborts the whole transaction, and every
+    later statement of the caller — the publish response, a shift edit's
+    in-app alert, its commit — would fail with it (review, 10 Oct)."""
     try:
         import json
         from app.models.audit_log import AuditLog
         from app.utils.time import utc_now
         since = utc_now() - timedelta(hours=hours)
-        rows = (
-            db.query(AuditLog.after_state, AuditLog.created_at, AuditLog.action)
-            .filter(
-                AuditLog.user_id == user.id,
-                AuditLog.action.in_(tuple(actions)),
-                AuditLog.created_at >= since,
+        with db.begin_nested():
+            rows = (
+                db.query(AuditLog.after_state, AuditLog.created_at, AuditLog.action)
+                .filter(
+                    AuditLog.user_id == user.id,
+                    AuditLog.action.in_(tuple(actions)),
+                    AuditLog.created_at >= since,
+                )
+                .order_by(AuditLog.created_at.desc())
+                .all()
             )
-            .order_by(AuditLog.created_at.desc())
-            .all()
-        )
         out: list[dict] = []
         for after_state, created_at, action in rows:
             try:

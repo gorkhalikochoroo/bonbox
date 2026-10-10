@@ -39,16 +39,50 @@ import time
 logger = logging.getLogger(__name__)
 
 
+class UnsubscribeKeyUnset(RuntimeError):
+    """Raised in production when neither APP_SECRET_KEY nor SECRET_KEY is set.
+
+    SEC-7 (R-f): the signer used to fall back to a literal written in this
+    file, so a deploy that lost its key would have signed every unsubscribe
+    and revisor opt-out link with a PUBLIC key — anyone could switch off any
+    owner's or revisor's mail. Production now fails closed: no token is
+    minted (the mail that would carry it is not sent) and no token verifies.
+    """
+
+
 def _secret() -> bytes:
-    """Resolve the HMAC signing key.  Falls back to APP_SECRET_KEY then
-    SECRET_KEY so we honor either env var name (matches the rest of
-    the codebase's pattern)."""
+    """Resolve the HMAC signing key: APP_SECRET_KEY, then SECRET_KEY (the
+    same order as before, so every link already in an inbox stays valid).
+
+    Neither set:
+      • production → raise UnsubscribeKeyUnset (fail closed);
+      • anywhere else → the app's own settings.SECRET_KEY (a .env value, or
+        the per-process random key config.py makes), with a one-time warning,
+        so a local stack and the test suite keep working. Never a literal.
+    """
     import os
-    return (
-        os.environ.get("APP_SECRET_KEY")
-        or os.environ.get("SECRET_KEY")
-        or "dev-fallback-secret-do-not-use-in-prod"
-    ).encode("utf-8")
+    for name in ("APP_SECRET_KEY", "SECRET_KEY"):
+        raw = os.environ.get(name)
+        # Signed with the value exactly as stored (a trailing newline pasted
+        # into the host's settings included), as before R-f: stripping it
+        # would stop every link already in an inbox from verifying. A value
+        # that is only whitespace is no key — skip it.
+        if raw and raw.strip():
+            return raw.encode("utf-8")
+    from app.config import settings
+    if (getattr(settings, "ENVIRONMENT", "") or "").lower() == "production":
+        raise UnsubscribeKeyUnset(
+            "Neither APP_SECRET_KEY nor SECRET_KEY is set in production. "
+            "Refusing to sign or verify unsubscribe links with a fallback key."
+        )
+    if not getattr(_secret, "_warned", False):
+        logger.warning(
+            "email_unsubscribe_token: APP_SECRET_KEY/SECRET_KEY not in the "
+            "environment; using settings.SECRET_KEY (dev only — production "
+            "refuses)."
+        )
+        _secret._warned = True  # type: ignore[attr-defined]
+    return str(settings.SECRET_KEY).encode("utf-8")
 
 
 def make_unsubscribe_token(
@@ -115,11 +149,20 @@ def parse_unsubscribe_token(token: str) -> dict | None:
     if len(parts) != 2:
         return None
     body, sig = parts
-    expected = hmac.new(_secret(), body.encode("ascii"), hashlib.sha256).digest()
+    try:
+        expected = hmac.new(_secret(), body.encode("ascii"), hashlib.sha256).digest()
+    except UnsubscribeKeyUnset:
+        logger.error("unsubscribe token refused: no signing key in production")
+        return None
+    except (UnicodeEncodeError, ValueError):
+        return None
     expected_b64 = base64.urlsafe_b64encode(expected).rstrip(b"=").decode("ascii")
     # hmac.compare_digest avoids the short-circuit timing attack that
     # vanilla `==` would expose.
-    if not hmac.compare_digest(sig, expected_b64):
+    try:
+        if not hmac.compare_digest(sig, expected_b64):
+            return None
+    except TypeError:  # a non-ASCII signature
         return None
     pad = "=" * (-len(body) % 4)
     try:

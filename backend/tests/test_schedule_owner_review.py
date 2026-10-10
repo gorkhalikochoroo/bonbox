@@ -137,6 +137,10 @@ def _owner(db, suffix="", *, plan="pro", business_type="cafe") -> User:
         email=f"owner{suffix}@bonbox.dk", password_hash=hash_password("ownerpw123"),
         business_name=f"Bon Bistro{suffix}", business_type=business_type,
         currency="DKK", plan=plan, role="owner", timezone="Europe/Copenhagen",
+        # A confirmed sender: since SEC-1 (R-f) BonBox mails staff only for an
+        # owner whose own address is confirmed (test_staff_mail_guard covers
+        # the unconfirmed owner).
+        email_verified=True,
     )
     db.add(u)
     db.commit()

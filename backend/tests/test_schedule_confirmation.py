@@ -307,6 +307,10 @@ def test_notification_per_staff_failure_isolation(db, monkeypatch):
     from app.models.staff import NotificationLog
 
     owner = _user(db)
+    # A confirmed sender — since SEC-1 (R-f) an unconfirmed owner's staff get
+    # the in-app alert and push, not a mail (test_staff_mail_guard).
+    owner.email_verified = True
+    db.commit()
     staff_a = _staff(db, owner, name="A", email="a@bonbox.test")
     staff_b = _staff(db, owner, name="B", email="b@bonbox.test")
 

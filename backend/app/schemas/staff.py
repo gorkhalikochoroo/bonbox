@@ -52,6 +52,15 @@ def _clean_address_field(v: str | None, max_len: int) -> str | None:
     return v[:max_len]
 
 
+def _staff_email(v: str | None) -> str | None:
+    """The staffer's address is mailed from BonBox's own domain on the owner's
+    behalf (shift mails, "Del med personalet", "Send ugens vagtplan"), so it
+    must be one ordinary mailbox (SEC-1, R-f). Blank clears it (None); anything
+    else that is not a single valid address is a 422 — never stored."""
+    from app.utils.email_address import strict_email
+    return strict_email(v)
+
+
 class StaffMemberCreate(BaseModel):
     name: str
     phone: str | None = None
@@ -70,6 +79,11 @@ class StaffMemberCreate(BaseModel):
     hour_limit_warn: bool | None = None
     tax_card_type: str | None = None
     tax_card_rate: float | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _strict_email(cls, v: str | None) -> str | None:
+        return _staff_email(v)
 
 
 class StaffMemberUpdate(BaseModel):
@@ -91,6 +105,11 @@ class StaffMemberUpdate(BaseModel):
     tax_card_type: str | None = None
     tax_card_rate: float | None = None
     active: bool | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _strict_email(cls, v: str | None) -> str | None:
+        return _staff_email(v)
 
 
 class StaffMemberResponse(BaseModel):
@@ -166,6 +185,20 @@ class ScheduleCreate(BaseModel):
     # active branches at the router. None = unassigned/main.
     branch_id: uuid.UUID | None = None
 
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, v: str) -> str:
+        # A new shift is a draft or a published shift — nothing else (SEC-1,
+        # R-f). This was a free string: any value was stored, and readers that
+        # filter on "published" / "draft" simply lost the row. ScheduleUpdate
+        # below REPLACES this validator (same method name — pydantic would run
+        # both otherwise) with its own rule, which also keeps the legacy
+        # "confirmed".
+        v = (v or "").strip().lower()
+        if v not in _CREATE_STATUSES:
+            raise ValueError("status must be draft or published")
+        return v
+
     @field_validator("start_time", "end_time")
     @classmethod
     def _valid_hhmm(cls, v: str) -> str:
@@ -184,6 +217,9 @@ class ScheduleCreate(BaseModel):
             raise ValueError("start_time and end_time can't be the same")
         return self
 
+
+# The statuses a NEW shift may be created with.
+_CREATE_STATUSES = {"draft", "published"}
 
 # Every status a shift row carries today. "confirmed" is the legacy
 # acknowledged state some readers still accept beside "published".

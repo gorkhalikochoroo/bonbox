@@ -74,6 +74,9 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } fro
 // Sheet gives the bottom sheet, the cap, the scroll and the pinned footer.
 import Sheet from "../components/ui/Sheet";
 import { useLocation, Link as RouterLink } from "react-router-dom";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
+import { heldReasonForUser, heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
+import { emailOk } from "../utils/guestContact";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
@@ -1131,7 +1134,9 @@ function ClockGeofenceSettings({ className = "" }) {
 }
 
 export default function StaffSchedulePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  // Plan features, for what the publish sheet may promise (the push).
+  const { isReady: entReady, data: entData } = useEntitlements();
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const { branchId } = useBranch();
@@ -1930,6 +1935,25 @@ export default function StaffSchedulePage() {
     setError("");
     setPublishResult(null);
     const summary = computePublishSummary();
+    // Will the publish e-mail anyone? Asked of the server NOW, alongside the
+    // Shield fetch below: since R-f an owner whose own e-mail is unconfirmed,
+    // or whose "did you create this account?" question is open, sends staff
+    // no e-mail (services/staff_mail_guard -> held_sender_reason). The sheet
+    // used to promise one regardless. /auth/me carries the two facts that
+    // rule reads (email_verified, claim_question_open) and heldReasonForUser
+    // applies it in the server's order. A failed refresh keeps the copy we
+    // already have.
+    const mePromise = refreshUser ? refreshUser() : Promise.resolve(null);
+    // Does a push go too? Only when the owner's plan has
+    // `schedule_publish_push` (backend notification_service skips it
+    // otherwise, and on Free staff cannot even subscribe). Asked of the
+    // server now as well: a trial that ran out while the page was open is
+    // Free by the time the publish runs. Read directly, not via the hook's
+    // refresh(), whose failure path would show the whole app as Free.
+    const entPromise = api.get("/billing/entitlements", { _noRetry: true }).then(
+      (r) => r?.data || null,
+      () => null,
+    );
     // Vagtplan Shield — refetch week-load at the publish moment (the state
     // copy can be stale if shifts were just added) and attach warnings.
     // Fail-soft: a fetch error publishes without warnings, never blocks.
@@ -1971,15 +1995,67 @@ export default function StaffSchedulePage() {
     // told" news only came after, on the success screen. And BY NAME: the
     // owner's next step is "get Anna's number", which a count does not say.
     const weekStaffIds = new Set(
-      shifts.filter((sh) => sh.status !== "published").map((sh) => String(sh.staff_id)),
+      shifts
+        .filter((sh) => sh.status !== "published" && sh.staff_id != null)
+        .map((sh) => String(sh.staff_id)),
     );
     const weekStaff = staff.filter((m) => weekStaffIds.has(String(m.id)));
     const noContact = weekStaff.filter((m) => !(m.email || m.phone)).map((m) => m.name);
+    // Could anyone be e-mailed at all? The server only reports a hold "when
+    // someone could have been mailed" (publish_week: mail_held): with no
+    // address on file the true reason is "no address", and confirming the
+    // owner's own e-mail would still mail nobody.
+    //
+    // THREE outcomes, not two (gotcha: a boolean erases "couldn't check"):
+    //   true  = the roster was read and someone affected has an address;
+    //   false = the roster was read, every affected staffer is in it, and
+    //           none has an address;
+    //   null  = we could not tell: /staff/members failed or has not answered
+    //           yet, or a draft belongs to someone missing from the roster we
+    //           hold. A failed read used to look like "nobody has an e-mail",
+    //           and the sheet then said so about staff the server WOULD mail
+    //           (and hid "Bekræft nu" from an unconfirmed owner).
+    // "Has an address" = passes emailOk (utils/guestContact), the shape check
+    // the client already uses. The client has no copy of the server's
+    // sendable_email (utils/email_address, email_validator); emailOk drops
+    // the obvious non-addresses ("bo") the server would skip, and rows are
+    // strict-validated on write, so the two rarely disagree.
+    const rosterRead = !staffQ.failed && !(staffQ.loading && !staffQ.refreshing);
+    const anyMailable = weekStaff.some((m) => emailOk(m.email));
+    const rosterHasEveryone = weekStaff.length === weekStaffIds.size;
+    const canMail = !rosterRead
+      ? null
+      : anyMailable
+        ? true
+        : rosterHasEveryone && weekStaff.length > 0
+          ? false
+          : null;
+    let me = null;
+    try { me = await mePromise; } catch { me = null; }
+    const ent = await entPromise;
+    // The fresh answer when it is one for this account; else the copy the
+    // app already holds; else (nothing known) no push is promised.
+    const freshFeatures =
+      ent && ent.features && typeof ent.features === "object" &&
+      (ent.user_id == null || String(ent.user_id) === String(user?.id))
+        ? ent.features
+        : null;
+    const pushOnPlan = freshFeatures
+      ? freshFeatures.schedule_publish_push === true
+      : entReady && entData?.features?.schedule_publish_push === true;
     setPublishConfirm({
       ...summary,
       shield,
       unreachable: weekStaff.length > 0 && noContact.length === weekStaff.length,
       noContact,
+      canMail,
+      pushOnPlan,
+      // null = the mail goes (or nobody has an address, or we could not
+      // tell — see canMail; neither says "held");
+      // "email_unverified" / "claim_question_open" = held (the in-app alert,
+      // and the push on a plan with it, still go). Nothing is queued: a held
+      // mail is dropped, not sent later.
+      mailHeld: canMail === true ? heldReasonForUser(me || user) : null,
     });
   };
 
@@ -2021,6 +2097,12 @@ export default function StaffSchedulePage() {
         // Whose shifts changed but who has no email on file — named, so the
         // owner knows who still has to be told another way.
         notEmailed: Array.isArray(d.skipped_no_email_names) ? d.skipped_no_email_names : [],
+        // Nobody was e-mailed because the owner is not a confirmed sender yet
+        // ("email_unverified" / "claim_question_open"); the in-app alert and
+        // the push still went. Null from an older server.
+        mailHeld: d.mail_held || null,
+        // Over a staff-mail daily ceiling — not e-mailed, by name.
+        mailLimited: Array.isArray(d.skipped_mail_limit_names) ? d.skipped_mail_limit_names : [],
       });
     } catch (err) {
       setError(errText(err, t("stfPublishFailed", "Failed to publish schedule.")));
@@ -2040,6 +2122,10 @@ export default function StaffSchedulePage() {
   // converges. Tier-gated on `staff_portal_link` (Starter+/Trial).
   const [sharing, setSharing] = useState(false);
   const [shareToast, setShareToast] = useState("");
+  // A staff send BonBox refused because the owner is not a confirmed sender
+  // yet (403 email_unverified): the reason, shown with the one tap that fixes
+  // it ("Bekræft nu" / "Send spørgsmålet igen"), never the server's English.
+  const [mailHeldNotice, setMailHeldNotice] = useState(null);
   // Unified "Share schedule" sheet (2026-05-29) — replaces the email-only
   // window.confirm() with a checkbox picker: Select all / individual, then
   // Copy links (the UNIVERSAL channel — works for staff with no email, paste
@@ -2210,6 +2296,7 @@ export default function StaffSchedulePage() {
     setEmailing(true);
     setError("");
     setEmailToast("");
+    setMailHeldNotice(null);
     try {
       const r = await api.post("/staff/schedules/email", {
         week_start: toISO(weekStart),
@@ -2221,6 +2308,7 @@ export default function StaffSchedulePage() {
       const skippedWho = Array.isArray(r.data?.skipped_names) ? r.data.skipped_names : [];
       const failedRows = r.data?.failed || [];
       const failed = failedRows.length;
+      const limitedWho = Array.isArray(r.data?.skipped_mail_limit_names) ? r.data.skipped_mail_limit_names : [];
       // No "✓" glyph: the banner already carries the Lucide CheckCircle2, and
       // a text tick is a second icon system on the same line. Skipped and
       // failed people are NAMED — the owner acts on who, not how many.
@@ -2233,6 +2321,9 @@ export default function StaffSchedulePage() {
         msg += ` · ${failed} ${t("scheduleEmailFailed", "failed")}`;
         const failedWho = failedRows.map((f) => f?.name).filter(Boolean);
         if (failedWho.length) msg += `: ${failedWho.join(", ")}`;
+      }
+      if (limitedWho.length) {
+        msg += ` · ${limitedWho.length} ${t("staffMailLimitSkipped")}: ${limitedWho.join(", ")}`;
       }
       setEmailToast(msg);
       setTimeout(() => setEmailToast(""), 7000);
@@ -2249,6 +2340,8 @@ export default function StaffSchedulePage() {
           // Lucide, not an emoji envelope — see the Sparkles note above.
           iconName: "Mail",
         });
+      } else if (heldReasonFromError(err)) {
+        setMailHeldNotice(heldReasonFromError(err));
       } else {
         setError(detail?.message || (typeof detail === "string" ? detail : null) || (t("scheduleEmailFailedAll", "Couldn't email the schedule.")));
       }
@@ -2296,6 +2389,7 @@ export default function StaffSchedulePage() {
     setSharing(true);
     setError("");
     setShareToast("");
+    setMailHeldNotice(null);
     try {
       const r = await api.post("/staff/schedules/share-with-staff", {
         week_start: toISO(weekStart),
@@ -2317,6 +2411,10 @@ export default function StaffSchedulePage() {
         if (skippedWho.length) msg += `: ${skippedWho.join(", ")}`;
       }
       if (failed) msg += ` · ${failed} ${t("scheduleShareFailed", "failed")}`;
+      const limitedWho = Array.isArray(r.data?.skipped_mail_limit_names) ? r.data.skipped_mail_limit_names : [];
+      if (limitedWho.length) {
+        msg += ` · ${limitedWho.length} ${t("staffMailLimitSkipped")}: ${limitedWho.join(", ")}`;
+      }
       setShareToast(msg);
       setTimeout(() => setShareToast(""), 7000);
     } catch (err) {
@@ -2336,6 +2434,8 @@ export default function StaffSchedulePage() {
           // Lucide, not an emoji chain link — see the Sparkles note above.
           iconName: "Link2",
         });
+      } else if (heldReasonFromError(err)) {
+        setMailHeldNotice(heldReasonFromError(err));
       } else {
         setError(
           detail?.message ||
@@ -3137,6 +3237,18 @@ export default function StaffSchedulePage() {
           icon="Link2"
           onDismiss={() => setShareToast("")}
         />
+      )}
+      {/* A staff send held because the owner is not a confirmed sender yet. */}
+      {mailHeldNotice && (
+        <SectionBanner
+          severity="warn"
+          icon="Mail"
+          onDismiss={() => setMailHeldNotice(null)}
+        >
+          <span data-testid="staff-mail-held">
+            <StaffMailHeldLine reason={mailHeldNotice} t={t} />
+          </span>
+        </SectionBanner>
       )}
       {/* Autopilot-success toast (auto-dismisses after 7s) */}
       {autopilotToast && (
@@ -5067,6 +5179,21 @@ function rateDecimals(rate) {
   return Number.isInteger(n) ? 0 : 2;
 }
 
+/** A staff save the server refused because the e-mail is not one ordinary
+ *  mailbox (SEC-1: BonBox mails that address from its own domain). Said in
+ *  the owner's language — the 422 itself carries the validator's English. */
+function staffSaveErrText(err, t, fallback) {
+  const d = err?.response?.data?.detail;
+  if (
+    err?.response?.status === 422 &&
+    Array.isArray(d) &&
+    d.some((x) => Array.isArray(x?.loc) && x.loc[x.loc.length - 1] === "email")
+  ) {
+    return t("staffEmailInvalid");
+  }
+  return errText(err, fallback);
+}
+
 function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
   // Wage rates are money — same reasoning as StaffDetailModal above.
   const mLocale = moneyLocale(currency);
@@ -5225,7 +5352,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       setBaseRate("");
       onRefresh();
     } catch (err) {
-      setPanelError(errText(err, t("stfStaffAddFailed", "Failed to add staff member.")));
+      setPanelError(staffSaveErrText(err, t, t("stfStaffAddFailed", "Failed to add staff member.")));
     }
     setSaving(false);
   };
@@ -5276,7 +5403,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       setSaving(false);
       return true; // signals the detail modal to close on success
     } catch (err) {
-      setPanelError(errText(err, t("stfStaffUpdateFailed", "Failed to update staff member.")));
+      setPanelError(staffSaveErrText(err, t, t("stfStaffUpdateFailed", "Failed to update staff member.")));
     }
     setSaving(false);
     return false;
@@ -7844,6 +7971,60 @@ function StatTile({ icon, value, label }) {
   );
 }
 
+/** Why BonBox e-mailed none of the staff (the owner is not a confirmed
+ *  sender yet — services/staff_mail_guard), with the one tap that fixes it:
+ *  "Bekræft nu" for an unconfirmed address, "Send spørgsmålet igen" while
+ *  "Har du selv oprettet denne konto?" waits (never "Bekræft nu" there —
+ *  the address IS confirmed; utils/senderGate.js). */
+function StaffMailHeldLine({ reason, t }) {
+  const claimOpen = reason === HELD_CLAIM_OPEN;
+  return (
+    <>
+      {claimOpen ? t("staffMailHeldClaimOpen") : t("staffMailHeldUnverified")}{" "}
+      {claimOpen ? (
+        <ClaimQuestionResend testId="staff-mail-held-claim-resend" />
+      ) : (
+        <RouterLink
+          to="/verify-email?now=1"
+          className="font-semibold underline underline-offset-2 whitespace-nowrap"
+        >
+          {t("verifyEmailNowCta")}
+        </RouterLink>
+      )}
+    </>
+  );
+}
+
+/** The notify note BEFORE publishing, while the owner's staff mail is held:
+ *  what still reaches staff (the in-app alert, and — only on a plan with
+ *  schedule_publish_push — a push for those who have turned on notifications
+ *  in their portal), that BonBox sends staff no e-mail until the hold is
+ *  released, that this week's e-mails are not sent afterwards (a held mail is
+ *  dropped, never queued), and the one tap — the same pair as
+ *  StaffMailHeldLine after the publish. */
+function PublishHeldNote({ reason, push, t }) {
+  const claimOpen = reason === HELD_CLAIM_OPEN;
+  // Literal keys, so the i18n lint sees every one.
+  const text = claimOpen
+    ? (push ? t("publishNotifyNoteHeldClaimOpen") : t("publishNotifyNoteHeldClaimOpenNoPush"))
+    : (push ? t("publishNotifyNoteHeldUnverified") : t("publishNotifyNoteHeldUnverifiedNoPush"));
+  return (
+    <>
+      {text}{" "}
+      {claimOpen ? (
+        <ClaimQuestionResend testId="publish-held-claim-resend" />
+      ) : (
+        <RouterLink
+          to="/verify-email?now=1"
+          className="font-semibold underline underline-offset-2 whitespace-nowrap"
+        >
+          {t("verifyEmailNowCta")}
+        </RouterLink>
+      )}
+    </>
+  );
+}
+
 function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm, onClose, onShare, t, lang }) {
   // The Shield warnings below arrive as raw numbers and used to be pasted into
   // catalogue strings that typed the hour unit themselves, so a Danish owner
@@ -7862,7 +8043,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
   // becomes the headline, the icon and the tone.
   //   result.notify === 0    → we know: nobody.
   //   result.notify === null → the server did not tell us; see below.
-  const toldNobody = done && result.published > 0 && result.notify === 0;
+  // Nobody was e-mailed because the owner is not a confirmed sender yet — a
+  // different fact from "nobody has an address": the in-app alert and the
+  // push went, and one tap fixes the mail. Said in its own line, with that tap.
+  const mailHeld = done && result.published > 0 ? (result.mailHeld || null) : null;
+  const toldNobody = done && result.published > 0 && result.notify === 0 && !mailHeld;
   const notifyUnknown = done && result.published > 0 && result.notify == null;
   const headerIcon = done ? (toldNobody ? "AlertTriangle" : "CheckCircle2") : "Send";
   const headerTone = toldNobody
@@ -7962,6 +8147,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                     ? t("stfPublishedLiveOne", "1 shift is now live on your team's schedule.")
                     : t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
                 </p>
+                {mailHeld ? (
+                  <p data-testid="publish-mail-held" className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                    <StaffMailHeldLine reason={mailHeld} t={t} />
+                  </p>
+                ) : (
                 <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                   {notifyUnknown
                     /* The server did not give us a count. "0 notified" would be
@@ -7974,6 +8164,7 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                       ? t("stfPublishedNotifiedOne", "1 staff member notified about their changes.")
                       : t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))}
                 </p>
+                )}
               </>
             )}
             {/* Who was NOT mailed, by name — their shifts changed and there
@@ -7984,6 +8175,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 {t("publishedNotEmailed", "Not emailed (no address on file): {names}", {
                   names: result.notEmailed.join(", "),
                 })}
+              </p>
+            )}
+            {result.published > 0 && (result.mailLimited || []).length > 0 && (
+              <p data-testid="publish-mail-limited" className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                {t("staffMailLimitNames", { names: result.mailLimited.join(", ") })}
               </p>
             )}
           </div>
@@ -8094,7 +8290,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
 
             {summary.unreachable && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5 text-[12px] text-amber-800 dark:text-amber-300 leading-snug">
-                {t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've opened their portal get a push. Share their portal links after publishing.")}
+                {/* The push clause only on a plan that sends one
+                    (schedule_publish_push); on Free it was a false promise. */}
+                {summary.pushOnPlan
+                  ? t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've turned on notifications in their portal get a push. Share their portal links after publishing.")
+                  : t("publishNobodyReachableNoPush", "None of these staff has an email or phone on file — they only see the change in their portal. Share their portal links after publishing.")}
               </div>
             )}
             {/* Some — not all — cannot be reached: name them, so "get Anna's
@@ -8107,14 +8307,38 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
             {/* Honest notify note — no count promised here; the success
                 banner reports the server's real number after publish. Not
                 shown when nobody can be reached: it promised an email the
-                amber box right above had just said nobody would get. */}
+                amber box right above had just said nobody would get.
+                While BonBox holds the owner's staff mail (summary.mailHeld,
+                the server's held_sender_reason rule) it does not promise an
+                e-mail: it says what still reaches staff, and offers the one
+                tap that releases the mail. With nobody's e-mail on file it
+                promises none either. The push is only named on a plan that
+                sends one (summary.pushOnPlan). */}
             {!summary.unreachable && (
               <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
                 <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {t(
-                    "publishNotifyNote",
-                    "Staff whose shifts changed get an email (and a push if they've opened their portal).",
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed" data-testid="publish-notify-note">
+                  {summary.canMail === false ? (
+                    /* Said the way the result says it after publishing
+                       (notify_count 0 → "nobody was told"): no e-mail goes,
+                       and the in-app alert is a row in their portal's
+                       Alerts feed — seen only when they open the portal. */
+                    summary.pushOnPlan
+                      ? t("publishNotifyNoteNoEmail", "None of the staff whose shifts changed has an e-mail on file, so no e-mails are sent — they see the change when they open their portal (and a push if they've turned on notifications in their portal).")
+                      : t("publishNotifyNoteNoEmailNoPush", "None of the staff whose shifts changed has an e-mail on file, so no e-mails are sent — they only see the change if they open their portal.")
+                  ) : summary.canMail == null ? (
+                    /* Roster unread (or someone missing from it): say we could
+                       not check — never "no e-mail" and never "held". */
+                    t("publishNotifyNoteUnknown", "We couldn't check in advance which of the staff whose shifts changed get an e-mail.")
+                  ) : summary.mailHeld ? (
+                    <PublishHeldNote reason={summary.mailHeld} push={!!summary.pushOnPlan} t={t} />
+                  ) : summary.pushOnPlan ? (
+                    t(
+                      "publishNotifyNote",
+                      "Staff whose shifts changed get an email (and a push if they've turned on notifications in their portal).",
+                    )
+                  ) : (
+                    t("publishNotifyNoteNoPush", "Staff whose shifts changed get an email.")
                   )}
                 </p>
               </div>
