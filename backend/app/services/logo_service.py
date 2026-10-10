@@ -173,12 +173,12 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
             return out.getvalue()
 
     except DecodeBusyError:
+        # Re-raised as is: an AIBusyError, which main.py answers 503 +
+        # Retry-After in the owner's language (the upload route re-raises it
+        # with owner_lang). An HTTPException 503 here was replaced by the
+        # production 5xx sanitizer's generic "Something went wrong".
         logger.warning("Logo refused: every decode slot busy")
-        raise HTTPException(
-            http_status.HTTP_503_SERVICE_UNAVAILABLE,
-            "BonBox is processing a lot of images right now. Please try again in a moment.",
-            headers={"Retry-After": "10"},
-        )
+        raise
     except HTTPException:
         raise
     except Exception as e:

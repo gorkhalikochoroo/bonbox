@@ -52,6 +52,7 @@ from app.models.business_profile import BusinessProfile
 from app.services.auth import get_current_user
 from app.services.storage import compose_key, get_storage
 from app.services.chat_image import sanitize_chat_photo
+from app.services.owner_language import owner_lang
 from app.utils.time import utc_now
 
 # Two independent routers, mounted under two different prefixes in main.py.
@@ -357,10 +358,12 @@ def _create_message_with_photos(
     client_msg_id: str | None,
     files: list,
     sender_staff_id=None,
+    lang: str = "da",
 ):
     """Create a message with 1..MAX_PHOTOS attached photos (optionally a body
     too). Photos are sanitized BEFORE any row is written, so a bad image fails
-    cleanly. Returns (message, [photo_rows])."""
+    cleanly. Returns (message, [photo_rows]). ``lang``: the sender's language
+    for the busy 503 ("da" for a staffer, owner_lang for the owner)."""
     files = [f for f in (files or []) if f is not None][:MAX_PHOTOS + 1]
     if len(files) > MAX_PHOTOS:
         raise HTTPException(status_code=422, detail=f"Maks {MAX_PHOTOS} billeder.")
@@ -397,7 +400,7 @@ def _create_message_with_photos(
     sanitized = []
     for up in files:
         raw = up.file.read()
-        sanitized.append(sanitize_chat_photo(raw))  # (bytes, content_type, sha)
+        sanitized.append(sanitize_chat_photo(raw, lang=lang))  # (bytes, content_type, sha)
 
     msg = StaffChatMessage(
         thread_id=thread.id,
@@ -1174,7 +1177,8 @@ def owner_send_message_photos(
     member = _owner_staff_or_404(db, user, staff_id)
     thread = _get_or_create_thread(db, user.id, member.id)
     msg, rows = _create_message_with_photos(
-        db, thread, "owner", body, (client_msg_id or "").strip()[:64] or None, photos
+        db, thread, "owner", body, (client_msg_id or "").strip()[:64] or None, photos,
+        lang=owner_lang(user),
     )
     return _serialize(msg, "owner", _owner_photo_url(), rows)
 
@@ -1314,7 +1318,8 @@ def owner_send_group_photos(
 ):
     thread = _thread_in_tenant_or_404(db, thread_id, user.id)
     msg, rows = _create_message_with_photos(
-        db, thread, "owner", body, (client_msg_id or "").strip()[:64] or None, photos
+        db, thread, "owner", body, (client_msg_id or "").strip()[:64] or None, photos,
+        lang=owner_lang(user),
     )
     return _serialize(msg, "owner", _owner_photo_url(), rows,
                       names=_names_map(db, user.id))

@@ -120,11 +120,17 @@ def no_decoder(monkeypatch):
 
 @pytest.mark.parametrize("fn_name", ["sanitize_chat_photo", "sanitize_profile_photo"])
 def test_chat_and_profile_photos_refuse_busy_with_a_clear_try_again(all_decode_slots_taken, no_decoder, fn_name):
-    with pytest.raises(HTTPException) as ei:
+    # An AIBusyError (main.py answers it 503 + Retry-After, never sanitized),
+    # Danish by default — a staffer has no stored language.
+    from app.services.ai_limits import AIBusyError, busy_message
+
+    with pytest.raises(AIBusyError) as ei:
         getattr(chat_image, fn_name)(_img("PNG"))
-    assert ei.value.status_code == 503
-    assert "Prøv igen" in ei.value.detail
-    assert ei.value.headers.get("Retry-After")
+    assert ei.value.lang == "da"
+    assert "Prøv igen" in str(ei.value) == busy_message("da")
+    with pytest.raises(AIBusyError) as ei:
+        getattr(chat_image, fn_name)(_img("PNG"), lang="en")
+    assert str(ei.value) == busy_message("en")
 
 
 def test_the_portal_chat_photo_answers_try_again_and_writes_no_message(SessionLocal, db, all_decode_slots_taken):
@@ -163,6 +169,100 @@ def test_the_portal_chat_photo_answers_try_again_and_writes_no_message(SessionLo
     assert "Prøv igen" in r.json()["detail"]
     assert r.headers.get("retry-after")
     assert db.query(StaffChatMessage).count() == 0
+
+
+def _make_staff_link(db, owner):
+    from app.models.staff import StaffLink, StaffMember
+
+    m = StaffMember(id=uuid.uuid4(), user_id=owner.id, name="Agnes", role="server")
+    db.add(m)
+    db.commit()
+    token = f"tok-{uuid.uuid4().hex[:8]}"
+    db.add(StaffLink(id=uuid.uuid4(), user_id=owner.id, staff_id=m.id, token=token, active=True))
+    db.commit()
+    return m, token
+
+
+@pytest.mark.parametrize("route,owner_lang_value,expected_lang", [
+    ("portal_chat", "en", "da"),       # a staffer: Danish (the portal stores no language)
+    ("portal_profile", "en", "da"),
+    ("owner_chat", "en", "en"),        # the owner: their own language
+    ("owner_chat", "da", "da"),
+    ("owner_group_chat", "en", "en"),
+    ("logo", "en", "en"),
+    ("logo", "da", "da"),
+])
+def test_busy_photo_refusals_survive_the_production_5xx_sanitizer(
+    SessionLocal, db, monkeypatch, all_decode_slots_taken, route, owner_lang_value, expected_lang,
+):
+    """In production every HTTPException >= 500 is replaced with "Something
+    went wrong on our side" (main._http_exception_sanitizer). The busy
+    refusals of chat photos, the staff avatar and the logo must reach the
+    person as "busy, try again" in their language, with Retry-After — the
+    AIBusyError handler, like every other busy photo route. Nothing stored."""
+    import app.main as main_mod
+    from fastapi.testclient import TestClient
+
+    from app.models.business_profile import BusinessProfile
+    from app.models.staff import StaffChatMessage, StaffChatThread
+    from app.routers import business_profile as bp
+    from app.routers import staff_chat as sc
+    from app.services.ai_limits import BUSY_RETRY_AFTER_S, busy_message
+    from app.services.auth import get_current_user
+
+    monkeypatch.setattr(main_mod, "is_prod", True)
+    owner = _owner(db)
+    owner.plan = "pro"
+    owner.ui_language = owner_lang_value
+    db.commit()
+    member, token = _make_staff_link(db, owner)
+
+    def _get_test_db():
+        s = SessionLocal()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _get_test_db
+    app.dependency_overrides[get_current_user] = lambda: owner
+    sc._limiter.reset()
+    bp._limiter.reset()
+    png = _img("PNG")
+    c = TestClient(app)
+    try:
+        if route == "portal_chat":
+            r = c.post(f"/api/portal/{token}/chat/photos",
+                       files=[("photos", ("a.png", png, "image/png"))], headers=_ip())
+        elif route == "portal_profile":
+            r = c.post(f"/api/portal/{token}/profile-photo",
+                       files={"file": ("a.png", png, "image/png")}, headers=_ip())
+        elif route == "owner_chat":
+            r = c.post(f"/api/staff/chat/threads/{member.id}/photos",
+                       files=[("photos", ("a.png", png, "image/png"))], headers=_ip())
+        elif route == "owner_group_chat":
+            g = StaffChatThread(user_id=owner.id, kind="group", title="Køkken")
+            db.add(g)
+            db.commit()
+            r = c.post(f"/api/staff/chat/groups/{g.id}/photos",
+                       files=[("photos", ("a.png", png, "image/png"))], headers=_ip())
+        else:
+            r = c.post("/api/business/logo", files={"file": ("a.png", png, "image/png")}, headers=_ip())
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+        sc._limiter.reset()
+        bp._limiter.reset()
+    assert r.status_code == 503, r.text
+    body = r.json()
+    assert body["detail"] == busy_message(expected_lang), body
+    assert body["code"] == "ai_busy"
+    assert r.headers.get("retry-after") == str(BUSY_RETRY_AFTER_S)
+    db.expire_all()
+    assert db.query(StaffChatMessage).count() == 0
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
+    assert profile is None or profile.logo_url is None
+    assert db.get(type(member), member.id).profile_photo_key is None
 
 
 def test_every_module_that_decodes_an_upload_goes_through_the_gate():

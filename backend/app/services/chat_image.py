@@ -45,9 +45,6 @@ _MAX_DECODED_PIXELS = 50_000_000  # ~7000x7000; a real phone photo is <=~50MP
 # (chat) / 9 MB (avatar); a 50 MP PNG is refused before any decode.
 _MAX_FULL_DECODE_PIXELS = 25_000_000
 
-_BUSY_DETAIL = "Der behandles mange billeder lige nu. Prøv igen om et øjeblik."
-_BUSY_RETRY_AFTER_S = "10"
-
 # Profile avatar: staff can pick a full-res iPhone/Android photo (up to 8 MB),
 # and we re-encode it down to a small square JPEG — light to store + serve, and
 # it always fills the circular avatar cleanly (center-crop, no letterboxing).
@@ -153,16 +150,16 @@ def _short_side_at_least(side: int):
     return need_for
 
 
-def _busy() -> HTTPException:
-    return HTTPException(
-        http_status.HTTP_503_SERVICE_UNAVAILABLE, _BUSY_DETAIL,
-        headers={"Retry-After": _BUSY_RETRY_AFTER_S},
-    )
-
-
-def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
+def sanitize_chat_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes, str, str]:
     """Validate + re-encode a chat photo. Returns (bytes, content_type, sha_hex).
-    Raises HTTPException on any validation failure."""
+    Raises HTTPException on any validation failure.
+
+    Every decode slot busy → ``image_guard.DecodeBusyError`` (an
+    ``AIBusyError``) in ``lang``: main.py's own handler answers it 503 +
+    Retry-After + code "ai_busy" with the text in that language — an
+    HTTPException 503 would be replaced by the production 5xx sanitizer's
+    generic "Something went wrong". ``lang``: the sender's language ("da"
+    for a staffer — the portal stores none — the owner's for the owner)."""
     if not raw_bytes:
         raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Tomt billede.")
     if len(raw_bytes) > MAX_CHAT_PHOTO_BYTES:
@@ -183,12 +180,13 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
         ) from e
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
-    from app.services.image_guard import DecodeBusyError, decode_slot
+    from app.services.ai_limits import AIBusyError
+    from app.services.image_guard import decode_slot
 
     try:
         # One of the process-wide decode slots (image_guard: at most 2 photo
         # decodes at once); busy → 503 "try again", before any row is written.
-        with decode_slot(lang="da"):
+        with decode_slot(lang=lang):
             # The pixel ceilings and the reduced JPEG decode live in
             # _decode_rgb, shared with sanitize_profile_photo (they MUST stay
             # in lock-step — the header size cap only bounds the *compressed*
@@ -203,9 +201,9 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
             img.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
             img.close()
             sanitized = out.getvalue()
-    except DecodeBusyError:
+    except AIBusyError:
         logger.warning("Chat photo refused: every decode slot busy")
-        raise _busy()
+        raise
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
@@ -219,12 +217,14 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
     return sanitized, "image/jpeg", sha_hex
 
 
-def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
+def sanitize_profile_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes, str, str]:
     """Validate + re-encode a staff profile avatar. Same paranoid pipeline as
     sanitize_chat_photo (size cap → magic bytes → Pillow re-encode strips EXIF/
     GPS/ICC + kills polyglots), but shaped for an avatar: center-cropped to a
     square and downscaled to PROFILE_OUTPUT_DIM. Returns (bytes, content_type,
-    sha_hex). Raises HTTPException on any validation failure."""
+    sha_hex). Raises HTTPException on any validation failure, and
+    ``DecodeBusyError`` in ``lang`` when every decode slot is busy (see
+    sanitize_chat_photo)."""
     if not raw_bytes:
         raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Tomt billede.")
     if len(raw_bytes) > MAX_PROFILE_PHOTO_BYTES:
@@ -245,12 +245,13 @@ def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
         ) from e
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
-    from app.services.image_guard import DecodeBusyError, decode_slot
+    from app.services.ai_limits import AIBusyError
+    from app.services.image_guard import decode_slot
 
     try:
         # One of the process-wide decode slots (image_guard: at most 2 photo
         # decodes at once); busy → 503 "try again", before anything is stored.
-        with decode_slot(lang="da"):
+        with decode_slot(lang=lang):
             # Decompression-bomb guard + reduced JPEG decode: _decode_rgb,
             # shared with sanitize_chat_photo. 50 MP (25 MP for a PNG) is
             # orders of magnitude more than an avatar needs. The square crop
@@ -272,9 +273,9 @@ def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
             out = io.BytesIO()
             img.save(out, format="JPEG", quality=85, optimize=True)
             sanitized = out.getvalue()
-    except DecodeBusyError:
+    except AIBusyError:
         logger.warning("Profile photo refused: every decode slot busy")
-        raise _busy()
+        raise
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001

@@ -38,7 +38,6 @@ import uuid
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -242,12 +241,14 @@ def test_the_kasserapport_and_inventory_reads_refuse_busy(all_decode_slots_taken
 
 
 def test_the_logo_refuses_busy(all_decode_slots_taken, no_decoder):
+    # An AIBusyError, not an HTTPException 503: main.py's busy handler answers
+    # it (503 + Retry-After) and the production 5xx sanitizer leaves it alone;
+    # the upload route re-raises it in the owner's language
+    # (test_chat_photo_decode: test_busy_photo_refusals_survive_...).
     from app.services import logo_service
 
-    with pytest.raises(HTTPException) as ei:
+    with pytest.raises(ai_limits.AIBusyError):
         logo_service._strip_and_optimize(_img("PNG"), "png")
-    assert ei.value.status_code == 503
-    assert ei.value.headers.get("Retry-After")
 
 
 # ─── 3. A refused decode inside a vision read ───────────────────────

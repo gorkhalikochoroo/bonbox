@@ -862,6 +862,8 @@ from app.services.logo_service import (
     ACCENT_COLOR_PALETTE,
     MAX_LOGO_BYTES,
 )
+from app.services.ai_limits import AIBusyError
+from app.services.owner_language import owner_lang
 from app.services import audit_service
 
 
@@ -983,7 +985,13 @@ def upload_logo_endpoint(
     # Remember the old key so we can clean it up after successful save.
     old_key = profile.logo_url
 
-    storage_key, out_bytes = upload_logo(user.id, raw)
+    try:
+        storage_key, out_bytes = upload_logo(user.id, raw)
+    except AIBusyError:
+        # Every photo-decode slot stayed taken (image_guard.decode_slot):
+        # nothing stored, the 503 "busy, try again" is safe to retry — in
+        # the owner's language (main.py's AIBusyError handler).
+        raise AIBusyError(owner_lang(user)) from None
 
     before = {"logo_url": old_key}
     profile.logo_url = storage_key
