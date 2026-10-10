@@ -49,6 +49,8 @@ from app.services.billing import effective_plan, get_cap, has_feature, record_fe
 from app.services.expense_status import not_pending
 from app.services.receipt_ocr import save_receipt_photo_ex, parse_z_report
 from app.services.ai_limits import vision_slot
+from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
+from app.services.owner_language import owner_lang
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
     closes_to_csv_bytes,
@@ -3945,6 +3947,10 @@ def scan_z_report(
     # everywhere the user might upload an image.
     if len(file_bytes) > 12 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 12 MB)")
+    # INFRA-03 — the bytes must be an allow-listed image format before any
+    # decoder runs (a PSD renamed .jpg stops here with a clear 400).
+    if sniff_image_format(file_bytes) is None:
+        raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
 
     # L5 — per-tier daily quota (PLAN_CAPS["z_report_scans_per_day"]).
     plan = effective_plan(user) or "free"
@@ -3977,6 +3983,8 @@ def scan_z_report(
                 str(user.id),
                 kind="kasserapport",
             )
+        except UnsupportedImageError:
+            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
         except ValueError as e:
             # Not decodable as an image (was an unhandled 500 before).
             raise HTTPException(status_code=400, detail=str(e))

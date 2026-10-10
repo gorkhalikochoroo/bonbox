@@ -57,6 +57,7 @@ from app.services.smart_scan_service import (
 )
 from app.services.tz_utils import business_day_window
 from app.services.ai_limits import vision_slot
+from app.services.image_guard import sniff_image_format
 from sqlalchemy import func as sa_func
 
 logger = logging.getLogger(__name__)
@@ -223,6 +224,30 @@ def classify_endpoint(
     # BEFORE the paid service call below.
     used_today = _today_classify_count(db, user)
     enforce_cap(user, "smart_scan_classify_per_day", used_today)
+
+    # ── INFRA-03 — only a PDF or an allow-listed image goes on to the
+    # classifier. Anything else (a PSD renamed .jpg, a zip) is never
+    # decoded or sent to a paid model; the owner lands in the manual
+    # picker exactly like any other unreadable upload.
+    if not (is_pdf or raw.startswith(b"%PDF-")) and sniff_image_format(raw) is None:
+        result = {
+            "doc_type": "unknown",
+            "confidence": 0.0,
+            "route_to": "manual_picker",
+            "route_label": "manual_picker",
+            "extracted_data": None,
+            "fallback_used": None,
+            "file_size_kb": int(len(raw) / 1024),
+            "verify_hints": [],
+            "reason": "unsupported_format",
+        }
+        _log_classify_audit(db, user, request, result, batch_size)
+        try:
+            db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[SmartScan] audit commit failed (non-fatal): %s", e)
+            db.rollback()
+        return result
 
     # ── L4 — service orchestration ──────────────────────────────────
     # One vision slot (at most 4 photo reads at once; a 5th waits briefly,

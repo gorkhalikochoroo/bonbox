@@ -160,7 +160,9 @@ def _image_to_base64_jpeg(image_path: str | Path, max_side: int = MAX_INPUT_IMAG
     receipt readability. Faster upload, cheaper LLM input tokens, no
     accuracy loss in our tests.
     """
-    img = Image.open(str(image_path))
+    # Allow-listed decoders only (INFRA-03); the router magic-checks too.
+    from app.services.image_guard import open_upload_image
+    img = open_upload_image(image_path)
     img = img.convert("RGB")
     if max(img.size) > max_side:
         ratio = max_side / max(img.size)

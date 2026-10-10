@@ -552,7 +552,10 @@ def _image_bytes_to_base64_jpeg(data: bytes) -> Optional[str]:
         except ImportError:
             pass
 
-        img = Image.open(io.BytesIO(data))
+        # Allow-listed decoders only (INFRA-03) — refuses PSD/FITS/... by
+        # their magic bytes before Pillow parses anything.
+        from app.services.image_guard import open_upload_image
+        img = open_upload_image(data)
         img = img.convert("RGB")
         # Downscale large images for token cost + speed. 2000px on the
         # longest side is the same threshold receipt_ocr uses.

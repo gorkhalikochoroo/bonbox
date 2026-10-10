@@ -25,6 +25,8 @@ from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnReq
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo_ex
 from app.services.ai_limits import vision_slot
+from app.services.image_guard import UnsupportedImageError, refusal_message
+from app.services.owner_language import owner_lang
 from app.services.cash_sync import (
     sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref,
     soft_delete_cash_entry_by_ref, restore_cash_entry_by_ref,
@@ -1019,8 +1021,12 @@ def upload_receipt(
     with vision_slot(user):
         # save_receipt_photo validates the content with PIL.verify(); on a
         # spoofed-header non-image upload it raises ValueError → 400 here.
+        # Bytes outside the image allow-list (a PSD renamed .jpg) are
+        # refused before any decoder runs (INFRA-03).
         try:
             stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
+        except UnsupportedImageError:
+            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

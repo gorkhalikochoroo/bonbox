@@ -40,6 +40,8 @@ from app.services.cash_sync import (
 from app.services.expense_status import not_pending, is_pending as _is_pending
 from app.services.receipt_ocr import parse_expense_receipt
 from app.services.ai_limits import vision_slot
+from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
+from app.services.owner_language import owner_lang
 from app.services.billing import PLAN_CAPS, get_cap, effective_plan
 from app.utils.time import utc_now
 
@@ -503,6 +505,10 @@ def parse_receipt(
         )
     if not body:
         raise HTTPException(status_code=400, detail="Empty upload.")
+    # INFRA-03 — only an allow-listed image format reaches a decoder (or
+    # Mindee / Claude). A PSD renamed .jpg is refused here.
+    if sniff_image_format(body) is None:
+        raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
 
     # Write to a temp file so OCR services that need a file path work.
     # NamedTemporaryFile auto-deletes on close in the finally block.
@@ -1006,6 +1012,8 @@ def attach_receipt_to_expense(
     from app.services.receipt_ocr import save_receipt_photo
     try:
         stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
+    except UnsupportedImageError:
+        raise HTTPException(400, refusal_message(owner_lang(user)))
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -1521,6 +1529,8 @@ def upload_expense_receipt(
     with vision_slot(user):
         try:
             stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
+        except UnsupportedImageError:
+            raise HTTPException(400, refusal_message(owner_lang(user)))
         except ValueError as e:
             raise HTTPException(400, str(e))
 

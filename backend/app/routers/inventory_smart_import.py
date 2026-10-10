@@ -80,6 +80,8 @@ from app.services.inventory_learning import (
     promote_corrections, prune_stale_examples,
 )
 from app.services.ai_limits import AIBusyError, vision_slot
+from app.services.image_guard import refusal_message, sniff_image_format
+from app.services.owner_language import owner_lang
 from app.services.inventory_ocr import (
     PROVIDER_TAG as INVENTORY_OCR_PROVIDER,
     enrich_with_supplier as _enrich_supplier,
@@ -798,6 +800,12 @@ def import_file(
                 raise HTTPException(
                     status_code=400,
                     detail=f"source_kind=image requires image/* content_type, got {media_type!r}",
+                )
+            # INFRA-03 — the bytes themselves must be an allow-listed image
+            # (a PSD renamed .jpg is refused before any decoder or model).
+            if sniff_image_format(raw) is None:
+                raise HTTPException(
+                    status_code=400, detail=refusal_message(owner_lang(user)),
                 )
             # Few-shot enrichment: pull this owner's prior corrections
             # so the AI extracts in their preferred naming/style. NEVER

@@ -30,9 +30,10 @@ def _ensure_jpeg(image_path: str) -> str:
     if ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff"):
         return image_path  # Already compatible
 
-    # Convert HEIC/HEIF/other formats to JPEG
+    # Convert HEIC/HEIF/other formats to JPEG (allow-listed decoders only)
     try:
-        img = Image.open(image_path)
+        from app.services.image_guard import open_upload_image
+        img = open_upload_image(image_path)
         jpeg_path = str(Path(image_path).with_suffix(".jpg"))
         img = img.convert("RGB")
         img.save(jpeg_path, "JPEG", quality=85)
@@ -47,7 +48,8 @@ def _image_to_base64_jpeg(image_path: str) -> str:
     """Read any image file and return base64-encoded JPEG data.
     Resizes large images for faster OCR processing."""
     try:
-        img = Image.open(image_path)
+        from app.services.image_guard import open_upload_image
+        img = open_upload_image(image_path)
         img = img.convert("RGB")
         # Resize if too large (keeps quality but speeds up OCR)
         max_dim = 2000
@@ -1192,16 +1194,22 @@ def save_receipt_photo_ex(
     safe_name = f"{user_id}_{int(time.time())}_{_uuid.uuid4().hex[:8]}.jpg"
 
     # Always save locally first (needed for OCR processing). PIL must succeed
-    # — its failure means the upload isn't a real image.
+    # — its failure means the upload isn't a real image. The bytes are
+    # magic-checked and decoded with the upload allow-list only (INFRA-03):
+    # a PSD or FITS renamed .jpg raises UnsupportedImageError (a ValueError)
+    # before any Pillow decoder runs.
+    from app.services.image_guard import UnsupportedImageError, open_upload_image
     filepath = UPLOAD_DIR / safe_name
     try:
-        img = Image.open(io.BytesIO(file_bytes))
+        img = open_upload_image(file_bytes)
         img.verify()  # PIL signature check before re-opening for save
+    except UnsupportedImageError:
+        raise
     except Exception as e:
         raise ValueError(f"Uploaded file is not a valid image ({e})")
 
     try:
-        img = Image.open(io.BytesIO(file_bytes))  # re-open after verify()
+        img = open_upload_image(file_bytes)  # re-open after verify()
         img = img.convert("RGB")
         img.save(filepath, "JPEG", quality=85)
         jpeg_bytes = filepath.read_bytes()
