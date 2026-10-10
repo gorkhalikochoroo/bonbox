@@ -28,11 +28,22 @@ before any worker thread exists.
 Only glibc Linux is touched (production is Render, x86_64, glibc). macOS,
 musl (Alpine) and anything else are a no-op. Overrides:
 
-* ``BONBOX_MALLOPT=0`` — skip both settings (e.g. to compare memory with
-  and without them, or if a future runtime misbehaves with them).
+* ``BONBOX_MALLOPT=0`` — skip both settings. FOR MEASURING ONLY, NOT A
+  PRODUCTION SWITCH: the decode gate alone does not hold memory down. With
+  the round-3 code and this set (same bursts, 1 CPU / 2 GB, no swap, 10 Oct
+  review): peak RSS 1,753 MB, container 1,840 of 2,048 MB, and RSS after
+  each burst still climbing (1,006 -> 1,179 -> 1,256 MB) — against a
+  775 MB peak settling at ~235 MB with the settings on. If a runtime ever
+  misbehaves with them, set the two env vars below to other values instead.
 * ``MALLOC_ARENA_MAX`` / ``MALLOC_MMAP_THRESHOLD_`` in the environment — glibc
   has already applied the operator's value at process start; this module
   leaves that one parameter alone.
+
+Recommended on the Render service as well: ``MALLOC_ARENA_MAX=2`` and
+``MALLOC_MMAP_THRESHOLD_=1048576`` (the same values). They do not conflict
+with this module (it leaves an operator's value alone) and they keep the
+allocator settings through any code rollback — a rollback to before this
+module (d614f211, the round-2 tip) is the state that was OOM-killed.
 """
 
 from __future__ import annotations
@@ -66,12 +77,17 @@ def _glibc_version() -> str | None:
     return (version or None) if lib == "glibc" else None
 
 
-def _load_libc():
-    import ctypes
-    import ctypes.util
+#: glibc's soname — the same on every glibc Linux (x86_64 and arm64).
+GLIBC_SONAME = "libc.so.6"
 
-    name = ctypes.util.find_library("c") or "libc.so.6"
-    return ctypes.CDLL(name)
+
+def _load_libc():
+    # Loaded by soname: this only runs after _glibc_version() confirmed
+    # glibc. ctypes.util.find_library("c") would fork `/sbin/ldconfig -p` on
+    # every API boot to find the same name.
+    import ctypes
+
+    return ctypes.CDLL(GLIBC_SONAME)
 
 
 def _print_line(line: str) -> None:

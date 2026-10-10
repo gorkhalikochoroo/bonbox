@@ -6,8 +6,9 @@ from pathlib import Path
 
 # glibc malloc settings for this one process (M_ARENA_MAX=2, 1 MiB mmap
 # threshold) — set here, before the heavy imports and before any worker
-# thread exists. Measured need, how to switch off (BONBOX_MALLOPT=0):
-# app/utils/malloc_tuning.py. No-op on macOS / musl.
+# thread exists. Measured need and overrides: app/utils/malloc_tuning.py
+# (BONBOX_MALLOPT=0 is for measuring only — without the settings memory
+# climbs back toward the 2 GB limit). No-op on macOS / musl.
 from app.utils.malloc_tuning import apply_malloc_tuning as _apply_malloc_tuning
 
 _MALLOC_TUNING = _apply_malloc_tuning()

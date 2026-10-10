@@ -129,3 +129,25 @@ def test_the_import_time_call_ran_and_matches_this_platform():
                 assert r["applied"][name] == value, r
     else:
         assert r["applied"] == {} and r["skipped"]
+
+
+def test_libc_is_loaded_by_soname_without_forking_ldconfig(monkeypatch):
+    """ctypes.util.find_library("c") runs `/sbin/ldconfig -p` in a subprocess
+    on Linux; on glibc the soname is always libc.so.6."""
+    import ctypes
+    import ctypes.util
+
+    loaded = []
+    monkeypatch.setattr(ctypes.util, "find_library", lambda name: pytest.fail("find_library forks ldconfig"))
+    monkeypatch.setattr(ctypes, "CDLL", lambda name, *a, **k: loaded.append(name) or object())
+    mt._load_libc()
+    assert loaded == ["libc.so.6"] == [mt.GLIBC_SONAME]
+
+
+def test_the_off_switch_is_documented_as_measuring_only():
+    # BONBOX_MALLOPT=0 with the round-3 code still climbed toward the 2 GB
+    # limit (peak 1,753 MB RSS, 1,840 MB container): not a production toggle.
+    doc = mt.__doc__
+    assert "FOR MEASURING ONLY, NOT A" in doc and "PRODUCTION SWITCH" in doc
+    assert "MALLOC_ARENA_MAX=2" in doc and "MALLOC_MMAP_THRESHOLD_=1048576" in doc
+    assert "BONBOX_MALLOPT=0 is for measuring only" in MAIN_SRC.replace("\n# ", " ")
