@@ -1134,6 +1134,8 @@ function ClockGeofenceSettings({ className = "" }) {
 
 export default function StaffSchedulePage() {
   const { user, refreshUser } = useAuth();
+  // Plan features, for what the publish sheet may promise (the push).
+  const { isReady: entReady, data: entData } = useEntitlements();
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const { branchId } = useBranch();
@@ -1941,6 +1943,16 @@ export default function StaffSchedulePage() {
     // applies it in the server's order. A failed refresh keeps the copy we
     // already have.
     const mePromise = refreshUser ? refreshUser() : Promise.resolve(null);
+    // Does a push go too? Only when the owner's plan has
+    // `schedule_publish_push` (backend notification_service skips it
+    // otherwise, and on Free staff cannot even subscribe). Asked of the
+    // server now as well: a trial that ran out while the page was open is
+    // Free by the time the publish runs. Read directly, not via the hook's
+    // refresh(), whose failure path would show the whole app as Free.
+    const entPromise = api.get("/billing/entitlements", { _noRetry: true }).then(
+      (r) => r?.data || null,
+      () => null,
+    );
     // Vagtplan Shield — refetch week-load at the publish moment (the state
     // copy can be stale if shifts were just added) and attach warnings.
     // Fail-soft: a fetch error publishes without warnings, never blocks.
@@ -1986,16 +1998,36 @@ export default function StaffSchedulePage() {
     );
     const weekStaff = staff.filter((m) => weekStaffIds.has(String(m.id)));
     const noContact = weekStaff.filter((m) => !(m.email || m.phone)).map((m) => m.name);
+    // Could anyone be e-mailed at all? The server only reports a hold "when
+    // someone could have been mailed" (publish_week: mail_held): with no
+    // address on file the true reason is "no address", and confirming the
+    // owner's own e-mail would still mail nobody.
+    const canMail = weekStaff.some((m) => String(m.email || "").trim() !== "");
     let me = null;
     try { me = await mePromise; } catch { me = null; }
+    const ent = await entPromise;
+    // The fresh answer when it is one for this account; else the copy the
+    // app already holds; else (nothing known) no push is promised.
+    const freshFeatures =
+      ent && ent.features && typeof ent.features === "object" &&
+      (ent.user_id == null || String(ent.user_id) === String(user?.id))
+        ? ent.features
+        : null;
+    const pushOnPlan = freshFeatures
+      ? freshFeatures.schedule_publish_push === true
+      : entReady && entData?.features?.schedule_publish_push === true;
     setPublishConfirm({
       ...summary,
       shield,
       unreachable: weekStaff.length > 0 && noContact.length === weekStaff.length,
       noContact,
-      // null = the mail goes; "email_unverified" / "claim_question_open" =
-      // held (the in-app alert and the push still go).
-      mailHeld: heldReasonForUser(me || user),
+      canMail,
+      pushOnPlan,
+      // null = the mail goes (or nobody has an address — see canMail);
+      // "email_unverified" / "claim_question_open" = held (the in-app alert,
+      // and the push on a plan with it, still go). Nothing is queued: a held
+      // mail is dropped, not sent later.
+      mailHeld: canMail ? heldReasonForUser(me || user) : null,
     });
   };
 
@@ -7936,14 +7968,20 @@ function StaffMailHeldLine({ reason, t }) {
 }
 
 /** The notify note BEFORE publishing, while the owner's staff mail is held:
- *  what still reaches staff (the in-app alert, and a push for those who have
- *  opened their portal), when the e-mails will go, and the one tap — the same
- *  pair as StaffMailHeldLine after the publish. */
-function PublishHeldNote({ reason, t }) {
+ *  what still reaches staff (the in-app alert, and — only on a plan with
+ *  schedule_publish_push — a push for those who have opened their portal),
+ *  that BonBox sends staff no e-mail until the hold is released (a held mail
+ *  is dropped, never sent later), and the one tap — the same pair as
+ *  StaffMailHeldLine after the publish. */
+function PublishHeldNote({ reason, push, t }) {
   const claimOpen = reason === HELD_CLAIM_OPEN;
+  // Literal keys, so the i18n lint sees every one.
+  const text = claimOpen
+    ? (push ? t("publishNotifyNoteHeldClaimOpen") : t("publishNotifyNoteHeldClaimOpenNoPush"))
+    : (push ? t("publishNotifyNoteHeldUnverified") : t("publishNotifyNoteHeldUnverifiedNoPush"));
   return (
     <>
-      {claimOpen ? t("publishNotifyNoteHeldClaimOpen") : t("publishNotifyNoteHeldUnverified")}{" "}
+      {text}{" "}
       {claimOpen ? (
         <ClaimQuestionResend testId="publish-held-claim-resend" />
       ) : (
@@ -8223,7 +8261,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
 
             {summary.unreachable && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5 text-[12px] text-amber-800 dark:text-amber-300 leading-snug">
-                {t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've opened their portal get a push. Share their portal links after publishing.")}
+                {/* The push clause only on a plan that sends one
+                    (schedule_publish_push); on Free it was a false promise. */}
+                {summary.pushOnPlan
+                  ? t("publishNobodyReachable", "None of these staff has an email or phone on file — only those who've opened their portal get a push. Share their portal links after publishing.")
+                  : t("publishNobodyReachableNoPush", "None of these staff has an email or phone on file — they only see the change in their portal. Share their portal links after publishing.")}
               </div>
             )}
             {/* Some — not all — cannot be reached: name them, so "get Anna's
@@ -8240,18 +8282,26 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 While BonBox holds the owner's staff mail (summary.mailHeld,
                 the server's held_sender_reason rule) it does not promise an
                 e-mail: it says what still reaches staff, and offers the one
-                tap that releases the mail. */}
+                tap that releases the mail. With nobody's e-mail on file it
+                promises none either. The push is only named on a plan that
+                sends one (summary.pushOnPlan). */}
             {!summary.unreachable && (
               <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
                 <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed" data-testid="publish-notify-note">
-                  {summary.mailHeld ? (
-                    <PublishHeldNote reason={summary.mailHeld} t={t} />
-                  ) : (
+                  {summary.canMail === false ? (
+                    summary.pushOnPlan
+                      ? t("publishNotifyNoteNoEmail", "Staff whose shifts changed are told in the app (and by push if they've opened their portal). None of them has an e-mail on file, so no e-mails are sent.")
+                      : t("publishNotifyNoteNoEmailNoPush", "Staff whose shifts changed are told in the app. None of them has an e-mail on file, so no e-mails are sent.")
+                  ) : summary.mailHeld ? (
+                    <PublishHeldNote reason={summary.mailHeld} push={!!summary.pushOnPlan} t={t} />
+                  ) : summary.pushOnPlan ? (
                     t(
                       "publishNotifyNote",
                       "Staff whose shifts changed get an email (and a push if they've opened their portal).",
                     )
+                  ) : (
+                    t("publishNotifyNoteNoPush", "Staff whose shifts changed get an email.")
                   )}
                 </p>
               </div>
