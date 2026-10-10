@@ -153,12 +153,32 @@ function newId() {
   return `dcq_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/**
- * Read the queue. Returns [] for every failure mode — missing key, blocked
- * storage, invalid JSON, JSON that isn't an array — and drops entries that
- * carry no payload, because an item we cannot POST is not a close.
- */
-export function getOfflineQueue() {
+/* ─── Whose queue (R-c round 2, CMS-1) ───────────────────────────────────
+   The queue was ONE list for the whole device: a close owner A queued
+   offline was shown to — and filed (locked) into the books of — whoever
+   signed in next on the same phone. Every item now names the account that
+   queued it (`account`), and the queue reads and writes only the signed-in
+   account's items: B never sees, sends or removes A's; A's wait, untouched,
+   for A's next sign-in. A sync stops the moment the account changes under
+   it (nothing of A's goes out on B's session).
+   The account is set by the Daily close page from the signed-in user
+   (setQueueAccount). `undefined` — never set (unit tests, no page) — is the
+   whole device's list, as before; `null` — signed out — is nothing at all.
+   An item from before this release names no account: it is the next
+   signed-in account's (there is no way to tell whose it was), and it is
+   stamped with that account the first time the queue is written. */
+let currentAccount;
+/** The signed-in account whose queue this is (a user id); null when signed out. */
+export function setQueueAccount(account) {
+  currentAccount = account === undefined ? undefined : (account === null ? null : String(account));
+}
+export function queueAccount() {
+  return currentAccount;
+}
+const ownedBy = (account) => (it) => account === undefined || it.account == null || it.account === account;
+
+/** Every item on the device, every account's (never shown or sent as such). */
+function readAll() {
   let raw;
   try {
     raw = localStorage.getItem(OQ_KEY);
@@ -175,21 +195,43 @@ export function getOfflineQueue() {
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((it) => it && typeof it === "object" && it.payload);
 }
-
-/** Persist the queue. Returns false when storage refused (quota / private mode). */
-export function writeOfflineQueue(items) {
+function readFor(account) {
+  if (account === null) return [];
+  return readAll().filter(ownedBy(account));
+}
+function writeFor(account, items) {
+  if (account === null) return false;
+  const mine = (Array.isArray(items) ? items : []).map((it) => (account === undefined || !it || typeof it !== "object" ? it : { ...it, account }));
+  // (Everyone else's items stay exactly as they are.)
+  const others = account === undefined ? [] : readAll().filter((it) => !ownedBy(account)(it));
   try {
-    localStorage.setItem(OQ_KEY, JSON.stringify(Array.isArray(items) ? items : []));
+    localStorage.setItem(OQ_KEY, JSON.stringify([...others, ...mine]));
     return true;
   } catch {
     return false;
   }
 }
 
+/**
+ * Read the queue — the signed-in account's items. Returns [] for every
+ * failure mode — missing key, blocked storage, invalid JSON, JSON that isn't
+ * an array, signed out — and drops entries that carry no payload, because an
+ * item we cannot POST is not a close.
+ */
+export function getOfflineQueue() {
+  return readFor(currentAccount);
+}
+
+/** Persist the signed-in account's queue (others' items untouched). Returns false when storage refused (quota / private mode) or no one is signed in. */
+export function writeOfflineQueue(items) {
+  return writeFor(currentAccount, items);
+}
+
 /** Queue a close for later. Returns the stored item (or null if storage refused). `extra`: a queued move's envelope (`move`) and holder (`heldBy`). */
 export function addToOfflineQueue(payload, extra = {}) {
   const item = {
     ...extra,
+    ...(currentAccount ? { account: currentAccount } : {}),
     payload,
     ts: Date.now(),
     id: newId(),
@@ -208,6 +250,7 @@ export function addToOfflineQueue(payload, extra = {}) {
  */
 export function addFailedToOfflineQueue(payload, patch = {}) {
   const item = {
+    ...(currentAccount ? { account: currentAccount } : {}),
     payload,
     ts: Date.now(),
     id: newId(),
@@ -272,12 +315,14 @@ export function queueSummary(items) {
  * resurrected. Storage order is preserved, so a mid-sync arrival stays behind
  * the closes that were already waiting.
  */
-function mergeBack(snapshot, remaining) {
+function mergeBack(snapshot, remaining, account = currentAccount) {
   const handled = new Set(snapshot.map((it) => it.id));
   const kept = new Map(remaining.map((it) => [it.id, it]));
   const out = [];
   const walked = new Map(snapshot.map((it) => [it.id, it]));
-  for (const live of getOfflineQueue()) {
+  // (The queue of the account the sync was for — never the one signed in
+  // since, CMS-1.)
+  for (const live of readFor(account)) {
     if (!handled.has(live.id)) { out.push(live); continue; } // arrived mid-sync
     // Changed while the sync was on the network (the page put newer figures
     // in it — R-c round 2): the sync decided about the copy it read, not
@@ -287,7 +332,7 @@ function mergeBack(snapshot, remaining) {
     if (decided) out.push(decided);                          // still queued
     // else: it synced for real — this is the only way a close leaves the device
   }
-  writeOfflineQueue(out);
+  writeFor(account, out);
   return out;
 }
 
@@ -308,7 +353,11 @@ export function firstNeedingConfirmation(items) {
  *          include closes queued during the run — see mergeBack.
  */
 export async function syncOfflineQueue(post, { postMove = null, onSent = null } = {}) {
-  const queue = getOfflineQueue();
+  // The account whose queue this sync sends (CMS-1): read once, and never
+  // another's — signed out (or another account signed in) while it is on the
+  // network, it stops: nothing of this account's goes out on that session.
+  const account = currentAccount;
+  const queue = readFor(account);
   if (!queue.length) {
     return { remaining: [], synced: 0, stoppedOnNetwork: false, ...queueSummary([]) };
   }
@@ -316,9 +365,15 @@ export async function syncOfflineQueue(post, { postMove = null, onSent = null } 
   const remaining = [];
   let synced = 0;
   let stoppedOnNetwork = false;
+  let stoppedOnAccount = false;
 
   for (let i = 0; i < queue.length; i += 1) {
     const item = queue[i];
+    if (currentAccount !== account) {
+      remaining.push(...queue.slice(i));
+      stoppedOnAccount = true;
+      break;
+    }
 
     // Rule 2 — an item the owner has not yet confirmed is never re-posted.
     // Re-posting would either trip the same guard again (noise) or, if the
@@ -468,6 +523,8 @@ export async function syncOfflineQueue(post, { postMove = null, onSent = null } 
     }
   }
 
-  const merged = mergeBack(queue, remaining);
+  const merged = mergeBack(queue, remaining, account);
+  // (Stopped for another account: nothing of this one's is that account's to see.)
+  if (stoppedOnAccount) return { remaining: [], synced, stoppedOnNetwork: true, stoppedOnAccount, ...queueSummary([]) };
   return { remaining: merged, synced, stoppedOnNetwork, ...queueSummary(merged) };
 }

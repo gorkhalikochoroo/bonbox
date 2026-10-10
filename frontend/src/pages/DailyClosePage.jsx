@@ -44,6 +44,7 @@ import {
   moveRequestOf,
   registerQueueHolder,
   releaseQueueHolder,
+  setQueueAccount,
 } from "../utils/dailyCloseQueue";
 import {
   headlineTotal,
@@ -442,8 +443,24 @@ function getPaymentMethods(branchType) {
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
+/** The account a queued close belongs to (R-c round 2, CMS-1): the signed-in user's id. */
+const queueAccountOf = (user) => {
+  if (!user) return null;
+  if (user.id != null) return String(user.id);
+  // (A user object with no id — a page test's stand-in — keeps the whole
+  // device's queue, as before.)
+  return undefined;
+};
+
 export default function DailyClosePage() {
   const { user } = useAuth();
+  // R-c round 2 (CMS-1) — the offline queue is the signed-in account's:
+  // set before anything reads it (the queue's first read is this render's).
+  // (Signed out, the page is not shown: the account stays as it was while
+  // the form leaves — a copy it keeps on the way out is the leaving
+  // account's — until the next account's page sets its own.)
+  const account = queueAccountOf(user);
+  if (user) setQueueAccount(account);
   const { t } = useLanguage();
   const { branchId, branchType: branchTypeRaw, branches } = useBranch();
   // A single-location account has no selected branch, so its branch type was
@@ -695,6 +712,15 @@ export default function DailyClosePage() {
     window.addEventListener(QUEUE_CHANGED_EVENT, onChange);
     return () => window.removeEventListener(QUEUE_CHANGED_EVENT, onChange);
   }, []);
+  // Another account signed in while the page is open (CMS-1): its own queue,
+  // never the one shown for the account before.
+  const accountShownRef = useRef(account);
+  useEffect(() => {
+    if (accountShownRef.current === account) return;
+    accountShownRef.current = account;
+    setReviewItem(null);
+    setQueue(getOfflineQueue());
+  }, [account]);
   /**
    * "Keep my numbers" on a copy refused as draft_changed: sent again on the
    * newer version it met — the owner's explicit choice to save theirs over
