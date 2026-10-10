@@ -39,7 +39,7 @@ const isNative =
  * the value moments speak for themselves.
  *
  * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
- *   Free:    forever, real but limited           — ~10 min/day saved
+ *   Free:    no card, real but limited           — ~10 min/day saved
  *   Starter: 129 kr/mo founding (regular 199)    — ~3 hrs/month saved
  *   Pro:     249 kr/mo founding (regular 349)    — ~12 hrs/month saved
  */

@@ -144,6 +144,11 @@ class UserResponse(BaseModel):
     # third-party mail is held, and the app names that reason — with "Send
     # spørgsmålet igen" — instead of "confirm your e-mail".
     claim_question_open: bool = False
+    # Show the in-app "Handelsbetingelser er opdateret" notice (owner of an
+    # account from before the Terms' date, no acceptance of the current
+    # version, not closed, before the date they apply). models/user.py →
+    # services/terms.py terms_notice_due(). Notice only — never acceptance.
+    terms_notice_due: bool = False
     analytics_opt_out: bool = False
     timezone: str = "Europe/Copenhagen"
     plan: str = "free"

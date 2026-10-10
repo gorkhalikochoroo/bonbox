@@ -1016,7 +1016,6 @@ export const vi = {
   faqQ5: "BonBox có phải là giải pháp thay thế Dinero không?",
   faqA5: "Không. BonBox không phải là hệ thống kế toán số được đăng ký, nên bạn giữ nguyên phần mềm đang dùng — và vẫn trả tiền cho nó. BonBox lo phần việc hàng ngày: fakturaer, khách hàng, số km, hoá đơn được OCR đọc và đối khớp ngân hàng, nên sau đó ít thứ phải chỉnh lại hơn. Các báo cáo chính thức, MOMS-angivelse và årsregnskab, vẫn nộp trong hệ thống kế toán của bạn, cùng với revisor của bạn.",
   faqQ6: "Còn MOMS thì sao?",
-  faqA6: "Tất cả giá hiển thị là chưa MOMS. Doanh nghiệp Đan Mạch tự được tính 25% MOMS. Doanh nghiệp EU có MOMS hợp lệ thì áp dụng reverse-charge.",
   faqQ7: "Tôi có thể hủy bất cứ lúc nào không?",
   faqA7: "Có. Không hợp đồng, không thông báo trước. Bạn giữ truy cập đến cuối kỳ thanh toán hiện tại và có thể xuất dữ liệu bất kỳ lúc nào.",
   faqQ8: "Dữ liệu của tôi có an toàn không?",

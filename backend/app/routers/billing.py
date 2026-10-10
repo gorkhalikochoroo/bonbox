@@ -212,7 +212,10 @@ def my_entitlements(
 @router.get("/plans")
 @limiter.limit("60/minute")
 def public_plans(request: Request):
-    """Public, cacheable monthly price table in whole DKK (ex MOMS).
+    """Public, cacheable monthly price table in whole DKK.
+
+    Says nothing about whether MOMS is added — the VAT status is not
+    confirmed (terms draft [TIL AFKLARING: momsstatus], 10 Oct 2026).
 
     Returns the PLAN_PRICES_DKK display mirror from config — the same numbers
     shown on the landing/pricing surfaces. This is NOT the charge authority:
@@ -230,7 +233,7 @@ def public_plans(request: Request):
     payload = {
         "currency": "DKK",
         "interval": "month",
-        "note": "Display prices ex MOMS; charge authority is the Stripe Price.",
+        "note": "Display prices; the charge authority is the Stripe Price.",
         "plans": _settings.PLAN_PRICES_DKK,
     }
     return JSONResponse(

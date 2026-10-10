@@ -218,6 +218,11 @@ class User(Base):
     # app build). services/terms.py.
     terms_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # The Terms version whose in-app notice ("Handelsbetingelser er
+    # opdateret …") the owner closed. A record that the notice was closed —
+    # NOT an acceptance (terms_version / terms_accepted_at stay as they are).
+    # NULL = never closed. services/terms.py terms_notice_due().
+    terms_notice_dismissed_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
     # `nepali-7k4q@in.bonbox.dk`) that owners forward receipts to. We
@@ -240,6 +245,14 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+    @property
+    def terms_notice_due(self) -> bool:
+        """For display only (UserResponse): show the owner the in-app notice
+        that the Handelsbetingelser are updated and apply to the account from
+        TERMS_EXISTING_FROM. Pure — no DB, never raises (services/terms.py)."""
+        from app.services.terms import terms_notice_due
+        return terms_notice_due(self)
 
     @property
     def claim_question_open(self) -> bool:

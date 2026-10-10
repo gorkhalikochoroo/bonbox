@@ -2,7 +2,9 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 // The date shown is the TERMS_VERSION the server stamps on an account that
 // accepts these terms (src/legal/terms.js ↔ backend/app/services/terms.py).
-import { TERMS_VERSION, termsDate } from "../legal/terms";
+// TERMS_EXISTING_FROM is the date they apply to accounts created before
+// TERMS_VERSION (14 days later; the in-app notice runs until then).
+import { TERMS_EXISTING_FROM, TERMS_VERSION, termsDate } from "../legal/terms";
 
 function Section({ num, title, children }) {
   return (
@@ -27,7 +29,8 @@ function TermsEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Terms of Service</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="terms-effective-dates">Applies to new accounts from {termsDate(TERMS_VERSION, "en")} and to existing accounts from {termsDate(TERMS_EXISTING_FROM, "en")}.</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -139,7 +142,7 @@ function TermsEn() {
         </Section>
 
         <Section num={8} title="Subscription and payment">
-          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). The prices are shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page in the app. Prices are per business, in Danish kroner and per month. No VAT (moms) is added to the price. Every plan has usage caps (for example how many receipts you can scan per month). We may change, limit or remove features and usage caps with reasonable notice.</p>
+          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). The prices are shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page in the app. Prices are per business, in Danish kroner and per month. The amount you pay is shown at checkout before you confirm the purchase. Every plan has usage caps (for example how many receipts you can scan per month). We may change, limit or remove features and usage caps with reasonable notice.</p>
           <p className="mt-3"><strong>Businesses only.</strong> Paid subscriptions are for businesses only. By buying a subscription you confirm that you buy it for your business and not as a consumer. An account set up for personal finance (Personal Mode) can use BonBox for free but cannot buy a paid subscription. As subscriptions are sold business to business, the consumer right of withdrawal (fortrydelsesret) under the Danish Consumer Contracts Act does not apply.</p>
           <p className="mt-3"><strong>Trial.</strong> A new account gets 14 days with the Pro features, free of charge and without a payment card. If you do not buy a subscription, the account moves to the Free plan when the trial ends, and you are not charged. If you buy a subscription during the trial, you enter a payment card at checkout, and the first charge is made when the trial ends.</p>
           <p className="mt-3"><strong>Payment and renewal.</strong> Payment is handled by Stripe. A subscription is paid one month in advance at a time, by payment card or another payment method Stripe offers at checkout, and it renews automatically every month until it is cancelled.</p>
@@ -225,13 +228,14 @@ function TermsEn() {
           </p>
         </Section>
 
-        <Section num={15} title="Contact">
+        <Section num={15} title="Contact and language">
           <p>For questions about these terms:</p>
           <p className="mt-2">
             <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321<br />
             <strong>Email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
             <strong>Website:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
           </p>
+          <p className="mt-4">These terms exist in Danish and English. If they differ, the Danish version applies.</p>
         </Section>
       </div>
     </>
@@ -242,7 +246,8 @@ function TermsDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Handelsbetingelser</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Sidst opdateret: {termsDate(TERMS_VERSION, "da")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm">Sidst opdateret: {termsDate(TERMS_VERSION, "da")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="terms-effective-dates">Gælder for nye konti fra {termsDate(TERMS_VERSION, "da")} og for eksisterende konti fra {termsDate(TERMS_EXISTING_FROM, "da")}.</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -352,7 +357,7 @@ function TermsDa() {
         </Section>
 
         <Section num={8} title="Abonnement og betaling">
-          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). Priserne står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling i appen. Priserne er pr. virksomhed, i danske kroner og pr. måned. Der lægges ikke moms oven i prisen. Alle planer har forbrugslofter (f.eks. hvor mange kvitteringer du kan scanne pr. måned). Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.</p>
+          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). Priserne står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling i appen. Priserne er pr. virksomhed, i danske kroner og pr. måned. Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet. Alle planer har forbrugslofter (f.eks. hvor mange kvitteringer du kan scanne pr. måned). Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.</p>
           <p className="mt-3"><strong>Kun for virksomheder.</strong> Betalte abonnementer er kun for virksomheder. Når du køber et abonnement, bekræfter du, at du køber det til din virksomhed og ikke som forbruger. En konto, der er oprettet til privatøkonomi (personlig tilstand), kan bruge BonBox gratis, men kan ikke købe et betalt abonnement. Da abonnementerne sælges mellem virksomheder, gælder forbrugeraftalelovens regler om fortrydelsesret ikke.</p>
           <p className="mt-3"><strong>Prøveperiode.</strong> En ny konto får 14 dage med Pro-funktionerne gratis og uden betalingskort. Køber du ikke et abonnement, overgår kontoen til Free-planen, når prøveperioden slutter, og du bliver ikke opkrævet. Køber du et abonnement i prøveperioden, angiver du et betalingskort ved betalingen, og det første træk sker, når prøveperioden slutter.</p>
           <p className="mt-3"><strong>Betaling og fornyelse.</strong> Betalingen håndteres af Stripe. Abonnementet betales forud for én måned ad gangen med betalingskort eller en anden betalingsmetode, som Stripe tilbyder ved betalingen, og det fornyes automatisk hver måned, indtil det bliver opsagt.</p>
@@ -438,13 +443,14 @@ function TermsDa() {
           </p>
         </Section>
 
-        <Section num={15} title="Kontakt">
+        <Section num={15} title="Kontakt og sprog">
           <p>Hvis du har spørgsmål til disse vilkår:</p>
           <p className="mt-2">
             <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321<br />
             <strong>E-mail:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
             <strong>Hjemmeside:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
           </p>
+          <p className="mt-4">Vilkårene findes på dansk og engelsk. Ved uoverensstemmelse gælder den danske version.</p>
         </Section>
       </div>
     </>

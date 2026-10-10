@@ -120,7 +120,10 @@ describe("Terms page (P0-1)", () => {
     expect(text).toContain("Vi refunderer ikke for en del af en periode.");
     expect(text).toContain("Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse.");
     expect(text).toContain("mindst 30 dage");
-    expect(text).toContain("Der lægges ikke moms oven i prisen.");
+    // VAT status is not confirmed (Manoj, 10 Oct, decision d): § 8 says
+    // where the amount is shown, never whether moms is or is not added.
+    expect(text).toContain("Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet.");
+    expect(text).not.toContain("Der lægges ikke moms oven i prisen.");
     for (const gone of ["90 sekunder", "Manoj Kumar", "gratis til rådighed", "Gratis tjeneste",
       "Indføre betalte abonnementer", "Open Banking", "for livet", "livstid", "13. maj 2026"]) {
       expect(text).not.toContain(gone);

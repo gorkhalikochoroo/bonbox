@@ -64,7 +64,9 @@ from app.schemas.auth import (
     SignupRefMixin, TermsAcceptMixin,
 )
 from app.services.signup_ref import apply_signup_ref
-from app.services.terms import apply_terms_acceptance
+from app.services.terms import (
+    TERMS_VERSION, apply_terms_acceptance, dismiss_terms_notice, is_account_owner,
+)
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
 from app.services.revisor_mail import header_safe as _header_safe
@@ -1113,6 +1115,31 @@ def get_me(request: Request, response: Response, current_user: User = Depends(ge
     return current_user
 
 
+@router.post("/terms-notice/dismiss")
+@limiter.limit("20/minute")
+def dismiss_terms_update_notice(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The owner closed the in-app notice "Handelsbetingelser er opdateret".
+
+    Records ONLY that the notice was closed for the current TERMS_VERSION
+    (users.terms_notice_dismissed_version), so it stays closed on every
+    device. It is notice, not acceptance: terms_version / terms_accepted_at
+    are never written here (services/terms.py). Owners only — staff never
+    see the notice. Idempotent.
+    """
+    if not is_account_owner(current_user):
+        raise HTTPException(status_code=403, detail={"code": "owner_only"})
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User no longer exists")
+    if dismiss_terms_notice(db_user):
+        db.commit()
+    return {"ok": True, "dismissed_version": TERMS_VERSION, "terms_notice_due": False}
+
+
 @router.patch("/profile", response_model=UserResponse)
 @limiter.limit("10/minute")
 def update_profile(
@@ -2079,10 +2106,12 @@ def export_all_data(
     # Stored about the user, so it is in their copy (Art. 15/20).
     # terms_version / terms_accepted_at — which Terms the account holder
     # accepted at sign-up and when (services/terms.py); "" = none recorded.
+    # terms_notice_dismissed_version — the Terms version whose in-app notice
+    # the owner closed (a closed notice, not an acceptance); "" = never.
     _write_csv_section(w, "Profile", [
         "id", "email", "business_name", "business_type", "currency",
         "daily_goal", "monthly_goal", "role", "created_at", "signup_ref",
-        "terms_version", "terms_accepted_at",
+        "terms_version", "terms_accepted_at", "terms_notice_dismissed_version",
     ], [[
         str(current_user.id), current_user.email, current_user.business_name,
         current_user.business_type, current_user.currency,
@@ -2091,6 +2120,7 @@ def export_all_data(
         current_user.signup_ref or "",
         current_user.terms_version or "",
         current_user.terms_accepted_at.isoformat() if current_user.terms_accepted_at else "",
+        getattr(current_user, "terms_notice_dismissed_version", None) or "",
     ]])
 
     # --- Business Profile ---

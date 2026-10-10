@@ -35,6 +35,12 @@ happens when Stripe reports a Terms acceptance on its own page
 STRIPE_TOS_CONSENT on). A record that already names the current version is
 never touched, so the first acceptance time is kept.
 
+Existing accounts (Manoj, 10 Oct 2026, decision a): the Terms apply to them
+from TERMS_EXISTING_FROM (TERMS_VERSION + 14 days); they are told by an
+in-app notice only, never by e-mail. terms_notice_due() says who sees it;
+dismiss_terms_notice() records that the owner closed it — notice, never
+acceptance (terms_version / terms_accepted_at are not written).
+
 Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1): a
 'personal' (Privatøkonomi) account cannot start a paid checkout —
 is_personal_account() below is the one rule the billing router and the
@@ -42,11 +48,36 @@ checkout service both read.
 """
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from app.utils.time import utc_now
 
 # The Terms text dated 10 October 2026 (Handelsbetingelser with §8
 # "Abonnement og betaling"). Same value as frontend/src/legal/terms.js.
+# It is also the date the Terms apply to NEW accounts from (an account created
+# on or after it, Copenhagen time, accepted them when it was created).
 TERMS_VERSION = "2026-10-10"
+
+# The date the Terms apply to EXISTING accounts from (Manoj, 10 Oct 2026,
+# decision a). The live Terms of 13 May promise at least 14 days' notice of
+# significant changes (§14), so this is TERMS_VERSION + 14 days; the in-app
+# notice (terms_notice_due below) runs until it. Same value as
+# frontend/src/legal/terms.js TERMS_EXISTING_FROM — a test fails if the two
+# differ or if the gap is shorter than TERMS_NOTICE_MIN_DAYS. If the release
+# ships after TERMS_VERSION, move BOTH dates (and the Terms page follows).
+TERMS_EXISTING_FROM = "2026-10-24"
+TERMS_NOTICE_MIN_DAYS = 14
+
+_DK = ZoneInfo("Europe/Copenhagen")
+
+
+def dk_midnight_utc(iso_day: str) -> datetime:
+    """00:00 Copenhagen time on `iso_day`, as the naive UTC datetime the DB
+    columns hold (app.utils.time.utc_now)."""
+    d = date.fromisoformat(iso_day)
+    local = datetime.combine(d, time(0, 0), tzinfo=_DK)
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def clean_accept_terms(raw) -> bool | None:
@@ -99,3 +130,72 @@ def is_personal_account(user) -> bool:
     "" Google/Apple sign-up mints before onboarding — is a business.
     """
     return (getattr(user, "business_type", None) or "").strip().lower() == "personal"
+
+
+# ── The in-app notice of new Terms for EXISTING accounts ─────────────────
+#
+# Manoj, 10 Oct 2026 (decision a): existing accounts are told about new Terms
+# by an in-app notice ONLY (no e-mail), and the Terms apply to them from
+# TERMS_EXISTING_FROM. The notice is information, not acceptance: closing it
+# records only that it was closed (users.terms_notice_dismissed_version) and
+# never writes terms_version / terms_accepted_at. Whether continued use after
+# TERMS_EXISTING_FROM binds an account is what Terms §14 says — an open point
+# for the attorney, not something the notice decides.
+
+
+def is_account_owner(user) -> bool:
+    """The person who owns the account (not a team member with own login)."""
+    return (getattr(user, "role", None) or "owner") == "owner" and getattr(user, "owner_id", None) is None
+
+
+def terms_notice_due(user, now: datetime | None = None) -> bool:
+    """Should this account see the "Handelsbetingelser er opdateret" notice?
+
+    True only when ALL hold:
+      • the account owner (staff and other roles never see it);
+      • no acceptance of the current Terms on record (terms_version NULL or
+        older than TERMS_VERSION) — an account that accepted them at sign-up
+        or at checkout has nothing to be told;
+      • created before the Terms' date (00:00 Copenhagen on TERMS_VERSION) —
+        a newer account is a new account the Terms apply to at once; an
+        unknown created_at counts as older;
+      • before TERMS_EXISTING_FROM (00:00 Copenhagen) — the notice stops on
+        its own once the Terms apply;
+      • not closed by the owner for this TERMS_VERSION.
+    Never raises; anything odd reads False.
+    """
+    try:
+        if not is_account_owner(user):
+            return False
+        accepted = getattr(user, "terms_version", None) or ""
+        if accepted >= TERMS_VERSION:
+            return False
+        if (getattr(user, "terms_notice_dismissed_version", None) or "") == TERMS_VERSION:
+            return False
+        now = now or utc_now()
+        if now >= dk_midnight_utc(TERMS_EXISTING_FROM):
+            return False
+        created = getattr(user, "created_at", None)
+        if created is not None and created >= dk_midnight_utc(TERMS_VERSION):
+            return False
+        return True
+    except Exception:  # noqa: BLE001 — a display flag must never cost /auth/me
+        return False
+
+
+def dismiss_terms_notice(user) -> bool:
+    """Record that the owner closed the notice for TERMS_VERSION.
+
+    Writes ONLY users.terms_notice_dismissed_version. It is not an
+    acceptance: terms_version and terms_accepted_at are never touched here.
+    Returns True when the value changed (idempotent)."""
+    if getattr(user, "terms_notice_dismissed_version", None) == TERMS_VERSION:
+        return False
+    user.terms_notice_dismissed_version = TERMS_VERSION
+    return True
+
+
+def _notice_gap_days() -> int:
+    """Days between the Terms' date and the date they apply to existing
+    accounts (tests pin it at >= TERMS_NOTICE_MIN_DAYS)."""
+    return (date.fromisoformat(TERMS_EXISTING_FROM) - date.fromisoformat(TERMS_VERSION)) // timedelta(days=1)

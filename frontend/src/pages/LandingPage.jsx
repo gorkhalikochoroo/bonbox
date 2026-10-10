@@ -868,7 +868,7 @@ export default function LandingPage() {
     {
       key: "free",
       name: tx_("landingPricingFreeName", "Free"),
-      tagline: tx_("landingPricingFreeTagline", "Close the day, kasserapport PDF, MOMS countdown — forever free."),
+      tagline: tx_("landingPricingFreeTagline", "Close the day, kasserapport PDF, MOMS countdown — free, no card."),
       priceNow: "0",
       priceWas: null,
       foundingLabel: null,
@@ -1416,7 +1416,7 @@ export default function LandingPage() {
         <CenteredIntro
           eyebrow={tx_("landingPricingTag", "Simple pricing")}
           title={tx_("landingPricingHeadline", "Simple pricing. Founders lock the low rate.")}
-          sub={tx_("landingPricingLede", "Start free for 14 days on full Pro — no card. Prices ex. MOMS, per business.")}
+          sub={tx_("landingPricingLede", "Start free for 14 days on full Pro — no card. Per business.")}
         />
 
         <div className="grid md:grid-cols-3 gap-4 items-stretch max-w-5xl mx-auto">
@@ -1445,7 +1445,7 @@ export default function LandingPage() {
             <span>{tx_("landingPricingTrial", "Every account starts on 14 days of full Pro — free, no card required. On day 15 you choose Pro, Starter, or stay on Free.")}</span>
           </p>
           <p className="mt-4 text-[13px] text-gray-400 leading-[1.5]">
-            {tx_("landingPricingHonesty", "Per business, ex. MOMS. Founder rate holds while your subscription stays active.")}
+            {tx_("landingPricingHonesty", "Per business. Founder rate holds while your subscription stays active.")}
           </p>
         </div>
 
@@ -1590,7 +1590,7 @@ export default function LandingPage() {
             { q: tx_("landingFaq5Q", "Do I need a CVR to sign up?"),
               a: tx_("landingFaq5A", "No. Sign up with email. Add CVR later when you want CVR-verified customers + auto-fill on fakturaer. Freelancers without a CVR work fine — just toggle 'Privatperson' on each customer.") },
             { q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),
-              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps Sales + Expenses + Daily Close + the AI Brief forever. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden.") },
+              a: tx_("landingFaq6A", "You drop to Free automatically — no card, no auto-charge. Free keeps Sales + Expenses + Daily Close + the AI Brief. To unlock faktura + bank-match + brand-on-PDF, upgrade to Starter (129 kr/mo founding). Pricing is shown on this page; nothing is hidden.") },
           ].map((item) => (
             <details key={item.q} className="group">
               <summary className="flex items-center justify-between cursor-pointer px-5 sm:px-6 py-4 hover:bg-gray-50 transition-colors list-none">
