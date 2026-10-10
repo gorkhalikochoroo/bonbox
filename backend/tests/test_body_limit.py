@@ -275,3 +275,151 @@ def test_a_chunked_urlencoded_body_over_64kb_gets_413_on_a_parsed_route():
     )
     assert r.status_code == 413, r.text
 
+
+
+# ─── Push 2: the inbound-mail webhook has the inbox's own 30 MB cap ─
+#
+# Postmark posts a forwarded receipt mail with its attachments base64-encoded
+# (4/3 the size). At the general 10 MB, a mail with ~7 MB of attachments got
+# a 413 before the inbox's own 30 MB check and silently never landed. Only
+# POST /api/inbox/postmark-webhook gets 30 MB; bytes are still counted
+# (chunked included); every other route keeps 10 MB.
+
+from app.routers import inbox as inbox_router  # noqa: E402
+
+_WEBHOOK = "/api/inbox/postmark-webhook"
+_MB = 1024 * 1024
+
+
+@pytest.fixture
+def inbox_on(monkeypatch, as_user):
+    """INBOX_ENABLED with Postmark creds; the pipeline replaced by a stub
+    that records how many body bytes reached the handler."""
+    from app.config import settings
+    monkeypatch.setenv("INBOX_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_INBOUND_USER", "test")
+    monkeypatch.setenv("POSTMARK_INBOUND_PASS", "test")
+    monkeypatch.setattr(settings, "INBOX_ENABLED", True, raising=False)
+    monkeypatch.setattr(settings, "POSTMARK_INBOUND_USER", "test", raising=False)
+    monkeypatch.setattr(settings, "POSTMARK_INBOUND_PASS", "test", raising=False)
+    lim = getattr(inbox_router, "limiter", None)
+    if lim is not None:
+        lim.reset()
+    seen: list[int] = []
+
+    def _stub(db, payload, **k):
+        seen.append(len(payload.get("TextBody") or ""))
+        return {"status": "stub"}
+
+    monkeypatch.setattr(inbox_router, "_process_inbound_email", _stub)
+    yield seen
+    if lim is not None:
+        lim.reset()
+
+
+def _basic() -> dict:
+    import base64
+    return {"Authorization": "Basic " + base64.b64encode(b"test:test").decode("ascii")}
+
+
+def _json_body(total: int) -> bytes:
+    """A JSON object of exactly `total` bytes: {"TextBody": "aaaa…"}."""
+    head, tail = b'{"TextBody": "', b'"}'
+    return head + b"a" * (total - len(head) - len(tail)) + tail
+
+
+def _json_chunks(total: int, size: int = 256 * 1024):
+    body = _json_body(total)
+
+    async def gen():
+        for i in range(0, len(body), size):
+            yield body[i:i + size]
+    return gen()
+
+
+def test_the_inbound_mail_cap_is_the_inboxs_own_30mb():
+    assert inbox_router.MAX_BODY_BYTES == 30 * _MB
+    mw = next(m for m in app.user_middleware if m.cls is BodySizeLimitMiddleware)
+    assert mw.kwargs["max_body_bytes"] == 10 * _MB
+    assert mw.kwargs["route_limits"] == {("POST", _WEBHOOK): inbox_router.MAX_BODY_BYTES}
+    # The path in the override is the real webhook route.
+    assert any(getattr(r, "path", None) == _WEBHOOK and "POST" in getattr(r, "methods", ())
+               for r in app.routes)
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_a_25mb_inbound_mail_reaches_the_webhook(inbox_on, chunked):
+    total = 25 * _MB
+    content = _json_chunks(total) if chunked else _json_body(total)
+    r = _post(_WEBHOOK, content=content,
+              headers={"Content-Type": "application/json", **_basic(), **_ip()})
+    assert r.status_code == 200, r.text[:300]
+    assert r.json() == {"ok": True, "status": "stub"}
+    assert inbox_on == [total - len(b'{"TextBody": ""}')], "the whole body reached the handler"
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_a_31mb_inbound_mail_gets_413_and_the_pipeline_never_runs(inbox_on, chunked):
+    total = 31 * _MB
+    content = _json_chunks(total) if chunked else _json_body(total)
+    r = _post(_WEBHOOK, content=content,
+              headers={"Content-Type": "application/json", **_basic(), **_ip()})
+    assert r.status_code == 413, r.text[:300]
+    assert r.json()["detail"] == "Request body too large (max 30 MB)"
+    assert inbox_on == []
+
+
+def test_other_routes_keep_10mb_even_under_the_inbox_prefix(inbox_on, db, as_user):
+    as_user(_owner(db))
+    body = _json_body(11 * _MB)
+    for path in ("/api/billing/stripe/webhook", "/api/inbox/test",
+                 _WEBHOOK + "/", _WEBHOOK + "-x"):
+        r = _post(path, content=body, headers={"Content-Type": "application/json", **_basic(), **_ip()})
+        assert r.status_code == 413, (path, r.status_code)
+        assert r.json()["detail"] == "Request body too large (max 10 MB)", path
+    # Chunked, too.
+    r = _post("/api/inbox/test", content=_json_chunks(11 * _MB),
+              headers={"Content-Type": "application/json", **_ip()})
+    assert r.status_code == 413
+    # Another method on the webhook path keeps the general cap.
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+            return await c.put(_WEBHOOK, content=body,
+                               headers={"Content-Type": "application/json", **_ip()})
+    assert asyncio.run(run()).status_code == 413
+    assert inbox_on == []
+
+
+def test_an_urlencoded_body_to_the_webhook_is_still_64kb(inbox_on):
+    r = _post(_WEBHOOK, content=_chunks(MAX_URLENCODED_BYTES + 1024, size=8 * 1024),
+              headers={"Content-Type": "application/x-www-form-urlencoded", **_basic(), **_ip()})
+    assert r.status_code == 413
+    assert inbox_on == []
+
+
+def test_the_middleware_route_override_is_exact_and_per_method():
+    async def inner(scope, receive, send):
+        while True:
+            msg = await receive()
+            if not msg.get("more_body"):
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    mw = BodySizeLimitMiddleware(inner, max_body_bytes=1024, max_urlencoded_bytes=512,
+                                 route_limits={("post", "/big"): 4096})
+
+    async def run(path, content, method="POST", ctype="application/octet-stream"):
+        transport = httpx.ASGITransport(app=mw)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            return await c.request(method, path, content=content, headers={"Content-Type": ctype})
+
+    assert asyncio.run(run("/big", _chunks(3000, size=100))).status_code == 200
+    assert asyncio.run(run("/big", _chunks(5000, size=100))).status_code == 413
+    assert asyncio.run(run("/big", b"a" * 5000)).status_code == 413
+    assert asyncio.run(run("/big", _chunks(3000, size=100), method="PUT")).status_code == 413
+    assert asyncio.run(run("/big/", _chunks(3000, size=100))).status_code == 413
+    assert asyncio.run(run("/other", _chunks(3000, size=100))).status_code == 413
+    assert asyncio.run(run("/big", _chunks(600, size=100),
+                           ctype="application/x-www-form-urlencoded")).status_code == 413

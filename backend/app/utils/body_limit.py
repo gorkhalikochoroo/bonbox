@@ -27,6 +27,16 @@ once the cap is crossed the middleware itself owns the answer: whatever
 response the app then starts is replaced by the 413, and an exception
 that escapes the app is answered with the 413 too — provided no response
 had started before the overflow.
+
+One route has its own, larger cap (``route_limits``): Postmark's inbound-mail
+webhook (POST /api/inbox/postmark-webhook) carries a forwarded receipt mail
+with its attachments base64-encoded, so a mail with ~7 MB of attachments
+passed the general 10 MB and got a 413 that never reached the inbox's own
+30 MB check — the receipt silently never landed. That route's cap is the
+inbox's own limit (routers/inbox.MAX_BODY_BYTES), bytes still counted as
+they arrive (chunked included). The handler checks the webhook's Basic Auth
+before it reads the body. Every other route, and every other method on that
+path, keeps the general cap; an urlencoded body is 64 KB everywhere.
 """
 
 from __future__ import annotations
@@ -76,16 +86,26 @@ class BodySizeLimitMiddleware:
         app: Any,
         max_body_bytes: int = MAX_BODY_BYTES,
         max_urlencoded_bytes: int = MAX_URLENCODED_BYTES,
+        route_limits: dict[tuple[str, str], int] | None = None,
     ) -> None:
         self.app = app
         self.max_body_bytes = max_body_bytes
         self.max_urlencoded_bytes = max_urlencoded_bytes
+        #: {(METHOD, exact path): cap} — a route with its own cap in place
+        #: of max_body_bytes. Exact match only: no prefix, no trailing slash.
+        self.route_limits = {
+            (m.upper(), path): int(cap) for (m, path), cap in (route_limits or {}).items()
+        }
 
-    def _limit_for(self, headers: Headers) -> int:
+    def _limit_for(self, headers: Headers, scope: dict | None = None) -> int:
+        base = self.max_body_bytes
+        if scope is not None and self.route_limits:
+            key = (str(scope.get("method") or "").upper(), scope.get("path") or "")
+            base = self.route_limits.get(key, base)
         ctype = (headers.get("content-type") or "").split(";", 1)[0].strip().lower()
         if ctype == "application/x-www-form-urlencoded":
-            return min(self.max_body_bytes, self.max_urlencoded_bytes)
-        return self.max_body_bytes
+            return min(base, self.max_urlencoded_bytes)
+        return base
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
@@ -93,7 +113,7 @@ class BodySizeLimitMiddleware:
             return
 
         headers = Headers(scope=scope)
-        limit = self._limit_for(headers)
+        limit = self._limit_for(headers, scope)
 
         # Cheap path: the client declared a size over the limit.
         cl = headers.get("content-length")

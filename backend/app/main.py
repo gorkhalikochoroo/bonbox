@@ -5278,9 +5278,18 @@ async def server_timing(request: Request, call_next):
 # and 64 KB for urlencoded forms. Registered after every other middleware so
 # it wraps every layer that could read the body, and before CORS so the 413
 # it returns still carries Access-Control-Allow-Origin.
+# One exception: Postmark's inbound-mail webhook gets the inbox's own 30 MB
+# (inbox_router.MAX_BODY_BYTES) — a forwarded receipt mail's attachments
+# arrive base64-encoded, and at 10 MB a mail with ~7 MB of attachments was
+# refused here and silently never landed. That route only; still counted.
 from app.utils.body_limit import BodySizeLimitMiddleware  # noqa: E402
 
-app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=_MAX_REQUEST_BYTES)
+_INBOUND_MAIL_WEBHOOK_PATH = "/api/inbox/postmark-webhook"
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_body_bytes=_MAX_REQUEST_BYTES,
+    route_limits={("POST", _INBOUND_MAIL_WEBHOOK_PATH): inbox_router.MAX_BODY_BYTES},
+)
 
 
 # --- CORS layer registration — keep last (outermost) ---

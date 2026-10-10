@@ -412,6 +412,11 @@ async def postmark_webhook(
     # L2 — whole-body cap. Read the raw body so we can refuse before
     # parsing JSON. Return 200 OK with ok=false so Postmark doesn't
     # storm us with retries on a payload it considers delivered.
+    # The app-wide body cap (utils/body_limit) gives THIS route the same
+    # MAX_BODY_BYTES instead of its general 10 MB (main.py route_limits),
+    # counting bytes as they arrive, so a body over it is answered 413
+    # there; this check stays as the route's own bound. The body is read
+    # only here, after the Basic Auth check above.
     raw = await request.body()
     if len(raw) > MAX_BODY_BYTES:
         return _fail(
