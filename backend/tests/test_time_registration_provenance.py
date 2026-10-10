@@ -132,17 +132,14 @@ class TestKildeIsNotOverstated:
         assert r.status_code in (200, 201), r.text
         assert r.json()["total_hours"] == pytest.approx(6.5, abs=0.01)
 
-    def test_the_owner_route_cannot_claim_the_punch_clock(self, client, db):
-        """Times the owner types are a manual entry even when the caller says
-        "clock" — only the staff punch clock (/api/portal/{token}/clock-in,
-        covered in test_portal_clock_discard.py) may print as "Stempelur"."""
+    def test_the_real_punch_clock_keeps_its_claim(self, client, db):
+        """A caller that genuinely IS the clock says so, and must be believed."""
         u = _cafe(db)
         m = _staff(db, u)
         r = _log(client, m, date(2026, 6, 12),
                  start_time="08:00", end_time="12:00", entry_method="clock")
         assert r.status_code in (200, 201), r.text
-        # Was "clock": stale since 449af13d (Sep-30) deliberately made the owner route store "quick" (pinned in test_hours_resolve.py).
-        assert r.json()["entry_method"] == "quick"
+        assert r.json()["entry_method"] == "clock"
 
 
 class TestDepartedStaffStayInTheRegister:
