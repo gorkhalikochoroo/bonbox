@@ -295,9 +295,95 @@ def test_a_webp_over_its_own_lower_ceiling_is_refused_and_other_formats_are_not(
 
 def test_webp_decodes_at_most_25_mp_and_phone_formats_keep_the_full_ceiling():
     # 25 MP: a 50 MP WEBP peaked at 763 MB under Linux, a 48 MP JPEG read at 372 MB (10 Oct).
-    assert image_guard.UPLOAD_MAX_PIXELS_BY_FORMAT == {"WEBP": 25_000_000}
-    for fmt in ("JPEG", "MPO", "HEIF", "PNG", "TIFF"):
-        assert image_guard._ceiling(fmt) == image_guard.UPLOAD_MAX_PIXELS >= 8160 * 6120
+    assert image_guard.UPLOAD_MAX_PIXELS_BY_FORMAT["WEBP"] == 25_000_000
+    for mode in ("RGB", "RGBA", "L", "P"):
+        assert image_guard._ceiling("WEBP", mode) == 25_000_000
+    for fmt in ("JPEG", "MPO", "HEIF"):
+        for mode in ("RGB", "L", "CMYK", None):
+            assert image_guard._ceiling(fmt, mode) == image_guard.UPLOAD_MAX_PIXELS >= 8160 * 6120
+
+
+# ─── R-d round 3 fix-up: PNG / TIFF / BMP / GIF cost no more than a phone photo ──
+#
+# No reduced decode exists for them, so the whole canvas is decoded on the
+# OCR / save path — the chat path's 25 MP PNG ceiling did not reach it.
+# Measured (Linux, 1 CPU / 2 GB, no swap): a 50 MP RGBA PNG or CMYK TIFF
+# peaked at 382 MB on the receipt save (a 48 MP HEIC: 344 MB), 16-bit grey
+# 286 MB; RGB / greyscale / palette / bilevel at 50 MP 191-254 MB.
+
+_FULL_DECODE_FORMATS = ("PNG", "TIFF", "BMP", "GIF")
+
+
+def test_png_tiff_bmp_gif_have_a_25_mp_ceiling_unless_they_decode_to_one_cheap_canvas():
+    for fmt in _FULL_DECODE_FORMATS:
+        assert image_guard.UPLOAD_MAX_PIXELS_BY_FORMAT[fmt] == 25_000_000
+        for mode in ("RGBA", "LA", "PA", "CMYK", "I;16", "I", "F", "RGBX", "YCbCr", None):
+            assert image_guard._ceiling(fmt, mode) == 25_000_000, (fmt, mode)
+        for mode in ("1", "L", "P", "RGB"):
+            assert image_guard._ceiling(fmt, mode) == image_guard.UPLOAD_MAX_PIXELS, (fmt, mode)
+
+
+def _mode_canvas(fmt: str, mode: str, size: tuple[int, int], **kw) -> bytes:
+    buf = io.BytesIO()
+    color = {"1": 1, "L": 200, "P": 3, "I;16": 40000, "RGB": (250, 250, 250),
+             "RGBA": (250, 250, 250, 128), "CMYK": (0, 0, 0, 10)}[mode]
+    Image.new(mode, size, color).save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("fmt,mode,kw", [
+    ("PNG", "RGBA", {}),
+    ("PNG", "I;16", {}),
+    ("TIFF", "RGBA", {"compression": "tiff_lzw"}),
+    ("TIFF", "CMYK", {"compression": "tiff_lzw"}),
+])
+def test_an_alpha_cmyk_or_16_bit_canvas_over_25_mp_is_refused_before_decode(monkeypatch, fmt, mode, kw):
+    # 5001 x 5001 = 25.01 MP: a few KB on the wire, ~200 MB per canvas decoded.
+    raw = _mode_canvas(fmt, mode, (5001, 5001), **kw)
+    from PIL import ImageFile
+
+    loads = []
+    real_load = ImageFile.ImageFile.load
+    monkeypatch.setattr(ImageFile.ImageFile, "load", lambda self: loads.append(1) or real_load(self))
+    with pytest.raises(image_guard.UnsupportedImageError):
+        image_guard.open_upload_image(raw)
+    assert loads == [], "nothing may be decoded before the refusal"
+
+
+@pytest.mark.parametrize("fmt,mode,kw", [
+    ("PNG", "RGBA", {}),
+    ("TIFF", "CMYK", {"compression": "tiff_lzw"}),
+])
+def test_an_alpha_or_cmyk_canvas_at_25_mp_still_goes_through(fmt, mode, kw):
+    raw = _mode_canvas(fmt, mode, (5000, 5000), **kw)
+    img = image_guard.open_upload_image(raw)
+    assert (img.format, img.mode, img.size) == (fmt, mode, (5000, 5000))
+    img.close()
+
+
+@pytest.mark.parametrize("fmt,mode,kw", [
+    ("PNG", "RGB", {}),
+    ("PNG", "L", {}),
+    ("PNG", "P", {}),
+    ("TIFF", "1", {"compression": "group4"}),  # a fax-style A4 scan at 600 dpi is 35 MP
+    ("TIFF", "RGB", {"compression": "tiff_lzw"}),
+    ("GIF", "P", {}),
+])
+def test_a_plain_rgb_greyscale_palette_or_bilevel_canvas_keeps_the_50_mp_ceiling(fmt, mode, kw):
+    # 7000 x 5000 = 35 MP (over 25 MP, under 50 MP): opened, nothing decoded yet.
+    raw = _mode_canvas(fmt, mode, (7000, 5000), **kw)
+    img = image_guard.open_upload_image(raw)
+    assert (img.format, img.mode, img.size) == (fmt, mode, (7000, 5000))
+    img.close()
+
+
+def test_the_receipt_save_refuses_a_50_mp_rgba_png_and_stores_nothing(local_receipts):
+    from app.services import receipt_ocr
+
+    raw = _mode_canvas("PNG", "RGBA", (8660, 5773))  # the round-3 review's 210 KB attack file
+    with pytest.raises(image_guard.UnsupportedImageError):
+        receipt_ocr.save_receipt_photo_ex(raw, "a.png", "u1", kind="expense")
+    assert list(local_receipts.iterdir()) == []
 
 
 def test_an_oversized_canvas_is_refused_on_the_receipt_upload(db, as_user, local_receipts, monkeypatch):

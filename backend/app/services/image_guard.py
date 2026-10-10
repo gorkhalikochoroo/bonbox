@@ -24,8 +24,15 @@ photo goes through here (INFRA-03):
      * any other format over the ceiling is refused like an unreadable
        file. 50 MP is above the largest default phone mode (iPhone 48 MP =
        48.8M px, Samsung 50 MP = 49.9M px).
-   WEBP has a lower ceiling (``UPLOAD_MAX_PIXELS_BY_FORMAT``, 25 MP): its
-   decoder needs about twice the memory per pixel of a JPEG / HEIC.
+   Formats with no reduced decode have lower ceilings
+   (``UPLOAD_MAX_PIXELS_BY_FORMAT``, 25 MP): WEBP's decoder needs about
+   twice the memory of a JPEG / HEIC, and a PNG / TIFF / BMP / GIF with
+   alpha, CMYK or 16 bits a sample is decoded in full and then copied to
+   RGB — two full canvases. A PNG / TIFF / BMP / GIF that decodes to plain
+   RGB, greyscale, palette or bilevel (a screenshot, a scanned page) keeps
+   50 MP: one canvas, no heavier than a phone photo. So no format the gate
+   admits costs more than a 48 MP phone photo (measurements at
+   ``UPLOAD_MAX_PIXELS_BY_FORMAT``).
 
 4. One decode gate (``decode_slot``). The ceilings bound ONE decode; the
    gate bounds how many run at once. Every decode of a user-supplied photo
@@ -35,8 +42,9 @@ photo goes through here (INFRA-03):
    cannot get a slot within ``DECODE_WAIT_S`` raises ``DecodeBusyError``
    (an ``AIBusyError``: the same 503 "busy, try again", before anything is
    stored). Measured under Linux, 1 CPU / 2 GB, no swap (10 Oct): one decode
-   of a 48 MP phone photo peaks at ~340-390 MB, so two at once stay under
-   ~0.8 GB whatever else is in flight.
+   of a 48 MP phone photo peaks at ~340-390 MB, and the per-format
+   ceilings keep every other admitted format at or under that, so two at
+   once stay under ~0.8 GB whatever else is in flight.
 
 The allow-list is what the product accepts today: the pickers send
 ``image/*`` (iPhone HEIC/JPEG, Android JPEG/WebP, screenshots PNG,
@@ -75,13 +83,40 @@ UPLOAD_IMAGE_FORMATS: tuple[str, ...] = ("JPEG", "PNG", "WEBP", "HEIF", "GIF", "
 #: Largest canvas (width x height) an uploaded photo is decoded at.
 UPLOAD_MAX_PIXELS = 50_000_000
 
-#: Lower ceilings for formats whose decoder needs more memory per pixel than
-#: JPEG / HEIC. WEBP: Pillow decodes it through libwebp's animation decoder,
-#: which holds two full RGBA canvases next to the decoded image — one 50 MP
-#: WEBP peaked at 763 MB (Linux, 1 CPU, 10 Oct) against 372 MB for reading a
-#: 48 MP JPEG. At 25 MP a WEBP costs what a 48 MP phone photo does. No phone
-#: camera writes WEBP; screenshots and web images are a few MP.
-UPLOAD_MAX_PIXELS_BY_FORMAT: dict[str, int] = {"WEBP": 25_000_000}
+#: Lower ceilings for formats and modes that cost more per pixel than a
+#: JPEG / HEIC, which the decode gate's 2 slots are sized for. Measured per
+#: decode on the receipt save / the Z-report read (Linux, 1 CPU / 2 GB, no
+#: swap, 10 Oct; round 3 fix-up):
+#:   48 MP phone photo:  JPEG 187 / 85 MB (read decoded reduced),
+#:                       HEIC 344 / 343 MB — the reference;
+#:   50 MP WEBP:         763 MB (libwebp's animation decoder holds two full
+#:                       RGBA canvases next to the image);
+#:   50 MP PNG / TIFF:   RGBA 382 / 381, CMYK 382 / 381, 16-bit grey 286 /
+#:                       286 MB — decoded in full (no reduced decode:
+#:                       ``draft`` is JPEG-only, ``max_side`` cannot help),
+#:                       then a second full canvas for the RGB copy;
+#:                       RGB 191 / 251, greyscale / palette / bilevel / GIF
+#:                       239 / 254 MB — one canvas, the cost of a phone photo.
+#: So WEBP, and PNG / TIFF / BMP / GIF outside ``_FULL_CEILING_MODES``, are
+#: held to 25 MP (25 MP RGBA PNG / TIFF: 191 / 190 MB; 16-bit: 143 / 142).
+#: No phone camera writes them; a screenshot is at most ~20 MP (6K display).
+UPLOAD_MAX_PIXELS_BY_FORMAT: dict[str, int] = {
+    "WEBP": 25_000_000,
+    "PNG": 25_000_000,
+    "TIFF": 25_000_000,
+    "BMP": 25_000_000,
+    "GIF": 25_000_000,
+}
+
+#: Decoded modes in which a PNG / TIFF / BMP / GIF keeps the full
+#: ``UPLOAD_MAX_PIXELS``: one canvas of at most 4 bytes a pixel that the
+#: reads and the save use as is (RGB) or copy from a quarter-size canvas
+#: (bilevel, greyscale, palette) — at most ~255 MB at 50 MP, under a 48 MP
+#: HEIC. An A4 page scanned at 600 dpi (35 MP) still goes through. Every
+#: other mode (alpha, CMYK, 16-bit, float, ...) gets the format's 25 MP.
+#: WEBP keeps its 25 MP whatever the mode.
+_FULL_CEILING_MODES = frozenset({"1", "L", "P", "RGB"})
+_FULL_CEILING_MODE_FORMATS = frozenset({"PNG", "TIFF", "BMP", "GIF"})
 
 #: Decodes of user-supplied photos allowed at once, process-wide. A decode
 #: is CPU and memory, not a wait: on 1 CPU a third one only adds its
@@ -212,8 +247,9 @@ def open_upload_image(src: Union[bytes, str, Path], *, max_side: int | None = No
     (the OCR / vision reads downscale to ~2000 px). A JPEG is then decoded
     at the smallest scale (1/2, 1/4, 1/8) that still covers it — a 48 MP
     phone JPEG decodes at 2016x1512 instead of 8064x6048, ~16x less memory.
-    Other formats have no reduced decode and are decoded in full. Leave it
-    unset where the full image is kept (the stored receipt photo).
+    Other formats have no reduced decode and are decoded in full — which is
+    why they have the lower ceilings of ``UPLOAD_MAX_PIXELS_BY_FORMAT``.
+    Leave it unset where the full image is kept (the stored receipt photo).
 
     Call it inside ``decode_slot()``.
     """
@@ -231,9 +267,13 @@ def open_upload_image(src: Union[bytes, str, Path], *, max_side: int | None = No
     return _bound_canvas(img, max_side=max_side)
 
 
-def _ceiling(fmt: str | None) -> int:
+def _ceiling(fmt: str | None, mode: str | None = None) -> int:
     """The canvas ceiling for one decoder: the format's own, never above
-    ``UPLOAD_MAX_PIXELS``."""
+    ``UPLOAD_MAX_PIXELS``. ``mode`` is the header's decoded mode (known
+    before anything is decoded): a PNG / TIFF / BMP / GIF in one of
+    ``_FULL_CEILING_MODES`` keeps the full ceiling."""
+    if mode in _FULL_CEILING_MODES and fmt in _FULL_CEILING_MODE_FORMATS:
+        return UPLOAD_MAX_PIXELS
     return min(UPLOAD_MAX_PIXELS, UPLOAD_MAX_PIXELS_BY_FORMAT.get(fmt or "", UPLOAD_MAX_PIXELS))
 
 
@@ -241,7 +281,7 @@ def _bound_canvas(img: Image.Image, *, max_side: int | None = None) -> Image.Ima
     """Apply the canvas ceiling to a just-opened (not yet decoded) image."""
     w, h = img.size
     pixels = w * h
-    limit = _ceiling(img.format)
+    limit = _ceiling(img.format, img.mode)
     if max_side and img.format in ("JPEG", "MPO") and max(w, h) > max_side:
         # Smallest JPEG scale whose long side still covers max_side. draft()
         # picks the largest scale s with w // want_w >= s, so the result is
