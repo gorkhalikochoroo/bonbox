@@ -634,7 +634,7 @@ export default function SubscriptionPage() {
                 {t(trialDaysLeft === 1 ? "pricingTrialEndsInOne" : "pricingTrialEndsIn", { n: trialDaysLeft })}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, unlimited Copilot, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
+                {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, 200 Copilot messages a day, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
               </div>
             </div>
             <Button
@@ -664,7 +664,7 @@ export default function SubscriptionPage() {
                 {t("pricingTrialStep1Title") || "Trial started at sign-in"}
               </div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                {t("pricingTrialStep1Body") || "14 days of full Pro — every feature, no caps. No card, no charge."}
+                {t("pricingTrialStep1Body") || "14 days of full Pro — every feature. No card, no charge."}
               </div>
             </div>
             <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-800 sm:pl-5">
