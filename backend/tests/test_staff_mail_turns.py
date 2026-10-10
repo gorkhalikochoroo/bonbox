@@ -237,3 +237,53 @@ def test_a_failed_send_records_nothing_and_frees_the_turn(SL, pushes, monkeypatc
     assert calls == ["anna@cafe.dk", "anna@cafe.dk"]
     assert _count(SL, AuditLog, action=guard.STAFF_MAIL_ACTION) == 0
     assert _count(SL, NotificationLog, staff_id=anna, status="failed") == 2
+
+
+def test_a_waiting_mail_holds_no_database_connection(tmp_path, slow_mails, pushes):
+    """A burst of shift edits queues on the owner's turn. Waiting must not
+    hold a pooled connection, or one owner's burst could take the pool from
+    every other venue. One connection in the pool: while an edit waits for
+    its turn, another session can still use the database."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'pool.db'}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+        pool_size=1, max_overflow=0, pool_timeout=3,
+    )
+    Base.metadata.create_all(engine)
+    SLp = sessionmaker(bind=engine)
+    owner_id, (anna,) = _seed(SLp)
+    held, release, done = threading.Event(), threading.Event(), threading.Event()
+
+    def holder():
+        with guard._owner_turn_lock(owner_id):
+            held.set()
+            release.wait(10)
+
+    def edit():
+        db = SLp()
+        try:
+            ns.send_single_shift_notification(db, owner_id, anna, _change(), "shift_changed")
+        finally:
+            db.close()
+            done.set()
+
+    t = threading.Thread(target=holder)
+    t.start()
+    try:
+        assert held.wait(5)
+        e = threading.Thread(target=edit)
+        e.start()
+        time.sleep(0.5)  # the edit has reached its turn and waits
+        assert not done.is_set()
+        s = SLp()
+        try:
+            assert s.query(User).count() == 1, "the only pooled connection is free"
+        finally:
+            s.close()
+    finally:
+        release.set()
+        t.join(10)
+    e.join(30)
+    assert done.is_set()
+    assert slow_mails == ["anna@cafe.dk"], "it was sent once its turn came"
+    engine.dispose()

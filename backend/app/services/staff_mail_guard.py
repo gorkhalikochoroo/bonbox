@@ -35,9 +35,10 @@ were never brought in. The same rules, one place:
      (review, 10 Oct: twelve concurrent shift edits, one mail left under the
      ceiling, twelve mails). The lock is a per-owner lock in this process
      plus, on Postgres, an advisory lock for the rest of the transaction
-     (another worker, or the old and new instance during a deploy). A turn
-     that cannot start within STAFF_MAIL_TURN_WAIT_S sends nothing (fail
-     closed); the in-app alert and the push still go.
+     (another worker, or the old and new instance during a deploy). A waiting
+     mail holds no database connection. A turn that cannot start within
+     STAFF_MAIL_TURN_WAIT_S sends nothing (fail closed); the in-app alert and
+     the push still go.
 
 The explicit sends keep their own older budget too
 (routers/staff._check_staff_email_budget: 10 sends / 100 recipients a day).
@@ -183,8 +184,12 @@ class StaffMailGate:
         """One staff mail, serialised per owner. Yields (address, None) when it
         may be sent now, else (None, SKIP_* reason). The caller sends and
         `record`s inside the block; the counter row is committed when the
-        block ends, before the next turn for this owner starts. The caller's
-        other pending work in this session is committed with it.
+        block ends, before the next turn for this owner starts.
+
+        The session is committed when the turn starts too, so a mail waiting
+        for its turn holds no pooled database connection (the caller's
+        pending work — share_with_staff's minted link — is committed with it;
+        every caller commits it anyway).
 
         No address, or a held sender: nothing to decide, no lock taken."""
         addr = sendable_email(raw_address)
@@ -192,21 +197,24 @@ class StaffMailGate:
             yield self.refusal(raw_address)
             return
         owner_id = getattr(self.owner, "id", None)
+        db.commit()
         deadline = time.monotonic() + STAFF_MAIL_TURN_WAIT_S
         lock = _owner_turn_lock(owner_id)
-        # Postgres lock first, then this process's: a waiter then holds
-        # nothing another turn needs (no lock-order inversion).
-        got = _take_db_turn(db, owner_id, deadline)
-        got = got and lock.acquire(timeout=max(0.0, deadline - time.monotonic()))
+        # This process's lock first (waiting on it holds no connection), then
+        # Postgres's for other workers. Every turn that holds both commits
+        # before it lets go of the process lock, so the database lock is never
+        # left behind for a thread of this process to wait on.
+        got = lock.acquire(timeout=STAFF_MAIL_TURN_WAIT_S)
+        got_db = got and _take_db_turn(db, owner_id, deadline)
         try:
-            if got:
+            if got_db:
                 self._reload_counts(db)
             else:
                 logger.warning("staff mail turn did not start in time for owner %s — no mail",
                                owner_id)
                 self._owner_sent, self._per_recipient = None, {}
             yield self.refusal(raw_address)
-            if got:
+            if got_db:
                 db.commit()  # the counter row is visible before the next turn
         finally:
             if got:
