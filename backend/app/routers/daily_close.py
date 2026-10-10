@@ -1958,6 +1958,74 @@ def _capture_extraction_correction(db, user, *, status, final_values):
             pass
 
 
+ACCOUNT_CHANGED = "account_changed"
+
+
+def _session_account_id(user: User) -> str:
+    """The account this request is signed in as: a team member's or a
+    revisor's own id when the session is delegated to the business (the id
+    the page knows them by — /auth/me), else the user's."""
+    for attr in ("_real_actor_id", "_real_accountant_id"):
+        v = getattr(user, attr, None)
+        if v:
+            return str(v).strip().lower()
+    return str(user.id).strip().lower()
+
+
+def _require_same_account(user: User, account_id) -> None:
+    """R-c round 2 fix-up (CMS-1) — a Daily close write built for one account
+    is never done on another account's session. The page names the account
+    it was opened for (`account_id`); a request that reaches the server on
+    someone else's session — the phone signed out and in as another owner
+    while it was on its way, a copy queued for the account before, an old
+    answer's re-send — is refused (409, detail.code "account_changed") and
+    writes nothing. No account_id (an older app build) is not checked."""
+    if account_id is None or str(account_id).strip() == "":
+        return
+    if str(account_id).strip().lower() != _session_account_id(user):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": ACCOUNT_CHANGED,
+                "message": "This was entered under another account than the one signed in. Nothing was saved.",
+            },
+        )
+
+
+def _save_landed(db: Session, user: User, save_id: str) -> bool:
+    """A save with this page id was stored before (its audit row names it):
+    the same request sent again — a copy kept on the phone while the first
+    one's answer was lost or the page went away (R-c round 2 fix-up). True
+    only when an audit row says so; a trail that cannot be read is "not
+    known", and the save then goes through the usual checks, as before."""
+    import json as _json
+    if not save_id:
+        return False
+    try:
+        from app.models.audit_log import AuditLog
+        rows = (
+            db.query(AuditLog.after_state)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.action.in_(("daily_close.create", "daily_close.update", "daily_close.lock")),
+                AuditLog.after_state.contains(save_id, autoescape=True),
+            )
+            .limit(20)
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    for (after_state,) in rows:
+        try:
+            after = _json.loads(after_state or "{}")
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(after, dict) and after.get("save_id") == save_id:
+            return True
+    return False
+
+
 def _require_own_branch(db: Session, user: User, branch_id) -> None:
     """A close is filed only under a branch of the caller's own (R-c round 2,
     CMS-1): a branch_id of another account's — a copy queued on a shared phone
@@ -1992,9 +2060,10 @@ def create_daily_close(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    _require_same_account(user, data.account_id)
     _require_own_branch(db, user, data.branch_id)
     out = _file_close(request, data, db, user)
-    if out[0] == "anomaly":
+    if out[0] in ("anomaly", "replay"):
         return out[1]
     _, row, status, final_values = out
     return _after_close_filed(db, request, user, row, status, final_values)
@@ -2031,6 +2100,22 @@ def _file_close(request: Request, data: DailyCloseCreate, db: Session, user: Use
         )
         .first()
     )
+
+    # R-c round 2 fix-up — the same save sent again: a copy the page kept on
+    # the phone (its answer lost, or the page gone before it came) carries
+    # the save's own id. Stored already: nothing is written again, and the
+    # day is answered as it is now ("replay") — never refused as "saved
+    # somewhere else" by its own first landing, never a day the owner has
+    # since moved or started over filed again. (A date move has its own
+    # replay, by its save_id: _move_already_done.)
+    if data.save_id and not defer_commit and _save_landed(db, user, data.save_id):
+        if existing is not None:
+            replay = {**_to_response(existing), "replay": True}
+        else:
+            replay = {"replay": True, "id": None, "date": data.date.isoformat(),
+                      "branch_id": str(data.branch_id) if data.branch_id else None, "status": None}
+        db.rollback()
+        return "replay", replay
 
     # A draft that changed since the page opened it is never replaced in
     # silence (round 21). Every save sends every field, so a page holding an
@@ -2701,13 +2786,91 @@ def _take_back_moved_day(db: Session, request: Request, user: User, day, branch_
         action="close.deleted",
         entity_type="daily_close",
         entity_id=row.id,
-        before={"date": row.date.isoformat() if row.date else None, "status": row.status},
+        # (The version deleted: a later move of that same version to another
+        # day is told where it went — _moved_elsewhere.)
+        before={"date": row.date.isoformat() if row.date else None, "status": row.status,
+                **({"updated_at": stored.isoformat()} if stored is not None else {})},
         after={"is_deleted": True, "moved_to": to_date.isoformat() if to_date else None,
                **({"moved_to_branch_id": str(to_branch_id)} if to_branch_id else {}),
                "move_id": move_id},
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
     return "deleted", row
+
+
+OLD_DAY_LOCKED = "old_day_locked"
+MOVED_ELSEWHERE = "moved_elsewhere"
+SAVE_ID_REUSED = "save_id_reused"
+
+
+def _moved_elsewhere(db: Session, user: User, day, branch_id, base, base_save_id, ok_to: set) -> str | None:
+    """The day another move took THIS version of the day's draft to (R-c
+    round 2 fix-up), else None. The form names a version of the old day
+    (`base`, or its own save `base_save_id`) and nothing is stored there:
+    when that very version was deleted by another move — to a day that is
+    not part of this one (`ok_to`: this move's own days) — the figures stand
+    on that day already, and moving them again would put them on two days.
+    A draft deleted any other way (Start forfra, "Slet") is not this."""
+    import json as _json
+    if base is None and not base_save_id:
+        return None
+    try:
+        from app.models.audit_log import AuditLog
+        dead = [r.id for r in db.query(DailyClose.id).filter(
+            DailyClose.user_id == user.id,
+            DailyClose.date == day,
+            DailyClose.branch_id == branch_id,
+            DailyClose.is_deleted.is_(True),
+        ).all()]
+        if not dead:
+            return None
+        rows = (
+            db.query(AuditLog.entity_id, AuditLog.before_state, AuditLog.after_state)
+            .filter(
+                AuditLog.user_id == user.id,
+                AuditLog.entity_type == "daily_close",
+                AuditLog.entity_id.in_(dead),
+                AuditLog.action == "close.deleted",
+            )
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    for entity_id, before_state, after_state in rows:
+        try:
+            before = _json.loads(before_state or "{}")
+            after = _json.loads(after_state or "{}")
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(after, dict) or not after.get("move_id") or not after.get("moved_to"):
+            continue
+        if after.get("moved_to") in ok_to:
+            continue
+        held = False
+        was = before.get("updated_at") if isinstance(before, dict) else None
+        if base is not None and was:
+            try:
+                held = _naive_utc(datetime.fromisoformat(str(was))) <= _naive_utc(base)
+            except (TypeError, ValueError):
+                held = False
+        if not held and base_save_id:
+            held = _last_save_id(db, user, entity_id) == base_save_id
+        if held:
+            return str(after.get("moved_to"))
+    return None
+
+
+def _same_move(done: dict, data, body) -> bool:
+    """The move recorded under this save_id is this request (its days)."""
+    if str(done.get("to_date") or "") != data.to_date.isoformat():
+        return False
+    if (done.get("to_branch_id") or None) != (str(body.branch_id) if body.branch_id else None):
+        return False
+    want = [(data.from_date.isoformat(), str(data.from_branch_id) if data.from_branch_id else None)]
+    want += [(f.date.isoformat(), str(f.branch_id) if f.branch_id else None) for f in data.also_from]
+    got = [(str(f.get("date")), f.get("branch_id") or None) for f in (done.get("from") or [])]
+    return got == want
 
 
 @router.post("/move")
@@ -2718,6 +2881,9 @@ def move_daily_close(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Built for the account signed in now — else nothing moves (CMS-1).
+    _require_same_account(user, data.account_id)
+    _require_same_account(user, data.body.account_id)
     body = data.body
     if body.date != data.to_date:
         raise HTTPException(status_code=422, detail={"code": "move_date_mismatch",
@@ -2787,7 +2953,49 @@ def move_daily_close(
     done = _move_already_done(db, user, data.save_id)
     if done is not None:
         db.rollback()
+        # (The save_id of ANOTHER move — other days: never answered with
+        # what that one did while these figures are saved nowhere.)
+        if not _same_move(done, data, body):
+            raise HTTPException(status_code=409, detail={
+                "code": SAVE_ID_REUSED,
+                "message": "This move's id was already used for another move. Nothing was moved.",
+            })
         return _answer(done, True)
+
+    # An old day locked (on another device, since the form read it): the
+    # whole move is refused and nothing is written (R-c round 2 fix-up).
+    # Filed on the new day beside the locked day, the same figures stood on
+    # both days — counted twice once the new day was locked too.
+    for d, b, _base, _sid in froms:
+        row = _live_close(db, user, d, b)
+        if row is not None and (getattr(row, "status", None) or "confirmed") != "draft":
+            from fastapi.encoders import jsonable_encoder
+            current = jsonable_encoder(_to_response(row))
+            db.rollback()
+            raise HTTPException(status_code=409, detail={
+                "code": OLD_DAY_LOCKED,
+                "date": d.isoformat(),
+                "branch_id": str(b) if b else None,
+                "message": "The day the figures are moved from is locked. Nothing was moved.",
+                "current": current,
+            })
+    # The version of an old day the form holds was moved to ANOTHER day by
+    # another move already (a second phone, a page left open): moved again,
+    # the figures would stand on both new days. Refused, nothing written.
+    ok_to = {data.to_date.isoformat(), *(d.isoformat() for d, _b, _x, _y in froms)}
+    for d, b, base, sid in froms:
+        if _live_close(db, user, d, b) is not None:
+            continue
+        went = _moved_elsewhere(db, user, d, b, base, sid, ok_to)
+        if went:
+            db.rollback()
+            raise HTTPException(status_code=409, detail={
+                "code": MOVED_ELSEWHERE,
+                "date": d.isoformat(),
+                "branch_id": str(b) if b else None,
+                "to": went,
+                "message": "These figures were already moved to another day. Nothing was moved.",
+            })
 
     # The new day: the same save as POST /daily-close, on the version of it
     # the form holds — none known is "no row known", never "no check".
@@ -5547,9 +5755,13 @@ def delete_daily_close(
     # rule as a save. Absent (History, an older app build): as before.
     base_updated_at: datetime | None = Query(None),
     base_save_id: str | None = Query(None, max_length=64),
+    # R-c round 2 fix-up — the account the page was opened for: another
+    # account's session deletes nothing (409 account_changed).
+    account_id: str | None = Query(None, max_length=64),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    _require_same_account(user, account_id)
     dc = db.query(DailyClose).filter(
         DailyClose.id == close_id,
         DailyClose.user_id == user.id,

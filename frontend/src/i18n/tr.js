@@ -5192,7 +5192,7 @@ export const tr = {
   "landingV2.pricing.free.f3": "MOMS geri sayımı — SKAT ne zaman, yaklaşık ne kadar",
   "landingV2.pricing.free.f4": "Fiş OCR, ayda 10",
   "landingV2.pricing.free.f5": "Satış ve gider kaydı",
-  "landingV2.pricing.free.f6": "1 kullanıcı, 1 şube, bir seferde en fazla 7 günlük dönem dışa aktarımı — her günün kasserapport'u PDF olarak, sınırsız",
+  "landingV2.pricing.free.f6": "1 kullanıcı, 1 şube, vardiya planında en fazla 3 çalışan, bir seferde en fazla 7 günlük dönem dışa aktarımı — her günün kasserapport'u PDF olarak, sınırsız",
   "landingV2.pricing.starter.name": "Starter",
   "landingV2.pricing.starter.badge": "En popüler",
   "landingV2.pricing.starter.position": "faktura göndermek ve bankanın mutabakatı kendi yapması için.",

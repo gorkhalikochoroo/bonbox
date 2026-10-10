@@ -501,7 +501,8 @@ describe("offline — a draft save with no answer is never dropped", () => {
     await act(async () => { window.dispatchEvent(new Event("online")); await new Promise((r) => setTimeout(r, 0)); });
     for (let i = 0; i < 6; i++) await settle();
   };
-  const queued = () => JSON.parse(localStorage.getItem(OQ_KEY) || "[]");
+  // (Both keys — queued moves are kept under their own: R-c round 2 fix-up.)
+  const queued = () => [OQ_KEY, "bonbox_dc_offline_moves"].flatMap((k) => JSON.parse(localStorage.getItem(k) || "[]"));
 
   it("a blip during the last edit: the draft waits, and goes the moment the browser is online again", async () => {
     serve();

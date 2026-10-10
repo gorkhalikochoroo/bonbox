@@ -68,6 +68,32 @@ api.interceptors.response.use(
   (err) => { settle(err?.config); return Promise.reject(err); },
 );
 
+/**
+ * The account a bearer token signs in as (its `sub`), for telling one
+ * session from another; the token itself when it cannot be read. null for
+ * no token (a cookie session). R-c round 2 fix-up.
+ */
+export function tokenSubject(tok) {
+  if (!tok) return null;
+  try {
+    const part = String(tok).split(".")[1];
+    const json = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+    return json && json.sub != null ? `sub:${json.sub}` : String(tok);
+  } catch {
+    return String(tok);
+  }
+}
+const storedToken = () => {
+  try { return localStorage.getItem("token"); } catch { return null; }
+};
+const headerOf = (headers, name) => {
+  if (!headers) return null;
+  try {
+    if (typeof headers.get === "function") return headers.get(name) ?? null;
+  } catch { /* plain object below */ }
+  return headers[name] ?? null;
+};
+
 // Auto-retry on timeout, network error, or transient 5xx.
 //
 // Hardened May 2026 after seeing real 503 storms during Render cold-
@@ -140,6 +166,16 @@ api.interceptors.response.use(null, async (err) => {
     /* no DOM, no listeners — fine */
   }
   await new Promise((r) => setTimeout(r, backoffMs));
+  // R-c round 2 fix-up — a retry goes on the credential the request was
+  // first sent with, or not at all: re-run, the request interceptor attaches
+  // whatever token is stored NOW, and a phone signed out and in as another
+  // owner during the back-off filed the first owner's queued close in the
+  // second owner's books. (A cookie session cannot be told apart here — the
+  // server refuses a Daily close write built for another account.)
+  if (Object.prototype.hasOwnProperty.call(config, "_bbAuthAtSend")
+    && tokenSubject(storedToken()) !== tokenSubject(config._bbAuthAtSend)) {
+    return Promise.reject(err);
+  }
   return api(config);
 });
 
@@ -196,7 +232,14 @@ api.interceptors.response.use((res) => {
     // actually read it cross-origin. We sanity-check the shape before
     // writing — a malformed value should never wipe a working session.
     const newToken = res?.headers?.["x-new-token"];
-    if (newToken && typeof newToken === "string" && newToken.length > 20) {
+    // R-c round 2 fix-up — only for the session still stored on this phone:
+    // a late answer to a request owner A sent before signing out (owner B
+    // signed in since) carried A's refreshed token, and writing it over B's
+    // signed every later request in as A — B's figures filed in A's books.
+    const sentAuth = headerOf(res?.config?.headers, "Authorization");
+    const cur = storedToken();
+    const sameSession = (sentAuth || null) === (cur ? `Bearer ${cur}` : null);
+    if (newToken && typeof newToken === "string" && newToken.length > 20 && sameSession) {
       try {
         localStorage.setItem("token", newToken);
       } catch {
@@ -264,6 +307,9 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // The credential this request FIRST went with (a retry never goes on
+  // another one — the retry interceptor above).
+  if (!Object.prototype.hasOwnProperty.call(config, "_bbAuthAtSend")) config._bbAuthAtSend = token || null;
   // Tell the backend whether we're inside a Capacitor native shell so it can
   // apply iOS-IAP-compliance rules to billing endpoints. Web requests get "web".
   let isNative = false;

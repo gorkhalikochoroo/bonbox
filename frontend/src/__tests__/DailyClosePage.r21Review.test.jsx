@@ -440,7 +440,11 @@ describe("4. a refused save older than one already sent is never re-posted or ke
     await act(async () => { openR(); await new Promise((r) => setTimeout(r, 0)); });
     await settleN(4);
     expect(S.refused).toHaveLength(1);
-    expect(getOfflineQueue()).toHaveLength(0);
+    // Never kept as "saved somewhere else". (R-c round 2 fix-up, L3 — the
+    // only copy on this phone is O's own, kept when it went on the way out:
+    // the page is gone and O's answer is still on its way. Answered, it goes.)
+    expect(getOfflineQueue().filter((it) => it.state === QUEUE_FAILED || it.errorCode === QUEUE_ERR_DRAFT_CHANGED)).toHaveLength(0);
+    expect(getOfflineQueue().map((it) => [it.state, it.payload?.revenue_breakdown?.food])).toEqual([["waiting_network", 4000]]);
     await act(async () => { openO(); await new Promise((r) => setTimeout(r, 0)); });
     await settleN(4);
     expect(foodsPosted()).toEqual([4000]);

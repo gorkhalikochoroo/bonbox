@@ -1118,15 +1118,22 @@ def test_m3_det_move_vs_lock_of_the_old_day(first, point):
     print(f"\n[m3 {first}@{point}] move {rm.status_code} {rm.text[:120]} lock {rl.status_code} blocked={blocked}")
     assert blocked
     _no_500(rm, rl)
-    assert rm.status_code == 200 and rl.status_code == 200, (rm.text[:300], rl.text[:300])
     live_a = _rows(uid, a, live_only=True)
     live_b = _rows(uid, b, live_only=True)
-    assert [r["rev"] for r in live_b] == [1000]
     # The old day is the lock's (its own figures), never the moved draft.
     assert [(r["status"], r["rev"]) for r in live_a] == [("confirmed", 5000)], live_a
-    m = rm.json()
-    assert m["old_status"] == ("deleted" if first == "M" else "locked"), m
-    assert m["moved"] is (first == "M")
+    assert rl.status_code == 200, rl.text[:300]
+    if first == "M":
+        assert rm.status_code == 200, rm.text[:300]
+        assert [r["rev"] for r in live_b] == [1000]
+        m = rm.json()
+        assert m["old_status"] == "deleted" and m["moved"] is True, m
+    else:
+        # R-c round 2 fix-up — the old day locked first: the whole move is
+        # refused (409 old_day_locked), nothing filed on the new day (it
+        # used to file it there beside the locked day: both days).
+        assert rm.status_code == 409 and _code(rm) == "old_day_locked", rm.text[:300]
+        assert live_b == [], live_b
 
 
 # (m4) the move vs a delete of the old day
@@ -1205,3 +1212,71 @@ def test_m6_two_moves_crossing_never_deadlock():
     assert r1.status_code == 200, r1.text[:300]
     assert r2.status_code in (200, 412), r2.text[:300]
     assert len(_rows(uid, a, live_only=True)) <= 1 and len(_rows(uid, b, live_only=True)) <= 1
+
+
+# ═══ R-c round 2 fix-up (review) ═════════════════════════════════════════
+# (m7) two moves of the SAME version of a draft to two different days (two
+# phones, or a page left open): the first moves it; the second finds that
+# version moved to another day and is refused whole (409 moved_elsewhere) —
+# the figures stood on both new days, counted twice once both were locked.
+def _check_m7(r1, r2, uid, a, b, c):
+    _no_500(r1, r2)
+    codes = sorted([r1.status_code, r2.status_code])
+    assert codes == [200, 409], (r1.status_code, r1.text[:300], r2.status_code, r2.text[:300])
+    loser = r1 if r1.status_code == 409 else r2
+    assert _code(loser) == "moved_elsewhere", loser.text[:300]
+    live = {d: [r["rev"] for r in _rows(uid, d, live_only=True)] for d in (a, b, c)}
+    assert live[a] == [], live
+    # The figures on ONE day.
+    assert sorted(live[b] + live[c]) == [1000.0], live
+
+
+@pytest.mark.parametrize("point", ["pre_write", "pre_commit", "post_lock"])
+def test_m7_det_two_moves_of_one_draft_to_two_days(point):
+    uid = _user(); a = _new_day(); b = _new_day(); c = _new_day()
+    v0 = _seed_draft(uid, a)
+    M1 = ("M1", lambda *x: _move(*x, from_base=v0["updated_at"]), ("M1", uid, a, b, 1000))
+    M2 = ("M2", lambda *x: _move(*x, from_base=v0["updated_at"]), ("M2", uid, a, c, 1000))
+    r1, r2, blocked = _interleave(M1, point, M2)
+    print(f"\n[m7 @{point}] {r1.status_code} {r1.text[:120]} | {r2.status_code} {r2.text[:120]} blocked={blocked}")
+    assert blocked
+    _check_m7(r1, r2, uid, a, b, c)
+
+
+@pytest.mark.parametrize("it", range(6))
+def test_m7_stochastic_two_moves_of_one_draft_to_two_days(it):
+    _reset_limits()
+    uid = _user(); a = _new_day(); b = _new_day(); c = _new_day()
+    v0 = _seed_draft(uid, a)
+    bar = threading.Barrier(2)
+    t1 = Run(lambda: _move("M1", uid, a, b, 1000, from_base=v0["updated_at"]), barrier=bar)
+    t2 = Run(lambda: _move("M2", uid, a, c, 1000, from_base=v0["updated_at"]), barrier=bar)
+    t1.start(); t2.start(); t1.join(30); t2.join(30)
+    _check_m7(t1.res, t2.res, uid, a, b, c)
+
+
+# (s1) the SAME save sent twice at once (a copy kept on the phone goes while
+# the page's own request is still on its way): stored once; the other is
+# answered as the day is ("replay") — never refused as "saved somewhere
+# else" by its own first landing, never a second audit row.
+@pytest.mark.parametrize("point", ["pre_claim", "pre_commit"])
+def test_s1_det_the_same_save_twice(point):
+    uid = _user(); day = _new_day()
+    v0 = _seed_draft(uid, day, food=500)
+    body = _body(day, 3000, base_updated_at=v0["updated_at"], save_id=f"same-{uuid.uuid4().hex[:8]}")
+    S1 = ("S1", _post, ("S1", uid, dict(body)))
+    S2 = ("S2", _post, ("S2", uid, dict(body)))
+    r1, r2, blocked = _interleave(S1, point, S2)
+    print(f"\n[s1 @{point}] {r1.status_code} {r1.text[:100]} | {r2.status_code} {r2.text[:100]} blocked={blocked}")
+    assert blocked
+    _no_500(r1, r2)
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text[:300], r2.text[:300])
+    assert [bool(r1.json().get("replay")), bool(r2.json().get("replay"))] == [False, True]
+    assert [r["rev"] for r in _rows(uid, day, live_only=True)] == [3000.0]
+    s = SessionLocal()
+    try:
+        n = sum(1 for a in s.query(AuditLog).filter(AuditLog.user_id == uuid.UUID(uid), AuditLog.action == "daily_close.update").all()
+                if body["save_id"] in (a.after_state or ""))
+    finally:
+        s.close()
+    assert n == 1, n

@@ -583,6 +583,25 @@ const PLANS = [
     A.expect(stored(A.S).revenue_breakdown).toEqual({ food: 12000 });
     A.expect(getOfflineQueue().some((it) => it.payload?.date === A.today)).toBe(false);
   }],
+  // R-c round 2 fix-up (MB) — a move off a LOCKED day is refused whole now
+  // (no "Kopieret til" beside a locked day). The copy line stays for an old
+  // day another device SAVED since: its own version is kept, never deleted
+  // with the moved figures — held here by name, so MV's copy branch is
+  // always looked at (MVcopy).
+  ["(R-c round 2 fix-up) 3.000 saved for today, another device saves today since (its own version), the figures moved to yesterday: today's other version is kept and said (\"Kopieret til … står der stadig\") — never deleted, never \"Flyttet fra\"", 23040, async (A) => {
+    await A.skip();
+    await A.typeBox("rev", "food", "3.000");
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 3000 });
+    await A.otherDeviceFigures(null, { saveId: "other-device" });
+    const other = { ...stored(A.S) };
+    await A.moveDate(A.yesterday, "yes");
+    await A.settleAll();
+    await A.step("look again", () => {});
+    A.expect(stored(A.S, `${A.yesterday}|`)).toMatchObject({ status: "draft", revenue_total: 3000 });
+    A.expect(stored(A.S)).toMatchObject({ status: "draft", payment_breakdown: other.payment_breakdown, notes: other.notes });
+    A.expect(A.hasText("dcDateMovedCopied:")).toBe(true);
+    A.expect(A.hasText("dcDateMovedFrom")).toBe(false);
+  }],
 ];
 
 // The reviewer's start: Mad 12.000 typed for today on a dead line (its saves

@@ -66,9 +66,11 @@ describe("5. claims say only what is true", () => {
   it("5b the Free card: a period export of up to 7 days at a time, each day's kasserapport PDF with no limit (da, en, tr, and the inline fallback)", () => {
     expect(da["landingV2.pricing.free.f6"]).toBe("1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen, periodeeksport op til 7 dage ad gangen — hver dags kasserapport som PDF uden grænse");
     expect(en["landingV2.pricing.free.f6"]).toBe("1 user, 1 location, up to 3 staff on the rota, period export up to 7 days at a time — each day's kasserapport as a PDF, no limit");
-    expect(tr["landingV2.pricing.free.f6"]).toBe("1 kullanıcı, 1 şube, bir seferde en fazla 7 günlük dönem dışa aktarımı — her günün kasserapport'u PDF olarak, sınırsız");
+    expect(tr["landingV2.pricing.free.f6"]).toBe("1 kullanıcı, 1 şube, vardiya planında en fazla 3 çalışan, bir seferde en fazla 7 günlük dönem dışa aktarımı — her günün kasserapport'u PDF olarak, sınırsız");
     expect(read("components/landing/v2/PricingV2.jsx")).toContain(`"${en["landingV2.pricing.free.f6"]}"`);
     for (const s of [da["landingV2.pricing.free.f6"], en["landingV2.pricing.free.f6"]]) expect(s).not.toMatch(/eksporthistorik|export history/);
+    // (R-c round 2 fix-up — the Turkish line names the rota's staff cap too, as da and en do.)
+    expect(tr["landingV2.pricing.free.f6"]).toContain("vardiya planında en fazla 3 çalışan");
     // (The cap it names is the plan's: Free exports a period of at most 7 days.)
     const billing = fs.readFileSync(path.join(SRC, "../../backend/app/services/billing.py"), "utf8");
     expect(billing).toMatch(/"daily_close_export_days": 7,/);

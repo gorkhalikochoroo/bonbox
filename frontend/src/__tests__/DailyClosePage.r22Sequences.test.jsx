@@ -223,7 +223,13 @@ const PLANS = [
   // Round 22 review — the old day's save answering 409 (another device
   // locked it) after the figures were moved: the NEW day was said locked,
   // "Ikke gemt", and the moved figures never saved.
-  ["round 22 review — a held save of today meets another device's lock after \"Brug dem\" for yesterday: yesterday saves, and no lock is said on it", 22011, async (A) => {
+  // R-c round 2 fix-up (MB — CONTRACT CHANGE, listed as a narrowing): today
+  // was locked on another device before the move reached the server, so the
+  // whole move is refused (409 old_day_locked) — it used to file yesterday
+  // with 3.500 beside today's lock at 3.000 (the figures on both days). The
+  // page is back on today, said locked as it is; yesterday holds nothing,
+  // and the old day's 409 is never said on yesterday.
+  ["round 22 review — a held save of today meets another device's lock after \"Brug dem\" for yesterday: (R-c round 2 fix-up) nothing is moved off the locked day — yesterday holds nothing, and the page is back on today, said locked", 22011, async (A) => {
     await A.skip();
     await A.typeBox("rev", "food", "3.000");
     await A.otherDeviceLocks();
@@ -232,8 +238,10 @@ const PLANS = [
     await A.moveDate(A.yesterday);
     await A.settleAll();
     A.expect(A.S.lockConflicts).toBeGreaterThan(0);
-    A.expect(A.hasText("dcDayAlreadyLocked")).toBe(false);
-    A.expect(stored(A.S, `${A.yesterday}|`)).toMatchObject({ status: "draft", revenue_breakdown: { food: 3500 } });
+    A.expect(stored(A.S, `${A.yesterday}|`)).toBeUndefined();
+    A.expect(A.q("#close-date").value).toBe(A.today);
+    A.expect(A.hasText("dcDateMoveRefusedLocked:")).toBe(true);
+    A.expect(A.hasText("dcDayAlreadyLocked")).toBe(true);
     A.expect(stored(A.S)).toMatchObject({ status: "confirmed", revenue_breakdown: { food: 3000 } });
   }],
 ];

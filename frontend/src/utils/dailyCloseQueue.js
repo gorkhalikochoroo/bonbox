@@ -35,6 +35,16 @@
 import { errText } from "./errText";
 
 export const OQ_KEY = "bonbox_dc_offline_queue";
+/* R-c round 2 fix-up (review, production safety) — queued MOVES are kept
+   under a key of their own. Code from before R-c (a tab still open on the
+   old bundle in the deploy window, or every phone after a rollback) reads
+   OQ_KEY and posts each item's payload as a plain save, then removes it: a
+   queued move would file its new day while the old day kept its draft —
+   the figures on both days — and its whole-list rewrite would erase the
+   move. Under this key that code never sees it: it waits on the phone,
+   unsent, until code that sends it as the move runs again. The queue reads
+   both keys as one list, in the order the items were queued. */
+export const OQ_MOVES_KEY = "bonbox_dc_offline_moves";
 
 /* Item states. An item with no state has never been tried (it was queued
    while the device was offline) and is treated as waiting for the network. */
@@ -58,6 +68,44 @@ export const QUEUE_ERR_SERVER = "server";     // 5xx — BonBox's side broke
    never overwritten — so nothing of this day is in the books, and this copy
    is the only one: never "already saved", never offered as a spare. */
 export const QUEUE_ERR_DELETED_LOCKED = "deleted_locked";
+
+/* R-c round 2 fix-up — the server's own codes for a request it answered
+   WITHOUT judging the figures, or refused for a reason of its own. */
+/** The request was built for another account than the session it reached (409): nothing written. */
+export const ACCOUNT_CHANGED = "account_changed";
+/** The branch is not the signed-in account's (403): nothing written. */
+export const BRANCH_NOT_OWNED = "branch_not_owned";
+/** A move off a day that is locked (409): nothing moved. */
+export const OLD_DAY_LOCKED = "old_day_locked";
+/** A move of a draft another move already took to another day (409): nothing moved. */
+export const MOVED_ELSEWHERE = "moved_elsewhere";
+/* Queue reasons for those (and for a send that met a signed-out session). */
+export const QUEUE_ERR_SIGNED_OUT = "signed_out";
+export const QUEUE_ERR_BRANCH_NOT_OWNED = "branch_not_owned";
+export const QUEUE_ERR_OLD_DAY_LOCKED = "old_day_locked";
+export const QUEUE_ERR_MOVED_ELSEWHERE = "moved_elsewhere";
+const detailCode = (err) => {
+  const d = err?.response?.data?.detail;
+  return d && typeof d === "object" ? d.code || null : null;
+};
+export const isAccountChanged = (err) => err?.response?.status === 409 && detailCode(err) === ACCOUNT_CHANGED;
+export const isBranchNotOwned = (err) => err?.response?.status === 403 && detailCode(err) === BRANCH_NOT_OWNED;
+export const isOldDayLocked = (err) => err?.response?.status === 409 && detailCode(err) === OLD_DAY_LOCKED;
+export const isMovedElsewhere = (err) => err?.response?.status === 409 && detailCode(err) === MOVED_ELSEWHERE;
+/**
+ * The server answered and refused THESE FIGURES (nothing written, and sent
+ * again as they are they are refused again): 400 / 409 / 412 / 422 / 423.
+ * Never a 401 (signed out when it arrived — not an answer about the
+ * figures), a 403 (a role, a PIN, a branch — the figures are not judged), a
+ * 404 / 405 (a server without that endpoint — an older backend), 409
+ * account_changed (another account's session), a 5xx or no answer at all.
+ * Only a refusal of the figures may drop the one copy of them on this phone.
+ */
+export function isRefusalOfFigures(err) {
+  const s = err?.response?.status;
+  if (!s || isAccountChanged(err)) return false;
+  return s === 400 || s === 409 || s === 412 || s === 422 || s === 423;
+}
 
 /** The server's code for a day held by a deleted, locked kasserapport. */
 export const DELETED_LOCKED_CLOSE = "deleted_locked_close";
@@ -106,7 +154,11 @@ export function moveRequestOf(item, { toBase } = {}) {
   const body = { ...(item?.payload || {}) };
   if (toBase !== undefined) body.base_updated_at = toBase;
   body.save_id = m.save_id;
+  // (The account it was queued for — another account's session moves
+  // nothing: R-c round 2 fix-up.)
+  const acct = accountOfItem(item);
   return {
+    ...(acct ? { account_id: acct } : {}),
     from_date: m.from_date,
     from_branch_id: m.from_branch_id ?? null,
     from_base_updated_at: m.from_base_updated_at ?? null,
@@ -136,9 +188,24 @@ export function releaseQueueHolder(id) {
 /** Held by a page still open (its own send is on its way). */
 export const isHeldLive = (it) => Boolean(it?.heldBy) && liveHolders.has(it.heldBy);
 
+/** A copy the sync never sends by itself: refused in a way only the owner can answer (keep it, or remove it). */
+export const waitsForOwner = (it) => it?.state === QUEUE_FAILED && (it.errorCode === QUEUE_ERR_DRAFT_CHANGED
+  || it.errorCode === QUEUE_ERR_OLD_DAY_LOCKED || it.errorCode === QUEUE_ERR_MOVED_ELSEWHERE
+  || it.errorCode === QUEUE_ERR_BRANCH_NOT_OWNED);
+
 /** Classify an HTTP status into one of the reason codes above. */
 function reasonForStatus(status) {
   return typeof status === "number" && status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED;
+}
+
+/* When an item was queued: strictly increasing in this page's life, so two
+   items queued in the same millisecond keep their order across the two
+   storage keys (R-c round 2 fix-up). */
+let lastQueuedAt = 0;
+function queuedAt() {
+  const now = Date.now();
+  lastQueuedAt = now > lastQueuedAt ? now : lastQueuedAt + 1;
+  return lastQueuedAt;
 }
 
 /** crypto.randomUUID is missing in older WKWebViews — never let an id crash a save. */
@@ -162,11 +229,22 @@ function newId() {
    for A's next sign-in. A sync stops the moment the account changes under
    it (nothing of A's goes out on B's session).
    The account is set by the Daily close page from the signed-in user
-   (setQueueAccount). `undefined` — never set (unit tests, no page) — is the
-   whole device's list, as before; `null` — signed out — is nothing at all.
-   An item from before this release names no account: it is the next
-   signed-in account's (there is no way to tell whose it was), and it is
-   stamped with that account the first time the queue is written. */
+   (setQueueAccount), and cleared on sign-out (useAuth.logout). `undefined`
+   — never set (unit tests, no page) — is the whole device's list, as
+   before; `null` — signed out — is nothing at all.
+   R-c round 2 fix-up — an item from before this release names no account,
+   and there is no way to tell whose it was: it is shown to whoever is
+   signed in as "unclaimed" and NEVER sent by itself (it went into the next
+   account's books — CMS-1 once more, for every copy still on a phone at the
+   deploy); the owner sends it ("Send", which claims it) or removes it. Never
+   stamped by another write. One the server refused for its branch (another
+   account's) is hidden from that account (`notFor`) and waits for the
+   account it belongs to.
+   Every request the queue sends names the account it was queued for
+   (`account_id`): the server refuses it on another account's session (409
+   account_changed) — the account can change under a sync while a request
+   is on its way (a retry after a 503), and a web tab can hold another
+   account's queue while the login cookie is shared. */
 let currentAccount;
 /** The signed-in account whose queue this is (a user id); null when signed out. */
 export function setQueueAccount(account) {
@@ -175,13 +253,50 @@ export function setQueueAccount(account) {
 export function queueAccount() {
   return currentAccount;
 }
-const ownedBy = (account) => (it) => account === undefined || it.account == null || it.account === account;
+/**
+ * Run `fn` (synchronous) on `account`'s queue: a Daily close form's reads
+ * and writes stay the account it was opened for, whoever is signed in by the
+ * time it writes (a copy kept after an await, on the way out, or when a late
+ * answer arrives after the page was left — R-c round 2 fix-up).
+ */
+export function withQueueAccount(account, fn) {
+  if (account === undefined) return fn();
+  const was = currentAccount;
+  currentAccount = account === null ? null : String(account);
+  try { return fn(); } finally { currentAccount = was; }
+}
+const ownedBy = (account) => (it) => account === undefined
+  || ((it.account == null || it.account === account) && !(Array.isArray(it.notFor) && it.notFor.includes(account)));
+/** A copy from before this release: whose it is cannot be told — never sent until the owner says it is theirs. */
+export const isUnclaimed = (it) => typeof currentAccount === "string" && Boolean(it) && it.account == null;
+/** The account a request for this item is sent for (its own; else the signed-in one, when it is the owner's own tap). */
+function accountOfItem(item) {
+  if (item && typeof item.account === "string" && item.account) return item.account;
+  return typeof currentAccount === "string" && currentAccount ? currentAccount : null;
+}
+/** A plain queued close as it is sent: its payload, naming the account it was queued for. */
+export function payloadOf(item) {
+  const acct = accountOfItem(item);
+  return acct ? { ...(item?.payload || {}), account_id: acct } : { ...(item?.payload || {}) };
+}
+/** The owner said an unclaimed copy is theirs ("Send"): it is the signed-in account's from now on. */
+export function claimQueueItem(id) {
+  if (typeof currentAccount !== "string") return getOfflineQueue();
+  return updateQueueItem(id, { account: currentAccount });
+}
+/** Not this account's (the server refused it for a branch of another's): hidden from it, kept for the account it belongs to. */
+export function disownQueueItem(id) {
+  if (typeof currentAccount !== "string") return getOfflineQueue();
+  const acct = currentAccount;
+  const it = readAll().find((x) => x.id === id);
+  if (!it) return getOfflineQueue();
+  return updateQueueItem(id, { account: null, notFor: [...new Set([...(Array.isArray(it.notFor) ? it.notFor : []), acct])] });
+}
 
-/** Every item on the device, every account's (never shown or sent as such). */
-function readAll() {
+function readKey(key) {
   let raw;
   try {
-    raw = localStorage.getItem(OQ_KEY);
+    raw = localStorage.getItem(key);
   } catch {
     return [];
   }
@@ -195,21 +310,48 @@ function readAll() {
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((it) => it && typeof it === "object" && it.payload);
 }
+/** Every item on the device, every account's (never shown or sent as such) — both keys, in the order queued. */
+function readAll() {
+  const plain = readKey(OQ_KEY);
+  const moves = readKey(OQ_MOVES_KEY);
+  if (!moves.length) return plain;
+  if (!plain.length) return moves;
+  // (Each key keeps its own order; the two are woven by when each item was
+  // queued — a plain copy queued before a move stays before it.)
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < plain.length || j < moves.length) {
+    if (j >= moves.length || (i < plain.length && (Number(plain[i].ts) || 0) <= (Number(moves[j].ts) || 0))) out.push(plain[i++]);
+    else out.push(moves[j++]);
+  }
+  return out;
+}
+/** Store the device's whole list: queued moves under their own key, the rest under OQ_KEY. */
+function writeAll(list) {
+  const moves = list.filter((it) => isQueuedMove(it));
+  const plain = list.filter((it) => !isQueuedMove(it));
+  try {
+    localStorage.setItem(OQ_KEY, JSON.stringify(plain));
+    if (moves.length) localStorage.setItem(OQ_MOVES_KEY, JSON.stringify(moves));
+    else localStorage.removeItem(OQ_MOVES_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function readFor(account) {
   if (account === null) return [];
   return readAll().filter(ownedBy(account));
 }
 function writeFor(account, items) {
   if (account === null) return false;
-  const mine = (Array.isArray(items) ? items : []).map((it) => (account === undefined || !it || typeof it !== "object" ? it : { ...it, account }));
+  // (Each item keeps the account it names — an unclaimed one is never
+  // stamped by the write of another: R-c round 2 fix-up.)
+  const mine = Array.isArray(items) ? items : [];
   // (Everyone else's items stay exactly as they are.)
   const others = account === undefined ? [] : readAll().filter((it) => !ownedBy(account)(it));
-  try {
-    localStorage.setItem(OQ_KEY, JSON.stringify([...others, ...mine]));
-    return true;
-  } catch {
-    return false;
-  }
+  return writeAll([...others, ...mine]);
 }
 
 /**
@@ -233,7 +375,7 @@ export function addToOfflineQueue(payload, extra = {}) {
     ...extra,
     ...(currentAccount ? { account: currentAccount } : {}),
     payload,
-    ts: Date.now(),
+    ts: queuedAt(),
     id: newId(),
     state: QUEUE_WAITING_NETWORK,
   };
@@ -252,7 +394,7 @@ export function addFailedToOfflineQueue(payload, patch = {}) {
   const item = {
     ...(currentAccount ? { account: currentAccount } : {}),
     payload,
-    ts: Date.now(),
+    ts: queuedAt(),
     id: newId(),
     state: QUEUE_FAILED,
     lastTriedTs: Date.now(),
@@ -395,13 +537,22 @@ export async function syncOfflineQueue(post, { postMove = null, onSent = null } 
     // keepQueuedCopy, on the newer version it met). Re-posted here as it was,
     // it re-created a day whose newer draft had been deleted on the other
     // phone since (no row → no version to check), with nobody asked.
-    if (item.state === QUEUE_FAILED && item.errorCode === QUEUE_ERR_DRAFT_CHANGED) {
+    // (R-c round 2 fix-up: so does a move refused whole — an old day
+    // locked, its draft moved elsewhere — and a copy refused for a branch
+    // that is not this account's: sent again they are refused again.)
+    if (waitsForOwner(item)) {
       remaining.push(item);
       continue;
     }
     // A page still open is sending this one itself (its move on its way —
     // R-c round 2): never a second send beside it.
     if (isHeldLive(item)) {
+      remaining.push(item);
+      continue;
+    }
+    // A copy from before this release names no account: whose it is cannot
+    // be told — it waits for the owner's "Send" (R-c round 2 fix-up).
+    if (isUnclaimed(item)) {
       remaining.push(item);
       continue;
     }
@@ -416,7 +567,7 @@ export async function syncOfflineQueue(post, { postMove = null, onSent = null } 
 
     let resp;
     try {
-      resp = asMove ? await postMove(moveRequestOf(item)) : await post(item.payload);
+      resp = asMove ? await postMove(moveRequestOf(item)) : await post(payloadOf(item));
     } catch (err) {
       if (!err?.response) {
         // Rule 1 — the network is still down. Keep THIS item and every item
@@ -426,6 +577,41 @@ export async function syncOfflineQueue(post, { postMove = null, onSent = null } 
         break;
       }
       const status = err.response?.status ?? null;
+      // R-c round 2 fix-up — signed out when it arrived (401): no answer
+      // about the figures. Kept as it is, with everything behind it, and
+      // said as that — never "refused, check the numbers".
+      if (status === 401) {
+        remaining.push({ ...item, state: QUEUE_WAITING_NETWORK, errorCode: QUEUE_ERR_SIGNED_OUT, errorDetail: null, httpStatus: status, lastTriedTs: Date.now() });
+        remaining.push(...queue.slice(i + 1));
+        stoppedOnNetwork = true;
+        break;
+      }
+      // Another account's session (the server checked): nothing written, and
+      // nothing more of this account's goes on it.
+      if (isAccountChanged(err)) {
+        remaining.push(...queue.slice(i));
+        stoppedOnAccount = true;
+        break;
+      }
+      // A move a server without the move endpoint answered (404 / 405 — an
+      // older backend, a rollback): never a refusal of the figures — it
+      // waits, as for the network.
+      if (asMove && (status === 404 || status === 405)) {
+        remaining.push({ ...item, state: QUEUE_WAITING_NETWORK, httpStatus: status, lastTriedTs: Date.now() });
+        continue;
+      }
+      // Filed under a branch that is not this account's: said as that.
+      if (isBranchNotOwned(err)) {
+        remaining.push({
+          ...item,
+          state: QUEUE_FAILED,
+          errorCode: QUEUE_ERR_BRANCH_NOT_OWNED,
+          errorDetail: null,
+          httpStatus: status,
+          lastTriedTs: Date.now(),
+        });
+        continue;
+      }
       // A deleted, locked kasserapport holds the day (423, or a 409 from a
       // server that said it that way): nothing is in the books and this copy
       // is the only one. It stays, failed, with the server's own words.
@@ -466,12 +652,17 @@ export async function syncOfflineQueue(post, { postMove = null, onSent = null } 
       // A move whose NEW day is locked (409): nothing moved — the figures
       // are on no server but this copy (and, maybe, the old day's draft).
       // Never "already saved".
+      // (A move off a day locked elsewhere, or of a draft another move took
+      // to another day: nothing moved — said as that, R-c round 2 fix-up.)
       if (status === 409 && asMove) {
+        const code = isOldDayLocked(err) ? QUEUE_ERR_OLD_DAY_LOCKED : isMovedElsewhere(err) ? QUEUE_ERR_MOVED_ELSEWHERE : QUEUE_ERR_REJECTED;
+        const d = err.response?.data?.detail || {};
         remaining.push({
           ...item,
           state: QUEUE_FAILED,
-          errorCode: QUEUE_ERR_REJECTED,
-          errorDetail: errText(err, ""),
+          errorCode: code,
+          errorDetail: code === QUEUE_ERR_REJECTED ? errText(err, "") : null,
+          ...(code !== QUEUE_ERR_REJECTED ? { refusedDay: d.date || null, movedTo: d.to || null } : {}),
           httpStatus: status,
           lastTriedTs: Date.now(),
         });

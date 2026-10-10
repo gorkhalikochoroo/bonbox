@@ -195,15 +195,20 @@ def test_old_day_saved_elsewhere_since_is_kept_and_returned(db, client):
     assert _audits(db, u, "close.deleted") == []
 
 
-def test_old_day_locked_is_kept(db, client):
+def test_old_day_locked_is_kept_and_nothing_moves(db, client):
+    """R-c round 2 fix-up (MB, contract change — listed as a narrowing): a
+    move off a day locked elsewhere used to file the figures on the new day
+    beside the locked day (both days held them). Now the whole move is
+    refused (409 old_day_locked) — the locked day is kept, nothing filed."""
     u = _user(db)
     a = _save(client, u, A, 12000)
     _behind(db, a["id"], status="confirmed")
-    out = _move(client, u, from_base=a["updated_at"]).json()
-    assert out["moved"] is False and out["old_status"] == "locked"
-    assert out["old"]["status"] == "confirmed"
+    r = _move(client, u, from_base=a["updated_at"])
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "old_day_locked"
+    assert r.json()["detail"]["current"]["status"] == "confirmed"
     assert [x.status for x in _live(db, u, A)] == ["confirmed"]
-    assert len(_live(db, u, B)) == 1
+    assert len(_live(db, u, B)) == 0
 
 
 def test_a_form_that_holds_no_version_of_the_old_day_deletes_nothing(db, client):

@@ -11,9 +11,14 @@
  *   23027  the same race the other way round: moved online ("Flyttet fra"),
  *          then another visit's copy of the old day files it — the line
  *          stops saying "Flyttet fra" (MT, every step).
- *   23026  a move off a day another device LOCKED: the line says the day is
- *          locked — never "kladden … står der stadig" (it is no draft); the
- *          harness's MV holds every sequence to it now (MVlocked).
+ *   23026  a move off a day another device LOCKED. R-c round 2 fix-up (MB —
+ *          CONTRACT CHANGE, listed as a narrowing): the server refuses the
+ *          whole move (409 old_day_locked) — it used to file the figures on
+ *          the new day beside the locked day ("Kopieret til … — … er låst og
+ *          står uændret"), the same figures on both days. The page is back
+ *          on the locked day and says so ("… er låst på en anden enhed —
+ *          intet er flyttet"); the harness's MV holds every sequence to it
+ *          (MVlocked).
  * R-c review (10 Oct):
  *   23028  figures typed on a dead line for a day the form then let go of
  *          ("Hent {dag}s salg"), the day's stored draft continued from its
@@ -147,7 +152,7 @@ const PLANS = [
     A.expect(A.hasText("dcDateMovedCopied:")).toBe(true);
     A.expect(Boolean(A.findBtn(/^dcDateMovedDeleteOld$/))).toBe(false);
   }],
-  ["(b) a move off a day another device LOCKED: 3.000 saved for today, another device locks today, the figures moved to yesterday — the line says today is locked (\"… er låst og står uændret\"), never \"kladden … står der stadig\", and offers no delete", 23026, async (A) => {
+  ["(b) a move off a day another device LOCKED: 3.000 saved for today, another device locks today, the figures moved to yesterday — R-c round 2 fix-up (MB): the whole move is refused, nothing is filed on yesterday (the figures were on both days), the page is back on today and says today is locked and nothing was moved — never \"kladden … står der stadig\", no delete", 23026, async (A) => {
     await A.skip();
     await A.typeBox("rev", "food", "3.000");
     A.expect(stored(A.S)).toMatchObject({ status: "draft", revenue_total: 3000 });
@@ -156,18 +161,17 @@ const PLANS = [
     await A.moveDate(A.yesterday, "yes");
     await A.settleAll();
     await A.step("look again", () => {});
-    A.expect(stored(A.S, `${A.yesterday}|`)?.revenue_total).toBe(3000);
-    A.expect(stored(A.S).status).toBe("confirmed");
-    A.expect(A.hasText("dcDateMovedCopiedLocked:")).toBe(true);
+    A.expect(stored(A.S, `${A.yesterday}|`)).toBeUndefined();
+    A.expect(stored(A.S)).toMatchObject({ status: "confirmed", revenue_total: 3000 });
+    A.expect(A.q("#close-date").value).toBe(A.today);
+    A.expect(A.hasText("dcDateMoveRefusedLocked:")).toBe(true);
+    A.expect(A.hasText("dcDateMovedCopiedLocked")).toBe(false);
     A.expect(A.hasText("dcDateMovedCopied:")).toBe(false);
     A.expect(A.hasText("dcDateMovedMaybeCopied")).toBe(false);
     A.expect(A.hasText("dcDateMovedFrom")).toBe(false);
     A.expect(Boolean(A.findBtn(/^dcDateMovedDeleteOld$/))).toBe(false);
-    // The owner goes on on yesterday: its next save is where MV looks again
-    // (the locked day is said locked — MVlocked).
-    await A.typeBox("pay", "mobilepay", "500");
-    A.expect(stored(A.S, `${A.yesterday}|`)?.payment_breakdown?.mobilepay).toBe(500);
-    A.expect(A.hasText("dcDateMovedCopiedLocked:")).toBe(true);
+    // Today is the locked day it is: said so, never offered as a draft.
+    A.expect(A.hasText("dcDayAlreadyLocked")).toBe(true);
   }],
   // R-c review (10 Oct).
   ["(review 1) today's 10.000 saved, 12.000 typed over it on a dead line, \"Hent {dag}s salg\", back on today and the banner's \"Fortsæt kladden\" on the 10.000: the unsent 12.000 is never dropped unasked — kept on this phone as a copy that says what it holds, stored over the 10.000 only by its own tap", 23028, async (A) => {

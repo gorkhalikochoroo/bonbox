@@ -149,7 +149,7 @@
  */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { businessTodayIso, dateLocale } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { addToOfflineQueue } from "../utils/dailyCloseQueue";
@@ -176,6 +176,12 @@ export const STATS = {
   // Start forfra tapped with a save on its way (M6race), saves that died on
   // a dead line, writers with no save id, day reads that could not check.
   D: 0, Dother: 0, MT: 0, MVpending: 0, MVdeleteOld: 0, M6race: 0, deadSaves: 0, noIdWriters: 0, unknownReads: 0,
+  // R-c round 2 SEQ LANE (rc2): full reloads / app kills (a fresh JS world),
+  // account switches (logout A -> login B on the same phone), and the lane's
+  // invariants X (accounts), MB (both days), L (last figures kept), LD (a
+  // locked day never offered as a draft).
+  fullReloads: 0, kills: 0, switches: 0, deadGenReqs: 0, unauthReqs: 0, bReqs: 0, X: 0, X0: 0, MB: 0, MB1: 0, L: 0, LD: 0,
+  inFlightMoves: 0, inFlightTypes: 0, inFlightLocks: 0, qStuckAfterReload: 0, moveKeptHeld: 0,
 };
 
 /* ─── seeded randomness ─────────────────────────────────────────────── */
@@ -507,6 +513,12 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
   S.moves = new Map();
   // Which visit first sent each save id (a save, or a move's new day).
   S.saveIdMount = new Map();
+  // R-c round 2 fix-up — every save id the server stored (a copy of the same
+  // save sent again is answered as the day is: the server's replay), and
+  // what each move deleted (its version, and the day it went to: a second
+  // move of that version elsewhere is refused — moved_elsewhere).
+  S.landedSaveIds = new Set();
+  S.moveDeleted = new Map();
   S.moveAnswer = (rec, replay) => {
     const from = rec.from.map((f) => {
       const r = S.rows.get(`${f.date}|${f.branch_id || ""}`);
@@ -525,7 +537,7 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
   // `drop` (round 21 review): a save reaches the server and is stored, and
   // its answer is LOST (a dropped socket, a 4G handoff, the timeout): the
   // page gets a network error with no response.
-  S.holding = { post: false, del: false, answer: false, drop: false, offline: false, dead: false };
+  S.holding = { post: false, del: false, answer: false, drop: false, offline: false, dead: false, hang: false, void: false };
   S.held = [];
   S.releaseHeld = () => { const h = S.held.splice(0); h.forEach((go) => go()); return h.length; };
   const offlineErr = () => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
@@ -612,6 +624,34 @@ export function installApi(S, get, post, del = null) {
           return Promise.resolve({ data: S.moveAnswer(done, true) });
         }
         const key = `${copy.date}|${copy.branch_id || ""}`;
+        const froms0 = [{ date: req.from_date, branch_id: req.from_branch_id || null, base_updated_at: req.from_base_updated_at, base_save_id: req.from_base_save_id },
+          ...(req.also_from || [])];
+        // R-c round 2 fix-up — an old day locked: the whole move refused,
+        // nothing written (it used to file the new day beside the locked day).
+        for (const f of froms0) {
+          const r = S.rows.get(`${f.date}|${f.branch_id || ""}`);
+          if (r && r.status !== "draft") {
+            STATS.moveOldLocked = (STATS.moveOldLocked || 0) + 1;
+            return Promise.reject(Object.assign(new Error("old day locked"), {
+              response: { status: 409, data: { detail: { code: "old_day_locked", date: f.date, branch_id: f.branch_id || null, current: { ...r } } } },
+            }));
+          }
+        }
+        // …and a version of an old day another move already took elsewhere.
+        const okTo = new Set([copy.date, ...froms0.map((f) => f.date)]);
+        for (const f of froms0) {
+          const k = `${f.date}|${f.branch_id || ""}`;
+          if (S.rows.get(k) || (f.base_updated_at == null && !f.base_save_id)) continue;
+          const went = (S.moveDeleted.get(k) || []).find((e) => !okTo.has(e.to)
+            && ((f.base_updated_at != null && e.updated_at && !(e.updated_at > f.base_updated_at)) || (f.base_save_id && e.lastSave === f.base_save_id)));
+          if (went) {
+            STATS.moveElsewhere = (STATS.moveElsewhere || 0) + 1;
+            const there = S.rows.get(`${went.to}|${copy.branch_id || ""}`);
+            return Promise.reject(Object.assign(new Error("moved elsewhere"), {
+              response: { status: 409, data: { detail: { code: "moved_elsewhere", date: f.date, branch_id: f.branch_id || null, to: went.to, ...(there ? { current: { ...there } } : {}) } } },
+            }));
+          }
+        }
         if (S.rows.get(key)?.status === "confirmed") {
           S.lockConflicts += 1;
           S.lockHits.push({ key, mount: tags.__mount ?? null });
@@ -627,17 +667,22 @@ export function installApi(S, get, post, del = null) {
           }));
         }
         const prev = S.rows.get(key);
-        if (prev && tags.__mount != null && !tags.__queued && S.verOf(prev) > S.seenBy(tags.__mount, key)) {
+        if (prev && tags.__mount != null && !tags.__queued && !tags.__viaQueue && S.verOf(prev) > S.seenBy(tags.__mount, key)) {
           S.stale.push({ date: copy.date, mount: tags.__mount, version: S.verOf(prev), seen: S.seenBy(tags.__mount, key),
             writer: S.writer.get(key), was: { revenue_total: prev.revenue_total, payment_breakdown: prev.payment_breakdown, notes: prev.notes } });
         }
         S.posts.push({ ...copy, ...tags, __move: true });
         const row = S.save(copy);
         S.lastSaveId.set(key, copy.save_id || null);
+        if (copy.save_id) S.landedSaveIds.add(copy.save_id);
         S.writer.set(key, tags.__mount != null ? tags.__mount : "page");
-        S.see(tags.__mount, key, S.verOf(row));
-        S.formSee(tags.__mount, key, S.verOf(row));
-        if (!tags.__queued) S.formHold(tags.__mount, key, S.verOf(row));
+        // (rc2 — a copy the offline queue sent for a visit that is gone: the
+        // open visit never saw that version — it is listed or opened later.)
+        if (!tags.__viaQueue) {
+          S.see(tags.__mount, key, S.verOf(row));
+          S.formSee(tags.__mount, key, S.verOf(row));
+          if (!tags.__queued) S.formHold(tags.__mount, key, S.verOf(row));
+        }
         S.byQueue.set(key, Boolean(tags.__queued));
         const froms = [{ date: req.from_date, branch_id: req.from_branch_id || null, base_updated_at: req.from_base_updated_at, base_save_id: req.from_base_save_id },
           ...(req.also_from || [])];
@@ -649,24 +694,44 @@ export function installApi(S, get, post, del = null) {
           if (r.status !== "draft") return { ...out, status: "locked" };
           const owned = (f.base_updated_at != null && r.updated_at && !(r.updated_at > f.base_updated_at))
             || (Boolean(f.base_save_id) && S.lastSaveId.get(k) === f.base_save_id);
-          if (!owned) return { ...out, status: "draft_changed" };
+          if (!owned) {
+            (S.moveKept || (S.moveKept = [])).push({ key: k, ver: S.verOf(r), writer: S.writer.get(k), saveId: req.save_id,
+              mount: tags.__mount ?? null, sender: S.saveIdMount.get(req.save_id) ?? tags.__mount ?? null,
+              base: f.base_updated_at ?? null, baseSave: f.base_save_id ?? null, lastSave: S.lastSaveId.get(k) ?? null, updated: r.updated_at, row: { ...r } });
+            return { ...out, status: "draft_changed" };
+          }
           // (D: the version the move names is the one a FORM held — the visit
           // whose save wrote it (base_save_id), or one whose form held it
           // (base_updated_at). A move the queue sends for a visit that is gone
           // deletes on that visit's word, not the visit open now.)
           const ver = S.verOf(r);
+          // (R-c round 2 fix-up, removal review — the delete is credited to
+          // the visit that made this attempt of the move (the first to send
+          // its save_id), or the visit whose save wrote that version
+          // (base_save_id) — never to any visit that ever held it: D then
+          // checks the move's own visit held the version it deleted.)
           let heldBy = f.base_save_id && S.lastSaveId.get(k) === f.base_save_id ? S.saveIdMount.get(f.base_save_id) : null;
-          if (heldBy == null) heldBy = [...S.formHeld.entries()].find(([, m]) => (m.get(k) || 0) >= ver)?.[0] ?? null;
+          if (heldBy == null) heldBy = S.saveIdMount.get(req.save_id) ?? null;
+          (S.moveDeleted.get(k) || S.moveDeleted.set(k, []).get(k)).push({ to: copy.date, updated_at: r.updated_at, lastSave: S.lastSaveId.get(k) ?? null, ver });
           S.recordDelete(k, r, { mount: heldBy ?? tags.__mount ?? S.mountNow, action: "move" });
           return { ...out, status: "deleted", id: r.id };
         });
         const rec = { saveId: req.save_id, key, closeId: row.id, from,
           moved: from.every((f) => f.status === "deleted" || f.status === "none") };
+        if (globalThis.process?.env?.SEQ_DEBUG) console.log(`MOVE-DONE save ${req.save_id} by visit ${tags.__mount} (first sent by ${S.saveIdMount.get(req.save_id)}) ${req.from_date}→${copy.date} base ${req.from_base_updated_at}/${req.from_base_save_id} also ${JSON.stringify(req.also_from)} → ${JSON.stringify(from.map((f) => f.status))}`);
         S.moves.set(req.save_id, rec);
         return Promise.resolve({ data: S.moveAnswer(rec, false) });
       };
       // No page left to hear it (R-c round 2): the request is done, the answer goes nowhere.
       const toPage = (out, res, rej) => { if (S.goneMounts.has(sentBy)) { out.catch(() => {}); return; } out.then(res, rej); };
+      // rc2 — a request that HANGS: stored at once ("hang") or never arriving
+      // ("void"), and its answer is a timeout, later (released with the held).
+      if (S.holding.hang || S.holding.void) {
+        const out = S.holding.hang ? arrive() : null;
+        if (out) out.catch(() => {});
+        STATS.hangs = (STATS.hangs || 0) + 1;
+        return new Promise((res, rej) => { S.held.push(() => { if (S.goneMounts.has(sentBy)) return; if (out) { S.lostKeys.add(`${copy.date}|${copy.branch_id || ""}`); STATS.lostAnswers += 1; } rej(Object.assign(new Error("timeout of 60000ms exceeded"), { code: "ECONNABORTED" })); }); });
+      }
       if (S.holding.post || S.held.length) {
         return new Promise((res, rej) => { S.held.push(() => toPage(arrive(), res, rej)); });
       }
@@ -701,6 +766,13 @@ export function installApi(S, get, post, del = null) {
       const tags = S.tagAtSend ? S.tagAtSend(copy) : {};
       const arrive = () => {
         const key = `${copy.date}|${copy.branch_id || ""}`;
+        // R-c round 2 fix-up — the same save sent again (a copy kept on the
+        // phone): stored already — answered as the day is, nothing written.
+        if (copy.save_id && S.landedSaveIds.has(copy.save_id)) {
+          STATS.saveReplays = (STATS.saveReplays || 0) + 1;
+          const now = S.rows.get(key);
+          return Promise.resolve({ data: now ? { ...now, replay: true } : { replay: true, id: null, date: copy.date, branch_id: copy.branch_id || null, status: null } });
+        }
         if (S.rows.get(key)?.status === "confirmed") {
           S.lockConflicts += 1;
           S.lockHits.push({ key, mount: tags.__mount ?? null });
@@ -725,17 +797,22 @@ export function installApi(S, get, post, del = null) {
         // it if anything newer was stored since. Round 23: offline now lasts
         // several steps, and a page left offline sends its copy on the next.)
         const prev = S.rows.get(key);
-        if (prev && tags.__mount != null && !tags.__queued && S.verOf(prev) > S.seenBy(tags.__mount, key)) {
+        if (prev && tags.__mount != null && !tags.__queued && !tags.__viaQueue && S.verOf(prev) > S.seenBy(tags.__mount, key)) {
           S.stale.push({ date: copy.date, mount: tags.__mount, version: S.verOf(prev), seen: S.seenBy(tags.__mount, key),
             writer: S.writer.get(key), was: { revenue_total: prev.revenue_total, payment_breakdown: prev.payment_breakdown, notes: prev.notes } });
         }
         S.posts.push({ ...copy, ...tags });
         const row = S.save(copy);
         S.lastSaveId.set(key, copy.save_id || null);
+        if (copy.save_id) S.landedSaveIds.add(copy.save_id);
         S.writer.set(key, tags.__mount != null ? tags.__mount : "page");
-        S.see(tags.__mount, key, S.verOf(row));
-        S.formSee(tags.__mount, key, S.verOf(row));
-        if (!tags.__queued) S.formHold(tags.__mount, key, S.verOf(row));
+        // (rc2 — a copy the offline queue sent for a visit that is gone: the
+        // open visit never saw that version — it is listed or opened later.)
+        if (!tags.__viaQueue) {
+          S.see(tags.__mount, key, S.verOf(row));
+          S.formSee(tags.__mount, key, S.verOf(row));
+          if (!tags.__queued) S.formHold(tags.__mount, key, S.verOf(row));
+        }
         S.byQueue.set(key, Boolean(tags.__queued));
         return Promise.resolve({ data: { ...row } });
       };
@@ -743,6 +820,12 @@ export function installApi(S, get, post, del = null) {
       // (A page gone since — R-c round 2 — hears no answer.)
       const sentBy = S.mountNow;
       const toPage = (out, res, rej) => { if (S.goneMounts.has(sentBy)) { out.catch(() => {}); return; } out.then(res, rej); };
+      if (S.holding.hang || S.holding.void) {
+        const out = S.holding.hang ? arrive() : null;
+        if (out) out.catch(() => {});
+        STATS.hangs = (STATS.hangs || 0) + 1;
+        return new Promise((res, rej) => { S.held.push(() => { if (S.goneMounts.has(sentBy)) return; if (out) { S.lostKeys.add(`${copy.date}|${copy.branch_id || ""}`); STATS.lostAnswers += 1; } rej(Object.assign(new Error("timeout of 60000ms exceeded"), { code: "ECONNABORTED" })); }); });
+      }
       if (S.holding.post || S.held.length) {
         return new Promise((res, rej) => { S.held.push(() => toPage(arrive(), res, rej)); });
       }
@@ -764,6 +847,48 @@ export function installApi(S, get, post, del = null) {
     }
     return Promise.resolve({ data: {} });
   });
+}
+
+/* ─── R-c round 2 seq lane: two accounts, page loads ─────────────────── */
+export const USER_A = { id: "acctA", currency: "DKK", business_type: "restaurant" };
+export const USER_B = { id: "acctB", currency: "DKK", business_type: "restaurant" };
+export const B_MARK = 7777;
+/**
+ * The requests as the phone sends them: under the session signed in when a
+ * request LEAVES (the cookie / bearer the browser attaches then) — account A,
+ * account B (its own server), or none (401). A request from a page whose JS
+ * world is gone (a full reload, the app killed — its module generation is no
+ * longer live) never leaves the phone and never answers.
+ */
+export function installRouter(S, SB, get, post, del) {
+  const a = { get: vi.fn(), post: vi.fn(), del: vi.fn() };
+  const b = { get: vi.fn(), post: vi.fn(), del: vi.fn() };
+  installApi(S, a.get, a.post, a.del);
+  installApi(SB, b.get, b.post, b.del);
+  S.allSent = [];
+  const unauth = () => Promise.reject(Object.assign(new Error("Request failed with status code 401"), { response: { status: 401, data: { detail: "Not authenticated" } } }));
+  const route = (kind) => (...args) => {
+    const gen = globalThis.__seqSender;
+    if (gen != null && S.liveGens && !S.liveGens.has(gen)) { STATS.deadGenReqs += 1; return new Promise(() => {}); }
+    const sess = S.session === undefined ? "A" : S.session;
+    if (globalThis.process?.env?.SEQ_TRACE) console.log(`REQ ${kind} ${args[0]} ${kind === "get" ? JSON.stringify(args[1]?.params || {}) : ""} sess=${sess} gen=${gen} mount=${S.mountNow} online=${window.navigator.onLine} hold=${Object.keys(S.holding).filter((k) => S.holding[k]).join("+")} step#${STATS.steps}`);
+    if (kind === "post") {
+      const [url, body] = args;
+      const b0 = url === "/daily-close/move" ? body?.body : (url === "/daily-close" ? body : null);
+      if (b0 && b0.date) S.allSent.push({ body: JSON.parse(JSON.stringify(b0)), url, move: url === "/daily-close/move", req: url === "/daily-close/move" ? JSON.parse(JSON.stringify(body)) : null, session: sess, gen, mount: S.mountNow, holding: Object.keys(S.holding).filter((k) => S.holding[k]) });
+    }
+    if (sess === null) { STATS.unauthReqs += 1; return unauth(); }
+    if (sess === "B") STATS.bReqs += 1;
+    const h = sess === "B" ? b : a;
+    // (A request the offline queue sends — on behalf of the visit that kept
+    // it — is not the open visit's own: R / I6 / M4b hold visits to theirs.)
+    const prevQ = S.viaQueueNow;
+    S.viaQueueNow = /syncOfflineQueue/.test(String(new Error().stack));
+    try { return h[kind](...args); } finally { S.viaQueueNow = prevQ; }
+  };
+  get.mockImplementation(route("get"));
+  post.mockImplementation(route("post"));
+  if (del) del.mockImplementation(route("del"));
 }
 
 /* ─── the page, read and driven ─────────────────────────────────────── */
@@ -883,7 +1008,7 @@ const OTHER_PHOTO = "u1/kasserapport/other-device.jpg";
 const VALUES = ["750", "2.000", "9.000", "5.000", "14.000", "1.234,50", "3.000", "12.000"];
 
 export async function runSequence(seed, page, { S: givenS, get, post, del = null } = {}, { variant = null, plan = null } = {}) {
-  const { DailyClosePage } = page;
+  let DailyClosePage = page.DailyClosePage;
   // "r21": the r20 variant over a slow / reordered network (answers late,
   // the list before a save lands, leaving during a save), another device
   // saving figures, and a day whose own till is payments only.
@@ -892,7 +1017,12 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // "r23": the r22 variant with the page's questions answered at random
   // (a move: yes / no / "Hent salg"; Start forfra: yes, now and then no) and
   // a scan whose connection drops while it is read.
-  const r23 = variant === "r23";
+  // "rc2" (R-c round 2 seq lane): r23, biased to moves / offline / lost and
+  // late answers / other devices / Start forfra / scans / "Hent salg", plus
+  // full reloads and app kills mid-save and mid-move (a fresh JS world: the
+  // page's modules loaded again) and account switches (logout A -> login B).
+  const rc2 = variant === "rc2";
+  const r23 = variant === "r23" || rc2;
   const r22 = variant === "r22" || r23;
   const r21 = variant === "r21" || r22;
   // "r20": the review variant's openings and timings, over the round-20
@@ -937,6 +1067,60 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   if (opening === "momsfri") exemptByDate[today] = 2000;
   const S = givenS || createServer({ exemptByDate, rows: seededRows, syncedDates: [twoDaysAgo] });
   installApi(S, get, post, del);
+  // rc2 — a page load is a module generation; each sequence starts in a JS
+  // world of its own (never another sequence's leftovers on its server).
+  const makeApiModule = (gen) => {
+    const w = (fn) => (...a) => { const prev = globalThis.__seqSender; globalThis.__seqSender = gen; try { return fn(...a); } finally { globalThis.__seqSender = prev; } };
+    return { default: { get: w((...a) => get(...a)), post: w((...a) => post(...a)), patch: vi.fn(), delete: w((...a) => (del ? del(...a) : Promise.resolve({ data: null }))) } };
+  };
+  // The queue module of a page load: a JS world that is gone (reloaded,
+  // killed, or an earlier sequence's) reads nothing and writes nothing — its
+  // timers firing later never touch this phone's storage.
+  const DEAD_QUEUE = { withQueueAccount: (_a, fn) => fn(), getOfflineQueue: () => [], addToOfflineQueue: () => null, addFailedToOfflineQueue: () => null,
+    writeOfflineQueue: () => false, updateQueueItem: () => [], removeFromOfflineQueue: () => [], queueAccount: () => null,
+    syncOfflineQueue: async () => ({ remaining: [], synced: 0, stoppedOnNetwork: true, total: 0 }) };
+  const wrapQueue = (real, gen) => {
+    const out = {};
+    for (const [k, v] of Object.entries(real)) {
+      out[k] = typeof v === "function" && /Queue|Offline|queue/.test(k) && k !== "isQueuedMove" && k !== "queueSummary"
+        ? (...a) => (globalThis.__seqLiveGens?.has(gen) ? v(...a) : (DEAD_QUEUE[k] ? DEAD_QUEUE[k](...a) : undefined))
+        : v;
+    }
+    // (R-c round 2 fix-up — whose form holds a queued move: the visit that
+    // registered the holder, also when that form writes after its page is
+    // gone — D credits a move's delete to the visit whose form made it.)
+    const reg = out.registerQueueHolder;
+    out.registerQueueHolder = (...a) => {
+      const id = reg(...a);
+      if (id) (S.holderMount || (S.holderMount = new Map())).set(id, S.mountNow);
+      return id;
+    };
+    return out;
+  };
+  const freshPage = async () => {
+    vi.resetModules();
+    const gen = (globalThis.__seqGen = (globalThis.__seqGen || 0) + 1);
+    vi.doMock("../services/api", () => makeApiModule(gen));
+    vi.doMock("../utils/dailyCloseQueue", async (importOriginal) => wrapQueue(await importOriginal(), gen));
+    const mod = await import("../pages/DailyClosePage");
+    DailyClosePage = mod.default;
+    // (Importing the page made its api module: that generation is live.)
+    return globalThis.__seqGen;
+  };
+  let SB = null;
+  const bRow = (id, date) => ({ id, date, branch_id: null, status: "draft", revenue_total: B_MARK, revenue_breakdown: { food: B_MARK },
+    payment_breakdown: { card: B_MARK }, moms_mode: "auto", moms_total: 1555.4, source_meta: { kind: "typed" }, closed_by: null, notes: "Bkonto" });
+  if (rc2) {
+    SB = createServer({ rows: [bRow("rowB1", today), bRow("rowB2", yesterday)], syncedDates: [twoDaysAgo] });
+    installRouter(S, SB, get, post, del);
+    S.session = "A";
+    globalThis.__seqUser = USER_A;
+    S.liveGens = new Set();
+    globalThis.__seqLiveGens = S.liveGens;
+    S.liveGens.add(await freshPage());
+  }
+  const moveIntents = [];
+  let rc2Reloaded = false;
   // r23 (round 23 review): now and then the server cannot read who wrote a
   // day last — every day read of the sequence names no last_save_id.
   if (r23 && !plan && chance2(0.12)) { S.saveIdUnknown = true; STATS.unknownReads += 1; }
@@ -964,7 +1148,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     return a;
   };
   const log = [];
-  const fail = (inv, msg) => `[seed ${seed}] ${inv}: ${msg}\n  steps: ${log.join(" → ")}${globalThis.process?.env?.SEQ_DEBUG
+  const fail = (inv, msg) => `[seed ${seed}] ${inv}: ${msg}\n  steps: ${log.join(" → ")}${globalThis.process?.env?.SEQ_PAGE ? `\n  page: ${(document.querySelector('[data-testid="dc-date-moved"]')?.textContent || "(no date line)")} | dialogs: ${JSON.stringify(dialogs.slice(-3).map((d) => d.message))} | text: ${document.body.textContent.replace(/\s+/g, " ").slice(0, 600)}` : ""}${globalThis.process?.env?.SEQ_DEBUG
     ? `\n  saves: ${JSON.stringify(S.posts.map((b) => ({ seq: b.__seq, m: b.__mount, base: b.base_updated_at, photo: b.receipt_photo, rev: b.revenue_breakdown, total: b.revenue_total_override, meta: b.source_meta?.kind })))}\n  refused: ${JSON.stringify(S.refused.map((b) => ({ seq: b.__seq, base: b.base_updated_at, stored: b.__stored, photo: b.receipt_photo })))}`
     : ""}`;
 
@@ -1052,7 +1236,21 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   // over in this mount (shown the other version, its amount and that its
   // photo goes): "" may clear those — by the owner's choice, never in silence.
   const keptOverHere = new Set();
+  // R-c round 2 fix-up (removal review) — a move's attempt is the visit's
+  // that wrote it to this phone (a queued move made offline is first SENT by
+  // a later visit's queue): noted when the visit that wrote it ends.
+  const noteQueuedMoves = () => {
+    for (const k of ["bonbox_dc_offline_queue", "bonbox_dc_offline_moves"]) {
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem(k) || "[]"); } catch { list = []; }
+      for (const it of Array.isArray(list) ? list : []) {
+        const sid = it?.move?.save_id;
+        if (sid && !S.saveIdMount.has(sid)) S.saveIdMount.set(sid, (it.heldBy && S.holderMount?.get(it.heldBy)) ?? S.mountNow);
+      }
+    }
+  };
   const mount = (entry = "/daily-close") => {
+    noteQueuedMoves();
     postedHere.clear(); createdHere.clear(); pendingMove = null; startOverCheck = null;
     filedPhotosHere.clear(); keptOverHere.clear();
     // A new visit: a new mount of the page, knowing only what it is given.
@@ -1065,7 +1263,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const want = row ? (row.status === "confirmed" ? "dcDayAlreadyLocked" : "dcDayHasDraft") : "scanZReportTitle";
     for (let i = 0; i < 10 && !hasText(want); i++) await settle();
   };
-  const unmount = async () => { if (mounted) { mounted.unmount(); mounted = null; } await settle(); };
+  const unmount = async () => { if (mounted) { mounted.unmount(); mounted = null; } noteQueuedMoves(); await settle(); };
 
   // F1 — walking past the cash step of a reopened draft: the drawer and the
   // float are the ones it was counted with (cash_counted + cash_float), never
@@ -1121,6 +1319,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       __seq: ++sendSeq,
       // The visit of the page that sent it (R).
       __mount: S.mountNow,
+      __viaQueue: Boolean(rc2 && S.viaQueueNow),
       // A draft copy kept on this device (the offline queue sends it with no
       // save_id of its own — every save the form sends carries one).
       __queued: body.status === "draft" && !body.save_id,
@@ -1143,6 +1342,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     // A save the page's previous visit sent, landing now (left while it was
     // on its way): not this visit's.
     if (body.__mount != null && body.__mount !== S.mountNow) return origPush(body);
+    if (body.__viaQueue) return origPush(body);
     postedHere.add(body.date);
     if (body.receipt_photo && body.receipt_photo !== M.draftPhoto) filedPhotosHere.add(body.receipt_photo);
     if (!S.rows.has(key)) createdHere.add(body.date);
@@ -1199,6 +1399,11 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
       // deleted).
       const dk = `${String(d.date).slice(0, 10)}|${d.branch_id || ""}`;
       if (d.__action === "card" && (S.offered.get(`${d.__mount}|${dk}`) || 0) >= d.__ver) { STATS.Dshown = (STATS.Dshown || 0) + 1; continue; }
+      // (R-c round 2: the move's question names a refused draft — "Kladden
+      // for {dag} slettes" — and the move deletes exactly the version shown
+      // to that visit. Every variant, now the delete is credited to the
+      // move's own visit — R-c round 2 fix-up.)
+      if (d.__action === "move" && (S.offered.get(`${d.__mount}|${dk}`) || 0) >= d.__ver) { STATS.Dshown = (STATS.Dshown || 0) + 1; continue; }
       const others = d.__writer === "other" || d.__writer === "seed" || d.__byQueue
         || (typeof d.__writer === "number" && d.__writer !== d.__mount);
       if (!others) continue;
@@ -1255,6 +1460,29 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     // filed, "Flyttet fra" only when the old day's draft is gone; an old day
     // still holding a draft is said on the new day ("Kopieret til … står der
     // stadig"). A day reported moved is never on the old date.
+    // R-c round 2 fix-up (MB) — a move the server refused whole (an old day
+    // locked elsewhere, or its draft moved to another day already): nothing
+    // of it is on the new day, and the page says so — on the locked day
+    // itself when that is why (never "Kopieret til" beside a locked day: the
+    // same figures on both days).
+    const refusedNote = q('[data-testid="dc-date-moved"][data-state="refused"]');
+    if (pendingMove && refusedNote) {
+      const mv = pendingMove;
+      pendingMove = null;
+      STATS.MV += 1;
+      const MVR = "MV a move refused whole moves nothing";
+      expect(S.posts.slice(mv.posts).some((b) => b.__move && b.date === mv.to),
+        fail(MVR, `the page says the move was refused (${refusedNote.textContent}), yet a move filed ${mv.to}`)).toBe(false);
+      if (/dcDateMoveRefusedLocked/.test(refusedNote.textContent)) {
+        STATS.MVlocked += 1;
+        // (The day the line names — the move's first day, or one it passed
+        // through, moved on again before it was filed.)
+        const named = [today, yesterday, twoDaysAgo].find((d) => refusedNote.textContent.includes(`dcDateMoveRefusedLocked:${shortDay(d)}`)) || mv.from;
+        const lockedRow = S.rows.get(`${named}|`);
+        expect(Boolean(lockedRow) && lockedRow.status === "confirmed", fail(MVR, `the page says ${named} is locked; it holds ${brief(lockedRow)}`)).toBe(true);
+        expect(q("#close-date")?.value, fail(MVR, `refused because ${named} is locked, yet the page is on ${q("#close-date")?.value}`)).toBe(named);
+      }
+    }
     if (pendingMove && S.posts.slice(pendingMove.posts).some((b) => b.date === pendingMove.to)) {
       const mv = pendingMove;
       pendingMove = null;
@@ -1310,7 +1538,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         // held (it opened it): D says which.
         STATS.newerElsewhere += 1;
         const gone = S.deletedRows.slice(mv.deletes).filter((d) => `${String(d.date).slice(0, 10)}|${d.branch_id || ""}` === key && d.__writer === "other");
-        expect(gone.every((d) => d.__formHeld >= d.__ver), fail(MV,
+        expect(gone.every((d) => d.__formHeld >= d.__ver || (rc2 && (S.offered.get(`${d.__mount}|${key}`) || 0) >= d.__ver)), fail(MV,
           `${mv.from}: another device's version of the draft was deleted with the moved figures (${gone.map(brief).join(", ")})`)).toBe(true);
       } else if (onTo && mv.filed) {
         expect(Boolean(namedDay), fail(MV, `${mv.from}'s draft is gone and the figures are on ${mv.to}, and nothing says they moved`)).toBe(true);
@@ -1482,6 +1710,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     await storedChecks();
     noDeadEnd();
     checkStale();
+    if (rc2) { checkLockedNotDraft(); checkMoveKept("after a step"); }
     if (r22) checkLockedElsewhere();
     // The page asks which draft wins: nothing of the day is held to the
     // stored row until the owner answers (the next step does).
@@ -1595,7 +1824,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const step = async (label, fn, then, { noHold = false, noSlow = false } = {}) => {
     // The review variant: now and then the network is slow for a step — its
     // saves and deletes are still on their way during the next one.
-    if (review && !plan && !noSlow && !slowStep && !S.held.length && chance(0.3)) {
+    if (review && !plan && !noSlow && !slowStep && !S.held.length && (rc2 ? chance2(0.42) : chance(0.3))) {
       slowStep = true;
       slowLeft = 1;
       // r22: a third of the time the saves are held, a third their answers
@@ -2027,12 +2256,16 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     const from = el.value;
     const fromRow = S.rows.get(`${from}|`);
     const filedFrom = postedHere.has(from) && Boolean(fromRow) && fromRow.status === "draft";
+    const intent0 = rc2 && fromRow && fromRow.status === "draft" ? {
+      from, to, ver: S.verOf(fromRow), held: S.formHeldBy(S.mountNow, `${from}|`) >= S.verOf(fromRow),
+      writer: S.writer.get(`${from}|`), mount: S.mountNow, postsAt: S.posts.length, label: null,
+    } : null;
     const n0 = dialogs.length;
     const deletes0 = S.deletedRows.length;
     let chosen = null;
     answerNext = (o) => {
       if (/dcMoveTarget/.test(String(o.title || ""))) { chosen = "target"; return false; }
-      let a = answer || (r23 && !plan ? (o.extraLabel && chance(0.25) ? "extra" : (chance(0.15) ? "no" : "yes")) : "yes");
+      let a = answer || (r23 && !plan ? (o.extraLabel && (rc2 ? chance2(0.35) : chance(0.25)) ? "extra" : (chance(0.15) ? "no" : "yes")) : "yes");
       if (a === "extra" && !o.extraLabel) a = "yes";
       chosen = a;
       return a === "yes" ? true : a === "extra" ? "extra" : false;
@@ -2050,6 +2283,7 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         return;
       }
       if (chosen === "target") return;
+      if (intent0 && chosen === "yes") moveIntents.push({ ...intent0, label: log[log.length - 1] });
       if (chosen === "no") {
         STATS.MVno += 1;
         expect(q("#close-date")?.value, fail("MV answered no, nothing moves", `asked to move ${from} → ${to}, answered no`)).toBe(from);
@@ -2241,7 +2475,16 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
   const resolveConflict = async (how = null) => {
     if (!conflictShown()) return false;
     const choice = how || (chance(0.5) ? "reload" : "keep");
-    if (choice === "reload") await step("Hent den nyeste kladde", () => tap(/^dcDraftChangedReload$/), onReopenLoaded);
+    if (choice === "reload") {
+      // (rc2: the version the refusal showed is the page's to open — offline
+      // the form opens it as the refusal gave it.)
+      if (rc2) {
+        const key = `${businessDayShown()}|`;
+        const v = S.offered.get(`${S.mountNow}|${key}`) || 0;
+        S.see(S.mountNow, key, v); S.formSee(S.mountNow, key, v); S.formHold(S.mountNow, key, v);
+      }
+      await step("Hent den nyeste kladde", () => tap(/^dcDraftChangedReload$/), onReopenLoaded);
+    }
     else {
       // The owner keeps theirs over the version the refusal showed: that
       // version is known to this visit now (R — saved over by choice).
@@ -2350,6 +2593,371 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     await startOver();
   };
 
+
+  /* ─── R-c round 2 SEQ LANE (rc2): reloads, kills, accounts ─── */
+  // SEQ_SOFT="L,X,MB,LD": those classes are recorded (globalThis.__seqSoft)
+  // and the sequence goes on — the other invariants keep being checked.
+  const SOFT = new Set(String(globalThis.process?.env?.SEQ_SOFT || "").split(",").filter(Boolean));
+  const lane = (cls, ok, msg) => {
+    if (ok) return;
+    if (SOFT.has(cls)) { (globalThis.__seqSoft || (globalThis.__seqSoft = [])).push({ seed, cls, msg: String(msg).split("\n")[0], steps: log.join(" → ") }); return; }
+    expect(ok, msg).toBe(true);
+  };
+  const OQ = "bonbox_dc_offline_queue";
+  // (Both keys: queued moves are kept under their own — R-c round 2 fix-up.)
+  const queueItems = () => [OQ, "bonbox_dc_offline_moves"].flatMap((k) => { try { const a = JSON.parse(localStorage.getItem(k) || "[]"); return Array.isArray(a) ? a.filter((it) => it && it.payload) : []; } catch { return []; } });
+  const figVals = (r) => [...Object.values(r?.revenue_breakdown || {}), ...Object.values(r?.payment_breakdown || {})].map(Number);
+  const isB = (r) => figVals(r).every((v) => v === B_MARK) && (!r?.notes || /^Bkonto/.test(String(r.notes)));
+  const hasB = (r) => figVals(r).includes(B_MARK) || /Bkonto/.test(String(r?.notes || ""));
+  const sortKeys = (o) => JSON.stringify(Object.keys(o || {}).sort().map((k) => [k, Number(o[k])]));
+  const sameFigs = (a, b) => sortKeys(a?.revenue_breakdown) === sortKeys(b?.revenue_breakdown) && sortKeys(a?.payment_breakdown) === sortKeys(b?.payment_breakdown);
+  // X — nothing of account A is ever stored (or sent) under account B, and
+  // nothing of B's under A; B's drafts are never deleted for A.
+  let sentChecked = 0;
+  const checkAccounts = (when) => {
+    if (!SB) return;
+    STATS.X += 1;
+    const XA = "X nothing of account A is ever stored under account B";
+    for (const e of S.allSent.slice(sentChecked)) {
+      if (e.session === "B" && !isB(e.body)) {
+        STATS.X0 += 1;
+        lane("X", false, fail(XA, `${when}: A's ${e.move ? "MOVE" : "save"} of ${e.body.date} (${brief(e.body)}) was SENT on B's session${e.req ? ` — from ${e.req.from_date} (base ${e.req.from_base_updated_at}, save ${e.req.from_base_save_id})` : ""}`));
+      }
+      if (e.session === "A" && hasB(e.body)) lane("X", false, fail("X nothing of account B is ever stored under account A", `${when}: B's figures sent on A's session: ${brief(e.body)}`));
+    }
+    sentChecked = S.allSent.length;
+    for (const r of SB.rows.values()) lane("X", isB(r), fail(XA, `${when}: B's ${r.date} holds ${brief(r)} (notes ${r.notes})`));
+    for (const b of SB.posts) lane("X", isB(b), fail(XA, `${when}: a ${b.__move ? "move" : "save"} of ${b.date} with ${brief(b)} was filed in B's books`));
+    lane("X", (SB.deletedRows.length) === 0, fail(XA, `${when}: B's draft(s) deleted that B never chose: ${SB.deletedRows.map((r) => `${r.date} ${brief(r)}`).join(", ")}`));
+    for (const r of S.rows.values()) lane("X", !(hasB(r)), fail("X nothing of account B is ever stored under account A", `${when}: A's ${r.date} holds ${brief(r)}`));
+    // The phone's queue: an item of A's figures is never B's (sent on B's session, shown to B).
+    for (const it of queueItems()) {
+      if (it.account === USER_B.id) lane("X", isB(it.payload), fail(XA, `${when}: A's figures (${it.payload.date} ${brief(it.payload)}) queued as account B's${it.move ? " (a queued MOVE)" : ""}`));
+      if (it.account === USER_A.id) lane("X", !(hasB(it.payload)), fail("X nothing of account B is ever stored under account A", `${when}: B's figures queued as A's: ${brief(it.payload)}`));
+    }
+  };
+  // MB1 — the server kept an old day's draft in a move although that version
+  // was the one the moving form held: the figures on both days.
+  let keptChecked = 0;
+  const checkMoveKept = (when) => {
+    if (!rc2) return;
+    for (const k of (S.moveKept || []).slice(keptChecked)) {
+      const held = k.sender != null && S.formHeldBy(k.sender, k.key) >= k.ver;
+      if (!held) continue;
+      STATS.moveKeptHeld += 1;
+      STATS.MB1 += 1;
+      lane("MB", false, fail("MB figures never on both days after a confirmed move", `${when}: the move ${k.saveId} from ${k.key} kept the old day's draft version ${k.ver} (written by ${k.writer}) that visit ${k.sender}'s form held — move named base ${k.base} / save ${k.baseSave}; row updated ${k.updated}, last save ${k.lastSave}; ${brief(k.row)}`));
+    }
+    keptChecked = (S.moveKept || []).length;
+  };
+  // MB — once everything has settled: a confirmed move whose old day still
+  // holds the version the form held, while the new day got the figures by a
+  // plain save (not the move): the figures on both days.
+  const checkMoveBoth = (when) => {
+    if (!rc2) return;
+    checkMoveKept(when);
+    for (const it of moveIntents) {
+      if (it.done) continue;
+      const fk = `${it.from}|`;
+      const oldRow = S.rows.get(fk);
+      if (!oldRow || oldRow.status !== "draft" || S.verOf(oldRow) !== it.ver || !it.held || S.writer.get(fk) === "other") continue;
+      const after = S.posts.slice(it.postsAt);
+      if (after.some((b) => b.date === it.to && b.__move)) continue;
+      // (A plain save of the new day by the visit that moved — a later
+      // visit's typing on that day is the owner's new figures.)
+      const plain = after.filter((b) => b.date === it.to && !b.__move && b.__mount === it.mount && !b.__queued);
+      if (!plain.length) continue;
+      STATS.MB += 1;
+      it.done = true;
+      lane("MB", false, fail("MB figures never on both days after a confirmed move", `${when}: "${it.label}" was answered yes; ${it.to} got the figures by a plain save (${brief(plain[plain.length - 1])}) and ${it.from} still holds the draft the form held (${brief(oldRow)})`));
+    }
+  };
+  // L — the owner's last figures sent (or flushed on the way out) before a
+  // reload / kill / logout are, once all has settled and the page is back,
+  // stored for the day or kept on this phone (A's queue).
+  const checkKept = (from, upto, label) => {
+    if (!rc2) return;
+    const mine = S.allSent.slice(from, upto).filter((e) => !hasB(e.body) && e.body.status === "draft");
+    if (!mine.length) return;
+    const last = mine[mine.length - 1];
+    const d = last.body.date;
+    const key = `${d}|`;
+    const row = S.rows.get(key);
+    if (row && row.status === "confirmed") return;
+    if (S.writer.get(key) === "other") return;
+    STATS.L += 1;
+    // (Those figures, or newer ones of A's for the day sent since — a copy
+    // kept on the way out and sent once A is back carries the newest.)
+    const at = S.allSent.lastIndexOf(last);
+    const newest = [last, ...S.allSent.slice(at + 1).filter((e) => e.session !== "B" && !hasB(e.body) && e.body.date === d)];
+    const stored = row && newest.some((e) => sameFigs(row, e.body));
+    const queued = queueItems().some((it) => (it.account == null || it.account === USER_A.id) && it.payload?.date === d
+      && (newest.some((e) => sameFigs(it.payload, e.body)) || true));
+    // Moved on since by a request that did land (the figures are on the new day).
+    const movedOn = mine.some((e) => e.move && e.body.date !== d && sameFigs(S.rows.get(`${e.body.date}|`), last.body));
+    lane("L", stored || queued || movedOn, fail("L the owner's last figures are stored or kept", `${label}: the last figures sent for ${d} (${brief(last.body)}, session ${last.session}${last.move ? ", a move" : ""}, on the wire: ${(last.holding || []).join("+") || "clear"}) are neither stored (${brief(row)}) nor kept on this phone (queue: ${JSON.stringify(queueItems().map((it) => ({ acct: it.account, d: it.payload.date, rev: it.payload.revenue_breakdown, pay: it.payload.payment_breakdown, state: it.state, move: Boolean(it.move) })))})`));
+  };
+  // LD — a locked day is never offered as an editable draft.
+  const checkLockedNotDraft = () => {
+    if (!rc2) return;
+    const d = businessDayShown();
+    const key = d && `${d}|`;
+    const row = key && S.rows.get(key);
+    if (!row || row.status !== "confirmed") return;
+    if (hasText("dcDayHasDraft") && S.seenBy(S.mountNow, key) >= S.verOf(row)) {
+      STATS.LD += 1;
+      lane("LD", false, fail("LD a locked day is never offered as a draft", `${d} is locked (${brief(row)}), the page read it, and the banner offers it as a draft`));
+    }
+    if (onForm() && q("#close-date")?.value === d && S.formSeenBy(S.mountNow, key) >= S.verOf(row) && !hasText("dcDayAlreadyLocked")) {
+      const box = q("#dc-rev-food") || q("#dc-pay-card");
+      if (box && !box.disabled) {
+        STATS.LD += 1;
+        lane("LD", false, fail("LD a locked day is never offered as a draft", `${d} is locked (${brief(row)}); the form opened it (read by id) and its boxes are editable`));
+      }
+    }
+  };
+  const holdOn = (mode) => {
+    if (mode === "post") { S.holding.post = true; S.holding.del = true; }
+    else if (mode === "answer") S.holding.answer = true;
+    else if (mode === "drop") S.holding.drop = true;
+    else if (mode === "dead") S.holding.dead = true;
+    else if (mode === "hang") S.holding.hang = true;
+    else if (mode === "void") S.holding.void = true;
+  };
+  const holdOff = () => { S.holding.post = false; S.holding.del = false; S.holding.answer = false; S.holding.drop = false; S.holding.dead = false; S.holding.hang = false; S.holding.void = false; };
+  // A second figure typed while the first save is on its way: it waits (2 s),
+  // and the way out sends it.
+  const typeAgainWaiting = async () => {
+    if (!onForm() || hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked")) return false;
+    const [k, f] = field();
+    if (!(await toStep(k === "rev" ? "s1" : "s2"))) return false;
+    const el = q(k === "rev" ? `#dc-rev-${f}` : `#dc-pay-${f}`);
+    if (!el) return false;
+    const v = pick(VALUES);
+    log.push(`${k}.${f}=${v} (waiting 2 s)`);
+    STATS.steps += 1;
+    keyIn(el, v);
+    await settle();
+    typedInto(k, f, v);
+    return true;
+  };
+  // Something of the owner's on its way (or waiting in the 2 s): a typed
+  // figure, a date move answered "Flyt tallene", or the lock.
+  const putInFlight = async (kind, mode) => {
+    if (kind === "move") {
+      const el = q("#close-date");
+      if (!el || el.disabled) return null;
+      const from = el.value;
+      const to = pick([today, yesterday, twoDaysAgo].filter((d) => d !== from));
+      const fromRow = S.rows.get(`${from}|`);
+      const intent = fromRow && fromRow.status === "draft" ? { from, to, ver: S.verOf(fromRow), held: S.formHeldBy(S.mountNow, `${from}|`) >= S.verOf(fromRow), writer: S.writer.get(`${from}|`), mount: S.mountNow, postsAt: S.posts.length } : null;
+      let chosen = null;
+      answerNext = (o) => { if (/dcMoveTarget/.test(String(o.title || ""))) { chosen = "target"; return false; } chosen = "yes"; return true; };
+      holdOn(mode);
+      log.push(`date → ${to}, Flyt tallene (${mode})`);
+      STATS.steps += 1;
+      fireEvent.change(el, { target: { value: to } });
+      for (let i = 0; i < 4; i++) await settle();
+      answerNext = null;
+      if (chosen === "yes" && q("#close-date")?.value === to) {
+        STATS.inFlightMoves += 1;
+        if (intent) moveIntents.push({ ...intent, label: log[log.length - 1] });
+        if (to === twoDaysAgo) { M.exact = false; M.synced = true; }
+      }
+      return { kind, date: q("#close-date")?.value };
+    }
+    if (kind === "lock") {
+      if (!(await toStep("review"))) return null;
+      const btn = findBtn(/confirmAndLock/);
+      if (!btn || btn.disabled) return null;
+      holdOn(mode);
+      log.push(`Bekræft & lås (${mode})`);
+      STATS.steps += 1;
+      STATS.inFlightLocks += 1;
+      await act(async () => { fireEvent.click(btn); await new Promise((r) => setTimeout(r, 0)); });
+      await settle();
+      return { kind, date: q("#close-date")?.value || businessDayShown() };
+    }
+    const [k, f] = field();
+    if (!(await toStep(k === "rev" ? "s1" : "s2"))) return null;
+    const el = q(k === "rev" ? `#dc-rev-${f}` : `#dc-pay-${f}`);
+    if (!el) return null;
+    const v = pick(VALUES);
+    log.push(`${k}.${f}=${v} (${mode})`);
+    STATS.steps += 1;
+    STATS.inFlightTypes += 1;
+    keyIn(el, v);
+    await settle();
+    typedInto(k, f, v);
+    holdOn(mode);
+    // The waiting save goes now (as on a step change), not 2 s later — or,
+    // "debounce", still waits when the page goes.
+    if (mode !== "debounce") await hideAndBack();
+    return { kind, date: q("#close-date")?.value };
+  };
+  // (Fixed-step repros: a given box and value, or a given day to move to.)
+  const putInFlightFixed = async (kind, mode, { box = null, value = null, to = null } = {}) => {
+    if (kind === "move") {
+      const el = q("#close-date");
+      if (!el || el.disabled) return null;
+      const from = el.value;
+      const fromRow = S.rows.get(`${from}|`);
+      const intent = fromRow && fromRow.status === "draft" ? { from, to, ver: S.verOf(fromRow), held: S.formHeldBy(S.mountNow, `${from}|`) >= S.verOf(fromRow), writer: S.writer.get(`${from}|`), mount: S.mountNow, postsAt: S.posts.length } : null;
+      answerNext = (o) => (/dcMoveTarget/.test(String(o.title || "")) ? false : true);
+      holdOn(mode);
+      log.push(`date → ${to}, Flyt tallene (${mode})`);
+      fireEvent.change(el, { target: { value: to } });
+      for (let i = 0; i < 4; i++) await settle();
+      answerNext = null;
+      if (intent && q("#close-date")?.value === to) moveIntents.push({ ...intent, label: log[log.length - 1] });
+      return { kind, date: q("#close-date")?.value };
+    }
+    const [k, f] = box;
+    if (!(await toStep(k === "rev" ? "s1" : "s2"))) return null;
+    const el = q(k === "rev" ? `#dc-rev-${f}` : `#dc-pay-${f}`);
+    log.push(`${k}.${f}=${value} (${mode})`);
+    keyIn(el, value);
+    await settle();
+    typedInto(k, f, value);
+    holdOn(mode);
+    if (mode !== "debounce") await hideAndBack();
+    return { kind, date: q("#close-date")?.value };
+  };
+  // A full reload / the app killed, now (the steps reloadMid takes).
+  const reloadNow = async (kill) => {
+    rc2Reloaded = true;
+    const deadMount = S.mountNow;
+    const deadGen = [...S.liveGens].pop();
+    log.push(kill ? "the app is killed" : "full reload");
+    if (!kill) await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
+    let snap = null;
+    if (kill) { snap = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); snap[k] = localStorage.getItem(k); } }
+    S.liveGens.delete(deadGen);
+    S.goneMounts.add(deadMount);
+    holdOff();
+    await unmount();
+    if (kill) { localStorage.clear(); Object.entries(snap).forEach(([k, v]) => localStorage.setItem(k, v)); }
+    try { globalThis[CLOSE_SAVES]?.clear?.(); } catch { /* none */ }
+    S.liveGens.add(await freshPage());
+    mount();
+    await loaded();
+    for (let i = 0; i < 6; i++) await settle();
+  };
+  // A full reload (the browser's pagehide runs, then the JS world ends) or
+  // the app killed (nothing runs: no pagehide, no unmount, what the page put
+  // on this phone before stays). The next page load is a new JS world.
+  const reloadMid = async (kill) => {
+    if (!(await ensureForm())) return;
+    if (hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked") || conflictShown()) return;
+    await arriveAll();
+    const kind = pick(["type", "type", "move", "move", "move", "lock"]);
+    const mode = pick(kill ? ["post", "answer", "drop", "debounce", "post", "answer", "hang"] : ["post", "answer", "drop", "debounce", "dead", "post", "answer", "hang"]);
+    const sent0 = S.allSent.length;
+    const what = await putInFlight(kind, mode);
+    if (!what) { holdOff(); return; }
+    if (mode !== "debounce" && chance2(0.4)) await typeAgainWaiting();
+    rc2Reloaded = true;
+    const deadMount = S.mountNow;
+    const deadGen = [...S.liveGens].pop();
+    log.push(kill ? "the app is killed" : "full reload");
+    STATS.steps += 1;
+    if (!kill) await act(async () => { window.dispatchEvent(new Event("pagehide")); await new Promise((r) => setTimeout(r, 0)); });
+    let snap = null;
+    if (kill) { snap = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); snap[k] = localStorage.getItem(k); } }
+    S.liveGens.delete(deadGen);
+    S.goneMounts.add(deadMount);
+    holdOff();
+    await unmount();
+    if (kill) { localStorage.clear(); Object.entries(snap).forEach(([k, v]) => localStorage.setItem(k, v)); }
+    try { globalThis[CLOSE_SAVES]?.clear?.(); } catch { /* none */ }
+    STATS[kill ? "kills" : "fullReloads"] += 1;
+    const upto = S.allSent.length;
+    S.liveGens.add(await freshPage());
+    // What was on its way reaches the server before the new page reads, or after.
+    const early = chance2(0.5);
+    if (early) await arriveAll();
+    mount();
+    await loaded();
+    for (let i = 0; i < 6; i++) await settle();
+    if (!early) await arriveAll();
+    for (let i = 0; i < 6; i++) await settle();
+    await settleAll();
+    resetDay();
+    if (hasText("dcDayHasDraft") && findBtn(/^dcContinueDraft$/)) {
+      await step("Fortsæt kladden", () => tap(/^dcContinueDraft$/), onReopenLoaded);
+    }
+    checkKept(sent0, upto, kill ? "after the app was killed" : "after a full reload");
+    checkMoveBoth(kill ? "after the app was killed" : "after a full reload");
+    checkLockedNotDraft();
+    await checkpoint();
+  };
+  // Logout A → login B → (B's visit) → logout B → login A, in the app (no
+  // reload): Layout's logout() is not awaited — the page leaves at once (its
+  // way out goes on A's session), then /auth/logout is answered.
+  const switchAccount = async () => {
+    if (!(await ensureForm())) return;
+    if (hasText("dcDayHasDraft") || hasText("dcDayAlreadyLocked") || conflictShown()) return;
+    await arriveAll();
+    const kind = pick(["type", "type", "move", "move"]);
+    const mode = pick(["debounce", "post", "answer", "drop", "dead", "post", "answer", "drop", "hang", "hang", "void"]);
+    const sent0 = S.allSent.length;
+    const what = await putInFlight(kind, mode);
+    if (!what) { holdOff(); return; }
+    if (mode !== "debounce" && chance2(0.5)) await typeAgainWaiting();
+    STATS.switches += 1;
+    log.push("Log ud (A)");
+    STATS.steps += 1;
+    await unmount();
+    S.session = null;
+    holdOff();
+    const when = pick(["signedOut", "afterB", "afterB", "afterBTyped", "end"]);
+    if (when === "signedOut") { await arriveAll(); for (let i = 0; i < 6; i++) await settle(); }
+    log.push(`B logger ind (A's requests answer ${when})`);
+    globalThis.__seqUser = USER_B;
+    S.session = "B";
+    mount();
+    for (let i = 0; i < 8; i++) await settle();
+    if (when === "afterB") { await arriveAll(); for (let i = 0; i < 6; i++) await settle(); }
+    // B continues its own draft and types its own figure, now and then.
+    if (chance2(0.6) && findBtn(/^dcContinueDraft$/)) {
+      fireEvent.click(findBtn(/^dcContinueDraft$/));
+      for (let i = 0; i < 6 && !onForm(); i++) await settle();
+      if (await toStepAt("s1")) {
+        const el = q("#dc-rev-drinks");
+        if (el) { keyIn(el, "7.777"); await settle(); await hideAndBack(); log.push("B: drinks=7.777"); }
+      }
+    }
+    if (when === "afterBTyped") { await arriveAll(); for (let i = 0; i < 6; i++) await settle(); }
+    for (let i = 0; i < 6; i++) await settle();
+    await hideAndBack();
+    for (let i = 0; i < 4; i++) await settle();
+    checkAccounts("during B's visit");
+    log.push("Log ud (B), A logger ind");
+    await unmount();
+    S.session = null;
+    if (when === "end") { await arriveAll(); for (let i = 0; i < 6; i++) await settle(); }
+    for (let i = 0; i < 4; i++) await settle();
+    const upto = S.allSent.length;
+    globalThis.__seqUser = USER_A;
+    S.session = "A";
+    mount();
+    await loaded();
+    // The network (or "Synkroniser"): A's queue goes.
+    await goOnline();
+    await arriveAll();
+    for (let i = 0; i < 6; i++) await settle();
+    await settleAll();
+    checkAccounts("after A is back");
+    resetDay();
+    if (hasText("dcDayHasDraft") && findBtn(/^dcContinueDraft$/)) {
+      await step("Fortsæt kladden", () => tap(/^dcContinueDraft$/), onReopenLoaded);
+    }
+    checkKept(sent0, upto, "after logout A → login B → login A");
+    checkMoveBoth("after the account switch");
+    checkLockedNotDraft();
+    await checkpoint();
+  };
+
   /* ─── motifs: short chains an owner actually walks ─── */
 
   const field = () => (chance(0.65) ? ["rev", pick(REV)] : ["pay", pick(PAY)]);
@@ -2439,6 +3047,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     ...(r20 ? [[2, otherDevice], [3, photoNoteStartOver]] : []),
     ...(r21 ? [[3, payOnly], [4, payOnlyBonStartOver], [4, () => leaveDuringSave()], [3, () => otherDeviceFigures()]] : []),
     ...(r22 ? [[2, otherDeviceLocks], [2, () => moveDate()]] : []),
+    // rc2 — the round-1 bias, then reloads / kills / account switches.
+    ...(rc2 ? [[5, () => moveDate()], [2, () => moveDate(twoDaysAgo)], [2, doubleMove], [3, () => otherDeviceFigures()], [2, otherDeviceLocks],
+      [3, () => leaveDuringSave()], [9, () => reloadMid(false)], [8, () => reloadMid(true)], [11, switchAccount]] : []),
     [2, reopen],
     [2, notes],
     [2, moms],
@@ -2514,6 +3125,30 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
           } else { S.holding.post = true; S.holding.del = true; }
           return undefined;
         },
+        // R-c round 2 SEQ LANE (rc2) — fixed-step repros: put something in
+        // flight, sign out / in, reload or kill, release what is held, check.
+        rc2: {
+          SB: () => SB,
+          inFlight: (kind, mode, extra = {}) => putInFlightFixed(kind, mode, extra),
+          typeAgainWaiting,
+          holdOn, holdOff,
+          logout: async (who = "A") => { log.push(`Log ud (${who})`); await unmount(); S.session = null; holdOff(); },
+          login: async (who) => {
+            log.push(`${who} logger ind`);
+            globalThis.__seqUser = who === "B" ? USER_B : USER_A;
+            S.session = who;
+            mount();
+            if (who === "A") await loaded();
+            for (let i = 0; i < 8; i++) await settle();
+          },
+          release: async () => { log.push("the held requests answer"); await arriveAll(); for (let i = 0; i < 8; i++) await settle(); },
+          reload: (kill) => reloadNow(kill),
+          checkAccounts, checkKept, checkMoveBoth, checkLockedNotDraft,
+          sent: () => S.allSent.length,
+          allSent: () => S.allSent,
+          queueItems,
+          goOnline,
+        },
         // Round 23: back online now (the slow/offline steps end here).
         online: async () => {
           slowStep = false;
@@ -2554,13 +3189,20 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         await typeBox("pay", "card", pick(VALUES));
       }
     }
-    const motifs = 2 + Math.floor(rnd() * 3);
+    const motifs = rc2 ? 3 + Math.floor(rnd2() * 4) : 2 + Math.floor(rnd() * 3);
     for (let m = 0; m < motifs; m++) {
       await resolveConflict();
       await pickMotif()();
     }
     await resolveConflict();
     if (chance(0.25)) await lock();
+    if (rc2) {
+      await arriveAll();
+      await settleAll();
+      checkAccounts("at the end");
+      checkMoveBoth("at the end");
+      checkLockedNotDraft();
+    }
   } catch (e) {
     thrown = e;
     throw e;
@@ -2585,7 +3227,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     // Q (round 21) — every save the page sent finishes: none still waiting
     // (two refused saves once waited on each other for the whole cap, and
     // landed in the next sequence's server).
-    if (!thrown) expect(stuck, fail("Q every save finishes", `${stuck} save(s) still on their way after the page was left and the network was quiet`)).toBe(0);
+    if (rc2 && rc2Reloaded && stuck) STATS.qStuckAfterReload += 1;
+    else if (!thrown) expect(stuck, fail("Q every save finishes", `${stuck} save(s) still on their way after the page was left and the network was quiet`)).toBe(0);
+    if (rc2) { globalThis.__seqUser = USER_A; }
   }
   return { steps: log.length, log };
 }

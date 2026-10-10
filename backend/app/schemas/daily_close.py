@@ -80,6 +80,13 @@ class DailyCloseCreate(BaseModel):
     # and does not refuse this one. Anyone else's version still does.
     save_id: str | None = Field(None, max_length=64)
     base_save_id: str | None = Field(None, max_length=64)
+    # R-c round 2 fix-up (CMS-1) — the account the page that built this save
+    # was opened for (the signed-in user's id then). A save that reaches the
+    # server on ANOTHER account's session (a phone signed out and in as
+    # someone else while it was on its way, or a copy queued for the account
+    # before) is refused: 409, detail.code "account_changed", nothing
+    # written. None — an older app build — is not checked.
+    account_id: str | None = Field(None, max_length=64)
 
 
 class DailyCloseMoveFrom(BaseModel):
@@ -116,6 +123,9 @@ class DailyCloseMove(BaseModel):
     also_from: list[DailyCloseMoveFrom] = Field(default_factory=list, max_length=5)
     body: DailyCloseCreate
     save_id: str = Field(..., min_length=1, max_length=64)
+    # The account the move was built for (R-c round 2 fix-up): another
+    # account's session answers 409 "account_changed" and nothing moves.
+    account_id: str | None = Field(None, max_length=64)
 
 
 class DailyCloseUnlock(BaseModel):

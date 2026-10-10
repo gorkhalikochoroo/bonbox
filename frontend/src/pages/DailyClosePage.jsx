@@ -19,7 +19,6 @@ import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import { haptic } from "../utils/haptics";
 import { archetypeForUser, archetypeIdFor } from "../config/archetypes";
 import {
-  addToOfflineQueue,
   firstNeedingConfirmation,
   getOfflineQueue,
   queueSummary,
@@ -29,7 +28,6 @@ import {
   isDeletedLockedClose,
   isDraftChanged,
   draftChangedStamp,
-  addFailedToOfflineQueue,
   QUEUE_ALREADY_SAVED,
   QUEUE_ERR_DELETED_LOCKED,
   QUEUE_ERR_DRAFT_CHANGED,
@@ -45,7 +43,26 @@ import {
   registerQueueHolder,
   releaseQueueHolder,
   setQueueAccount,
+  queueAccount,
+  withQueueAccount,
+  isAccountChanged,
+  isBranchNotOwned,
+  isOldDayLocked,
+  isMovedElsewhere,
+  isRefusalOfFigures,
+  isUnclaimed,
+  payloadOf,
+  claimQueueItem,
+  disownQueueItem,
+  QUEUE_ERR_SIGNED_OUT,
+  QUEUE_ERR_BRANCH_NOT_OWNED,
+  QUEUE_ERR_OLD_DAY_LOCKED,
+  QUEUE_ERR_MOVED_ELSEWHERE,
+  waitsForOwner,
 } from "../utils/dailyCloseQueue";
+// (The same module, read through a namespace: the close form binds its queue
+// reads and writes to its own account — R-c round 2 fix-up.)
+import * as closeQueue from "../utils/dailyCloseQueue";
 import {
   headlineTotal,
   scanBonTotal,
@@ -256,6 +273,63 @@ const postClose = (payload) => api.post("/daily-close", payload);
 // R-c round 2 — a date move, one request: the new day saved and the old
 // day's draft deleted together on the server (POST /daily-close/move).
 const postMove = (req, cfg) => api.post("/daily-close/move", req, cfg);
+
+/* ─── A close form's requests belong to its account (R-c round 2 fix-up) ──
+   CMS-1, cross-account. A form keeps working after its page is gone: a
+   save's or a move's answer is lost and it is sent again, the way-out save
+   waits for the one ahead of it, a late refusal is kept as a copy. Owner A
+   signed out and owner B signed in on the same phone meanwhile, and A's
+   form sent A's move on B's session — A's figures filed in B's books, B's
+   own draft on the old day DELETED — or wrote over B's draft, or kept A's
+   figures in B's queue. A form now belongs to the account it was opened for:
+     - its requests go only while that account is the one signed in (the
+       queue's account, set by the page and cleared on sign-out); otherwise
+       they are "no answer" — never sent — and what they carry is kept on
+       this phone for that account (its own queue, sent at its next sign-in);
+     - every save, move and delete names that account (account_id): the
+       server refuses it on another account's session (409 account_changed)
+       and writes nothing — also for a request already on its way;
+     - a 401 (signed out when it arrived) is "no answer" too — never a
+       refusal of the figures, which dropped the owner's last edit (and the
+       queued move itself);
+     - a move answered 404 / 405 (a server with no move endpoint — an older
+       backend in the deploy window or after a rollback) is "no answer": the
+       move stays queued, never dropped as refused. */
+const sessionApi = api;
+const noAnswer = (code, message, cause = null) => Object.assign(new Error(message), { code, noAnswer: true, ...(cause ? { cause } : {}) });
+function accountBoundApi(base, accountOf) {
+  const signedIn = () => {
+    const a = accountOf();
+    return a === undefined || queueAccount() === a;
+  };
+  const answered = (url, method) => (err) => {
+    const s = err?.response?.status;
+    if (s === 401) throw noAnswer("ERR_SIGNED_OUT", "Signed out when it arrived", err);
+    if (isAccountChanged(err)) throw noAnswer("ERR_ACCOUNT_CHANGED", "Another account is signed in", err);
+    if (method === "post" && /\/daily-close\/move$/.test(url) && (s === 404 || s === 405)) {
+      throw noAnswer("ERR_NO_MOVE_ENDPOINT", "This server has no date move", err);
+    }
+    throw err;
+  };
+  const named = (url, data) => {
+    const a = accountOf();
+    if (typeof a !== "string" || !a || !data || typeof data !== "object" || Array.isArray(data)) return data;
+    if (typeof FormData !== "undefined" && data instanceof FormData) return data;
+    return /^\/daily-close(\/move)?$/.test(url) ? { ...data, account_id: a } : data;
+  };
+  const withParam = (url, cfg) => {
+    const a = accountOf();
+    if (typeof a !== "string" || !a || !/^\/daily-close\/[^/]+$/.test(url)) return cfg;
+    return { ...(cfg || {}), params: { ...(cfg?.params || {}), account_id: a } };
+  };
+  const notThisSession = () => Promise.reject(noAnswer("ERR_ACCOUNT_CHANGED", "Another account is signed in"));
+  return {
+    get: (url, cfg) => (signedIn() ? base.get(url, cfg).catch(answered(url, "get")) : notThisSession()),
+    post: (url, data, cfg) => (signedIn() ? base.post(url, named(url, data), cfg).catch(answered(url, "post")) : notThisSession()),
+    delete: (url, cfg) => (signedIn() ? base.delete(url, withParam(url, cfg)).catch(answered(url, "delete")) : notThisSession()),
+    patch: (url, data, cfg) => (signedIn() ? base.patch(url, data, cfg).catch(answered(url, "patch")) : notThisSession()),
+  };
+}
 // The server's limits for the close's informational text (schemas/daily_close
 // CLOSED_BY_MAX / NOTES_MAX). It cuts rather than refusing; the inputs and the
 // payload stay inside them so nothing the owner sees is cut server-side.
@@ -462,7 +536,7 @@ export default function DailyClosePage() {
   const account = queueAccountOf(user);
   if (user) setQueueAccount(account);
   const { t } = useLanguage();
-  const { branchId, branchType: branchTypeRaw, branches } = useBranch();
+  const { branchId, branchType: branchTypeRaw, branches, setBranchId } = useBranch();
   // A single-location account has no selected branch, so its branch type was
   // empty and every venue got the restaurant defaults — a restaurant lost its
   // tips step, a salon was offered Mad/Drikkevarer. The account's own
@@ -636,10 +710,17 @@ export default function DailyClosePage() {
   // (Not a move the open form is sending itself — it says where that is:
   // R-c round 2. Shown once the form is gone and the queue sends it.)
   const queue = useMemo(() => queueAll.filter((it) => !isHeldLive(it)), [queueAll]);
-  const queueCounts = useMemo(() => queueSummary(queue), [queue]);
+  // (A copy from before this release is the owner's to send — never counted
+  // as waiting for the network: R-c round 2 fix-up.)
+  const queueCounts = useMemo(() => queueSummary(queue.filter((it) => !isUnclaimed(it))), [queue]);
   const retryableFailed = useMemo(() => queue.filter((it) => it?.state === QUEUE_FAILED
-    && it.errorCode !== QUEUE_ERR_DRAFT_CHANGED).length, [queue]);
+    && !waitsForOwner(it) && !isUnclaimed(it)).length, [queue]);
   const pendingCount = queueCounts.total;
+  // R-c round 2 fix-up — copies the owner must look at that are not failed:
+  // one from before this release (no account — never sent by itself), and
+  // one that met a signed-out session.
+  const unclaimedCount = useMemo(() => queue.filter((it) => isUnclaimed(it)).length, [queue]);
+  const signedOutCount = useMemo(() => queue.filter((it) => it?.state === QUEUE_WAITING_NETWORK && it.errorCode === QUEUE_ERR_SIGNED_OUT).length, [queue]);
   // The queued close the owner is currently reviewing in the anomaly dialog.
   const [reviewItem, setReviewItem] = useState(null);
   const [reviewSaving, setReviewSaving] = useState(false);
@@ -697,6 +778,16 @@ export default function DailyClosePage() {
         // nothing was overwritten, and the newer draft is the stored one.
         : it?.errorCode === QUEUE_ERR_DRAFT_CHANGED
           ? t("dcQueueErrDraftChanged", "The draft for this date was saved somewhere else after this copy was made, so nothing was overwritten. Keep your numbers to save them over it — or remove this copy and open the date to see the newest draft.")
+          // R-c round 2 fix-up — refusals that are not about the figures,
+          // said as what they are (never "check the numbers").
+          : it?.errorCode === QUEUE_ERR_SIGNED_OUT
+            ? t("dcQueueErrSignedOut", "You were signed out when this copy was sent. It is still on this phone and goes once you are signed in.")
+          : it?.errorCode === QUEUE_ERR_BRANCH_NOT_OWNED
+            ? t("dcQueueErrBranchNotOwned", "The branch on this copy doesn't belong to the account that is signed in, so nothing was saved. The copy stays on this phone until you remove it.")
+          : it?.errorCode === QUEUE_ERR_OLD_DAY_LOCKED
+            ? t("dcQueueErrOldDayLocked", "{from} is locked on another device, so nothing was moved. This copy holds the figures you moved — remove it once you have checked the day.", { from: formatDateClear(it.refusedDay) || it.refusedDay || "" })
+          : it?.errorCode === QUEUE_ERR_MOVED_ELSEWHERE
+            ? t("dcQueueErrMovedElsewhere", "These figures were already moved to {to} on another device, so nothing was moved. This copy holds the figures you moved — remove it once you have checked {to}.", { to: formatDateClear(it.movedTo) || it.movedTo || "" })
           : t("dcQueueErrRejected", "The kasserapport was refused. Check the numbers and file this date again.")
   );
 
@@ -749,6 +840,34 @@ export default function DailyClosePage() {
     const v = Number(row.revenue_total) || 0;
     return formatOwnerMoney(v, currency, { decimals: oreDecimals(v) });
   };
+  /** What a send of a queued copy the owner tapped was answered (not stored): the copy keeps the reason. */
+  const noteQueuedAnswer = (item, err) => {
+    const status = err?.response?.status ?? null;
+    if (!err?.response) {
+      setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, lastTriedTs: Date.now() }));
+    } else if (status === 401 || isAccountChanged(err)) {
+      // (Signed out, or another account's session: nothing written — kept as it is.)
+      setQueue(getOfflineQueue());
+    } else if (isBranchNotOwned(err)) {
+      setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_BRANCH_NOT_OWNED, errorDetail: null, httpStatus: status }));
+    } else if (isOldDayLocked(err) || isMovedElsewhere(err)) {
+      const d = err.response?.data?.detail || {};
+      setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: isOldDayLocked(err) ? QUEUE_ERR_OLD_DAY_LOCKED : QUEUE_ERR_MOVED_ELSEWHERE,
+        refusedDay: d.date || null, movedTo: d.to || null, errorDetail: null, httpStatus: status }));
+      fetchHistory();
+    } else if (isDraftChanged(err)) {
+      setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: draftChangedStamp(err), httpStatus: status, lastTriedTs: Date.now() }));
+      // The day changed on the server: History is read again (round 23).
+      fetchHistory();
+    } else if (isDeletedLockedClose(err)) {
+      setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DELETED_LOCKED, errorDetail: errText(err, ""), httpStatus: status }));
+    } else if (status === 409) {
+      setQueue(updateQueueItem(item.id, { state: QUEUE_ALREADY_SAVED, errorCode: null, errorDetail: errText(err, ""), httpStatus: status }));
+      fetchHistory();
+    } else {
+      setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED, errorDetail: errText(err, ""), httpStatus: status }));
+    }
+  };
   const keepQueuedCopy = async (item) => {
     if (!item || keepingId) return;
     setKeepingId(item.id);
@@ -760,8 +879,9 @@ export default function DailyClosePage() {
     const base = item.conflictStamp || item.payload?.base_updated_at || null;
     const payload = { ...item.payload, base_updated_at: base };
     try {
-      // (A queued move goes as the move — on the version chosen — R-c round 2.)
-      const res = isQueuedMove(item) ? await postMove(moveRequestOf(item, { toBase: base })) : await postClose(payload);
+      // (A queued move goes as the move — on the version chosen — R-c round 2;
+      // both name the account the copy was queued for — R-c round 2 fix-up.)
+      const res = isQueuedMove(item) ? await postMove(moveRequestOf(item, { toBase: base })) : await postClose(payloadOf({ ...item, payload }));
       if (res?.data?.requires_confirmation) {
         setQueue(updateQueueItem(item.id, { payload, state: QUEUE_NEEDS_CONFIRMATION, anomaly: res.data.anomaly || {}, errorCode: null, errorDetail: null }));
         return;
@@ -771,21 +891,48 @@ export default function DailyClosePage() {
       fetchInsights();
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      const status = err?.response?.status ?? null;
-      if (!err?.response) {
-        setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, lastTriedTs: Date.now() }));
-      } else if (isDraftChanged(err)) {
-        setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: draftChangedStamp(err), httpStatus: status, lastTriedTs: Date.now() }));
-        // The day changed on the server: History is read again (round 23).
-        fetchHistory();
-      } else if (isDeletedLockedClose(err)) {
-        setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: QUEUE_ERR_DELETED_LOCKED, errorDetail: errText(err, ""), httpStatus: status }));
-      } else if (status === 409) {
-        setQueue(updateQueueItem(item.id, { state: QUEUE_ALREADY_SAVED, errorCode: null, errorDetail: errText(err, ""), httpStatus: status }));
-        fetchHistory();
-      } else {
-        setQueue(updateQueueItem(item.id, { state: QUEUE_FAILED, errorCode: status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED, errorDetail: errText(err, ""), httpStatus: status }));
+      noteQueuedAnswer(item, err);
+    } finally {
+      setKeepingId(null);
+    }
+  };
+
+  /**
+   * R-c round 2 fix-up — "Send" on a copy from before this release (it names
+   * no account: whose it is cannot be told, so it is never sent by itself).
+   * The owner says the figures are theirs: sent for the signed-in account.
+   * Refused for a branch that is not this account's, it was another
+   * account's: hidden from this one, kept for that one — and said.
+   */
+  const [unclaimedNote, setUnclaimedNote] = useState(false);
+  const sendUnclaimed = async (item) => {
+    if (!item || keepingId) return;
+    setKeepingId(item.id);
+    setUnclaimedNote(false);
+    const mine = { ...item, account: queueAccount() };
+    try {
+      const res = isQueuedMove(item) ? await postMove(moveRequestOf(mine)) : await postClose(payloadOf(mine));
+      claimQueueItem(item.id);
+      if (res?.data?.requires_confirmation) {
+        setQueue(updateQueueItem(item.id, { state: QUEUE_NEEDS_CONFIRMATION, anomaly: res.data.anomaly || {}, errorCode: null, errorDetail: null }));
+        return;
       }
+      setQueue(removeFromOfflineQueue(item.id));
+      fetchHistory();
+      fetchInsights();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+    } catch (err) {
+      // Nothing written, and nothing said about the figures: it stays as it was.
+      if (!err?.response || err.response.status === 401 || isAccountChanged(err)) { setQueue(getOfflineQueue()); return; }
+      if (isBranchNotOwned(err)) {
+        disownQueueItem(item.id);
+        setQueue(getOfflineQueue());
+        setUnclaimedNote(true);
+        return;
+      }
+      // Answered about the figures: the owner's copy now, with the reason.
+      claimQueueItem(item.id);
+      noteQueuedAnswer(item, err);
     } finally {
       setKeepingId(null);
     }
@@ -807,7 +954,7 @@ export default function DailyClosePage() {
         const req = moveRequestOf(item, item.conflictStamp ? { toBase: item.conflictStamp } : {});
         await postMove({ ...req, body: { ...req.body, acknowledge_anomaly: true } });
       } else {
-        await postClose({ ...item.payload, ...(item.conflictStamp ? { base_updated_at: item.conflictStamp } : {}), acknowledge_anomaly: true });
+        await postClose({ ...payloadOf(item), ...(item.conflictStamp ? { base_updated_at: item.conflictStamp } : {}), acknowledge_anomaly: true });
       }
       setQueue(removeFromOfflineQueue(item.id));
       setReviewItem(null);
@@ -820,6 +967,24 @@ export default function DailyClosePage() {
       if (!err?.response) {
         setReviewError(t("dcQueueErrOffline", "No connection right now. The kasserapport is still on this phone — try again when you're back online."));
         setQueue(updateQueueItem(item.id, { state: QUEUE_NEEDS_CONFIRMATION }));
+      } else if (status === 401 || isAccountChanged(err)) {
+        // (Signed out, or another account's session: nothing written — R-c
+        // round 2 fix-up. Kept, waiting for the owner's confirmation.)
+        setReviewError(status === 401
+          ? t("dcQueueErrSignedOut", "You were signed out when this copy was sent. It is still on this phone and goes once you are signed in.")
+          : t("dcQueueErrOtherAccount", "Another account was signed in when this copy was sent, so nothing was saved. It is still on this phone for your account."));
+        setQueue(updateQueueItem(item.id, { state: QUEUE_NEEDS_CONFIRMATION }));
+      } else if (isBranchNotOwned(err)) {
+        const failed = { state: QUEUE_FAILED, errorCode: QUEUE_ERR_BRANCH_NOT_OWNED, errorDetail: null, httpStatus: status };
+        setReviewError(queueErrorText(failed));
+        setQueue(updateQueueItem(item.id, failed));
+      } else if (isOldDayLocked(err) || isMovedElsewhere(err)) {
+        const d = err.response?.data?.detail || {};
+        const failed = { state: QUEUE_FAILED, errorCode: isOldDayLocked(err) ? QUEUE_ERR_OLD_DAY_LOCKED : QUEUE_ERR_MOVED_ELSEWHERE,
+          refusedDay: d.date || null, movedTo: d.to || null, errorDetail: null, httpStatus: status };
+        setReviewError(queueErrorText(failed));
+        setQueue(updateQueueItem(item.id, failed));
+        fetchHistory();
       } else if (isDeletedLockedClose(err)) {
         // A deleted, locked kasserapport holds the day: nothing is in the
         // books and this copy is the only one — never "already saved".
@@ -1054,27 +1219,42 @@ export default function DailyClosePage() {
           is money that is NOT in the books. It gets a named row with the
           date, the reason, and one tap to the same double-check dialog the
           wizard uses — never a silent counter. */}
-      {(queueCounts.needsConfirmation > 0 || queueCounts.failed > 0 || queueCounts.alreadySaved > 0) && (
+      {(queueCounts.needsConfirmation > 0 || queueCounts.failed > 0 || queueCounts.alreadySaved > 0
+        || unclaimedCount > 0 || signedOutCount > 0 || unclaimedNote) && (
         <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
           <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
             <Icon name="AlertTriangle" size={16} />
             {t("dcQueueBlockedTitle", "Not saved yet")}
           </p>
+          {/* R-c round 2 fix-up — "Send" on a copy from before the update met
+              another account's branch: it was not sent, and is kept for that
+              account (hidden here). */}
+          {unclaimedNote && (
+            <p className="text-xs text-amber-900 dark:text-amber-200" data-testid="dc-queue-unclaimed-not-yours">
+              {t("dcQueueUnclaimedNotYours", "That copy belongs to a branch of another account, so it was not sent. It stays on this phone for that account.")}
+            </p>
+          )}
           {queue.filter((it) => it.state === QUEUE_NEEDS_CONFIRMATION || it.state === QUEUE_FAILED
-            || it.state === QUEUE_ALREADY_SAVED).map((it) => (
-            <div key={it.id} className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
+            || it.state === QUEUE_ALREADY_SAVED || isUnclaimed(it)
+            || (it.state === QUEUE_WAITING_NETWORK && it.errorCode === QUEUE_ERR_SIGNED_OUT)).map((it) => (
+            <div key={it.id} className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between" data-testid={isUnclaimed(it) ? "dc-queue-unclaimed" : undefined}>
               <div className="min-w-0 text-xs text-amber-900 dark:text-amber-200">
                 <span className="font-semibold">{formatDateClear(it.payload?.date) || it.payload?.date}</span>
                 {" — "}
-                {it.state === QUEUE_NEEDS_CONFIRMATION
+                {isUnclaimed(it)
+                  ? t("dcQueueUnclaimed", "This copy was kept on this phone before an update, so we can't tell which account it belongs to. Send it only if the figures are yours.")
+                  : it.state === QUEUE_NEEDS_CONFIRMATION
                   ? t("dcQueueBlockedAnomaly", "the numbers look unusual, so nothing was saved. Take a look before it locks.")
                   : it.state === QUEUE_ALREADY_SAVED
                     ? t("dcQueueErrLocked", "This date is already locked in your kasserapport, so nothing was changed. You can remove this copy.")
                     : queueErrorText(it)}
                 {/* Round 23 R-c — what the copy's button stores is on screen:
                     its own figure, always (R-c review: hidden while the wizard
-                    showed the day, it was dropped unseen). */}
-                {isDayDraftCopy(it) && (
+                    showed the day, it was dropped unseen). (R-c round 2
+                    fix-up: and a copy that waits for the owner for any other
+                    reason — what it holds is on screen too.) */}
+                {(isDayDraftCopy(it) || isUnclaimed(it) || (it.state === QUEUE_FAILED && (it.errorCode === QUEUE_ERR_OLD_DAY_LOCKED
+                  || it.errorCode === QUEUE_ERR_MOVED_ELSEWHERE || it.errorCode === QUEUE_ERR_BRANCH_NOT_OWNED))) && (
                   <span className="block mt-0.5 font-semibold" data-testid="dc-queue-copy-holds">
                     {t("dcQueueCopyHolds", "Your copy: {amount}", { amount: copyFigure(it) })}
                   </span>
@@ -1086,10 +1266,16 @@ export default function DailyClosePage() {
                   <span className="block mt-0.5 opacity-70">{it.errorDetail}</span>
                 )}
               </div>
-              {it.state === QUEUE_NEEDS_CONFIRMATION && (
+              {it.state === QUEUE_NEEDS_CONFIRMATION && !isUnclaimed(it) && (
                 <Button variant="secondary" size="sm"
                   onClick={() => { setReviewError(""); setReviewItem(it); }}>
                   {t("dcQueueReviewCta", "Review")}
+                </Button>
+              )}
+              {isUnclaimed(it) && (
+                <Button variant="secondary" size="sm" onClick={() => sendUnclaimed(it)} disabled={!isOnline || keepingId === it.id}
+                  data-testid="dc-queue-send-unclaimed">
+                  {t("dcQueueSendUnclaimed", "Send it")}
                 </Button>
               )}
               {/* Every row that is NOT waiting on the owner's confirmation gets
@@ -1100,7 +1286,7 @@ export default function DailyClosePage() {
                   ("Gem kopien (5.000 kr.) i stedet"): the wizard's own
                   "Behold mine tal" keeps what is on screen, this one the
                   copy — two different things never under one label. */}
-              {it.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED && (
+              {it.state === QUEUE_FAILED && it.errorCode === QUEUE_ERR_DRAFT_CHANGED && !isUnclaimed(it) && (
                 <Button variant="secondary" size="sm" onClick={() => keepQueuedCopy(it)} disabled={!isOnline || keepingId === it.id}
                   data-testid="dc-queue-keep-mine">
                   {formHoldsCopyDay(it)
@@ -1299,6 +1485,7 @@ export default function DailyClosePage() {
           958px wide on desktop. History keeps the full width. */}
       <div ref={closeWizardRef} className={tab === "close" ? "max-w-2xl" : ""}>
         {tab === "close" && <CloseForm businessProfile={bizQ.data} currency={currency} t={t} branchType={branchType} branchId={branchId} branches={branches} isOnline={isOnline}
+          onBranchRefused={() => setBranchId?.(null)}
           manualRequest={manualRequest}
           heroScanFiles={heroScanFiles}
           onHeroConsumed={() => setHeroScanFiles(null)}
@@ -1682,9 +1869,23 @@ const filesSomething = (revenue, payments) => revenue > 0 || payments > 0;
 /** What a built payload was made of (not sent): the day it is for, and whether its source was read off photos. */
 const payloadInfo = new WeakMap();
 
-function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange, onFormDay }) {
+function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange, onFormDay, onBranchRefused }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
+  // R-c round 2 fix-up (CMS-1) — the account this form was opened for. Its
+  // requests go only while that account is signed in, name it, and its
+  // copies are kept in that account's queue — whoever is signed in by the
+  // time they are written (see accountBoundApi above). These names shadow
+  // the module's own on purpose: every call in the form goes through them.
+  const formAccountRef = useRef(queueAccountOf(user));
+  const api = useMemo(() => accountBoundApi(sessionApi, () => formAccountRef.current), []);
+  const postMove = (req, cfg) => api.post("/daily-close/move", req, cfg);
+  const inFormAccount = (fn) => (...args) => withQueueAccount(formAccountRef.current, () => fn(...args));
+  const getOfflineQueue = inFormAccount(closeQueue.getOfflineQueue);
+  const addToOfflineQueue = inFormAccount(closeQueue.addToOfflineQueue);
+  const addFailedToOfflineQueue = inFormAccount(closeQueue.addFailedToOfflineQueue);
+  const updateQueueItem = inFormAccount(closeQueue.updateQueueItem);
+  const removeFromOfflineQueue = inFormAccount(closeQueue.removeFromOfflineQueue);
   const { hasFeature, isReady: entReady } = useEntitlements();
   const askConfirm = useConfirm();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
@@ -2298,6 +2499,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // (Could not be kept — a full device: they stay where they are.)
     if (!item) return;
     delete failedBodyRef.current[key];
+    // (The copy kept for the way out holds the same figures: the let-go copy is the one now.)
+    dropSaveOutbox(key);
     letGoCopiesRef.current[key] = item.id;
     try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
   };
@@ -2606,6 +2809,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // Opened (the newest draft, or a close from History): a draft of the
       // day that got no answer is not sent over what the owner chose to open.
       delete failedBodyRef.current[loadedKey];
+      dropSaveOutbox(loadedKey);
       // …nor named as the day's draft by Start forfra: what is stored is
       // what was just opened — on exactly that version (a save of the day
       // that got no answer before is not followed any more: the owner chose
@@ -3083,7 +3287,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     return () => {
       alive = false;
     };
-  }, [scanResult, terminalsForConfirm]);
+  // (`api`: the form's own, made once — R-c round 2 fix-up.)
+  }, [scanResult, terminalsForConfirm, api]);
 
   // The form as a till, the moment the day's first photo comes in: what the
   // owner typed or a reopened draft holds — not the sales sync's own
@@ -3506,7 +3711,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // answer on the old day is never sent there again.
         // (Not the figures a day let go of held then, on no server — kept on
         // this phone as a copy: round 23 R-c review.)
-        goes.forEach((k) => { keepLetGoFigures(k); delete failedBodyRef.current[k]; movedAwayRef.current[k] = runNoRef.current; });
+        goes.forEach((k) => { keepLetGoFigures(k); delete failedBodyRef.current[k]; dropSaveOutbox(k); movedAwayRef.current[k] = runNoRef.current; });
         // R-c round 2 — a copy of those figures this form kept on this phone
         // for the old day (left offline earlier) goes too: the move carries
         // them. Sent on by itself it filed the old day again beside the move.
@@ -3964,7 +4169,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setExemptStatus("loading");
     fetchExempt();
     return () => { cancelled = true; };
-  }, [businessDate, fileBranchId, cutoffHour]);
+  // (`api`: the form's own, made once — R-c round 2 fix-up.)
+  }, [businessDate, fileBranchId, cutoffHour, api]);
 
   // MOMS / VAT — toggle between auto-calc and manual entry from receipt
   const [momsMode, setMomsMode] = useState("auto"); // "auto" | "manual"
@@ -4385,10 +4591,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // unlock — so the owner is told so, with the server's own words, and the
   // autosave stops knocking. Holds the server's text ("" when it gave none).
   const [deletedLockedRow, setDeletedLockedRow] = useState(null);
+  // R-c round 2 fix-up — the day was filed under a branch that is not the
+  // signed-in account's (403 branch_not_owned): said once, and the pick is
+  // let go of (onBranchRefused) — the next save goes with no branch.
+  const [branchRefused, setBranchRefused] = useState(false);
   useEffect(() => {
     setLockedRowRejected(false);
     setDeletedLockedRow(null);
   }, [businessDate, fileBranchId]);
+  useEffect(() => { setBranchRefused((b) => (b ? false : b)); }, [businessDate]);
 
   // A close already filed for the chosen day. A fresh close typed over a
   // draft replaced it two seconds later without a word (a Catering line, a
@@ -4801,6 +5012,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
     forgetDay(key);
     delete failedBodyRef.current[key];
+    dropSaveOutbox(key);
     // What an earlier Start forfra said of this draft is no longer true.
     setStartOverFailed((cur) => (cur && cur.key === key ? null : cur));
     // Nothing of the day is filed now: the next figures typed for it go.
@@ -4941,6 +5153,85 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
   };
   /**
+   * R-c round 2 fix-up (MB) — the server refused the WHOLE move, nothing
+   * written: an old day is locked (on another device, since the form read
+   * it — "old_day_locked"), or the version of it this form holds was moved
+   * to another day already ("moved_elsewhere"). It used to file the figures
+   * on the new day beside the locked day: the same figures on both days.
+   * The form on that move's new day goes to where the figures are — the
+   * locked day (read-only there), or the day the other move took them to
+   * (its draft offered, never filed over unasked) — and says so under the
+   * date. A form that is not on that day any more (or gone) keeps the
+   * refused figures on this phone, said as refused — never dropped.
+   */
+  const moveRefused = (m, err) => {
+    if (!m) return;
+    const d = err?.response?.data?.detail || {};
+    const locked = isOldDayLocked(err);
+    const row = d.current && typeof d.current === "object" && d.current.id != null ? d.current : null;
+    const onIt = mountedRef.current && formEpochRef.current === m.epoch && rowKeyRef.current === m.toKey;
+    endMove(m);
+    if (!onIt) {
+      const id = m.outboxId;
+      m.outboxId = null;
+      if (id && getOfflineQueue().some((it) => it.id === id)) {
+        updateQueueItem(id, {
+          state: QUEUE_FAILED, errorCode: locked ? QUEUE_ERR_OLD_DAY_LOCKED : QUEUE_ERR_MOVED_ELSEWHERE,
+          refusedDay: d.date || m.from || null, movedTo: d.to || null, heldBy: null, httpStatus: 409, errorDetail: null,
+        });
+        try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+      }
+      onDraftSaved?.();
+      return;
+    }
+    dropMoveOutbox(m);
+    const back = locked ? (d.date || m.from) : (d.to || null);
+    if (row?.id != null) setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+    setMovedNote({ state: "refused", reason: locked ? "locked" : "moved", from: d.date || m.from, to: m.to, movedTo: d.to || null, on: back || m.to });
+    if (back && back !== m.to) {
+      act(dateMoved, back);
+      setBusinessDate(back);
+    }
+    onDraftSaved?.();
+  };
+  /* ─── A plain save the page may not live to hear (R-c round 2 fix-up) ──
+     L2 / L3: a save sent on the way out (pagehide, the tab hidden) dies with
+     the page on a dead line, and a save whose answer never came after the
+     page was left was kept nowhere — the owner's last figures on no server
+     and on no phone. Such a save is kept on this phone as ONE copy per day
+     (this form's account's queue, held by the form while it lives), carrying
+     the save's own id: sent again by the queue once the page is gone, a save
+     that did land is answered as it is (the server's replay) — never filed
+     twice, never a "saved somewhere else" question about its own landing.
+     Dropped once a save of the day built no earlier is answered, or the save
+     is refused for its figures (the refusal keeps its own copy). */
+  const saveOutboxRef = useRef({});
+  const keepSaveOutbox = (key, body, runNo) => {
+    if (!body?.save_id) return false;
+    const { account_id: _acct, ...payload } = body;
+    const prev = saveOutboxRef.current[key];
+    let id = null;
+    if (prev && getOfflineQueue().some((it) => it.id === prev.id)) {
+      updateQueueItem(prev.id, { payload, heldBy: holderRef.current, state: QUEUE_WAITING_NETWORK, errorCode: null, errorDetail: null, httpStatus: null });
+      id = prev.id;
+    } else {
+      id = addToOfflineQueue(payload, { heldBy: holderRef.current })?.id || null;
+    }
+    saveOutboxRef.current[key] = id ? { id, runNo: runNo ?? null } : null;
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+    return Boolean(id);
+  };
+  const dropSaveOutbox = (key, runNo = null) => {
+    const ob = saveOutboxRef.current[key];
+    if (!ob) return;
+    // (A newer attempt holds the copy now: an older save's answer leaves it.)
+    if (runNo != null && ob.runNo != null && runNo < ob.runNo) return;
+    saveOutboxRef.current[key] = null;
+    if (!getOfflineQueue().some((it) => it.id === ob.id)) return;
+    removeFromOfflineQueue(ob.id);
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+  };
+  /**
    * The server's answer to the move: the figures are on the new day, and
    * each old day is as the server left it — "deleted" (its draft, the
    * version this form held, is gone), "none" (nothing was stored),
@@ -4957,6 +5248,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (f.status === "deleted") {
         forgetDay(k);
         delete failedBodyRef.current[k];
+        dropSaveOutbox(k);
         // (The refusal's box named the draft the move took away.)
         setDraftConflict((c) => (c && c.key === k ? null : c));
         if (f.id != null) setDroppedIds((prev) => (prev.has(f.id) ? prev : new Set(prev).add(f.id)));
@@ -5017,7 +5309,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     } catch (err) {
       // Answered (refused — nothing was done, the old day keeps its draft):
       // the form says why; the move is not on this phone to send again.
-      if (err?.response && err.response.status < 500) dropMoveOutbox(m);
+      // (Only a refusal of the figures — R-c round 2 fix-up: a 401, a 403, a
+      // server with no move endpoint, a 5xx or no answer keeps the one
+      // queued copy of the move.)
+      if (isRefusalOfFigures(err) && !isOldDayLocked(err) && !isMovedElsewhere(err)) dropMoveOutbox(m);
       throw err;
     }
     // A lock the double-check stopped: nothing was done.
@@ -5039,7 +5334,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       applyMoveAnswer(m, res.data);
       return res.data;
     } catch (err) {
-      if (err?.response && err.response.status < 500) dropMoveOutbox(m);
+      // (Refused whole — an old day locked, or moved elsewhere: said, and
+      // the figures kept — R-c round 2 fix-up.)
+      if (isOldDayLocked(err) || isMovedElsewhere(err)) { moveRefused(m, err); return null; }
+      if (isRefusalOfFigures(err)) dropMoveOutbox(m);
       return null;
     }
   };
@@ -5335,6 +5633,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     keepLetGoFigures(key);
     // Thrown away: a draft of the day that got no answer is never sent again.
     delete failedBodyRef.current[key];
+    dropSaveOutbox(key);
     // Nothing waiting is filed for the day any more.
     clearTimeout(autoSaveRef.current);
     if (pendingSaveRef.current?.key === key) pendingSaveRef.current = null;
@@ -5501,6 +5800,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       onTheirWay.add(tracker);
       let saveId = null;
       let ownAgain = false;
+      let sentOffline = false;
       try {
         // One at a time per day, each on the version the one before was
         // answered with: two on their way at once, the second was built on a
@@ -5541,10 +5841,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         saveIdOfRef.current.set(tracker, saveId);
         if (!keyWireRef.current[savingKey]) keyWireRef.current[savingKey] = new Set();
         keyWireRef.current[savingKey].add(tracker);
+        // R-c round 2 fix-up (L3) — the page going away: this request may
+        // die with it (a dead line, a reload). Kept on this phone first, with
+        // its own save id (a move is kept as the queued move already).
+        if (keepalive && !moveFor(savingKey, runNo)) keepSaveOutbox(savingKey, body, runNo);
+        // (Sent with the browser offline: it never leaves this phone — the
+        // offline copies on the way out hold it, never a second one.)
+        sentOffline = typeof navigator !== "undefined" && navigator.onLine === false;
         // (The new day of a move not answered yet: this save IS the move —
         // R-c round 2.)
         const res = await postDayDraft(savingKey, body,
           keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined, runNo);
+        dropSaveOutbox(savingKey, runNo);
         noteSaved(savingKey, body, res);
         // Answered, and built after the save that got no answer: the day's
         // version is this one's now.
@@ -5597,6 +5905,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             const { base_updated_at: _b, save_id: _s, base_save_id: _f, ...built } = body;
             failedBodyRef.current[savingKey] = { body: built, runNo, ledger: ledgerAtBuild, base: body.base_updated_at };
           }
+          // R-c round 2 fix-up (L2) — the page is gone: nothing here sends
+          // these figures again. Kept on this phone (the form's own account's
+          // queue) as this very save — its id: it may have landed, and the
+          // server answers a save it already stored as it is.
+          if (!mountedRef.current && !sentOffline && !moveFor(savingKey, runNo) && (!f || f.runNo <= runNo)) keepSaveOutbox(savingKey, body, runNo);
           // Still the form's latest for the day (nothing newer waiting or
           // sent): the same draft waits for the page to be left, the
           // network to come back, or the next change (round 22, offline).
@@ -5650,12 +5963,34 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // Refused (answered: nothing written): this body is not what the day
         // holds — Start forfra's question never names it.
         if (err?.response && sentBodyRef.current[savingKey] === body) delete sentBodyRef.current[savingKey];
+        // (Refused for its figures: the copy kept for the way out goes — the
+        // refusal keeps its own when it must. Not for a 403, a 429 or a 5xx:
+        // nothing was judged, and a page gone leaves it to the queue.)
+        if (isRefusalOfFigures(err)) dropSaveOutbox(savingKey, runNo);
         // Still best-effort for every other failure (offline, 500, flaky
         // connection) — but a 409 is not a transient error, it is the lock
         // saying this row is final. A day held by a deleted, locked
         // kasserapport is not that lock: said on the wizard, in the server's
         // words — the figures exist only on this screen.
-        if (isDraftChanged(err)) {
+        // R-c round 2 fix-up — the whole move refused (an old day locked, or
+        // its draft moved to another day already): nothing written anywhere.
+        const mvRefused = (isOldDayLocked(err) || isMovedElsewhere(err))
+          ? (movesRef.current[savingKey] || (moveFromRef.current?.toKey === savingKey ? moveFromRef.current : null)) : null;
+        if (mvRefused) {
+          moveRefused(mvRefused, err);
+        } else if (isBranchNotOwned(err)) {
+          // A branch that is not the signed-in account's (the pick another
+          // account left on this phone): nothing written. Said, and the pick
+          // is let go of — the next save files the day with no branch.
+          if (mountedRef.current && savingKey === rowKeyRef.current) { setBranchRefused(true); onBranchRefused?.(); }
+          else if (!mountedRef.current) {
+            // (The page gone: the figures are kept on this phone, said as that.)
+            const { account_id: _a, ...kept } = body;
+            if (addFailedToOfflineQueue(kept, { errorCode: QUEUE_ERR_BRANCH_NOT_OWNED, httpStatus: 403 })) {
+              try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+            }
+          }
+        } else if (isDraftChanged(err)) {
           const out = await draftRefused(savingKey, body, err, tracker, "draft", runNo);
           // Round 23 re-send review — the version it met is the form's own
           // (its earlier save landed, the answer lost) but the form is on
@@ -5673,7 +6008,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           if (savingKey === rowKeyRef.current) setDeletedLockedRow(errText(err, ""));
           // (A move onto that day: nothing moved — the old day keeps its draft.)
           { const mv = movesRef.current[savingKey] || (moveFromRef.current?.toKey === savingKey ? moveFromRef.current : null); if (mv) { dropMoveOutbox(mv); endMove(mv); } }
-        } else if (err?.response?.status === 409) {
+        } else if (err?.response?.status === 409 && !isOldDayLocked(err) && !isMovedElsewhere(err)) {
           // Locked on another device while this form had the day open (round
           // 22): said at once — the day's "already closed and locked" banner,
           // with the amount once History has the locked row — never the
@@ -5809,6 +6144,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (!item) return false;
       offlineCopyRef.current = { id: item.id };
     }
+    // (This copy holds the day's latest figures: the way-out copy of an
+    // earlier save of the day is not a second one — R-c round 2 fix-up.)
+    dropSaveOutbox(dayKey);
     try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
     return true;
   };
@@ -5834,11 +6172,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       const prevId = failedCopiesRef.current[key];
       if (prevId && getOfflineQueue().some((it) => it.id === prevId)) {
         updateQueueItem(prevId, { payload });
+        dropSaveOutbox(key);
         kept = true;
         continue;
       }
       const item = addToOfflineQueue(payload);
-      if (item) { failedCopiesRef.current[key] = item.id; kept = true; }
+      // (These figures are the day's copy now — never a second, the way-out
+      // copy of the same save beside it: R-c round 2 fix-up.)
+      if (item) { failedCopiesRef.current[key] = item.id; kept = true; dropSaveOutbox(key); }
     }
     if (kept) { try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ } }
     return kept;
@@ -5883,11 +6224,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       onTheirWay.add(tracker);
       sendGenRef.current[key] = (sendGenRef.current[key] || 0) + 1;
       let again = false;
+      // R-c round 2 fix-up (L3) — sent on the way out: kept on this phone
+      // first, as this very save (a move is the queued move already).
+      if (keepalive && !moveFor(key, f.runNo)) keepSaveOutbox(key, payload, f.runNo);
+      const sentOffline = typeof navigator !== "undefined" && navigator.onLine === false;
       // (The new day of a move not answered yet, figures built after it:
       // sent as the move — R-c round 2.)
       (async () => postDayDraft(key, payload,
         keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined, f.runNo))()
         .then((res) => {
+          dropSaveOutbox(key, f.runNo);
           noteSaved(key, payload, res);
           if (failedBodyRef.current[key] === f) delete failedBodyRef.current[key];
           if (lostSaveRef.current[key] && lostSaveRef.current[key].runNo <= f.runNo) delete lostSaveRef.current[key];
@@ -5924,7 +6270,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             // Still no answer: it waits for the next way out, or "online" —
             // on the same version (round 23 fix-up: the form's, never History's).
             lostSaveRef.current[key] = { id: saveId, runNo: f.runNo, base: payload.base_updated_at };
+            // R-c round 2 fix-up (L3) — the page is gone: nothing here sends
+            // them again. Kept on this phone as this very save.
+            if (!mountedRef.current && !sentOffline && !moveFor(key, f.runNo)) keepSaveOutbox(key, payload, f.runNo);
             return;
+          }
+          if (isRefusalOfFigures(err)) dropSaveOutbox(key, f.runNo);
+          // (The whole move refused — R-c round 2 fix-up.)
+          if (isOldDayLocked(err) || isMovedElsewhere(err)) {
+            const mv = movesRef.current[key] || (moveFromRef.current?.toKey === key ? moveFromRef.current : null);
+            if (mv) moveRefused(mv, err);
           }
           if (failedBodyRef.current[key] === f) delete failedBodyRef.current[key];
           if (isDraftChanged(err)) {
@@ -5941,7 +6296,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               failedBodyRef.current[key] = { ...f, ownAgain: (f.ownAgain || 0) + 1 };
               again = true;
             }
-          } else if (err.response.status === 409 && key === rowKeyRef.current && mountedRef.current) {
+          } else if (err.response.status === 409 && key === rowKeyRef.current && mountedRef.current
+            && !isOldDayLocked(err) && !isMovedElsewhere(err)) {
             setLockedRowRejected(true);
             onDraftSaved?.();
           }
@@ -6210,6 +6566,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         setDeletedLockedRow(errText(err, ""));
         setError(t("dcDeletedLockedClose", "This day can't be saved: a deleted, locked kasserapport is kept for it (bookkeeping law). Nothing was saved — your numbers are still on this screen. Contact support."));
         setErrorDetail(errText(err, ""));
+        return;
+      }
+      // R-c round 2 fix-up — a lock that was a move, refused whole (an old
+      // day locked elsewhere, or its draft moved to another day already):
+      // nothing was locked or moved; the line under the date says so.
+      if (isOldDayLocked(err) || isMovedElsewhere(err)) {
+        if (lockMove) moveRefused(lockMove, err);
+        return;
+      }
+      // A branch that is not the signed-in account's: nothing was locked
+      // under it — said in the owner's language (never the server's Danish
+      // sentence), and the pick is let go of.
+      if (isBranchNotOwned(err)) {
+        setBranchRefused(true);
+        onBranchRefused?.();
+        setError(t("dcBranchNotOwned", "The branch that was picked doesn't belong to the account that is signed in, so nothing was saved under it. The branch choice has been cleared."));
+        setErrorDetail("");
         return;
       }
       if (err.response.status === 409) {
@@ -6851,7 +7224,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               ? t("dcStartOverNotDeletedChanged", "Not deleted — the draft was saved on another device meanwhile (now {amount}). Continue it, or start over again.", { amount: startOverFailed.amount })
               : t("dcStartOverNotDeletedChangedNoAmount", "Not deleted — the draft was saved on another device meanwhile. Continue it, or start over again."))
             : startOverFailed.outcome === "other"
-              ? t("dcStartOverNotDeletedOther", "Not deleted — another draft is saved for this day ({amount}). Continue it, or start over again.", { amount: startOverFailed.amount || "—" })
+              // (No amount known: said without one — never "(—)", R-c round 2 fix-up.)
+              ? (startOverFailed.amount
+                ? t("dcStartOverNotDeletedOther", "Not deleted — another draft is saved for this day ({amount}). Continue it, or start over again.", { amount: startOverFailed.amount })
+                : t("dcStartOverNotDeletedOtherNoAmount", "Not deleted — another draft is saved for this day. Continue it, or start over again."))
             : startOverFailed.outcome === "locked"
               ? t("dcStartOverNotDeletedLocked", "Not deleted — the day was locked on another device.")
               : t("dcStartOverNotDeleted", "The draft was not deleted. Try again.")}
@@ -7929,8 +8305,22 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             error, saved or locked elsewhere since) and the old day still has
             it — said so, with "Slet den" while it can still be deleted.
             Never "Flyttet" unless the old draft is gone. */}
-        {movedNote && movedNote.to === businessDate && (() => {
+        {movedNote && (movedNote.state === "refused" ? movedNote.on === businessDate : movedNote.to === businessDate) && (() => {
           const short = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+          // R-c round 2 fix-up (MB) — the server refused the whole move:
+          // nothing was moved, and the form is on the day the figures are.
+          if (movedNote.state === "refused") {
+            return (
+              <p data-testid="dc-date-moved" data-state="refused" className="mb-4 -mt-1 text-[13px] text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
+                <Icon name="CalendarX2" size={14} className="shrink-0" />
+                <span>
+                  {movedNote.reason === "locked"
+                    ? t("dcDateMoveRefusedLocked", "{from} is locked on another device — nothing was moved.", { from: short(movedNote.from) })
+                    : t("dcDateMoveRefusedMovedElsewhere", "These figures were already moved to {to} on another device — nothing was moved.", { to: short(movedNote.movedTo || movedNote.on) })}
+                </span>
+              </p>
+            );
+          }
           // Release R-c — what History lists for a day the figures left, as
           // the server holds it now (never a draft this form deleted).
           const listedRowOf = (k) => (existingCloses || []).find((dc) => closeRowKey(dc) === k
@@ -8176,6 +8566,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {deletedLockedRow && (
                 <span className="block mt-1 text-[12px] opacity-70">{deletedLockedRow}</span>
               )}
+            </SectionBanner>
+          </div>
+        )}
+
+        {/* R-c round 2 fix-up — the save was refused for a branch that is not
+            the signed-in account's (one picked by the account signed in
+            before): nothing was saved under it, and the pick is let go of. */}
+        {branchRefused && (
+          <div className="mb-4" data-testid="dc-branch-not-owned">
+            <SectionBanner severity="warn" icon="AlertTriangle">
+              {t("dcBranchNotOwned", "The branch that was picked doesn't belong to the account that is signed in, so nothing was saved under it. The branch choice has been cleared.")}
             </SectionBanner>
           </div>
         )}

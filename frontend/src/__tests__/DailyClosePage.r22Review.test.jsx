@@ -66,7 +66,7 @@ vi.mock("../components/SmartScanModal", () => ({ default: () => null }));
 vi.mock("../utils/resizeImage", () => ({ resizeImageIfLarge: async (f) => f }));
 
 const { BONS, createServer, installApi, photoUrl } = await import("../test/closeSequenceHarness");
-const { OQ_KEY } = await import("../utils/dailyCloseQueue");
+const { OQ_KEY, OQ_MOVES_KEY } = await import("../utils/dailyCloseQueue");
 const DailyClosePage = (await import("../pages/DailyClosePage")).default;
 
 const today = businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
@@ -155,7 +155,8 @@ const goOnline = async () => {
   await fire("online");
   for (let i = 0; i < 8; i++) await settle();
 };
-const queued = () => JSON.parse(localStorage.getItem(OQ_KEY) || "[]");
+// (Both keys — queued moves are kept under their own: R-c round 2 fix-up.)
+const queued = () => [OQ_KEY, OQ_MOVES_KEY].flatMap((k) => JSON.parse(localStorage.getItem(k) || "[]"));
 const dayPosts = (day) => S.posts.filter((b) => b.date === day && b.status === "draft");
 /** Another device files a draft for the day (its own row, its own save). */
 const otherFiles = (day, fields) => {
@@ -334,7 +335,12 @@ describe("review 2 — back online while the page is hidden: the waiting draft i
 /* ─── 3. the old day's 409 after a move ─────────────────────────────── */
 
 describe("review 3 — a 409 answering the OLD day's save never makes the new day locked", () => {
-  it("a held save of today meets another device's lock after the move to yesterday: yesterday saves, no lock banner on it", async () => {
+  // R-c round 2 fix-up (MB — CONTRACT CHANGE, listed as a narrowing): today
+  // was locked elsewhere before the move reached the server, so the whole
+  // move is refused (409 old_day_locked) — it used to save yesterday with
+  // 3.500 beside today's lock at 3.000: the figures on both days. Nothing is
+  // filed on yesterday; the page is back on today, which is the locked day.
+  it("a held save of today meets another device's lock after the move to yesterday: nothing is moved off the locked day — yesterday holds nothing, the page is back on today, said locked", async () => {
     serve();
     await mount();
     tap(/^skipEnterManually$/);
@@ -354,9 +360,10 @@ describe("review 3 — a 409 answering the OLD day's save never makes the new da
     for (let i = 0; i < 4; i++) await settle();
     expect(S.lockConflicts).toBe(1);
     await flush();
-    expect(rowFor(yesterday)).toMatchObject({ status: "draft", revenue_breakdown: { food: 3500 } });
-    expect(text()).not.toContain("dcDayAlreadyLocked");
-    expect(q('[data-testid="dc-save-slot-unsaved"]')).toBeNull();
+    expect(rowFor(yesterday)).toBeUndefined();
+    expect(q("#close-date").value).toBe(today);
+    expect(text()).toContain("dcDateMoveRefusedLocked");
+    expect(text()).toContain("dcDayAlreadyLocked");
     // Today is the other device's lock, as it locked it.
     expect(rowFor()).toMatchObject({ status: "confirmed", revenue_breakdown: { food: 3000 } });
   });

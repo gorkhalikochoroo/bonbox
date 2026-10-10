@@ -85,14 +85,27 @@ describe("the offline queue is the signed-in account's", () => {
     expect(getOfflineQueue().map((it) => it.payload.date)).toEqual(["2026-10-08", "2026-10-09"]);
   });
 
-  it("an item from before this release (no account) is the next signed-in account's, stamped on the first write", () => {
+  // R-c round 2 fix-up (review: attacker + removal lenses) — CONTRACT
+  // CHANGE, listed as a narrowing: an item from before this release names no
+  // account and whose it is cannot be told. It used to be the next signed-in
+  // account's — sent on its session and stamped as its own on the first
+  // write (CMS-1 once more for every copy on a phone at the deploy). Now it
+  // is shown to whoever is signed in as unclaimed, never sent by itself and
+  // never stamped by another write; the owner claims it by sending it
+  // (dailyCloseQueue.rc2FixUp.test.js).
+  it("an item from before this release (no account) is shown, never sent by itself, never stamped by another write", async () => {
     localStorage.setItem(OQ_KEY, JSON.stringify([{ id: "old", ts: 1, payload: { date: "2026-10-01", status: "draft" } }]));
     setQueueAccount("user-a");
     expect(getOfflineQueue()).toHaveLength(1);
     addToOfflineQueue({ date: "2026-10-02", status: "draft" });
-    expect(raw().map((it) => it.account)).toEqual(["user-a", "user-a"]);
+    expect(raw().map((it) => it.account)).toEqual([undefined, "user-a"]);
+    const post = vi.fn().mockResolvedValue({ data: { id: 1 } });
+    await syncOfflineQueue(post);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0][0]).toMatchObject({ date: "2026-10-02", account_id: "user-a" });
+    expect(raw().map((it) => it.id)).toEqual(["old"]);
     setQueueAccount("user-b");
-    expect(getOfflineQueue()).toEqual([]);
+    expect(getOfflineQueue().map((it) => it.id)).toEqual(["old"]);
   });
 
   it("never set (no page — a unit test): the whole device's list, as before", () => {

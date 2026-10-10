@@ -5,6 +5,7 @@ import { clearStoredMode } from "../lib/appMode";
 import { withSignupRef, clearSignupRef } from "../utils/signupRef";
 import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 import { forgetSessionVerifySkip } from "../utils/verifySkip";
+import { setQueueAccount } from "../utils/dailyCloseQueue";
 
 const AuthContext = createContext(null);
 
@@ -188,6 +189,13 @@ export function AuthProvider({ children }) {
     // nor this tab's "Spring over for nu" on the verify wall (release gate R-b).
     clearStoredMode();
     forgetSessionVerifySkip();
+    // R-c round 2 fix-up (CMS-1) — nor this account's Daily close queue (a
+    // sync still on its way stops; a form gone with the page sends nothing
+    // more on the next account's session, and keeps its copies for this
+    // account: utils/dailyCloseQueue withQueueAccount) — nor the branch it
+    // picked (filed under it, every close of the next account was refused).
+    setQueueAccount(null);
+    try { localStorage.removeItem("bonbox_branch"); } catch { /* storage blocked: nothing kept */ }
     setUser(null);
   };
 
