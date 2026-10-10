@@ -279,7 +279,10 @@ def verify_magic_link(
     ip = _client_ip(request)
 
     try:
-        user = verify_token(db, data.token, used_ip=ip, signup_ref=data.signup_ref)
+        user = verify_token(
+            db, data.token, used_ip=ip, signup_ref=data.signup_ref,
+            accept_terms=data.accept_terms,
+        )
     except HTTPException as e:
         # Map the service-layer codes to security_event rows so a
         # spike of "expired" or "invalid" verify attempts is visible

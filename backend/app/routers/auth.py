@@ -61,9 +61,10 @@ from app.models.daily_close import DailyClose
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
-    SignupRefMixin,
+    SignupRefMixin, TermsAcceptMixin,
 )
 from app.services.signup_ref import apply_signup_ref
+from app.services.terms import apply_terms_acceptance
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
 from app.services.revisor_mail import header_safe as _header_safe
@@ -482,6 +483,9 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     # The printed door-visit code, if the signup came from one (already
     # validated by the schema; services/signup_ref.py).
     apply_signup_ref(user, data.signup_ref)
+    # Terms acceptance — only when the register page sent accept_terms=true
+    # (it shows the acceptance line); an older client leaves it NULL.
+    apply_terms_acceptance(user, data.accept_terms)
     # Start the 14-day Pro trial — full features, no card required
     from app.services.billing import start_trial
     start_trial(user)
@@ -549,7 +553,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
-class GoogleAuthRequest(SignupRefMixin):
+class GoogleAuthRequest(SignupRefMixin, TermsAcceptMixin):
     credential: str  # Google ID token
 
 
@@ -572,7 +576,7 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
     from app.routers.auth_oauth import google_signin
     return google_signin(
         request, response, data.credential, db,
-        legacy=True, signup_ref=data.signup_ref,
+        legacy=True, signup_ref=data.signup_ref, accept_terms=data.accept_terms,
     )
 
 
@@ -699,7 +703,7 @@ def _verify_apple_identity_token(token: str) -> dict:
     return claims
 
 
-class AppleAuthRequest(SignupRefMixin):
+class AppleAuthRequest(SignupRefMixin, TermsAcceptMixin):
     identity_token: str  # Apple's signed JWT
     full_name: Optional[str] = None  # Only present on first sign-in
 
@@ -830,6 +834,7 @@ def apple_auth(
         )
         # New account only — a sign-in to an existing one never gains a ref.
         apply_signup_ref(user, data.signup_ref)
+        apply_terms_acceptance(user, data.accept_terms)
         from app.services.billing import start_trial
         start_trial(user)
         db.add(user)
@@ -2072,15 +2077,20 @@ def export_all_data(
     w.writerow([f"Exported: {utc_now().isoformat()}"])
     # signup_ref — the printed door-visit code the account came from, if any.
     # Stored about the user, so it is in their copy (Art. 15/20).
+    # terms_version / terms_accepted_at — which Terms the account holder
+    # accepted at sign-up and when (services/terms.py); "" = none recorded.
     _write_csv_section(w, "Profile", [
         "id", "email", "business_name", "business_type", "currency",
         "daily_goal", "monthly_goal", "role", "created_at", "signup_ref",
+        "terms_version", "terms_accepted_at",
     ], [[
         str(current_user.id), current_user.email, current_user.business_name,
         current_user.business_type, current_user.currency,
         current_user.daily_goal, current_user.monthly_goal,
         current_user.role, str(current_user.created_at),
         current_user.signup_ref or "",
+        current_user.terms_version or "",
+        current_user.terms_accepted_at.isoformat() if current_user.terms_accepted_at else "",
     ]])
 
     # --- Business Profile ---

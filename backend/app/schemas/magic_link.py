@@ -21,7 +21,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.schemas.auth import ClaimQuestion, SignupRefMixin, UserResponse
+from app.schemas.auth import ClaimQuestion, SignupRefMixin, TermsAcceptMixin, UserResponse
 
 
 class MagicLinkRequest(SignupRefMixin):
@@ -42,12 +42,14 @@ class MagicLinkRequest(SignupRefMixin):
         return v
 
 
-class MagicLinkVerify(SignupRefMixin):
+class MagicLinkVerify(SignupRefMixin, TermsAcceptMixin):
     """POST /auth/magic-link/verify — exchange a raw token for a session.
 
     `signup_ref` is stamped only when this verify CREATES the account
     (services/magic_link_service.verify_token); an existing one never gains
-    or loses a ref.
+    or loses a ref. `accept_terms` follows the same rule (services/terms.py);
+    the web app's magic-link form shows no acceptance line today, so it does
+    not send it and a magic-link account records no acceptance.
 
     Length bounds:
       • 43 = exact length of base64url(secrets.token_urlsafe(32))

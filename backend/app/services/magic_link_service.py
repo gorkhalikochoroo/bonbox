@@ -157,8 +157,14 @@ def verify_token(
     raw_token: str,
     used_ip: str | None = None,
     signup_ref: str | None = None,
+    accept_terms: bool | None = None,
 ) -> User:
     """Exchange a raw magic-link token for a User.
+
+    accept_terms — True only when the page that sent this verify showed the
+    Terms acceptance line. Stamped on a NEW account only (services/terms.py);
+    the web app does not send it today, so magic-link accounts record no
+    acceptance.
 
     Raises:
       HTTPException(401) — token unknown
@@ -248,6 +254,8 @@ def verify_token(
         # account only, same rule as register/Google/Apple
         # (services/signup_ref.py).
         apply_signup_ref(user, signup_ref)
+        from app.services.terms import apply_terms_acceptance
+        apply_terms_acceptance(user, accept_terms)
         # Start the 14-day Pro trial — parity with Google + password
         # self-signup. Magic-link users shouldn't be a second-class
         # entitlement bucket.
