@@ -177,14 +177,16 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const text = row.textContent;
-    for (const k of ["termsNoticeChangeCaps", "termsNoticeChangeBusiness", "termsNoticeChangeRenewal",
-      "termsNoticeChangeFounding", "termsNoticeChangePrice"]) {
+    for (const k of ["termsNoticeChangeCaps", "termsNoticeChangeRecords", "termsNoticeChangeBusiness",
+      "termsNoticeChangeRenewal", "termsNoticeChangeFounding", "termsNoticeChangePrice"]) {
       expect(text).toContain(da[k]);
     }
-    // What matters most to today's Free owners comes first.
+    // What matters most to today's Free owners comes first; then the § 4
+    // change every owner meets before deleting (own records, immediate deletion).
     const items = [...row.querySelectorAll("li")].map((li) => li.textContent);
     expect(items[0]).toBe(da.termsNoticeChangeCaps);
-    expect(items).toHaveLength(5);
+    expect(items[1]).toBe(da.termsNoticeChangeRecords);
+    expect(items).toHaveLength(6);
     expect(text).toContain(`Vil du ikke fortsætte på de nye betingelser, kan du opsige dit abonnement eller slette din konto før ${termsDate(TERMS_EXISTING_FROM, "da")}.`);
   });
 
@@ -299,8 +301,8 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
 
   it("every notice key has real Danish and English", () => {
     const keys = ["termsNoticeText", "termsNoticeRead", "termsNoticeWhatChanged", "termsNoticeHide",
-      "termsNoticeChangeCaps", "termsNoticeChangeRenewal", "termsNoticeChangeFounding", "termsNoticeChangePrice",
-      "termsNoticeChangeBusiness", "termsNoticeObject"];
+      "termsNoticeChangeCaps", "termsNoticeChangeRecords", "termsNoticeChangeRenewal", "termsNoticeChangeFounding",
+      "termsNoticeChangePrice", "termsNoticeChangeBusiness", "termsNoticeObject"];
     for (const k of keys) {
       expect(typeof da[k]).toBe("string");
       expect(typeof en[k]).toBe("string");
@@ -321,6 +323,24 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
     expect(en.termsNoticeChangeCaps).toContain("Every plan, Free included, has usage caps");
     expect(en.termsNoticeChangeCaps).toContain("change, limit or remove features and usage caps with reasonable notice");
     expect(en.termsNoticeChangeCaps).toContain("charge retroactively");
+    // The § 4 change, true to the new § 4 on the Terms page (the live 13 May
+    // § 4 had BonBox retain records and purge within 30 days).
+    expect(da.termsNoticeChangeRecords).toContain("Det er dig, ikke BonBox, der skal opbevare din virksomheds regnskabsmateriale");
+    expect(da.termsNoticeChangeRecords).toContain("BonBox er ikke et arkiv");
+    expect(da.termsNoticeChangeRecords).toContain("sletter vi kontoen og dataene i den med det samme");
+    expect(da.termsNoticeChangeRecords).toContain("hent dine data og de PDF'er, du har brug for");
+    expect(en.termsNoticeChangeRecords).toContain("You, not BonBox, must keep your business's accounting records");
+    expect(en.termsNoticeChangeRecords).toContain("BonBox is not an archive");
+    expect(en.termsNoticeChangeRecords).toContain("we delete the account and the data in it straight away");
+    expect(en.termsNoticeChangeRecords).toContain("download your data and the PDFs you need");
+    const termsPage = read("pages/TermsPage.jsx");
+    expect(termsPage).toContain("der skal opbevare din virksomheds regnskabsmateriale");
+    expect(termsPage).toContain("er ikke et arkiv");
+    expect(termsPage).toContain("sletter vi kontoen og dataene i den med det samme");
+    expect(termsPage).toContain("must keep your business&rsquo;s accounting records");
+    expect(termsPage).toContain("is not an archive");
+    expect(termsPage).toContain("we delete the account and the data in it straight away");
+    expect(termsPage).not.toContain("inden for 30 dage");
   });
 });
 

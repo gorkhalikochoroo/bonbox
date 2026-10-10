@@ -135,6 +135,12 @@ export default function TermsUpdateNotice() {
         <div id="terms-update-notice-changes" className="pb-1.5 text-gray-600 dark:text-gray-400">
           <ul className="list-disc pl-5 space-y-0.5">
             <li>{t("termsNoticeChangeCaps", "Every plan, Free included, has usage caps, and we may change, limit or remove features and usage caps with reasonable notice. This replaces the promise in the earlier terms that existing free functionality stays available and that we do not charge retroactively for features you already use for free.")}</li>
+            {/* § 4: the live 13 May text had BonBox retain accounting records
+                (6 years by default) and purge within 30 days; the new § 4 makes
+                the owner keep them ("ikke et arkiv") and deletes the account and
+                its data at once. Every owner can delete, so it sits with the
+                caps bullet, ahead of the paid-plan ones. */}
+            <li>{t("termsNoticeChangeRecords", "You, not BonBox, must keep your business's accounting records. BonBox is not an archive. When you delete your account, we delete the account and the data in it straight away, so download your data and the PDFs you need first.")}</li>
             <li>{t("termsNoticeChangeBusiness", "Paid subscriptions are for businesses only.")}</li>
             <li>{t("termsNoticeChangeRenewal", "Starter and Pro renew automatically every month. A cancellation takes effect at the end of the period you have paid for, and we do not refund part of a period.")}</li>
             <li>{t("termsNoticeChangeFounding", "You keep the founding price as long as your subscription stays active without a break.")}</li>

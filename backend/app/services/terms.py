@@ -58,12 +58,20 @@ from app.utils.time import utc_now
 # ═══════════════════════════════════════════════════════════════════════
 #  !!! RELEASE-TIME DATES — PROVISIONAL — SET BOTH ON THE DAY R-e SHIPS !!!
 #
-#  TERMS_VERSION       = the day R-e is deployed (Copenhagen date).
-#  TERMS_EXISTING_FROM = that day + 15 days.
+#  TERMS_VERSION       = the deploy day (below).
+#  TERMS_EXISTING_FROM = the deploy day + 15 days.
+#
+#  "Deploy day" = the Copenhagen day on which the FRONTEND bundle with the
+#  notice is verified live on www.bonbox.dk (check the served bundle's
+#  content, not only the push), with this backend already live. The notice is
+#  frontend code (Vercel), so the notice period starts when the frontend is
+#  live, not when the backend (Render) is. If the frontend goes live on a
+#  later day than these dates assume, move BOTH dates (here and in
+#  frontend/src/legal/terms.js) before that push.
 #
 #  The values below (14 Oct / 29 Oct 2026) are a GUESS at the ship day — R-e
 #  ships after R-c, R-d/R-f and Manoj's Stripe settings. They are only true
-#  if R-e is deployed on 14 Oct 2026.
+#  if the R-e frontend is verified live on www.bonbox.dk on 14 Oct 2026.
 #
 #  These two lines and the two in frontend/src/legal/terms.js are the ONLY
 #  places the dates live; the Terms page, the in-app notice and every test
@@ -73,7 +81,7 @@ from app.utils.time import utc_now
 #
 #  Why +15 and not +14: the live 13 May Terms §14 promise notice "mindst 14
 #  dage, før ændringerne træder i kraft". The notice can only appear once the
-#  release is live, part-way through the deploy day, and the Terms apply from
+#  frontend is live, part-way through the deploy day, and the Terms apply from
 #  00:00 Copenhagen on TERMS_EXISTING_FROM — so deploy day + 14 would give
 #  less than 14 full days.
 # ═══════════════════════════════════════════════════════════════════════
