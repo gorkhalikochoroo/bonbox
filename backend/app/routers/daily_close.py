@@ -3986,8 +3986,12 @@ def scan_z_report(
         except UnsupportedImageError:
             raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
         except ValueError as e:
-            # Not decodable as an image (was an unhandled 500 before).
-            raise HTTPException(status_code=400, detail=str(e))
+            # Not decodable as an image (was an unhandled 500 before). The
+            # owner reads the same da/en refusal as for a wrong format —
+            # never Pillow's English text — and the real error is logged,
+            # so a HEIC / Pillow decode regression stays visible.
+            logger.warning("scan-report decode failed user=%s: %s", user.id, e)
+            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
 
         # This used to pick the newest uploads/receipts/{user}_* file by mtime.
         # On the kasserapport path that is the worst possible race: the Z-report

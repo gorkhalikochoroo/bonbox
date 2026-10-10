@@ -297,3 +297,27 @@ def test_an_oversized_canvas_is_refused_on_the_receipt_upload(db, as_user, local
     assert r.json()["detail"] == image_guard.refusal_message("da")
     assert list(local_receipts.iterdir()) == []
 
+
+# ─── R-d fix-up: an undecodable photo on the Z-report scan ───────────
+
+@pytest.mark.parametrize("ui_language,lang", [(None, "da"), ("en", "en")])
+def test_a_truncated_photo_on_the_z_report_scan_gets_the_owners_language_and_is_logged(
+    db, as_user, local_receipts, monkeypatch, caplog, ui_language, lang,
+):
+    """Magic bytes pass, Pillow cannot decode: the owner reads the da/en
+    refusal (never Pillow's English), and the real error is logged so a
+    HEIC / Pillow regression stays visible."""
+    u = _owner(db, ui_language=ui_language)
+    as_user(u)
+    monkeypatch.setattr(daily_close_router, "parse_z_report", lambda p: pytest.fail("must not read"))
+    truncated = _canvas("JPEG", (320, 240))[:300]
+    with caplog.at_level("WARNING"):
+        r = _post(
+            "/api/daily-close/scan-report",
+            files={"file": ("z.jpg", truncated, "image/jpeg")},
+            headers=_ip(),
+        )
+    assert r.status_code == 400
+    assert r.json()["detail"] == image_guard.refusal_message(lang)
+    assert any("scan-report decode failed" in rec.getMessage() for rec in caplog.records)
+
