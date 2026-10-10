@@ -3472,7 +3472,7 @@ is_prod = settings.ENVIRONMENT == "production"
 #:     load test peaked at 1.97 GB with default malloc, 1.43 GB with
 #:     MALLOC_ARENA_MAX=2, 0.95 GB with MALLOC_MMAP_THRESHOLD_=1 MB).
 #: A 33rd concurrent sync request waits on the event loop for a thread; the
-#: async routes (health, booking-page SSE, the Copilot stream) never do.
+#: async routes (/api/health, booking-page SSE, the Copilot stream) never do.
 THREADPOOL_TOKENS = 32
 
 
@@ -3634,33 +3634,42 @@ async def _global_exception_handler(request: Request, exc: Exception):
         request.method, path, exc,
     )
     # Persist to ErrorLog for super-admin observability — wrapped in
-    # try/except so logging failures NEVER break the response path.
+    # try/except so logging failures NEVER break the response path. The
+    # row is built here (the traceback only exists on this thread) and
+    # written in a worker thread: a pool checkout on the event loop froze
+    # every request when the pool was exhausted (app/utils/off_loop.py).
     try:
         from app.models.error_log import ErrorLog as _ErrorLog
-        from app.database import SessionLocal as _SessionLocal
-        _db = _SessionLocal()
-        try:
-            from app.utils.log_redact import redact_path as _redact_path
-            _db.add(_ErrorLog(
-                method=request.method,
-                # Links like /s/<token> are their own credential — never
-                # store one (app/utils/log_redact.py).
-                path=(_redact_path(path) or "")[:500] or None,
-                status_code=500,
-                user_id=getattr(getattr(request, "state", None), "user_id", None),
-                ip_address=(client_ip(request) if request else None),
-                user_agent=(request.headers.get("user-agent") or "")[:500],
-                error_type=type(exc).__name__[:100],
-                message=str(exc)[:1000],
-                # Cap at 16KB — Starlette wraps every request in ~7 BaseHTTPMiddleware
-                # frames each adding 6+ lines of boilerplate via collapse_excgroups, so
-                # the inner-most app frame (where the bug actually lives) sits >4KB deep.
-                # 16KB gives us enough headroom to always see the offending code path.
-                traceback=_tb.format_exc()[:16000],
-            ))
-            _db.commit()
-        finally:
-            _db.close()
+        from app.utils.log_redact import redact_path as _redact_path
+        from app.utils.off_loop import run_blocking as _run_blocking
+        _row = _ErrorLog(
+            method=request.method,
+            # Links like /s/<token> are their own credential — never
+            # store one (app/utils/log_redact.py).
+            path=(_redact_path(path) or "")[:500] or None,
+            status_code=500,
+            user_id=getattr(getattr(request, "state", None), "user_id", None),
+            ip_address=(client_ip(request) if request else None),
+            user_agent=(request.headers.get("user-agent") or "")[:500],
+            error_type=type(exc).__name__[:100],
+            message=str(exc)[:1000],
+            # Cap at 16KB — Starlette wraps every request in ~7 BaseHTTPMiddleware
+            # frames each adding 6+ lines of boilerplate via collapse_excgroups, so
+            # the inner-most app frame (where the bug actually lives) sits >4KB deep.
+            # 16KB gives us enough headroom to always see the offending code path.
+            traceback=_tb.format_exc()[:16000],
+        )
+
+        def _persist_error_row():
+            from app.database import SessionLocal as _SessionLocal
+            _db = _SessionLocal()
+            try:
+                _db.add(_row)
+                _db.commit()
+            finally:
+                _db.close()
+
+        await _run_blocking(_persist_error_row)
     except Exception:  # noqa: BLE001 — observability MUST never raise
         pass
     # Audit spike detection: many exceptions from same IP looks like probing
@@ -4345,14 +4354,13 @@ async def accountant_write_guard(request: Request, call_next):
     #   • query RAISES           → we can't prove the caller isn't a
     #     restricted member, so refuse with 503 (retryable) instead of
     #     calling call_next.
-    from app.database import SessionLocal as _Session
-    from sqlalchemy import text as _text
-    db = _Session()
+    # The query runs in a worker thread, never on the event loop
+    # (app/utils/off_loop.py).
+    from app.utils.off_loop import first_row as _first_row
     try:
-        row = db.execute(
-            _text("SELECT role FROM users WHERE id = :uid LIMIT 1"),
-            {"uid": user_id},
-        ).first()
+        row = await _first_row(
+            "SELECT role FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+        )
     except Exception:  # noqa: BLE001
         _security_logger.warning(
             "accountant_write_guard role lookup failed — failing CLOSED (503)"
@@ -4366,8 +4374,6 @@ async def accountant_write_guard(request: Request, call_next):
                 },
             },
         )
-    finally:
-        db.close()
 
     if not row:
         return await call_next(request)
@@ -4591,14 +4597,12 @@ async def member_read_guard(request: Request, call_next):
     except Exception:  # noqa: BLE001
         return await call_next(request)
 
-    from app.database import SessionLocal as _Session
-    from sqlalchemy import text as _text
-    db = _Session()
+    # In a worker thread, never on the event loop (app/utils/off_loop.py).
+    from app.utils.off_loop import first_row as _first_row
     try:
-        row = db.execute(
-            _text("SELECT role FROM users WHERE id = :uid LIMIT 1"),
-            {"uid": user_id},
-        ).first()
+        row = await _first_row(
+            "SELECT role FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+        )
     except Exception:  # noqa: BLE001
         _security_logger.warning(
             "member_read_guard role lookup failed — failing CLOSED (503)"
@@ -4612,8 +4616,6 @@ async def member_read_guard(request: Request, call_next):
                 },
             },
         )
-    finally:
-        db.close()
 
     if not row:
         return await call_next(request)
@@ -4725,14 +4727,12 @@ async def shared_device_pin_gate(request: Request, call_next):
     dn = payload.get("dn")
     proof = request.headers.get(DEVICE_PIN_HEADER)
 
-    from app.database import SessionLocal as _Session
-    from sqlalchemy import text as _text
-    db = _Session()
+    # In a worker thread, never on the event loop (app/utils/off_loop.py).
+    from app.utils.off_loop import first_row as _first_row
     try:
-        row = db.execute(
-            _text("SELECT device_pin_hash FROM users WHERE id = :uid LIMIT 1"),
-            {"uid": user_id},
-        ).first()
+        row = await _first_row(
+            "SELECT device_pin_hash FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+        )
     except Exception:  # noqa: BLE001
         _security_logger.warning(
             "shared_device_pin_gate lookup failed — failing CLOSED (503)"
@@ -4742,8 +4742,6 @@ async def shared_device_pin_gate(request: Request, call_next):
             content={"detail": {"code": "pin_check_unavailable",
                                 "message": "Could not verify. Please retry."}},
         )
-    finally:
-        db.close()
 
     pin_hash = row[0] if row else None
     if device_pin_proof_valid(str(user_id), pin_hash, dn, proof):
@@ -4992,24 +4990,19 @@ async def sliding_refresh_middleware(request: Request, call_next):
         # response AFTER the dep runs — and this branch only fires when
         # the route returned <400, so the user MUST have resolved.
         # Still, do a defensive re-check so a race between lock + refresh
-        # doesn't extend a hostile session by 30d.
-        from app.database import SessionLocal as _Session
-        from sqlalchemy import text as _text
-        is_locked = False
-        with _Session() as _db:
-            try:
-                row = _db.execute(
-                    _text("SELECT is_locked FROM users WHERE id = :uid LIMIT 1"),
-                    {"uid": user_id},
-                ).first()
-                if row and row[0]:
-                    is_locked = True
-            except Exception:  # noqa: BLE001
-                # DB hiccup — fail-soft. We won't refresh this round, but
-                # the existing token is still valid for ~15d so the user
-                # is fine.
-                return response
-        if is_locked:
+        # doesn't extend a hostile session by 30d. In a worker thread, never
+        # on the event loop (app/utils/off_loop.py).
+        from app.utils.off_loop import first_row as _first_row
+        try:
+            row = await _first_row(
+                "SELECT is_locked FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+            )
+        except Exception:  # noqa: BLE001
+            # DB hiccup — fail-soft. We won't refresh this round, but
+            # the existing token is still valid for ~15d so the user
+            # is fine.
+            return response
+        if row and row[0]:
             return response
 
         # Mint a fresh JWT under the CURRENT secret only. APP_SECRET_KEY
@@ -5076,25 +5069,32 @@ async def sliding_refresh_middleware(request: Request, call_next):
         if _refresh_audit_should_log(str(user_id)):
             try:
                 from app.services import audit_service as _audit
-                from app.database import SessionLocal as _AuditSession
-                with _AuditSession() as _adb:
-                    _audit.record(
-                        _adb,
-                        user=user_id,
-                        action="auth.token_refreshed",
-                        entity_type="user",
-                        entity_id=None,
-                        before=None,
-                        after={
-                            "old_token_iat": iat_ts,
-                            "new_token_iat": now_ts,
-                            "mode": mode,
-                        },
-                        ip_address=(client_ip(request) if request else None),
-                        actor_id=None,
-                        actor_type="system.session_refresh",
-                    )
-                    _adb.commit()
+                from app.utils.off_loop import run_blocking as _run_blocking
+                _audit_ip = client_ip(request) if request else None
+
+                def _write_refresh_audit():
+                    from app.database import SessionLocal as _AuditSession
+                    with _AuditSession() as _adb:
+                        _audit.record(
+                            _adb,
+                            user=user_id,
+                            action="auth.token_refreshed",
+                            entity_type="user",
+                            entity_id=None,
+                            before=None,
+                            after={
+                                "old_token_iat": iat_ts,
+                                "new_token_iat": now_ts,
+                                "mode": mode,
+                            },
+                            ip_address=_audit_ip,
+                            actor_id=None,
+                            actor_type="system.session_refresh",
+                        )
+                        _adb.commit()
+
+                # In a worker thread, never on the event loop (off_loop.py).
+                await _run_blocking(_write_refresh_audit)
             except Exception as e:  # noqa: BLE001
                 # Audit failure NEVER blocks the refresh — same discipline as
                 # audit_service.record itself.
@@ -5946,7 +5946,7 @@ _BUILD_COMMIT = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or ""
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])
-def health_check():
+async def health_check():  # async: answers even when every worker thread is busy
     return {"status": "ok", "commit": _BUILD_COMMIT}
 
 
