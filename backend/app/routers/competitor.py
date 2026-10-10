@@ -729,7 +729,7 @@ def scan_menu_from_upload(
     if not media_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    with vision_slot(current_user, db=db):  # at most 4 photo reads at once (2 per account)
+    with vision_slot(current_user, db=db):  # at most 3 photo reads at once (2 per account)
         items, meta = extract_menu_from_image(raw, media_type=media_type)
     return {
         "items": items,
@@ -763,7 +763,7 @@ def scan_menu_from_google_ref(
             detail="Couldn't fetch the photo from Google. Try uploading directly instead.",
         )
 
-    with vision_slot(current_user, db=db):  # at most 4 photo reads at once (2 per account)
+    with vision_slot(current_user, db=db):  # at most 3 photo reads at once (2 per account)
         items, meta = extract_menu_from_image(data, media_type=media_type or "image/jpeg")
     return {
         "items": items,

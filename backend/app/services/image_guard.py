@@ -24,6 +24,8 @@ photo goes through here (INFRA-03):
      * any other format over the ceiling is refused like an unreadable
        file. 50 MP is above the largest default phone mode (iPhone 48 MP =
        48.8M px, Samsung 50 MP = 49.9M px).
+   WEBP has a lower ceiling (``UPLOAD_MAX_PIXELS_BY_FORMAT``, 25 MP): its
+   decoder needs about twice the memory per pixel of a JPEG / HEIC.
 
 The allow-list is what the product accepts today: the pickers send
 ``image/*`` (iPhone HEIC/JPEG, Android JPEG/WebP, screenshots PNG,
@@ -56,6 +58,14 @@ UPLOAD_IMAGE_FORMATS: tuple[str, ...] = ("JPEG", "PNG", "WEBP", "HEIF", "GIF", "
 
 #: Largest canvas (width x height) an uploaded photo is decoded at.
 UPLOAD_MAX_PIXELS = 50_000_000
+
+#: Lower ceilings for formats whose decoder needs more memory per pixel than
+#: JPEG / HEIC. WEBP: Pillow decodes it through libwebp's animation decoder,
+#: which holds two full RGBA canvases next to the decoded image — one 50 MP
+#: WEBP peaked at 763 MB (Linux, 1 CPU, 10 Oct) against 372 MB for reading a
+#: 48 MP JPEG. At 25 MP a WEBP costs what a 48 MP phone photo does. No phone
+#: camera writes WEBP; screenshots and web images are a few MP.
+UPLOAD_MAX_PIXELS_BY_FORMAT: dict[str, int] = {"WEBP": 25_000_000}
 
 # ISO-BMFF major brands that mean HEIC/HEIF (not AVIF, which no BonBox
 # path has ever decoded).
@@ -142,25 +152,32 @@ def open_upload_image(src: Union[bytes, str, Path]) -> Image.Image:
     return _bound_canvas(img)
 
 
+def _ceiling(fmt: str | None) -> int:
+    """The canvas ceiling for one decoder: the format's own, never above
+    ``UPLOAD_MAX_PIXELS``."""
+    return min(UPLOAD_MAX_PIXELS, UPLOAD_MAX_PIXELS_BY_FORMAT.get(fmt or "", UPLOAD_MAX_PIXELS))
+
+
 def _bound_canvas(img: Image.Image) -> Image.Image:
-    """Apply ``UPLOAD_MAX_PIXELS`` to a just-opened (not yet decoded) image."""
+    """Apply the canvas ceiling to a just-opened (not yet decoded) image."""
     w, h = img.size
     pixels = w * h
-    if pixels <= UPLOAD_MAX_PIXELS:
+    limit = _ceiling(img.format)
+    if pixels <= limit:
         return img
     if img.format in ("JPEG", "MPO"):
         # draft() picks the largest JPEG scale (1/2, 1/4, 1/8) whose result
         # is still >= the requested size. Asking for half of the size that
         # would exactly fit makes the chosen scale land at or under the
         # ceiling (and never below a quarter of it).
-        f = math.sqrt(UPLOAD_MAX_PIXELS / pixels)
+        f = math.sqrt(limit / pixels)
         try:
             img.draft(img.mode, (max(1, int(w * f / 2)), max(1, int(h * f / 2))))
         except Exception as e:  # noqa: BLE001
             logger.info("upload JPEG draft failed (%sx%s): %s", w, h, e)
-        if img.size[0] * img.size[1] <= UPLOAD_MAX_PIXELS:
+        if img.size[0] * img.size[1] <= limit:
             logger.info("upload JPEG %sx%s decoded at %sx%s", w, h, *img.size)
             return img
     logger.info("upload refused before decode: %s canvas %sx%s", img.format, w, h)
     img.close()
-    raise UnsupportedImageError("canvas over UPLOAD_MAX_PIXELS")
+    raise UnsupportedImageError("canvas over the decode ceiling")

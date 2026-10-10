@@ -864,7 +864,7 @@ async def scan_bottle_label(
         # Anthropic vision accepts these; reject others before the upload round-trip
         raise HTTPException(400, "Unsupported image format — use JPEG, PNG, or WebP")
 
-    # One vision slot for the paid read (at most 4 photo reads at once,
+    # One vision slot for the paid read (at most 3 photo reads at once,
     # process-wide). Taken BEFORE the ceiling counts this scan, so a 503
     # "busy, try again" never uses up one of the owner's scans.
     async with vision_slot_async(user):

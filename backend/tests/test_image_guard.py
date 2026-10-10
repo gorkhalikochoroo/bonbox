@@ -284,6 +284,22 @@ def test_photos_up_to_the_ceiling_are_untouched():
     assert img.size == (640, 480)
 
 
+def test_a_webp_over_its_own_lower_ceiling_is_refused_and_other_formats_are_not(monkeypatch):
+    monkeypatch.setitem(image_guard.UPLOAD_MAX_PIXELS_BY_FORMAT, "WEBP", 100 * 100)
+    with pytest.raises(image_guard.UnsupportedImageError):
+        image_guard.open_upload_image(_canvas("WEBP", (101, 100)))
+    assert image_guard.open_upload_image(_canvas("WEBP", (100, 100))).size == (100, 100)
+    for fmt in ("PNG", "JPEG"):  # the WEBP ceiling is WEBP's alone
+        assert image_guard.open_upload_image(_canvas(fmt, (400, 300))).size == (400, 300)
+
+
+def test_webp_decodes_at_most_25_mp_and_phone_formats_keep_the_full_ceiling():
+    # 25 MP: a 50 MP WEBP peaked at 763 MB under Linux, a 48 MP JPEG read at 372 MB (10 Oct).
+    assert image_guard.UPLOAD_MAX_PIXELS_BY_FORMAT == {"WEBP": 25_000_000}
+    for fmt in ("JPEG", "MPO", "HEIF", "PNG", "TIFF"):
+        assert image_guard._ceiling(fmt) == image_guard.UPLOAD_MAX_PIXELS >= 8160 * 6120
+
+
 def test_an_oversized_canvas_is_refused_on_the_receipt_upload(db, as_user, local_receipts, monkeypatch):
     monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
     u = _owner(db)

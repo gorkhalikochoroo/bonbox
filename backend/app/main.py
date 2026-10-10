@@ -3441,6 +3441,44 @@ limiter = Limiter(
 is_prod = settings.ENVIRONMENT == "production"
 
 
+#: Threads FastAPI may run sync routes / dependencies on at once (anyio's
+#: default is 40). Since R-d the blocking work (AI / OCR reads, photo
+#: decodes, PDF / XLSX builds, every DB query) runs on these threads, and
+#: production is ONE process on 1 CPU / 2 GB (Render 1c-2g since 10 Oct).
+#: Why 32:
+#:   * 15 for DB work: the Postgres pool holds 15 connections (5 + 10
+#:     overflow), and each query is mostly a network wait (Render Frankfurt
+#:     -> Supabase eu-west-1), so 15 requests overlap usefully; a 16th DB
+#:     request only queues for a connection;
+#:   * 3 for the photo reads in their 30-60 s vendor call
+#:     (VISION_MAX_CONCURRENT) — they hand their connection back first, so
+#:     they come on top of the 15;
+#:   * 14 of headroom for the waits that hold a thread without doing DB work:
+#:     reads queueing for a vision slot (up to 10 s each), file and streaming
+#:     responses, the webhooks and the Copilot loop handed to the threadpool,
+#:     so a burst of photo uploads cannot starve the saves and logins;
+#:   * not 40: 1 CPU runs one Python thread at a time, so threads past the
+#:     waits add no throughput — only more requests' working sets in memory
+#:     at once and, under glibc, up to one malloc arena per thread (memory a
+#:     thread frees stays in its arena, which is how RSS ratchets: the 10 Oct
+#:     load test peaked at 1.97 GB with default malloc, 1.43 GB with
+#:     MALLOC_ARENA_MAX=2, 0.95 GB with MALLOC_MMAP_THRESHOLD_=1 MB).
+#: A 33rd concurrent sync request waits on the event loop for a thread; the
+#: async routes (health, booking-page SSE, the Copilot stream) never do.
+THREADPOOL_TOKENS = 32
+
+
+def _bound_threadpool(tokens: int = THREADPOOL_TOKENS) -> None:
+    """Set anyio's default thread limiter for THIS event loop.
+
+    The limiter is per event loop (an anyio RunVar), so this runs inside the
+    lifespan — on the loop uvicorn serves from — not at import.
+    """
+    import anyio.to_thread
+
+    anyio.to_thread.current_default_thread_limiter().total_tokens = tokens
+
+
 # ─── Lifespan context manager (replaces @app.on_event) ─────────────
 #
 # FastAPI 0.93+ deprecated @app.on_event in favour of an ASGI
@@ -3473,6 +3511,7 @@ is_prod = settings.ENVIRONMENT == "production"
 @asynccontextmanager
 async def lifespan(app):
     # ─── STARTUP ─────────────────────────────────────────────────
+    _bound_threadpool()
     _startup_thread = threading.Thread(target=_init_db, daemon=True)
     _startup_thread.start()
 
@@ -3635,7 +3674,7 @@ async def _global_exception_handler(request: Request, exc: Exception):
 
 
 # --- Vision reads busy (OPS-02 / P0-3) -----------------------------------
-# app/services/ai_limits.py allows 4 photo reads at once; a read that cannot
+# app/services/ai_limits.py allows 3 photo reads at once; a read that cannot
 # get a slot within VISION_WAIT_S raises AIBusyError BEFORE storing or
 # counting anything. It gets its own handler so the owner sees the real
 # reason in their language — the prod 5xx sanitizer below would replace it

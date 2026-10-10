@@ -82,10 +82,23 @@ def anthropic_client(api_key: str | None = None, *, timeout: float | None = None
 
 # ── Vision concurrency ──────────────────────────────────────────────────
 
-#: Photo reads allowed in flight at once, process-wide.
-VISION_MAX_CONCURRENT = 4
+#: Photo reads allowed in flight at once, process-wide. Sized for the
+#: production instance (1 CPU / 2 GB since 10 Oct, one process). A read is
+#: mostly a 30-60 s wait on the vendor, but it starts with a decode, and the
+#: decodes are what cost memory: measured under Linux (10 Oct), one read of
+#: a 48 MP phone photo peaks at ~390 MB (a 50 MP RGBA PNG / TIFF ~380 MB;
+#: WEBP is held to 25 MP by image_guard for the same reason). Next to a
+#: steady state of up to ~600 MB, the decodes in flight plus the heaviest
+#: other request (the GDPR export, ~70 MB) must stay under ~1.4 GB:
+#:   3 x 390 + 70 = ~1.24 GB  (4 x 390 + 70 = ~1.63 GB would not fit).
+#: Under glibc's default malloc a freed decode stays in its worker thread's
+#: arena, so the steady state itself climbs past 600 MB (10 Oct load test:
+#: ~1 GB, peak 1.97 GB); MALLOC_ARENA_MAX / MALLOC_MMAP_THRESHOLD_ on the
+#: service keep it down. A 4th read waits (up to ``VISION_WAIT_S``) instead
+#: of risking the API.
+VISION_MAX_CONCURRENT = 3
 #: Photo reads one account may have in flight at once. Below the global
-#: limit, so one venue (or one hostile account) always leaves slots free
+#: limit, so one venue (or one hostile account) always leaves a slot free
 #: for every other venue's Z-report and receipt reads.
 VISION_MAX_PER_USER = 2
 #: How long an extra read waits for a free slot before the 503.

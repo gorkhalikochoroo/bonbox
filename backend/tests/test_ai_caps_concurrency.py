@@ -12,7 +12,7 @@ against a cap of 10 (reproduced). What is pinned here:
     route whose counting row is written after the read: smart-scan
     classify, kasserapport extract, inventory smart-import /file and the
     receipt pile (burst-scan) — no extra paid read, and no false refusal;
-  * one account holds at most VISION_MAX_PER_USER of the 4 vision slots,
+  * one account holds at most VISION_MAX_PER_USER of the 3 vision slots,
     so another venue's Z-report still gets a slot;
   * the burst pile takes a slot per receipt, not for the whole pile;
   * a request waiting for a slot / holding one through the model call
@@ -282,18 +282,26 @@ def test_counted_use_reserves_until_the_counting_row_is_recorded():
 
 # ─── 2. One account cannot hold every vision slot ───────────────────
 
-def test_one_account_holds_at_most_two_of_the_four_vision_slots(monkeypatch):
+def test_one_account_holds_at_most_two_of_the_three_vision_slots(monkeypatch):
     monkeypatch.setattr(ai_limits, "VISION_WAIT_S", 0.2)
     a = types.SimpleNamespace(id="venue-a", ui_language="da")
     b = types.SimpleNamespace(id="venue-b", ui_language="en")
-    assert ai_limits.VISION_MAX_PER_USER == 2 < ai_limits.VISION_MAX_CONCURRENT
+    c = types.SimpleNamespace(id="venue-c", ui_language="en")
+    # 3, was 4: 3 x a ~390 MB decode + the API fits 2 GB on 1 CPU, 4 x does not (measured, ai_limits).
+    assert ai_limits.VISION_MAX_PER_USER == 2 < ai_limits.VISION_MAX_CONCURRENT == 3
     with ai_limits.vision_slot(a), ai_limits.vision_slot(a):
         with pytest.raises(ai_limits.AIBusyError):
             with ai_limits.vision_slot(a):
                 pass
         # another venue still gets its read
-        with ai_limits.vision_slot(b), ai_limits.vision_slot(b):
-            pass
+        with ai_limits.vision_slot(b):
+            with pytest.raises(ai_limits.AIBusyError):
+                with ai_limits.vision_slot(b):
+                    pass
+            # all three process-wide slots are taken now: a third venue waits, then 503
+            with pytest.raises(ai_limits.AIBusyError):
+                with ai_limits.vision_slot(c):
+                    pass
     with ai_limits.vision_slot(a):
         pass
     assert ai_limits._user_slots == {}
@@ -304,6 +312,7 @@ def test_the_async_slot_also_caps_one_account(monkeypatch):
     a = types.SimpleNamespace(id="venue-a")
 
     async def run():
+        # VISION_MAX_PER_USER is 2: the 3rd read of one account waits, then 503
         async with ai_limits.vision_slot_async(a), ai_limits.vision_slot_async(a):
             with pytest.raises(ai_limits.AIBusyError):
                 async with ai_limits.vision_slot_async(a):

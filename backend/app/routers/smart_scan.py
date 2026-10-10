@@ -258,7 +258,7 @@ def classify_endpoint(
             return result
 
         # ── L4 — service orchestration ──────────────────────────────
-        # One vision slot (at most 4 photo reads at once, 2 per account; a
+        # One vision slot (at most 3 photo reads at once, 2 per account; a
         # further read waits briefly, then 503 "busy, try again" — before
         # the audit row that counts toward the daily cap, so the automatic
         # retry is not double-counted). db=: the pooled connection goes

@@ -264,7 +264,7 @@ def _extract_counted(
         # Run the pipeline. examples_fetcher is invoked after Layer 2
         # detects the POS system, so this owner's past good extractions
         # of THE SAME format get injected as worked examples.
-        # One vision slot: at most 4 photo reads at once (2 per account); a
+        # One vision slot: at most 3 photo reads at once (2 per account); a
         # further read waits briefly, then 503 "busy, try again" before
         # anything is logged. db=: the pooled connection goes back to the
         # pool while this request waits and reads.

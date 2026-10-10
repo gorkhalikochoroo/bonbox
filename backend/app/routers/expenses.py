@@ -517,7 +517,7 @@ def parse_receipt(
         suffix = ".jpg"
 
     tmp_path = None
-    # One vision slot (at most 4 photo reads at once). Outside the try on
+    # One vision slot (at most 3 photo reads at once). Outside the try on
     # purpose: "busy" must reach the owner as a 503, not be swallowed into
     # an empty read like an OCR failure.
     with vision_slot(user, db=db):
@@ -1323,7 +1323,7 @@ def burst_scan(
     created, skipped, cap_reached = [], 0, False
     # A plain `def` (OPS-02 / P0-3) — the OCR loop runs in the threadpool.
     # Each receipt holds a vision slot only for its own save + read (at most
-    # 2 per account, 4 in all), so a long pile never keeps a slot from
+    # 2 per account, 3 in all), so a long pile never keeps a slot from
     # other venues for minutes. The FIRST stored photo needs a slot or the
     # whole pile gets the 503 "busy, try again" — nothing stored yet, so
     # the browser's automatic retry is safe. Once drafts exist, a receipt
@@ -1552,8 +1552,8 @@ def upload_expense_receipt(
             )
 
     from app.services.receipt_ocr import save_receipt_photo_ex, extract_amount_from_image, parse_expense_receipt
-    # One vision slot for the save + both reads (at most 4 photo reads at
-    # once; a 5th waits briefly, then 503 "busy, try again" before the
+    # One vision slot for the save + both reads (at most 3 photo reads at
+    # once; a 4th waits briefly, then 503 "busy, try again" before the
     # photo is stored).
     with vision_slot(user, db=db):
         try:

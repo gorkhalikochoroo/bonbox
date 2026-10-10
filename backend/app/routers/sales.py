@@ -1015,8 +1015,8 @@ def upload_receipt(
     # Validate file size
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
-    # One vision slot for the save + read (at most 4 photo reads at once;
-    # a 5th waits briefly, then 503 "busy, try again" before anything is
+    # One vision slot for the save + read (at most 3 photo reads at once;
+    # a 4th waits briefly, then 503 "busy, try again" before anything is
     # stored).
     with vision_slot(user, db=db):
         # save_receipt_photo validates the content with PIL.verify(); on a

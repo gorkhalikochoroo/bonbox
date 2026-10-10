@@ -3972,8 +3972,8 @@ def scan_z_report(
     # Returns (durable URL/path for the row, local path for OCR). Both are
     # needed: the durable one may be a Supabase URL that OCR can't read.
     #
-    # One vision slot for the save + read (at most 4 photo reads run at
-    # once; a 5th waits briefly, then gets a 503 "busy, try again" BEFORE
+    # One vision slot for the save + read (at most 3 photo reads run at
+    # once; a 4th waits briefly, then gets a 503 "busy, try again" BEFORE
     # anything is stored, so the browser's automatic retry is safe).
     with vision_slot(user, db=db):
         try:
