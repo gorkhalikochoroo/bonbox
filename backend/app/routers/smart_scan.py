@@ -56,6 +56,7 @@ from app.services.smart_scan_service import (
     MAX_IMAGE_BYTES, route_and_extract,
 )
 from app.services.tz_utils import business_day_window
+from app.services.ai_limits import vision_slot
 from sqlalchemy import func as sa_func
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ def _content_type_ok(ct: str | None) -> bool:
 
 @router.post("/classify")
 @_limiter.limit("20/minute")
-async def classify_endpoint(
+def classify_endpoint(
     request: Request,
     file: UploadFile = File(...),
     batch_size: int = Form(1),
@@ -174,7 +175,9 @@ async def classify_endpoint(
         )
 
     # ── L9 — read bytes; bounded size check ─────────────────────────
-    raw = await file.read()
+    # A plain `def` (OPS-02 / P0-3): FastAPI runs it in the threadpool, so
+    # the paid vision calls below never freeze the event loop.
+    raw = file.file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
     if len(raw) > MAX_IMAGE_BYTES:
@@ -222,12 +225,16 @@ async def classify_endpoint(
     enforce_cap(user, "smart_scan_classify_per_day", used_today)
 
     # ── L4 — service orchestration ──────────────────────────────────
-    result = route_and_extract(
-        raw,
-        filename=file.filename,
-        content_type=file.content_type,
-        batch_mode=batch_size > 1,
-    )
+    # One vision slot (at most 4 photo reads at once; a 5th waits briefly,
+    # then 503 "busy, try again" — before the audit row that counts
+    # toward the daily cap, so the automatic retry is not double-counted).
+    with vision_slot(user):
+        result = route_and_extract(
+            raw,
+            filename=file.filename,
+            content_type=file.content_type,
+            batch_mode=batch_size > 1,
+        )
 
     # ── L7 — audit row per call ─────────────────────────────────────
     _log_classify_audit(db, user, request, result, batch_size)

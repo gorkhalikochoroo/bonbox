@@ -26,6 +26,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.services.ai_limits import vision_slot
 from app.models.kasserapport import KasserapportExtraction
 from app.models.user import User
 from app.services.auth import get_current_user
@@ -102,7 +103,7 @@ def _today_count(db: Session, user, user_id=None) -> int:
 
 @router.post("/extract")
 @_limiter.limit("30/hour")
-async def extract(
+def extract(
     request: Request,
     file: UploadFile = File(...),
     skip_classifier: bool = Form(False),
@@ -146,7 +147,9 @@ async def extract(
         )
 
     # Defense-2: size cap (read body in chunks to avoid loading 50MB into RAM)
-    body = await file.read(_MAX_BYTES + 1)
+    # A plain `def` (OPS-02 / P0-3): FastAPI runs it in the threadpool, so
+    # the vision pipeline and the storage upload never freeze the event loop.
+    body = file.file.read(_MAX_BYTES + 1)
     if len(body) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="Image too large (max 12 MB)")
 
@@ -233,11 +236,14 @@ async def extract(
         # Run the pipeline. examples_fetcher is invoked after Layer 2
         # detects the POS system, so this owner's past good extractions
         # of THE SAME format get injected as worked examples.
-        result = extract_kasserapport_full(
-            tmp.name,
-            skip_classifier=skip_classifier,
-            examples_fetcher=_examples_fetcher,
-        )
+        # One vision slot: at most 4 photo reads at once; a 5th waits
+        # briefly, then 503 "busy, try again" before anything is logged.
+        with vision_slot(user):
+            result = extract_kasserapport_full(
+                tmp.name,
+                skip_classifier=skip_classifier,
+                examples_fetcher=_examples_fetcher,
+            )
     finally:
         try:
             Path(tmp.name).unlink(missing_ok=True)

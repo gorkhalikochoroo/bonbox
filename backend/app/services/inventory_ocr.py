@@ -44,6 +44,7 @@ runs ~$0.007. See `claude_vision_ocr` for the same pricing math.
 from __future__ import annotations
 
 import logging
+from app.services.ai_limits import anthropic_client
 import os
 import time
 from typing import Any, Optional
@@ -626,7 +627,7 @@ def extract_inventory_data(
 
     # SDK availability
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("[Inventory OCR] anthropic SDK not installed — falling back")
         return None
@@ -665,7 +666,7 @@ def extract_inventory_data(
     # ── Call Claude — tool-use forces structured output ──
     try:
         from app.services.model_fallback import call_with_fallback
-        client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+        client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
         resp = call_with_fallback(
             client,
             _label="inventory_ocr",

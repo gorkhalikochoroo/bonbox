@@ -60,7 +60,7 @@ def _install_fake_anthropic(text_or_callable):
     fake = types.ModuleType("anthropic")
 
     class FakeClient:
-        def __init__(self, api_key=None, timeout=None):
+        def __init__(self, api_key=None, timeout=None, max_retries=None):
             self.api_key = api_key
             self.messages = self
 

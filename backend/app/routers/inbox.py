@@ -67,6 +67,7 @@ from datetime import datetime, date
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -424,7 +425,10 @@ async def postmark_webhook(
     if not isinstance(payload, dict):
         return _fail({"reason": "malformed_json"}, status_code=200)
 
-    outcome = _process_inbound_email(
+    # The pipeline stores attachment blobs and runs vision OCR — blocking
+    # calls, so it runs in the threadpool, never on the event loop (OPS-02).
+    outcome = await run_in_threadpool(
+        _process_inbound_email,
         db, payload, source="inbox.webhook", ip_address=_client_ip(request),
     )
     return _ok(outcome)
@@ -686,9 +690,15 @@ def _ingest_attachment(
     ocr_result: dict | None = None
     try:
         from app.services.smart_scan_service import route_and_extract
-        ocr_result = route_and_extract(
-            plain, filename=name, content_type=ctype,
-        )
+        from app.services.ai_limits import vision_slot
+        # Shares the process-wide vision limit (4 reads at once). If every
+        # slot stays taken, AIBusyError lands below like any OCR failure —
+        # the draft is still created, marked [needs review], with the
+        # amount left for the owner. Nothing is dropped.
+        with vision_slot(user):
+            ocr_result = route_and_extract(
+                plain, filename=name, content_type=ctype,
+            )
     except Exception as e:  # noqa: BLE001
         # L4 — OCR exceptions never bubble. We still want a draft.
         logger.warning("inbox: OCR exception sha=%s: %s", sha[:8], e)

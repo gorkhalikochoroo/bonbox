@@ -57,6 +57,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 from app.models.error_log import ErrorLog
 from app.models.triage_note import TriageNote
 from app.services.email_service import send_email
@@ -201,13 +202,13 @@ class _TriageOutput:
 
 def _try_llm_triage(group_summary: dict) -> Optional[_TriageOutput]:
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         return None
     if not settings.ANTHROPIC_API_KEY or not settings.USE_CLAUDE_API:
         return None
 
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
     model = getattr(settings, "AI_MODEL_TRIAGE", "claude-sonnet-5")
 
     try:

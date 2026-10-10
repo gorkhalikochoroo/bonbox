@@ -64,6 +64,7 @@ from typing import Any
 from PIL import Image
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 
 logger = logging.getLogger("bonbox.kasserapport_extractor")
 
@@ -278,7 +279,7 @@ def _call_anthropic_with_image(
         exactly the prior behavior.
     """
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("anthropic SDK not installed")
         return None, 0, 0
@@ -288,7 +289,7 @@ def _call_anthropic_with_image(
         logger.warning("ANTHROPIC_API_KEY not set")
         return None, 0, 0
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+    client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
     last_error: str | None = None
 
     create_kwargs = dict(

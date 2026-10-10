@@ -54,6 +54,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 from app.models import (
     AnomalyAlert,
     Expense,
@@ -538,7 +539,7 @@ def _try_polish(candidates: list[_Candidate]) -> dict[int, _Candidate] | None:
     """Returns {index: polished_candidate} where polish was accepted,
     or None on total failure."""
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         return None
     if not settings.ANTHROPIC_API_KEY or not settings.USE_CLAUDE_API:
@@ -546,7 +547,7 @@ def _try_polish(candidates: list[_Candidate]) -> dict[int, _Candidate] | None:
     if not candidates:
         return None
 
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
     model = getattr(settings, "AI_MODEL_ANOMALY", "claude-sonnet-5")
 
     payload = {

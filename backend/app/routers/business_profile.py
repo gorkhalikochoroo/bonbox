@@ -949,7 +949,7 @@ def get_brand(
 
 @router.post("/logo", response_model=_BrandResponse)
 @_limiter.limit("10/hour")
-async def upload_logo_endpoint(
+def upload_logo_endpoint(
     request: Request,
     file: Annotated[UploadFile, File(...)],
     db: Session = Depends(get_db),
@@ -968,7 +968,10 @@ async def upload_logo_endpoint(
     # FastAPI streams the upload — read it fully here. We bound the read
     # via MAX_LOGO_BYTES + a 1-byte overshoot to detect oversized files
     # WITHOUT loading the entire payload first.
-    raw = await file.read(MAX_LOGO_BYTES + 1)
+    #
+    # A plain `def` (OPS-02): the Pillow re-encode and the storage upload /
+    # delete / signing calls below run in the threadpool, off the event loop.
+    raw = file.file.read(MAX_LOGO_BYTES + 1)
     if len(raw) > MAX_LOGO_BYTES:
         raise HTTPException(
             413,

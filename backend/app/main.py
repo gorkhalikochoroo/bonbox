@@ -3627,6 +3627,25 @@ async def _global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content=body)
 
 
+# --- Vision reads busy (OPS-02 / P0-3) -----------------------------------
+# app/services/ai_limits.py allows 4 photo reads at once; a read that cannot
+# get a slot within VISION_WAIT_S raises AIBusyError BEFORE storing or
+# counting anything. It gets its own handler so the owner sees the real
+# reason in their language — the prod 5xx sanitizer below would replace it
+# with "Something went wrong". 503 + Retry-After: the frontend's API client
+# already retries a 503 POST (it means "not processed").
+from app.services.ai_limits import AIBusyError, BUSY_RETRY_AFTER_S  # noqa: E402
+
+
+@app.exception_handler(AIBusyError)
+async def _ai_busy_handler(request: Request, exc: AIBusyError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc), "code": "ai_busy", "_error": True, "_recoverable": True},
+        headers={"Retry-After": str(BUSY_RETRY_AFTER_S)},
+    )
+
+
 # --- Raised-HTTPException sanitizer (info-disclosure hardening) ----------
 # Several routers do `except Exception as e: raise HTTPException(500,
 # detail=f"...{str(e)}")`, which Starlette serializes verbatim — leaking raw

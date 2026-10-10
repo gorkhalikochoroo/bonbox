@@ -65,7 +65,7 @@ def _install_fake_anthropic(message_create_return):
     fake = types.ModuleType("anthropic")
 
     class FakeClient:
-        def __init__(self, api_key=None, timeout=None):
+        def __init__(self, api_key=None, timeout=None, max_retries=None):
             self.api_key = api_key
             self.messages = self
 
@@ -287,7 +287,7 @@ def test_extract_z_report_returns_none_on_network_error(monkeypatch, sample_jpeg
     fake = types.ModuleType("anthropic")
 
     class BrokenClient:
-        def __init__(self, api_key=None, timeout=None):
+        def __init__(self, api_key=None, timeout=None, max_retries=None):
             self.messages = self
 
         def create(self, **kwargs):

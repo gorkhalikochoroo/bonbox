@@ -45,6 +45,7 @@ import time
 from typing import Any
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 from app.services.archetype import archetype_for
 
 logger = logging.getLogger(__name__)
@@ -905,7 +906,7 @@ def categorize_with_ai(
         return [_fallback_other(it, allowed) for it in items], meta
 
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         meta["error"] = "anthropic_sdk_not_installed"
         return [_fallback_other(it, allowed) for it in items], meta
@@ -927,7 +928,7 @@ def categorize_with_ai(
 
     t0 = time.monotonic()
     try:
-        client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+        client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,

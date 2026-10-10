@@ -22,6 +22,7 @@ import time
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -73,6 +74,28 @@ TOOL_MAP = {
 }
 
 NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
+
+# Copilot tool loop cap (OPS-02). The loop was `while True`: a model that
+# kept asking for tools kept the request (and a paid call per round) going
+# with no bound. After this many rounds of tool results, a further tool
+# request ends the turn with an honest message instead.
+MAX_TOOL_ROUNDS = 4
+
+_TOOL_CAP_TEXT = {
+    "da": (
+        "Jeg stoppede efter 4 runder med opslag i dine tal uden et færdigt svar. "
+        "Prøv at spørge mere præcist, fx om én periode eller ét tal."
+    ),
+    "en": (
+        "I stopped after 4 rounds of looking up your numbers without a finished answer. "
+        "Try a more specific question, for example about one period or one figure."
+    ),
+}
+
+
+def _tool_cap_message(user) -> str:
+    from app.services.owner_language import owner_lang
+    return _TOOL_CAP_TEXT["da" if owner_lang(user) == "da" else "en"]
 
 
 # ---------------------------------------------------------------------------
@@ -479,11 +502,17 @@ def _build_response(tool_name: str, result: dict, currency: str) -> str:
 # ---------------------------------------------------------------------------
 
 @router.post("/chat")
-async def agent_chat(
+def agent_chat(
     req: ChatRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # A plain `def` (OPS-02 / P0-3): FastAPI runs the cap check, the
+    # snapshot queries and the client set-up in the threadpool. The model
+    # calls themselves happen inside the streaming generators, each handed
+    # to run_in_threadpool, so a slow Anthropic round-trip never freezes
+    # the event loop — the stream still streams.
+    #
     # ── S12 + P9 — Per-day chat message cap ──────────────────────────
     # PLAN_CAPS.ai_chat_messages_per_day previously existed in
     # services/billing.py but was never enforced — Free could chat
@@ -569,7 +598,7 @@ async def agent_chat(
     # ------------------------------------------------------------------
     if use_claude:
         try:
-            return await _claude_chat(req, db, user)
+            return _claude_chat(req, db, user)
         except Exception as e:
             logger.warning("Claude API failed, falling back to local: %s", e)
             # Fall through to local mode
@@ -644,9 +673,9 @@ async def agent_chat(
             # Execute the tool
             tool_fn = TOOL_MAP[tool_name]
             if tool_name in NO_PARAM_TOOLS:
-                result = tool_fn(db, user.id)
+                result = await run_in_threadpool(tool_fn, db, user.id)
             else:
-                result = tool_fn(db, user.id, **kwargs)
+                result = await run_in_threadpool(tool_fn, db, user.id, **kwargs)
 
             # Send tool result (for data cards)
             yield (
@@ -718,9 +747,9 @@ def _record_token_usage(db, user, input_tokens: int, output_tokens: int, model) 
         return False
 
 
-async def _claude_chat(req: ChatRequest, db, user):
+def _claude_chat(req: ChatRequest, db, user):
     """Full Claude API chat with tool use — requires ANTHROPIC_API_KEY + credits."""
-    import anthropic as anth
+    from app.services.ai_limits import anthropic_client
     from sqlalchemy import func as sa_func
     from app.services.agent_tool_defs import AGENT_TOOLS
     from app.services.model_fallback import call_with_fallback
@@ -764,7 +793,8 @@ async def _claude_chat(req: ChatRequest, db, user):
         if isinstance(_l4_exc, _HE_chk):
             raise
 
-    client = anth.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    # Bounded: 30 s per attempt, at most 1 SDK retry (was 600 s / 2).
+    client = anthropic_client(settings.ANTHROPIC_API_KEY)
 
     biz_name = user.business_name or "your business"
     currency = user.currency or "DKK"
@@ -962,12 +992,16 @@ async def _claude_chat(req: ChatRequest, db, user):
         nonlocal messages, _total_input_tokens, _total_output_tokens
         try:
             _served_model = settings.PREMIUM_MODEL
+            tool_rounds = 0
             while True:
                 # Premium tier: Sonnet 4.6 for the assistant, with an
                 # automatic one-shot fallback to DEFAULT_MODEL (Sonnet 4.5)
                 # if the premium model ever errors — so the chat degrades
                 # to today's behavior instead of breaking (task #239 lesson).
-                response = call_with_fallback(
+                # In the threadpool: the sync SDK call must not block the
+                # event loop while this stream waits on Anthropic.
+                response = await run_in_threadpool(
+                    call_with_fallback,
                     client,
                     _label="assistant",
                     _primary=settings.PREMIUM_MODEL,
@@ -991,14 +1025,21 @@ async def _claude_chat(req: ChatRequest, db, user):
 
                 has_tool_use = False
                 tool_results = []
+                at_tool_cap = tool_rounds >= MAX_TOOL_ROUNDS
+                streamed_text = False
 
                 for block in response.content:
                     if block.type == "text":
                         text = block.text
+                        streamed_text = streamed_text or bool(text)
                         for i in range(0, len(text), 4):
                             yield f"event: text\ndata: {json.dumps({'delta': text[i:i+4]})}\n\n"
                     elif block.type == "tool_use":
                         has_tool_use = True
+                        if at_tool_cap:
+                            # Past the cap: the tool is not run (and not
+                            # announced) — the turn ends below.
+                            continue
                         tool_name, tool_input, tool_id = block.name, block.input, block.id
                         yield f"event: tool_call\ndata: {json.dumps({'tool': tool_name, 'input': tool_input})}\n\n"
 
@@ -1008,7 +1049,10 @@ async def _claude_chat(req: ChatRequest, db, user):
                             continue
 
                         try:
-                            result = tool_fn(db, user.id) if tool_name in NO_PARAM_TOOLS else tool_fn(db, user.id, **tool_input)
+                            if tool_name in NO_PARAM_TOOLS:
+                                result = await run_in_threadpool(tool_fn, db, user.id)
+                            else:
+                                result = await run_in_threadpool(tool_fn, db, user.id, **tool_input)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result})}\n\n"
                             tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(result)})
                         except Exception as e:
@@ -1016,7 +1060,19 @@ async def _claude_chat(req: ChatRequest, db, user):
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': {'error': str(e)}})}\n\n"
                             tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps({"error": str(e)}), "is_error": True})
 
+                if has_tool_use and at_tool_cap:
+                    # Honest stop: say we ran out of rounds rather than
+                    # pretend an answer, or loop on.
+                    logger.warning(
+                        "agent: tool loop cap (%d rounds) hit for user=%s",
+                        MAX_TOOL_ROUNDS, user.id,
+                    )
+                    cap_text = ("\n\n" if streamed_text else "") + _tool_cap_message(user)
+                    for i in range(0, len(cap_text), 4):
+                        yield f"event: text\ndata: {json.dumps({'delta': cap_text[i:i+4]})}\n\n"
+                    break
                 if has_tool_use and tool_results:
+                    tool_rounds += 1
                     messages.append({"role": "assistant", "content": response.content})
                     messages.append({"role": "user", "content": tool_results})
                 else:

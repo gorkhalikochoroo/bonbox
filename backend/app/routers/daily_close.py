@@ -48,6 +48,7 @@ from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
 from app.services.expense_status import not_pending
 from app.services.receipt_ocr import save_receipt_photo_ex, parse_z_report
+from app.services.ai_limits import vision_slot
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
     closes_to_csv_bytes,
@@ -3910,7 +3911,7 @@ def prefill_daily_close(
 # accounts. The per-user PLAN_CAPS cap below enforces the tier limit
 # (Free=3/day, Starter=20/day, Pro=100/day) independently.
 @_limiter.limit("6/minute;80/day")
-async def scan_z_report(
+def scan_z_report(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -3932,10 +3933,14 @@ async def scan_z_report(
       L6 — audit trail: the resulting DailyClose row carries the
            image_url + receipt_photo path for §10 retention.
     """
+    # A plain `def` on purpose (OPS-02 / P0-3): FastAPI runs it in the
+    # threadpool, so the photo save, the vision read and the DB work below
+    # never freeze the event loop — every other venue keeps being served
+    # while this Z-report is read.
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     # Size cap matches kasserapport extractor (12 MB) — same threshold
     # everywhere the user might upload an image.
     if len(file_bytes) > 12 * 1024 * 1024:
@@ -3960,20 +3965,29 @@ async def scan_z_report(
     # photos on individual sales / expenses.
     # Returns (durable URL/path for the row, local path for OCR). Both are
     # needed: the durable one may be a Supabase URL that OCR can't read.
-    image_url, local_path = save_receipt_photo_ex(
-        file_bytes,
-        file.filename or "z_report.jpg",
-        str(user.id),
-        kind="kasserapport",
-    )
+    #
+    # One vision slot for the save + read (at most 4 photo reads run at
+    # once; a 5th waits briefly, then gets a 503 "busy, try again" BEFORE
+    # anything is stored, so the browser's automatic retry is safe).
+    with vision_slot(user):
+        try:
+            image_url, local_path = save_receipt_photo_ex(
+                file_bytes,
+                file.filename or "z_report.jpg",
+                str(user.id),
+                kind="kasserapport",
+            )
+        except ValueError as e:
+            # Not decodable as an image (was an unhandled 500 before).
+            raise HTTPException(status_code=400, detail=str(e))
 
-    # This used to pick the newest uploads/receipts/{user}_* file by mtime.
-    # On the kasserapport path that is the worst possible race: the Z-report
-    # IS the day's revenue, so reading a different photo silently books
-    # another day's — or another receipt's — figures as this close.
+        # This used to pick the newest uploads/receipts/{user}_* file by mtime.
+        # On the kasserapport path that is the worst possible race: the Z-report
+        # IS the day's revenue, so reading a different photo silently books
+        # another day's — or another receipt's — figures as this close.
 
-    # Parse the Z-report
-    parsed = parse_z_report(local_path)
+        # Parse the Z-report
+        parsed = parse_z_report(local_path)
     parsed["image_url"] = image_url
 
     # When the specialized Z-report extractor ran, package the rich

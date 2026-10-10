@@ -24,6 +24,7 @@ log = logging.getLogger("bonbox.sales")
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnRequest
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo_ex
+from app.services.ai_limits import vision_slot
 from app.services.cash_sync import (
     sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref,
     soft_delete_cash_entry_by_ref, restore_cash_entry_by_ref,
@@ -991,7 +992,7 @@ MAX_CSV_SIZE = 2 * 1024 * 1024  # 2 MB
 
 @router.post("/upload-receipt")
 @limiter.limit("10/minute")
-async def upload_receipt(
+def upload_receipt(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -1005,23 +1006,29 @@ async def upload_receipt(
             detail=f"Invalid file type '{file.content_type}'. Allowed: JPEG, PNG, GIF, WebP, HEIC",
         )
 
-    content = await file.read()
+    # A plain `def` (OPS-02 / P0-3): the save + OCR below run in the
+    # threadpool, never on the event loop.
+    content = file.file.read()
 
     # Validate file size
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
-    # save_receipt_photo validates the content with PIL.verify(); on a
-    # spoofed-header non-image upload it raises ValueError → 400 here.
-    try:
-        stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # One vision slot for the save + read (at most 4 photo reads at once;
+    # a 5th waits briefly, then 503 "busy, try again" before anything is
+    # stored).
+    with vision_slot(user):
+        # save_receipt_photo validates the content with PIL.verify(); on a
+        # spoofed-header non-image upload it raises ValueError → 400 here.
+        try:
+            stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-    # OCR the local copy we just wrote — NOT the newest file in the user's
-    # upload dir. Two receipts in flight and that glob hands us somebody
-    # else's image, whose amount we then log as this sale.
+        # OCR the local copy we just wrote — NOT the newest file in the user's
+        # upload dir. Two receipts in flight and that glob hands us somebody
+        # else's image, whose amount we then log as this sale.
 
-    result = extract_amount_from_image(local_path)
+        result = extract_amount_from_image(local_path)
     # Convert local path to full URL so frontend can display it
     display_path = stored_path
     if not stored_path.startswith("http"):
