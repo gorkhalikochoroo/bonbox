@@ -1,7 +1,7 @@
 """Suite-wide test isolation for the app's shared, in-process rate limits.
 
-The app keeps two rate limits in process memory that no single test file
-owns:
+The app keeps this per-client state in process memory, and no single test
+file owns it:
 
 - slowapi's app-wide default, 120/minute per route (SlowAPIMiddleware,
   `app.state.limiter`). It also applies to routes that a router's own
