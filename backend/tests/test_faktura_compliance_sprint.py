@@ -850,6 +850,56 @@ def test_credit_note_omits_mobilepay_qr(db, user, customer):
     )
 
 
+@pytest.mark.parametrize("instant, local_day, prev_period_start, next_period_start", [
+    # 00:30 CEST on 1 Oct: the UTC server is still on 30 Sep (Q3).
+    pytest.param(datetime(2026, 9, 30, 22, 30, tzinfo=timezone.utc),
+                 date(2026, 10, 1), date(2026, 7, 1), date(2027, 1, 1),
+                 id="00:30-CEST-1-Oct"),
+    # 00:30 CET on 1 Jan 2027: the UTC server is still on 31 Dec 2026.
+    pytest.param(datetime(2026, 12, 31, 23, 30, tzinfo=timezone.utc),
+                 date(2027, 1, 1), date(2026, 10, 1), date(2027, 4, 1),
+                 id="00:30-CET-1-Jan"),
+])
+def test_kreditnota_is_dated_in_the_venue_day(
+    db, user, customer, monkeypatch,
+    instant, local_day, prev_period_start, next_period_start,
+):
+    """void_and_credit dates the kreditnota, sets its due date and picks
+    its number series from ONE date. It must be the venue's calendar day,
+    the same day create_draft stamps on the invoice it credits.
+
+    It used the server's date.today() (UTC). From 00:00 to 02:00 in
+    Copenhagen that is still yesterday, so the kreditnota was dated before
+    its own invoice, fell into the previous MOMS period at a period
+    boundary (the previous period's output VAT came out too low), and on
+    1 January it was numbered in the old year's series.
+    """
+    from app.services.tax_service import _calc_vat
+
+    _freeze_utc_server_clock(monkeypatch, instant)
+    original = _make_invoice(db, user, customer, Decimal("1250.00"))
+    assert original.issue_date == local_day
+
+    kn = InvoiceService.void_and_credit(db, user, original.id, reason="Forkert beløb")
+    db.commit()
+
+    assert kn.is_credit_note
+    assert kn.issue_date == local_day
+    assert kn.due_date == local_day
+    # Same (user, branch, year-of-issue_date) series as the invoice, next number.
+    assert kn.issue_date.year == original.issue_date.year
+    assert kn.fakturanummer == original.fakturanummer + 1
+
+    # Invoice and kreditnota land in the same MOMS period and cancel out;
+    # the period before it is untouched.
+    before = _calc_vat(db, user.id, prev_period_start, local_day,
+                       vat_rate=0.25, prices_include_moms=True)
+    current = _calc_vat(db, user.id, local_day, next_period_start,
+                        vat_rate=0.25, prices_include_moms=True)
+    assert before["invoice_revenue"] == 0
+    assert current["invoice_revenue"] == 0
+
+
 # ─── Test 10: AI Daily Brief faktura section ─────────────────────
 
 

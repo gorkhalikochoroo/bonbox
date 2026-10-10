@@ -452,8 +452,14 @@ class InvoiceService:
                 "Cannot credit a credit note",
             )
 
-        # Build the kreditnota with negated values
-        today = date.today()
+        # Build the kreditnota with negated values.
+        # Dated in the venue's calendar day, like every other faktura
+        # (create_draft: today_local). date.today() is the server's UTC date:
+        # from 00:00 to 02:00 in Copenhagen it is still yesterday, which dated
+        # the kreditnota before the invoice it credits, put it in the previous
+        # MOMS period at a period boundary, and on 1 January numbered it in
+        # the old year's series. The date also picks the number series.
+        today = today_local(user)
         kn_number = allocate_invoice_number(db, user.id, original.branch_id, today.year)
         kn = Invoice(
             user_id=user.id,
