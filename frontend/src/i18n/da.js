@@ -2664,7 +2664,7 @@ export const da = {
     termsNoticeWhatChanged: "Hvad er ændret?",
     termsNoticeHide: "Skjul",
     termsNoticeChangeCaps: "Alle planer, også Free, har forbrugslofter, og vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel. Det erstatter løftet i de tidligere betingelser om, at den eksisterende gratis funktionalitet forbliver tilgængelig, og at vi ikke med tilbagevirkende kraft opkræver betaling for funktioner, du allerede bruger gratis.",
-    termsNoticeChangeRecords: "Det er dig, ikke BonBox, der skal opbevare din virksomheds regnskabsmateriale. BonBox er ikke et arkiv. Når du sletter din konto, sletter vi kontoen og dataene i den med det samme, så hent dine data og de PDF'er, du har brug for, først.",
+    termsNoticeChangeRecords: "Det er dig, ikke BonBox, der skal opbevare din virksomheds regnskabsmateriale. BonBox er ikke et arkiv. Når du sletter din konto, sletter vi kontoen og dataene i den med det samme (§ 4 nævner, hvad vi beholder), så hent dine data og de PDF'er, du har brug for, først.",
     termsNoticeChangeRenewal: "Starter og Pro fornyes automatisk hver måned. En opsigelse får virkning ved udgangen af den periode, du har betalt for, og vi refunderer ikke for en del af en periode.",
     termsNoticeChangeFounding: "Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse.",
     termsNoticeChangePrice: "En prisændring på dit løbende abonnement varsler vi pr. e-mail mindst 30 dage, før den får virkning.",

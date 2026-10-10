@@ -67,7 +67,10 @@ from app.utils.time import utc_now
 #  frontend code (Vercel), so the notice period starts when the frontend is
 #  live, not when the backend (Render) is. If the frontend goes live on a
 #  later day than these dates assume, move BOTH dates (here and in
-#  frontend/src/legal/terms.js) before that push.
+#  frontend/src/legal/terms.js) before that push. If it is verified live only
+#  on a later day than the dates in the files (late push, slow build, stale
+#  bundle), move both dates to that day and push again (backend first) the
+#  same day.
 #
 #  The values below (14 Oct / 29 Oct 2026) are a GUESS at the ship day — R-e
 #  ships after R-c, R-d/R-f and Manoj's Stripe settings. They are only true

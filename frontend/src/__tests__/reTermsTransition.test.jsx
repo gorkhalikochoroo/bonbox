@@ -333,6 +333,9 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
     expect(en.termsNoticeChangeRecords).toContain("BonBox is not an archive");
     expect(en.termsNoticeChangeRecords).toContain("we delete the account and the data in it straight away");
     expect(en.termsNoticeChangeRecords).toContain("download your data and the PDFs you need");
+    // The bullet must not read as "everything is gone at once": § 4 keeps logs and bilag images.
+    expect(da.termsNoticeChangeRecords).toContain("(§ 4 nævner, hvad vi beholder)");
+    expect(en.termsNoticeChangeRecords).toContain("(§ 4 lists what we keep)");
     const termsPage = read("pages/TermsPage.jsx");
     expect(termsPage).toContain("der skal opbevare din virksomheds regnskabsmateriale");
     expect(termsPage).toContain("er ikke et arkiv");

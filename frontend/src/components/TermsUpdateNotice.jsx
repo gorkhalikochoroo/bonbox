@@ -140,7 +140,7 @@ export default function TermsUpdateNotice() {
                 the owner keep them ("ikke et arkiv") and deletes the account and
                 its data at once. Every owner can delete, so it sits with the
                 caps bullet, ahead of the paid-plan ones. */}
-            <li>{t("termsNoticeChangeRecords", "You, not BonBox, must keep your business's accounting records. BonBox is not an archive. When you delete your account, we delete the account and the data in it straight away, so download your data and the PDFs you need first.")}</li>
+            <li>{t("termsNoticeChangeRecords", "You, not BonBox, must keep your business's accounting records. BonBox is not an archive. When you delete your account, we delete the account and the data in it straight away (§ 4 lists what we keep), so download your data and the PDFs you need first.")}</li>
             <li>{t("termsNoticeChangeBusiness", "Paid subscriptions are for businesses only.")}</li>
             <li>{t("termsNoticeChangeRenewal", "Starter and Pro renew automatically every month. A cancellation takes effect at the end of the period you have paid for, and we do not refund part of a period.")}</li>
             <li>{t("termsNoticeChangeFounding", "You keep the founding price as long as your subscription stays active without a break.")}</li>
