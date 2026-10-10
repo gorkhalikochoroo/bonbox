@@ -1,0 +1,48 @@
+# Reviewed false positives (generic-api-key): translation-key names such as
+# quoteKey/bodyKey/proofKey/key: "someI18nKey" in source files. Each value was
+# checked to be an identifier, never a credential. backend/.env.save is NOT
+# listed here on purpose.
+0350526d826a23ef882e81d42f3cbf93d064ba41:frontend/src/pages/LandingPage.jsx:generic-api-key:955
+0350526d826a23ef882e81d42f3cbf93d064ba41:frontend/src/pages/LandingPage.jsx:generic-api-key:960
+0350526d826a23ef882e81d42f3cbf93d064ba41:frontend/src/pages/LandingPage.jsx:generic-api-key:965
+14ecea0fc503ccf87c998adce31d25fce5ef2a14:frontend/src/pages/LandingPage.jsx:generic-api-key:531
+14ecea0fc503ccf87c998adce31d25fce5ef2a14:frontend/src/pages/LandingPage.jsx:generic-api-key:532
+14ecea0fc503ccf87c998adce31d25fce5ef2a14:frontend/src/pages/LandingPage.jsx:generic-api-key:533
+14ecea0fc503ccf87c998adce31d25fce5ef2a14:frontend/src/pages/LandingPage.jsx:generic-api-key:534
+14ecea0fc503ccf87c998adce31d25fce5ef2a14:frontend/src/pages/LandingPage.jsx:generic-api-key:535
+14ecea0fc503ccf87c998adce31d25fce5ef2a14:frontend/src/pages/LandingPage.jsx:generic-api-key:536
+234a1bf41d061bc7a92620939f507b4131d98c64:frontend/src/pages/LandingPage.jsx:generic-api-key:540
+234a1bf41d061bc7a92620939f507b4131d98c64:frontend/src/pages/LandingPage.jsx:generic-api-key:547
+234a1bf41d061bc7a92620939f507b4131d98c64:frontend/src/pages/LandingPage.jsx:generic-api-key:554
+356a2eb3f87d3d398082c95b4a45158dbf1f3051:frontend/src/pages/LandingPage.jsx:generic-api-key:631
+356a2eb3f87d3d398082c95b4a45158dbf1f3051:frontend/src/pages/LandingPage.jsx:generic-api-key:632
+356a2eb3f87d3d398082c95b4a45158dbf1f3051:frontend/src/pages/LandingPage.jsx:generic-api-key:633
+356a2eb3f87d3d398082c95b4a45158dbf1f3051:frontend/src/pages/LandingPage.jsx:generic-api-key:634
+356a2eb3f87d3d398082c95b4a45158dbf1f3051:frontend/src/pages/LandingPage.jsx:generic-api-key:635
+356a2eb3f87d3d398082c95b4a45158dbf1f3051:frontend/src/pages/LandingPage.jsx:generic-api-key:636
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:26
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:32
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:40
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:41
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:42
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:43
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:44
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:45
+671f23cbe8924cc36c380757e36ce2d492a86ee0:frontend/src/components/landing/v2/ScheduleGridV2.jsx:generic-api-key:46
+bb4dbdd9cea3f265863f6ff60c3bcac67dd91318:frontend/src/pages/StaffHoursPage.jsx:generic-api-key:479
+bb4dbdd9cea3f265863f6ff60c3bcac67dd91318:frontend/src/pages/StaffHoursPage.jsx:generic-api-key:480
+dbded19880fa40f2b86f2f46d63f19cd1caca0d0:frontend/src/pages/LandingPage.jsx:generic-api-key:536
+dbded19880fa40f2b86f2f46d63f19cd1caca0d0:frontend/src/pages/LandingPage.jsx:generic-api-key:543
+dbded19880fa40f2b86f2f46d63f19cd1caca0d0:frontend/src/pages/LandingPage.jsx:generic-api-key:550
+dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:588
+dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:590
+dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:602
+dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:604
+dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:615
+dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:617
+dedac68e9cebfbdbcb3574f27565a141d2a74f49:frontend/src/pages/StaffHoursPage.jsx:generic-api-key:479
+dedac68e9cebfbdbcb3574f27565a141d2a74f49:frontend/src/pages/StaffHoursPage.jsx:generic-api-key:480
+# Test idempotency key "click-unverified-1" sent as {"key": ...} to the Daily
+# close resend-email route in a test (commit 1f408b0d, 8 Oct). Not a
+# credential; found by replaying the scan over commits after the 5 Oct run.
+1f408b0d8f847de85f1c873a847f1f9fc79f9373:backend/tests/test_revisor_mail_confirmed_sender.py:generic-api-key:152

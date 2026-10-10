@@ -431,7 +431,8 @@ def test_tax_autopilot_dedup_bank_matched_sale(db, user, customer):
     payment_match_service.try_match_sale_to_invoice(db, sale)
     db.commit()
 
-    today = date.today()
+    from app.services.tz_utils import today_local
+    today = today_local(user)  # invoices are dated in the venue's day (InvoiceService.create_draft), not the server's
     period_start = today.replace(day=1) - timedelta(days=60)
     # End date is exclusive in _calc_vat — include today
     period_end = today + timedelta(days=1)
@@ -849,6 +850,104 @@ def test_credit_note_omits_mobilepay_qr(db, user, customer):
     )
 
 
+@pytest.mark.parametrize("instant, local_day, prev_period_start, next_period_start", [
+    # 00:30 CEST on 1 Oct: the UTC server is still on 30 Sep (Q3).
+    pytest.param(datetime(2026, 9, 30, 22, 30, tzinfo=timezone.utc),
+                 date(2026, 10, 1), date(2026, 7, 1), date(2027, 1, 1),
+                 id="00:30-CEST-1-Oct"),
+    # 00:30 CET on 1 Jan 2027: the UTC server is still on 31 Dec 2026.
+    pytest.param(datetime(2026, 12, 31, 23, 30, tzinfo=timezone.utc),
+                 date(2027, 1, 1), date(2026, 10, 1), date(2027, 4, 1),
+                 id="00:30-CET-1-Jan"),
+])
+def test_kreditnota_is_dated_in_the_venue_day(
+    db, user, customer, monkeypatch,
+    instant, local_day, prev_period_start, next_period_start,
+):
+    """void_and_credit dates the kreditnota, sets its due date and picks
+    its number series from ONE date. It must be the venue's calendar day,
+    the same day create_draft stamps on the invoice it credits.
+
+    It used the server's date.today() (UTC). From 00:00 to 02:00 in
+    Copenhagen that is still yesterday, so the kreditnota was dated before
+    its own invoice, fell into the previous MOMS period at a period
+    boundary (the previous period's output VAT came out too low), and on
+    1 January it was numbered in the old year's series.
+    """
+    from app.services.tax_service import _calc_vat
+
+    _freeze_utc_server_clock(monkeypatch, instant)
+    original = _make_invoice(db, user, customer, Decimal("1250.00"))
+    assert original.issue_date == local_day
+
+    kn = InvoiceService.void_and_credit(db, user, original.id, reason="Forkert beløb")
+    db.commit()
+
+    assert kn.is_credit_note
+    assert kn.issue_date == local_day
+    assert kn.due_date == local_day
+    # Same (user, branch, year-of-issue_date) series as the invoice, next number.
+    assert kn.issue_date.year == original.issue_date.year
+    assert kn.fakturanummer == original.fakturanummer + 1
+
+    # Invoice and kreditnota land in the same MOMS period and cancel out;
+    # the period before it is untouched.
+    before = _calc_vat(db, user.id, prev_period_start, local_day,
+                       vat_rate=0.25, prices_include_moms=True)
+    current = _calc_vat(db, user.id, local_day, next_period_start,
+                        vat_rate=0.25, prices_include_moms=True)
+    assert before["invoice_revenue"] == 0
+    assert current["invoice_revenue"] == 0
+
+
+def test_unmark_paid_reads_overdue_in_the_venue_day(db, user, customer, monkeypatch):
+    """Unmarking a payment puts the invoice back to 'overdue' when its due
+    date has passed in the venue's calendar. At 00:33 CEST the UTC server
+    still says yesterday, so an invoice due yesterday (local) went back to
+    'sent' instead."""
+    from app.services.tz_utils import today_local
+
+    instant = datetime(2026, 10, 9, 22, 33, tzinfo=timezone.utc)
+    _freeze_utc_server_clock(monkeypatch, instant)
+    local_today = today_local(user)
+    inv = InvoiceService.create_draft(
+        db, user, customer.id,
+        issue_date=local_today - timedelta(days=15), due_days=14,
+        lines=[{"description": "Event", "quantity": Decimal("1"),
+                "unit_price_net": Decimal("200.00"), "moms_rate": Decimal("0.250")}],
+    )
+    InvoiceService.mark_sent(db, user, inv.id)
+    InvoiceService.mark_paid(db, user, inv.id, Decimal("250.00"), source="manual")
+    assert inv.due_date == local_today - timedelta(days=1) == instant.date()
+
+    InvoiceService.unmark_paid(db, user, inv.id)
+    assert inv.status == "overdue"
+
+
+def test_invoice_usage_chip_counts_the_venue_month(db, user, customer, monkeypatch):
+    """GET /api/invoices/usage ("12 of 30 this month") counts the venue's
+    month, like the cap check that enforces it. Frozen at 00:30 CET on
+    1 Jan 2031 (UTC: still 31 Dec 2030): the invoice issued now counts, the
+    one issued yesterday belongs to last month and does not."""
+    from app.routers.invoices import get_invoice_usage
+
+    instant = datetime(2030, 12, 31, 23, 30, tzinfo=timezone.utc)
+    _freeze_utc_server_clock(monkeypatch, instant)
+    now_inv = _make_invoice(db, user, customer, Decimal("125.00"))
+    assert now_inv.issue_date == date(2031, 1, 1)
+    last_month = InvoiceService.create_draft(
+        db, user, customer.id, issue_date=date(2030, 12, 31),
+        lines=[{"description": "Nytårsmenu", "quantity": Decimal("1"),
+                "unit_price_net": Decimal("100.00"), "moms_rate": Decimal("0.250")}],
+    )
+    InvoiceService.mark_sent(db, user, last_month.id)
+    db.commit()
+
+    usage = get_invoice_usage(db=db, user=user)
+    assert usage["month"] == "2031-01"
+    assert usage["used_this_month"] == 1
+
+
 # ─── Test 10: AI Daily Brief faktura section ─────────────────────
 
 
@@ -879,6 +978,134 @@ def test_daily_brief_precompute_includes_faktura_intel(db, user, customer):
     assert p.payment_suggestions_pending >= 1
     assert p.invoices_paid_this_month >= 1
     assert p.invoices_sent_this_month >= 3  # all 3 invoices counted as sent
+
+
+def test_daily_brief_counts_an_invoice_sent_after_local_midnight(
+    db, user, customer, monkeypatch,
+):
+    """From 00:00 to 02:00 in Copenhagen the server's UTC date is still
+    yesterday. An invoice sent then is dated in the venue's day
+    (create_draft -> today_local), so "sent this month" must be read in the
+    venue's day as well. Read in the server's day it was dropped, and on
+    the 1st of a month the brief said nothing had been sent yet."""
+    import app.services.daily_brief as brief
+    from app.services.tz_utils import today_local
+
+    inv = _make_invoice(db, user, customer, Decimal("500.00"))
+    venue_today = today_local(user)
+    assert inv.issue_date == venue_today
+    server_today = venue_today - timedelta(days=1)
+
+    class _UtcServerDate(date):
+        @classmethod
+        def today(cls):
+            return server_today
+
+    monkeypatch.setattr(brief, "date", _UtcServerDate)
+    p = brief.compute_precompute(user, db)
+    assert p.invoices_sent_this_month == 1
+
+
+def _freeze_utc_server_clock(monkeypatch, instant_utc: datetime) -> None:
+    """Pin every clock the faktura flow reads to ONE instant, as a server
+    running in UTC (Render, the CI runner) sees it:
+
+    - the venue's clock: tz_utils.datetime.now(tz) -> today_local, the
+      UTC window of a local day;
+    - the server's calendar date: `date.today()` inside invoice_service
+      and daily_brief returns the UTC date;
+    - utc_now() inside invoice_service (sent_at, paid_at).
+
+    Same freezing pattern as tests/test_tz_utils.py. Without it these
+    cases only ran when CI happened to start between 22:00 and 24:00 UTC.
+    """
+    import app.services.daily_brief as daily_brief
+    import app.services.invoice_service as invoice_service
+    import app.services.tz_utils as tz_utils
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return instant_utc.replace(tzinfo=None)
+            return instant_utc.astimezone(tz)
+
+    class _UtcServerDate(date):
+        @classmethod
+        def today(cls):
+            return instant_utc.date()
+
+    monkeypatch.setattr(tz_utils, "datetime", _Frozen)
+    monkeypatch.setattr(daily_brief, "date", _UtcServerDate)
+    monkeypatch.setattr(invoice_service, "date", _UtcServerDate)
+    monkeypatch.setattr(
+        invoice_service, "utc_now", lambda: instant_utc.replace(tzinfo=None),
+    )
+
+
+# Both instants are after midnight in Copenhagen while the UTC date is
+# still the day before: 00:33 CEST on 10 Oct, and 00:30 CET on 1 Nov (the
+# month flips locally, not yet on the server). The second number is how
+# many invoices were paid this month in the venue's calendar.
+@pytest.mark.parametrize("instant, paid_this_month", [
+    pytest.param(datetime(2026, 10, 9, 22, 33, tzinfo=timezone.utc), 2,
+                 id="00:33-CEST-10-Oct"),
+    pytest.param(datetime(2026, 10, 31, 23, 30, tzinfo=timezone.utc), 1,
+                 id="00:30-CET-1-Nov"),
+])
+def test_daily_brief_faktura_counters_use_the_venue_day(
+    db, user, customer, monkeypatch, instant, paid_this_month,
+):
+    """The brief's faktura block reads "today" and "this month" in the
+    venue's calendar day, the same day create_draft stamps on issue_date.
+
+    Pins all three reads, at any time of day the suite runs:
+    - sent this month: 3 invoices issued after local midnight are counted;
+    - paid this month: a payment at 00:3x local counts; one an hour
+      earlier counts only when that was still the same local month, so on
+      1 Nov a payment at 23:30 local on 31 Oct does not (paid_at is naive
+      UTC, so the bound is local midnight on the 1st converted to UTC);
+    - overdue: an invoice due yesterday (local) is overdue now, although
+      its due date is still "today" on the UTC server.
+    """
+    from app.services.daily_brief import compute_precompute
+    from app.services.tz_utils import today_local
+
+    _freeze_utc_server_clock(monkeypatch, instant)
+    local_today = today_local(user)
+    assert local_today == instant.date() + timedelta(days=1)
+
+    sent = [_make_invoice(db, user, customer, Decimal("400.00")) for _ in range(3)]
+    assert [inv.issue_date for inv in sent] == [local_today] * 3
+    InvoiceService.mark_paid(db, user, sent[0].id, Decimal("400.00"), source="manual")
+
+    # Issued last month, paid one hour ago: 23:3x local, the day before.
+    earlier = InvoiceService.create_draft(
+        db, user, customer.id,
+        issue_date=local_today.replace(day=1) - timedelta(days=5),
+        lines=[{"description": "Catering", "quantity": Decimal("1"),
+                "unit_price_net": Decimal("100.00"), "moms_rate": Decimal("0.250")}],
+    )
+    InvoiceService.mark_sent(db, user, earlier.id)
+    InvoiceService.mark_paid(db, user, earlier.id, Decimal("125.00"), source="manual")
+    earlier.paid_at = (instant - timedelta(hours=1)).replace(tzinfo=None)
+
+    # Due yesterday in the venue's day == today on the UTC server.
+    due_yesterday = InvoiceService.create_draft(
+        db, user, customer.id,
+        issue_date=local_today - timedelta(days=15), due_days=14,
+        lines=[{"description": "Event", "quantity": Decimal("1"),
+                "unit_price_net": Decimal("200.00"), "moms_rate": Decimal("0.250")}],
+    )
+    InvoiceService.mark_sent(db, user, due_yesterday.id)
+    assert due_yesterday.due_date == instant.date()
+    db.commit()
+
+    p = compute_precompute(user, db)
+    assert p.invoices_sent_this_month == 3
+    assert p.invoices_paid_this_month == paid_this_month
+    assert p.overdue_invoice_count == 1
+    assert p.overdue_invoice_total == 250.00
 
 
 def test_daily_brief_candidates_surface_overdue_action(db, user, customer):

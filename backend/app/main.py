@@ -125,6 +125,38 @@ from app.models import *  # noqa: ensure all models are loaded
 # DB readiness flag — set once tables + migrations are done
 _db_ready = threading.Event()
 
+# The reservations Migration 055 backfills an occupancy row for, shared by the
+# backfill INSERT and the boot report after it (_report_occupancy_backfill_gaps)
+# so the report names exactly the rows the INSERT left out.
+#   • Only bookings that have not ended. An occupancy row stops a LATER booking
+#     taking the same table at the same time; once the sitting is over there
+#     is no guest left to protect it for. starts_at/ends_at are naive Europe/Copenhagen
+#     wall-clock (public_reservations._now_local), so "now" is taken in that
+#     same frame, not in UTC, which runs one to two hours behind it.
+#   • ends_at > starts_at: tsrange() raises on an inverted range, and that one
+#     error would abort the whole INSERT again; a zero-length booking holds
+#     nothing anyway.
+#   • Not the sample bookings ("Udforsk med eksempeldata", idempotency_key
+#     "demo-<user>-<n>"). demo_seed._seed_reservations writes tonight's sample
+#     service WITHOUT holds on purpose, including an overlapping pair on Bord 1
+#     so the timeline shows a collision. Backfilling them would give sample
+#     bookings holds only when a deploy happened to land on the seeding day,
+#     and the boot report would call the planted pair a double-booking on every
+#     boot of that day. (All 12 rows the old backfill never reached in
+#     production, 10 Oct, were sample bookings, 16 Aug–22 Sep.)
+_OCCUPANCY_BACKFILL_CANDIDATES = """
+       FROM reservations r
+       WHERE r.resource_id IS NOT NULL
+         AND r.is_deleted = FALSE
+         AND r.status IN ('requested', 'confirmed', 'seated')
+         AND r.ends_at > (now() AT TIME ZONE 'Europe/Copenhagen')
+         AND r.ends_at > r.starts_at
+         AND (r.idempotency_key IS NULL OR r.idempotency_key NOT LIKE 'demo-%')
+         AND NOT EXISTS (
+           SELECT 1 FROM reservation_occupancy o
+           WHERE o.reservation_id = r.id AND o.resource_id = r.resource_id
+         )"""
+
 # Run schema migrations (idempotent — safe to run multiple times)
 _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'card'",
@@ -1809,21 +1841,30 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_reservation_occupancy_user_start ON reservation_occupancy (user_id, starts_at)",
     "CREATE INDEX IF NOT EXISTS ix_reservation_occupancy_reservation ON reservation_occupancy (reservation_id)",
     # Backfill: one active occupancy row per existing active reservation that
-    # holds a resource and has no occupancy row yet. Active = status IN
-    # (requested, confirmed, seated) — matching ACTIVE_STATUSES in
+    # holds a resource, has not ended, and has no occupancy row yet. Active =
+    # status IN (requested, confirmed, seated) — matching ACTIVE_STATUSES in
     # reservation_service. Idempotent via the NOT EXISTS guard, so re-running
     # on every boot is a no-op once backfilled. gen_random_uuid() is built in
-    # on PG 13+ (Supabase). Soft-deleted reservations are excluded.
+    # on PG 13+ (Supabase). Soft-deleted reservations are excluded. The row set
+    # is _OCCUPANCY_BACKFILL_CANDIDATES (defined above the list).
+    #
+    # ROW-TOLERANT (10 Oct 2026). It was one all-or-nothing INSERT: two demo
+    # bookings on one table (16 Aug, 18:00–19:30 and 19:15–20:45 — the seeder
+    # plants that collision on purpose) tripped the exclusion constraint, the
+    # whole statement rolled back, and every boot logged "Migration 398
+    # skipped: ExclusionViolation" with nothing backfilled. Now ended bookings
+    # and sample bookings are not candidates at all (see the constant for
+    # why), and ON CONFLICT DO NOTHING (no conflict
+    # target: it covers exclusion constraints as well as unique ones) skips
+    # just the row that overlaps. ORDER BY created_at lets the booking made
+    # first keep the table. Whatever was skipped is named, by id, by
+    # _report_occupancy_backfill_gaps right after the migrations run.
     """INSERT INTO reservation_occupancy (id, reservation_id, resource_id, user_id, starts_at, ends_at, active, created_at)
-       SELECT gen_random_uuid()::text, r.id, r.resource_id, r.user_id, r.starts_at, r.ends_at, TRUE, CURRENT_TIMESTAMP
-       FROM reservations r
-       WHERE r.resource_id IS NOT NULL
-         AND r.is_deleted = FALSE
-         AND r.status IN ('requested', 'confirmed', 'seated')
-         AND NOT EXISTS (
-           SELECT 1 FROM reservation_occupancy o
-           WHERE o.reservation_id = r.id AND o.resource_id = r.resource_id
-         )""",
+       SELECT gen_random_uuid()::text, r.id, r.resource_id, r.user_id, r.starts_at, r.ends_at, TRUE, CURRENT_TIMESTAMP"""
+    + _OCCUPANCY_BACKFILL_CANDIDATES
+    + """
+       ORDER BY r.created_at, r.id
+       ON CONFLICT DO NOTHING""",
     # ── Migration 056 (2026-05-30): Combinable tables ──
     # Seat a party that fits no single table across 2+ combinable same-zone
     # tables (a 6 across a 4-top + 2-top). Each combined table keeps its OWN
@@ -2953,6 +2994,52 @@ def _migration_already_applied(sql: str, catalog: dict) -> bool:
     return False
 
 
+def _report_occupancy_backfill_gaps(conn) -> int:
+    """Name the upcoming bookings the occupancy backfill had to leave out.
+
+    Runs on Postgres right after the migrations. Reads the same rows the
+    backfill INSERT reads (_OCCUPANCY_BACKFILL_CANDIDATES): an upcoming booking
+    that holds a table and still has no occupancy row. With ON CONFLICT DO
+    NOTHING the one reason such a row stays out is that it overlaps another
+    active hold on the same table — two parties booked onto one table at once,
+    which the database cannot guard until the host moves one of them. Anything
+    left out for another reason (the INSERT itself failed) is counted apart.
+
+    Prints counts and reservation ids only — never a guest name, email or
+    phone. Read-only. Returns how many were left out."""
+    rows = conn.execute(text(
+        """SELECT r.id AS id,
+                  EXISTS (
+                    SELECT 1 FROM reservation_occupancy o2
+                    WHERE o2.resource_id = r.resource_id
+                      AND o2.active
+                      AND o2.starts_at < r.ends_at
+                      AND o2.ends_at > r.starts_at
+                  ) AS overlaps"""
+        + _OCCUPANCY_BACKFILL_CANDIDATES
+        + "\n       ORDER BY r.starts_at, r.id"
+    )).all()
+
+    def _ids(ids):
+        shown = ", ".join(str(i) for i in ids[:20])
+        return shown + (f" (+{len(ids) - 20} more)" if len(ids) > 20 else "")
+
+    overlapping = [r.id for r in rows if r.overlaps]
+    other = [r.id for r in rows if not r.overlaps]
+    if overlapping:
+        print(
+            f"Occupancy backfill: {len(overlapping)} upcoming reservation(s) not "
+            f"backfilled because they overlap another booking on the same table: "
+            f"{_ids(overlapping)}"
+        )
+    if other:
+        print(
+            f"Occupancy backfill: {len(other)} upcoming reservation(s) still have "
+            f"no occupancy row (the backfill did not run): {_ids(other)}"
+        )
+    return len(rows)
+
+
 def _run_migrations():
     """Run schema migrations — works with both PostgreSQL and SQLite."""
     from sqlalchemy import inspect as sa_inspect
@@ -3358,6 +3445,16 @@ def _run_migrations():
                     failed += 1
                     print(f"Migration {i} skipped: {e}")
             print(f"Schema migrations (PG): {ok} applied, {already} already in place, {failed} skipped")
+
+            # The occupancy backfill skips an upcoming booking that overlaps
+            # another on the same table instead of failing as a whole; say
+            # which ones (ids only). A report failure must never stop a boot.
+            try:
+                with conn.begin():
+                    conn.execute(text("SET LOCAL statement_timeout = '5s'"))
+                    _report_occupancy_backfill_gaps(conn)
+            except Exception as e:
+                print(f"Occupancy backfill report failed: {e}")
 
             # After all migrations land, run the audit-log immutability
             # self-test. If the RULE didn't install we want to know NOW,

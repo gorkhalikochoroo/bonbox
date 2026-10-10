@@ -390,8 +390,10 @@ class InvoiceService:
             "paid_via": inv.paid_via,
         }
 
-        # Restore to 'sent' or 'overdue' based on whether due_date passed
-        new_status = "overdue" if inv.due_date < date.today() else "sent"
+        # Restore to 'sent' or 'overdue' based on whether due_date passed,
+        # in the venue's calendar day (due_date is issue_date + terms, both
+        # local dates). The server's UTC date lags by 1-2h after midnight.
+        new_status = "overdue" if inv.due_date < today_local(user) else "sent"
         inv.status = new_status
         inv.paid_at = None
         inv.paid_amount = None
@@ -452,8 +454,14 @@ class InvoiceService:
                 "Cannot credit a credit note",
             )
 
-        # Build the kreditnota with negated values
-        today = date.today()
+        # Build the kreditnota with negated values.
+        # Dated in the venue's calendar day, like every other faktura
+        # (create_draft: today_local). date.today() is the server's UTC date:
+        # from 00:00 to 02:00 in Copenhagen it is still yesterday, which dated
+        # the kreditnota before the invoice it credits, put it in the previous
+        # MOMS period at a period boundary, and on 1 January numbered it in
+        # the old year's series. The date also picks the number series.
+        today = today_local(user)
         kn_number = allocate_invoice_number(db, user.id, original.branch_id, today.year)
         kn = Invoice(
             user_id=user.id,
