@@ -392,6 +392,63 @@ def test_a_busy_slot_on_the_first_receipt_is_a_retryable_503_with_nothing_stored
     assert stored == [] and read.calls == 0
 
 
+@pytest.mark.parametrize("busy_receipt,pile", [(2, 3), (3, 3), (2, 5)])
+def test_a_busy_photo_save_mid_pile_keeps_the_drafts_and_names_the_rest(tmp_path, monkeypatch, busy_receipt, pile):
+    """Round-3 review: once a pile has drafts, a receipt whose read is busy
+    is saved without the read — and that save holds a decode slot too. When
+    the save is ALSO refused (every decode slot busy), the pile used to end
+    in a 503: drafts already read (paid vision calls) were thrown away, and
+    the browser's 503 auto-retry replayed — and paid for — the whole pile.
+    Now the pile stops there: the drafts so far are committed, and
+    busy_from / busy_remaining say which receipts to send again."""
+    SL = _file_sessionmaker(tmp_path, poolclass=NullPool)
+    uid = _new_owner(SL, plan="pro")
+    stored, read = _fake_receipt_io(monkeypatch)
+    real_save = receipt_ocr.save_receipt_photo_ex
+    saves = {"n": 0}
+
+    def save(raw, filename, user_id, kind="expense"):
+        saves["n"] += 1
+        if filename == f"r{busy_receipt - 1}.jpg":
+            raise ai_limits.AIBusyError("da")  # the decode gate refused the photo
+        return real_save(raw, filename, user_id, kind)
+
+    monkeypatch.setattr(receipt_ocr, "save_receipt_photo_ex", save)
+    _counting_slot(monkeypatch, busy_on={busy_receipt})  # its read is busy first
+    with _serving(SL, uid):
+        (r,) = _parallel(1, lambda c, i: c.post(
+            "/api/expenses/burst-scan",
+            files=[("files", (f"r{k}.jpg", _jpeg(k), "image/jpeg")) for k in range(pile)],
+            headers=_ip(i),
+        ))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    kept = busy_receipt - 1
+    assert body["created"] == kept and len(body["drafts"]) == kept
+    assert body["busy_from"] == kept, "the first receipt to send again (0-based)"
+    assert body["busy_remaining"] == pile - kept
+    assert read.calls == kept and stored == [f"r{k}.jpg" for k in range(kept)]
+    s = SL()
+    try:
+        assert s.query(Expense).filter(Expense.user_id == uid).count() == kept, "the drafts are committed"
+    finally:
+        s.close()
+
+
+def test_a_pile_with_no_busy_receipt_reports_nothing_to_send_again(tmp_path, monkeypatch):
+    SL = _file_sessionmaker(tmp_path, poolclass=NullPool)
+    uid = _new_owner(SL, plan="pro")
+    _fake_receipt_io(monkeypatch)
+    with _serving(SL, uid):
+        (r,) = _parallel(1, lambda c, i: c.post(
+            "/api/expenses/burst-scan",
+            files=[("files", (f"r{k}.jpg", _jpeg(k), "image/jpeg")) for k in range(2)],
+            headers=_ip(i),
+        ))
+    assert r.status_code == 200, r.text
+    assert r.json()["busy_from"] is None and r.json()["busy_remaining"] == 0
+
+
 # ─── 4. The pooled DB connection is handed back during the read ─────
 
 def test_a_scan_in_flight_does_not_hold_a_pooled_db_connection(tmp_path, monkeypatch):

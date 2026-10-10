@@ -4580,6 +4580,7 @@ export const en = {
     koBurstDone: "{n} added to the queue",
     koBurstCapReached: "scan limit reached",
     koBurstFailed: "Could not scan the pile",
+    koBurstBusyLeft: "the last {n} weren't read, BonBox was busy. Add them again",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions",
     // Cash Book

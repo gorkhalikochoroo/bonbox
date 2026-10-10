@@ -58,6 +58,7 @@ import DismissibleTip from "../components/DismissibleTip";
 import InboxBanner from "../components/InboxBanner";
 import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { scanPileWithResends } from "../utils/burstScanResend";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner, LoadFailed, CompactLedgerRow } from "../components/ui";
@@ -1147,16 +1148,23 @@ export default function ExpensesPage() {
     if (!files.length) return;
     setBursting(true);
     try {
-      const fd = new FormData();
-      for (const f of files) {
-        const img = await resizeImageIfLarge(f);
-        fd.append("files", img);
-      }
-      const res = await api.post("/expenses/burst-scan", fd, { timeout: 120000 });
-      const n = res?.data?.created ?? 0;
-      const capMsg = res?.data?.cap_reached ? ` · ${t("koBurstCapReached", "scan limit reached")}` : "";
-      setSuccess(`${t("koBurstDone", "{n} added to the queue").replace("{n}", String(n))}${capMsg}`);
-      setTimeout(() => setSuccess(""), 3500);
+      const imgs = [];
+      for (const f of files) imgs.push(await resizeImageIfLarge(f));
+      // A pile can stop part-way when BonBox is busy decoding other photos;
+      // the photos it left unread are sent again on their own, and whatever
+      // is still left is named in the message (utils/burstScanResend.js).
+      const { added, capHit, left } = await scanPileWithResends(imgs, async (photos) => {
+        const fd = new FormData();
+        for (const img of photos) fd.append("files", img);
+        const res = await api.post("/expenses/burst-scan", fd, { timeout: 120000 });
+        return res?.data;
+      });
+      const capMsg = capHit ? ` · ${t("koBurstCapReached", "scan limit reached")}` : "";
+      const leftMsg = left
+        ? ` · ${t("koBurstBusyLeft", "the last {n} weren't read, BonBox was busy. Add them again").replace("{n}", String(left))}`
+        : "";
+      setSuccess(`${t("koBurstDone", "{n} added to the queue").replace("{n}", String(added))}${capMsg}${leftMsg}`);
+      setTimeout(() => setSuccess(""), left ? 9000 : 3500);
       fetchData();
     } catch (err) {
       const detail = err?.response?.data?.detail;

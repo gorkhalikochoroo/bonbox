@@ -4439,6 +4439,7 @@ export const da = {
     koBurstDone: "{n} lagt i kø",
     koBurstCapReached: "scannegrænse nået",
     koBurstFailed: "Kunne ikke scanne bunken",
+    koBurstBusyLeft: "de sidste {n} blev ikke læst, BonBox havde travlt. Tilføj dem igen",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
     actions: "Handlinger",
     // Cash Book

@@ -1325,20 +1325,28 @@ def burst_scan(
         return min(len(files), allowed)
 
     created, skipped, cap_reached = [], 0, False
+    # Index (in ``files``) of the first receipt left unscanned because every
+    # photo-decode slot stayed busy; None when the whole pile went through.
+    busy_from = None
     # A plain `def` (OPS-02 / P0-3) — the OCR loop runs in the threadpool.
     # Each receipt holds a vision slot only for its own save + read (at most
     # 2 per account, 4 in all), so a long pile never keeps a slot from
     # other venues for minutes. The FIRST receipt needs its slot and its
     # read or the whole pile gets the 503 "busy, try again" — no draft is
     # committed until the end of the pile, so the browser's automatic retry
-    # is safe. Once drafts exist, a receipt whose read is busy (no vision
-    # slot, or a photo decode refused by image_guard.decode_slot) still
-    # lands as a draft without the read ('Mangler beløb'), exactly like an
-    # OCR failure: its photo is saved once (in the slot, or here after it),
-    # and that save holds a decode slot too — busy there is the 503 for the
-    # whole pile (still nothing committed).
+    # is safe (its photo may already be stored when the READ was the busy
+    # part; the durable copy is content-addressed, so the retry re-uses it).
+    # Once drafts exist, a receipt whose read is busy (no vision slot, or a
+    # photo decode refused by image_guard.decode_slot) still lands as a
+    # draft without the read ('Mangler beløb'), exactly like an OCR
+    # failure: its photo is saved once (in the slot, or here after it), and
+    # that save holds a decode slot too. If even that save is busy, the
+    # pile STOPS at that receipt: the drafts made so far are committed and
+    # the answer says which receipts to send again (busy_from) — never a
+    # 503 that throws away drafts already read (paid vision calls) and
+    # makes the browser replay the whole pile.
     with counted_use(user, "expense_receipt_scans_per_month", _check) as use:
-        for f in files:
+        for idx, f in enumerate(files):
             if cap >= 0 and len(created) >= allowed:
                 cap_reached = True
                 break
@@ -1378,7 +1386,11 @@ def burst_scan(
                         skipped += 1
                         continue
                     except AIBusyError:
-                        raise AIBusyError(owner_lang(user)) from None
+                        # Not even the photo could be decoded: keep the
+                        # drafts made so far, leave this one and the rest
+                        # for the owner to send again.
+                        busy_from = idx
+                        break
 
             amount = parsed.get("amount") or 0
             vendor = parsed.get("vendor")
@@ -1473,6 +1485,11 @@ def burst_scan(
         "created": len(created),
         "skipped": skipped,
         "cap_reached": cap_reached,
+        # busy_from: index of the first receipt NOT scanned (BonBox was
+        # busy decoding other photos); it and every one after it should be
+        # sent again. None when the whole pile was handled.
+        "busy_from": busy_from,
+        "busy_remaining": 0 if busy_from is None else len(files) - busy_from,
         "used_this_month": used + len(created),
         "monthly_cap": cap,
         "drafts": [ExpenseResponse.model_validate(d).model_dump(mode="json") for d in created],
@@ -1566,9 +1583,14 @@ def upload_expense_receipt(
             )
 
     from app.services.receipt_ocr import save_receipt_photo_ex, extract_amount_from_image, parse_expense_receipt
-    # One vision slot for the save + both reads (at most 3 photo reads at
-    # once; a 4th waits briefly, then 503 "busy, try again" before the
-    # photo is stored).
+    # One vision slot for the save + both reads (at most 4 photo reads at
+    # once; another waits briefly, then 503 "busy, try again" before the
+    # photo is stored). A photo DECODE refused by image_guard.decode_slot
+    # (at most 2 at once) is a 503 too: before the save it stores nothing;
+    # during a read it comes AFTER the save, so the photo is already stored
+    # (the durable copy is content-addressed: the retry re-uses it) while
+    # nothing is in the books — still safe to retry, never a silently
+    # half-read receipt.
     with vision_slot(user, db=db):
         try:
             stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
@@ -1584,8 +1606,10 @@ def upload_expense_receipt(
 
         # Try the richer parse first (vendor + amount + date), fall back to
         # amount-only on any failure. Both wrap their internal exceptions —
-        # OCR must NEVER crash the upload (owner already has the photo
-        # saved; we just lose the auto-fill assist).
+        # an OCR failure must never crash the upload (owner already has the
+        # photo saved; we just lose the auto-fill assist). The one exception
+        # is "busy" (a decode slot refused): the slot ends the request with
+        # the retryable 503 above instead of a silently empty auto-fill.
         parsed = {"vendor": None, "amount": None, "date": None, "currency": "DKK", "confidence": "none", "raw_text": ""}
         try:
             parsed = parse_expense_receipt(local_path)
