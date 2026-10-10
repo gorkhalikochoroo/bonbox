@@ -50,3 +50,51 @@ async def first_row(sql: str, params: dict) -> Any:
 async def run_blocking(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """Run a blocking callable (DB writes included) in a worker thread."""
     return await run_in_threadpool(fn, *args, **kwargs)
+
+
+# ─── Skip a best-effort DB write when the pool has nothing to give ─────
+#
+# The global exception handler writes an ErrorLog row for every 500. In
+# the pool-exhaustion outage most 500s ARE pool timeouts, and that write
+# then waits the full pool_timeout (30 s in production) for a connection —
+# on a worker thread since round 3, but still holding one of the 32 threads
+# (the ones /api/health/ready needs too) and holding the 500 back from the
+# client. A best-effort observability row is not worth that: skip it when
+# the error was a pool timeout or when the pool has no free connection
+# right now (the error is still in the server log).
+
+
+def is_pool_timeout(exc: BaseException | None) -> bool:
+    """True if ``exc`` — or an exception it was raised from — is
+    SQLAlchemy's pool checkout timeout ("QueuePool limit ... reached")."""
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+    seen = 0
+    while exc is not None and seen < 8:
+        if isinstance(exc, PoolTimeout):
+            return True
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return False
+
+
+def pool_exhausted(session_factory: Any = None) -> bool:
+    """True when the connection pool behind ``session_factory`` (default:
+    app.database.SessionLocal, looked up at call time) has no idle
+    connection and may not open another one — a checkout would WAIT up to
+    the pool timeout. Never blocks; anything it cannot read is "not
+    exhausted" (a NullPool / StaticPool, a stub session factory)."""
+    try:
+        if session_factory is None:
+            from app.database import SessionLocal as session_factory
+        bind = (getattr(session_factory, "kw", None) or {}).get("bind")
+        pool = getattr(bind, "pool", None)
+        max_overflow = getattr(pool, "_max_overflow", None)
+        if pool is None or max_overflow is None or max_overflow < 0:
+            return False
+        if not (hasattr(pool, "checkedin") and hasattr(pool, "overflow")):
+            return False
+        return pool.checkedin() == 0 and pool.overflow() >= max_overflow
+    except Exception:  # noqa: BLE001 — a probe, never an error of its own
+        return False
+

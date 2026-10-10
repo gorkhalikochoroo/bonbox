@@ -3639,9 +3639,14 @@ async def _global_exception_handler(request: Request, exc: Exception):
     # row is built here (the traceback only exists on this thread) and
     # written in a worker thread: a pool checkout on the event loop froze
     # every request when the pool was exhausted (app/utils/off_loop.py).
+    # Skipped (log line above only) when the error IS a pool timeout or the
+    # pool has no free connection: the write would hold a worker thread and
+    # this 500 for the whole pool_timeout (30 s) in exactly that outage.
     try:
         from app.models.error_log import ErrorLog as _ErrorLog
         from app.utils.log_redact import redact_path as _redact_path
+        from app.utils.off_loop import is_pool_timeout as _is_pool_timeout
+        from app.utils.off_loop import pool_exhausted as _pool_exhausted
         from app.utils.off_loop import run_blocking as _run_blocking
         _row = _ErrorLog(
             method=request.method,
@@ -3670,7 +3675,12 @@ async def _global_exception_handler(request: Request, exc: Exception):
             finally:
                 _db.close()
 
-        await _run_blocking(_persist_error_row)
+        if _is_pool_timeout(exc) or _pool_exhausted():
+            _error_logger.warning(
+                "ErrorLog row skipped for %s %s: DB pool exhausted", request.method, _redact_path(path),
+            )
+        else:
+            await _run_blocking(_persist_error_row)
     except Exception:  # noqa: BLE001 — observability MUST never raise
         pass
     # Audit spike detection: many exceptions from same IP looks like probing

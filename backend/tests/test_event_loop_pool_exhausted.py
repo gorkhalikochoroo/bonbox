@@ -163,6 +163,99 @@ def test_health_answers_fast_while_the_pool_is_exhausted_and_middlewares_wait_fo
     assert all(r.status_code == 200 for r in slow_resps)
 
 
+# ─── The ErrorLog write never waits on an exhausted pool ─────────────
+#
+# Round-3 review: every 500 tried to write its ErrorLog row, and with the
+# pool exhausted that write waited the full pool_timeout (30 s in
+# production) on a worker thread before the 500 went out — in exactly the
+# outage where most 500s ARE pool timeouts, using up the threads that
+# /api/health/ready needs too. The row is skipped (the error is still in
+# the server log) when the pool has no free connection or the error is a
+# pool timeout.
+
+def test_a_500_during_pool_exhaustion_answers_at_once_without_an_error_row(tiny_pool, test_routes, monkeypatch):
+    monkeypatch.setattr(main, "is_prod", True)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=30) as c:
+            slow = [asyncio.create_task(c.get("/api/__test__/slow-db", headers=_ip())) for _ in range(POOL_SIZE)]
+            t_wait = time.perf_counter() + 5
+            while test_routes["n"] < POOL_SIZE and time.perf_counter() < t_wait:
+                await asyncio.sleep(0.01)
+            assert test_routes["n"] == POOL_SIZE, "the slow requests never held the pool"
+            t0 = time.perf_counter()
+            boom = await c.get("/api/__test__/boom", headers=_ip())
+            took = time.perf_counter() - t0
+            await asyncio.gather(*slow)
+            return boom, took
+
+    boom, took = asyncio.run(run())
+    assert boom.status_code == 500
+    assert took < POOL_TIMEOUT_S / 2, f"the 500 waited {took:.2f}s on the exhausted pool"
+    with tiny_pool.connect() as conn:
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM error_logs").scalar() == 0
+
+
+def test_a_500_with_a_free_pool_still_writes_its_error_row(tiny_pool, test_routes, monkeypatch):
+    monkeypatch.setattr(main, "is_prod", True)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=30) as c:
+            return await c.get("/api/__test__/boom", headers=_ip())
+
+    assert asyncio.run(run()).status_code == 500
+    with tiny_pool.connect() as conn:
+        row = conn.exec_driver_sql("SELECT error_type, message FROM error_logs").fetchall()
+    assert [tuple(r) for r in row] == [("RuntimeError", "simulated bug")]
+
+
+def test_a_pool_timeout_500_never_opens_a_session_for_its_error_row(recording_sessions):
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+    async def run():
+        try:
+            try:
+                raise PoolTimeout("QueuePool limit of size 15 overflow 0 reached")
+            except PoolTimeout as inner:
+                raise RuntimeError("the route's query failed") from inner
+        except RuntimeError as exc:
+            return await main._global_exception_handler(_req("GET", "/api/x"), exc)
+
+    resp = asyncio.run(run())
+    assert resp.status_code == 500
+    assert recording_sessions.threads == [], "a pool-timeout 500 must not queue for a connection"
+
+
+def test_pool_exhausted_reads_the_real_pool_without_blocking(tmp_path):
+    from app.utils.off_loop import is_pool_timeout, pool_exhausted
+
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'p.db'}", connect_args={"check_same_thread": False},
+        poolclass=QueuePool, pool_size=1, max_overflow=1, pool_timeout=5,
+    )
+    factory = sessionmaker(bind=engine)
+    try:
+        assert pool_exhausted(factory) is False
+        c1 = engine.connect()
+        assert pool_exhausted(factory) is False  # one overflow connection left
+        c2 = engine.connect()
+        t0 = time.perf_counter()
+        assert pool_exhausted(factory) is True
+        assert time.perf_counter() - t0 < 0.1
+        c2.close()
+        assert pool_exhausted(factory) is False
+        c1.close()
+    finally:
+        engine.dispose()
+    # Anything it cannot read is "not exhausted": a stub factory, no bind.
+    assert pool_exhausted(_RecordingSession) is False
+    assert pool_exhausted(sessionmaker()) is False
+    assert is_pool_timeout(RuntimeError("x")) is False
+    assert is_pool_timeout(None) is False
+
+
 # ─── Every middleware / handler DB call runs off the loop thread ─────
 
 class _RecordingSession:
