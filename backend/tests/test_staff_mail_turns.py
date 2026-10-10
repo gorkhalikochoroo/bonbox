@@ -287,3 +287,119 @@ def test_a_waiting_mail_holds_no_database_connection(tmp_path, slow_mails, pushe
     assert done.is_set()
     assert slow_mails == ["anna@cafe.dk"], "it was sent once its turn came"
     engine.dispose()
+
+
+# ─── push-2 review: the per-owner process locks are bounded ──────────────
+#
+# _turn_locks used to keep one lock per owner who ever mailed staff, for the
+# life of the process. An entry now lives only while a turn holds the lock or
+# waits for it; the last one out removes it.
+
+
+def test_the_turn_lock_entry_is_dropped_once_no_turn_holds_or_waits(SL, slow_mails, pushes):
+    before = len(guard._turn_locks)
+    owner_id, ids = _seed(SL, staff=3)
+    db = SL()
+    try:
+        for sid in ids:
+            ns.send_single_shift_notification(db, owner_id, sid, _change(), "shift_changed")
+    finally:
+        db.close()
+    assert len(slow_mails) == 3, "the mails went"
+    assert guard._turn_key(owner_id) not in guard._turn_locks, "no turn in flight, no entry kept"
+    assert len(guard._turn_locks) == before
+
+
+def test_many_owners_leave_no_entries_behind():
+    before = len(guard._turn_locks)
+    for _ in range(500):
+        lock = guard._owner_turn_lock(uuid.uuid4())
+        assert lock.acquire(timeout=1)
+        lock.release()
+    assert len(guard._turn_locks) == before
+
+
+def test_a_waiting_turn_keeps_the_entry_and_a_timed_out_one_lets_go():
+    owner_id = uuid.uuid4()
+    key = guard._turn_key(owner_id)
+    held, release = threading.Event(), threading.Event()
+
+    def holder():
+        with guard._owner_turn_lock(owner_id):
+            held.set()
+            release.wait(10)
+
+    t = threading.Thread(target=holder)
+    t.start()
+    try:
+        assert held.wait(5)
+        assert guard._turn_locks[key].users == 1
+        waiting = threading.Event()
+        outcome = []
+
+        def waiter():
+            waiting.set()
+            outcome.append(guard._owner_turn_lock(owner_id).acquire(timeout=0.3))
+
+        w = threading.Thread(target=waiter)
+        w.start()
+        assert waiting.wait(5)
+        time.sleep(0.1)
+        assert guard._turn_locks[key].users == 2, "a waiting turn keeps the entry"
+        w.join(5)
+        assert outcome == [False]
+        assert guard._turn_locks[key].users == 1, "a turn that gave up let go"
+    finally:
+        release.set()
+        t.join(10)
+    assert key not in guard._turn_locks
+
+
+def test_dropping_entries_never_lets_two_turns_of_one_owner_overlap():
+    """Turns for a few owners from many threads: within one owner never two
+    at once (an entry dropped and re-made while someone waited on the old
+    lock would allow that), and nothing is left afterwards."""
+    owners = [uuid.uuid4() for _ in range(3)]
+    inside = {o: 0 for o in owners}
+    overlaps: list[uuid.UUID] = []
+    counter = threading.Lock()
+    n_threads, rounds = 12, 200
+    barrier = threading.Barrier(n_threads)
+    errors: list[BaseException] = []
+
+    def run(i):
+        try:
+            barrier.wait()
+            for r in range(rounds):
+                o = owners[(i + r) % len(owners)]
+                lock = guard._owner_turn_lock(o)
+                assert lock.acquire(timeout=10)
+                try:
+                    with counter:
+                        inside[o] += 1
+                        if inside[o] > 1:
+                            overlaps.append(o)
+                    time.sleep(0)  # yield inside the turn
+                    with counter:
+                        inside[o] -= 1
+                finally:
+                    lock.release()
+        except BaseException as e:  # noqa: BLE001
+            errors.append(e)
+
+    ts = [threading.Thread(target=run, args=(i,)) for i in range(n_threads)]
+    [t.start() for t in ts]
+    [t.join(60) for t in ts]
+    assert errors == []
+    assert overlaps == []
+    assert not any(guard._turn_key(o) in guard._turn_locks for o in owners)
+
+
+def test_a_reentrant_turn_in_one_thread_still_works_and_cleans_up():
+    owner_id = uuid.uuid4()
+    outer = guard._owner_turn_lock(owner_id)
+    with outer:
+        with guard._owner_turn_lock(owner_id):  # same thread: an RLock
+            assert guard._turn_locks[guard._turn_key(owner_id)].users == 2
+        assert guard._turn_locks[guard._turn_key(owner_id)].users == 1
+    assert guard._turn_key(owner_id) not in guard._turn_locks

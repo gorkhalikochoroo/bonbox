@@ -78,8 +78,20 @@ SKIP_UNKNOWN = "count_unavailable"  # the count could not be read (or the
 STAFF_MAIL_TURN_WAIT_S = 30.0
 _TURN_POLL_S = 0.05
 
-_turn_locks: dict[str, threading.RLock] = {}
+#: One entry per owner with a staff mail IN FLIGHT in this process: the lock
+#: and how many turns hold it or wait for it. The last turn to let go drops
+#: the entry, so the dict is bounded by concurrent turns, not by every owner
+#: who has mailed staff since start (push-2 review: it only ever grew).
+_turn_locks: dict[str, "_TurnEntry"] = {}
 _turn_locks_guard = threading.Lock()
+
+
+class _TurnEntry:
+    __slots__ = ("lock", "users")
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.users = 0
 
 
 def _turn_key(owner_id) -> str:
@@ -90,15 +102,61 @@ def _turn_key(owner_id) -> str:
         return f"staff_mail:{owner_id}"
 
 
-def _owner_turn_lock(owner_id) -> threading.RLock:
-    """This process's lock for one owner's staff mail (one per owner that
-    mailed staff since start — a few hundred at most)."""
-    key = _turn_key(owner_id)
-    with _turn_locks_guard:
-        lock = _turn_locks.get(key)
-        if lock is None:
-            lock = _turn_locks[key] = threading.RLock()
-        return lock
+class _OwnerTurnLock:
+    """This process's lock for one owner's staff mail. ``acquire`` /
+    ``release`` (or ``with``) like a ``threading.RLock``; the shared entry
+    exists only while some turn holds the lock or waits for it.
+
+    A turn registers itself (``users += 1``) BEFORE it waits, under the
+    dict's guard, so the entry it waits on cannot be dropped and replaced
+    by a fresh lock that a later turn would take at the same time; it
+    unregisters after it lets go (or gives up waiting), and the last one
+    out removes the entry."""
+
+    __slots__ = ("_key",)
+
+    def __init__(self, owner_id) -> None:
+        self._key = _turn_key(owner_id)
+
+    def acquire(self, timeout: float = -1) -> bool:
+        with _turn_locks_guard:
+            entry = _turn_locks.get(self._key)
+            if entry is None:
+                entry = _turn_locks[self._key] = _TurnEntry()
+            entry.users += 1
+        got = False
+        try:
+            got = entry.lock.acquire(timeout=timeout)
+        finally:
+            if not got:
+                self._leave(entry)
+        return got
+
+    def release(self) -> None:
+        with _turn_locks_guard:
+            # Held by us, so registered: the entry is still the one we took.
+            entry = _turn_locks[self._key]
+        entry.lock.release()
+        self._leave(entry)
+
+    def _leave(self, entry: "_TurnEntry") -> None:
+        with _turn_locks_guard:
+            entry.users -= 1
+            if entry.users <= 0 and _turn_locks.get(self._key) is entry:
+                del _turn_locks[self._key]
+
+    def __enter__(self) -> "_OwnerTurnLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+
+def _owner_turn_lock(owner_id) -> _OwnerTurnLock:
+    """This process's lock for one owner's staff mail (see _OwnerTurnLock:
+    kept only while a turn holds or waits for it)."""
+    return _OwnerTurnLock(owner_id)
 
 
 def _take_db_turn(db, owner_id, deadline: float) -> bool:
