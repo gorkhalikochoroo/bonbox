@@ -7,7 +7,9 @@ batch of decodes. Three bursts of 12 concurrent 48 MP Z-report scans got
 the API OOM-killed (exit 137) in burst 2 at ~2.07 GB. With both settings
 below, set in code exactly like this, the same bursts peaked at 1.37 GB
 and settled back to ~250 MB; a 15-minute mixed load averaged 288 MB
-(default: 811 MB, peak 1.76 GB).
+(default: 811 MB, peak 1.76 GB). With this module and the decode gate
+(round 3): the bursts peaked at 692 MB and 15 minutes of mixed load
+averaged 272 MB (peak 623 MB), no OOM, no swap.
 
 * ``M_ARENA_MAX = 2`` — at most two malloc arenas instead of up to 8 per
   CPU, so freed memory is shared by the threads instead of stranded in

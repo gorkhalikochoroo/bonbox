@@ -40,7 +40,9 @@ _MAX_DECODED_PIXELS = 50_000_000  # ~7000x7000; a real phone photo is <=~50MP
 # OOM-killed the 2 GB instance — reachable from any staff link. A JPEG is
 # decoded at a reduced scale (draft) so it keeps the 50 MP ceiling and every
 # phone photo (iPhone 48 MP, Samsung 50 MP) still goes through; a PNG — a
-# screenshot, a few MP — is held to 25 MP.
+# screenshot, a few MP — is held to 25 MP. Measured after this change
+# (Linux, 10 Oct): a 25 MP RGBA PNG peaks at 214 MB, a 48 MP JPEG at 32 MB
+# (chat) / 9 MB (avatar); a 50 MP PNG is refused before any decode.
 _MAX_FULL_DECODE_PIXELS = 25_000_000
 
 _BUSY_DETAIL = "Der behandles mange billeder lige nu. Prøv igen om et øjeblik."

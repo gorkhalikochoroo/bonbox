@@ -93,6 +93,12 @@ def anthropic_client(api_key: str | None = None, *, timeout: float | None = None
 #: answer: ~20 MB, so 4 reads ~80 MB, next to at most 2 x ~390 MB of
 #: decodes. It was 3 while a read's decode was bounded only by this limit
 #: (3 x ~390 MB; 4 x would not fit beside the steady state).
+#: Measured with 4 (Linux, 1 CPU / 2 GB, no swap, malloc set by main.py,
+#: 10 Oct): 3 bursts of 12 concurrent 48 MP JPEG / HEIC Z-report scans
+#: across 6 venues peaked at 692 MB RSS (cgroup 848 MB), no OOM — the same
+#: bursts OOM-killed the API at 3 slots with default malloc. The 503s in
+#: those bursts (2 of 12 each) were this limit's ``VISION_WAIT_S``, never the
+#: decode gate. 15 min of mixed load (40 venues): 272 MB average, 623 MB peak.
 VISION_MAX_CONCURRENT = 4
 #: Photo reads one account may have in flight at once. Below the global
 #: limit, so one venue (or one hostile account) always leaves a slot free

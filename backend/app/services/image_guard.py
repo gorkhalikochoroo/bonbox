@@ -87,6 +87,9 @@ UPLOAD_MAX_PIXELS_BY_FORMAT: dict[str, int] = {"WEBP": 25_000_000}
 #: is CPU and memory, not a wait: on 1 CPU a third one only adds its
 #: ~390 MB peak, not throughput. Separate from the vision slots
 #: (ai_limits.VISION_MAX_CONCURRENT), which bound the 30-60 s vendor calls.
+#: Measured (Linux, 10 Oct), one process, 6 requests at once through the
+#: gate: 48 MP HEIC reads +570 MB, 48 MP HEIC saves +608 MB, 25 MP RGBA
+#: chat PNGs +429 MB — two decodes' worth, whatever the queue length.
 DECODE_MAX_CONCURRENT = 2
 #: How long a decode waits for a free slot before ``DecodeBusyError``. A
 #: 48 MP decode takes ~1-2 s on 1 CPU, so a queue of a few clears well
