@@ -469,3 +469,37 @@ def test_a_new_shift_is_draft_or_published(client, db, status, ok):
     assert r.status_code == (200 if ok else 422), (status, r.status_code, r.text)
     if ok:
         assert r.json()["status"] == status.lower()
+
+
+# ─── 4. PQ-19: Danish subjects ───────────────────────────────────────────
+
+
+def test_publish_subject_in_danish_and_english(db, mails, pushes):
+    owner = _owner(db)
+    anna = _staff(db, owner)
+    ns.send_shift_notifications(db, owner.id, {str(anna.id): [_change("added")]},
+                                "Uge 23", lang="da", week_start=MONDAY)
+    ns.send_shift_notifications(db, owner.id, {str(anna.id): [_change("added")]},
+                                "Week of 01 Jun 2026", lang="en", week_start=MONDAY)
+    assert [m["subject"] for m in mails] == [
+        "Vagtplanen er opdateret – uge 23",
+        "Schedule updated - Week of 01 Jun 2026",
+    ]
+    # The feed row keeps the English verb the portal reads.
+    subjects = {r.subject for r in db.query(NotificationLog).all()}
+    assert subjects == {"Schedule updated - 2026-06-01"}
+
+
+@pytest.mark.parametrize("kind,da,en", [
+    ("removed", "Vagt aflyst – ons. 25. nov.", "Shift cancelled - Wed 25 Nov"),
+    ("added", "Ny vagt – ons. 25. nov.", "Shift updated - Wed 25 Nov"),
+    ("modified", "Vagt ændret – ons. 25. nov.", "Shift updated - Wed 25 Nov"),
+])
+def test_single_shift_subject_in_danish_and_english(db, mails, pushes, kind, da, en):
+    owner = _owner(db)
+    anna = _staff(db, owner)
+    ns.send_single_shift_notification(db, owner.id, anna.id, _change(kind), "shift_changed", lang="da")
+    ns.send_single_shift_notification(db, owner.id, anna.id, _change(kind), "shift_changed", lang="en")
+    assert [m["subject"] for m in mails] == [da, en]
+    for r in db.query(NotificationLog).all():
+        assert r.subject.startswith(("Shift cancelled - 2026-11-25", "Shift updated - 2026-11-25"))

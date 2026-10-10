@@ -341,6 +341,40 @@ def _feed_subject(prefix: str, day, start: str | None = None, end: str | None = 
     return f"{prefix} - {iso}{times}"
 
 
+def _publish_mail_subject(week_label: str, lang: str = "en", week_start=None) -> str:
+    """Subject of the "your schedule was published" mail (PQ-19).
+
+    English keeps its shape exactly ("Schedule updated - Week of 12 Oct 2026").
+    Danish used to read the same English line above a Danish mail; it now says
+    "Vagtplanen er opdateret – uge 42" (the ISO week of the published Monday,
+    or the caller's label when no Monday is given)."""
+    if (lang or "en").lower() == "da":
+        try:
+            from datetime import date as _date
+            ws = week_start if isinstance(week_start, _date) else (
+                _date.fromisoformat(str(week_start)) if week_start else None)
+        except (TypeError, ValueError):
+            ws = None
+        if ws is not None:
+            return f"Vagtplanen er opdateret – uge {ws.isocalendar().week}"
+        return f"Vagtplanen er opdateret – {week_label}"
+    return f"Schedule updated - {week_label}"
+
+
+def _single_shift_mail_subject(change_type: str, day, lang: str = "en") -> str:
+    """Subject of the one-shift mail (edit / delete / cover), PQ-19.
+
+    English keeps its shape ("Shift cancelled - Wed 25 Nov" / "Shift updated -
+    …"). Danish: "Vagt aflyst – ons. 25. nov.", "Ny vagt – …" for a shift the
+    staffer gains, "Vagt ændret – …" for new times — the same three words as
+    the mail body's NY / AFLYST / ÆNDRET."""
+    if (lang or "en").lower() == "da":
+        verb = {"removed": "Vagt aflyst", "added": "Ny vagt"}.get(change_type, "Vagt ændret")
+        return f"{verb} – {_format_date_nice(day, 'da')}"
+    verb = "Shift cancelled" if change_type == "removed" else "Shift updated"
+    return f"{verb} - {_format_date_nice(day)}"
+
+
 # The shift email, in the two languages this product ships.
 #
 # WHY THIS EXISTS. build_shift_email_html had no lang argument and no Danish
@@ -582,12 +616,14 @@ def send_shift_notifications(
             ).first()
             portal_url = f"https://www.bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
 
-            subject = f"Schedule updated - {week_label}"
+            subject = _publish_mail_subject(week_label, lang, week_start)
             # The feed row names the published week by its Monday, so the
             # portal can open THAT week when the alert is tapped. Without a
-            # week_start (older callers) it keeps the human label.
+            # week_start (older callers) it keeps the human label — in
+            # English: the portal reads the English verb prefix.
             feed_subject = (
-                _feed_subject("Schedule updated", week_start) if week_start else subject
+                _feed_subject("Schedule updated", week_start) if week_start
+                else f"Schedule updated - {week_label}"
             )
 
             # ── Email channel — only when the staff has an address ────────
@@ -723,11 +759,12 @@ def send_single_shift_notification(
     ).first()
     portal_url = f"https://www.bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
 
-    # The email subject keeps its old shape (English, as before); the email
-    # body and the push body take the date in the venue's language.
+    # The subject, the email body and the push body all take the venue's
+    # language (PQ-19 — the subject used to stay English). The feed row keeps
+    # its English verb: the portal reads it.
     week_label = _format_date_nice(change.date, lang)
     verb = "Shift cancelled" if change.change_type == "removed" else "Shift updated"
-    subject = f"{verb} - {_format_date_nice(change.date)}"
+    subject = _single_shift_mail_subject(change.change_type, change.date, lang)
     if change.change_type == "removed":
         _st, _en = change.old_start, change.old_end
     else:
