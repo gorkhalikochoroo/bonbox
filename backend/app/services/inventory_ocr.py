@@ -44,6 +44,7 @@ runs ~$0.007. See `claude_vision_ocr` for the same pricing math.
 from __future__ import annotations
 
 import logging
+from app.services.ai_limits import anthropic_client
 import os
 import time
 from typing import Any, Optional
@@ -541,6 +542,7 @@ def _image_bytes_to_base64_jpeg(data: bytes) -> Optional[str]:
     normalization consistent (downscale, HEIC handling)."""
     if not data:
         return None
+    from app.services.ai_limits import AIBusyError
     try:
         import base64
         import io
@@ -551,18 +553,28 @@ def _image_bytes_to_base64_jpeg(data: bytes) -> Optional[str]:
         except ImportError:
             pass
 
-        img = Image.open(io.BytesIO(data))
-        img = img.convert("RGB")
+        # Allow-listed decoders only (INFRA-03) — refuses PSD/FITS/... by
+        # their magic bytes before Pillow parses anything. One decode slot
+        # (at most 2 photo decodes at once, process-wide); a JPEG is decoded
+        # at the smallest scale that still covers max_dim.
+        from app.services.image_guard import decode_slot, open_upload_image
         # Downscale large images for token cost + speed. 2000px on the
         # longest side is the same threshold receipt_ocr uses.
         max_dim = 2000
-        if max(img.size) > max_dim:
-            ratio = max_dim / max(img.size)
-            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=90)
+        with decode_slot():
+            img = open_upload_image(data, max_side=max_dim)
+            if img.mode != "RGB":  # convert() to the same mode only copies
+                img = img.convert("RGB")
+            if max(img.size) > max_dim:
+                ratio = max_dim / max(img.size)
+                new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            del img
         return base64.b64encode(buf.getvalue()).decode("ascii")
+    except AIBusyError:
+        raise  # every decode slot taken: 503 "busy, try again", not "unreadable"
     except Exception as e:  # noqa: BLE001
         logger.warning("[Inventory OCR] image prep failed: %s", e)
         return None
@@ -626,7 +638,7 @@ def extract_inventory_data(
 
     # SDK availability
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("[Inventory OCR] anthropic SDK not installed — falling back")
         return None
@@ -665,7 +677,7 @@ def extract_inventory_data(
     # ── Call Claude — tool-use forces structured output ──
     try:
         from app.services.model_fallback import call_with_fallback
-        client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+        client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
         resp = call_with_fallback(
             client,
             _label="inventory_ocr",

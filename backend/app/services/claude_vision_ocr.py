@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from app.services.ai_limits import anthropic_client
 import os
 import time
 from pathlib import Path
@@ -249,8 +250,12 @@ def _image_to_base64_jpeg_for_vision(image_path: str) -> str | None:
         logger.warning("Could not import _image_to_base64_jpeg helper: %s", e)
         return None
 
+    from app.services.ai_limits import AIBusyError
+
     try:
         return _image_to_base64_jpeg(image_path)
+    except AIBusyError:
+        raise  # every decode slot taken: the read is busy, not unreadable
     except Exception as e:  # noqa: BLE001
         logger.warning("Image base64 encode failed: %s", e)
         return None
@@ -419,7 +424,7 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
 
     # ── SDK + key checks ─────────────────────────────────────────────
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("[Claude Vision] anthropic SDK not installed — falling back")
         return None
@@ -458,7 +463,7 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
     # extractor uses.
     try:
         from app.services.model_fallback import call_with_fallback
-        client = anthropic.Anthropic(api_key=api_key, timeout=30.0)
+        client = anthropic_client(api_key, timeout=30.0)  # 1 SDK retry (OPS-02)
         resp = call_with_fallback(
             client,
             _label="claude_vision_receipt",
@@ -1069,7 +1074,7 @@ def extract_z_report_data(image_path: str) -> dict | None:
 
     # ── SDK + key checks ─────────────────────────────────────────────
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("[Claude Z-Report] anthropic SDK not installed — falling back")
         return None
@@ -1104,7 +1109,7 @@ def extract_z_report_data(image_path: str) -> dict | None:
     # per-clerk table + denominations.
     try:
         from app.services.model_fallback import call_with_fallback
-        client = anthropic.Anthropic(api_key=api_key, timeout=45.0)
+        client = anthropic_client(api_key, timeout=45.0)  # kept at 45 s: big Z-reports; 1 SDK retry (OPS-02)
         resp = call_with_fallback(
             client,
             _label="claude_vision_zreport",
@@ -1253,7 +1258,7 @@ def classify_document_type(image_path: str) -> str:
 
     # ── SDK + key checks ─────────────────────────────────────────────
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("[Classify] anthropic SDK not installed — defaulting to 'unknown'")
         return "unknown"
@@ -1282,7 +1287,7 @@ def classify_document_type(image_path: str) -> str:
     # invocation — capability floor matters more than speed.
     model = os.environ.get("AI_MODEL_DOCTYPE_CLASSIFIER", "").strip() or "claude-sonnet-5"
     try:
-        client = anthropic.Anthropic(api_key=api_key, timeout=20.0)
+        client = anthropic_client(api_key, timeout=20.0)  # 1 SDK retry (OPS-02)
         resp = client.messages.create(
             model=model,
             max_tokens=10,

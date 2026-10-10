@@ -59,6 +59,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 from app.models import (
     DailyBrief,
     Expense,
@@ -1456,7 +1457,7 @@ def _try_llm_polish(
     """Call Claude to rephrase the top candidates. Returns
     (validated_brief_or_None, input_tokens, output_tokens, model)."""
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.info("anthropic SDK not installed — skipping AI polish")
         return None, 0, 0, "deterministic"
@@ -1487,7 +1488,7 @@ def _try_llm_polish(
         "writes it — never re-format a number."
     )
 
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
 
     # User content: candidates + precompute, all as JSON. Keeping this
     # purely structured eliminates parsing ambiguity.

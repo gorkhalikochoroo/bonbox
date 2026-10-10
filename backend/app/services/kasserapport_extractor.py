@@ -64,6 +64,7 @@ from typing import Any
 from PIL import Image
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 
 logger = logging.getLogger("bonbox.kasserapport_extractor")
 
@@ -159,14 +160,22 @@ def _image_to_base64_jpeg(image_path: str | Path, max_side: int = MAX_INPUT_IMAG
     receipt readability. Faster upload, cheaper LLM input tokens, no
     accuracy loss in our tests.
     """
-    img = Image.open(str(image_path))
-    img = img.convert("RGB")
-    if max(img.size) > max_side:
-        ratio = max_side / max(img.size)
-        new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-        img = img.resize(new_size, Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=88)
+    # Allow-listed decoders only (INFRA-03); the router magic-checks too.
+    # One decode slot (at most 2 photo decodes at once, process-wide; busy
+    # raises DecodeBusyError, the 503). A JPEG is decoded at the smallest
+    # scale that still covers max_side.
+    from app.services.image_guard import decode_slot, open_upload_image
+    with decode_slot():
+        img = open_upload_image(image_path, max_side=max_side)
+        if img.mode != "RGB":  # convert() to the same mode only copies
+            img = img.convert("RGB")
+        if max(img.size) > max_side:
+            ratio = max_side / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=88)
+        del img
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -278,7 +287,7 @@ def _call_anthropic_with_image(
         exactly the prior behavior.
     """
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.warning("anthropic SDK not installed")
         return None, 0, 0
@@ -288,7 +297,7 @@ def _call_anthropic_with_image(
         logger.warning("ANTHROPIC_API_KEY not set")
         return None, 0, 0
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+    client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
     last_error: str | None = None
 
     create_kwargs = dict(
@@ -868,8 +877,12 @@ def extract_kasserapport_full(
 
     result.image_sha256 = image_sha256(raw)
 
+    from app.services.ai_limits import AIBusyError
+
     try:
         b64 = _image_to_base64_jpeg(image_path)
+    except AIBusyError:
+        raise  # every decode slot taken: 503 "busy, try again", nothing logged as failed
     except Image.DecompressionBombError:
         result.error = "image_too_large_pixel_count"
         return result

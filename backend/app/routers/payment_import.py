@@ -16,6 +16,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -266,7 +267,7 @@ def toggle_auto_sync(
 # ── Sync transactions ──────────────────────────────────────
 
 @router.post("/sync/{connection_id}", response_model=SyncResponse)
-async def sync_transactions(
+def sync_transactions(
     connection_id: uuid.UUID,
     date_from: str = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: str = Query(None, description="End date (YYYY-MM-DD)"),
@@ -289,8 +290,11 @@ async def sync_transactions(
     d_to = date.fromisoformat(date_to) if date_to else date.today()
     d_from = date.fromisoformat(date_from) if date_from else d_to - timedelta(days=30)
 
+    # A plain `def` (its DB work runs in the threadpool, never waiting for a
+    # pool connection on the event loop); the async provider fetch is run on
+    # the loop from this worker thread.
     try:
-        raw_txns = await fetch_transactions(conn.provider, creds, d_from, d_to)
+        raw_txns = anyio.from_thread.run(fetch_transactions, conn.provider, creds, d_from, d_to)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:

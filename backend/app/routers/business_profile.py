@@ -23,6 +23,8 @@ Endpoints:
 import uuid
 from datetime import datetime, timedelta
 
+import anyio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from slowapi import Limiter
@@ -243,7 +245,7 @@ class ReverifyResponse(BaseModel):
 
 @router.post("/reverify", response_model=ReverifyResponse)
 @_limiter.limit("10/minute")
-async def reverify_profile(
+def reverify_profile(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -305,8 +307,11 @@ async def reverify_profile(
                 headers={"Retry-After": str(wait_seconds)},
             )
 
+    # A plain `def` (its DB work runs in the threadpool, never waiting for a
+    # pool connection on the event loop); the async register lookup is run
+    # on the loop from this worker thread.
     try:
-        results = await lookup_business(profile.org_number, profile.country or "DK")
+        results = anyio.from_thread.run(lookup_business, profile.org_number, profile.country or "DK")
     except LookupError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -862,6 +867,8 @@ from app.services.logo_service import (
     ACCENT_COLOR_PALETTE,
     MAX_LOGO_BYTES,
 )
+from app.services.ai_limits import AIBusyError
+from app.services.owner_language import owner_lang
 from app.services import audit_service
 
 
@@ -949,7 +956,7 @@ def get_brand(
 
 @router.post("/logo", response_model=_BrandResponse)
 @_limiter.limit("10/hour")
-async def upload_logo_endpoint(
+def upload_logo_endpoint(
     request: Request,
     file: Annotated[UploadFile, File(...)],
     db: Session = Depends(get_db),
@@ -968,7 +975,10 @@ async def upload_logo_endpoint(
     # FastAPI streams the upload — read it fully here. We bound the read
     # via MAX_LOGO_BYTES + a 1-byte overshoot to detect oversized files
     # WITHOUT loading the entire payload first.
-    raw = await file.read(MAX_LOGO_BYTES + 1)
+    #
+    # A plain `def` (OPS-02): the Pillow re-encode and the storage upload /
+    # delete / signing calls below run in the threadpool, off the event loop.
+    raw = file.file.read(MAX_LOGO_BYTES + 1)
     if len(raw) > MAX_LOGO_BYTES:
         raise HTTPException(
             413,
@@ -980,7 +990,13 @@ async def upload_logo_endpoint(
     # Remember the old key so we can clean it up after successful save.
     old_key = profile.logo_url
 
-    storage_key, out_bytes = upload_logo(user.id, raw)
+    try:
+        storage_key, out_bytes = upload_logo(user.id, raw)
+    except AIBusyError:
+        # Every photo-decode slot stayed taken (image_guard.decode_slot):
+        # nothing stored, the 503 "busy, try again" is safe to retry — in
+        # the owner's language (main.py's AIBusyError handler).
+        raise AIBusyError(owner_lang(user)) from None
 
     before = {"logo_url": old_key}
     profile.logo_url = storage_key

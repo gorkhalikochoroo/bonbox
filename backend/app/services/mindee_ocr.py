@@ -231,9 +231,17 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
     # ── SDK + key checks ─────────────────────────────────────────────
     try:
         from mindee import Client, product  # type: ignore[import-not-found]
-    except ImportError:
-        # SDK not installed yet — fall through to Claude. Silent because
-        # local dev environments may not need Mindee.
+    except ImportError as e:
+        # Fall through to Claude — but LOUDLY. This used to be silent, so a
+        # build that resolved mindee 5 (which no longer exports `Client`)
+        # switched the primary receipt OCR off with nothing in the logs
+        # (INFRA-05). requirements.txt pins mindee==4.36.1; if this line
+        # shows up in production, the installed SDK does not match it.
+        logger.warning(
+            "[Mindee] SDK import failed (%s: %s) — Mindee OCR is OFF, "
+            "receipts fall back to Claude Vision. Expected mindee==4.36.1.",
+            type(e).__name__, e,
+        )
         return None
 
     # Read both settings + env. settings is canonical, env is the

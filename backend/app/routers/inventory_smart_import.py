@@ -79,6 +79,9 @@ from app.services.inventory_learning import (
     build_examples_prompt_block, get_examples_for_user,
     promote_corrections, prune_stale_examples,
 )
+from app.services.ai_limits import AIBusyError, counted_use, vision_slot
+from app.services.image_guard import refusal_message, sniff_image_format
+from app.services.owner_language import owner_lang
 from app.services.inventory_ocr import (
     PROVIDER_TAG as INVENTORY_OCR_PROVIDER,
     enrich_with_supplier as _enrich_supplier,
@@ -247,13 +250,17 @@ def _today_midnight() -> datetime:
     return datetime.combine(utc_now().date(), dtime.min)
 
 
-def _check_daily_quota(db: Session, user: User) -> None:
+def _check_daily_quota(db: Session, user: User, in_flight: int = 0) -> int:
     """Layer 5 — daily quota gate. Refuse with 429 if user has hit
     their per-day smart-import cap. -1 = unlimited (Pro/Trial/Business).
+
+    ``in_flight`` — imports of this account that passed the gate but have
+    not written their row yet (see ``counted_use`` in /file). Returns how
+    many uses to reserve: 0 when unlimited, else 1.
     """
     cap = get_cap(user, "smart_imports_per_day")
     if cap < 0:
-        return
+        return 0
     today_count = (
         db.query(func.count(InventoryImport.id))
         .filter(
@@ -262,6 +269,7 @@ def _check_daily_quota(db: Session, user: User) -> None:
         )
         .scalar()
     ) or 0
+    today_count += in_flight
     if today_count >= cap:
         raise HTTPException(
             status_code=429,
@@ -270,6 +278,7 @@ def _check_daily_quota(db: Session, user: User) -> None:
                 "Upgrade your plan or wait until tomorrow."
             ),
         )
+    return 1
 
 
 # ─── Receipt → "modtaget på lager" matching ────────────────────────────
@@ -730,7 +739,7 @@ def import_text(
 # Per-IP burst + daily ceiling (2026-05-28 — Opus 4.7 cost defense).
 # This is the heaviest endpoint — multi-page supplier-invoice OCR.
 @_limiter.limit("6/minute;80/day")
-async def import_file(
+def import_file(
     request: Request,
     file: UploadFile = File(...),
     source_kind: str = Form(...),
@@ -743,8 +752,25 @@ async def import_file(
     filename (which is user-controlled and forgeable). Strict allowlist
     enforced below.
     """
-    _check_daily_quota(db, user)
+    # The InventoryImport row that counts toward the daily quota is
+    # written AFTER the (paid) extraction, and this route runs in the
+    # threadpool — so the quota is checked under a per-account lock and
+    # counts the imports still in flight (counted_use). Without it,
+    # parallel uploads would all pass before any of them wrote its row.
+    with counted_use(
+        user, "smart_imports_per_day",
+        lambda in_flight: _check_daily_quota(db, user, in_flight),
+    ) as use:
+        return _import_file_counted(
+            request, file=file, source_kind=source_kind, db=db, user=user, use=use,
+        )
 
+
+def _import_file_counted(
+    request: Request, *, file: UploadFile, source_kind: str,
+    db: Session, user: User, use,
+):
+    """The rest of /file, run while this request holds its quota reservation."""
     # Layer 2 — source_kind allowlist. Tighter than the extractor's
     # internal validate_size since we want HTTP-level rejection here.
     allowed_kinds = {"csv", "excel", "image"}
@@ -754,7 +780,10 @@ async def import_file(
             detail=f"Invalid source_kind={source_kind!r}; must be one of {sorted(allowed_kinds)}",
         )
 
-    raw = await file.read()
+    # A plain `def` (OPS-02 / P0-3): the vision reads, the AI categorizer
+    # and the storage upload below all run in the threadpool, never on the
+    # event loop.
+    raw = file.file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file")
 
@@ -795,6 +824,12 @@ async def import_file(
                     status_code=400,
                     detail=f"source_kind=image requires image/* content_type, got {media_type!r}",
                 )
+            # INFRA-03 — the bytes themselves must be an allow-listed image
+            # (a PSD renamed .jpg is refused before any decoder or model).
+            if sniff_image_format(raw) is None:
+                raise HTTPException(
+                    status_code=400, detail=refusal_message(owner_lang(user)),
+                )
             # Few-shot enrichment: pull this owner's prior corrections
             # so the AI extracts in their preferred naming/style. NEVER
             # cross-owner — examples are strictly user-scoped.
@@ -807,7 +842,11 @@ async def import_file(
             # Pulls structured supplier header + totals + per-line VAT.
             # Returns None on any failure (no API key, network, parse,
             # refusal); the fallback below then runs.
-            inv_result = extract_inventory_data(raw)
+            # Each vision read holds one slot: at most 3 photo reads run at
+            # once; a 4th waits briefly, then 503 "busy, try again" — always
+            # before the draft row is written, so the retry is clean.
+            with vision_slot(user, db=db):
+                inv_result = extract_inventory_data(raw)
             if inv_result is not None:
                 # L3 — tier gate on the supplier_auto_detection feature.
                 # Free tier gets the raw Claude Vision extraction (line
@@ -897,9 +936,10 @@ async def import_file(
                 # Runs when inventory_ocr couldn't extract supplier-shaped
                 # data (no API key, refusal, totally illegible). Same
                 # behaviour as before — keeps the owner unblocked.
-                items, extractor_meta = extract_image(
-                    raw, media_type=media_type, few_shot_block=few_shot,
-                )
+                with vision_slot(user, db=db):
+                    items, extractor_meta = extract_image(
+                        raw, media_type=media_type, few_shot_block=few_shot,
+                    )
                 ocr_provider_tag = "claude_extract_image"
                 if extractor_meta.get("error"):
                     error_msg = f"extractor:{extractor_meta['error']}"
@@ -924,7 +964,9 @@ async def import_file(
                 logger.exception(
                     "smart-import: failed to persist image to storage (non-fatal)"
                 )
-    except HTTPException:
+    except (HTTPException, AIBusyError):
+        # AIBusyError must reach the owner as the 503 "busy, try again" —
+        # not be logged as a crashed extraction and a 502.
         raise
     except Exception as e:  # noqa: BLE001
         logger.exception("smart-import extractor crash")
@@ -937,18 +979,21 @@ async def import_file(
     else:
         categorized, cat_meta = [], {}
 
-    imp = _persist_import(
-        db, user,
-        source_kind=source_kind,
-        source_filename=(file.filename or "")[:255] or None,
-        source_size_bytes=len(raw),
-        source_sha=sha,
-        extracted_items=items,
-        categorized_items=categorized,
-        extractor_meta=extractor_meta,
-        categorizer_meta=cat_meta,
-        error=error_msg,
-    )
+    # The row that counts toward the daily quota — committed under the
+    # quota lock, which hands this request's reservation back.
+    with use.recording():
+        imp = _persist_import(
+            db, user,
+            source_kind=source_kind,
+            source_filename=(file.filename or "")[:255] or None,
+            source_size_bytes=len(raw),
+            source_sha=sha,
+            extracted_items=items,
+            categorized_items=categorized,
+            extractor_meta=extractor_meta,
+            categorizer_meta=cat_meta,
+            error=error_msg,
+        )
 
     if not items and error_msg:
         # Surface the failure mode to the client — but we already logged

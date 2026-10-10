@@ -4,6 +4,15 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# glibc malloc settings for this one process (M_ARENA_MAX=2, 1 MiB mmap
+# threshold) — set here, before the heavy imports and before any worker
+# thread exists. Measured need and overrides: app/utils/malloc_tuning.py
+# (BONBOX_MALLOPT=0 is for measuring only — without the settings memory
+# climbs back toward the 2 GB limit). No-op on macOS / musl.
+from app.utils.malloc_tuning import apply_malloc_tuning as _apply_malloc_tuning
+
+_MALLOC_TUNING = _apply_malloc_tuning()
+
 # Optional Sentry init — only loaded if SENTRY_DSN env var set AND the
 # sentry-sdk package is installed. Wrapped in try/except so missing dep
 # never crashes the app. Add `sentry-sdk[fastapi]` to requirements.txt
@@ -3538,6 +3547,44 @@ limiter = Limiter(
 is_prod = settings.ENVIRONMENT == "production"
 
 
+#: Threads FastAPI may run sync routes / dependencies on at once (anyio's
+#: default is 40). Since R-d the blocking work (AI / OCR reads, photo
+#: decodes, PDF / XLSX builds, every DB query) runs on these threads, and
+#: production is ONE process on 1 CPU / 2 GB (Render 1c-2g since 10 Oct).
+#: Why 32:
+#:   * 15 for DB work: the Postgres pool holds 15 connections (5 + 10
+#:     overflow), and each query is mostly a network wait (Render Frankfurt
+#:     -> Supabase eu-west-1), so 15 requests overlap usefully; a 16th DB
+#:     request only queues for a connection;
+#:   * 4 for the photo reads in their 30-60 s vendor call
+#:     (VISION_MAX_CONCURRENT) — they hand their connection back first, so
+#:     they come on top of the 15;
+#:   * 13 of headroom for the waits that hold a thread without doing DB work:
+#:     reads queueing for a vision slot (up to 10 s each), file and streaming
+#:     responses, the webhooks and the Copilot loop handed to the threadpool,
+#:     so a burst of photo uploads cannot starve the saves and logins;
+#:   * not 40: 1 CPU runs one Python thread at a time, so threads past the
+#:     waits add no throughput — only more requests' working sets in memory
+#:     at once and, under glibc, up to one malloc arena per thread (memory a
+#:     thread frees stays in its arena, which is how RSS ratchets: the 10 Oct
+#:     load test peaked at 1.97 GB with default malloc, 1.43 GB with
+#:     MALLOC_ARENA_MAX=2, 0.95 GB with MALLOC_MMAP_THRESHOLD_=1 MB).
+#: A 33rd concurrent sync request waits on the event loop for a thread; the
+#: async routes (/api/health, booking-page SSE, the Copilot stream) never do.
+THREADPOOL_TOKENS = 32
+
+
+def _bound_threadpool(tokens: int = THREADPOOL_TOKENS) -> None:
+    """Set anyio's default thread limiter for THIS event loop.
+
+    The limiter is per event loop (an anyio RunVar), so this runs inside the
+    lifespan — on the loop uvicorn serves from — not at import.
+    """
+    import anyio.to_thread
+
+    anyio.to_thread.current_default_thread_limiter().total_tokens = tokens
+
+
 # ─── Lifespan context manager (replaces @app.on_event) ─────────────
 #
 # FastAPI 0.93+ deprecated @app.on_event in favour of an ASGI
@@ -3570,6 +3617,7 @@ is_prod = settings.ENVIRONMENT == "production"
 @asynccontextmanager
 async def lifespan(app):
     # ─── STARTUP ─────────────────────────────────────────────────
+    _bound_threadpool()
     _startup_thread = threading.Thread(target=_init_db, daemon=True)
     _startup_thread.start()
 
@@ -3630,6 +3678,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 import logging
 import time as _time
 import traceback as _tb
+from app.utils.bounded import bound_stamp_dict, bound_window_dict
 _security_logger = logging.getLogger("bonbox.security")
 _error_logger = logging.getLogger("bonbox.errors")
 
@@ -3638,6 +3687,9 @@ _error_logger = logging.getLogger("bonbox.errors")
 _recent_exception_fingerprints: dict[str, list[float]] = {}
 _EXCEPTION_FINGERPRINT_WINDOW = 60  # seconds
 _EXCEPTION_SPIKE_THRESHOLD = 10  # exceptions/min from one IP triggers audit log
+# IPs tracked at once. Keys used to stay for the life of the process (one per
+# IP that ever hit a 500); quiet ones are swept once the dict passes this.
+_EXCEPTION_MAX_TRACKED_IPS = 5000
 
 
 def _audit_exception_spike(ip: str, fingerprint: str):
@@ -3657,6 +3709,9 @@ def _audit_exception_spike(ip: str, fingerprint: str):
             ip, len(bucket), fingerprint,
         )
         bucket.clear()  # reset so we don't spam the same alert
+    bound_window_dict(
+        _recent_exception_fingerprints, cutoff=cutoff, max_keys=_EXCEPTION_MAX_TRACKED_IPS,
+    )
 
 
 @app.exception_handler(Exception)
@@ -3677,33 +3732,52 @@ async def _global_exception_handler(request: Request, exc: Exception):
         request.method, path, exc,
     )
     # Persist to ErrorLog for super-admin observability — wrapped in
-    # try/except so logging failures NEVER break the response path.
+    # try/except so logging failures NEVER break the response path. The
+    # row is built here (the traceback only exists on this thread) and
+    # written in a worker thread: a pool checkout on the event loop froze
+    # every request when the pool was exhausted (app/utils/off_loop.py).
+    # Skipped (log line above only) when the error IS a pool timeout or the
+    # pool has no free connection: the write would hold a worker thread and
+    # this 500 for the whole pool_timeout (30 s) in exactly that outage.
     try:
         from app.models.error_log import ErrorLog as _ErrorLog
-        from app.database import SessionLocal as _SessionLocal
-        _db = _SessionLocal()
-        try:
-            from app.utils.log_redact import redact_path as _redact_path
-            _db.add(_ErrorLog(
-                method=request.method,
-                # Links like /s/<token> are their own credential — never
-                # store one (app/utils/log_redact.py).
-                path=(_redact_path(path) or "")[:500] or None,
-                status_code=500,
-                user_id=getattr(getattr(request, "state", None), "user_id", None),
-                ip_address=(client_ip(request) if request else None),
-                user_agent=(request.headers.get("user-agent") or "")[:500],
-                error_type=type(exc).__name__[:100],
-                message=str(exc)[:1000],
-                # Cap at 16KB — Starlette wraps every request in ~7 BaseHTTPMiddleware
-                # frames each adding 6+ lines of boilerplate via collapse_excgroups, so
-                # the inner-most app frame (where the bug actually lives) sits >4KB deep.
-                # 16KB gives us enough headroom to always see the offending code path.
-                traceback=_tb.format_exc()[:16000],
-            ))
-            _db.commit()
-        finally:
-            _db.close()
+        from app.utils.log_redact import redact_path as _redact_path
+        from app.utils.off_loop import is_pool_timeout as _is_pool_timeout
+        from app.utils.off_loop import pool_exhausted as _pool_exhausted
+        from app.utils.off_loop import run_blocking as _run_blocking
+        _row = _ErrorLog(
+            method=request.method,
+            # Links like /s/<token> are their own credential — never
+            # store one (app/utils/log_redact.py).
+            path=(_redact_path(path) or "")[:500] or None,
+            status_code=500,
+            user_id=getattr(getattr(request, "state", None), "user_id", None),
+            ip_address=(client_ip(request) if request else None),
+            user_agent=(request.headers.get("user-agent") or "")[:500],
+            error_type=type(exc).__name__[:100],
+            message=str(exc)[:1000],
+            # Cap at 16KB — Starlette wraps every request in ~7 BaseHTTPMiddleware
+            # frames each adding 6+ lines of boilerplate via collapse_excgroups, so
+            # the inner-most app frame (where the bug actually lives) sits >4KB deep.
+            # 16KB gives us enough headroom to always see the offending code path.
+            traceback=_tb.format_exc()[:16000],
+        )
+
+        def _persist_error_row():
+            from app.database import SessionLocal as _SessionLocal
+            _db = _SessionLocal()
+            try:
+                _db.add(_row)
+                _db.commit()
+            finally:
+                _db.close()
+
+        if _is_pool_timeout(exc) or _pool_exhausted():
+            _error_logger.warning(
+                "ErrorLog row skipped for %s %s: DB pool exhausted", request.method, _redact_path(path),
+            )
+        else:
+            await _run_blocking(_persist_error_row)
     except Exception:  # noqa: BLE001 — observability MUST never raise
         pass
     # Audit spike detection: many exceptions from same IP looks like probing
@@ -3722,6 +3796,25 @@ async def _global_exception_handler(request: Request, exc: Exception):
         body["debug_trace"] = _tb.format_exc()
         body["path"] = path  # only in dev; prod hides path to avoid recon
     return JSONResponse(status_code=500, content=body)
+
+
+# --- Vision reads busy (OPS-02 / P0-3) -----------------------------------
+# app/services/ai_limits.py allows 4 photo reads at once (image_guard 2
+# photo decodes); a read or decode that cannot get a slot in time raises
+# AIBusyError BEFORE storing or counting anything. It gets its own handler so the owner sees the real
+# reason in their language — the prod 5xx sanitizer below would replace it
+# with "Something went wrong". 503 + Retry-After: the frontend's API client
+# already retries a 503 POST (it means "not processed").
+from app.services.ai_limits import AIBusyError, BUSY_RETRY_AFTER_S  # noqa: E402
+
+
+@app.exception_handler(AIBusyError)
+async def _ai_busy_handler(request: Request, exc: AIBusyError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc), "code": "ai_busy", "_error": True, "_recoverable": True},
+        headers={"Retry-After": str(BUSY_RETRY_AFTER_S)},
+    )
 
 
 # --- Raised-HTTPException sanitizer (info-disclosure hardening) ----------
@@ -4026,6 +4119,11 @@ _admin_ip_banned: dict[str, float] = {}
 _ADMIN_STRIKE_WINDOW_SEC = 60
 _ADMIN_STRIKE_LIMIT = 20  # 4xx hits in window before ban
 _ADMIN_BAN_DURATION_SEC = 600  # 10-minute ban
+# IPs tracked at once in each of the two dicts above. Both used to keep a key
+# for every IP that ever drew a 4xx on /api/admin — scanners rotate IPs, so
+# they grew until the next deploy. Quiet strike lists and expired bans are
+# swept once a dict passes this; a live ban is the last thing dropped.
+_ADMIN_MAX_TRACKED_IPS = 5000
 
 
 @app.middleware("http")
@@ -4043,6 +4141,8 @@ async def admin_scan_blocker(request: Request, call_next):
             content={"detail": "Not found"},
             headers={"Retry-After": str(int(ban_until - now))},
         )
+    if ban_until:
+        _admin_ip_banned.pop(ip, None)  # served its ten minutes
     # Run the request
     response = await call_next(request)
     # Track strikes on 4xx responses
@@ -4055,6 +4155,8 @@ async def admin_scan_blocker(request: Request, call_next):
         if len(strikes) >= _ADMIN_STRIKE_LIMIT:
             _admin_ip_banned[ip] = now + _ADMIN_BAN_DURATION_SEC
             strikes.clear()
+            bound_stamp_dict(_admin_ip_banned, stale_before=now, max_keys=_ADMIN_MAX_TRACKED_IPS)
+        bound_window_dict(_admin_ip_strikes, cutoff=cutoff, max_keys=_ADMIN_MAX_TRACKED_IPS)
     return response
 
 
@@ -4078,6 +4180,7 @@ async def admin_scan_blocker(request: Request, call_next):
 _COARSE_LIMIT = 600           # requests
 _COARSE_WINDOW_SEC = 60.0
 _coarse_hits: dict[str, list[float]] = {}
+_COARSE_MAX_TRACKED_IPS = 5000
 _COARSE_EXEMPT = frozenset(
     {"/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive"}
 )
@@ -4104,11 +4207,11 @@ async def coarse_ip_ceiling(request: Request, call_next):
     hits.append(now)
 
     # Keep the dict from growing without bound under a rotating-IP flood: once
-    # it is large, drop the entries that have gone quiet. Cheap and only runs
+    # it is large, drop the entries that have gone quiet — and, if more than
+    # that many IPs are all live at once, the ones seen longest ago (that was
+    # missing: a flood of live IPs grew it without limit). Cheap and only runs
     # when it needs to.
-    if len(_coarse_hits) > 5000:
-        for k in [k for k, v in _coarse_hits.items() if not v or v[-1] <= cutoff]:
-            _coarse_hits.pop(k, None)
+    bound_window_dict(_coarse_hits, cutoff=cutoff, max_keys=_COARSE_MAX_TRACKED_IPS)
 
     return await call_next(request)
 
@@ -4359,14 +4462,13 @@ async def accountant_write_guard(request: Request, call_next):
     #   • query RAISES           → we can't prove the caller isn't a
     #     restricted member, so refuse with 503 (retryable) instead of
     #     calling call_next.
-    from app.database import SessionLocal as _Session
-    from sqlalchemy import text as _text
-    db = _Session()
+    # The query runs in a worker thread, never on the event loop
+    # (app/utils/off_loop.py).
+    from app.utils.off_loop import first_row as _first_row
     try:
-        row = db.execute(
-            _text("SELECT role FROM users WHERE id = :uid LIMIT 1"),
-            {"uid": user_id},
-        ).first()
+        row = await _first_row(
+            "SELECT role FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+        )
     except Exception:  # noqa: BLE001
         _security_logger.warning(
             "accountant_write_guard role lookup failed — failing CLOSED (503)"
@@ -4380,8 +4482,6 @@ async def accountant_write_guard(request: Request, call_next):
                 },
             },
         )
-    finally:
-        db.close()
 
     if not row:
         return await call_next(request)
@@ -4605,14 +4705,12 @@ async def member_read_guard(request: Request, call_next):
     except Exception:  # noqa: BLE001
         return await call_next(request)
 
-    from app.database import SessionLocal as _Session
-    from sqlalchemy import text as _text
-    db = _Session()
+    # In a worker thread, never on the event loop (app/utils/off_loop.py).
+    from app.utils.off_loop import first_row as _first_row
     try:
-        row = db.execute(
-            _text("SELECT role FROM users WHERE id = :uid LIMIT 1"),
-            {"uid": user_id},
-        ).first()
+        row = await _first_row(
+            "SELECT role FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+        )
     except Exception:  # noqa: BLE001
         _security_logger.warning(
             "member_read_guard role lookup failed — failing CLOSED (503)"
@@ -4626,8 +4724,6 @@ async def member_read_guard(request: Request, call_next):
                 },
             },
         )
-    finally:
-        db.close()
 
     if not row:
         return await call_next(request)
@@ -4739,14 +4835,12 @@ async def shared_device_pin_gate(request: Request, call_next):
     dn = payload.get("dn")
     proof = request.headers.get(DEVICE_PIN_HEADER)
 
-    from app.database import SessionLocal as _Session
-    from sqlalchemy import text as _text
-    db = _Session()
+    # In a worker thread, never on the event loop (app/utils/off_loop.py).
+    from app.utils.off_loop import first_row as _first_row
     try:
-        row = db.execute(
-            _text("SELECT device_pin_hash FROM users WHERE id = :uid LIMIT 1"),
-            {"uid": user_id},
-        ).first()
+        row = await _first_row(
+            "SELECT device_pin_hash FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+        )
     except Exception:  # noqa: BLE001
         _security_logger.warning(
             "shared_device_pin_gate lookup failed — failing CLOSED (503)"
@@ -4756,8 +4850,6 @@ async def shared_device_pin_gate(request: Request, call_next):
             content={"detail": {"code": "pin_check_unavailable",
                                 "message": "Could not verify. Please retry."}},
         )
-    finally:
-        db.close()
 
     pin_hash = row[0] if row else None
     if device_pin_proof_valid(str(user_id), pin_hash, dn, proof):
@@ -4807,30 +4899,14 @@ async def add_security_headers(request: Request, call_next):
 
 
 # --- Request body size limit ---
-# Reject huge bodies before they hit the handler. Prevents memory-exhaustion
-# DoS where an attacker streams a 1GB request to a handler that never reads
-# Content-Length. Receipt OCR uploads are the largest legitimate payload at
-# ~5MB; we set a generous 10MB cap.
-_MAX_REQUEST_BYTES = 10 * 1024 * 1024  # 10 MB
-
-
-@app.middleware("http")
-async def enforce_request_size(request: Request, call_next):
-    # Trust Content-Length header for the cheap rejection path. Real clients
-    # always send it; missing/zero is fine (GET/empty bodies). For chunked
-    # uploads without Content-Length the underlying ASGI server (uvicorn)
-    # has its own request-line limits.
-    cl = request.headers.get("content-length")
-    if cl and cl.isdigit() and int(cl) > _MAX_REQUEST_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "detail": f"Request body too large (max {_MAX_REQUEST_BYTES // (1024*1024)} MB)",
-                "_error": True,
-                "_recoverable": False,
-            },
-        )
-    return await call_next(request)
+# Reject huge bodies before they hit the handler. Receipt OCR uploads are the
+# largest legitimate payload at ~5MB; the cap is a generous 10MB, and 64KB for
+# urlencoded forms. It used to be an @app.middleware here that only trusted
+# Content-Length — a chunked body has none and skipped it (INFRA-02). It is
+# now app/utils/body_limit.BodySizeLimitMiddleware, which counts the bytes
+# actually received; it is registered just inside CORS at the bottom of this
+# file so its 413 still carries the CORS headers.
+_MAX_REQUEST_BYTES = 10 * 1024 * 1024  # 10 MB — see app/utils/body_limit.py
 
 
 # --- Sliding-refresh middleware (30d session, midway re-mint) ---
@@ -4929,6 +5005,7 @@ _REFRESH_EXEMPT_PATHS = frozenset({
 # forensic granularity, the actual refresh STILL fires every time.
 _refresh_audit_dedup: dict[str, float] = {}
 _REFRESH_AUDIT_TTL_SEC = 60 * 60 * 24  # 24h
+_REFRESH_AUDIT_MAX_USERS = 5000
 
 
 def _refresh_audit_should_log(user_id: str) -> bool:
@@ -4940,12 +5017,14 @@ def _refresh_audit_should_log(user_id: str) -> bool:
     if now - last < _REFRESH_AUDIT_TTL_SEC:
         return False
     _refresh_audit_dedup[user_id] = now
-    # Best-effort cap on cache growth (5k users max retained)
-    if len(_refresh_audit_dedup) > 5000:
-        # Drop oldest half — cheapest possible eviction
-        cutoff = now - _REFRESH_AUDIT_TTL_SEC
-        for k in [k for k, t in _refresh_audit_dedup.items() if t < cutoff]:
-            _refresh_audit_dedup.pop(k, None)
+    # Cap on cache growth (5k users retained): stamps older than the TTL go
+    # first; if 5k users all refreshed inside 24 h, the oldest stamps go (that
+    # user may get one extra audit row — the old sweep never got under 5k
+    # then, and rescanned the whole dict on every refresh).
+    bound_stamp_dict(
+        _refresh_audit_dedup, stale_before=now - _REFRESH_AUDIT_TTL_SEC,
+        max_keys=_REFRESH_AUDIT_MAX_USERS,
+    )
     return True
 
 
@@ -5019,24 +5098,19 @@ async def sliding_refresh_middleware(request: Request, call_next):
         # response AFTER the dep runs — and this branch only fires when
         # the route returned <400, so the user MUST have resolved.
         # Still, do a defensive re-check so a race between lock + refresh
-        # doesn't extend a hostile session by 30d.
-        from app.database import SessionLocal as _Session
-        from sqlalchemy import text as _text
-        is_locked = False
-        with _Session() as _db:
-            try:
-                row = _db.execute(
-                    _text("SELECT is_locked FROM users WHERE id = :uid LIMIT 1"),
-                    {"uid": user_id},
-                ).first()
-                if row and row[0]:
-                    is_locked = True
-            except Exception:  # noqa: BLE001
-                # DB hiccup — fail-soft. We won't refresh this round, but
-                # the existing token is still valid for ~15d so the user
-                # is fine.
-                return response
-        if is_locked:
+        # doesn't extend a hostile session by 30d. In a worker thread, never
+        # on the event loop (app/utils/off_loop.py).
+        from app.utils.off_loop import first_row as _first_row
+        try:
+            row = await _first_row(
+                "SELECT is_locked FROM users WHERE id = :uid LIMIT 1", {"uid": user_id},
+            )
+        except Exception:  # noqa: BLE001
+            # DB hiccup — fail-soft. We won't refresh this round, but
+            # the existing token is still valid for ~15d so the user
+            # is fine.
+            return response
+        if row and row[0]:
             return response
 
         # Mint a fresh JWT under the CURRENT secret only. APP_SECRET_KEY
@@ -5103,25 +5177,32 @@ async def sliding_refresh_middleware(request: Request, call_next):
         if _refresh_audit_should_log(str(user_id)):
             try:
                 from app.services import audit_service as _audit
-                from app.database import SessionLocal as _AuditSession
-                with _AuditSession() as _adb:
-                    _audit.record(
-                        _adb,
-                        user=user_id,
-                        action="auth.token_refreshed",
-                        entity_type="user",
-                        entity_id=None,
-                        before=None,
-                        after={
-                            "old_token_iat": iat_ts,
-                            "new_token_iat": now_ts,
-                            "mode": mode,
-                        },
-                        ip_address=(client_ip(request) if request else None),
-                        actor_id=None,
-                        actor_type="system.session_refresh",
-                    )
-                    _adb.commit()
+                from app.utils.off_loop import run_blocking as _run_blocking
+                _audit_ip = client_ip(request) if request else None
+
+                def _write_refresh_audit():
+                    from app.database import SessionLocal as _AuditSession
+                    with _AuditSession() as _adb:
+                        _audit.record(
+                            _adb,
+                            user=user_id,
+                            action="auth.token_refreshed",
+                            entity_type="user",
+                            entity_id=None,
+                            before=None,
+                            after={
+                                "old_token_iat": iat_ts,
+                                "new_token_iat": now_ts,
+                                "mode": mode,
+                            },
+                            ip_address=_audit_ip,
+                            actor_id=None,
+                            actor_type="system.session_refresh",
+                        )
+                        _adb.commit()
+
+                # In a worker thread, never on the event loop (off_loop.py).
+                await _run_blocking(_write_refresh_audit)
             except Exception as e:  # noqa: BLE001
                 # Audit failure NEVER blocks the refresh — same discipline as
                 # audit_service.record itself.
@@ -5183,6 +5264,16 @@ async def server_timing(request: Request, call_next):
     except Exception:  # noqa: BLE001 — timing must never break a response
         pass
     return response
+
+
+# --- Request body cap (INFRA-02) — just inside CORS ---
+# Counts the body bytes actually received (chunked included), 10 MB overall
+# and 64 KB for urlencoded forms. Registered after every other middleware so
+# it wraps every layer that could read the body, and before CORS so the 413
+# it returns still carries Access-Control-Allow-Origin.
+from app.utils.body_limit import BodySizeLimitMiddleware  # noqa: E402
+
+app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=_MAX_REQUEST_BYTES)
 
 
 # --- CORS layer registration — keep last (outermost) ---
@@ -5963,7 +6054,7 @@ _BUILD_COMMIT = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or ""
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])
-def health_check():
+async def health_check():  # async: answers even when every worker thread is busy
     return {"status": "ok", "commit": _BUILD_COMMIT}
 
 
@@ -6027,8 +6118,19 @@ _READY_PROBE_TTL_S = 15.0
 _ready_probe = {"ts": 0.0, "ok": True}
 
 
+def _ready_db_probe() -> bool:
+    """SELECT 1 through the pool — blocking; health_ready runs it in a
+    worker thread."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
 @app.api_route("/api/health/ready", methods=["GET", "HEAD"])
-def health_ready():
+async def health_ready():
     """Readiness probe — this is what render.yaml's healthCheckPath points at.
 
     Unlike /api/health (a static liveness 200) and /api/health/db (a bare
@@ -6051,6 +6153,11 @@ def health_ready():
     external-DB outage Render may restart the service repeatedly — preferable
     to routing traffic into guaranteed 500s; pool_pre_ping recovers stale
     connections once the DB returns.
+
+    ``async`` (R-d round 3): the cached answer — almost every poll — is
+    served on the event loop and never waits for one of the 32 worker
+    threads, which a burst of photo reads and decode-gate waits can hold
+    all at once. Only the stale-cache SELECT 1 runs in a worker thread.
     """
     if not _db_ready.is_set():
         return JSONResponse(
@@ -6061,12 +6168,9 @@ def health_ready():
     import time as _t
     now = _t.monotonic()
     if now - _ready_probe["ts"] > _READY_PROBE_TTL_S:
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            _ready_probe["ok"] = True
-        except Exception:
-            _ready_probe["ok"] = False
+        from starlette.concurrency import run_in_threadpool as _run_in_threadpool
+
+        _ready_probe["ok"] = await _run_in_threadpool(_ready_db_probe)
         _ready_probe["ts"] = now
     if not _ready_probe["ok"]:
         return JSONResponse(

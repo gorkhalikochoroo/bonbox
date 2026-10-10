@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import math
 
 from fastapi import HTTPException, status as http_status
 
@@ -32,6 +33,17 @@ JPEG_QUALITY = 82
 # compressible PNG can decode to 100M+ px (hundreds of MB of RGB). BOTH
 # sanitizers below MUST use this so they can never drift out of lock-step.
 _MAX_DECODED_PIXELS = 50_000_000  # ~7000x7000; a real phone photo is <=~50MP
+
+# PNG has no reduced-size decode: the whole canvas is decoded, as RGBA when
+# the file has transparency (4 bytes / px). A 214 KB 50 MP RGBA PNG peaked
+# at 766 MB through this pipeline (Linux, 10 Oct) and three at once
+# OOM-killed the 2 GB instance — reachable from any staff link. A JPEG is
+# decoded at a reduced scale (draft) so it keeps the 50 MP ceiling and every
+# phone photo (iPhone 48 MP, Samsung 50 MP) still goes through; a PNG — a
+# screenshot, a few MP — is held to 25 MP. Measured after this change
+# (Linux, 10 Oct): a 25 MP RGBA PNG peaks at 214 MB, a 48 MP JPEG at 32 MB
+# (chat) / 9 MB (avatar); a 50 MP PNG is refused before any decode.
+_MAX_FULL_DECODE_PIXELS = 25_000_000
 
 # Profile avatar: staff can pick a full-res iPhone/Android photo (up to 8 MB),
 # and we re-encode it down to a small square JPEG — light to store + serve, and
@@ -59,9 +71,95 @@ def _verify_magic_bytes(raw: bytes) -> str:
     )
 
 
-def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
+def _decode_rgb(raw_bytes: bytes, inferred: str, *, need_for, too_many_px: str):
+    """Decode a magic-checked PNG / JPEG to an RGB image, transparency
+    flattened onto white. Caller holds ``image_guard.decode_slot``.
+
+    ``need_for(size)`` — the smallest (width, height) the caller's output
+    needs from an image of ``size``: a JPEG is decoded at the smallest scale
+    (1/2, 1/4, 1/8) that still covers it, so a 48 MP phone photo decodes at
+    ~2016x1512, not 8064x6048. Raises HTTPException exactly as the two
+    sanitizers always did.
+    """
+    from PIL import Image
+
+    # PNG / JPEG decoders only — the magic bytes said one of the two.
+    img = Image.open(io.BytesIO(raw_bytes), formats=["PNG", "JPEG"])
+    try:
+        # Decompression-bomb guard — reject huge pixel dimensions BEFORE
+        # img.load() allocates the bitmap. A tiny highly-compressible PNG can
+        # decode to 100M+ px (~hundreds of MB each) and OOM the
+        # single-worker instance.
+        pixels = img.width * img.height
+        is_jpeg = (img.format or "").upper() in ("JPEG", "MPO")
+        if pixels > _MAX_DECODED_PIXELS or (not is_jpeg and pixels > _MAX_FULL_DECODE_PIXELS):
+            raise HTTPException(http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, too_many_px)
+        need = need_for(img.size)
+        if is_jpeg and img.width >= 2 * need[0] and img.height >= 2 * need[1]:
+            try:
+                img.draft(None, need)  # never below ``need``; see docstring
+            except Exception as e:  # noqa: BLE001 — only a memory saving
+                logger.info("chat photo reduced decode skipped: %s", e)
+        img.load()
+        pillow_fmt = (img.format or "").lower()
+        if inferred == "png" and pillow_fmt != "png":
+            raise HTTPException(
+                http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                "Billedformatet er inkonsistent (polyglot afvist).",
+            )
+        if inferred == "jpeg" and pillow_fmt not in ("jpeg", "mpo"):
+            raise HTTPException(
+                http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                "Billedformatet er inkonsistent (polyglot afvist).",
+            )
+        # Flatten transparency onto white, then RGB for JPEG output. No
+        # convert() to the mode the image already has (that is a full copy)
+        # and only the alpha band is split off (split() copies all four).
+        if img.mode in ("RGBA", "LA", "P"):
+            rgba = img if img.mode == "RGBA" else img.convert("RGBA")
+            bg = Image.new("RGB", rgba.size, (255, 255, 255))
+            bg.paste(rgba, mask=rgba.getchannel("A"))
+            del rgba
+            return bg
+        if img.mode == "RGB":
+            out, img = img, None  # handed to the caller, not closed below
+            return out
+        return img.convert("RGB")
+    finally:
+        if img is not None:
+            img.close()  # frees the decoded canvas now, not at GC
+
+
+def _fit(size: tuple[int, int], box: int) -> tuple[int, int]:
+    """The size ``thumbnail((box, box))`` produces for ``size``."""
+    w, h = size
+    if max(w, h) <= box:
+        return w, h
+    r = box / max(w, h)
+    return max(1, round(w * r)), max(1, round(h * r))
+
+
+def _short_side_at_least(side: int):
+    """need_for: the size whose SHORT side is ``side`` (the avatar crop)."""
+    def need_for(size: tuple[int, int]) -> tuple[int, int]:
+        w, h = size
+        k = side / max(1, min(w, h))
+        if k >= 1:
+            return w, h
+        return max(1, math.ceil(w * k)), max(1, math.ceil(h * k))
+    return need_for
+
+
+def sanitize_chat_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes, str, str]:
     """Validate + re-encode a chat photo. Returns (bytes, content_type, sha_hex).
-    Raises HTTPException on any validation failure."""
+    Raises HTTPException on any validation failure.
+
+    Every decode slot busy → ``image_guard.DecodeBusyError`` (an
+    ``AIBusyError``) in ``lang``: main.py's own handler answers it 503 +
+    Retry-After + code "ai_busy" with the text in that language — an
+    HTTPException 503 would be replaced by the production 5xx sanitizer's
+    generic "Something went wrong". ``lang``: the sender's language ("da"
+    for a staffer — the portal stores none — the owner's for the owner)."""
     if not raw_bytes:
         raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Tomt billede.")
     if len(raw_bytes) > MAX_CHAT_PHOTO_BYTES:
@@ -82,43 +180,30 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
         ) from e
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
+    from app.services.ai_limits import AIBusyError
+    from app.services.image_guard import decode_slot
+
     try:
-        with Image.open(io.BytesIO(raw_bytes)) as img:
-            # Decompression-bomb guard — reject huge pixel dimensions BEFORE
-            # img.load() allocates the full RGB bitmap. A tiny highly-
-            # compressible PNG can decode to 100M+ px (~hundreds of MB each)
-            # and OOM the single-worker instance. Mirrors sanitize_profile_photo
-            # (they MUST stay in lock-step — the header size cap only bounds the
-            # *compressed* bytes, not the decoded surface).
-            if (img.width * img.height) > _MAX_DECODED_PIXELS:
-                raise HTTPException(
-                    http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    "Billedet har for mange pixels.",
-                )
-            img.load()
-            pillow_fmt = (img.format or "").lower()
-            if inferred == "png" and pillow_fmt != "png":
-                raise HTTPException(
-                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    "Billedformatet er inkonsistent (polyglot afvist).",
-                )
-            if inferred == "jpeg" and pillow_fmt not in ("jpeg", "mpo"):
-                raise HTTPException(
-                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    "Billedformatet er inkonsistent (polyglot afvist).",
-                )
-            # Flatten transparency onto white, then RGB for JPEG output.
-            if img.mode in ("RGBA", "LA", "P"):
-                img = img.convert("RGBA")
-                bg = Image.new("RGB", img.size, (255, 255, 255))
-                bg.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = bg
-            else:
-                img = img.convert("RGB")
+        # One of the process-wide decode slots (image_guard: at most 2 photo
+        # decodes at once); busy → 503 "try again", before any row is written.
+        with decode_slot(lang=lang):
+            # The pixel ceilings and the reduced JPEG decode live in
+            # _decode_rgb, shared with sanitize_profile_photo (they MUST stay
+            # in lock-step — the header size cap only bounds the *compressed*
+            # bytes, not the decoded surface).
+            img = _decode_rgb(
+                raw_bytes, inferred,
+                need_for=lambda size: _fit(size, MAX_OUTPUT_DIM),
+                too_many_px="Billedet har for mange pixels.",
+            )
             img.thumbnail((MAX_OUTPUT_DIM, MAX_OUTPUT_DIM), Image.LANCZOS)
             out = io.BytesIO()
             img.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+            img.close()
             sanitized = out.getvalue()
+    except AIBusyError:
+        logger.warning("Chat photo refused: every decode slot busy")
+        raise
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
@@ -132,12 +217,14 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
     return sanitized, "image/jpeg", sha_hex
 
 
-def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
+def sanitize_profile_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes, str, str]:
     """Validate + re-encode a staff profile avatar. Same paranoid pipeline as
     sanitize_chat_photo (size cap → magic bytes → Pillow re-encode strips EXIF/
     GPS/ICC + kills polyglots), but shaped for an avatar: center-cropped to a
     square and downscaled to PROFILE_OUTPUT_DIM. Returns (bytes, content_type,
-    sha_hex). Raises HTTPException on any validation failure."""
+    sha_hex). Raises HTTPException on any validation failure, and
+    ``DecodeBusyError`` in ``lang`` when every decode slot is busy (see
+    sanitize_chat_photo)."""
     if not raw_bytes:
         raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Tomt billede.")
     if len(raw_bytes) > MAX_PROFILE_PHOTO_BYTES:
@@ -158,38 +245,23 @@ def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
         ) from e
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
+    from app.services.ai_limits import AIBusyError
+    from app.services.image_guard import decode_slot
+
     try:
-        with Image.open(io.BytesIO(raw_bytes)) as img:
-            # Decompression-bomb guard: img.size is known right after open,
-            # BEFORE the full decode. A small, highly-compressible file can
-            # explode to hundreds of MB of bitmap on load(); reject absurd
-            # dimensions first. 50 MP is orders of magnitude more than an avatar
-            # needs (and below Pillow's own ~89 MP warn threshold).
-            if (img.width * img.height) > _MAX_DECODED_PIXELS:
-                raise HTTPException(
-                    http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    "Billedet har for høj opløsning.",
-                )
-            img.load()
-            pillow_fmt = (img.format or "").lower()
-            if inferred == "png" and pillow_fmt != "png":
-                raise HTTPException(
-                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    "Billedformatet er inkonsistent (polyglot afvist).",
-                )
-            if inferred == "jpeg" and pillow_fmt not in ("jpeg", "mpo"):
-                raise HTTPException(
-                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    "Billedformatet er inkonsistent (polyglot afvist).",
-                )
-            # Flatten transparency onto white → RGB for JPEG.
-            if img.mode in ("RGBA", "LA", "P"):
-                img = img.convert("RGBA")
-                bg = Image.new("RGB", img.size, (255, 255, 255))
-                bg.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = bg
-            else:
-                img = img.convert("RGB")
+        # One of the process-wide decode slots (image_guard: at most 2 photo
+        # decodes at once); busy → 503 "try again", before anything is stored.
+        with decode_slot(lang=lang):
+            # Decompression-bomb guard + reduced JPEG decode: _decode_rgb,
+            # shared with sanitize_chat_photo. 50 MP (25 MP for a PNG) is
+            # orders of magnitude more than an avatar needs. The square crop
+            # needs PROFILE_OUTPUT_DIM on the SHORT side, so a JPEG decodes at
+            # the smallest scale that keeps it.
+            img = _decode_rgb(
+                raw_bytes, inferred,
+                need_for=_short_side_at_least(PROFILE_OUTPUT_DIM),
+                too_many_px="Billedet har for høj opløsning.",
+            )
             # Center-crop to a square so the circular avatar never letterboxes.
             w, h = img.size
             side = min(w, h)
@@ -201,6 +273,9 @@ def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
             out = io.BytesIO()
             img.save(out, format="JPEG", quality=85, optimize=True)
             sanitized = out.getvalue()
+    except AIBusyError:
+        logger.warning("Profile photo refused: every decode slot busy")
+        raise
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001

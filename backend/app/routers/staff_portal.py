@@ -3966,14 +3966,23 @@ async def portal_stream(token: str, request: Request):
 
     Token validation uses a SHORT-LIVED DB session closed BEFORE the long-lived
     streaming loop begins — we never hold a DB connection open for the life of
-    the stream (the loop needs no DB)."""
+    the stream (the loop needs no DB).
+
+    The lookup runs in a worker thread: on the event loop its pool checkout
+    froze EVERY request for up to the pool timeout (30 s) whenever the pool
+    was exhausted — and every portal open / SSE reconnect does one."""
     # 1) Validate token + resolve the tenant key, then release the DB session.
-    db = SessionLocal()
-    try:
-        _link, member = _get_staff_from_token(token, db)
-        tenant_key = str(member.user_id)
-    finally:
-        db.close()
+    def _tenant_key_for_token() -> str:
+        db = SessionLocal()
+        try:
+            _link, member = _get_staff_from_token(token, db)
+            return str(member.user_id)
+        finally:
+            db.close()
+
+    from starlette.concurrency import run_in_threadpool
+
+    tenant_key = await run_in_threadpool(_tenant_key_for_token)
 
     # 2) Register on the bus (bounded). Refusal → 429 → client falls back to poll.
     queue = portal_events.subscribe(tenant_key)

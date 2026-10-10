@@ -26,6 +26,7 @@ from app.services.competitor_service import (
     add_price_check, delete_competitor, discover_nearby,
 )
 from app.services.menu_extractor import extract_menu_from_image
+from app.services.ai_limits import vision_slot
 from app.utils.client_ip import client_ip
 from slowapi import Limiter
 
@@ -689,7 +690,7 @@ def _enforce_menu_scan_plan(user: User):
 
 
 @router.post("/{competitor_id}/scan-menu")
-async def scan_menu_from_upload(
+def scan_menu_from_upload(
     competitor_id: str,
     photo: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -716,7 +717,9 @@ async def scan_menu_from_upload(
     # Bound the upload size up front — UploadFile reads lazily, but we
     # don't want a 100 MB attempt to chew through memory before we
     # check size.
-    raw = await photo.read()
+    # A plain `def` (OPS-02 / P0-3): the vision call below runs in the
+    # threadpool, never on the event loop.
+    raw = photo.file.read()
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Photo too large (max 10 MB)")
     if not raw:
@@ -726,7 +729,8 @@ async def scan_menu_from_upload(
     if not media_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    items, meta = extract_menu_from_image(raw, media_type=media_type)
+    with vision_slot(current_user, db=db):  # at most 3 photo reads at once (2 per account)
+        items, meta = extract_menu_from_image(raw, media_type=media_type)
     return {
         "items": items,
         "confidence": meta.get("confidence"),
@@ -759,7 +763,8 @@ def scan_menu_from_google_ref(
             detail="Couldn't fetch the photo from Google. Try uploading directly instead.",
         )
 
-    items, meta = extract_menu_from_image(data, media_type=media_type or "image/jpeg")
+    with vision_slot(current_user, db=db):  # at most 3 photo reads at once (2 per account)
+        items, meta = extract_menu_from_image(data, media_type=media_type or "image/jpeg")
     return {
         "items": items,
         "confidence": meta.get("confidence"),

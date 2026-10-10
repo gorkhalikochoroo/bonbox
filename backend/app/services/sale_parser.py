@@ -58,6 +58,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 from app.models import InventoryItem, User
 
 logger = logging.getLogger(__name__)
@@ -257,7 +258,7 @@ def _try_llm_parse(
 ) -> tuple[Optional[dict], int, int, str]:
     """Returns (raw_tool_input or None, input_tokens, output_tokens, model)."""
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         logger.info("sale_parser: anthropic not installed — fallback")
         return None, 0, 0, "fallback"
@@ -265,7 +266,7 @@ def _try_llm_parse(
     if not settings.ANTHROPIC_API_KEY or not settings.USE_CLAUDE_API:
         return None, 0, 0, "fallback"
 
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
     model = getattr(settings, "AI_MODEL_SALE_PARSER", "claude-sonnet-5")
 
     # Trim inventory to a compact form to save tokens

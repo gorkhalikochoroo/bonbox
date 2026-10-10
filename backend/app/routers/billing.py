@@ -20,6 +20,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from slowapi import Limiter
@@ -433,7 +434,12 @@ async def stripe_webhook(
     # to the global 500 handler — that hides the real error from Stripe's
     # webhook attempts view and triggers retry-storms.
     try:
-        result = stripe_billing.handle_webhook(payload, stripe_signature or "", db)
+        # handle_webhook makes blocking Stripe API calls (Subscription /
+        # Invoice retrieve) — run it in the threadpool so a slow Stripe
+        # round-trip never freezes the event loop for every venue (OPS-02).
+        result = await run_in_threadpool(
+            stripe_billing.handle_webhook, payload, stripe_signature or "", db,
+        )
     except Exception as e:
         import logging, traceback
         log = logging.getLogger("bonbox.stripe")

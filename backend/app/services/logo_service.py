@@ -49,8 +49,18 @@ MAX_OUTPUT_DIM = 800
 # highly-compressed file can still declare a 169M px image and force a
 # ~0.5 GB in-memory RGB allocation. Pillow's own default only trips above
 # ~178M px, which is far too generous. A logo never needs more than a few
-# M px, so anything larger raises DecompressionBombError and becomes a
-# clean 415 instead of an OOM risk.
+# M px, so a canvas over the ceiling is refused with a clean 415 instead
+# of an OOM risk.
+#
+# The check reads the header size right after Image.open (which is lazy)
+# and BEFORE img.load() — it never touches Pillow's process-global
+# Image.MAX_IMAGE_PIXELS. That global used to be lowered here and restored
+# in `finally`; once the logo upload ran in the threadpool (R-d) two
+# parallel uploads could interleave the save/restore and leave the whole
+# process stuck at the logo's ceiling, refusing every large receipt photo.
+# The refusal threshold is 2x the ceiling — exactly where Pillow's
+# DecompressionBombError fired under the old lowered global (between 1x
+# and 2x it only warned), so the same logos are accepted as before.
 MAX_DECODE_PIXELS = 16_000_000
 
 # Magic bytes — checked against the raw file head before Pillow ever
@@ -109,14 +119,21 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
     # if the bytes are truncated, the upload is malformed and we'd
     # rather reject than store half a file.
     ImageFile.LOAD_TRUNCATED_IMAGES = False
+    from app.services.image_guard import DecodeBusyError, decode_slot
 
-    # Cap the decode canvas (restored below) so a decompression bomb raises
-    # rather than allocating half a gigabyte. Save/restore keeps this local —
-    # no global Pillow side-effect on other callers (floor plan, kasserapport).
-    _prev_max = Image.MAX_IMAGE_PIXELS
-    Image.MAX_IMAGE_PIXELS = MAX_DECODE_PIXELS
     try:
-        with Image.open(io.BytesIO(raw)) as img:
+        # One of the process-wide decode slots (image_guard: at most 2 photo
+        # decodes at once). PNG / JPEG decoders only (the magic bytes said
+        # one of the two), so a file that fails both parses never falls
+        # through to another Pillow plugin (INFRA-03).
+        with decode_slot(), Image.open(io.BytesIO(raw), formats=["PNG", "JPEG"]) as img:
+            # Decompression-bomb guard on the header size, before any decode
+            # (see MAX_DECODE_PIXELS — no process-global is touched).
+            if img.width * img.height > 2 * MAX_DECODE_PIXELS:
+                raise HTTPException(
+                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    "Logo file is corrupt, unreadable, or too large to process",
+                )
             # Lazy-load: img.load() forces full decoding so any malformed or
             # oversized bytes throw NOW, not later when we serialize.
             img.load()
@@ -136,10 +153,13 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
                     "Logo format inconsistent (polyglot file rejected)",
                 )
 
-            # Convert to RGBA for transparent logos, or RGB for opaque.
+            # Convert to RGBA for transparent logos, or RGB for opaque. No
+            # convert() to the mode the image already has: that is only a
+            # full copy of the canvas (same pixels).
             if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-                img = img.convert("RGBA")
-            else:
+                if img.mode != "RGBA":
+                    img = img.convert("RGBA")
+            elif img.mode != "RGB":
                 img = img.convert("RGB")
 
             # Downscale in-place. thumbnail preserves aspect ratio.
@@ -152,17 +172,23 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
             img.save(out, format="PNG", optimize=True)
             return out.getvalue()
 
+    except DecodeBusyError:
+        # Re-raised as is: an AIBusyError, which main.py answers 503 +
+        # Retry-After in the owner's language (the upload route re-raises it
+        # with owner_lang). An HTTPException 503 here was replaced by the
+        # production 5xx sanitizer's generic "Something went wrong".
+        logger.warning("Logo refused: every decode slot busy")
+        raise
     except HTTPException:
         raise
     except Exception as e:
-        # DecompressionBombError (oversized canvas) lands here too → a clean 415.
+        # Pillow's own DecompressionBombError (its global ceiling) lands here
+        # too → a clean 415.
         logger.warning("Logo re-encode failed: %s", e)
         raise HTTPException(
             http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Logo file is corrupt, unreadable, or too large to process",
         ) from e
-    finally:
-        Image.MAX_IMAGE_PIXELS = _prev_max
 
 
 def upload_logo(user_id: UUID | str, raw_bytes: bytes) -> Tuple[str, int]:

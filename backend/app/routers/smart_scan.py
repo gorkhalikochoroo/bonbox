@@ -56,6 +56,8 @@ from app.services.smart_scan_service import (
     MAX_IMAGE_BYTES, route_and_extract,
 )
 from app.services.tz_utils import business_day_window
+from app.services.ai_limits import counted_use, vision_slot
+from app.services.image_guard import sniff_image_format
 from sqlalchemy import func as sa_func
 
 logger = logging.getLogger(__name__)
@@ -138,7 +140,7 @@ def _content_type_ok(ct: str | None) -> bool:
 
 @router.post("/classify")
 @_limiter.limit("20/minute")
-async def classify_endpoint(
+def classify_endpoint(
     request: Request,
     file: UploadFile = File(...),
     batch_size: int = Form(1),
@@ -174,7 +176,9 @@ async def classify_endpoint(
         )
 
     # ── L9 — read bytes; bounded size check ─────────────────────────
-    raw = await file.read()
+    # A plain `def` (OPS-02 / P0-3): FastAPI runs it in the threadpool, so
+    # the paid vision calls below never freeze the event loop.
+    raw = file.file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
     if len(raw) > MAX_IMAGE_BYTES:
@@ -218,27 +222,66 @@ async def classify_endpoint(
     # canonical upgrade payload once over. Checked AFTER the cheap bounds
     # checks and the PDF-direct early-return (which runs no paid OCR), and
     # BEFORE the paid service call below.
-    used_today = _today_classify_count(db, user)
-    enforce_cap(user, "smart_scan_classify_per_day", used_today)
+    #
+    # The audit row that counts is written AFTER the read, so parallel
+    # requests (this route runs in the threadpool) would all pass a plain
+    # count. counted_use checks under a per-account lock and counts the
+    # reads still in flight; the row's commit hands the reservation back.
+    def _check(in_flight: int) -> None:
+        used_today = _today_classify_count(db, user) + in_flight
+        enforce_cap(user, "smart_scan_classify_per_day", used_today)
 
-    # ── L4 — service orchestration ──────────────────────────────────
-    result = route_and_extract(
-        raw,
-        filename=file.filename,
-        content_type=file.content_type,
-        batch_mode=batch_size > 1,
-    )
+    with counted_use(user, "smart_scan_classify_per_day", _check) as use:
+        # ── INFRA-03 — only a PDF or an allow-listed image goes on to the
+        # classifier. Anything else (a PSD renamed .jpg, a zip) is never
+        # decoded or sent to a paid model; the owner lands in the manual
+        # picker exactly like any other unreadable upload.
+        if not (is_pdf or raw.startswith(b"%PDF-")) and sniff_image_format(raw) is None:
+            result = {
+                "doc_type": "unknown",
+                "confidence": 0.0,
+                "route_to": "manual_picker",
+                "route_label": "manual_picker",
+                "extracted_data": None,
+                "fallback_used": None,
+                "file_size_kb": int(len(raw) / 1024),
+                "verify_hints": [],
+                "reason": "unsupported_format",
+            }
+            with use.recording():
+                _log_classify_audit(db, user, request, result, batch_size)
+                try:
+                    db.commit()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[SmartScan] audit commit failed (non-fatal): %s", e)
+                    db.rollback()
+            return result
 
-    # ── L7 — audit row per call ─────────────────────────────────────
-    _log_classify_audit(db, user, request, result, batch_size)
-    try:
-        db.commit()
-    except Exception as e:  # noqa: BLE001
-        # Don't let an audit-write hiccup take down a user-visible
-        # response. audit_service.record itself is already best-effort,
-        # but the commit() here is what makes it durable.
-        logger.warning("[SmartScan] audit commit failed (non-fatal): %s", e)
-        db.rollback()
+        # ── L4 — service orchestration ──────────────────────────────
+        # One vision slot (at most 3 photo reads at once, 2 per account; a
+        # further read waits briefly, then 503 "busy, try again" — before
+        # the audit row that counts toward the daily cap, so the automatic
+        # retry is not double-counted). db=: the pooled connection goes
+        # back to the pool while this request waits and reads.
+        with vision_slot(user, db=db):
+            result = route_and_extract(
+                raw,
+                filename=file.filename,
+                content_type=file.content_type,
+                batch_mode=batch_size > 1,
+            )
+
+        # ── L7 — audit row per call ─────────────────────────────────
+        with use.recording():
+            _log_classify_audit(db, user, request, result, batch_size)
+            try:
+                db.commit()
+            except Exception as e:  # noqa: BLE001
+                # Don't let an audit-write hiccup take down a user-visible
+                # response. audit_service.record itself is already best-effort,
+                # but the commit() here is what makes it durable.
+                logger.warning("[SmartScan] audit commit failed (non-fatal): %s", e)
+                db.rollback()
 
     return result
 

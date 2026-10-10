@@ -4,6 +4,7 @@ import string
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -88,6 +89,12 @@ async def whatsapp_webhook(
     The Twilio signature is checked FIRST — before anything is read or
     written. The form's From decides whose books the bot writes to, so an
     unsigned or forged request is refused (403), fail-closed (sweep, 8 Oct)."""
+    # Refuse before parsing anything when the request cannot possibly be
+    # signed (no header, or no token configured) — the form parse itself is
+    # work a logged-out sender should not get for free (INFRA-02). Same 403
+    # the full check below gives.
+    if not request.headers.get("X-Twilio-Signature") or not (TWILIO_TOKEN or "").strip():
+        raise HTTPException(status_code=403, detail="Invalid or missing Twilio signature")
     form_data = await request.form()
     if not _twilio_signature_ok(form_data, request.headers.get("X-Twilio-Signature")):
         raise HTTPException(status_code=403, detail="Invalid or missing Twilio signature")
@@ -97,6 +104,16 @@ async def whatsapp_webhook(
     if not body or not from_number:
         return Response(content="<Response></Response>", media_type="application/xml")
 
+    # The DB work (log, lookup, the bot's reply) runs in a worker thread: on
+    # the event loop its pool checkouts froze every request whenever the
+    # pool was exhausted (R-d round 3).
+    return await run_in_threadpool(_handle_inbound_message, db, body, from_number)
+
+
+def _handle_inbound_message(db: Session, body: str, from_number: str) -> Response:
+    """A signed, non-empty inbound WhatsApp message: log it, link / verify
+    the phone or let the bot answer. Blocking DB work — runs in the
+    threadpool (whatsapp_webhook)."""
     # Log inbound message
     db.add(WhatsAppMessage(phone_number=from_number, direction="inbound", body=body))
     db.commit()

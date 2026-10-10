@@ -39,6 +39,9 @@ from app.services.cash_sync import (
 )
 from app.services.expense_status import not_pending, is_pending as _is_pending
 from app.services.receipt_ocr import parse_expense_receipt
+from app.services.ai_limits import AIBusyError, counted_use, vision_slot
+from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
+from app.services.owner_language import owner_lang
 from app.services.billing import PLAN_CAPS, get_cap, effective_plan
 from app.utils.time import utc_now
 
@@ -448,7 +451,7 @@ def _count_receipt_scans_this_month(db: Session, user_id) -> int:
 # steady defense. Per-USER monthly cap (PLAN_CAPS) enforces the tier
 # limit independently below.
 @_limiter.limit("6/minute;80/day")
-async def parse_receipt(
+def parse_receipt(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -491,8 +494,10 @@ async def parse_receipt(
                 },
             )
 
-    # Read + size-cap the upload before touching disk
-    body = await file.read()
+    # Read + size-cap the upload before touching disk. A plain `def`
+    # (OPS-02 / P0-3): FastAPI runs it in the threadpool, so the OCR chain
+    # below never freezes the event loop for every other venue.
+    body = file.file.read()
     if len(body) > _RECEIPT_OCR_MAX_BYTES:
         raise HTTPException(
             status_code=413,
@@ -500,6 +505,10 @@ async def parse_receipt(
         )
     if not body:
         raise HTTPException(status_code=400, detail="Empty upload.")
+    # INFRA-03 — only an allow-listed image format reaches a decoder (or
+    # Mindee / Claude). A PSD renamed .jpg is refused here.
+    if sniff_image_format(body) is None:
+        raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
 
     # Write to a temp file so OCR services that need a file path work.
     # NamedTemporaryFile auto-deletes on close in the finally block.
@@ -508,23 +517,27 @@ async def parse_receipt(
         suffix = ".jpg"
 
     tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(body)
-            tmp_path = tmp.name
-        result = parse_expense_receipt(tmp_path)
-    except Exception as e:  # noqa: BLE001 — OCR must never crash the API
-        logger.warning("parse-receipt failed for user=%s: %s", user.id, e)
-        result = {
-            "vendor": None, "amount": None, "date": None, "currency": "DKK",
-            "raw_text": "", "ocr_available": False, "confidence": "none",
-        }
-    finally:
-        if tmp_path:
-            try:
-                Path(tmp_path).unlink(missing_ok=True)
-            except Exception:  # noqa: BLE001
-                pass
+    # One vision slot (at most 3 photo reads at once). Outside the try on
+    # purpose: "busy" must reach the owner as a 503, not be swallowed into
+    # an empty read like an OCR failure.
+    with vision_slot(user, db=db):
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(body)
+                tmp_path = tmp.name
+            result = parse_expense_receipt(tmp_path)
+        except Exception as e:  # noqa: BLE001 — OCR must never crash the API
+            logger.warning("parse-receipt failed for user=%s: %s", user.id, e)
+            result = {
+                "vendor": None, "amount": None, "date": None, "currency": "DKK",
+                "raw_text": "", "ocr_available": False, "confidence": "none",
+            }
+        finally:
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    pass
 
     # Best-effort category suggestion based on parsed vendor name
     suggested_category = None
@@ -952,7 +965,7 @@ def update_expense(
 # Cheaper than /upload-receipt (no OCR call), so a slightly higher ceiling —
 # still bounded per-IP against image-spam abuse.
 @_limiter.limit("12/minute;120/day")
-async def attach_receipt_to_expense(
+def attach_receipt_to_expense(
     expense_id: str,
     request: Request,
     file: UploadFile = File(...),
@@ -990,15 +1003,23 @@ async def attach_receipt_to_expense(
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file")
-    raw = await file.read()
+    # A plain `def` (OPS-02): the photo decode + storage upload run in the
+    # threadpool, off the event loop.
+    raw = file.file.read()
     if len(raw) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 5 MB)")
 
     from app.services.receipt_ocr import save_receipt_photo
     try:
         stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
+    except UnsupportedImageError:
+        raise HTTPException(400, refusal_message(owner_lang(user)))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except AIBusyError:
+        # Every photo-decode slot stayed taken (image_guard.decode_slot):
+        # nothing stored, so the 503 "busy, try again" is safe to retry.
+        raise AIBusyError(owner_lang(user)) from None
 
     expense.receipt_photo = stored_path
     # Mark as a manual attach so the scan-cap meter excludes it (no OCR ran).
@@ -1272,7 +1293,7 @@ def _get_or_create_uncategorized(db: Session, user_id):
 @router.post("/burst-scan")
 # Burst is heavier (N Opus OCR calls) — bound it harder per-IP than single scan.
 @_limiter.limit("3/minute;40/day")
-async def burst_scan(
+def burst_scan(
     request: Request,
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
@@ -1287,126 +1308,188 @@ async def burst_scan(
     from app.services.receipt_ocr import save_receipt_photo_ex, parse_expense_receipt
 
     cap = get_cap(user, "expense_receipt_scans_per_month")
-    used = _count_receipt_scans_this_month(db, user.id) if cap >= 0 else 0
+    used = 0
+    allowed = len(files)
+
+    # The drafts that count toward the monthly cap are committed at the
+    # END of the pile, and this route runs in the threadpool — two piles
+    # sent together would each see the same count and each fill the rest
+    # of the month's cap. counted_use counts under a per-account lock and
+    # reserves this pile's share until its drafts are committed.
+    def _check(in_flight: int) -> int:
+        nonlocal used, allowed
+        if cap < 0:
+            return 0
+        used = _count_receipt_scans_this_month(db, user.id)
+        allowed = max(0, cap - used - in_flight)
+        return min(len(files), allowed)
 
     created, skipped, cap_reached = [], 0, False
-    for f in files:
-        if cap >= 0 and (used + len(created)) >= cap:
-            cap_reached = True
-            break
-        if not f.content_type or not f.content_type.startswith("image/"):
-            skipped += 1
-            continue
-        raw = await f.read()
-        if len(raw) > 5 * 1024 * 1024:
-            skipped += 1
-            continue
-        try:
-            stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
-        except ValueError:
-            skipped += 1
-            continue
+    # Index (in ``files``) of the first receipt left unscanned because every
+    # photo-decode slot stayed busy; None when the whole pile went through.
+    busy_from = None
+    # A plain `def` (OPS-02 / P0-3) — the OCR loop runs in the threadpool.
+    # Each receipt holds a vision slot only for its own save + read (at most
+    # 2 per account, 4 in all), so a long pile never keeps a slot from
+    # other venues for minutes. The FIRST receipt needs its slot and its
+    # read or the whole pile gets the 503 "busy, try again" — no draft is
+    # committed until the end of the pile, so the browser's automatic retry
+    # is safe (its photo may already be stored when the READ was the busy
+    # part; the durable copy is content-addressed, so the retry re-uses it).
+    # Once drafts exist, a receipt whose read is busy (no vision slot, or a
+    # photo decode refused by image_guard.decode_slot) still lands as a
+    # draft without the read ('Mangler beløb'), exactly like an OCR
+    # failure: its photo is saved once (in the slot, or here after it), and
+    # that save holds a decode slot too. If even that save is busy, the
+    # pile STOPS at that receipt: the drafts made so far are committed and
+    # the answer says which receipts to send again (busy_from) — never a
+    # 503 that throws away drafts already read (paid vision calls) and
+    # makes the browser replay the whole pile.
+    with counted_use(user, "expense_receipt_scans_per_month", _check) as use:
+        for idx, f in enumerate(files):
+            if cap >= 0 and len(created) >= allowed:
+                cap_reached = True
+                break
+            if not f.content_type or not f.content_type.startswith("image/"):
+                skipped += 1
+                continue
+            raw = f.file.read()
+            if len(raw) > 5 * 1024 * 1024:
+                skipped += 1
+                continue
 
-        parsed = {"vendor": None, "amount": None, "date": None}
-        # OCR the file we just wrote for THIS receipt. The old newest-by-
-        # mtime glob was worst here: a pile of receipts is uploaded in one
-        # request, so every draft in the batch raced to read whichever
-        # file happened to land last.
-        try:
-            parsed = parse_expense_receipt(local)
-        except Exception:  # noqa: BLE001 — OCR must never block the draft
-            pass
+            parsed = {"vendor": None, "amount": None, "date": None}
+            stored = None
+            try:
+                with vision_slot(user, db=db):
+                    stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
+                    # OCR the file we just wrote for THIS receipt. The old
+                    # newest-by-mtime glob was worst here: a pile of receipts
+                    # is uploaded in one request, so every draft in the batch
+                    # raced to read whichever file happened to land last.
+                    try:
+                        parsed = parse_expense_receipt(local)
+                    except Exception:  # noqa: BLE001 — OCR must never block the draft
+                        pass
+            except ValueError:
+                skipped += 1
+                continue
+            except AIBusyError:
+                if not created:
+                    raise  # no draft yet, nothing committed: the 503 is safe to retry
+                # The read is lost; the draft lands without it.
+                parsed = {"vendor": None, "amount": None, "date": None}
+                if stored is None:  # busy before the save: save it now
+                    try:
+                        stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
+                    except ValueError:
+                        skipped += 1
+                        continue
+                    except AIBusyError:
+                        # Not even the photo could be decoded: keep the
+                        # drafts made so far, leave this one and the rest
+                        # for the owner to send again.
+                        busy_from = idx
+                        break
 
-        amount = parsed.get("amount") or 0
-        vendor = parsed.get("vendor")
-        try:
-            pdate = date.fromisoformat(parsed["date"]) if parsed.get("date") else None
-        except Exception:  # noqa: BLE001
-            pdate = None
+            amount = parsed.get("amount") or 0
+            vendor = parsed.get("vendor")
+            try:
+                pdate = date.fromisoformat(parsed["date"]) if parsed.get("date") else None
+            except Exception:  # noqa: BLE001
+                pdate = None
 
-        # The pile joins the same key space as the single scan, so a
-        # correction made on a draft teaches the same vendor the scan
-        # flow reads from. Without this, drafts neither read nor write
-        # memory at all.
-        v_key = canonical_vendor_key(vendor)
-        memory = vendor_recall(db, user.id, v_key) if v_key else {}
+            # The pile joins the same key space as the single scan, so a
+            # correction made on a draft teaches the same vendor the scan
+            # flow reads from. Without this, drafts neither read nor write
+            # memory at all.
+            v_key = canonical_vendor_key(vendor)
+            memory = vendor_recall(db, user.id, v_key) if v_key else {}
 
-        cat_id = None
-        # Memory first — the owner's own confirmed history at this
-        # supplier — and only at PREFILL, i.e. 3+ clean agreements. A
-        # 2-sighting hunch must not silently fill a row that "Godkend
-        # alle" can then sweep past without anyone looking at it.
-        mem_cat = memory.get("category_name")
-        if mem_cat and mem_cat["band"] == "prefill":
-            c = resolve_category(mem_cat["value"], user.id, db)
-            if c:
-                cat_id = c.id
-        # NOT the frozen keyword map. On the single-scan path a keyword
-        # hit is band="suggest" — highlighted, never preselected — because
-        # DEFAULT_KEYWORDS is a hardcoded literal, not this owner's
-        # history. The pile had no such gate, and once resolve_category
-        # started mapping those English concepts onto real Danish
-        # categories, a Wolt receipt began auto-filing into
-        # "Restaurantbesøg, erhverv" — a 25% §42 fradrag class instead of
-        # 100%, chosen by a constant and approvable in one sweep.
-        #
-        # An honest "Ukategoriseret" keeps the draft out of the klar set
-        # so the owner picks. Memory (their own confirmed history) is
-        # still allowed to fill it above.
-        if cat_id is None:
-            cat_id = _get_or_create_uncategorized(db, user.id).id
+            cat_id = None
+            # Memory first — the owner's own confirmed history at this
+            # supplier — and only at PREFILL, i.e. 3+ clean agreements. A
+            # 2-sighting hunch must not silently fill a row that "Godkend
+            # alle" can then sweep past without anyone looking at it.
+            mem_cat = memory.get("category_name")
+            if mem_cat and mem_cat["band"] == "prefill":
+                c = resolve_category(mem_cat["value"], user.id, db)
+                if c:
+                    cat_id = c.id
+            # NOT the frozen keyword map. On the single-scan path a keyword
+            # hit is band="suggest" — highlighted, never preselected — because
+            # DEFAULT_KEYWORDS is a hardcoded literal, not this owner's
+            # history. The pile had no such gate, and once resolve_category
+            # started mapping those English concepts onto real Danish
+            # categories, a Wolt receipt began auto-filing into
+            # "Restaurantbesøg, erhverv" — a 25% §42 fradrag class instead of
+            # 100%, chosen by a constant and approvable in one sweep.
+            #
+            # An honest "Ukategoriseret" keeps the draft out of the klar set
+            # so the owner picks. Memory (their own confirmed history) is
+            # still allowed to fill it above.
+            if cat_id is None:
+                cat_id = _get_or_create_uncategorized(db, user.id).id
 
-        # PAPER BEATS MEMORY: only fill the method when the receipt
-        # itself didn't say. Still NULL if memory has nothing confident,
-        # so the draft stays un-approvable until the owner answers.
-        draft_method = parsed.get("payment_method")
-        if not draft_method:
-            mem_pm = memory.get("payment_method")
-            if mem_pm and mem_pm["band"] == "prefill":
-                draft_method = mem_pm["value"]
+            # PAPER BEATS MEMORY: only fill the method when the receipt
+            # itself didn't say. Still NULL if memory has nothing confident,
+            # so the draft stays un-approvable until the owner answers.
+            draft_method = parsed.get("payment_method")
+            if not draft_method:
+                mem_pm = memory.get("payment_method")
+                if mem_pm and mem_pm["band"] == "prefill":
+                    draft_method = mem_pm["value"]
 
-        # A foreign receipt's face value is NOT an account-currency
-        # amount. The single scan asks for a rate (#145); a batch can't,
-        # so we keep the original + its currency and leave `amount` at 0
-        # — which the existing "mangler beløb" gate already blocks —
-        # rather than booking 100 EUR as 100 kr with no FX trail.
-        scan_ccy = (parsed.get("currency") or "").upper() or None
-        account_ccy = (user.currency or "DKK").upper()
-        is_foreign_draft = bool(scan_ccy) and scan_ccy != account_ccy
-        original_amt = amount if is_foreign_draft else None
-        if is_foreign_draft:
-            amount = 0
+            # A foreign receipt's face value is NOT an account-currency
+            # amount. The single scan asks for a rate (#145); a batch can't,
+            # so we keep the original + its currency and leave `amount` at 0
+            # — which the existing "mangler beløb" gate already blocks —
+            # rather than booking 100 EUR as 100 kr with no FX trail.
+            scan_ccy = (parsed.get("currency") or "").upper() or None
+            account_ccy = (user.currency or "DKK").upper()
+            is_foreign_draft = bool(scan_ccy) and scan_ccy != account_ccy
+            original_amt = amount if is_foreign_draft else None
+            if is_foreign_draft:
+                amount = 0
 
-        draft = Expense(
-            user_id=user.id, category_id=cat_id, date=pdate or date.today(),
-            # An unreadable date is stamped with today's so the NOT NULL
-            # column has a value — but it must SAY so, or a wrong MOMS
-            # period and a wrong voucher year ride through the queue
-            # looking identical to a real date.
-            date_source=None if pdate else "guessed",
-            currency=scan_ccy if is_foreign_draft else None,
-            original_amount=original_amt,
-            amount=amount, description=vendor or "Bilag",
-            # Read off the receipt ("Kontant" / "Dankort" / "MobilePay"),
-            # NULL when the paper doesn't say. It used to be hardcoded
-            # "card", so a pile of cash purchases booked as card and
-            # sync_cash_out_for_expense never fired — cash left the drawer
-            # and the books never saw it. The single-scan path has refused
-            # to guess this since #139; the pile was still guessing.
-            payment_method=draft_method,
-            vendor_key=v_key,
-            receipt_photo=stored, receipt_source="scan", status="pending",
-        )
-        db.add(draft)
-        created.append(draft)
+            draft = Expense(
+                user_id=user.id, category_id=cat_id, date=pdate or date.today(),
+                # An unreadable date is stamped with today's so the NOT NULL
+                # column has a value — but it must SAY so, or a wrong MOMS
+                # period and a wrong voucher year ride through the queue
+                # looking identical to a real date.
+                date_source=None if pdate else "guessed",
+                currency=scan_ccy if is_foreign_draft else None,
+                original_amount=original_amt,
+                amount=amount, description=vendor or "Bilag",
+                # Read off the receipt ("Kontant" / "Dankort" / "MobilePay"),
+                # NULL when the paper doesn't say. It used to be hardcoded
+                # "card", so a pile of cash purchases booked as card and
+                # sync_cash_out_for_expense never fired — cash left the drawer
+                # and the books never saw it. The single-scan path has refused
+                # to guess this since #139; the pile was still guessing.
+                payment_method=draft_method,
+                vendor_key=v_key,
+                receipt_photo=stored, receipt_source="scan", status="pending",
+            )
+            db.add(draft)
+            created.append(draft)
 
-    db.commit()
+        # The drafts are the rows that count toward the monthly cap:
+        # committed under the cap lock, which hands the reservation back.
+        with use.recording():
+            db.commit()
     for d in created:
         db.refresh(d)
     return {
         "created": len(created),
         "skipped": skipped,
         "cap_reached": cap_reached,
+        # busy_from: index of the first receipt NOT scanned (BonBox was
+        # busy decoding other photos); it and every one after it should be
+        # sent again. None when the whole pile was handled.
+        "busy_from": busy_from,
+        "busy_remaining": 0 if busy_from is None else len(files) - busy_from,
         "used_this_month": used + len(created),
         "monthly_cap": cap,
         "drafts": [ExpenseResponse.model_validate(d).model_dump(mode="json") for d in created],
@@ -1439,7 +1522,7 @@ def delete_expense(
 # parallel "store + auto-extract" upload endpoint that also drives an
 # Opus 4.7 OCR call under the hood. Per-IP burst + daily ceiling.
 @_limiter.limit("6/minute;80/day")
-async def upload_expense_receipt(
+def upload_expense_receipt(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -1464,7 +1547,9 @@ async def upload_expense_receipt(
     """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file")
-    raw = await file.read()
+    # A plain `def` (OPS-02 / P0-3): the save + OCR below run in the
+    # threadpool, never on the event loop.
+    raw = file.file.read()
     if len(raw) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image too large (max 5 MB)")
 
@@ -1498,32 +1583,45 @@ async def upload_expense_receipt(
             )
 
     from app.services.receipt_ocr import save_receipt_photo_ex, extract_amount_from_image, parse_expense_receipt
-    try:
-        stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    # One vision slot for the save + both reads (at most 4 photo reads at
+    # once; another waits briefly, then 503 "busy, try again" before the
+    # photo is stored). A photo DECODE refused by image_guard.decode_slot
+    # (at most 2 at once) is a 503 too: before the save it stores nothing;
+    # during a read it comes AFTER the save, so the photo is already stored
+    # (the durable copy is content-addressed: the retry re-uses it) while
+    # nothing is in the books — still safe to retry, never a silently
+    # half-read receipt.
+    with vision_slot(user, db=db):
+        try:
+            stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
+        except UnsupportedImageError:
+            raise HTTPException(400, refusal_message(owner_lang(user)))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
-    # Use the local copy we JUST wrote — never re-derive it by globbing
-    # the user's upload dir by mtime. Two receipts in flight at once and
-    # the newest file is somebody else's; we would OCR that image and
-    # store its amount against this row.
+        # Use the local copy we JUST wrote — never re-derive it by globbing
+        # the user's upload dir by mtime. Two receipts in flight at once and
+        # the newest file is somebody else's; we would OCR that image and
+        # store its amount against this row.
 
-    # Try the richer parse first (vendor + amount + date), fall back to
-    # amount-only on any failure. Both wrap their internal exceptions —
-    # OCR must NEVER crash the upload (owner already has the photo
-    # saved; we just lose the auto-fill assist).
-    parsed = {"vendor": None, "amount": None, "date": None, "currency": "DKK", "confidence": "none", "raw_text": ""}
-    try:
-        parsed = parse_expense_receipt(local_path)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("upload-receipt: parse_expense_receipt failed user=%s: %s", user.id, e)
+        # Try the richer parse first (vendor + amount + date), fall back to
+        # amount-only on any failure. Both wrap their internal exceptions —
+        # an OCR failure must never crash the upload (owner already has the
+        # photo saved; we just lose the auto-fill assist). The one exception
+        # is "busy" (a decode slot refused): the slot ends the request with
+        # the retryable 503 above instead of a silently empty auto-fill.
+        parsed = {"vendor": None, "amount": None, "date": None, "currency": "DKK", "confidence": "none", "raw_text": ""}
+        try:
+            parsed = parse_expense_receipt(local_path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("upload-receipt: parse_expense_receipt failed user=%s: %s", user.id, e)
 
-    # Fallback amount detection if parse_expense_receipt didn't get one
-    try:
-        amount_block = extract_amount_from_image(local_path)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("upload-receipt: extract_amount_from_image failed user=%s: %s", user.id, e)
-        amount_block = {"suggested_amount": None, "all_amounts_found": [], "ocr_available": False, "raw_text": ""}
+        # Fallback amount detection if parse_expense_receipt didn't get one
+        try:
+            amount_block = extract_amount_from_image(local_path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("upload-receipt: extract_amount_from_image failed user=%s: %s", user.id, e)
+            amount_block = {"suggested_amount": None, "all_amounts_found": [], "ocr_available": False, "raw_text": ""}
 
     # Best amount = parse result if confident, else fall back to amount-only
     amount = parsed.get("amount") or amount_block.get("suggested_amount")

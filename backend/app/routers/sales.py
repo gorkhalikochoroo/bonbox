@@ -24,6 +24,9 @@ log = logging.getLogger("bonbox.sales")
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnRequest
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo_ex
+from app.services.ai_limits import vision_slot
+from app.services.image_guard import UnsupportedImageError, refusal_message
+from app.services.owner_language import owner_lang
 from app.services.cash_sync import (
     sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref,
     soft_delete_cash_entry_by_ref, restore_cash_entry_by_ref,
@@ -550,7 +553,7 @@ def returns_summary(
 
 @router.post("/import-csv")
 @limiter.limit("10/minute")
-async def import_csv(
+def import_csv(
     request: Request,
     file: UploadFile = File(...),
     dry_run: bool = False,
@@ -626,7 +629,9 @@ async def import_csv(
     if file.content_type not in ("text/csv", "application/vnd.ms-excel", "text/plain"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
 
-    content = await file.read()
+    # A plain `def`: FastAPI runs it in the threadpool, so its DB work never
+    # waits for a pool connection on the event loop (R-d round 3).
+    content = file.file.read()
 
     # Validate file size
     if len(content) > MAX_CSV_SIZE:
@@ -935,7 +940,7 @@ class CsvRollbackRequest(BaseModel):
 
 @router.post("/import-csv/rollback")
 @limiter.limit("10/minute")
-async def rollback_csv_import(
+def rollback_csv_import(
     request: Request,
     body: CsvRollbackRequest,
     db: Session = Depends(get_db),
@@ -991,7 +996,7 @@ MAX_CSV_SIZE = 2 * 1024 * 1024  # 2 MB
 
 @router.post("/upload-receipt")
 @limiter.limit("10/minute")
-async def upload_receipt(
+def upload_receipt(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -1005,23 +1010,36 @@ async def upload_receipt(
             detail=f"Invalid file type '{file.content_type}'. Allowed: JPEG, PNG, GIF, WebP, HEIC",
         )
 
-    content = await file.read()
+    # A plain `def` (OPS-02 / P0-3): the save + OCR below run in the
+    # threadpool, never on the event loop.
+    content = file.file.read()
 
     # Validate file size
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
-    # save_receipt_photo validates the content with PIL.verify(); on a
-    # spoofed-header non-image upload it raises ValueError → 400 here.
-    try:
-        stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # One vision slot for the save + read (at most 4 photo reads at once;
+    # another waits briefly, then 503 "busy, try again" before anything is
+    # stored). A photo decode refused by image_guard.decode_slot is a 503
+    # too — during the read it comes AFTER the save, so the photo is
+    # already stored (content-addressed: the retry re-uses it) while no
+    # sale exists yet; safe to retry.
+    with vision_slot(user, db=db):
+        # save_receipt_photo validates the content with PIL.verify(); on a
+        # spoofed-header non-image upload it raises ValueError → 400 here.
+        # Bytes outside the image allow-list (a PSD renamed .jpg) are
+        # refused before any decoder runs (INFRA-03).
+        try:
+            stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
+        except UnsupportedImageError:
+            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-    # OCR the local copy we just wrote — NOT the newest file in the user's
-    # upload dir. Two receipts in flight and that glob hands us somebody
-    # else's image, whose amount we then log as this sale.
+        # OCR the local copy we just wrote — NOT the newest file in the user's
+        # upload dir. Two receipts in flight and that glob hands us somebody
+        # else's image, whose amount we then log as this sale.
 
-    result = extract_amount_from_image(local_path)
+        result = extract_amount_from_image(local_path)
     # Convert local path to full URL so frontend can display it
     display_path = stored_path
     if not stored_path.startswith("http"):

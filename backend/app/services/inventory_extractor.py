@@ -42,6 +42,7 @@ import time
 from typing import Any
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 
 logger = logging.getLogger(__name__)
 
@@ -480,7 +481,7 @@ def extract_image(
         return [], meta
 
     try:
-        import anthropic
+        import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
         meta["error"] = "anthropic_sdk_not_installed"
         return [], meta
@@ -509,7 +510,7 @@ def extract_image(
 
     t0 = time.monotonic()
     try:
-        client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+        client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,

@@ -25,6 +25,7 @@ import time
 from typing import Any
 
 from app.config import settings
+from app.services.ai_limits import anthropic_client
 
 logger = logging.getLogger("bonbox.menu_extractor")
 
@@ -197,7 +198,7 @@ def extract_menu_from_image(
 
     t0 = time.monotonic()
     try:
-        client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+        client = anthropic_client(api_key, timeout=timeout)  # 1 SDK retry (OPS-02)
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,

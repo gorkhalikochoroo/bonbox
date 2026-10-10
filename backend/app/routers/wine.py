@@ -29,6 +29,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -43,6 +44,8 @@ from app.utils.time import utc_now
 from slowapi import Limiter
 
 logger = logging.getLogger(__name__)
+
+from app.services.ai_limits import vision_slot_async
 
 router = APIRouter()
 _limiter = Limiter(key_func=client_ip)
@@ -862,100 +865,106 @@ async def scan_bottle_label(
         # Anthropic vision accepts these; reject others before the upload round-trip
         raise HTTPException(400, "Unsupported image format — use JPEG, PNG, or WebP")
 
-    # Layer 0 — counted only for a photo that will actually be sent.
-    _enforce_wine_scan_ceiling(db, user)
+    # One vision slot for the paid read (at most 3 photo reads at once,
+    # process-wide). Taken BEFORE the ceiling counts this scan, so a 503
+    # "busy, try again" never uses up one of the owner's scans.
+    async with vision_slot_async(user):
+        # Layer 0 — counted only for a photo that will actually be sent. In a
+        # worker thread: its count + audit row must not wait for a pool
+        # connection on the event loop.
+        await run_in_threadpool(_enforce_wine_scan_ceiling, db, user)
 
-    b64 = base64.b64encode(image_data).decode()
+        b64 = base64.b64encode(image_data).decode()
 
-    raw_text = ""
-    try:
-        import httpx
-
-        api_key = settings.ANTHROPIC_API_KEY
-        async with httpx.AsyncClient(timeout=30.0) as _client:
-            resp = await _client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-5",
-                    "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
-                    # Lower temp for deterministic, factual extraction (no creative guesses)
-                    "temperature": 0.1,
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {"type": "base64", "media_type": media_type, "data": b64},
-                            },
-                            {"type": "text", "text": _WINE_SCAN_PROMPT},
-                        ],
-                    }],
-                },
-            )
-
-        if resp.status_code != 200:
-            logger.warning("Anthropic API non-200: %d %s", resp.status_code, resp.text[:200])
-            return {
-                "success": False,
-                "error": "AI service is busy. Please try again in a moment.",
-                "_recoverable": True,
-            }
-
+        raw_text = ""
         try:
-            raw_text = resp.json()["content"][0]["text"].strip()
-        except (KeyError, IndexError, ValueError) as e:
-            logger.warning("Anthropic response shape unexpected: %s", e)
+            import httpx
+
+            api_key = settings.ANTHROPIC_API_KEY
+            async with httpx.AsyncClient(timeout=30.0) as _client:
+                resp = await _client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-5",
+                        "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
+                        # Lower temp for deterministic, factual extraction (no creative guesses)
+                        "temperature": 0.1,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {"type": "base64", "media_type": media_type, "data": b64},
+                                },
+                                {"type": "text", "text": _WINE_SCAN_PROMPT},
+                            ],
+                        }],
+                    },
+                )
+
+            if resp.status_code != 200:
+                logger.warning("Anthropic API non-200: %d %s", resp.status_code, resp.text[:200])
+                return {
+                    "success": False,
+                    "error": "AI service is busy. Please try again in a moment.",
+                    "_recoverable": True,
+                }
+
+            try:
+                raw_text = resp.json()["content"][0]["text"].strip()
+            except (KeyError, IndexError, ValueError) as e:
+                logger.warning("Anthropic response shape unexpected: %s", e)
+                return {
+                    "success": False,
+                    "error": "AI returned an unexpected response. Please try again.",
+                    "_recoverable": True,
+                }
+
+            # Strip markdown code fences if present
+            if raw_text.startswith("```"):
+                raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+            try:
+                parsed = json.loads(raw_text)
+            except json.JSONDecodeError:
+                logger.warning("Claude returned non-JSON for wine scan: %s", raw_text[:200])
+                return {
+                    "success": False,
+                    "error": "Could not read the label clearly. Try a sharper, well-lit photo of the front of the bottle.",
+                    "_recoverable": True,
+                }
+
+            # Layer 4 — sanitize and clamp fields. Even if Claude returns junk for
+            # one field, the rest survive.
+            validated = _validate_scan_output(parsed)
+
+            # Detection: if all fields are null, it almost certainly wasn't a wine
+            # bottle (or photo was unreadable). Tell the user explicitly.
+            non_null = sum(1 for v in validated.values() if v not in (None, ""))
+            if non_null == 0:
+                return {
+                    "success": False,
+                    "error": (
+                        "Couldn't identify a wine on this label. "
+                        "Make sure the front label is fully visible and try again."
+                    ),
+                    "_recoverable": True,
+                }
+
+            return {"success": True, "data": validated}
+
+        except Exception as e:
+            logger.exception("Wine scan unexpected error")
             return {
                 "success": False,
-                "error": "AI returned an unexpected response. Please try again.",
+                "error": "Wine scan failed. Try again or add the wine manually.",
                 "_recoverable": True,
             }
-
-        # Strip markdown code fences if present
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-
-        try:
-            parsed = json.loads(raw_text)
-        except json.JSONDecodeError:
-            logger.warning("Claude returned non-JSON for wine scan: %s", raw_text[:200])
-            return {
-                "success": False,
-                "error": "Could not read the label clearly. Try a sharper, well-lit photo of the front of the bottle.",
-                "_recoverable": True,
-            }
-
-        # Layer 4 — sanitize and clamp fields. Even if Claude returns junk for
-        # one field, the rest survive.
-        validated = _validate_scan_output(parsed)
-
-        # Detection: if all fields are null, it almost certainly wasn't a wine
-        # bottle (or photo was unreadable). Tell the user explicitly.
-        non_null = sum(1 for v in validated.values() if v not in (None, ""))
-        if non_null == 0:
-            return {
-                "success": False,
-                "error": (
-                    "Couldn't identify a wine on this label. "
-                    "Make sure the front label is fully visible and try again."
-                ),
-                "_recoverable": True,
-            }
-
-        return {"success": True, "data": validated}
-
-    except Exception as e:
-        logger.exception("Wine scan unexpected error")
-        return {
-            "success": False,
-            "error": "Wine scan failed. Try again or add the wine manually.",
-            "_recoverable": True,
-        }
 
 
 # ── Public Customer Wine Menu (no auth) ─────────────────────
@@ -1135,8 +1144,8 @@ def ai_sommelier(
     # account's daily ceiling.
     if settings.ANTHROPIC_API_KEY and _sommelier_ai_allowed(db, user):
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            from app.services.ai_limits import anthropic_client
+            client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry
 
             wine_catalog = "\n".join(
                 f"- ID:{w.id} | {w.name} ({w.wine_type}) | {w.grape_variety or '?'} | "
