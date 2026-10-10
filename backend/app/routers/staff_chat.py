@@ -386,7 +386,14 @@ def _create_message_with_photos(
 
     _enforce_send_cap(db, thread.id, sender_type, sender_staff_id)
 
-    # Sanitize every photo up-front (raises before we write any row).
+    # Sanitize every photo up-front (raises before we write any row). Each
+    # decode holds one of the process-wide decode slots (image_guard: at
+    # most 2 at once; busy → 503 "try again"). Hand the pooled connection
+    # back first so a request waiting for a slot does not also pin one of
+    # the pool's 15 (no-op if this session already holds writes).
+    from app.services.ai_limits import release_db_connection
+
+    release_db_connection(db)
     sanitized = []
     for up in files:
         raw = up.file.read()
