@@ -365,6 +365,11 @@ def test_a_correction_lists_each_category_once_whatever_the_key_case():
 def test_the_opt_out_link_is_on_the_api_host_never_the_spa(monkeypatch):
     from app.config import settings
     from app.services.revisor_mail import revisor_unsubscribe_url
+    # ENVIRONMENT=production below: since SEC-7 the signer refuses to mint a
+    # link without a key there (tests/test_unsubscribe_signer_fail_closed.py).
+    # This test is about the HOST, so it brings its own key instead of
+    # relying on an earlier test leaking one into os.environ.
+    monkeypatch.setenv("APP_SECRET_KEY", "test-opt-out-host-key-32-bytes-xxxx")
     monkeypatch.delenv("PUBLIC_API_URL", raising=False)
     monkeypatch.delenv("AIIA_REDIRECT_URI", raising=False)
     monkeypatch.setattr(settings, "FRONTEND_URL", "https://www.bonbox.dk")
@@ -382,6 +387,19 @@ def test_the_opt_out_link_is_on_the_api_host_never_the_spa(monkeypatch):
     monkeypatch.setattr(settings, "PUBLIC_API_URL", "")
     monkeypatch.setattr(settings, "ENVIRONMENT", "development")
     assert revisor_unsubscribe_url(uuid.uuid4(), "a@b.dk").startswith("http://localhost:8000/")
+
+
+def test_the_opt_out_link_is_never_minted_in_production_without_a_key(monkeypatch):
+    """The other half of the test above: SEC-7's fail-closed signer is not
+    bypassed by the revisor link — no key in production, no link."""
+    from app.config import settings
+    from app.services.revisor_mail import revisor_unsubscribe_url
+    from app.utils.email_unsubscribe_token import UnsubscribeKeyUnset
+    monkeypatch.delenv("APP_SECRET_KEY", raising=False)
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    with pytest.raises(UnsubscribeKeyUnset):
+        revisor_unsubscribe_url(uuid.uuid4(), "anna@revisor.dk")
 
 
 def test_the_revisor_pages_are_danish_and_an_old_link_gets_a_danish_answer(

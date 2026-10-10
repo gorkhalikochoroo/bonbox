@@ -77,10 +77,13 @@ def test_malformed_tokens_return_none_no_raise():
     assert parse_unsubscribe_token(12345) is None  # type: ignore[arg-type]
 
 
-def test_different_secrets_produce_different_tokens():
-    """A token signed under one secret must NOT verify under another."""
-    import os
-    os.environ["APP_SECRET_KEY"] = "secret-a-32-bytes-zzzzzzzzzzzzzz"
+def test_different_secrets_produce_different_tokens(monkeypatch):
+    """A token signed under one secret must NOT verify under another.
+
+    monkeypatch, not os.environ: a key written straight into os.environ
+    stayed set for the rest of the session and hid that other tests needed
+    one (the SEC-7 fail-closed signer)."""
+    monkeypatch.setenv("APP_SECRET_KEY", "secret-a-32-bytes-zzzzzzzzzzzzzz")
     token = make_unsubscribe_token("u", "daily_brief")
-    os.environ["APP_SECRET_KEY"] = "secret-b-32-bytes-yyyyyyyyyyyyyy"
+    monkeypatch.setenv("APP_SECRET_KEY", "secret-b-32-bytes-yyyyyyyyyyyyyy")
     assert parse_unsubscribe_token(token) is None
