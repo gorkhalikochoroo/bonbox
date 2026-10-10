@@ -5263,6 +5263,7 @@ export const da = {
     staffMailHeldClaimOpen: "Ingen mails sendt: BonBox venter på dit svar på spørgsmålet, vi har mailet dig: Har du selv oprettet denne konto? Indtil da mailer BonBox ikke dit personale.",
     staffMailLimitNames: "Ikke mailet (dagens mailgrænse er nået): {names}",
     staffMailLimitSkipped: "ikke sendt (dagens mailgrænse)",
+    staffEmailInvalid: "Skriv én gyldig e-mailadresse (fx navn@firma.dk), eller lad feltet stå tomt.",
     autopilotShiftLunch: "frokostvagten",
     autopilotShiftDinner: "aftenvagten",
     autopilotShiftDay: "dagvagten",

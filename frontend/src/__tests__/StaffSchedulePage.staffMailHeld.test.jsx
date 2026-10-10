@@ -166,4 +166,28 @@ describe("staff mail held or limited (SEC-1)", () => {
     expect(screen.queryByText(/Not sent: BonBox e-mails your staff/)).toBeNull();
     confirmSpy.mockRestore();
   });
+
+  it("a staff e-mail the server refuses is explained in Danish, not the validator's English", async () => {
+    api.post.mockImplementation((url) =>
+      url === "/staff/members"
+        ? Promise.reject({
+            response: {
+              status: 422,
+              data: { detail: [{ type: "value_error", loc: ["body", "email"], msg: "Value error, not a valid e-mail address: The part after the @-sign is not valid." }] },
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    await mountPage();
+    fireEvent.click(screen.getByRole("button", { name: /Administrér medarbejdere/ }));
+    fireEvent.change(await screen.findByPlaceholderText("Navn"), { target: { value: "Cy" } });
+    fireEvent.change(screen.getByPlaceholderText("E-mail (valgfri)"), { target: { value: "cy@cafe" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Tilføj" }));
+    });
+    expect(
+      await screen.findByText("Skriv én gyldig e-mailadresse (fx navn@firma.dk), eller lad feltet stå tomt."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/not a valid e-mail address/)).toBeNull();
+  });
 });

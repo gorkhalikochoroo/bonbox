@@ -5105,6 +5105,21 @@ function rateDecimals(rate) {
   return Number.isInteger(n) ? 0 : 2;
 }
 
+/** A staff save the server refused because the e-mail is not one ordinary
+ *  mailbox (SEC-1: BonBox mails that address from its own domain). Said in
+ *  the owner's language — the 422 itself carries the validator's English. */
+function staffSaveErrText(err, t, fallback) {
+  const d = err?.response?.data?.detail;
+  if (
+    err?.response?.status === 422 &&
+    Array.isArray(d) &&
+    d.some((x) => Array.isArray(x?.loc) && x.loc[x.loc.length - 1] === "email")
+  ) {
+    return t("staffEmailInvalid");
+  }
+  return errText(err, fallback);
+}
+
 function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
   // Wage rates are money — same reasoning as StaffDetailModal above.
   const mLocale = moneyLocale(currency);
@@ -5263,7 +5278,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       setBaseRate("");
       onRefresh();
     } catch (err) {
-      setPanelError(errText(err, t("stfStaffAddFailed", "Failed to add staff member.")));
+      setPanelError(staffSaveErrText(err, t, t("stfStaffAddFailed", "Failed to add staff member.")));
     }
     setSaving(false);
   };
@@ -5314,7 +5329,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       setSaving(false);
       return true; // signals the detail modal to close on success
     } catch (err) {
-      setPanelError(errText(err, t("stfStaffUpdateFailed", "Failed to update staff member.")));
+      setPanelError(staffSaveErrText(err, t, t("stfStaffUpdateFailed", "Failed to update staff member.")));
     }
     setSaving(false);
     return false;

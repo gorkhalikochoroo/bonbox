@@ -5436,6 +5436,7 @@ export const en = {
     staffMailHeldClaimOpen: "No e-mails sent: BonBox is waiting for your answer to the question we e-mailed you: did you create this account yourself? Until then, BonBox does not e-mail your staff.",
     staffMailLimitNames: "Not e-mailed (today's e-mail limit reached): {names}",
     staffMailLimitSkipped: "not sent (today's e-mail limit)",
+    staffEmailInvalid: "Enter one valid e-mail address (e.g. name@company.dk), or leave the field empty.",
     autopilotShiftLunch: "lunch shift",
     autopilotShiftDinner: "dinner shift",
     autopilotShiftDay: "day shift",
