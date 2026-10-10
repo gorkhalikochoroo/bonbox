@@ -4860,12 +4860,17 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const lost = lostSaveRef.current[k];
     // (A day the form let go of: only a save of it built since is the form's.)
     const lostId = lost?.id && (!letGo || releasedFor(k, lost.runNo)) ? lost.id : null;
+    // A save of the old day still on its way (the page going away cannot
+    // wait for it): the newest one sent — the version it writes, when it
+    // lands, is the form's own.
+    const wire = [...(keyWireRef.current[k] || [])];
+    const wireId = !letGo && wire.length ? saveIdOfRef.current.get(wire[wire.length - 1]) || null : null;
     const shown = m.shown?.[k];
     // (Read fresh just before the move: the day written last by a save of
     // this form's whose answer was lost — that very version, by its id.)
     const read = m.fromRead?.[k];
     if (read) return { date, branch_id: branch || null, base_updated_at: read.base, base_save_id: read.save };
-    return { date, branch_id: branch || null, base_updated_at: shown?.updated_at || held || null, base_save_id: lostId };
+    return { date, branch_id: branch || null, base_updated_at: shown?.updated_at || held || null, base_save_id: wireId || lostId };
   };
   /**
    * An old day a save of this form's got no answer on: asked first, as a
@@ -4906,6 +4911,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   };
   /** This attempt of the move, kept on this phone as the ONE queued move (held by this form). */
   const keepMoveOutbox = (m, req, { held = true } = {}) => {
+    // (A move that is over — answered, refused, started over — is never
+    // queued again.)
+    if (m.done && !m.handedOff) return false;
     const move = {
       from_date: req.from_date, from_branch_id: req.from_branch_id,
       from_base_updated_at: req.from_base_updated_at, from_base_save_id: req.from_base_save_id,
@@ -4980,16 +4988,27 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const postDayDraft = async (key, payload, cfg, runNo = null) => {
     const m = moveFor(key, runNo);
     if (!m) return api.post("/daily-close", payload, cfg);
-    await fromDaysSettled(m);
-    await readMoveFromDays(m);
     if (!payload.save_id) {
       payload.save_id = newSaveId();
       mySaveIdsRef.current.add(payload.save_id);
     }
-    const req = moveRequestFor(m, payload);
+    // ONE queued move holding these figures, kept before anything is
+    // awaited: a page killed while it waits leaves the move to the queue.
+    let req = moveRequestFor(m, payload);
+    keepMoveOutbox(m, req);
+    // The page going away (keepalive) sends at once — it cannot wait. Else
+    // the old days' saves on their way answer first (one landing after the
+    // move would file the day again), and an old day a save of the form's
+    // got no answer on is asked about: the move names the old days as they
+    // are now.
+    if (!cfg?.fetchOptions?.keepalive) {
+      await fromDaysSettled(m);
+      await readMoveFromDays(m);
+      req = moveRequestFor(m, payload);
+      keepMoveOutbox(m, req);
+    }
     m.lastReq = req;
     (m.sentIds || (m.sentIds = new Set())).add(req.save_id);
-    keepMoveOutbox(m, req);
     let res;
     // (Sent with the browser offline: it never left this phone — not done.)
     m.lastSentOffline = typeof navigator !== "undefined" && navigator.onLine === false;
