@@ -33,10 +33,27 @@ from app.services.admin_security import _audit, require_super_admin
 from app.services.auth import get_current_user
 from app.services.billing import billing_summary, entitlements_payload, effective_plan
 from app.services import stripe_billing
+from app.services.terms import is_personal_account
 from app.utils.time import utc_now
 
 router = APIRouter()
 log = logging.getLogger("bonbox.billing")
+
+# The refusal a personal account gets from /stripe/checkout-session — the
+# same sentences the subscription page shows (pricingBusinessOnlyTitle +
+# pricingBusinessOnlyBody in frontend/src/i18n/{da,en}.js).
+CHECKOUT_BUSINESS_ONLY_DA = (
+    "Betalte abonnementer er kun for virksomheder. Kontoen er oprettet til "
+    "privatøkonomi, så Starter og Pro kan ikke købes på den. Du kan fortsat "
+    "bruge BonBox gratis. Bruger du BonBox i en virksomhed, så skift "
+    "virksomhedstype under Profil."
+)
+CHECKOUT_BUSINESS_ONLY_EN = (
+    "Paid plans are for businesses only. This account is set up for personal "
+    "finance, so Starter and Pro can't be bought on it. You can keep using "
+    "BonBox for free. If you use BonBox in a business, change the business "
+    "type under Profile."
+)
 limiter = Limiter(key_func=client_ip)
 
 
@@ -277,6 +294,7 @@ def create_checkout(
       • Stripe must be configured server-side
       • Plan validated against the {starter, pro} allowlist (unknown
         plans default to "pro" silently — fail-safe for legacy callers)
+      • Businesses only: a personal account gets 403 checkout_business_only
     """
     if not stripe_billing.is_configured():
         return JSONResponse(
@@ -309,6 +327,22 @@ def create_checkout(
         portal = stripe_billing.create_billing_portal_session(user, db)
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
+
+    # Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1):
+    # the Terms are B2B and carry no consumer withdrawal section, so a
+    # personal (Privatøkonomi) account cannot START a paid checkout. Placed
+    # after the portal hand-off above on purpose: an existing subscriber is
+    # never locked out of managing or cancelling what they already have.
+    # Before the rate-limit counter, so a refusal never burns their quota.
+    if is_personal_account(user):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "checkout_business_only",
+                "message": CHECKOUT_BUSINESS_ONLY_EN,
+                "message_da": CHECKOUT_BUSINESS_ONLY_DA,
+            },
+        )
 
     # FIX 5 — per-user checkout-session cap (1/hour AND 3/day). The 10/min
     # @limiter.limit above is per-IP; this per-user-id backstop blunts

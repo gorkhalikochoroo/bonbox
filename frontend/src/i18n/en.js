@@ -2738,7 +2738,18 @@ export const en = {
     pricingHeroTitle1: "Close the day, every day.",
     pricingHeroTitle2: "Staff go home on time.",
     pricingHeroSubtitle: "Snap a kasserapport. AI reads it in 6 seconds. Send a clean PDF to the owner or accountant in one tap. 14 days of Pro free. No card. No surprises. Not bookkeeping. Not POS — the bit in between, at the end of the night.",
-    pricingFoundingBanner: "{remaining}/{limit} spots left — lock founding price (Starter 129 kr / Pro 249 kr) for life",
+    pricingFoundingBanner: "{remaining}/{limit} spots left — founding price (Starter 129 kr / Pro 249 kr), kept as long as your subscription stays active",
+    // Release R-e — paid plans are for businesses only (Manoj, 10 Oct 2026).
+    // Title + ". " + Body is word for word the 403 the backend sends
+    // (routers/billing.py CHECKOUT_BUSINESS_ONLY_EN; a backend test checks).
+    pricingBusinessOnlyTitle: "Paid plans are for businesses only",
+    pricingBusinessOnlyBody: "This account is set up for personal finance, so Starter and Pro can't be bought on it. You can keep using BonBox for free. If you use BonBox in a business, change the business type under Profile.",
+    pricingBusinessOnlyCta: "Businesses only",
+    pricingBusinessOnlyProfileLink: "Go to Profile",
+    // Release R-e — the Terms acceptance line on /register (SignupTermsLine).
+    signupAcceptTerms: "By creating an account you accept our {terms} and {privacy}.",
+    signupAcceptTermsLink: "Terms of Service",
+    signupAcceptPrivacyLink: "Privacy Policy",
     pricingMonthly: "Monthly",
     pricingAnnual: "Annual",
     pricingBilledAnnually: "billed annually",
@@ -2759,7 +2770,7 @@ export const en = {
     pricingPaymentProcessingSub: "Bank debits (MobilePay/SEPA) can take a few days to clear. We'll unlock your plan the moment it does — no need to pay again.",
     pricingLockedPastDue: "Payment failed — please update your card to keep your plan",
     pricingLockedGeneric: "Subscription active",
-    pricingLockedSubtitle: "All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed.",
+    pricingLockedSubtitle: "Your plan's features are unlocked. A founding price is kept as long as your subscription stays active.",
     pricingManageSubscription: "Manage subscription",
     pricingOpening: "Opening…",
     pricingTrialEndsIn: "Your free Pro trial ends in {n} days.",
@@ -2774,7 +2785,7 @@ export const en = {
     pricingTrialStep2Tag: "Anytime in the next {n} days",
     pricingTrialStep2TagOne: "Anytime in the next {n} day",
     pricingTrialStep2Title: "Pick your path",
-    pricingTrialStep2BodyLock: "Lock in founding rate: add card now, your founding price (Starter 129 / Pro 249) is locked for life",
+    pricingTrialStep2BodyLock: "Lock in founding rate: add a card now — your founding price (Starter 129 / Pro 249) is kept as long as your subscription stays active",
     pricingTrialStep2BodyDoNothing: "Do nothing: trial runs out, you drop to Free",
     pricingTrialStep3Tag: "Day 14",
     pricingTrialStep3Title: "What actually happens",
@@ -3467,11 +3478,11 @@ export const en = {
     pricingAfterTrialCap6: "1 vertical module (pick one)",
     pricingAfterTrialCap7: "90 days of full history (older stays read-only)",
     pricingAfterTrialCap8: "1 business, 1 user",
-    pricingAfterTrialClosing: "No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you click \"Lock in founding rate\" to keep your founding price (Starter 129 kr/mo or Pro 249 kr/mo) for life. Otherwise the trial just ends and you drop to Free.",
+    pricingAfterTrialClosing: "No card needed to start the trial — it auto-runs when you sign up. You only enter a card if you click \"Lock in founding rate\" to get the founding price (Starter 129 kr/mo or Pro 249 kr/mo), kept as long as your subscription stays active. Otherwise the trial just ends and you drop to Free.",
     // FAQ
     faqHeading: "Common questions",
     faqQ1: "What happens when my 14-day trial ends?",
-    faqA1: "It depends on whether you locked in. If you did NOT lock in: you drop to Free automatically. Every feature stays, only the usage caps come back, your data is untouched, and you're never charged. If you DID lock in (clicked 'Lock in founding rate' and added a card): your card is charged the founding rate (Starter 129 kr/mo or Pro 249 kr/mo) on day 15 and monthly after, locked at the founding rate for life. Either way: no surprises — the trial banner counts the days down, and you choose.",
+    faqA1: "It depends on whether you locked in. If you did NOT lock in: you drop to Free automatically. Every feature stays, only the usage caps come back, your data is untouched, and you're never charged. If you DID lock in (clicked 'Lock in founding rate' and added a card): your card is charged the founding rate (Starter 129 kr/mo or Pro 249 kr/mo) on day 15 and monthly after, at the founding rate for as long as your subscription stays active. Either way: no surprises — the trial banner counts the days down, and you choose.",
     faqQ2: "Why does Free have every feature, just with caps?",
     faqA2: "Because feature-gating is a tax on small shops. A side-business owner shouldn't be locked out of AI insights just because they only do 50 sales a month — they need the insights MORE than a busy shop does. Caps mean Free users get full value, and only upgrade when they've actually outgrown what Free can support.",
     faqQ3: "How does the founding-member price work?",
@@ -3513,7 +3524,7 @@ export const en = {
     // Final 48-hour trial conversion tip — separate from the calm TrialBanner
     trialFinalLastDay: "Last day",
     trialFinalTwoDays: "2 days left",
-    trialFinalSavings: "Lock founding 249 kr/mo for life — saves 1,200 kr/year vs regular 349.",
+    trialFinalSavings: "Lock founding 249 kr/mo, kept as long as your subscription stays active — saves 1,200 kr/year vs regular 349.",
     trialFinalLockNow: "Lock now",
     // ── Modules picker page ─────────────────────────────────────────
     modules: "Modules",
@@ -6684,7 +6695,7 @@ export const en = {
     landingV2HeroCardYoursLegend: "182.304 kr. is yours",
     "landingV2.pricing.eyebrow": "Pricing",
     "landingV2.pricing.headline": "129 kr/month — for the first 100 businesses.",
-    "landingV2.pricing.subhead": "That price stays with you for as long as you're a customer. 199 kr after that.",
+    "landingV2.pricing.subhead": "You keep that price as long as your subscription stays active. 199 kr after that.",
     "landingV2.footer.operatedBy": "BonBox is a product of",
     "landingV2.pricing.perMonth": "DKK / mo",
     "landingV2.pricing.free.name": "Free",
@@ -6703,7 +6714,7 @@ export const en = {
     "landingV2.pricing.starter.badge": "Recommended",
     "landingV2.pricing.starter.position": "For sending fakturaer and matching payments from your bank CSV.",
     "landingV2.pricing.starter.foundingTag": "First 100",
-    "landingV2.pricing.starter.trial": "14 days free · no card required · that price stays as long as you do",
+    "landingV2.pricing.starter.trial": "14 days free · no card required · the price stays as long as your subscription stays active",
     "landingV2.pricing.starter.cta": "Start on Starter",
     "landingV2.pricing.starter.plus": "Everything in Free, plus:",
     "landingV2.pricing.starter.f1": "Your revisor logs in free — read-only, audit-logged",
@@ -9150,7 +9161,7 @@ export const en = {
     founderRateSoldOutAria: 'Founder rate sold out — {max_slots} café seats claimed',
     founderRateSoldOut: 'Founder rate sold out · {max_slots} cafés joined',
     founderRateAvailableAria: '{available} of {max_slots} founder seats left',
-    founderRateAvailable: 'Founder rate · {claimed} / {max_slots} seats taken · 129 DKK locked forever',
+    founderRateAvailable: 'Founder rate · {claimed} / {max_slots} seats taken · 129 DKK as long as your subscription stays active',
     // Two failures, two sentences. `invalidAmount` said "must be > 0" for
     // BOTH of them: the owner typed a perfectly positive 1.234,50, the strict
     // parser could not read that shape, and the field told them their positive
@@ -9600,7 +9611,7 @@ export const en = {
     featProPriority: 'Priority email support',
     pricingHeroTitleNew: 'Plans built around time saved.',
     pricingHeroSubtitleNew: 'Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises.',
-    pricingFoundingChipNew: 'First {limit} customers — founding price locked for life · {remaining} spots left',
+    pricingFoundingChipNew: 'First {limit} customers — founding price kept as long as your subscription stays active · {remaining} spots left',
     pricingRecommended: 'Recommended',
     pricingDkkPerMonth: 'DKK / mo',
     pricingFirst100Chip: 'First 100',

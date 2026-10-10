@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { canUsePersonalMode } from "../lib/appMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { COMPLETE_LANGUAGE_COUNT, COMPLETE_LANGUAGE_NAMES } from "../i18n/languageCatalog";
 import { useConfirm } from "../hooks/useConfirm";
@@ -292,6 +294,17 @@ export default function SubscriptionPage() {
   // Tiers re-build on every render so language changes pick up immediately.
   const TIERS = buildTiers(t);
 
+  // Release R-e — paid plans are for businesses only (Manoj, 10 Oct 2026).
+  // A personal (Privatøkonomi) account cannot START a paid checkout; the
+  // backend refuses it too (403 checkout_business_only). Someone who already
+  // pays keeps "Manage subscription" — nothing they have is taken away.
+  const hasLiveSub = ["active", "trialing", "past_due"].includes(billing?.subscription_status);
+  const businessOnlyBlocked = canUsePersonalMode(user) && !hasLiveSub;
+  const businessOnlyMessage = `${t("pricingBusinessOnlyTitle", "Paid plans are for businesses only")}. ${t(
+    "pricingBusinessOnlyBody",
+    "This account is set up for personal finance, so Starter and Pro can't be bought on it. You can keep using BonBox for free. If you use BonBox in a business, change the business type under Profile.",
+  )}`;
+
   // Live accountant-hours-saved snapshot for the Starter pricing card
   // tagline. When the user has Starter+ entitlements this returns real
   // numbers from THIS calendar month; for Free / unauthenticated users
@@ -384,6 +397,12 @@ export default function SubscriptionPage() {
       window.location.href = "/register";
       return;
     }
+    // Businesses only — say why instead of opening a checkout the server
+    // would refuse anyway.
+    if (businessOnlyBlocked && (tierId === "starter" || tierId === "pro")) {
+      setMsg(businessOnlyMessage);
+      return;
+    }
     // ── Paid-tier upgrade (Starter or Pro) — WEB ONLY ──
     // App Store compliance (Apple 3.1.1): the native app carries NO purchase
     // path and NO steering to an external (web/Stripe) checkout. On native the
@@ -460,6 +479,10 @@ export default function SubscriptionPage() {
       } catch (e) {
         if (e?.response?.status === 403 && e.response.data?.redirect_to_web) {
           window.open("https://bonbox.dk/subscription", "_blank");
+        } else if (e?.response?.status === 403 && e.response.data?.detail?.code === "checkout_business_only") {
+          // The server's B2B gate (e.g. the account type changed in another
+          // tab) — the same sentences, in the app's language.
+          setMsg(businessOnlyMessage);
         } else if (e?.response?.status === 409 && e.response.data?.payment_unavailable) {
           // Backend says this tier can't check out yet — degrade to waitlist.
           fallbackToWaitlist = true;
@@ -609,7 +632,7 @@ export default function SubscriptionPage() {
                       : (t("pricingLockedGeneric") || "Subscription active")}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {t("pricingLockedSubtitle") || "All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed."}
+                {t("pricingLockedSubtitle", "Your plan's features are unlocked. A founding price is kept as long as your subscription stays active.")}
               </div>
             </div>
             <Button
@@ -637,14 +660,16 @@ export default function SubscriptionPage() {
                 {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, unlimited Copilot, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
               </div>
             </div>
-            <Button
-              variant="accent"
-              size="md"
-              onClick={() => handleCta("pro")}
-              className="whitespace-nowrap"
-            >
-              {t("pricingLockInRate") || "Lock in founding rate"}
-            </Button>
+            {!businessOnlyBlocked && (
+              <Button
+                variant="accent"
+                size="md"
+                onClick={() => handleCta("pro")}
+                className="whitespace-nowrap"
+              >
+                {t("pricingLockInRate") || "Lock in founding rate"}
+              </Button>
+            )}
           </div>
         </Card>
       ) : null}
@@ -675,7 +700,7 @@ export default function SubscriptionPage() {
                 {t("pricingTrialStep2Title") || "Pick your path"}
               </div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">→ {t("pricingTrialStep2BodyLock") || "Lock in founding rate: add card now, your founding price (Starter 129 / Pro 249) is locked for life"}</span>
+                <span className="block">→ {t("pricingTrialStep2BodyLock", "Lock in founding rate: add a card now — your founding price (Starter 129 / Pro 249) is kept as long as your subscription stays active")}</span>
                 <span className="block mt-1">→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
               </div>
             </div>
@@ -715,8 +740,8 @@ export default function SubscriptionPage() {
               sold-out state. */}
           {foundingRemaining != null && (
             <div className="mt-5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-medium text-gray-700 dark:text-gray-300">
-              {(t("pricingFoundingChipNew", "First {limit} customers — founding price locked for life · {remaining} spots left") ||
-                "First {limit} customers — founding price locked for life · {remaining} spots left")
+              {(t("pricingFoundingChipNew", "First {limit} customers — founding price kept as long as your subscription stays active · {remaining} spots left") ||
+                "First {limit} customers — founding price kept as long as your subscription stays active · {remaining} spots left")
                 .replace("{remaining}", foundingRemaining)
                 .replace("{limit}", foundingLimit)}
             </div>
@@ -766,6 +791,28 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* Release R-e — businesses only: a personal account sees why the paid
+          tiers can't be bought, and where to change the account type. */}
+      {businessOnlyBlocked && (
+        <Card variant="default" className="mb-6" data-testid="business-only-notice">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {t("pricingBusinessOnlyTitle", "Paid plans are for businesses only")}
+          </div>
+          <p className="text-[13px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">
+            {t(
+              "pricingBusinessOnlyBody",
+              "This account is set up for personal finance, so Starter and Pro can't be bought on it. You can keep using BonBox for free. If you use BonBox in a business, change the business type under Profile.",
+            )}
+          </p>
+          <Link
+            to="/profile"
+            className="inline-block mt-2 text-[13px] font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+          >
+            {t("pricingBusinessOnlyProfileLink", "Go to Profile")}
+          </Link>
+        </Card>
+      )}
+
       {/* Status confirmation banner */}
       {msg && (
         <div className="mb-6 text-center text-sm bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 rounded-xl px-4 py-3 border border-gray-100/60 dark:border-gray-800/60">
@@ -809,13 +856,20 @@ export default function SubscriptionPage() {
             ctaVariant = !user ? "accent" : "primary";
           }
 
+          // Businesses only (R-e): a personal account's Starter/Pro buttons
+          // are disabled and say so; the notice above explains why.
+          const blockedForPersonal =
+            businessOnlyBlocked && (tier.id === "starter" || tier.id === "pro");
           const ctaDisabled =
+            blockedForPersonal ||
             isCurrent ||
             pending === tier.id ||
             (!stripeReady && joined.has(tier.id));
 
           let ctaLabel;
-          if (isCurrent) {
+          if (blockedForPersonal) {
+            ctaLabel = t("pricingBusinessOnlyCta", "Businesses only");
+          } else if (isCurrent) {
             ctaLabel = `✓ ${t("currentPlan") || "Current plan"}`;
           } else if (pending === tier.id) {
             ctaLabel = t("pricingJoining") || "Joining…";

@@ -72,7 +72,7 @@ export default function PricingV2() {
           <p className="text-[17px] text-slate-600">
             {t(
               "landingV2.pricing.subhead",
-              "That price stays with you for as long as you're a customer. 199 kr after that."
+              "You keep that price as long as your subscription stays active. 199 kr after that."
             )}
           </p>
         </div>
@@ -193,7 +193,7 @@ export default function PricingV2() {
             <div className={trialNote}>
               {t(
                 "landingV2.pricing.starter.trial",
-                "14 days free · no card required · that price stays as long as you do"
+                "14 days free · no card required · the price stays as long as your subscription stays active"
               )}
             </div>
             {/* /register, not /login. These three buttons are the highest-

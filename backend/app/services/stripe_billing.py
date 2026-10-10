@@ -134,6 +134,96 @@ def _is_founding_member_slot_open(user: User, db: Session) -> bool:
     return current_count < settings.FOUNDING_MEMBER_LIMIT
 
 
+# ─────────────────────────── Checkout wording ──────────────────────────────
+#
+# What the owner reads on Stripe's page, in the owner's language
+# (services/owner_language.owner_lang: "da" for a Danish app, "en" otherwise).
+# Manoj's decision 3 (10 Oct 2026): the founding price is kept as long as the
+# subscription stays active without a break and is lost on cancellation — so
+# NOTHING here may say "for life" / "for altid" / "livstid".
+
+_DA_MONTHS = (
+    "januar", "februar", "marts", "april", "maj", "juni",
+    "juli", "august", "september", "oktober", "november", "december",
+)
+_EN_MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _charge_date(when: datetime, lang: str) -> str:
+    """"24. oktober 2026" (da) / "24 October 2026" (en). Explicit month
+    tables — strftime('%B') follows the server's C locale and was always
+    English, even for a Danish owner."""
+    if lang == "da":
+        return f"{when.day}. {_DA_MONTHS[when.month - 1]} {when.year}"
+    return f"{when.day} {_EN_MONTHS[when.month - 1]} {when.year}"
+
+
+def _subscription_description(plan: str, is_founding: bool, lang: str) -> str:
+    """The subscription's description — printed on Stripe invoices and
+    receipt e-mails. Names the plan actually bought (Starter vs Pro) and
+    whether it is the founding price; it used to read "BonBox Pro — Founding
+    member subscription" for every checkout."""
+    name = "BonBox Starter" if plan == "starter" else "BonBox Pro"
+    if not is_founding:
+        return name
+    return f"{name} (stifterpris)" if lang == "da" else f"{name} (founding price)"
+
+
+def _submit_message(
+    *, lang: str, is_founding: bool, amount_dkk: Optional[int],
+    trial_days: int, now: datetime,
+) -> str:
+    """The line above Stripe's pay button. Never invents a price: without a
+    retrieved amount it names no number. Never says "for life"."""
+    da = lang == "da"
+    if trial_days > 0:
+        date = _charge_date(now + timedelta(days=int(trial_days)), lang)
+        if da:
+            tail = f"Første træk: {date}. Opsiger du inden, bliver du ikke opkrævet."
+        else:
+            tail = f"First charge: {date}. Cancel before then and you won't be charged."
+    else:
+        tail = (
+            "Første træk i dag, derefter hver måned."
+            if da else "First charge today, then monthly."
+        )
+    if not is_founding:
+        if trial_days > 0:
+            return tail
+        return tail if da else "Subscribing now — first charge today, then monthly."
+    if da:
+        if amount_dkk is not None:
+            head = (
+                f"Du får stifterprisen på {amount_dkk} kr./md. Den gælder, "
+                f"så længe abonnementet er aktivt."
+            )
+        else:
+            head = "Du får stifterprisen. Den gælder, så længe abonnementet er aktivt."
+    else:
+        if amount_dkk is not None:
+            head = (
+                f"You're getting the founding-member rate of DKK {amount_dkk}/month, "
+                f"kept as long as your subscription stays active."
+            )
+        else:
+            head = (
+                "You're getting the founding-member rate, kept as long as your "
+                "subscription stays active."
+            )
+    return f"{head} {tail}"
+
+
+def _terms_consent_text(lang: str) -> str:
+    """Stripe's Terms checkbox label (only with STRIPE_TOS_CONSENT on)."""
+    url = f"{_safe_frontend_url()}/terms"
+    if lang == "da":
+        return f"Jeg accepterer BonBox' [handelsbetingelser]({url})."
+    return f"I accept the BonBox [Terms of Service]({url})."
+
+
 # ─────────────────────────── Customer management ───────────────────────────
 
 
@@ -232,8 +322,18 @@ def create_checkout_session(
     if not s:
         return None
 
+    # Paid plans are for businesses only (Manoj, 10 Oct 2026). The billing
+    # router refuses a personal account with a 403 before it gets here; this
+    # is the second layer, so no other caller can sell one a subscription.
+    from app.services.terms import is_personal_account
+    if is_personal_account(user):
+        log.warning("Refusing checkout for personal account user=%s (B2B only)", user.id)
+        return None
+
     # Local import avoids a circular import at module load (billing ↔ stripe).
     from app.services.billing import trial_days_remaining
+    from app.services.owner_language import owner_lang
+    lang = owner_lang(user)
 
     is_founding = _is_founding_member_slot_open(user, db)
 
@@ -333,10 +433,12 @@ def create_checkout_session(
     remaining = max(0, trial_days_remaining(user) or 0)
     sub_data = {
         # description appears on Stripe-side dashboards, invoices, and receipt
-        # emails. Reinforces the BonBox brand even though the underlying Stripe
-        # account is shared with DukaanAi. Per-product statement descriptor on
-        # the product itself ("BONBOX PRO") handles bank-statement display.
-        "description": "BonBox Pro — Founding member subscription",
+        # emails. It names the plan actually bought ("BonBox Starter",
+        # "BonBox Pro (stifterpris)") in the owner's language — it used to say
+        # "BonBox Pro — Founding member subscription" for every checkout. The
+        # underlying Stripe account is shared with DukaanAi; the per-product
+        # statement descriptor ("BONBOX PRO") handles bank-statement display.
+        "description": _subscription_description(plan_normalized, is_founding, lang),
         "metadata": {
             "bonbox_user_id": str(user.id),
             "bonbox_plan": plan,
@@ -381,45 +483,31 @@ def create_checkout_session(
         #     on day-N as Stripe's normal trial-end billing event
         session_kwargs["payment_method_collection"] = "always"
 
-        # Reinforce the "lock-in" framing on the Stripe page. Stripe's default
-        # CTA is "Start trial" which undersells what's actually happening — the
-        # user is committing to the founding rate for life. Surface that in the
-        # submit-button context line so the customer sees commitment + first-charge
-        # date in one beat.
-        if remaining > 0:
-            first_charge = utc_now() + timedelta(days=int(remaining))
-            charge_date = f"{first_charge.day} {first_charge.strftime('%B %Y')}"
-            if is_founding:
-                if amount_dkk is not None:
-                    submit_msg = (
-                        f"You're locking in the founding-member rate of DKK "
-                        f"{amount_dkk}/month for life. First charge: {charge_date}. "
-                        f"Cancel anytime before then to avoid being billed."
-                    )
-                else:
-                    # Soft-fail: no price number invented.
-                    submit_msg = (
-                        f"You're locking in the founding-member rate for life. "
-                        f"First charge: {charge_date}. Cancel anytime before then "
-                        f"to avoid being billed."
-                    )
-            else:
-                submit_msg = (
-                    f"First charge: {charge_date}. Cancel anytime before then to "
-                    f"avoid being billed."
-                )
-        else:
-            if is_founding:
-                if amount_dkk is not None:
-                    submit_msg = (
-                        f"Locking in the founding-member rate of DKK "
-                        f"{amount_dkk}/month for life."
-                    )
-                else:
-                    submit_msg = "Locking in the founding-member rate for life."
-            else:
-                submit_msg = "Subscribing now — first charge today, then monthly."
-        session_kwargs["custom_text"] = {"submit": {"message": submit_msg}}
+        # Stripe's own page in the owner's language — it otherwise follows
+        # the browser, so a Danish owner on an English browser got English.
+        session_kwargs["locale"] = "da" if lang == "da" else "en"
+
+        # The line above the pay button: the commitment and the first-charge
+        # date in one beat, in the owner's language. The founding price is
+        # "kept as long as your subscription stays active" (decision 3) —
+        # never "for life".
+        submit_msg = _submit_message(
+            lang=lang, is_founding=is_founding, amount_dkk=amount_dkk,
+            trial_days=int(remaining), now=utc_now(),
+        )
+        custom_text = {"submit": {"message": submit_msg}}
+
+        # Terms consent on Stripe's page — OFF unless STRIPE_TOS_CONSENT is set.
+        # Stripe REJECTS the whole session with consent_collection until a
+        # Terms URL is saved in the Stripe dashboard (Settings → Public
+        # details; owner action 4b), so turning this on before that would
+        # break every checkout. Flip the env var after the URL is saved.
+        if settings.STRIPE_TOS_CONSENT:
+            session_kwargs["consent_collection"] = {"terms_of_service": "required"}
+            custom_text["terms_of_service_acceptance"] = {
+                "message": _terms_consent_text(lang),
+            }
+        session_kwargs["custom_text"] = custom_text
 
         session = s.checkout.Session.create(**session_kwargs)
         return {
