@@ -74,6 +74,8 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } fro
 // Sheet gives the bottom sheet, the cap, the scroll and the pinned footer.
 import Sheet from "../components/ui/Sheet";
 import { useLocation, Link as RouterLink } from "react-router-dom";
+import ClaimQuestionResend from "../components/ClaimQuestionResend";
+import { heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
@@ -2021,6 +2023,12 @@ export default function StaffSchedulePage() {
         // Whose shifts changed but who has no email on file — named, so the
         // owner knows who still has to be told another way.
         notEmailed: Array.isArray(d.skipped_no_email_names) ? d.skipped_no_email_names : [],
+        // Nobody was e-mailed because the owner is not a confirmed sender yet
+        // ("email_unverified" / "claim_question_open"); the in-app alert and
+        // the push still went. Null from an older server.
+        mailHeld: d.mail_held || null,
+        // Over a staff-mail daily ceiling — not e-mailed, by name.
+        mailLimited: Array.isArray(d.skipped_mail_limit_names) ? d.skipped_mail_limit_names : [],
       });
     } catch (err) {
       setError(errText(err, t("stfPublishFailed", "Failed to publish schedule.")));
@@ -2040,6 +2048,10 @@ export default function StaffSchedulePage() {
   // converges. Tier-gated on `staff_portal_link` (Starter+/Trial).
   const [sharing, setSharing] = useState(false);
   const [shareToast, setShareToast] = useState("");
+  // A staff send BonBox refused because the owner is not a confirmed sender
+  // yet (403 email_unverified): the reason, shown with the one tap that fixes
+  // it ("Bekræft nu" / "Send spørgsmålet igen"), never the server's English.
+  const [mailHeldNotice, setMailHeldNotice] = useState(null);
   // Unified "Share schedule" sheet (2026-05-29) — replaces the email-only
   // window.confirm() with a checkbox picker: Select all / individual, then
   // Copy links (the UNIVERSAL channel — works for staff with no email, paste
@@ -2210,6 +2222,7 @@ export default function StaffSchedulePage() {
     setEmailing(true);
     setError("");
     setEmailToast("");
+    setMailHeldNotice(null);
     try {
       const r = await api.post("/staff/schedules/email", {
         week_start: toISO(weekStart),
@@ -2221,6 +2234,7 @@ export default function StaffSchedulePage() {
       const skippedWho = Array.isArray(r.data?.skipped_names) ? r.data.skipped_names : [];
       const failedRows = r.data?.failed || [];
       const failed = failedRows.length;
+      const limitedWho = Array.isArray(r.data?.skipped_mail_limit_names) ? r.data.skipped_mail_limit_names : [];
       // No "✓" glyph: the banner already carries the Lucide CheckCircle2, and
       // a text tick is a second icon system on the same line. Skipped and
       // failed people are NAMED — the owner acts on who, not how many.
@@ -2233,6 +2247,9 @@ export default function StaffSchedulePage() {
         msg += ` · ${failed} ${t("scheduleEmailFailed", "failed")}`;
         const failedWho = failedRows.map((f) => f?.name).filter(Boolean);
         if (failedWho.length) msg += `: ${failedWho.join(", ")}`;
+      }
+      if (limitedWho.length) {
+        msg += ` · ${limitedWho.length} ${t("staffMailLimitSkipped")}: ${limitedWho.join(", ")}`;
       }
       setEmailToast(msg);
       setTimeout(() => setEmailToast(""), 7000);
@@ -2249,6 +2266,8 @@ export default function StaffSchedulePage() {
           // Lucide, not an emoji envelope — see the Sparkles note above.
           iconName: "Mail",
         });
+      } else if (heldReasonFromError(err)) {
+        setMailHeldNotice(heldReasonFromError(err));
       } else {
         setError(detail?.message || (typeof detail === "string" ? detail : null) || (t("scheduleEmailFailedAll", "Couldn't email the schedule.")));
       }
@@ -2296,6 +2315,7 @@ export default function StaffSchedulePage() {
     setSharing(true);
     setError("");
     setShareToast("");
+    setMailHeldNotice(null);
     try {
       const r = await api.post("/staff/schedules/share-with-staff", {
         week_start: toISO(weekStart),
@@ -2317,6 +2337,10 @@ export default function StaffSchedulePage() {
         if (skippedWho.length) msg += `: ${skippedWho.join(", ")}`;
       }
       if (failed) msg += ` · ${failed} ${t("scheduleShareFailed", "failed")}`;
+      const limitedWho = Array.isArray(r.data?.skipped_mail_limit_names) ? r.data.skipped_mail_limit_names : [];
+      if (limitedWho.length) {
+        msg += ` · ${limitedWho.length} ${t("staffMailLimitSkipped")}: ${limitedWho.join(", ")}`;
+      }
       setShareToast(msg);
       setTimeout(() => setShareToast(""), 7000);
     } catch (err) {
@@ -2336,6 +2360,8 @@ export default function StaffSchedulePage() {
           // Lucide, not an emoji chain link — see the Sparkles note above.
           iconName: "Link2",
         });
+      } else if (heldReasonFromError(err)) {
+        setMailHeldNotice(heldReasonFromError(err));
       } else {
         setError(
           detail?.message ||
@@ -3137,6 +3163,18 @@ export default function StaffSchedulePage() {
           icon="Link2"
           onDismiss={() => setShareToast("")}
         />
+      )}
+      {/* A staff send held because the owner is not a confirmed sender yet. */}
+      {mailHeldNotice && (
+        <SectionBanner
+          severity="warn"
+          icon="Mail"
+          onDismiss={() => setMailHeldNotice(null)}
+        >
+          <span data-testid="staff-mail-held">
+            <StaffMailHeldLine reason={mailHeldNotice} t={t} />
+          </span>
+        </SectionBanner>
       )}
       {/* Autopilot-success toast (auto-dismisses after 7s) */}
       {autopilotToast && (
@@ -7844,6 +7882,30 @@ function StatTile({ icon, value, label }) {
   );
 }
 
+/** Why BonBox e-mailed none of the staff (the owner is not a confirmed
+ *  sender yet — services/staff_mail_guard), with the one tap that fixes it:
+ *  "Bekræft nu" for an unconfirmed address, "Send spørgsmålet igen" while
+ *  "Har du selv oprettet denne konto?" waits (never "Bekræft nu" there —
+ *  the address IS confirmed; utils/senderGate.js). */
+function StaffMailHeldLine({ reason, t }) {
+  const claimOpen = reason === HELD_CLAIM_OPEN;
+  return (
+    <>
+      {claimOpen ? t("staffMailHeldClaimOpen") : t("staffMailHeldUnverified")}{" "}
+      {claimOpen ? (
+        <ClaimQuestionResend testId="staff-mail-held-claim-resend" />
+      ) : (
+        <RouterLink
+          to="/verify-email?now=1"
+          className="font-semibold underline underline-offset-2 whitespace-nowrap"
+        >
+          {t("verifyEmailNowCta")}
+        </RouterLink>
+      )}
+    </>
+  );
+}
+
 function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm, onClose, onShare, t, lang }) {
   // The Shield warnings below arrive as raw numbers and used to be pasted into
   // catalogue strings that typed the hour unit themselves, so a Danish owner
@@ -7862,7 +7924,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
   // becomes the headline, the icon and the tone.
   //   result.notify === 0    → we know: nobody.
   //   result.notify === null → the server did not tell us; see below.
-  const toldNobody = done && result.published > 0 && result.notify === 0;
+  // Nobody was e-mailed because the owner is not a confirmed sender yet — a
+  // different fact from "nobody has an address": the in-app alert and the
+  // push went, and one tap fixes the mail. Said in its own line, with that tap.
+  const mailHeld = done && result.published > 0 ? (result.mailHeld || null) : null;
+  const toldNobody = done && result.published > 0 && result.notify === 0 && !mailHeld;
   const notifyUnknown = done && result.published > 0 && result.notify == null;
   const headerIcon = done ? (toldNobody ? "AlertTriangle" : "CheckCircle2") : "Send";
   const headerTone = toldNobody
@@ -7962,6 +8028,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                     ? t("stfPublishedLiveOne", "1 shift is now live on your team's schedule.")
                     : t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
                 </p>
+                {mailHeld ? (
+                  <p data-testid="publish-mail-held" className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                    <StaffMailHeldLine reason={mailHeld} t={t} />
+                  </p>
+                ) : (
                 <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                   {notifyUnknown
                     /* The server did not give us a count. "0 notified" would be
@@ -7974,6 +8045,7 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                       ? t("stfPublishedNotifiedOne", "1 staff member notified about their changes.")
                       : t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))}
                 </p>
+                )}
               </>
             )}
             {/* Who was NOT mailed, by name — their shifts changed and there
@@ -7984,6 +8056,11 @@ function PublishConfirmModal({ summary, result, weekStart, publishing, onConfirm
                 {t("publishedNotEmailed", "Not emailed (no address on file): {names}", {
                   names: result.notEmailed.join(", "),
                 })}
+              </p>
+            )}
+            {result.published > 0 && (result.mailLimited || []).length > 0 && (
+              <p data-testid="publish-mail-limited" className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                {t("staffMailLimitNames", { names: result.mailLimited.join(", ") })}
               </p>
             )}
           </div>
