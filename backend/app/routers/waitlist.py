@@ -6,6 +6,7 @@ Anonymous users can join too (just email + tier).
 """
 
 import re
+import threading
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,6 +14,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.utils.bounded import bound_window_dict
 from app.utils.client_ip import client_ip
 from app.models.user import User
 from app.models.waitlist import WaitlistEntry
@@ -79,18 +81,26 @@ def _try_get_user(request: Request, db: Session) -> User | None:
 # small extra safety net specific to waitlist signup to deter scripted spam.
 _recent: dict[str, list[float]] = {}
 _LIMIT_PER_MIN = 5
+# IPs tracked at once: the dict used to keep a key for every IP that ever
+# joined; quiet ones are swept once it passes this (app/utils/bounded.py).
+_MAX_TRACKED_IPS = 5000
+# join_waitlist is a plain `def` (threadpool), so two joins can touch the
+# dict at once; the sweep iterates it.
+_recent_lock = threading.Lock()
 
 
 def _ip_rate_check(request: Request) -> bool:
     import time
     ip = client_ip(request) if request else "unknown"
     now = time.time()
-    arr = _recent.setdefault(ip, [])
-    arr[:] = [t for t in arr if t > now - 60]
-    if len(arr) >= _LIMIT_PER_MIN:
-        return False
-    arr.append(now)
-    return True
+    with _recent_lock:
+        arr = _recent.setdefault(ip, [])
+        arr[:] = [t for t in arr if t > now - 60]
+        if len(arr) >= _LIMIT_PER_MIN:
+            return False
+        arr.append(now)
+        bound_window_dict(_recent, cutoff=now - 60, max_keys=_MAX_TRACKED_IPS)
+        return True
 
 
 @router.post("/join", status_code=201)

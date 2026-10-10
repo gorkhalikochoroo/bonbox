@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -39,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.user import User
+from app.utils.bounded import bound_stamp_dict
 from app.utils.time import utc_now
 
 log = logging.getLogger("bonbox.stripe")
@@ -439,6 +441,29 @@ def create_checkout_session(
 # worst case we sync once after a deploy, no harm).
 _LAST_SYNC: dict[str, datetime] = {}
 _SYNC_COOLDOWN_SECONDS = 30
+# Accounts tracked at once. A stamp past its 30 s cooldown decides nothing,
+# but every account that ever opened /billing/me used to keep one until the
+# next deploy; they are swept once the dict passes this (app/utils/bounded).
+_LAST_SYNC_MAX_USERS = 2000
+# Called from plain-`def` routes (threadpool): the sweep iterates the dict.
+_LAST_SYNC_LOCK = threading.Lock()
+
+
+def _sync_cooldown_active(user_id: str) -> bool:
+    """True while this account synced less than _SYNC_COOLDOWN_SECONDS ago."""
+    with _LAST_SYNC_LOCK:
+        last = _LAST_SYNC.get(user_id)
+    return bool(last and (utc_now() - last).total_seconds() < _SYNC_COOLDOWN_SECONDS)
+
+
+def _stamp_sync(user_id: str) -> None:
+    now = utc_now()
+    with _LAST_SYNC_LOCK:
+        _LAST_SYNC[user_id] = now
+        bound_stamp_dict(
+            _LAST_SYNC, stale_before=now - timedelta(seconds=_SYNC_COOLDOWN_SECONDS),
+            max_keys=_LAST_SYNC_MAX_USERS,
+        )
 
 
 def _find_customer_by_user_metadata(s, user: User) -> Optional[str]:
@@ -491,11 +516,9 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
     if not s:
         return None
 
-    if not force:
-        last = _LAST_SYNC.get(str(user.id))
-        if last and (utc_now() - last).total_seconds() < _SYNC_COOLDOWN_SECONDS:
-            return {"status": "skipped", "reason": "cooldown"}
-    _LAST_SYNC[str(user.id)] = utc_now()
+    if not force and _sync_cooldown_active(str(user.id)):
+        return {"status": "skipped", "reason": "cooldown"}
+    _stamp_sync(str(user.id))
 
     # L2: recover orphaned customer link if missing
     if not user.stripe_customer_id:

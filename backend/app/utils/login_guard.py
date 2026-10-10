@@ -21,11 +21,23 @@ bad password, so an attacker can't tell which emails exist or are locked.
 import threading
 import time
 
+from app.utils.bounded import bound_stamp_dict, bound_window_dict
+
 # Tunables. 8 failures inside a 15-minute window locks the account for 15
 # minutes. Real users almost never fail 8× in 15 min; attackers are bounded.
 _WINDOW_SECONDS = 15 * 60
 _MAX_FAILURES = 8
 _LOCKOUT_SECONDS = 15 * 60
+# E-mails tracked at once. Every failed login with a NEW e-mail (typos,
+# credential-stuffing lists) used to add a key that stayed until the next
+# deploy unless that same e-mail logged in or was checked after its lockout.
+# Past these sizes the dicts first shed what decides nothing any more —
+# failures all older than the window, locks that have run out — so what stays
+# is the e-mails that failed in the last 15 minutes (~250 bytes each, ~5 MB at
+# the limit). Only a flood of more live e-mails than that sheds the ones that
+# failed longest ago; the per-IP 10/minute login limit still applies to it.
+_MAX_TRACKED_EMAILS = 20_000
+_MAX_LOCKED_EMAILS = 10_000
 
 _lock = threading.Lock()
 # email(lowercased) -> list[failure_timestamp]
@@ -67,6 +79,8 @@ def record_failure(email: str | None) -> None:
         _failures[key] = recent
         if len(recent) >= _MAX_FAILURES:
             _locked_until[key] = now + _LOCKOUT_SECONDS
+            bound_stamp_dict(_locked_until, stale_before=now, max_keys=_MAX_LOCKED_EMAILS)
+        bound_window_dict(_failures, cutoff=now - _WINDOW_SECONDS, max_keys=_MAX_TRACKED_EMAILS)
 
 
 def clear(email: str | None) -> None:

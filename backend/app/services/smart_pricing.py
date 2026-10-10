@@ -98,6 +98,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.inventory import InventoryItem
 from app.models.security_event import SecurityEvent
 from app.models.user import User
+from app.utils.bounded import bound_stamp_dict
 from app.services.menu_item_categories import (
     CANONICAL_NAMES,
     get_category_group,
@@ -141,6 +142,11 @@ MAX_COHORT_ROWS: int = 5000
 
 _CACHE: dict[tuple[str, str, str], tuple[float, dict]] = {}
 _CACHE_LOCK = threading.Lock()
+# Entries kept at once. The key holds the caller's item name, so every new
+# name added an entry that an expired TTL only removed if the SAME key was
+# asked again; past this size expired entries go first, then the soonest to
+# expire (app/utils/bounded).
+_CACHE_MAX_ENTRIES = 2000
 
 
 def _cache_get(key: tuple[str, str, str]) -> Optional[dict]:
@@ -156,8 +162,12 @@ def _cache_get(key: tuple[str, str, str]) -> Optional[dict]:
 
 
 def _cache_set(key: tuple[str, str, str], payload: dict) -> None:
+    now = time.time()
     with _CACHE_LOCK:
-        _CACHE[key] = (time.time() + CACHE_TTL_SECONDS, payload)
+        _CACHE[key] = (now + CACHE_TTL_SECONDS, payload)
+        bound_stamp_dict(
+            _CACHE, stale_before=now, max_keys=_CACHE_MAX_ENTRIES, stamp=lambda v: v[0],
+        )
 
 
 def _cache_clear() -> None:

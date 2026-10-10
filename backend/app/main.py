@@ -3533,6 +3533,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 import logging
 import time as _time
 import traceback as _tb
+from app.utils.bounded import bound_stamp_dict, bound_window_dict
 _security_logger = logging.getLogger("bonbox.security")
 _error_logger = logging.getLogger("bonbox.errors")
 
@@ -3541,6 +3542,9 @@ _error_logger = logging.getLogger("bonbox.errors")
 _recent_exception_fingerprints: dict[str, list[float]] = {}
 _EXCEPTION_FINGERPRINT_WINDOW = 60  # seconds
 _EXCEPTION_SPIKE_THRESHOLD = 10  # exceptions/min from one IP triggers audit log
+# IPs tracked at once. Keys used to stay for the life of the process (one per
+# IP that ever hit a 500); quiet ones are swept once the dict passes this.
+_EXCEPTION_MAX_TRACKED_IPS = 5000
 
 
 def _audit_exception_spike(ip: str, fingerprint: str):
@@ -3560,6 +3564,9 @@ def _audit_exception_spike(ip: str, fingerprint: str):
             ip, len(bucket), fingerprint,
         )
         bucket.clear()  # reset so we don't spam the same alert
+    bound_window_dict(
+        _recent_exception_fingerprints, cutoff=cutoff, max_keys=_EXCEPTION_MAX_TRACKED_IPS,
+    )
 
 
 @app.exception_handler(Exception)
@@ -3948,6 +3955,11 @@ _admin_ip_banned: dict[str, float] = {}
 _ADMIN_STRIKE_WINDOW_SEC = 60
 _ADMIN_STRIKE_LIMIT = 20  # 4xx hits in window before ban
 _ADMIN_BAN_DURATION_SEC = 600  # 10-minute ban
+# IPs tracked at once in each of the two dicts above. Both used to keep a key
+# for every IP that ever drew a 4xx on /api/admin — scanners rotate IPs, so
+# they grew until the next deploy. Quiet strike lists and expired bans are
+# swept once a dict passes this; a live ban is the last thing dropped.
+_ADMIN_MAX_TRACKED_IPS = 5000
 
 
 @app.middleware("http")
@@ -3965,6 +3977,8 @@ async def admin_scan_blocker(request: Request, call_next):
             content={"detail": "Not found"},
             headers={"Retry-After": str(int(ban_until - now))},
         )
+    if ban_until:
+        _admin_ip_banned.pop(ip, None)  # served its ten minutes
     # Run the request
     response = await call_next(request)
     # Track strikes on 4xx responses
@@ -3977,6 +3991,8 @@ async def admin_scan_blocker(request: Request, call_next):
         if len(strikes) >= _ADMIN_STRIKE_LIMIT:
             _admin_ip_banned[ip] = now + _ADMIN_BAN_DURATION_SEC
             strikes.clear()
+            bound_stamp_dict(_admin_ip_banned, stale_before=now, max_keys=_ADMIN_MAX_TRACKED_IPS)
+        bound_window_dict(_admin_ip_strikes, cutoff=cutoff, max_keys=_ADMIN_MAX_TRACKED_IPS)
     return response
 
 
@@ -4000,6 +4016,7 @@ async def admin_scan_blocker(request: Request, call_next):
 _COARSE_LIMIT = 600           # requests
 _COARSE_WINDOW_SEC = 60.0
 _coarse_hits: dict[str, list[float]] = {}
+_COARSE_MAX_TRACKED_IPS = 5000
 _COARSE_EXEMPT = frozenset(
     {"/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive"}
 )
@@ -4026,11 +4043,11 @@ async def coarse_ip_ceiling(request: Request, call_next):
     hits.append(now)
 
     # Keep the dict from growing without bound under a rotating-IP flood: once
-    # it is large, drop the entries that have gone quiet. Cheap and only runs
+    # it is large, drop the entries that have gone quiet — and, if more than
+    # that many IPs are all live at once, the ones seen longest ago (that was
+    # missing: a flood of live IPs grew it without limit). Cheap and only runs
     # when it needs to.
-    if len(_coarse_hits) > 5000:
-        for k in [k for k, v in _coarse_hits.items() if not v or v[-1] <= cutoff]:
-            _coarse_hits.pop(k, None)
+    bound_window_dict(_coarse_hits, cutoff=cutoff, max_keys=_COARSE_MAX_TRACKED_IPS)
 
     return await call_next(request)
 
@@ -4835,6 +4852,7 @@ _REFRESH_EXEMPT_PATHS = frozenset({
 # forensic granularity, the actual refresh STILL fires every time.
 _refresh_audit_dedup: dict[str, float] = {}
 _REFRESH_AUDIT_TTL_SEC = 60 * 60 * 24  # 24h
+_REFRESH_AUDIT_MAX_USERS = 5000
 
 
 def _refresh_audit_should_log(user_id: str) -> bool:
@@ -4846,12 +4864,14 @@ def _refresh_audit_should_log(user_id: str) -> bool:
     if now - last < _REFRESH_AUDIT_TTL_SEC:
         return False
     _refresh_audit_dedup[user_id] = now
-    # Best-effort cap on cache growth (5k users max retained)
-    if len(_refresh_audit_dedup) > 5000:
-        # Drop oldest half — cheapest possible eviction
-        cutoff = now - _REFRESH_AUDIT_TTL_SEC
-        for k in [k for k, t in _refresh_audit_dedup.items() if t < cutoff]:
-            _refresh_audit_dedup.pop(k, None)
+    # Cap on cache growth (5k users retained): stamps older than the TTL go
+    # first; if 5k users all refreshed inside 24 h, the oldest stamps go (that
+    # user may get one extra audit row — the old sweep never got under 5k
+    # then, and rescanned the whole dict on every refresh).
+    bound_stamp_dict(
+        _refresh_audit_dedup, stale_before=now - _REFRESH_AUDIT_TTL_SEC,
+        max_keys=_REFRESH_AUDIT_MAX_USERS,
+    )
     return True
 
 
