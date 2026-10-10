@@ -1192,6 +1192,13 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     for (const d of S.deletedRows.slice(deletesChecked)) {
       STATS.D += 1;
       if (d.__action === "banner") continue;
+      // R-c round 2 — the card's Start forfra deletes the version a refusal
+      // SHOWED ("Kladden er gemt et andet sted — 12.000 kr."), as the banner's
+      // deletes the version it showed: offered to this visit by the server,
+      // and named by the question (M6 holds the amount said to the one
+      // deleted).
+      const dk = `${String(d.date).slice(0, 10)}|${d.branch_id || ""}`;
+      if (d.__action === "card" && (S.offered.get(`${d.__mount}|${dk}`) || 0) >= d.__ver) { STATS.Dshown = (STATS.Dshown || 0) + 1; continue; }
       const others = d.__writer === "other" || d.__writer === "seed" || d.__byQueue
         || (typeof d.__writer === "number" && d.__writer !== d.__mount);
       if (!others) continue;

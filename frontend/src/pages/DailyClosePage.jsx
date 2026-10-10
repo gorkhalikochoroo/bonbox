@@ -3428,10 +3428,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       // is saving for it SINCE goes with the figures (R-c review) — its
       // draft from before is not on the form, never deleted for them (the
       // delete is on the version the form holds — deleteDayDraft).
-      const curHolds = releasedFor(curKey) ? savingSince(curKey)
+      // R-c round 2 — a draft stored for the day that a save of it was
+      // refused over ("Kladden er gemt et andet sted"): the day's stored
+      // draft — named ("Kladden for {from} slettes"), never "Intet er gemt",
+      // and deleted on exactly the version shown.
+      const conflictRow = draftConflict?.key === curKey && draftConflict.current
+        && typeof draftConflict.current === "object" && draftConflict.current.id != null ? draftConflict.current : null;
+      const curHolds = Boolean(conflictRow) || (releasedFor(curKey) ? savingSince(curKey)
         : Boolean(ownRowsRef.current[curKey] || lostSaveRef.current[curKey]
           || keyInflightRef.current[curKey]?.size || failedBodyRef.current[curKey]
-          || pendingSaveRef.current?.key === curKey || ownDraftKeys.has(curKey));
+          || pendingSaveRef.current?.key === curKey || ownDraftKeys.has(curKey)));
       if (curHolds && !keys.includes(curKey)) keys.push(curKey);
       const goes = keys.filter((k) => k !== nextKey);
       const from = pending?.from && !String(nextKey).startsWith(`${pending.from}|`) ? pending.from : businessDate;
@@ -3466,6 +3472,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         moveFromRef.current = goes.length ? {
           from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current, runNo: runNoRef.current,
           server: true, outboxId,
+          // (The version the refusal's box showed: the one the question named.)
+          shown: { ...(pending?.shown || {}), ...(conflictRow ? { [curKey]: conflictRow } : {}) },
         } : null;
         if (moveFromRef.current) movesRef.current[nextKey] = moveFromRef.current;
         // The figures are the new day's now: a draft of them that got no
@@ -4650,7 +4658,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const listed = (existingClosesRef.current || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIdsRef.current.has(dc.id));
     let id = shown?.id ?? own?.id ?? listed?.id ?? null;
     if (id == null && !lost) {
-      if (!forMove) return "none";
+      // R-c round 2 — Start forfra too (as the move below always did): the
+      // form holds NO version of the day (its saves were refused — after a
+      // reload during a save, the earlier visit's draft landed after this
+      // visit listed the day), so the server is asked. A draft there is not
+      // the form's: kept, and shown — the day's banner from this read —
+      // never cleared off the screen with nothing said.
       // Release R-c (sequence lane) — a move's old day the form holds NO
       // version of: its own saves of it got no answer (offline — on no
       // server), and History lists nothing there. That is not "nothing is
@@ -4669,10 +4682,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       }
       if (row) {
         if (out) out.row = row;
+        if (!forMove) forgetDay(key);
         setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
         onDraftSaved?.();
-        return (row.status || "confirmed") !== "draft" ? "locked" : "changed";
+        // ("other" for Start forfra: a draft the form never had — not one
+        // "saved on another device meanwhile", which it may not be.)
+        return (row.status || "confirmed") !== "draft" ? "locked" : forMove ? "changed" : "other";
       }
+      if (!forMove) return "none";
       return queuedCopyMayFile(key) ? "queued" : "none";
     }
     // Round 23 review — deleted only on a version this form HOLDS (the one
@@ -4906,6 +4923,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       if (f.status === "deleted") {
         forgetDay(k);
         delete failedBodyRef.current[k];
+        // (The refusal's box named the draft the move took away.)
+        setDraftConflict((c) => (c && c.key === k ? null : c));
         if (f.id != null) setDroppedIds((prev) => (prev.has(f.id) ? prev : new Set(prev).add(f.id)));
         setStartOverFailed((cur) => (cur && cur.key === k ? null : cur));
         outcomes.push({ key: k, outcome: "deleted" });
@@ -5188,15 +5207,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (startingOverRef.current || startOverReadingRef.current) return;
     const bannerRow = source === "banner" ? existingForDate : null;
     const key = bannerRow ? closeRowKey(bannerRow) : rowKey;
+    // R-c round 2 — a save of the day refused because a draft is stored for
+    // it (412, "Kladden er gemt et andet sted" — after a reload during a
+    // save, the earlier visit's 12.000): that draft IS the day's stored
+    // draft. Named in the question, and deleted on exactly that version on
+    // "Ja" — never cleared off the screen with nothing said.
+    const conflictRow = !bannerRow && draftConflict?.key === key && draftConflict.current
+      && typeof draftConflict.current === "object" && draftConflict.current.id != null ? draftConflict.current : null;
+    const shownRow = bannerRow || conflictRow;
     const own = ownRowsRef.current[key];
     const listed = (existingCloses || []).find((dc) => closeRowKey(dc) === key && !dc.is_deleted && !droppedIds.has(dc.id));
     const sentBody = sentBodyRef.current[key];
     // Something of the day is stored (or on its way): the form's own saves,
-    // a reopened draft — or the draft on the banner.
-    const filed = Boolean(bannerRow) || Boolean(own || sentBody || lostSaveRef.current[key]
+    // a reopened draft — or the draft on the banner (or the refusal's box).
+    const filed = Boolean(shownRow) || Boolean(own || sentBody || lostSaveRef.current[key]
       || keyInflightRef.current[key]?.size || failedBodyRef.current[key])
       || (Boolean(listed) && (Boolean(editingDate) || ownDraftKeys.has(key)));
-    let figure = bannerRow ? draftFigureOf(bannerRow)
+    let figure = shownRow ? draftFigureOf(shownRow)
       : sentBody ? draftFigureOf(rowOfBody(sentBody))
         : own?.row ? draftFigureOf(own.row)
           : listed ? draftFigureOf(listed) : "";
@@ -5205,7 +5232,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // last one never did). Read first when it can be: the question names the
     // draft as STORED when it is the form's own — the one the delete removes.
     // (Anyone else's is never deleted: refused, and said after.)
-    if (!bannerRow && lostSaveRef.current[key] && !(typeof navigator !== "undefined" && navigator.onLine === false)) {
+    if (!shownRow && lostSaveRef.current[key] && !(typeof navigator !== "undefined" && navigator.onLine === false)) {
       startOverReadingRef.current = true;
       try {
         const row = await readDayFresh(key);
@@ -5276,7 +5303,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const startedMove = moveFor(key);
     if (startedMove) dropMoveOutbox(startedMove);
     try {
-      if (filedNow) outcome = await deleteDayDraft(key, { shown: bannerRow, out });
+      if (filedNow) outcome = await deleteDayDraft(key, { shown: shownRow, out });
     } finally {
       startingOverRef.current = null;
       if (mountedRef.current) setStartOverBusy(false);
@@ -5300,8 +5327,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // meanwhile, or locked there): the form starts over as asked, and the
     // day's banner shows that draft — with why it was not deleted, and what
     // it holds now (the owner was told "slettes").
-    if (outcome === "changed" || outcome === "locked") {
-      setStartOverFailed({ outcome, key, amount: outcome === "changed" && out.row ? draftFigureOf(out.row) : "" });
+    // R-c round 2 — or a draft stored for the day that the form never had
+    // ("other": the earlier visit's, landed after this one listed the day):
+    // kept, and the day's banner shows it — never emptied away unsaid.
+    if (outcome === "changed" || outcome === "locked" || outcome === "other") {
+      setStartOverFailed({ outcome, key, amount: outcome !== "locked" && out.row ? draftFigureOf(out.row) : "" });
     }
   };
   // Named when the venue has several, so "a draft for this day" says whose.
@@ -6775,6 +6805,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             ? (startOverFailed.amount
               ? t("dcStartOverNotDeletedChanged", "Not deleted — the draft was saved on another device meanwhile (now {amount}). Continue it, or start over again.", { amount: startOverFailed.amount })
               : t("dcStartOverNotDeletedChangedNoAmount", "Not deleted — the draft was saved on another device meanwhile. Continue it, or start over again."))
+            : startOverFailed.outcome === "other"
+              ? t("dcStartOverNotDeletedOther", "Not deleted — another draft is saved for this day ({amount}). Continue it, or start over again.", { amount: startOverFailed.amount || "—" })
             : startOverFailed.outcome === "locked"
               ? t("dcStartOverNotDeletedLocked", "Not deleted — the day was locked on another device.")
               : t("dcStartOverNotDeleted", "The draft was not deleted. Try again.")}

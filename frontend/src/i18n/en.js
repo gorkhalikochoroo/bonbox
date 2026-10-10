@@ -8504,6 +8504,7 @@ export const en = {
     dcQueueCopyHolds: "Your copy: {amount}",
     dcStartOverNotDeletedChanged: "Not deleted — the draft was saved on another device meanwhile (now {amount}). Continue it, or start over again.",
     dcStartOverNotDeletedChangedNoAmount: "Not deleted — the draft was saved on another device meanwhile. Continue it, or start over again.",
+    dcStartOverNotDeletedOther: "Not deleted — another draft is saved for this day ({amount}). Continue it, or start over again.",
     dcStartOverNotDeletedLocked: "Not deleted — the day was locked on another device.",
     dcDateMovedNotSavedYet: "Not saved for {to} yet — nothing is deleted for {from}",
     dcDateMovedUnconfirmed: "The move to {to} isn't confirmed yet",

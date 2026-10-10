@@ -8213,6 +8213,7 @@ export const da = {
     dcQueueCopyHolds: "Din kopi: {amount}",
     dcStartOverNotDeletedChanged: "Ikke slettet — kladden blev gemt på en anden enhed imens (nu {amount}). Fortsæt den, eller start forfra igen.",
     dcStartOverNotDeletedChangedNoAmount: "Ikke slettet — kladden blev gemt på en anden enhed imens. Fortsæt den, eller start forfra igen.",
+    dcStartOverNotDeletedOther: "Ikke slettet — der er gemt en anden kladde for dagen ({amount}). Fortsæt den, eller start forfra igen.",
     dcStartOverNotDeletedLocked: "Ikke slettet — dagen blev låst på en anden enhed.",
     dcDateMovedNotSavedYet: "Ikke gemt for {to} endnu — intet er slettet for {from}",
     dcDateMovedUnconfirmed: "Flytningen til {to} er ikke bekræftet endnu",
