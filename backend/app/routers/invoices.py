@@ -173,10 +173,13 @@ def get_invoice_usage(
     Used by FakturaPage to render the inline progress chip + the
     "Upgrade to Pro for unlimited" nudge near the 30-cap edge.
     """
-    from datetime import date as _date
     from app.services.billing import get_cap, effective_plan
+    from app.services.tz_utils import today_local
 
-    today = _date.today()
+    # The venue's month, the same clock the cap check (_enforce_monthly_invoice_cap)
+    # and issue_date use. The server's UTC date showed last month's count
+    # from local midnight on the 1st until 01:00/02:00.
+    today = today_local(user)
     month_start = today.replace(day=1)
     if today.month == 12:
         next_month_start = today.replace(year=today.year + 1, month=1, day=1)

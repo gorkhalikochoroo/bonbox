@@ -900,6 +900,54 @@ def test_kreditnota_is_dated_in_the_venue_day(
     assert current["invoice_revenue"] == 0
 
 
+def test_unmark_paid_reads_overdue_in_the_venue_day(db, user, customer, monkeypatch):
+    """Unmarking a payment puts the invoice back to 'overdue' when its due
+    date has passed in the venue's calendar. At 00:33 CEST the UTC server
+    still says yesterday, so an invoice due yesterday (local) went back to
+    'sent' instead."""
+    from app.services.tz_utils import today_local
+
+    instant = datetime(2026, 10, 9, 22, 33, tzinfo=timezone.utc)
+    _freeze_utc_server_clock(monkeypatch, instant)
+    local_today = today_local(user)
+    inv = InvoiceService.create_draft(
+        db, user, customer.id,
+        issue_date=local_today - timedelta(days=15), due_days=14,
+        lines=[{"description": "Event", "quantity": Decimal("1"),
+                "unit_price_net": Decimal("200.00"), "moms_rate": Decimal("0.250")}],
+    )
+    InvoiceService.mark_sent(db, user, inv.id)
+    InvoiceService.mark_paid(db, user, inv.id, Decimal("250.00"), source="manual")
+    assert inv.due_date == local_today - timedelta(days=1) == instant.date()
+
+    InvoiceService.unmark_paid(db, user, inv.id)
+    assert inv.status == "overdue"
+
+
+def test_invoice_usage_chip_counts_the_venue_month(db, user, customer, monkeypatch):
+    """GET /api/invoices/usage ("12 of 30 this month") counts the venue's
+    month, like the cap check that enforces it. Frozen at 00:30 CET on
+    1 Jan 2031 (UTC: still 31 Dec 2030): the invoice issued now counts, the
+    one issued yesterday belongs to last month and does not."""
+    from app.routers.invoices import get_invoice_usage
+
+    instant = datetime(2030, 12, 31, 23, 30, tzinfo=timezone.utc)
+    _freeze_utc_server_clock(monkeypatch, instant)
+    now_inv = _make_invoice(db, user, customer, Decimal("125.00"))
+    assert now_inv.issue_date == date(2031, 1, 1)
+    last_month = InvoiceService.create_draft(
+        db, user, customer.id, issue_date=date(2030, 12, 31),
+        lines=[{"description": "Nytårsmenu", "quantity": Decimal("1"),
+                "unit_price_net": Decimal("100.00"), "moms_rate": Decimal("0.250")}],
+    )
+    InvoiceService.mark_sent(db, user, last_month.id)
+    db.commit()
+
+    usage = get_invoice_usage(db=db, user=user)
+    assert usage["month"] == "2031-01"
+    assert usage["used_this_month"] == 1
+
+
 # ─── Test 10: AI Daily Brief faktura section ─────────────────────
 
 

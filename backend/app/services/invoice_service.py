@@ -390,8 +390,10 @@ class InvoiceService:
             "paid_via": inv.paid_via,
         }
 
-        # Restore to 'sent' or 'overdue' based on whether due_date passed
-        new_status = "overdue" if inv.due_date < date.today() else "sent"
+        # Restore to 'sent' or 'overdue' based on whether due_date passed,
+        # in the venue's calendar day (due_date is issue_date + terms, both
+        # local dates). The server's UTC date lags by 1-2h after midnight.
+        new_status = "overdue" if inv.due_date < today_local(user) else "sent"
         inv.status = new_status
         inv.paid_at = None
         inv.paid_amount = None
