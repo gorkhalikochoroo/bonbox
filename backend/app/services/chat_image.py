@@ -83,7 +83,8 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
     try:
-        with Image.open(io.BytesIO(raw_bytes)) as img:
+        # PNG / JPEG decoders only — the magic bytes said one of the two.
+        with Image.open(io.BytesIO(raw_bytes), formats=["PNG", "JPEG"]) as img:
             # Decompression-bomb guard — reject huge pixel dimensions BEFORE
             # img.load() allocates the full RGB bitmap. A tiny highly-
             # compressible PNG can decode to 100M+ px (~hundreds of MB each)
@@ -159,7 +160,8 @@ def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
     try:
-        with Image.open(io.BytesIO(raw_bytes)) as img:
+        # PNG / JPEG decoders only — the magic bytes said one of the two.
+        with Image.open(io.BytesIO(raw_bytes), formats=["PNG", "JPEG"]) as img:
             # Decompression-bomb guard: img.size is known right after open,
             # BEFORE the full decode. A small, highly-compressible file can
             # explode to hundreds of MB of bitmap on load(); reject absurd

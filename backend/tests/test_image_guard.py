@@ -321,3 +321,63 @@ def test_a_truncated_photo_on_the_z_report_scan_gets_the_owners_language_and_is_
     assert r.json()["detail"] == image_guard.refusal_message(lang)
     assert any("scan-report decode failed" in rec.getMessage() for rec in caplog.records)
 
+
+# ─── R-d fix-up: the logo upload never touches Pillow's global ceiling ──
+
+def test_the_logo_decode_never_changes_pillows_process_wide_pixel_ceiling(monkeypatch):
+    """The logo upload runs in the threadpool now. It used to lower the
+    process-global Image.MAX_IMAGE_PIXELS and restore it afterwards; two
+    parallel uploads could interleave that and leave the whole process at
+    the logo's 16M ceiling. The global must be untouched DURING the call."""
+    from app.services import logo_service
+
+    sentinel = 123_456_789
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", sentinel)
+    seen = []
+    real_open = Image.open
+
+    def spy_open(*a, **k):
+        seen.append(Image.MAX_IMAGE_PIXELS)
+        return real_open(*a, **k)
+
+    monkeypatch.setattr(Image, "open", spy_open)
+    out = logo_service._strip_and_optimize(_canvas("PNG", (64, 64)), "png")
+    assert out.startswith(b"\x89PNG")
+    assert seen == [sentinel]
+    assert Image.MAX_IMAGE_PIXELS == sentinel
+
+
+def test_parallel_logo_uploads_leave_the_pixel_ceiling_as_it_was():
+    import threading as _threading
+
+    from app.services import logo_service
+
+    before = Image.MAX_IMAGE_PIXELS
+    raw = _canvas("JPEG", (600, 400))
+    errors = []
+
+    def run():
+        try:
+            for _ in range(15):
+                logo_service._strip_and_optimize(raw, "jpeg")
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [_threading.Thread(target=run) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert errors == []
+    assert Image.MAX_IMAGE_PIXELS == before
+
+
+def test_the_logo_and_chat_photo_decoders_are_png_and_jpeg_only():
+    import inspect as _inspect
+
+    from app.services import chat_image, logo_service
+
+    for mod in (logo_service, chat_image):
+        src = _inspect.getsource(mod)
+        assert "Image.open(" in src
+        assert src.count("Image.open(") == src.count('formats=["PNG", "JPEG"]'), mod.__name__
