@@ -8,6 +8,9 @@ import { GoogleLogin } from "@react-oauth/google";
 // Task #65 — Apple Sign-In button (web). Self-renders nothing when
 // VITE_APPLE_CLIENT_ID is unset, so dev builds stay quiet.
 import AppleSignInButton from "../components/AppleSignInButton";
+// Release R-e — "Ved at oprette en konto accepterer du vores
+// Handelsbetingelser og Privatlivspolitik." (LEG-11 / PQ-03).
+import SignupTermsLine from "../components/SignupTermsLine";
 import { rememberVerifySkip } from "../utils/verifySkip";
 
 /* Inline SVG — growth / rocket scene for registration */
@@ -261,9 +264,12 @@ export default function RegisterPage() {
     // `ui_language` — the language this form is shown in. The server writes
     // the verification code and welcome mails in it (a Danish signup used to
     // get both in English) and saves it as the account's app language.
+    // accept_terms — this page shows the Terms acceptance line
+    // (SignupTermsLine) wherever its sign-up buttons are, so the server records
+    // the Terms version on the new account (backend services/terms.py).
     const submitData = isNative
-      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang }
-      : { ...form, ui_language: lang };
+      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang, accept_terms: true }
+      : { ...form, ui_language: lang, accept_terms: true };
     if (!isNative && !form.business_type) { setError(t("pleaseSelectType")); return; }
     setLoading(true);
     try {
@@ -443,7 +449,7 @@ export default function RegisterPage() {
                     onSuccess={async ({ idToken, name }) => {
                       setError("");
                       try {
-                        await appleOauthLogin(idToken, name);
+                        await appleOauthLogin(idToken, name, { acceptTerms: true });
                         navigate("/dashboard");
                       } catch (err) {
                         setError(oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t));
@@ -460,7 +466,7 @@ export default function RegisterPage() {
                       onSuccess={(res) => {
                         setError("");
                         const fn = googleOauthLogin || googleLogin;
-                        fn(res.credential)
+                        fn(res.credential, { acceptTerms: true })
                           .then(() => navigate("/dashboard"))
                           .catch((err) => setError(oauthErrText(err, t("googleSignupFailed"), t)));
                       }}
@@ -473,6 +479,11 @@ export default function RegisterPage() {
                     />
                   </div>
                 )}
+                {/* Release R-e — the Terms acceptance line, beside the
+                    Google/Apple row: those buttons create the account
+                    without the form, so the line must be seen here. It also
+                    covers the e-mail form below — it renders once. */}
+                <SignupTermsLine isNative={isNative} className="pt-1" />
                 <div className="flex items-center gap-3 pt-2">
                   <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
                   <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -690,6 +701,11 @@ export default function RegisterPage() {
                   </>
                 ) : t("createAccount")}
               </button>
+              {/* Release R-e — with no Google/Apple row, the Terms acceptance
+                  line sits under "Opret konto" instead (it renders once). */}
+              {!(hasAppleWeb || hasAppleNative || hasGoogle) && (
+                <SignupTermsLine isNative={isNative} className="-mt-2" />
+              )}
             </form>
 
             {/* OAuth providers (Apple + Google) live ABOVE the form

@@ -34,7 +34,9 @@ const PAGES = [
   {
     name: "TermsPage",
     Page: TermsPage,
-    da: { h1: "Servicevilkår", h2: "11. Ansvarsbegrænsning" },
+    // R-e: the Danish document is "Handelsbetingelser" (it now carries §8
+    // Abonnement og betaling) — the name the footer and the sign-up line use.
+    da: { h1: "Handelsbetingelser", h2: "11. Ansvarsbegrænsning" },
     en: { h1: "Terms of Service", h2: "11. Limitation of liability" },
   },
   {
