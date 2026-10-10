@@ -3289,7 +3289,6 @@ def publish_week(
                 SKIP_HELD, SKIP_NO_ADDRESS, StaffMailGate,
             )
             _gate = StaffMailGate.load(db, user)
-            mail_held = _gate.held
             _changed = db.query(StaffMember).filter(
                 StaffMember.id.in_(changed_ids),
                 StaffMember.user_id == user.id,
@@ -3300,7 +3299,9 @@ def publish_week(
                 if _skip == SKIP_NO_ADDRESS:
                     skipped_names.append(_m.name or "—")
                 elif _skip == SKIP_HELD:
-                    continue
+                    # Only said when someone could have been mailed: with no
+                    # address on file the true reason is "no address".
+                    mail_held = _gate.held
                 elif _skip:
                     limit_names.append(_m.name or "—")
                 else:

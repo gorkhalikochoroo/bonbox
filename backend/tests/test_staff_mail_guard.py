@@ -524,3 +524,17 @@ def test_staff_self_edit_uses_the_same_strict_rule(client, db):
     db.refresh(anna)
     assert anna.email == "anna@cafe.dk"
     sp.limiter.reset()
+
+
+def test_publish_names_the_sender_only_when_someone_could_be_mailed(client, db, mails, pushes):
+    """Held, but nobody has an address: the true reason is "no address", so
+    mail_held stays None and the no-address names carry the message."""
+    owner = _owner(db, verified=False)
+    nomail = _staff(db, owner, name="NoMail", email=None)
+    _shift(db, owner, nomail)
+    _as(owner)
+    body = client.post("/api/staff/schedules/publish",
+                       params={"week_start": MONDAY.isoformat()}).json()
+    assert body["mail_held"] is None
+    assert body["skipped_no_email_names"] == ["NoMail"]
+    assert body["notify_count"] == 0
