@@ -9317,7 +9317,7 @@ export const da = {
     pricingAfterTrialBodyNew: 'Intet dramatisk. Dine data bliver, og alle funktioner er stadig synlige. Det er disse grænser, der vender tilbage, når prøveperioden slutter:',
     pricingAfterTrialCapClose: '30-sekunders daglig kasserapport',
     pricingAfterTrialCapHistory: '7 dages historik',
-    pricingAfterTrialCapOCR: '5 kvitteringsscanninger / dag',
+    pricingAfterTrialCapOCR: '10 kvitteringsscanninger / måned',
     pricingAfterTrialCapChat: '10 AI-chatbeskeder / dag',
     pricingAfterTrialCapBrief: '1 AI-brief-opdatering / dag',
     pricingAfterTrialCapExport: 'Manuel Excel / PDF / CSV-eksport',

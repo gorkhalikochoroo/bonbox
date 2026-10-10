@@ -180,7 +180,7 @@ export const np = {
   // SubscriptionPage TIERS array को लागि नयाँ keys।
   featFreeReceiptOCR10: "रसिद OCR — फोटो खिच्नुहोस्, हामी खर्च भर्छौं (१० / महिना)",
   featStarterReceipt200: "रसिद OCR — ३०० / महिना, AI-vision-ग्रेड शुद्धता",
-  featProReceipt500: "रसिद OCR — ५०० / महिना, AI-vision-ग्रेड शुद्धता",
+  featProReceipt500: "रसिद OCR — १,००० / महिना, AI-vision-ग्रेड शुद्धता",
   // Phase 1 expiry chain — Nepali keys
   featStarterExpiryAlerts:
     "स्टकको म्याद चेतावनी — सामान बिग्रिनुअघि सूचना, वार्षिक ५,०००+ DKK बचत",

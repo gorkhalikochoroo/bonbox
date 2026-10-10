@@ -205,7 +205,7 @@ const buildTiers = (t) => [
       { text: t("featProMulti3", "3 locations, you + 4 team members") || "3 locations, you + 4 team members" },
       { text: t("featProMultiTerm", "Multi-terminal close — merge Z-reports from every POS into one PDF") || "Multi-terminal close — merge Z-reports from every POS into one PDF" },
       { text: t("featProFakturaUnlimited", "Faktura — unlimited") || "Faktura — unlimited" },
-      { text: t("featProReceipt500", "Receipt OCR — 500 / month, AI vision-grade accuracy") || "Receipt OCR — 500 / month, AI vision-grade accuracy" },
+      { text: t("featProReceipt500", "Receipt OCR — 1000 / month, AI vision-grade accuracy") || "Receipt OCR — 1000 / month, AI vision-grade accuracy" },
       { text: t("featProBrief5", "AI brief — 5 refreshes / day, 200 chat messages") || "AI brief — 5 refreshes / day, 200 chat messages" },
       { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
       { text: t("featProPriority", "Priority email support") || "Priority email support" },
@@ -1025,7 +1025,7 @@ export default function SubscriptionPage() {
               {[
                 t("pricingAfterTrialCapClose", "30-second daily close") || "30-second daily close",
                 t("pricingAfterTrialCapHistory", "7 days of history") || "7 days of history",
-                t("pricingAfterTrialCapOCR", "5 receipt scans / day") || "5 receipt scans / day",
+                t("pricingAfterTrialCapOCR", "10 receipt scans / month") || "10 receipt scans / month",
                 t("pricingAfterTrialCapChat", "10 AI chat messages / day") || "10 AI chat messages / day",
                 t("pricingAfterTrialCapBrief", "1 AI brief refresh / day") || "1 AI brief refresh / day",
                 t("pricingAfterTrialCapExport", "Manual Excel / PDF / CSV export") || "Manual Excel / PDF / CSV export",

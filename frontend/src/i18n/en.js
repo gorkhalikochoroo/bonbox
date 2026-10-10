@@ -9645,7 +9645,7 @@ export const en = {
     pricingAfterTrialBodyNew: 'Nothing dramatic. Your data stays, every feature stays visible. These are the caps that come back when the trial ends:',
     pricingAfterTrialCapClose: '30-second daily close',
     pricingAfterTrialCapHistory: '7 days of history',
-    pricingAfterTrialCapOCR: '5 receipt scans / day',
+    pricingAfterTrialCapOCR: '10 receipt scans / month',
     pricingAfterTrialCapChat: '10 AI chat messages / day',
     pricingAfterTrialCapBrief: '1 AI brief refresh / day',
     pricingAfterTrialCapExport: 'Manual Excel / PDF / CSV export',
