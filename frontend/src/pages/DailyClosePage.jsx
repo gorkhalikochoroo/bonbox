@@ -1869,6 +1869,11 @@ const filesSomething = (revenue, payments) => revenue > 0 || payments > 0;
 /** What a built payload was made of (not sent): the day it is for, and whether its source was read off photos. */
 const payloadInfo = new WeakMap();
 
+// The day a MOMS-free (exempt) answer was read for: the form uses it for that
+// day only (CloseForm — the tax-exempt read).
+const exemptKeyOf = (date, branchId, cutoffHour) => `${date}|${branchId ?? ""}|${cutoffHour}`;
+const EXEMPT_LOADING = Object.freeze({ key: null, total: 0, status: "loading" });
+
 function CloseForm({ businessProfile = null, currency, t, branchType, branchId, branches = [], onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0, heroScanFiles = null, onHeroConsumed, presetDate = null, existingCloses = [], onDraftSaved, onContinueDraft, onShowHistory, onEditingChange, onFormDay, onBranchRefused }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
@@ -4139,17 +4144,29 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // difference is the exempt total we want to show. Self-contained
   // fetch: keeps the existing /daily-close/prefill path untouched so
   // the close wizard still loads even if this call fails.
-  const [exemptSalesTotal, setExemptSalesTotal] = useState(0);
-  // Three outcomes again. The catch below used to setExemptSalesTotal(0), and
+  //
+  // Three outcomes again. The catch below used to set the total to 0, and
   // a 0 here is not a neutral value: it is the claim "there were no MOMS-free
   // sales today", rendered as a measured fact on the line the revisor reads,
   // and folded into the taxable base the MOMS figure is computed from. A read
   // that never completed must not be able to make that claim, so the status is
   // tracked separately and the MOMS card says which of the two it is.
-  const [exemptStatus, setExemptStatus] = useState("loading"); // loading | ok | failed
+  //
+  // The answer is kept WITH the day it was read for, and only that day uses
+  // it. Reset in an effect, the old day's total stayed for one render after a
+  // date change — and the move's save, sent at once, could go out of that
+  // render: 1 Jun's draft filed with 25 Sep's 5.000 MOMS-free subtracted
+  // (MOMS 2.426 saved, 3.426 on the review). Read off the day itself, no
+  // render of the new day ever holds another day's total.
+  const exemptDayKey = exemptKeyOf(businessDate, fileBranchId, cutoffHour);
+  const [exemptRead, setExemptRead] = useState(EXEMPT_LOADING);
+  const exemptIsThisDay = exemptRead.key === exemptDayKey;
+  const exemptSalesTotal = exemptIsThisDay ? exemptRead.total : 0;
+  const exemptStatus = exemptIsThisDay ? exemptRead.status : "loading"; // loading | ok | failed
 
   useEffect(() => {
     let cancelled = false;
+    const dayKey = exemptKeyOf(businessDate, fileBranchId, cutoffHour);
     const fetchExempt = async () => {
       try {
         const params = { date: businessDate, day_cutoff_hour: cutoffHour };
@@ -4163,21 +4180,21 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // negative exempt total flow into the MOMS math. Round to 2dp
         // because the prop is displayed in money cells.
         const exempt = Math.max(0, Math.round((totalRev - taxable) * 100) / 100);
-        setExemptSalesTotal(exempt);
-        setExemptStatus("ok");
+        setExemptRead({ key: dayKey, total: exempt, status: "ok" });
       } catch {
         // Falls back to "no exempt rows known" for the MATH — the conservative
         // direction, since it over-states rather than under-states the taxable
         // base, and it keeps the close wizard usable. But the 0 is now marked
         // as unknown so the review step tells the owner the exempt lookup
         // didn't answer, instead of printing a 0 that looks measured.
-        if (!cancelled) { setExemptSalesTotal(0); setExemptStatus("failed"); }
+        if (!cancelled) setExemptRead({ key: dayKey, total: 0, status: "failed" });
       }
     };
     // The day before's MOMS-free total must not shape this day's MOMS while
-    // this day's answer is on its way.
-    setExemptSalesTotal(0);
-    setExemptStatus("loading");
+    // this day's answer is on its way (the day's key already keeps it off
+    // every render of this day; a read of this day from before is let go of
+    // too — back on a day, its total is the new answer).
+    setExemptRead((r) => (r.key == null && r.status === "loading" ? r : EXEMPT_LOADING));
     fetchExempt();
     return () => { cancelled = true; };
   // (`api`: the form's own, made once — R-c round 2 fix-up.)
