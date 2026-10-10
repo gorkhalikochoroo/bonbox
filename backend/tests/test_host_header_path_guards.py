@@ -117,6 +117,37 @@ def test_routed_path_ignores_the_host_header():
     assert routed_path(None) == ""
 
 
+# request.url parts that do not carry the routed path. bank_connect builds
+# its callback origin from scheme + netloc (a separate concern: INFRA-01 is
+# about the PATH a guard decides on).
+_URL_PARTS_WITHOUT_THE_PATH = {"scheme", "netloc", "hostname", "port"}
+
+
+def _url_path_reads(tree) -> list[int]:
+    """Line numbers where code reads a request's Host-built URL in a way that
+    can reach its path: <x>.url.path, <x>.url.components, or request.url /
+    req.url used whole (`u = request.url; u.path`, `str(request.url)`,
+    `urlparse(str(request.url)).path`). Code only — docstrings/comments don't
+    count."""
+    import ast
+    parents = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    lines = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Attribute) and node.attr == "url"):
+            continue
+        parent = parents.get(node)
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            if parent.attr in ("path", "components"):
+                lines.append(node.lineno)
+            continue
+        if isinstance(node.value, ast.Name) and node.value.id in ("request", "req"):
+            lines.append(node.lineno)
+    return lines
+
+
 def test_no_guard_reads_request_url_path_again():
     """Static tripwire: the next guard someone writes must use routed_path."""
     import ast
@@ -125,16 +156,25 @@ def test_no_guard_reads_request_url_path_again():
     offenders = []
     for py in app_dir.rglob("*.py"):
         tree = ast.parse(py.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            # <anything>.url.path — code only, docstrings/comments don't count
-            if (
-                isinstance(node, ast.Attribute)
-                and node.attr == "path"
-                and isinstance(node.value, ast.Attribute)
-                and node.value.attr == "url"
-            ):
-                offenders.append(f"{py.relative_to(app_dir)}:{node.lineno}")
+        for lineno in _url_path_reads(tree):
+            offenders.append(f"{py.relative_to(app_dir)}:{lineno}")
     assert offenders == [], offenders
+
+
+@pytest.mark.parametrize("src,caught", [
+    ("p = request.url.path", True),
+    ("u = request.url\nif u.path.startswith('/api'): pass", True),
+    ("from urllib.parse import urlparse\np = urlparse(str(request.url)).path", True),
+    ("p = request.url.components.path", True),
+    ("p = req.url.path", True),
+    ("p = scope_request.url.path", True),
+    ("s = request.url.scheme\nh = request.url.netloc", False),
+    ("from app.utils.request_path import routed_path\np = routed_path(request)", False),
+])
+def test_the_tripwire_sees_the_indirect_reads_too(src, caught):
+    """Review, 10 Oct: the tripwire used to see only the literal <x>.url.path."""
+    import ast
+    assert bool(_url_path_reads(ast.parse(src))) is caught, src
 
 
 # ── accountant / member read-only write guard ────────────────────────────
