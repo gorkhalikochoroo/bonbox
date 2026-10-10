@@ -90,6 +90,18 @@ beforeEach(() => {
 });
 
 describe("Vagtplan hours read like the owner app", () => {
+  // The week list shows THIS week's rows (Monday–Sunday), and the shift is
+  // "tomorrow". On a real Sunday, tomorrow is next week's Monday, so the row
+  // (and its "30 min pause") was not on screen and the test failed every
+  // Sunday. The clock is pinned to a Thursday, like the Timer block below,
+  // and the shift is the day after THAT, so it passes on any real weekday.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-05T12:00:00")); // a Thursday
+    shifts = [{ ...shifts[0], date: iso(new Date(Date.now() + 86400000)) }]; // Fri 6 Nov
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("'8,5 t' — never '8 t 30 min' — and the break is on the row", async () => {
     mount("da");
     await waitFor(() => expect(document.body.textContent).toContain("11:00–20:00"));
