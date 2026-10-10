@@ -1794,6 +1794,12 @@ def share_with_staff(
         StaffMember.id.in_(scheduled_staff_ids),
         StaffMember.is_deleted.isnot(True),
     ).all()
+    # SEC-1/SEC-10: a confirmed sender (403 before anything is minted or
+    # mailed) and the staff-mail daily ceilings (services/staff_mail_guard).
+    from app.services.staff_mail_guard import (
+        SKIP_NO_ADDRESS, preflight_explicit_send,
+    )
+    gate = preflight_explicit_send(db, user, [m.email for m in members], lang)
     _check_staff_email_budget(
         db, user, incoming=sum(1 for m in members if "@" in (m.email or "")), lang=lang,
     )
@@ -1818,6 +1824,8 @@ def share_with_staff(
     # By name, not just a count: "2 skipped" leaves the owner to work out who
     # never got their link; the names are what they act on.
     skipped_names: list[str] = []
+    # Over a staff-mail daily ceiling — by name, like the no-email ones.
+    limit_names: list[str] = []
     week_label = (
         f"Uge {body.week_start.isocalendar().week}"
         if lang == "da"
@@ -1845,10 +1853,15 @@ def share_with_staff(
                 db.flush()
                 links_issued += 1
 
-            # Step 2 — email the link.
-            if not member.email:
+            # Step 2 — email the link (one ordinary mailbox, under the
+            # staff-mail ceilings; the sender was checked above).
+            to_addr, skip = gate.refusal(member.email)
+            if skip == SKIP_NO_ADDRESS:
                 skipped_no_email += 1
                 skipped_names.append(member.name or "—")
+                continue
+            if skip:
+                limit_names.append(member.name or "—")
                 continue
 
             portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name, member.name)}"
@@ -1895,7 +1908,10 @@ def share_with_staff(
                 f"{restaurant_name_html} · sendt via BonBox</p>"
                 f"</div>"
             )
-            success = send_email(to=member.email, subject=subject, html=html)
+            success = send_email(to=to_addr, subject=subject, html=html)
+            if success:
+                gate.record(db, to_addr, kind="staff_link_shared",
+                            staff_id=member.id, explicit=True)
             log = NotificationLog(
                 id=uuid.uuid4(),
                 user_id=user.id,
@@ -1947,6 +1963,7 @@ def share_with_staff(
         "email_failed_count": email_failed_count,
         "skipped_no_email": skipped_no_email,
         "skipped_names": sorted(skipped_names, key=str.lower),
+        "skipped_mail_limit_names": sorted(limit_names, key=str.lower),
         "week_start": body.week_start.isoformat(),
     }
 
@@ -3253,6 +3270,13 @@ def publish_week(
     # who have no email on file, so nobody mailed them. The owner's next step
     # is "add Anna's email / send Anna her link", which a bare count hides.
     skipped_names: list[str] = []
+    # SEC-1: the mails also need a confirmed owner and room under the daily
+    # ceilings (services/staff_mail_guard) — the same gate the background
+    # send applies. Held → nobody is mailed (the in-app alert and the push
+    # still go) and `mail_held` says why, so the sheet can offer "Bekræft nu".
+    # Over a ceiling → named in `skipped_mail_limit_names`.
+    limit_names: list[str] = []
+    mail_held = None
     if changes:
         changed_ids = []
         for sid in changes.keys():
@@ -3261,29 +3285,29 @@ def publish_week(
             except (ValueError, TypeError):
                 continue
         if changed_ids:
-            notify_count = (
-                db.query(StaffMember)
-                .filter(
-                    StaffMember.id.in_(changed_ids),
-                    StaffMember.user_id == user.id,
-                    StaffMember.is_deleted.isnot(True),
-                    StaffMember.email.isnot(None),
-                    StaffMember.email != "",
-                )
-                .count()
+            from app.services.staff_mail_guard import (
+                SKIP_HELD, SKIP_NO_ADDRESS, StaffMailGate,
             )
-            skipped_names = sorted(
-                (
-                    m.name or "—"
-                    for m in db.query(StaffMember).filter(
-                        StaffMember.id.in_(changed_ids),
-                        StaffMember.user_id == user.id,
-                        StaffMember.is_deleted.isnot(True),
-                        or_(StaffMember.email.is_(None), StaffMember.email == ""),
-                    ).all()
-                ),
-                key=str.lower,
-            )
+            _gate = StaffMailGate.load(db, user)
+            mail_held = _gate.held
+            _changed = db.query(StaffMember).filter(
+                StaffMember.id.in_(changed_ids),
+                StaffMember.user_id == user.id,
+                StaffMember.is_deleted.isnot(True),
+            ).all()
+            for _m in _changed:
+                _addr, _skip = _gate.refusal(_m.email)
+                if _skip == SKIP_NO_ADDRESS:
+                    skipped_names.append(_m.name or "—")
+                elif _skip == SKIP_HELD:
+                    continue
+                elif _skip:
+                    limit_names.append(_m.name or "—")
+                else:
+                    notify_count += 1
+                    _gate.take(_addr)
+            skipped_names.sort(key=str.lower)
+            limit_names.sort(key=str.lower)
 
         user_id = user.id
         week_label = (
@@ -3327,6 +3351,9 @@ def publish_week(
         "changed_staff": len(changes),
         "notify_count": notify_count,
         "skipped_no_email_names": skipped_names,
+        "skipped_mail_limit_names": limit_names,
+        # None, "email_unverified" or "claim_question_open" (senderGate.js).
+        "mail_held": mail_held,
     }
 
 
@@ -3849,6 +3876,13 @@ def email_schedule_to_staff(
             "</div>"
         )
 
+    # SEC-10: a confirmed sender (403 before anything is mailed) and the
+    # staff-mail daily ceilings (services/staff_mail_guard), on top of the
+    # older per-send budget below.
+    from app.services.staff_mail_guard import (
+        SKIP_NO_ADDRESS, preflight_explicit_send,
+    )
+    gate = preflight_explicit_send(db, user, [t.email for t in targets], body.lang)
     _check_staff_email_budget(
         db, user,
         incoming=sum(1 for t in targets if "@" in (t.email or "")),
@@ -3868,11 +3902,15 @@ def email_schedule_to_staff(
         f"{_ws.day} {['January','February','March','April','May','June','July','August','September','October','November','December'][_ws.month - 1]}"
     )
 
+    limit_names: list[str] = []
     for s in targets:
-        addr = (s.email or "").strip().lower()
-        if not addr or "@" not in addr:
+        addr, skip = gate.refusal(s.email)
+        if skip == SKIP_NO_ADDRESS:
             skipped += 1
             skipped_names.append(s.name or "—")
+            continue
+        if skip:
+            limit_names.append(s.name or "—")
             continue
 
         first_name = escape((s.name or "").split(" ")[0] or s.name or "")
@@ -3922,6 +3960,7 @@ def email_schedule_to_staff(
         )
         if ok:
             sent += 1
+            gate.record(db, addr, kind="schedule_pdf", staff_id=s.id, explicit=True)
         else:
             failed.append({"name": s.name, "email": addr, "reason": err or "unknown"})
 
@@ -3951,6 +3990,8 @@ def email_schedule_to_staff(
         # Who got nothing because there is no address on file — named, so the
         # owner knows whose email to add rather than how many.
         "skipped_names": sorted(skipped_names, key=str.lower),
+        # Over a staff-mail daily ceiling — not sent, by name.
+        "skipped_mail_limit_names": sorted(limit_names, key=str.lower),
         "failed": failed,
         "attempted": len(targets),
     }

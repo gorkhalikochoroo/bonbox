@@ -126,6 +126,10 @@ def _owner(db, suffix="") -> User:
         email=f"owner{suffix}@bonbox.dk", password_hash=hash_password("ownerpw123"),
         business_name=f"Bon Bistro{suffix}", business_type="cafe", currency="DKK",
         plan="pro", role="owner", timezone="Europe/Copenhagen",
+        # A confirmed sender: since SEC-1 (R-f) BonBox mails staff only for an
+        # owner whose own address is confirmed (test_staff_mail_guard covers
+        # the unconfirmed owner).
+        email_verified=True,
     )
     db.add(u)
     db.commit()
@@ -282,6 +286,8 @@ def test_empty_week_publishes_nothing_and_mails_nobody(db, client, sent):
         "changed_staff": 0,
         "notify_count": 0,
         "skipped_no_email_names": [],
+        "skipped_mail_limit_names": [],
+        "mail_held": None,
     }
     assert sent == []
 
