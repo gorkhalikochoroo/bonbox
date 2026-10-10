@@ -542,6 +542,7 @@ def _image_bytes_to_base64_jpeg(data: bytes) -> Optional[str]:
     normalization consistent (downscale, HEIC handling)."""
     if not data:
         return None
+    from app.services.ai_limits import AIBusyError
     try:
         import base64
         import io
@@ -553,20 +554,27 @@ def _image_bytes_to_base64_jpeg(data: bytes) -> Optional[str]:
             pass
 
         # Allow-listed decoders only (INFRA-03) — refuses PSD/FITS/... by
-        # their magic bytes before Pillow parses anything.
-        from app.services.image_guard import open_upload_image
-        img = open_upload_image(data)
-        img = img.convert("RGB")
+        # their magic bytes before Pillow parses anything. One decode slot
+        # (at most 2 photo decodes at once, process-wide); a JPEG is decoded
+        # at the smallest scale that still covers max_dim.
+        from app.services.image_guard import decode_slot, open_upload_image
         # Downscale large images for token cost + speed. 2000px on the
         # longest side is the same threshold receipt_ocr uses.
         max_dim = 2000
-        if max(img.size) > max_dim:
-            ratio = max_dim / max(img.size)
-            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=90)
+        with decode_slot():
+            img = open_upload_image(data, max_side=max_dim)
+            if img.mode != "RGB":  # convert() to the same mode only copies
+                img = img.convert("RGB")
+            if max(img.size) > max_dim:
+                ratio = max_dim / max(img.size)
+                new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            del img
         return base64.b64encode(buf.getvalue()).decode("ascii")
+    except AIBusyError:
+        raise  # every decode slot taken: 503 "busy, try again", not "unreadable"
     except Exception as e:  # noqa: BLE001
         logger.warning("[Inventory OCR] image prep failed: %s", e)
         return None

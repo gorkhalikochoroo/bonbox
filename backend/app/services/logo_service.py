@@ -119,12 +119,14 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
     # if the bytes are truncated, the upload is malformed and we'd
     # rather reject than store half a file.
     ImageFile.LOAD_TRUNCATED_IMAGES = False
+    from app.services.image_guard import DecodeBusyError, decode_slot
 
     try:
-        # PNG / JPEG decoders only (the magic bytes said one of the two), so
-        # a file that fails both parses never falls through to another
-        # Pillow plugin (INFRA-03).
-        with Image.open(io.BytesIO(raw), formats=["PNG", "JPEG"]) as img:
+        # One of the process-wide decode slots (image_guard: at most 2 photo
+        # decodes at once). PNG / JPEG decoders only (the magic bytes said
+        # one of the two), so a file that fails both parses never falls
+        # through to another Pillow plugin (INFRA-03).
+        with decode_slot(), Image.open(io.BytesIO(raw), formats=["PNG", "JPEG"]) as img:
             # Decompression-bomb guard on the header size, before any decode
             # (see MAX_DECODE_PIXELS — no process-global is touched).
             if img.width * img.height > 2 * MAX_DECODE_PIXELS:
@@ -151,10 +153,13 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
                     "Logo format inconsistent (polyglot file rejected)",
                 )
 
-            # Convert to RGBA for transparent logos, or RGB for opaque.
+            # Convert to RGBA for transparent logos, or RGB for opaque. No
+            # convert() to the mode the image already has: that is only a
+            # full copy of the canvas (same pixels).
             if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-                img = img.convert("RGBA")
-            else:
+                if img.mode != "RGBA":
+                    img = img.convert("RGBA")
+            elif img.mode != "RGB":
                 img = img.convert("RGB")
 
             # Downscale in-place. thumbnail preserves aspect ratio.
@@ -167,6 +172,13 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
             img.save(out, format="PNG", optimize=True)
             return out.getvalue()
 
+    except DecodeBusyError:
+        logger.warning("Logo refused: every decode slot busy")
+        raise HTTPException(
+            http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            "BonBox is processing a lot of images right now. Please try again in a moment.",
+            headers={"Retry-After": "10"},
+        )
     except HTTPException:
         raise
     except Exception as e:

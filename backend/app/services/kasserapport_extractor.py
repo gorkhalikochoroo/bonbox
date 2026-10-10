@@ -161,15 +161,21 @@ def _image_to_base64_jpeg(image_path: str | Path, max_side: int = MAX_INPUT_IMAG
     accuracy loss in our tests.
     """
     # Allow-listed decoders only (INFRA-03); the router magic-checks too.
-    from app.services.image_guard import open_upload_image
-    img = open_upload_image(image_path)
-    img = img.convert("RGB")
-    if max(img.size) > max_side:
-        ratio = max_side / max(img.size)
-        new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-        img = img.resize(new_size, Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=88)
+    # One decode slot (at most 2 photo decodes at once, process-wide; busy
+    # raises DecodeBusyError, the 503). A JPEG is decoded at the smallest
+    # scale that still covers max_side.
+    from app.services.image_guard import decode_slot, open_upload_image
+    with decode_slot():
+        img = open_upload_image(image_path, max_side=max_side)
+        if img.mode != "RGB":  # convert() to the same mode only copies
+            img = img.convert("RGB")
+        if max(img.size) > max_side:
+            ratio = max_side / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=88)
+        del img
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -871,8 +877,12 @@ def extract_kasserapport_full(
 
     result.image_sha256 = image_sha256(raw)
 
+    from app.services.ai_limits import AIBusyError
+
     try:
         b64 = _image_to_base64_jpeg(image_path)
+    except AIBusyError:
+        raise  # every decode slot taken: 503 "busy, try again", nothing logged as failed
     except Image.DecompressionBombError:
         result.error = "image_too_large_pixel_count"
         return result

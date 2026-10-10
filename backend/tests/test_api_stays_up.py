@@ -14,7 +14,7 @@ What is pinned here:
     next model call finishes);
   * the Copilot tool loop stops after MAX_TOOL_ROUNDS with an honest
     message in the owner's language;
-  * at most 3 vision reads run at once; a 4th waits, then gets a 503
+  * at most 4 vision reads run at once; a 5th waits, then gets a 503
     "busy, try again" in the owner's language — before anything is stored;
   * every Anthropic client is built with a bounded timeout and 1 retry;
   * the threadpool the blocking work runs on is bounded (32, not anyio's 40).
@@ -365,9 +365,9 @@ def test_the_copilot_stops_after_4_tool_rounds_with_an_honest_message(db, as_use
     assert events[-1][0] == "done"
 
 
-# ─── 4. At most 3 vision reads at once; a 4th gets a clear 503 ───────
+# ─── 4. At most 4 vision reads at once; a 5th gets a clear 503 ───────
 
-def test_at_most_three_vision_reads_run_at_once():
+def test_at_most_four_vision_reads_run_at_once():
     active = {"now": 0, "max": 0}
     lock = threading.Lock()
 
@@ -380,13 +380,14 @@ def test_at_most_three_vision_reads_run_at_once():
             with lock:
                 active["now"] -= 1
 
-    threads = [threading.Thread(target=read) for _ in range(7)]
+    threads = [threading.Thread(target=read) for _ in range(9)]
     for t in threads:
         t.start()
     for t in threads:
         t.join(timeout=10)
-    # 3, was 4: 3 x a ~390 MB decode + the API fits 2 GB on 1 CPU, 4 x does not (measured, ai_limits).
-    assert active["max"] == ai_limits.VISION_MAX_CONCURRENT == 3
+    # 4 (was 3 while a read's ~390 MB decode was bounded only by these slots): every decode
+    # now holds one of image_guard's 2 decode slots, so 4 reads + 2 decodes fit 2 GB (ai_limits).
+    assert active["max"] == ai_limits.VISION_MAX_CONCURRENT == 4
     assert active["now"] == 0
 
 
@@ -405,7 +406,7 @@ def all_vision_slots_taken(monkeypatch):
 
 
 @pytest.mark.parametrize("ui_language,expected_lang", [(None, "da"), ("en", "en")])
-def test_a_fourth_scan_gets_busy_503_before_anything_is_stored(
+def test_a_scan_past_the_slot_limit_gets_busy_503_before_anything_is_stored(
     db, as_user, monkeypatch, all_vision_slots_taken, ui_language, expected_lang,
 ):
     u = _owner(db, ui_language=ui_language)

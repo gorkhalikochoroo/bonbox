@@ -250,8 +250,12 @@ def _image_to_base64_jpeg_for_vision(image_path: str) -> str | None:
         logger.warning("Could not import _image_to_base64_jpeg helper: %s", e)
         return None
 
+    from app.services.ai_limits import AIBusyError
+
     try:
         return _image_to_base64_jpeg(image_path)
+    except AIBusyError:
+        raise  # every decode slot taken: the read is busy, not unreadable
     except Exception as e:  # noqa: BLE001
         logger.warning("Image base64 encode failed: %s", e)
         return None

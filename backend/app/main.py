@@ -3458,10 +3458,10 @@ is_prod = settings.ENVIRONMENT == "production"
 #:     overflow), and each query is mostly a network wait (Render Frankfurt
 #:     -> Supabase eu-west-1), so 15 requests overlap usefully; a 16th DB
 #:     request only queues for a connection;
-#:   * 3 for the photo reads in their 30-60 s vendor call
+#:   * 4 for the photo reads in their 30-60 s vendor call
 #:     (VISION_MAX_CONCURRENT) — they hand their connection back first, so
 #:     they come on top of the 15;
-#:   * 14 of headroom for the waits that hold a thread without doing DB work:
+#:   * 13 of headroom for the waits that hold a thread without doing DB work:
 #:     reads queueing for a vision slot (up to 10 s each), file and streaming
 #:     responses, the webhooks and the Copilot loop handed to the threadpool,
 #:     so a burst of photo uploads cannot starve the saves and logins;
@@ -3682,9 +3682,9 @@ async def _global_exception_handler(request: Request, exc: Exception):
 
 
 # --- Vision reads busy (OPS-02 / P0-3) -----------------------------------
-# app/services/ai_limits.py allows 3 photo reads at once; a read that cannot
-# get a slot within VISION_WAIT_S raises AIBusyError BEFORE storing or
-# counting anything. It gets its own handler so the owner sees the real
+# app/services/ai_limits.py allows 4 photo reads at once (image_guard 2
+# photo decodes); a read or decode that cannot get a slot in time raises
+# AIBusyError BEFORE storing or counting anything. It gets its own handler so the owner sees the real
 # reason in their language — the prod 5xx sanitizer below would replace it
 # with "Something went wrong". 503 + Retry-After: the frontend's API client
 # already retries a 503 POST (it means "not processed").

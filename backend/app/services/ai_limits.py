@@ -82,21 +82,18 @@ def anthropic_client(api_key: str | None = None, *, timeout: float | None = None
 
 # ── Vision concurrency ──────────────────────────────────────────────────
 
-#: Photo reads allowed in flight at once, process-wide. Sized for the
-#: production instance (1 CPU / 2 GB since 10 Oct, one process). A read is
-#: mostly a 30-60 s wait on the vendor, but it starts with a decode, and the
-#: decodes are what cost memory: measured under Linux (10 Oct), one read of
-#: a 48 MP phone photo peaks at ~390 MB (a 50 MP RGBA PNG / TIFF ~380 MB;
-#: WEBP is held to 25 MP by image_guard for the same reason). Next to a
-#: steady state of up to ~600 MB, the decodes in flight plus the heaviest
-#: other request (the GDPR export, ~70 MB) must stay under ~1.4 GB:
-#:   3 x 390 + 70 = ~1.24 GB  (4 x 390 + 70 = ~1.63 GB would not fit).
-#: Under glibc's default malloc a freed decode stays in its worker thread's
-#: arena, so the steady state itself climbs past 600 MB (10 Oct load test:
-#: ~1 GB, peak 1.97 GB); MALLOC_ARENA_MAX / MALLOC_MMAP_THRESHOLD_ on the
-#: service keep it down. A 4th read waits (up to ``VISION_WAIT_S``) instead
-#: of risking the API.
-VISION_MAX_CONCURRENT = 3
+#: Photo reads allowed in flight at once, process-wide (production: 1 CPU /
+#: 2 GB since 10 Oct, one process). A read is mostly a 30-60 s wait on the
+#: vendor; the part that costs memory is the photo decode at its start, and
+#: since R-d round 3 every decode holds one of image_guard's
+#: ``DECODE_MAX_CONCURRENT`` (2) decode slots for the decode only. So this
+#: limit no longer sizes memory — it bounds paid vendor calls in flight and
+#: the threads they hold. Outside its decode a read holds the upload (at
+#: most 12 MB), the ~2000 px JPEG it sends (~1-3 MB as base64) and the
+#: answer: ~20 MB, so 4 reads ~80 MB, next to at most 2 x ~390 MB of
+#: decodes. It was 3 while a read's decode was bounded only by this limit
+#: (3 x ~390 MB; 4 x would not fit beside the steady state).
+VISION_MAX_CONCURRENT = 4
 #: Photo reads one account may have in flight at once. Below the global
 #: limit, so one venue (or one hostile account) always leaves a slot free
 #: for every other venue's Z-report and receipt reads.
@@ -159,6 +156,47 @@ def _user_key(user: Any) -> str | None:
     except Exception:  # noqa: BLE001
         return None
     return str(uid) if uid is not None else None
+
+
+# ── The vision read running on this thread (for the decode gate) ────────
+#
+# image_guard.decode_slot refuses a decode with DecodeBusyError when every
+# decode slot stays taken. Most OCR chains catch every exception and fall
+# through to the next provider or an empty read ("OCR must never block"),
+# which would turn "busy" into a silently degraded read — and each later
+# decode of the same read would wait the whole DECODE_WAIT_S again. So a
+# sync ``vision_slot`` records itself here: a refused decode marks the read,
+# the read's later decodes fail at once, and the read ends in AIBusyError
+# when its block finishes (the usual 503 before anything is counted). The
+# decodes of one read run on the thread that holds its slot.
+_reads = threading.local()
+
+
+def _read_stack() -> list:
+    stack = getattr(_reads, "stack", None)
+    if stack is None:
+        stack = []
+        _reads.stack = stack
+    return stack
+
+
+def current_read_refused() -> bool:
+    """True when a decode of the vision read on this thread was refused."""
+    stack = _read_stack()
+    return bool(stack) and stack[-1]["refused"]
+
+
+def mark_read_refused() -> None:
+    """Called by the decode gate when it refuses a decode."""
+    stack = _read_stack()
+    if stack:
+        stack[-1]["refused"] = True
+
+
+def current_read_lang() -> str:
+    """The owner's language of the vision read on this thread ("en" if none)."""
+    stack = _read_stack()
+    return _lang_of(stack[-1]["user"]) if stack else "en"
 
 
 def _user_entry_enter(key: str) -> list:
@@ -259,7 +297,18 @@ def vision_slot(
                 logger.warning("vision busy: all %d slots taken for %.1fs", VISION_MAX_CONCURRENT, wait)
                 raise AIBusyError(_lang_of(user))
             try:
-                yield
+                read = {"user": user, "refused": False}
+                stack = _read_stack()
+                stack.append(read)
+                try:
+                    yield
+                finally:
+                    stack.pop()
+                if read["refused"]:
+                    # A decode of this read was refused and something on the
+                    # way swallowed it: the read is degraded, so it is busy.
+                    logger.warning("vision read ended busy: a photo decode was refused")
+                    raise AIBusyError(_lang_of(user))
             finally:
                 _vision_slots.release()
         finally:
@@ -272,7 +321,12 @@ def vision_slot(
 
 @contextlib.asynccontextmanager
 async def vision_slot_async(user: Any = None, *, wait_s: float | None = None) -> AsyncIterator[None]:
-    """Hold one vision slot from the event loop (never blocks the loop)."""
+    """Hold one vision slot from the event loop (never blocks the loop).
+
+    Its one caller (the wine label scan) sends the photo bytes as they are
+    and decodes nothing; a decode inside it would have to hold
+    image_guard.decode_slot in a worker thread, never on the loop.
+    """
     wait = VISION_WAIT_S if wait_s is None else wait_s
     key = _user_key(user)
     deadline = time.monotonic() + wait

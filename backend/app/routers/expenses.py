@@ -1016,6 +1016,10 @@ def attach_receipt_to_expense(
         raise HTTPException(400, refusal_message(owner_lang(user)))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except AIBusyError:
+        # Every photo-decode slot stayed taken (image_guard.decode_slot):
+        # nothing stored, so the 503 "busy, try again" is safe to retry.
+        raise AIBusyError(owner_lang(user)) from None
 
     expense.receipt_photo = stored_path
     # Mark as a manual attach so the scan-cap meter excludes it (no OCR ran).
@@ -1323,12 +1327,16 @@ def burst_scan(
     created, skipped, cap_reached = [], 0, False
     # A plain `def` (OPS-02 / P0-3) — the OCR loop runs in the threadpool.
     # Each receipt holds a vision slot only for its own save + read (at most
-    # 2 per account, 3 in all), so a long pile never keeps a slot from
-    # other venues for minutes. The FIRST stored photo needs a slot or the
-    # whole pile gets the 503 "busy, try again" — nothing stored yet, so
-    # the browser's automatic retry is safe. Once drafts exist, a receipt
-    # that cannot get a slot is still stored and lands as a draft without
-    # the read ('Mangler beløb'), exactly like an OCR failure.
+    # 2 per account, 4 in all), so a long pile never keeps a slot from
+    # other venues for minutes. The FIRST receipt needs its slot and its
+    # read or the whole pile gets the 503 "busy, try again" — no draft is
+    # committed until the end of the pile, so the browser's automatic retry
+    # is safe. Once drafts exist, a receipt whose read is busy (no vision
+    # slot, or a photo decode refused by image_guard.decode_slot) still
+    # lands as a draft without the read ('Mangler beløb'), exactly like an
+    # OCR failure: its photo is saved once (in the slot, or here after it),
+    # and that save holds a decode slot too — busy there is the 503 for the
+    # whole pile (still nothing committed).
     with counted_use(user, "expense_receipt_scans_per_month", _check) as use:
         for f in files:
             if cap >= 0 and len(created) >= allowed:
@@ -1343,6 +1351,7 @@ def burst_scan(
                 continue
 
             parsed = {"vendor": None, "amount": None, "date": None}
+            stored = None
             try:
                 with vision_slot(user, db=db):
                     stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
@@ -1359,12 +1368,17 @@ def burst_scan(
                 continue
             except AIBusyError:
                 if not created:
-                    raise  # nothing stored yet: the 503 is safe to retry
-                try:
-                    stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
-                except ValueError:
-                    skipped += 1
-                    continue
+                    raise  # no draft yet, nothing committed: the 503 is safe to retry
+                # The read is lost; the draft lands without it.
+                parsed = {"vendor": None, "amount": None, "date": None}
+                if stored is None:  # busy before the save: save it now
+                    try:
+                        stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
+                    except ValueError:
+                        skipped += 1
+                        continue
+                    except AIBusyError:
+                        raise AIBusyError(owner_lang(user)) from None
 
             amount = parsed.get("amount") or 0
             vendor = parsed.get("vendor")

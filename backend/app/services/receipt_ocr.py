@@ -30,15 +30,20 @@ def _ensure_jpeg(image_path: str) -> str:
     if ext in (".jpg", ".jpeg", ".png", ".bmp", ".tiff"):
         return image_path  # Already compatible
 
-    # Convert HEIC/HEIF/other formats to JPEG (allow-listed decoders only)
+    # Convert HEIC/HEIF/other formats to JPEG (allow-listed decoders only,
+    # one decode slot: image_guard.decode_slot).
+    from app.services.ai_limits import AIBusyError
     try:
-        from app.services.image_guard import open_upload_image
-        img = open_upload_image(image_path)
-        jpeg_path = str(Path(image_path).with_suffix(".jpg"))
-        img = img.convert("RGB")
-        img.save(jpeg_path, "JPEG", quality=85)
+        from app.services.image_guard import decode_slot, open_upload_image
+        with decode_slot():
+            img = open_upload_image(image_path)
+            jpeg_path = str(Path(image_path).with_suffix(".jpg"))
+            img = img.convert("RGB")
+            img.save(jpeg_path, "JPEG", quality=85)
         print(f"[OCR] Converted {ext} to JPEG")
         return jpeg_path
+    except AIBusyError:
+        raise  # "busy, try again" — never a silent fallback
     except Exception as e:
         print(f"[OCR] Failed to convert {ext}: {e}")
         return image_path
@@ -46,21 +51,35 @@ def _ensure_jpeg(image_path: str) -> str:
 
 def _image_to_base64_jpeg(image_path: str) -> str:
     """Read any image file and return base64-encoded JPEG data.
-    Resizes large images for faster OCR processing."""
+    Resizes large images for faster OCR processing.
+
+    The decode holds one image_guard.decode_slot (at most 2 decodes at
+    once, process-wide); a JPEG is decoded at the smallest scale that still
+    covers ``max_dim`` (a 48 MP phone JPEG at 2016x1512, not 8064x6048).
+    A refused decode raises DecodeBusyError (503 "busy, try again") — it
+    must not fall back to sending the raw file.
+    """
+    from app.services.ai_limits import AIBusyError
+    max_dim = 2000
     try:
-        from app.services.image_guard import open_upload_image
-        img = open_upload_image(image_path)
-        img = img.convert("RGB")
-        # Resize if too large (keeps quality but speeds up OCR)
-        max_dim = 2000
-        if max(img.size) > max_dim:
-            ratio = max_dim / max(img.size)
-            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
-            print(f"[OCR] Resized image to {new_size}")
-        buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=90)
+        from app.services.image_guard import decode_slot, open_upload_image
+        with decode_slot():
+            img = open_upload_image(image_path, max_side=max_dim)
+            # convert() to the mode an image already has only copies it.
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            # Resize if too large (keeps quality but speeds up OCR)
+            if max(img.size) > max_dim:
+                ratio = max_dim / max(img.size)
+                new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+                print(f"[OCR] Resized image to {new_size}")
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=90)
+            del img
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
+    except AIBusyError:
+        raise
     except Exception as e:
         print(f"[OCR] Failed to convert image to JPEG base64: {e}")
         # Fallback: just read raw bytes
@@ -1198,27 +1217,34 @@ def save_receipt_photo_ex(
     # magic-checked and decoded with the upload allow-list only (INFRA-03):
     # a PSD or FITS renamed .jpg raises UnsupportedImageError (a ValueError)
     # before any Pillow decoder runs.
-    from app.services.image_guard import UnsupportedImageError, open_upload_image
+    #
+    # The decode holds one image_guard.decode_slot (at most 2 photo decodes
+    # at once, process-wide). Busy raises DecodeBusyError — an AIBusyError,
+    # not a ValueError — BEFORE anything is written, so the route answers
+    # the retryable 503, never "not a valid image".
+    from app.services.image_guard import UnsupportedImageError, decode_slot, open_upload_image
     filepath = UPLOAD_DIR / safe_name
-    try:
-        img = open_upload_image(file_bytes)
-        img.verify()  # PIL signature check before re-opening for save
-    except UnsupportedImageError:
-        raise
-    except Exception as e:
-        raise ValueError(f"Uploaded file is not a valid image ({e})")
+    with decode_slot():
+        try:
+            img = open_upload_image(file_bytes)
+            img.verify()  # PIL signature check before re-opening for save
+        except UnsupportedImageError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Uploaded file is not a valid image ({e})")
 
-    try:
-        img = open_upload_image(file_bytes)  # re-open after verify()
-        # convert() on an image that is already RGB only makes a full copy
-        # (same pixels) — skipping it halves the peak memory of the common
-        # phone-JPEG save, which matters now that saves run in parallel.
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        img.save(filepath, "JPEG", quality=85)
-        jpeg_bytes = filepath.read_bytes()
-    except Exception as e:
-        raise ValueError(f"Could not process image ({e})")
+        try:
+            img = open_upload_image(file_bytes)  # re-open after verify()
+            # convert() on an image that is already RGB only makes a full copy
+            # (same pixels) — skipping it halves the peak memory of the common
+            # phone-JPEG save, which matters now that saves run in parallel.
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.save(filepath, "JPEG", quality=85)
+            del img
+            jpeg_bytes = filepath.read_bytes()
+        except Exception as e:
+            raise ValueError(f"Could not process image ({e})")
 
     # Upload to durable storage (Supabase) for persistent display.
     # Per-user scoping enforced via compose_key inside _upload_to_supabase.
