@@ -88,6 +88,30 @@ def test_app_secret_key_still_wins(monkeypatch, production):
     assert t == _forge_like(t, "app-key")
 
 
+@pytest.mark.parametrize("stored", ["prod-key-value\n", " prod-key-value", "prod-key-value \r\n"])
+def test_a_key_with_whitespace_signs_exactly_as_before(monkeypatch, production, stored):
+    """Review, 10 Oct: the key is used exactly as stored. A trailing newline
+    pasted into the host's settings is part of the key every link already in
+    an inbox was signed with; stripping it would void them all."""
+    monkeypatch.delenv("APP_SECRET_KEY", raising=False)
+    monkeypatch.setenv("SECRET_KEY", stored)
+    old_link = _forge(stored)  # signed the pre-R-f way: the raw value
+    assert tok.parse_unsubscribe_token(old_link)["u"] == "victim"
+    t = tok.make_unsubscribe_token("u1", "daily_brief")
+    assert t == _forge_like(t, stored)
+
+
+def test_a_whitespace_only_app_secret_key_is_no_key(monkeypatch, production):
+    """Whitespace is not a key: SECRET_KEY signs, never " " (forgeable)."""
+    monkeypatch.setenv("APP_SECRET_KEY", "  \n")
+    monkeypatch.setenv("SECRET_KEY", "session-key")
+    t = tok.make_unsubscribe_token("u1", "daily_brief")
+    assert t == _forge_like(t, "session-key")
+    monkeypatch.setenv("SECRET_KEY", " ")
+    with pytest.raises(tok.UnsubscribeKeyUnset):
+        tok.make_unsubscribe_token("u1", "daily_brief")
+
+
 def test_a_garbage_token_is_refused_not_a_crash():
     assert tok.parse_unsubscribe_token("æøå.ü") is None
     assert tok.parse_unsubscribe_token("abc.") is None

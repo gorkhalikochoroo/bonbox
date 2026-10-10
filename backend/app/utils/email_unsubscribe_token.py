@@ -61,9 +61,14 @@ def _secret() -> bytes:
         so a local stack and the test suite keep working. Never a literal.
     """
     import os
-    key = (os.environ.get("APP_SECRET_KEY") or os.environ.get("SECRET_KEY") or "").strip()
-    if key:
-        return key.encode("utf-8")
+    for name in ("APP_SECRET_KEY", "SECRET_KEY"):
+        raw = os.environ.get(name)
+        # Signed with the value exactly as stored (a trailing newline pasted
+        # into the host's settings included), as before R-f: stripping it
+        # would stop every link already in an inbox from verifying. A value
+        # that is only whitespace is no key — skip it.
+        if raw and raw.strip():
+            return raw.encode("utf-8")
     from app.config import settings
     if (getattr(settings, "ENVIRONMENT", "") or "").lower() == "production":
         raise UnsubscribeKeyUnset(
