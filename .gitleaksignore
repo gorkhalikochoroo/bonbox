@@ -42,3 +42,7 @@ dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:gene
 dc40a75466511f67f344aa15f3051fd276f36141:frontend/src/pages/LandingPage.jsx:generic-api-key:617
 dedac68e9cebfbdbcb3574f27565a141d2a74f49:frontend/src/pages/StaffHoursPage.jsx:generic-api-key:479
 dedac68e9cebfbdbcb3574f27565a141d2a74f49:frontend/src/pages/StaffHoursPage.jsx:generic-api-key:480
+# Test idempotency key "click-unverified-1" sent as {"key": ...} to the Daily
+# close resend-email route in a test (commit 1f408b0d, 8 Oct). Not a
+# credential; found by replaying the scan over commits after the 5 Oct run.
+1f408b0d8f847de85f1c873a847f1f9fc79f9373:backend/tests/test_revisor_mail_confirmed_sender.py:generic-api-key:152
