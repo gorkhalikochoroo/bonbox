@@ -28,6 +28,16 @@ were never brought in. The same rules, one place:
      A venue publishing its week and editing a few shifts never gets near
      them; a misused account stops there. When the count cannot be read, no
      mail goes (fail closed) — the in-app alert and the push are unaffected.
+  4. One mail at a time per owner (StaffMailGate.turn): the count is re-read
+     under an owner lock, the mail is sent and its counter row committed
+     before the owner's next staff mail is decided. Without it, requests and
+     background sends running at the same moment all read the same old count
+     (review, 10 Oct: twelve concurrent shift edits, one mail left under the
+     ceiling, twelve mails). The lock is a per-owner lock in this process
+     plus, on Postgres, an advisory lock for the rest of the transaction
+     (another worker, or the old and new instance during a deploy). A turn
+     that cannot start within STAFF_MAIL_TURN_WAIT_S sends nothing (fail
+     closed); the in-app alert and the push still go.
 
 The explicit sends keep their own older budget too
 (routers/staff._check_staff_email_budget: 10 sends / 100 recipients a day).
@@ -35,7 +45,10 @@ The explicit sends keep their own older budget too
 from __future__ import annotations
 
 import logging
-from typing import Any
+import threading
+import time
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from app.services.revisor_mail import (
     address_fingerprint,
@@ -54,7 +67,76 @@ STAFF_MAIL_RECIPIENT_DAILY_CAP = 10
 # Why one staffer was not mailed (the in-app alert and push are separate).
 SKIP_NO_ADDRESS = "no_address"      # blank, or not one ordinary mailbox
 SKIP_HELD = "held"                  # the owner is not a confirmed sender
-SKIP_LIMIT = "daily_limit"          # a ceiling is reached, or unreadable
+SKIP_LIMIT = "daily_limit"          # a ceiling is reached
+SKIP_UNKNOWN = "count_unavailable"  # the count could not be read (or the
+                                    # turn could not start): no mail, and
+                                    # no claim that a limit was reached
+
+# How long one staff mail waits for the owner's previous one (a send and its
+# counter row) before it gives up and sends nothing.
+STAFF_MAIL_TURN_WAIT_S = 30.0
+_TURN_POLL_S = 0.05
+
+_turn_locks: dict[str, threading.RLock] = {}
+_turn_locks_guard = threading.Lock()
+
+
+def _turn_key(owner_id) -> str:
+    import uuid as _uuid
+    try:
+        return f"staff_mail:{_uuid.UUID(str(owner_id))}"
+    except (ValueError, TypeError, AttributeError):
+        return f"staff_mail:{owner_id}"
+
+
+def _owner_turn_lock(owner_id) -> threading.RLock:
+    """This process's lock for one owner's staff mail (one per owner that
+    mailed staff since start — a few hundred at most)."""
+    key = _turn_key(owner_id)
+    with _turn_locks_guard:
+        lock = _turn_locks.get(key)
+        if lock is None:
+            lock = _turn_locks[key] = threading.RLock()
+        return lock
+
+
+def _take_db_turn(db, owner_id, deadline: float) -> bool:
+    """On Postgres, hold the owner's staff-mail advisory lock for the rest of
+    this transaction, so another worker or instance waits too. Released by the
+    transaction's commit or rollback — nothing can leak it. Polled, never
+    blocking past `deadline`. True when held (or on a database that needs
+    none: SQLite here is one process, serialised by the process lock)."""
+    try:
+        dialect = db.get_bind().dialect.name
+    except Exception:  # noqa: BLE001 — no bind: the process lock alone
+        return True
+    if dialect != "postgresql":
+        return True
+    from sqlalchemy import text
+    try:
+        with db.begin_nested():
+            while True:
+                got = db.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtextextended(:k, 0))"),
+                    {"k": _turn_key(owner_id)},
+                ).scalar()
+                if got:
+                    return True
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(_TURN_POLL_S)
+    except Exception:  # noqa: BLE001 — fail closed: no mail this turn
+        logger.warning("staff mail turn: advisory lock failed for owner %s", owner_id)
+        return False
+
+
+def _tally(rows: list[dict]) -> tuple[int, dict[str, int]]:
+    per: dict[str, int] = {}
+    for r in rows:
+        k = str(r.get("r") or "")
+        if k:
+            per[k] = per.get(k, 0) + 1
+    return len(rows), per
 
 
 def recipient_key(address: str) -> str:
@@ -65,7 +147,11 @@ def recipient_key(address: str) -> str:
 class StaffMailGate:
     """One owner's staff-mail decision for a batch: load once, ask per staffer,
     `record` each delivered mail. Local counters advance with every `take`, so
-    a batch cannot overshoot a ceiling between its own sends."""
+    a batch cannot overshoot a ceiling between its own sends.
+
+    Every SEND goes through `turn` (one mail at a time per owner, the count
+    re-read under the lock); `refusal` alone is for counting ahead (publish's
+    "N will be e-mailed", the explicit sends' all-or-nothing check)."""
 
     def __init__(self, owner: Any, held: str | None, owner_sent: int | None,
                  per_recipient: dict[str, int]):
@@ -79,17 +165,52 @@ class StaffMailGate:
         if owner is None:
             return cls(None, "email_unverified", None, {})
         held = held_sender_reason(owner)
-        rows = third_party_sends(db, owner, (STAFF_MAIL_ACTION,))
+        gate = cls(owner, held, None, {})
+        gate._reload_counts(db)
+        return gate
+
+    def _reload_counts(self, db) -> None:
+        rows = third_party_sends(db, self.owner, (STAFF_MAIL_ACTION,))
         if rows is None:
             logger.warning("staff mail count unreadable for owner %s — no mail",
-                           getattr(owner, "id", None))
-            return cls(owner, held, None, {})
-        per: dict[str, int] = {}
-        for r in rows:
-            k = str(r.get("r") or "")
-            if k:
-                per[k] = per.get(k, 0) + 1
-        return cls(owner, held, len(rows), per)
+                           getattr(self.owner, "id", None))
+            self._owner_sent, self._per_recipient = None, {}
+            return
+        self._owner_sent, self._per_recipient = _tally(rows)
+
+    @contextmanager
+    def turn(self, db, raw_address) -> Iterator[tuple[str | None, str | None]]:
+        """One staff mail, serialised per owner. Yields (address, None) when it
+        may be sent now, else (None, SKIP_* reason). The caller sends and
+        `record`s inside the block; the counter row is committed when the
+        block ends, before the next turn for this owner starts. The caller's
+        other pending work in this session is committed with it.
+
+        No address, or a held sender: nothing to decide, no lock taken."""
+        addr = sendable_email(raw_address)
+        if not addr or self.held:
+            yield self.refusal(raw_address)
+            return
+        owner_id = getattr(self.owner, "id", None)
+        deadline = time.monotonic() + STAFF_MAIL_TURN_WAIT_S
+        lock = _owner_turn_lock(owner_id)
+        # Postgres lock first, then this process's: a waiter then holds
+        # nothing another turn needs (no lock-order inversion).
+        got = _take_db_turn(db, owner_id, deadline)
+        got = got and lock.acquire(timeout=max(0.0, deadline - time.monotonic()))
+        try:
+            if got:
+                self._reload_counts(db)
+            else:
+                logger.warning("staff mail turn did not start in time for owner %s — no mail",
+                               owner_id)
+                self._owner_sent, self._per_recipient = None, {}
+            yield self.refusal(raw_address)
+            if got:
+                db.commit()  # the counter row is visible before the next turn
+        finally:
+            if got:
+                lock.release()
 
     @property
     def owner_sent(self) -> int | None:
@@ -104,7 +225,7 @@ class StaffMailGate:
         if self.held:
             return None, SKIP_HELD
         if self._owner_sent is None:
-            return None, SKIP_LIMIT
+            return None, SKIP_UNKNOWN
         if self._owner_sent >= STAFF_MAIL_OWNER_DAILY_CAP:
             return None, SKIP_LIMIT
         if self._per_recipient.get(recipient_key(addr), 0) >= STAFF_MAIL_RECIPIENT_DAILY_CAP:
@@ -180,7 +301,9 @@ def preflight_explicit_send(db, owner, addresses, lang: str) -> StaffMailGate:
         is worse than a clear "try tomorrow").
 
     Recipients already at their own daily ceiling are not refused here: the
-    send skips them by name. Returns the gate to use for the sends."""
+    send skips them by name. Returns the gate to use for the sends; each send
+    still goes through `turn`, so a send running at the same moment cannot
+    push the owner past a ceiling (it is then skipped by name)."""
     from fastapi import HTTPException
     from app.services.revisor_mail import require_verified_sender
 
@@ -190,7 +313,7 @@ def preflight_explicit_send(db, owner, addresses, lang: str) -> StaffMailGate:
                                 message_da=STAFF_MAIL_HELD_DA)
     gate = StaffMailGate.load(db, owner)
     if gate.owner_sent is None:
-        return gate  # unreadable: every recipient is skipped as over the limit
+        return gate  # unreadable: each send re-reads it in its turn, or fails closed
     sim = gate.copy()
     wanted = 0
     for addr in sendable:

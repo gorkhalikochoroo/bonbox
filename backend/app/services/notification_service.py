@@ -570,13 +570,17 @@ def send_shift_notifications(
 
     # SEC-1: a confirmed owner, a strict address and the daily ceilings decide
     # the MAIL (services/staff_mail_guard). The in-app alert and the push below
-    # do not depend on it. Unreadable → no mail (fail closed).
+    # do not depend on it. Unreadable → no mail (fail closed). Each mail is one
+    # turn per owner (gate.turn): the count is re-read under the owner's lock
+    # and the counter row committed before the next mail is decided, so a
+    # publish and shift edits running at the same moment share one ceiling.
     from app.services.staff_mail_guard import StaffMailGate
     try:
         gate = StaffMailGate.load(db, owner)
     except Exception:  # noqa: BLE001
         logger.exception("notification: staff mail gate failed — no mail this batch")
-        gate = StaffMailGate(owner, None, None, {})  # count unknown → no mail
+        # Sender status unknown → held: no mail this batch (fail closed).
+        gate = StaffMailGate(owner, "gate_error", None, {})
 
     for staff_id_str, changes in changes_by_staff.items():
         # Per-staff isolation — one failure doesn't poison the rest.
@@ -636,33 +640,33 @@ def send_shift_notifications(
             status = "sent"
             error_message = None
             body = None
-            to_addr, skip = (None, None)
             if member.email and not blocked:
-                to_addr, skip = gate.refusal(member.email)
-                if skip:
-                    logger.info(
-                        "notification: no mail to staff_id=%s (%s) — in-app/push only",
-                        staff_id_str, skip,
-                    )
-            if to_addr:
-                html = build_shift_email_html(
-                    staff_name=member.name,
-                    changes=changes,
-                    portal_url=portal_url,
-                    restaurant_name=restaurant_name,
-                    week_label=week_label,
-                    lang=lang,
-                )
-                # send_email is internally try/except'd — returns False on
-                # any failure. The per-staff outer try/except is belt-and-
-                # braces against changes to that contract.
-                success = send_email(to=to_addr, subject=subject, html=html)
-                if success:
-                    gate.record(db, to_addr, kind="schedule_published", staff_id=staff_uuid)
-                channel = "email"
-                status = "sent" if success else "failed"
-                error_message = None if success else "Email delivery failed"
-                body = html
+                with gate.turn(db, member.email) as (to_addr, skip):
+                    if skip:
+                        logger.info(
+                            "notification: no mail to staff_id=%s (%s) — in-app/push only",
+                            staff_id_str, skip,
+                        )
+                    if to_addr:
+                        html = build_shift_email_html(
+                            staff_name=member.name,
+                            changes=changes,
+                            portal_url=portal_url,
+                            restaurant_name=restaurant_name,
+                            week_label=week_label,
+                            lang=lang,
+                        )
+                        # send_email is internally try/except'd — returns False
+                        # on any failure. The per-staff outer try/except is
+                        # belt-and-braces against changes to that contract.
+                        success = send_email(to=to_addr, subject=subject, html=html)
+                        if success:
+                            gate.record(db, to_addr, kind="schedule_published",
+                                        staff_id=staff_uuid)
+                        channel = "email"
+                        status = "sent" if success else "failed"
+                        error_message = None if success else "Email delivery failed"
+                        body = html
 
             log = NotificationLog(
                 id=uuid.uuid4(),
@@ -783,36 +787,39 @@ def send_single_shift_notification(
     # SEC-1: the mail needs a confirmed owner, a strict address and room under
     # the daily ceilings (services/staff_mail_guard). The in-app row and the
     # push below go regardless. Unreadable → no mail (fail closed).
-    to_addr = None
+    # One turn per owner (gate.turn): the count is re-read under the owner's
+    # lock and the counter row committed before the owner's next staff mail
+    # is decided — concurrent edits cannot all pass the same old count.
     if member.email and not blocked:
         from app.services.staff_mail_guard import StaffMailGate
         try:
             gate = StaffMailGate.load(db, owner)
-            to_addr, skip = gate.refusal(member.email)
         except Exception:  # noqa: BLE001
             logger.exception("notification(single): staff mail gate failed — no mail")
-            gate, skip = None, "gate_error"
-        if skip:
-            logger.info(
-                "notification(single): no mail to staff_id=%s (%s) — in-app/push only",
-                staff_id, skip,
-            )
-    if to_addr:
-        html = build_shift_email_html(
-            staff_name=member.name,
-            changes=[change],
-            portal_url=portal_url,
-            restaurant_name=restaurant_name,
-            week_label=week_label,
-            lang=lang,
-        )
-        success = send_email(to=to_addr, subject=subject, html=html)
-        if success:
-            gate.record(db, to_addr, kind=event_type, staff_id=staff_id)
-        channel = "email"
-        status = "sent" if success else "failed"
-        error_message = None if success else "Email delivery failed"
-        body = html
+            gate = None
+        if gate is not None:
+            with gate.turn(db, member.email) as (to_addr, skip):
+                if skip:
+                    logger.info(
+                        "notification(single): no mail to staff_id=%s (%s) — in-app/push only",
+                        staff_id, skip,
+                    )
+                if to_addr:
+                    html = build_shift_email_html(
+                        staff_name=member.name,
+                        changes=[change],
+                        portal_url=portal_url,
+                        restaurant_name=restaurant_name,
+                        week_label=week_label,
+                        lang=lang,
+                    )
+                    success = send_email(to=to_addr, subject=subject, html=html)
+                    if success:
+                        gate.record(db, to_addr, kind=event_type, staff_id=staff_id)
+                    channel = "email"
+                    status = "sent" if success else "failed"
+                    error_message = None if success else "Email delivery failed"
+                    body = html
     elif member.email and blocked:
         logger.info(
             "notification(single): test-guard suppressed email to staff_id=%s",

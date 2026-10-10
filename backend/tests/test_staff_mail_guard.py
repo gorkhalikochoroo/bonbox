@@ -538,3 +538,50 @@ def test_publish_names_the_sender_only_when_someone_could_be_mailed(client, db, 
     assert body["mail_held"] is None
     assert body["skipped_no_email_names"] == ["NoMail"]
     assert body["notify_count"] == 0
+
+
+# ─── 5. review fix-ups (10 Oct) ──────────────────────────────────────────
+
+
+def test_publish_with_an_unreadable_count_claims_no_limit(client, db, mails, pushes, monkeypatch):
+    """Release gate rule 5: no limit was reached — the count failed. Publish
+    says it could not confirm (notify_count null), names nobody as over the
+    limit, and the background send mails nobody (fail closed)."""
+    owner = _owner(db)
+    anna = _staff(db, owner, name="Anna", email="anna@cafe.dk")
+    _shift(db, owner, anna)
+    _as(owner)
+    monkeypatch.setattr(guard, "third_party_sends", lambda *a, **k: None)
+    body = client.post("/api/staff/schedules/publish",
+                       params={"week_start": MONDAY.isoformat()}).json()
+    assert body["published"] == 1
+    assert body["notify_count"] is None
+    assert body["skipped_mail_limit_names"] == []
+    assert body["mail_held"] is None
+    assert mails == []
+    assert pushes == [str(anna.id)]
+
+
+def test_explicit_sends_with_an_unreadable_count_report_not_sent_not_a_limit(
+        client, db, mails, monkeypatch):
+    owner = _owner(db)
+    anna = _staff(db, owner, name="Anna", email="anna@cafe.dk")
+    week = _next_monday()
+    _shift(db, owner, anna, status="published", week=week)
+    _as(owner)
+    monkeypatch.setattr(guard, "third_party_sends", lambda *a, **k: None)
+    r = client.post("/api/staff/schedules/share-with-staff",
+                    json={"week_start": week.isoformat()}, params={"lang": "da"})
+    assert r.status_code == 200, r.text
+    assert r.json()["emailed_count"] == 0
+    assert r.json()["email_failed_count"] == 1
+    assert r.json()["skipped_mail_limit_names"] == []
+    assert r.json()["links_issued"] == 1, "the link is still minted"
+    r = client.post("/api/staff/schedules/email",
+                    json={"week_start": week.isoformat(), "lang": "da", "cc_self": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["sent"] == 0
+    assert [f["name"] for f in r.json()["failed"]] == ["Anna"]
+    assert r.json()["failed"][0]["reason"] == "count_unavailable"
+    assert r.json()["skipped_mail_limit_names"] == []
+    assert mails == []

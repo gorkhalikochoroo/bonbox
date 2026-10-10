@@ -1797,7 +1797,7 @@ def share_with_staff(
     # SEC-1/SEC-10: a confirmed sender (403 before anything is minted or
     # mailed) and the staff-mail daily ceilings (services/staff_mail_guard).
     from app.services.staff_mail_guard import (
-        SKIP_NO_ADDRESS, preflight_explicit_send,
+        SKIP_NO_ADDRESS, SKIP_UNKNOWN, preflight_explicit_send,
     )
     gate = preflight_explicit_send(db, user, [m.email for m in members], lang)
     _check_staff_email_budget(
@@ -1854,80 +1854,88 @@ def share_with_staff(
                 links_issued += 1
 
             # Step 2 — email the link (one ordinary mailbox, under the
-            # staff-mail ceilings; the sender was checked above).
-            to_addr, skip = gate.refusal(member.email)
-            if skip == SKIP_NO_ADDRESS:
-                skipped_no_email += 1
-                skipped_names.append(member.name or "—")
-                continue
-            if skip:
-                limit_names.append(member.name or "—")
-                continue
+            # staff-mail ceilings; the sender was checked above). One turn per
+            # owner: the count is re-read under the owner's lock and this
+            # mail's counter row (with the link minted above and the log row)
+            # is committed before the next staff mail is decided.
+            with gate.turn(db, member.email) as (to_addr, skip):
+                if skip == SKIP_NO_ADDRESS:
+                    skipped_no_email += 1
+                    skipped_names.append(member.name or "—")
+                    continue
+                if skip == SKIP_UNKNOWN:
+                    # Not sent, and no ceiling was reached: the count could
+                    # not be read. Reported as not sent ("failed").
+                    email_failed_count += 1
+                    continue
+                if skip:
+                    limit_names.append(member.name or "—")
+                    continue
 
-            portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name, member.name)}"
-            # Owner-typed names go to an address the owner typed, under the
-            # BonBox sender: escaped in the HTML, header-safe in the subject
-            # (review, 8 Oct — the same rule as the shift and invite mails).
-            from app.services.revisor_mail import esc as _esc, header_safe as _hsafe
-            first_name = _esc((member.name or "").split(" ")[0] or member.name or "")
-            restaurant_name_html = _esc(restaurant_name)
-            # DK-first niche email — restaurant/butik/værksted markets in DK
-            # expect Danish.  Keep brand-locked vocabulary (vagtplan, push,
-            # notifikationer) per convention_dk_terminology_lock.md.
-            subject = _hsafe(f"{restaurant_name} — din vagtplan er klar")
-            # Plain, branded HTML. Inlined styles so email clients render it
-            # consistently (Outlook, Gmail, Apple Mail).
-            html = (
-                f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, "
-                f"'Segoe UI', system-ui, sans-serif; max-width: 520px; "
-                f"color: #111; line-height: 1.5;\">"
-                f"<h2 style=\"color:#111;margin:0 0 12px;font-size:20px;\">"
-                f"Hej {first_name},</h2>"
-                f"<p style=\"color:#333;margin:0 0 16px;\">"
-                f"{restaurant_name_html} har delt din vagtplan med dig. "
-                f"Bogmærk linket — hver gang vagtplanen ændres, ser du "
-                f"opdateringen her med det samme."
-                f"</p>"
-                f"<p style=\"margin:24px 0;\">"
-                f"<a href=\"{_esc(portal_url)}\" "
-                f"style=\"display:inline-block;background:#111;color:#fff;"
-                f"padding:12px 22px;text-decoration:none;border-radius:8px;"
-                f"font-weight:600;font-size:15px;\">"
-                f"Åbn min vagtplan</a>"
-                f"</p>"
-                f"<p style=\"color:#666;font-size:13px;margin:0 0 8px;\">"
-                f"<strong>Tip:</strong> Tryk på del-ikonet i Safari og vælg "
-                f"<em>Føj til hjemmeskærm</em> for at få push-notifikationer "
-                f"når vagter ændres."
-                f"</p>"
-                f"<p style=\"color:#666;font-size:13px;margin:0 0 24px;\">"
-                f"Linket er personligt — del det ikke med andre."
-                f"</p>"
-                f"<p style=\"color:#999;font-size:12px;margin:32px 0 0;"
-                f"padding-top:16px;border-top:1px solid #eee;\">"
-                f"{restaurant_name_html} · sendt via BonBox</p>"
-                f"</div>"
-            )
-            success = send_email(to=to_addr, subject=subject, html=html)
-            if success:
-                gate.record(db, to_addr, kind="staff_link_shared",
-                            staff_id=member.id, explicit=True)
-            log = NotificationLog(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                staff_id=member.id,
-                channel="email",
-                event_type="staff_link_shared",
-                subject=subject,
-                body=html,
-                status="sent" if success else "failed",
-                error_message=None if success else "Email delivery failed",
-            )
-            db.add(log)
-            if success:
-                emailed_count += 1
-            else:
-                email_failed_count += 1
+                portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name, member.name)}"
+                # Owner-typed names go to an address the owner typed, under the
+                # BonBox sender: escaped in the HTML, header-safe in the subject
+                # (review, 8 Oct — the same rule as the shift and invite mails).
+                from app.services.revisor_mail import esc as _esc, header_safe as _hsafe
+                first_name = _esc((member.name or "").split(" ")[0] or member.name or "")
+                restaurant_name_html = _esc(restaurant_name)
+                # DK-first niche email — restaurant/butik/værksted markets in DK
+                # expect Danish.  Keep brand-locked vocabulary (vagtplan, push,
+                # notifikationer) per convention_dk_terminology_lock.md.
+                subject = _hsafe(f"{restaurant_name} — din vagtplan er klar")
+                # Plain, branded HTML. Inlined styles so email clients render it
+                # consistently (Outlook, Gmail, Apple Mail).
+                html = (
+                    f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, "
+                    f"'Segoe UI', system-ui, sans-serif; max-width: 520px; "
+                    f"color: #111; line-height: 1.5;\">"
+                    f"<h2 style=\"color:#111;margin:0 0 12px;font-size:20px;\">"
+                    f"Hej {first_name},</h2>"
+                    f"<p style=\"color:#333;margin:0 0 16px;\">"
+                    f"{restaurant_name_html} har delt din vagtplan med dig. "
+                    f"Bogmærk linket — hver gang vagtplanen ændres, ser du "
+                    f"opdateringen her med det samme."
+                    f"</p>"
+                    f"<p style=\"margin:24px 0;\">"
+                    f"<a href=\"{_esc(portal_url)}\" "
+                    f"style=\"display:inline-block;background:#111;color:#fff;"
+                    f"padding:12px 22px;text-decoration:none;border-radius:8px;"
+                    f"font-weight:600;font-size:15px;\">"
+                    f"Åbn min vagtplan</a>"
+                    f"</p>"
+                    f"<p style=\"color:#666;font-size:13px;margin:0 0 8px;\">"
+                    f"<strong>Tip:</strong> Tryk på del-ikonet i Safari og vælg "
+                    f"<em>Føj til hjemmeskærm</em> for at få push-notifikationer "
+                    f"når vagter ændres."
+                    f"</p>"
+                    f"<p style=\"color:#666;font-size:13px;margin:0 0 24px;\">"
+                    f"Linket er personligt — del det ikke med andre."
+                    f"</p>"
+                    f"<p style=\"color:#999;font-size:12px;margin:32px 0 0;"
+                    f"padding-top:16px;border-top:1px solid #eee;\">"
+                    f"{restaurant_name_html} · sendt via BonBox</p>"
+                    f"</div>"
+                )
+                success = send_email(to=to_addr, subject=subject, html=html)
+                if success:
+                    gate.record(db, to_addr, kind="staff_link_shared",
+                                staff_id=member.id, explicit=True)
+                log = NotificationLog(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    staff_id=member.id,
+                    channel="email",
+                    event_type="staff_link_shared",
+                    subject=subject,
+                    body=html,
+                    status="sent" if success else "failed",
+                    error_message=None if success else "Email delivery failed",
+                )
+                db.add(log)
+                if success:
+                    emailed_count += 1
+                else:
+                    email_failed_count += 1
         except Exception as exc:  # noqa: BLE001
             try:
                 db.rollback()
@@ -3274,9 +3282,12 @@ def publish_week(
     # ceilings (services/staff_mail_guard) — the same gate the background
     # send applies. Held → nobody is mailed (the in-app alert and the push
     # still go) and `mail_held` says why, so the sheet can offer "Bekræft nu".
-    # Over a ceiling → named in `skipped_mail_limit_names`.
+    # Over a ceiling → named in `skipped_mail_limit_names`. Count unreadable →
+    # `notify_count` is null (the sheet: "could not confirm whether anyone was
+    # notified"), never "today's e-mail limit is reached" — none was.
     limit_names: list[str] = []
     mail_held = None
+    count_unknown = False
     if changes:
         changed_ids = []
         for sid in changes.keys():
@@ -3286,7 +3297,7 @@ def publish_week(
                 continue
         if changed_ids:
             from app.services.staff_mail_guard import (
-                SKIP_HELD, SKIP_NO_ADDRESS, StaffMailGate,
+                SKIP_HELD, SKIP_NO_ADDRESS, SKIP_UNKNOWN, StaffMailGate,
             )
             _gate = StaffMailGate.load(db, user)
             _changed = db.query(StaffMember).filter(
@@ -3302,6 +3313,8 @@ def publish_week(
                     # Only said when someone could have been mailed: with no
                     # address on file the true reason is "no address".
                     mail_held = _gate.held
+                elif _skip == SKIP_UNKNOWN:
+                    count_unknown = True
                 elif _skip:
                     limit_names.append(_m.name or "—")
                 else:
@@ -3350,7 +3363,7 @@ def publish_week(
         "published": updated,
         "week_start": week_start.isoformat(),
         "changed_staff": len(changes),
-        "notify_count": notify_count,
+        "notify_count": None if count_unknown else notify_count,
         "skipped_no_email_names": skipped_names,
         "skipped_mail_limit_names": limit_names,
         # None, "email_unverified" or "claim_question_open" (senderGate.js).
@@ -3881,8 +3894,9 @@ def email_schedule_to_staff(
     # staff-mail daily ceilings (services/staff_mail_guard), on top of the
     # older per-send budget below.
     from app.services.staff_mail_guard import (
-        SKIP_NO_ADDRESS, preflight_explicit_send,
+        SKIP_NO_ADDRESS, SKIP_UNKNOWN, preflight_explicit_send,
     )
+    from app.utils.email_address import sendable_email
     gate = preflight_explicit_send(db, user, [t.email for t in targets], body.lang)
     _check_staff_email_budget(
         db, user,
@@ -3905,65 +3919,74 @@ def email_schedule_to_staff(
 
     limit_names: list[str] = []
     for s in targets:
-        addr, skip = gate.refusal(s.email)
-        if skip == SKIP_NO_ADDRESS:
-            skipped += 1
-            skipped_names.append(s.name or "—")
-            continue
-        if skip:
-            limit_names.append(s.name or "—")
-            continue
+        # One turn per owner: the count is re-read under the owner's lock and
+        # this mail's counter row is committed before the next staff mail is
+        # decided (a send running at the same moment cannot pass a ceiling).
+        with gate.turn(db, s.email) as (addr, skip):
+            if skip == SKIP_NO_ADDRESS:
+                skipped += 1
+                skipped_names.append(s.name or "—")
+                continue
+            if skip == SKIP_UNKNOWN:
+                # Not sent, and no ceiling was reached: the count could not
+                # be read. Reported as not sent ("failed"), never as a limit.
+                failed.append({"name": s.name, "email": sendable_email(s.email),
+                               "reason": "count_unavailable"})
+                continue
+            if skip:
+                limit_names.append(s.name or "—")
+                continue
 
-        first_name = escape((s.name or "").split(" ")[0] or s.name or "")
-        # The business name is owner-typed: escaped in the HTML footer,
-        # header-safe in the subject (review, 8 Oct).
-        biz_name_html = escape(biz_name)
-        if is_danish:
-            subject = _hsafe(f"Vagtplan uge {body.week_start.strftime('%V')} — {biz_name}")
-            greeting = f"Hej {first_name},".strip(", ")
-            intro = (
-                f"Vedhæftet finder du vagtplanen for ugen "
-                f"<strong>fra mandag {_week_human}</strong>."
-            )
-            footer = (
-                "Sendt direkte fra BonBox. "
-                f"Svar på denne mail for at kontakte {biz_name_html}."
-            )
-        else:
-            subject = _hsafe(f"Schedule week {body.week_start.strftime('%V')} — {biz_name}")
-            greeting = f"Hi {first_name},".strip(", ")
-            intro = (
-                f"Attached is the schedule for the week starting "
-                f"<strong>Monday {_week_human}</strong>."
-            )
-            footer = (
-                "Sent directly from BonBox. "
-                f"Reply to this email to reach {biz_name_html}."
+            first_name = escape((s.name or "").split(" ")[0] or s.name or "")
+            # The business name is owner-typed: escaped in the HTML footer,
+            # header-safe in the subject (review, 8 Oct).
+            biz_name_html = escape(biz_name)
+            if is_danish:
+                subject = _hsafe(f"Vagtplan uge {body.week_start.strftime('%V')} — {biz_name}")
+                greeting = f"Hej {first_name},".strip(", ")
+                intro = (
+                    f"Vedhæftet finder du vagtplanen for ugen "
+                    f"<strong>fra mandag {_week_human}</strong>."
+                )
+                footer = (
+                    "Sendt direkte fra BonBox. "
+                    f"Svar på denne mail for at kontakte {biz_name_html}."
+                )
+            else:
+                subject = _hsafe(f"Schedule week {body.week_start.strftime('%V')} — {biz_name}")
+                greeting = f"Hi {first_name},".strip(", ")
+                intro = (
+                    f"Attached is the schedule for the week starting "
+                    f"<strong>Monday {_week_human}</strong>."
+                )
+                footer = (
+                    "Sent directly from BonBox. "
+                    f"Reply to this email to reach {biz_name_html}."
+                )
+
+            html = (
+                "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
+                "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
+                f"<p>{greeting}</p>"
+                f"<p>{intro}</p>"
+                f"{user_note_html}"
+                f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{footer}</p>"
+                "</div>"
             )
 
-        html = (
-            "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
-            "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
-            f"<p>{greeting}</p>"
-            f"<p>{intro}</p>"
-            f"{user_note_html}"
-            f"<p style='color:#6b7280;font-size:13px;margin-top:16px;'>{footer}</p>"
-            "</div>"
-        )
-
-        ok, err = send_email_with_attachment(
-            addr, subject, html,
-            attachment_bytes=pdf_bytes,
-            attachment_filename=filename,
-            attachment_mime="application/pdf",
-            reply_to=user.email,
-            cc=cc,
-        )
-        if ok:
-            sent += 1
-            gate.record(db, addr, kind="schedule_pdf", staff_id=s.id, explicit=True)
-        else:
-            failed.append({"name": s.name, "email": addr, "reason": err or "unknown"})
+            ok, err = send_email_with_attachment(
+                addr, subject, html,
+                attachment_bytes=pdf_bytes,
+                attachment_filename=filename,
+                attachment_mime="application/pdf",
+                reply_to=user.email,
+                cc=cc,
+            )
+            if ok:
+                sent += 1
+                gate.record(db, addr, kind="schedule_pdf", staff_id=s.id, explicit=True)
+            else:
+                failed.append({"name": s.name, "email": addr, "reason": err or "unknown"})
 
     # Bogføringsloven §10 — bulk staff-email distribution is sensitive (touches
     # personal data + scheduling commitments). Capture WHO got the schedule
