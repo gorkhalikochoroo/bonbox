@@ -382,7 +382,7 @@ export default function LoginPage() {
                 </svg>
                 <span>
                   {retryStatus.coldStart
-                    ? t("loginWarmingUp", "Server is waking up — the first time can take a little longer.")
+                    ? t("loginWarmingUp", "Can't reach BonBox right now — retrying.")
                     : t("loginRetrying", "Network hiccup — retrying.")}
                   {" "}
                   <span className="text-amber-700/80 ml-1">

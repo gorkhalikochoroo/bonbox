@@ -18,16 +18,18 @@
  *     translated — a registered name and address are not copy.
  *
  *  2. DATABEHANDLERAFTALE has no page behind it. The design points it at a
- *     dead href="#dpa". Rather than ship a link that goes nowhere, it points
- *     at /privacy, which does exist and does name the processors. It should
- *     be repointed the moment a real DPA page lands.
+ *     dead href="#dpa", and it later pointed at /privacy — which is the
+ *     privacy policy, not a data processing agreement: a link labelled
+ *     "Databehandleraftale" that opens another document says something
+ *     untrue (R-c round 2, P0-2 step 1). It is left out until the real DPA
+ *     ships; nothing replaces it.
  *
  *  3. The legal links are real <Link>s, not anchors, so /terms and /privacy
  *     route in-app instead of reloading the bundle.
  *
- * The three Danish document names (Handelsbetingelser, Privatlivspolitik,
- * Databehandleraftale) stay Danish in every language: they are the names of
- * specific Danish-law documents, not UI chrome.
+ * The Danish document names (Handelsbetingelser, Privatlivspolitik) stay
+ * Danish in every language: they are the names of specific Danish-law
+ * documents, not UI chrome.
  */
 
 import { Link } from "react-router-dom";
@@ -73,10 +75,9 @@ export default function FooterV2() {
       to: "/privacy",
       label: t("landingV2.footer.privacy", "Privatlivspolitik"),
     },
-    {
-      to: "/privacy",
-      label: t("landingV2.footer.dpa", "Databehandleraftale"),
-    },
+    // (R-c round 2 — no "Databehandleraftale" link until a real DPA ships:
+    // it opened the privacy policy, which is not a data processing
+    // agreement. Nothing stands in its place.)
   ];
 
   return (

@@ -138,7 +138,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.free.f6",
-                  "1 user, 1 location, up to 3 staff on the rota, 7 days of export history"
+                  "1 user, 1 location, up to 3 staff on the rota, period export up to 7 days at a time — each day's kasserapport as a PDF, no limit"
                 )}
               </Feature>
               {/* The reservation ceiling. It was enforced in the public create

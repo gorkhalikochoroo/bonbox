@@ -142,8 +142,9 @@ describe("(f) landing and (g) login — the new sentences", () => {
     expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF, ready to keep for 5 years");
     expect(da.loginGoogleHintNative).toBe("Tilmeldt med Google på web? Tryk på “Glemt?” ved adgangskoden ovenfor for at sætte en app-adgangskode.");
     expect(en.loginGoogleHintNative).toBe("Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password.");
-    expect(da.loginWarmingUp).toBe("Serveren vågner — første gang kan det tage lidt længere.");
-    expect(en.loginWarmingUp).toBe("Server is waking up — the first time can take a little longer.");
+    // (R-c round 2: only what the client knows — no answer, and it retries.)
+    expect(da.loginWarmingUp).toBe("Kan ikke nå BonBox lige nu — prøver igen.");
+    expect(en.loginWarmingUp).toBe("Can't reach BonBox right now — retrying.");
     expect(da.registerLegalRead).toBe("Læs vores {terms} og {privacy}.");
     expect(en.registerLegalRead).toBe("Read our {terms} and {privacy}.");
     expect(da.registerLegalTerms).toBe("Servicevilkår");
@@ -165,7 +166,7 @@ describe("(f) landing and (g) login — the new sentences", () => {
     expect(ALL_LANGUAGES.find((l) => l.code === "tr")?.offered).toBe(true);
     expect(tr.landingV2HeroTrustArchive).toBe("Her kasserapport PDF olarak, 5 yıl saklamaya hazır");
     expect(tr["landingV2.pricing.free.f1"]).toBe("Günlük kapanış: Z-raporunun fotoğrafını çek, BonBox rakamları doldurur");
-    expect(tr.loginWarmingUp).toBe("Sunucu uyanıyor — ilk seferde biraz daha uzun sürebilir.");
+    expect(tr.loginWarmingUp).toBe("BonBox'a şu anda ulaşılamıyor — yeniden deneniyor.");
     expect(tr.loginGoogleHintNative).toBe("Web'de Google ile mi kaydoldun? Uygulama şifresi belirlemek için yukarıda şifrenin yanındaki “Unuttun mu?”ya dokun.");
     expect(tr.registerLegalRead).toBe("{terms} ve {privacy} belgelerimizi okuyabilirsin.");
     expect(tr.registerLegalTerms).toBe("Hizmet Şartları");

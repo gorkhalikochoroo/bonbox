@@ -692,7 +692,7 @@ export default function DailyClosePage() {
         // it ("Hent {dag}s salg"), never stored: said as that, never "saved
         // somewhere else" (nothing may be stored for the day at all).
         : it?.errorCode === QUEUE_ERR_DRAFT_CHANGED && it.letGo
-          ? t("dcQueueErrLetGo", "These figures were not saved before you fetched another day's sales. Save them as the day's draft (it replaces what is saved now), or remove this copy.")
+          ? t("dcQueueErrLetGo", "These figures may not be saved: they are from before you fetched another day's sales. Save them as the day's draft (it replaces what is saved now), or remove this copy.")
         // The day's draft was saved somewhere else after this copy was made:
         // nothing was overwritten, and the newer draft is the stored one.
         : it?.errorCode === QUEUE_ERR_DRAFT_CHANGED
