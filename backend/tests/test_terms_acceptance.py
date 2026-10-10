@@ -46,7 +46,7 @@ ODD_VALUES = [False, None, "true", "yes", 1, 0, "1", [], {}, "accept"]
 
 
 @pytest.fixture
-def db_session():
+def db_session(monkeypatch):
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -55,6 +55,13 @@ def db_session():
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     s = SessionLocal()
+    # The role guards in app/main.py read `users` through the GLOBAL
+    # app.database.SessionLocal, not get_db. Point them at this engine too —
+    # otherwise this file only passed when an earlier test (or a stale
+    # ci.db) had already created the tables, and run alone on a fresh DB the
+    # magic-link verify and the export answered 503 role_check_unavailable.
+    import app.database as _db_mod
+    monkeypatch.setattr(_db_mod, "SessionLocal", SessionLocal, raising=False)
 
     def _override_get_db():
         try:
@@ -319,6 +326,37 @@ def test_magic_link_new_account_with_and_without_flag(db_session, client, magic_
     r = client.post("/api/auth/magic-link/verify", json={"token": token})
     assert r.status_code == 200, r.text
     _assert_none(_user(db_session, e2))
+
+
+def test_magic_link_request_carries_the_terms_flag_into_the_mailed_link(db_session, client, magic_mail):
+    """R-e fix-up: /login shows the Terms line under "send me a link", and
+    the request says so (accept_terms=true). The mailed link carries a fixed
+    &terms=1, so the tab that opens it can send accept_terms back on verify.
+    Without the flag (an older page) — or with any odd value — no &terms=."""
+    r = client.post("/api/auth/magic-link/request", json={"email": _email(), "accept_terms": True})
+    assert r.status_code == 200, r.text
+    assert "&terms=1" in magic_mail[-1][1]
+    for body in ({}, {"accept_terms": False}, {"accept_terms": "true"}, {"accept_terms": 1}):
+        r = client.post("/api/auth/magic-link/request", json={"email": _email(), **body})
+        assert r.status_code == 200, (body, r.text)
+        assert "terms=" not in magic_mail[-1][1], body
+
+
+def test_magic_link_requested_with_the_line_and_verified_creates_an_accepted_account(
+    db_session, client, magic_mail,
+):
+    """The whole e-mail-link path from /login: request with the flag → the
+    link carries &terms=1 → verify with accept_terms → new account stamped."""
+    e = _email()
+    r = client.post("/api/auth/magic-link/request", json={"email": e, "accept_terms": True})
+    assert r.status_code == 200, r.text
+    html = magic_mail[-1][1]
+    assert "&terms=1" in html
+    token = re.search(r"token=([A-Za-z0-9_-]{30,})", html).group(1)
+    client.cookies.clear()
+    r = client.post("/api/auth/magic-link/verify", json={"token": token, "accept_terms": True})
+    assert r.status_code == 200, r.text
+    _assert_accepted(_user(db_session, e))
 
 
 def test_magic_link_sign_in_to_existing_account_never_writes(db_session, client, magic_mail):

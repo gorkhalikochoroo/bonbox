@@ -315,3 +315,122 @@ def test_erasure_cancels_the_stripe_subscription(db_session, client, monkeypatch
     assert r.status_code == 200, r.text
     assert cancelled == ["sub_test_123"]
 
+
+
+# ── R-e fix-up: the subscription must be stopped, or nothing is deleted ──
+#
+# Terms § 4 / § 8: deleting the account stops an active subscription at once.
+# The cancel used to be best-effort — on a Stripe error it logged a warning
+# and deleted the account anyway, so Stripe went on charging a customer whose
+# account no longer existed (and every later webhook found no user).
+
+
+class _StripeErr(Exception):
+    def __init__(self, msg, http_status=None, code=None):
+        super().__init__(msg)
+        self.http_status = http_status
+        self.code = code
+
+
+def _fake_stripe(*, cancel_exc=None, retrieve=None, retrieve_exc=None, calls=None):
+    calls = calls if calls is not None else []
+
+    class _Sub:
+        @staticmethod
+        def cancel(sub_id):
+            calls.append(("cancel", sub_id))
+            if cancel_exc:
+                raise cancel_exc
+
+        @staticmethod
+        def retrieve(sub_id):
+            calls.append(("retrieve", sub_id))
+            if retrieve_exc:
+                raise retrieve_exc
+            return retrieve
+
+    class _FakeStripe:
+        Subscription = _Sub
+
+    return _FakeStripe
+
+
+def _delete_with_stripe(db_session, client, monkeypatch, fake, *, status="active", outside=None):
+    outside = outside if outside is not None else []
+    monkeypatch.setattr("app.services.stripe_billing._stripe", lambda: fake)
+    monkeypatch.setattr("app.routers.bank_connect.best_effort_revoke", lambda c: outside.append("revoke"))
+    monkeypatch.setattr("app.services.storage.purge_user_blobs", lambda uid: outside.append("purge") or 0)
+    user = _seed_user_with_data(db_session)
+    uid = user.id
+    user.stripe_subscription_id = "sub_live_9"
+    user.subscription_status = status
+    db_session.commit()
+    app.dependency_overrides[get_current_user] = lambda: user
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    return r, uid, outside
+
+
+def test_erasure_is_refused_when_the_subscription_cannot_be_stopped(db_session, client, monkeypatch):
+    fake = _fake_stripe(cancel_exc=_StripeErr("timeout"), retrieve={"status": "active"})
+    r, uid, outside = _delete_with_stripe(db_session, client, monkeypatch, fake)
+    assert r.status_code == 503, r.text
+    detail = r.json()["detail"]
+    assert detail["code"] == "subscription_cancel_failed"
+    assert detail["message"] == auth_router.DELETE_SUB_STOP_FAILED_EN
+    assert detail["message_da"] == auth_router.DELETE_SUB_STOP_FAILED_DA
+    # Nothing irreversible happened, and the account (with its data) is still there.
+    assert outside == []
+    monkeypatch.undo()
+    assert db_session.query(User).filter(User.id == uid).first() is not None
+
+
+def test_erasure_is_refused_when_stripe_cannot_be_asked(db_session, client, monkeypatch):
+    fake = _fake_stripe(cancel_exc=_StripeErr("down"), retrieve_exc=_StripeErr("still down", http_status=503))
+    r, uid, outside = _delete_with_stripe(db_session, client, monkeypatch, fake)
+    assert r.status_code == 503, r.text
+    assert outside == []
+
+
+@pytest.mark.parametrize("retrieve,retrieve_exc", [
+    ({"status": "canceled"}, None),                       # already stopped at Stripe
+    ({"status": "incomplete_expired"}, None),
+    (None, _StripeErr("No such subscription", http_status=404, code="resource_missing")),
+])
+def test_erasure_goes_ahead_when_stripe_says_nothing_is_running(
+    db_session, client, monkeypatch, retrieve, retrieve_exc,
+):
+    fake = _fake_stripe(cancel_exc=_StripeErr("cannot cancel"), retrieve=retrieve, retrieve_exc=retrieve_exc)
+    r, uid, outside = _delete_with_stripe(db_session, client, monkeypatch, fake)
+    assert r.status_code == 200, r.text
+    assert "purge" in outside
+    monkeypatch.undo()
+    assert db_session.query(User).filter(User.id == uid).first() is None
+
+
+def test_subscription_is_stopped_before_any_other_outside_step(db_session, client, monkeypatch):
+    calls = []
+    fake = _fake_stripe(calls=calls)
+    r, _uid, _ = _delete_with_stripe(db_session, client, monkeypatch, fake, outside=calls)
+    assert r.status_code == 200, r.text
+    assert calls == [("cancel", "sub_live_9"), "purge"]
+
+
+def test_stop_helper_without_stripe_configured(monkeypatch):
+    """No Stripe on this server: only a row that already says the
+    subscription is dead lets the deletion through — "couldn't check" is
+    never "stopped"."""
+    from app.services.stripe_billing import stop_subscription_for_erasure
+    monkeypatch.setattr("app.services.stripe_billing._stripe", lambda: None)
+    assert stop_subscription_for_erasure("sub_x", "canceled") == "stopped"
+    assert stop_subscription_for_erasure("sub_x", "active") == "failed"
+    assert stop_subscription_for_erasure("sub_x", None) == "failed"
+
+
+def test_delete_refusal_matches_the_profile_page_text():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / "frontend" / "src" / "i18n"
+    for lang, expected in (("da", auth_router.DELETE_SUB_STOP_FAILED_DA),
+                           ("en", auth_router.DELETE_SUB_STOP_FAILED_EN)):
+        src = (root / f"{lang}.js").read_text()
+        m = re.search(r'deleteSubscriptionStopFailed:\s*"([^"]+)"', src)
+        assert m and m.group(1) == expected, lang

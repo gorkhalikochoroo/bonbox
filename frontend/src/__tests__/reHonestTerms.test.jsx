@@ -8,8 +8,17 @@
  *     price kept while the subscription stays active; 30 days' price notice);
  *     the date is TERMS_VERSION from src/legal/terms.js.
  *   • /register shows "Ved at oprette en konto accepterer du vores
- *     Handelsbetingelser og Privatlivspolitik." ONCE, linked, and the
- *     register request carries accept_terms: true.
+ *     Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores
+ *     Privatlivspolitik." ONCE, linked, and the register request carries
+ *     accept_terms: true. The privacy policy is information, not accepted.
+ *   • /login (R-e fix-up) shows "Ved at fortsætte accepterer du vores
+ *     Handelsbetingelser. …" beside Google/Apple and under the e-mail-link
+ *     button, and those requests carry accept_terms (the server stamps only
+ *     a NEW account); the mailed link's &terms=1 reaches the verify.
+ *   • /subscription (R-e fix-up, P0-1): beside every button that opens a
+ *     real Stripe checkout, "Når du går videre til betaling, accepterer du
+ *     vores Handelsbetingelser og bekræfter, at du køber abonnementet til
+ *     din virksomhed.", and the checkout request carries accept_terms.
  *   • A personal (Privatøkonomi) account cannot start a paid checkout: the
  *     Starter/Pro buttons say "Kun for virksomheder", are disabled, and no
  *     checkout request is sent.
@@ -19,7 +28,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
@@ -62,8 +71,9 @@ vi.mock("@react-oauth/google", () => ({
   GoogleLogin: () => null,
   GoogleOAuthProvider: ({ children }) => children,
 }));
+let entState = { refresh: vi.fn(), isReady: true, hasFeature: () => false };
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ refresh: vi.fn(), isReady: true, hasFeature: () => false }),
+  useEntitlements: () => entState,
 }));
 vi.mock("../hooks/useFounderRateStatus", () => ({
   default: () => ({ status: { max_slots: 100, available: 100, claimed: 0 }, valid: true }),
@@ -74,6 +84,9 @@ const { TERMS_VERSION, termsDate, withTermsAcceptance } = await import("../legal
 const TermsPage = (await import("../pages/TermsPage")).default;
 const RegisterPage = (await import("../pages/RegisterPage")).default;
 const SubscriptionPage = (await import("../pages/SubscriptionPage")).default;
+const LoginPage = (await import("../pages/LoginPage")).default;
+const LoginMagicPage = (await import("../pages/LoginMagicPage")).default;
+const TrialBanner = (await import("../components/TrialBanner")).default;
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), "utf8");
@@ -82,7 +95,9 @@ beforeEach(() => {
   post.mockReset();
   get.mockReset();
   get.mockImplementation(() => Promise.resolve({ data: {} }));
+  post.mockImplementation(() => Promise.resolve({ data: {} }));
   langCode = "da";
+  entState = { refresh: vi.fn(), isReady: true, hasFeature: () => false };
 });
 
 // ─────────────────────────── /terms ───────────────────────────
@@ -129,6 +144,30 @@ describe("Terms page (P0-1)", () => {
     }
   });
 
+  it("R-e fix-up: § 4 deletion, § 6 bank import and § 8 plans say what the app does (da + en)", () => {
+    let text = renderTerms("da").container.textContent;
+    // § 4 — deletion asks for a password; Google/Apple/e-mail-link accounts
+    // set one first (or write to us); team members are removed first.
+    expect(text).toContain("Du kan til enhver tid slette din konto under Profil. Sletningen beder om din adgangskode: har du oprettet kontoen med Google, Apple eller et e-maillink, så vælg først en adgangskode via »Glemt?« på login-siden, eller skriv til contact@bonbox.dk.");
+    expect(text).toContain("Har kontoen teammedlemmer med eget login, skal de fjernes først.");
+    // § 6 — there is no "delete the whole import"; the entries can be deleted.
+    expect(text).toContain("Du kan slette de posteringer, en import har oprettet (salg og udgifter)");
+    expect(text).not.toContain("slette alle importerede bankdata");
+    // § 8 — prices by reference, not the marketing feature lists; the
+    // reservation to change features and caps is back.
+    expect(text).toContain("Priserne står på bonbox.dk under Priser");
+    expect(text).not.toContain("Hvad hver plan indeholder, og hvad den koster");
+    expect(text).toContain("Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.");
+    cleanup();
+    text = renderTerms("en").container.textContent;
+    expect(text).toContain("You can delete your account at any time under Profile. Deleting asks for your password: if you created the account with Google, Apple or an e-mail link, first choose a password with “Forgot?” on the login page, or write to contact@bonbox.dk.");
+    expect(text).toContain("If the account has team members with their own login, remove them first.");
+    expect(text).toContain("You can delete the entries an import created (sales and expenses)");
+    expect(text).not.toContain("delete all imported bank data");
+    expect(text).toContain("The prices are shown on bonbox.dk under Pricing");
+    expect(text).toContain("We may change, limit or remove features and usage caps with reasonable notice.");
+  });
+
   it("both documents keep the same numbered sections", () => {
     const heads = (lang) => {
       const { unmount } = renderTerms(lang);
@@ -167,7 +206,7 @@ describe("Register page acceptance line (LEG-11 / PQ-03)", () => {
     const lines = screen.getAllByTestId("signup-terms-line");
     expect(lines).toHaveLength(1);
     expect(lines[0].textContent).toBe(
-      "Ved at oprette en konto accepterer du vores Handelsbetingelser og Privatlivspolitik.",
+      "Ved at oprette en konto accepterer du vores Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores Privatlivspolitik.",
     );
     const links = within(lines[0]).getAllByRole("link");
     expect(links.map((a) => a.getAttribute("href"))).toEqual(["/terms", "/privacy"]);
@@ -201,8 +240,34 @@ describe("Register page acceptance line (LEG-11 / PQ-03)", () => {
     authState = { register: vi.fn(), googleLogin: vi.fn(), googleOauthLogin: vi.fn(), appleOauthLogin: vi.fn() };
     render(<MemoryRouter initialEntries={["/register"]}><RegisterPage /></MemoryRouter>);
     expect(screen.getByTestId("signup-terms-line").textContent).toBe(
-      "By creating an account you accept our Terms of Service and Privacy Policy.",
+      "By creating an account you accept our Terms of Service. Read how we handle your data in our Privacy Policy.",
     );
+  });
+
+  it("the privacy policy is information, never something to accept (da + en)", () => {
+    for (const d of [da, en]) {
+      const [accept, info] = d.signupAcceptTerms.split(/\.\s/);
+      expect(accept).toContain("{terms}");
+      expect(accept).not.toContain("{privacy}");
+      expect(info).toContain("{privacy}");
+    }
+    expect(da.continueAcceptTerms.split(/\.\s/)[0]).not.toContain("{privacy}");
+    expect(en.continueAcceptTerms.split(/\.\s/)[0]).not.toContain("{privacy}");
+  });
+
+  it("tapping a link opens a new tab and never submits the form", () => {
+    const register = vi.fn(async () => ({ user: { id: "u1" } }));
+    authState = { register, googleLogin: vi.fn(), googleOauthLogin: vi.fn(), appleOauthLogin: vi.fn() };
+    const { container } = render(<MemoryRouter initialEntries={["/register"]}><RegisterPage /></MemoryRouter>);
+    const line = screen.getByTestId("signup-terms-line");
+    // No Google/Apple row here, so the line sits inside the form, under the button.
+    expect(container.querySelector("form").contains(line)).toBe(true);
+    for (const a of within(line).getAllByRole("link")) {
+      expect(a.getAttribute("target")).toBe("_blank");
+      expect(a.getAttribute("rel")).toContain("noopener");
+      fireEvent.click(a);
+    }
+    expect(register).not.toHaveBeenCalled();
   });
 
   it("the Google/Apple row gets the line beside it and passes acceptTerms (source contract)", () => {
@@ -212,8 +277,78 @@ describe("Register page acceptance line (LEG-11 / PQ-03)", () => {
     expect(src).toMatch(/!\(hasAppleWeb \|\| hasAppleNative \|\| hasGoogle\) && \(\s*<SignupTermsLine/);
     expect(src).toContain("fn(res.credential, { acceptTerms: true })");
     expect(src).toContain("await appleOauthLogin(idToken, name, { acceptTerms: true });");
-    // The login page shows no acceptance line, so it must never send it.
-    expect(read("pages/LoginPage.jsx")).not.toMatch(/acceptTerms|accept_terms/);
+  });
+});
+
+// ─────────────────────────── /login (R-e fix-up) ───────────────────────────
+
+describe("Login page acceptance line (Google, Apple and the e-mail link create accounts too)", () => {
+  const loginAuth = () => ({
+    login: vi.fn(), googleLogin: vi.fn(), googleOauthLogin: vi.fn(),
+    appleOauthLogin: vi.fn(), needsEmailVerification: false, user: null,
+  });
+  const CONTINUE_DA =
+    "Ved at fortsætte accepterer du vores Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores Privatlivspolitik.";
+
+  it("beside the Google/Apple row: once, linked, before the e-mail form", () => {
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "test-client.apps.googleusercontent.com");
+    try {
+      authState = loginAuth();
+      const { container } = render(<MemoryRouter initialEntries={["/login"]}><LoginPage /></MemoryRouter>);
+      const lines = screen.getAllByTestId("signup-terms-line");
+      expect(lines).toHaveLength(1);
+      expect(lines[0].textContent).toBe(CONTINUE_DA);
+      expect(within(lines[0]).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["/terms", "/privacy"]);
+      expect(container.querySelector("form").contains(lines[0])).toBe(false);
+      expect(lines[0].compareDocumentPosition(container.querySelector("form")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("password mode without Google/Apple shows no line (a password sign-in never creates an account)", () => {
+    authState = loginAuth();
+    render(<MemoryRouter initialEntries={["/login"]}><LoginPage /></MemoryRouter>);
+    expect(screen.queryByTestId("signup-terms-line")).toBeNull();
+  });
+
+  it("e-mail-link mode: the line sits under the button and the request carries accept_terms", async () => {
+    authState = loginAuth();
+    post.mockImplementation(() => Promise.resolve({ data: { ok: true } }));
+    const { container } = render(<MemoryRouter initialEntries={["/login"]}><LoginPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: da.useEmailInstead }));
+    const line = screen.getByTestId("signup-terms-line");
+    expect(line.textContent).toBe(CONTINUE_DA);
+    fireEvent.change(container.querySelector('input[type="email"]'), { target: { value: "ny@cafe.dk" } });
+    fireEvent.submit(container.querySelector("form"));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [url, body] = post.mock.calls[0];
+    expect(url).toBe("/auth/magic-link/request");
+    expect(body).toMatchObject({ email: "ny@cafe.dk", accept_terms: true });
+  });
+
+  it("Google and Apple (web + native) pass acceptTerms (source contract)", () => {
+    const src = read("pages/LoginPage.jsx");
+    expect(src).toContain("fn(res.credential, { acceptTerms: true })");
+    expect(src.match(/appleOauthLogin\(idToken, name, \{ acceptTerms: true \}\)/g)).toHaveLength(2);
+    expect(src).not.toMatch(/appleOauthLogin\(idToken, name\)/);
+  });
+
+  it("the mailed link's &terms=1 reaches the verify as accept_terms; without it, nothing is sent", async () => {
+    const token = "a".repeat(43);
+    for (const [search, expected] of [[`?token=${token}&terms=1`, true], [`?token=${token}`, undefined]]) {
+      post.mockReset();
+      post.mockImplementation(() => new Promise(() => {})); // stay on "verifying"
+      authState = {};
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[`/login/magic${search}`]}><LoginMagicPage /></MemoryRouter>,
+      );
+      await waitFor(() => expect(post).toHaveBeenCalled());
+      const [url, body] = post.mock.calls[0];
+      expect(url).toBe("/auth/magic-link/verify");
+      expect(body.accept_terms).toBe(expected);
+      unmount();
+    }
   });
 });
 
@@ -270,6 +405,138 @@ describe("Subscription page: businesses only (LEG-12)", () => {
   it("the 403 checkout_business_only is shown in the app's language (source contract)", () => {
     const src = read("pages/SubscriptionPage.jsx");
     expect(src).toContain('e.response.data?.detail?.code === "checkout_business_only"');
+  });
+
+  it("P0-1: a business account sees the Terms line beside Starter and Pro, and the checkout carries accept_terms", async () => {
+    renderSub({ id: "b2", email: "cafe2@cafe.dk", business_type: "cafe" });
+    const lines = await screen.findAllByTestId("checkout-terms-line");
+    expect(lines).toHaveLength(2);
+    expect(lines[0].textContent).toBe(
+      "Når du går videre til betaling, accepterer du vores Handelsbetingelser og bekræfter, at du køber abonnementet til din virksomhed.",
+    );
+    expect(within(lines[0]).getByRole("link").getAttribute("href")).toBe("/terms");
+    // The line sits right under its button, inside the same card.
+    const btn = lines[0].previousElementSibling;
+    expect(btn.tagName).toBe("BUTTON");
+    post.mockImplementation(() => new Promise(() => {}));
+    fireEvent.click(btn);
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post.mock.calls[0][0]).toBe("/billing/stripe/checkout-session");
+    expect(post.mock.calls[0][1]).toMatchObject({ accept_terms: true });
+  });
+
+  it("P0-1: English line", async () => {
+    langCode = "en";
+    renderSub({ id: "b3", email: "cafe3@cafe.dk", business_type: "cafe" });
+    const lines = await screen.findAllByTestId("checkout-terms-line");
+    expect(lines[0].textContent).toBe(
+      "By continuing to payment you accept our Terms of Service and confirm that you are buying the subscription for your business.",
+    );
+  });
+
+  it("P0-1: the trial card's lock-in button has the line too; a personal account gets none", async () => {
+    const trialBilling = { ...billing, plan: "trial", trial_active: true, trial_days_remaining: 9 };
+    authState = { user: { id: "b4", email: "cafe4@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+    get.mockImplementation((url) =>
+      Promise.resolve({ data: url === "/billing/me" ? trialBilling : url === "/waitlist/status" ? [] : {} }));
+    const { unmount } = render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+    expect(await screen.findByTestId("checkout-terms-line-trial")).toBeTruthy();
+    unmount();
+    renderSub({ id: "p5", email: "privat5@gmail.com", business_type: "personal" });
+    await screen.findByTestId("business-only-notice");
+    expect(screen.queryByTestId("checkout-terms-line")).toBeNull();
+    expect(screen.queryByTestId("checkout-terms-line-trial")).toBeNull();
+  });
+
+  it("no line where the button does not open a checkout (tier not ready → waitlist)", async () => {
+    authState = { user: { id: "b6", email: "cafe6@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+    get.mockImplementation((url) => Promise.resolve({
+      data: url === "/billing/me"
+        ? { ...billing, stripe_configured: false, checkout_ready: { starter: false, pro: false, any: false } }
+        : url === "/waitlist/status" ? [] : {},
+    }));
+    render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+    await waitFor(() => expect(get).toHaveBeenCalledWith("/billing/me"));
+    await screen.findAllByRole("button", { name: da.pricingJoinWaitlist });
+    expect(screen.queryByTestId("checkout-terms-line")).toBeNull();
+  });
+
+  it("Free is not promised 'for altid' / 'forever' (Terms § 8 reserves price and feature changes)", async () => {
+    for (const d of [da, en]) {
+      expect(d.pricingForever).not.toMatch(/altid|forever/i);
+      expect(d["landingV2.pricing.free.period"]).not.toMatch(/altid|forever/i);
+    }
+    renderSub({ id: "b7", email: "cafe7@cafe.dk", business_type: "cafe" });
+    expect(await screen.findByText("uden kort")).toBeTruthy();
+    expect(read("pages/SubscriptionPage.jsx")).not.toContain('"forever"');
+    expect(read("components/landing/v2/PricingV2.jsx")).not.toContain('"forever"');
+  });
+});
+
+// ─────────────── founding-price copy = the Terms (R-e fix-up) ───────────────
+
+describe("founding-price copy at the point of purchase says what the Terms say", () => {
+  it("faqA3 (da + en): the Terms rule, Starter included, no false 'regular price on rejoin'", () => {
+    expect(da.faqA3).toContain("Så længe færre end 100 virksomheder har et betalt abonnement");
+    expect(da.faqA3).toContain("Starter 129");
+    expect(da.faqA3).toContain("Du beholder stifterprisen, så længe abonnementet er aktivt uden afbrydelse.");
+    expect(da.faqA3).toContain("den pris, der gælder på det tidspunkt");
+    expect(da.faqA3).not.toMatch(/Du betaler normalpris|De første 100 Pro/);
+    expect(en.faqA3).toContain("While fewer than 100 businesses have a paid subscription");
+    expect(en.faqA3).toContain("the price that applies at that time");
+    expect(en.faqA3).not.toMatch(/You'd pay regular price|first 100 Pro/i);
+  });
+
+  it("trialOpenDetail (da + en) uses the same scope", () => {
+    expect(da.trialOpenDetail).toContain("så længe færre end 100 virksomheder har et betalt abonnement");
+    expect(en.trialOpenDetail).toContain("while fewer than 100 businesses have a paid subscription");
+    expect(da.trialOpenDetail).not.toContain("første 100 kunder");
+  });
+
+  it("the paid-status lines do not call every subscription a founding one", () => {
+    for (const d of [da, en]) {
+      expect(d.pricingLockedTrialing).not.toMatch(/founding|stifter/i);
+      expect(d.pricingLockedActive).not.toMatch(/founding|stifter/i);
+    }
+  });
+
+  it("other packs carry no stale founding rule (fall back to English, or translated anew)", () => {
+    for (const f of ["np.js", "th.js", "vi.js"]) {
+      const src = read(`i18n/${f}`);
+      expect(src).not.toMatch(/^\s+(faqA3|trialOpenDetail|pricingLockedTrialing|pricingLockedActive):/m);
+    }
+    const tr = read("i18n/tr.js");
+    expect(tr).toMatch(/faqA3: "100'den az işletmenin/);
+    expect(tr).not.toMatch(/landingV2\.pricing\.free\.period": "süresiz"/);
+  });
+});
+
+describe("TrialBanner: no founding offer to an account that cannot buy", () => {
+  const trialEnt = { loading: false, isPaid: false, inTrial: true, trialDaysRemaining: 9 };
+
+  it("a business account sees the founding sentence", () => {
+    entState = trialEnt;
+    authState = { user: { id: "b8", business_type: "cafe" } };
+    render(<MemoryRouter><TrialBanner /></MemoryRouter>);
+    expect(screen.getByText((c) => c.includes(da.trialOpenDetail))).toBeTruthy();
+  });
+
+  it("a personal account is told it stays on Free instead", () => {
+    entState = trialEnt;
+    authState = { user: { id: "p8", business_type: "personal" } };
+    render(<MemoryRouter><TrialBanner /></MemoryRouter>);
+    expect(screen.queryByText((c) => c.includes(da.trialOpenDetail))).toBeNull();
+    expect(screen.getByText((c) => c.includes(da.trialClosingDetail))).toBeTruthy();
+  });
+});
+
+describe("account deletion refused when the subscription cannot be stopped (source contract)", () => {
+  it("ProfilePage shows the refusal in the app's language", () => {
+    const src = read("pages/ProfilePage.jsx");
+    expect(src).toContain('err?.response?.data?.detail?.code === "subscription_cancel_failed"');
+    expect(src).toContain('t("deleteSubscriptionStopFailed"');
+    expect(da.deleteSubscriptionStopFailed).toContain("din konto er ikke slettet");
+    expect(en.deleteSubscriptionStopFailed).toContain("your account was not deleted");
   });
 });
 

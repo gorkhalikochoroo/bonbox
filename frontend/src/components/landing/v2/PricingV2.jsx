@@ -94,7 +94,7 @@ export default function PricingV2() {
                 {t("landingV2.pricing.free.price", "Free")}
               </span>
               <span className="text-sm text-slate-500">
-                {t("landingV2.pricing.free.period", "forever")}
+                {t("landingV2.pricing.free.period", "no card")}
               </span>
             </div>
             {/* /register, not /login. These three buttons are the highest-

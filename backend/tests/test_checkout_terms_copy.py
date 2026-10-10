@@ -104,7 +104,7 @@ def test_service_refuses_a_personal_account_and_never_calls_stripe():
 
 
 @pytest.fixture
-def db_session():
+def db_session(monkeypatch):
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -113,6 +113,10 @@ def db_session():
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     s = SessionLocal()
+    # The role guards in app/main.py read `users` through the global
+    # app.database.SessionLocal — same engine, so the file passes on its own.
+    import app.database as _db_mod
+    monkeypatch.setattr(_db_mod, "SessionLocal", SessionLocal, raising=False)
 
     def _override_get_db():
         try:
@@ -155,16 +159,19 @@ def _make_user(db, *, email, business_type, plan="free", status=None, sub_id=Non
     return u
 
 
-def _post_checkout(client, user, plan="pro"):
+def _post_checkout(client, user, plan="pro", body=None, create_result="ok"):
     app.dependency_overrides[get_current_user] = lambda: user
-    create = MagicMock(return_value={"url": "https://stripe.test/s", "session_id": "cs_1"})
+    create = MagicMock(return_value=(
+        {"url": "https://stripe.test/s", "session_id": "cs_1"} if create_result == "ok" else None
+    ))
     portal = MagicMock(return_value={"url": "https://stripe.test/portal"})
     with patch("app.services.stripe_billing.is_configured", return_value=True), \
          patch("app.services.stripe_billing.checkout_ready",
                return_value={"starter": True, "pro": True, "any": True}), \
          patch("app.services.stripe_billing.create_checkout_session", create), \
          patch("app.services.stripe_billing.create_billing_portal_session", portal):
-        r = client.post("/api/billing/stripe/checkout-session", json={"plan": plan})
+        r = client.post("/api/billing/stripe/checkout-session",
+                        json=body if body is not None else {"plan": plan})
     return r, create, portal
 
 
@@ -231,7 +238,10 @@ def test_router_message_matches_the_subscription_page_text():
 # ═══════════════════ PQ-14 / OPS-06 — copy + locale ═══════════════════
 
 
-@pytest.mark.parametrize("lang,expected", [("da", "da"), ("en", "en"), ("de", "en")])
+# Danish owner → Danish Stripe page. Everyone else keeps Stripe's default
+# ("auto" = the browser's language) — what every owner had before R-e, so a
+# Turkish or German owner on their own browser is not switched to English.
+@pytest.mark.parametrize("lang,expected", [("da", "da"), ("en", "auto"), ("de", "auto"), ("tr", "auto")])
 def test_locale_follows_the_owner_language(lang, expected):
     _r, kwargs, _ = _run_checkout(_stub_user(ui_language=lang))
     assert kwargs["locale"] == expected
@@ -243,7 +253,7 @@ def test_locale_for_an_owner_who_never_saved_a_language_follows_currency():
     assert kwargs["locale"] == "da"  # DKK account → Danish (owner_lang)
     u.currency = "EUR"
     _r, kwargs, _ = _run_checkout(u)
-    assert kwargs["locale"] == "en"
+    assert kwargs["locale"] == "auto"
 
 
 @pytest.mark.parametrize("plan,founding,lang,expected", [
@@ -349,3 +359,154 @@ def test_flag_on_still_creates_the_session():
     result, kwargs, mock_stripe = _run_checkout(_stub_user(), tos=True)
     assert result == {"url": "https://stripe.test/s", "session_id": "cs_test_r_e"}
     mock_stripe.checkout.Session.create.assert_called_once()
+
+
+# ═══════════ R-e fix-up — Terms acceptance at the point of purchase ═══════════
+#
+# P0-1 said "the checkout never asks the buyer to accept terms". With
+# STRIPE_TOS_CONSENT off (its default), the subscription page now shows
+# "Når du går videre til betaling, accepterer du vores Handelsbetingelser og
+# bekræfter, at du køber abonnementet til din virksomhed." beside the
+# Starter/Pro buttons and sends accept_terms=true. These pin what the server
+# does with it.
+
+from app.services.terms import TERMS_VERSION  # noqa: E402
+
+
+def test_checkout_with_accept_terms_stamps_an_account_without_a_record(db_session, client):
+    user = _make_user(db_session, email="old-cafe@cafe.dk", business_type="cafe")
+    assert user.terms_version is None  # every account from before R-e
+    r, create, _ = _post_checkout(client, user, body={"plan": "starter", "accept_terms": True})
+    assert r.status_code == 200, r.text
+    assert create.call_args.kwargs["terms_version"] == TERMS_VERSION
+    db_session.refresh(user)
+    assert user.terms_version == TERMS_VERSION
+    assert user.terms_accepted_at is not None
+
+
+def test_checkout_replaces_an_older_version_and_keeps_a_current_one(db_session, client):
+    older = _make_user(db_session, email="older@cafe.dk", business_type="cafe")
+    older.terms_version = "2026-05-13"
+    current = _make_user(db_session, email="current@cafe.dk", business_type="bar")
+    first = utc_now() - timedelta(days=3)
+    current.terms_version, current.terms_accepted_at = TERMS_VERSION, first
+    db_session.commit()
+    for u in (older, current):
+        r, _create, _ = _post_checkout(client, u, body={"plan": "pro", "accept_terms": True})
+        assert r.status_code == 200, r.text
+    db_session.refresh(older)
+    db_session.refresh(current)
+    assert older.terms_version == TERMS_VERSION
+    # Already on the current version: the first acceptance time is kept.
+    assert current.terms_accepted_at == first
+
+
+@pytest.mark.parametrize("body", [
+    {"plan": "pro"},                              # an older page: no flag
+    {"plan": "pro", "accept_terms": False},
+    {"plan": "pro", "accept_terms": "true"},       # only a real JSON true counts
+    {"plan": "pro", "accept_terms": 1},
+])
+def test_checkout_without_the_flag_works_and_records_nothing(db_session, client, body):
+    user = _make_user(db_session, email="noflag@cafe.dk", business_type="cafe")
+    r, create, _ = _post_checkout(client, user, body=body)
+    assert r.status_code == 200, r.text
+    assert create.call_args.kwargs["terms_version"] is None
+    db_session.refresh(user)
+    assert user.terms_version is None and user.terms_accepted_at is None
+
+
+def test_failed_or_refused_checkout_records_nothing(db_session, client):
+    failed = _make_user(db_session, email="failed@cafe.dk", business_type="cafe")
+    r, _c, _ = _post_checkout(client, failed, body={"plan": "pro", "accept_terms": True},
+                              create_result=None)
+    assert r.status_code == 500, r.text
+    db_session.refresh(failed)
+    assert failed.terms_version is None
+    personal = _make_user(db_session, email="privat-flag@gmail.com", business_type="personal")
+    r, _c, _ = _post_checkout(client, personal, body={"plan": "pro", "accept_terms": True})
+    assert r.status_code == 403, r.text
+    db_session.refresh(personal)
+    assert personal.terms_version is None
+
+
+def test_subscription_metadata_records_the_business_declaration():
+    """LEG-12: the account type and the Terms version accepted, next to the
+    money — so a later "I was a consumer" has the declaration on record."""
+    u = _stub_user(business_type="restaurant")
+    from app.services.stripe_billing import create_checkout_session  # noqa: F401
+    _r, kwargs, _ = _run_checkout(u)
+    meta = kwargs["subscription_data"]["metadata"]
+    assert meta["bonbox_business_type"] == "restaurant"
+    assert meta["bonbox_terms_version"] == ""          # stub has no record, no flag
+
+
+def test_subscription_metadata_names_the_version_accepted_at_checkout():
+    from app.services.stripe_billing import create_checkout_session
+
+    mock_stripe = MagicMock()
+    mock_stripe.Price.retrieve.return_value = SimpleNamespace(unit_amount=12900)
+    mock_stripe.checkout.Session.create.return_value = SimpleNamespace(url="u", id="cs")
+    with patch.object(settings, "STRIPE_PRICE_ID_STARTER_FOUNDING", "price_starter_founding"), \
+         patch.object(settings, "STRIPE_PRICE_ID_STARTER", "price_starter_regular"), \
+         patch("app.services.stripe_billing._stripe", return_value=mock_stripe), \
+         patch("app.services.stripe_billing._is_founding_member_slot_open", return_value=True), \
+         patch("app.services.stripe_billing.get_or_create_customer", return_value="cus_test"):
+        create_checkout_session(_stub_user(), db=_DB(), plan="starter", terms_version=TERMS_VERSION)
+    meta = mock_stripe.checkout.Session.create.call_args.kwargs["subscription_data"]["metadata"]
+    assert meta["bonbox_terms_version"] == TERMS_VERSION
+    assert meta["bonbox_business_type"] == "cafe"
+
+
+def _completed_event(user_id, consent):
+    obj = {
+        "id": "cs_done", "metadata": {"bonbox_user_id": str(user_id)},
+        "subscription": "sub_done", "customer": "cus_db_r_e", "payment_status": "paid",
+    }
+    if consent is not None:
+        obj["consent"] = consent
+    return {"id": "evt_1", "type": "checkout.session.completed", "data": {"object": obj}}
+
+
+@pytest.mark.parametrize("consent,stamped", [
+    ({"terms_of_service": "accepted"}, True),
+    ({"terms_of_service": None}, False),
+    (None, False),
+])
+def test_stripe_terms_consent_is_recorded_from_the_webhook(db_session, consent, stamped):
+    """With STRIPE_TOS_CONSENT on, the box ticked on Stripe's page reaches
+    users.terms_version too (it used to be nowhere)."""
+    from app.services.stripe_billing import _handle_checkout_completed
+
+    user = _make_user(db_session, email=f"wh-{stamped}-{consent is None}@cafe.dk", business_type="cafe")
+    broken = MagicMock()
+    broken.Subscription.retrieve.side_effect = RuntimeError("stripe down")
+    with patch("app.services.stripe_billing._stripe", return_value=broken):
+        _handle_checkout_completed(_completed_event(user.id, consent), db_session)
+    db_session.refresh(user)
+    assert user.stripe_subscription_id == "sub_done"
+    assert (user.terms_version == TERMS_VERSION) is stamped
+
+
+def test_tos_flag_on_without_a_terms_url_logs_a_distinct_error(caplog):
+    """STRIPE_TOS_CONSENT=1 before the Terms URL is saved in Stripe makes
+    Stripe refuse every session. Fails closed (None → the route's 500), and
+    the log says exactly why instead of a generic exception."""
+    from app.services.stripe_billing import create_checkout_session
+
+    mock_stripe = MagicMock()
+    mock_stripe.Price.retrieve.return_value = SimpleNamespace(unit_amount=24900)
+    mock_stripe.checkout.Session.create.side_effect = RuntimeError(
+        "You cannot collect consent to your terms of service unless a URL is set "
+        "in the Stripe Dashboard."
+    )
+    with patch.object(settings, "STRIPE_PRICE_ID_PRO_FOUNDING", "price_pro_founding"), \
+         patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro_regular"), \
+         patch.object(settings, "STRIPE_TOS_CONSENT", True), \
+         patch("app.services.stripe_billing._stripe", return_value=mock_stripe), \
+         patch("app.services.stripe_billing._is_founding_member_slot_open", return_value=True), \
+         patch("app.services.stripe_billing.get_or_create_customer", return_value="cus_test"), \
+         caplog.at_level("ERROR", logger="bonbox.stripe"):
+        assert create_checkout_session(_stub_user(), db=_DB(), plan="pro") is None
+    msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert any("STRIPE_TOS_CONSENT is on" in m for m in msgs), msgs

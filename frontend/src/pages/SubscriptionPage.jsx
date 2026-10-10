@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { CheckoutTermsLine } from "../components/SignupTermsLine";
 import { canUsePersonalMode } from "../lib/appMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { COMPLETE_LANGUAGE_COUNT, COMPLETE_LANGUAGE_NAMES } from "../i18n/languageCatalog";
@@ -300,6 +301,9 @@ export default function SubscriptionPage() {
   // pays keeps "Manage subscription" — nothing they have is taken away.
   const hasLiveSub = ["active", "trialing", "past_due"].includes(billing?.subscription_status);
   const businessOnlyBlocked = canUsePersonalMode(user) && !hasLiveSub;
+  // Pro can open a real Stripe checkout (not the waitlist) — same rule as
+  // handleCta's tierReady below.
+  const proCheckoutReady = billing?.checkout_ready?.pro ?? Boolean(billing?.stripe_configured);
   const businessOnlyMessage = `${t("pricingBusinessOnlyTitle", "Paid plans are for businesses only")}. ${t(
     "pricingBusinessOnlyBody",
     "This account is set up for personal finance, so Starter and Pro can't be bought on it. You can keep using BonBox for free. If you use BonBox in a business, change the business type under Profile.",
@@ -463,7 +467,12 @@ export default function SubscriptionPage() {
       setMsg("");
       let fallbackToWaitlist = false;
       try {
-        const res = await api.post("/billing/stripe/checkout-session", { plan: tierId });
+        // accept_terms — every button that reaches this line shows
+        // CheckoutTermsLine beside it ("Når du går videre til betaling,
+        // accepterer du vores Handelsbetingelser og bekræfter, at du køber
+        // abonnementet til din virksomhed."); the server stamps the Terms
+        // version on an account with none or an older one (R-e fix-up, P0-1).
+        const res = await api.post("/billing/stripe/checkout-session", { plan: tierId, accept_terms: true });
         const safeStripeUrl = safeExternalUrl(res.data?.url);
         if (safeStripeUrl) {
           // Already paid → portal URL was returned; otherwise checkout URL
@@ -615,7 +624,7 @@ export default function SubscriptionPage() {
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {billing?.subscription_status === "trialing"
-                  ? (t("pricingLockedTrialing") || "Locked in at founding rate — first charge {when}").replace(
+                  ? (t("pricingLockedTrialing") || "Subscription started — first charge {when}").replace(
                       "{when}",
                       trialDaysLeft != null && trialDaysLeft > 0
                         ? trialDaysLeft === 1
@@ -625,7 +634,7 @@ export default function SubscriptionPage() {
                     )
                   : billing?.subscription_status === "active"
                     ? (["starter", "pro"].includes(billing?.plan)
-                        ? (t("pricingLockedActive") || "Subscription active — billed monthly at your founding rate")
+                        ? (t("pricingLockedActive") || "Subscription active — billed monthly")
                         : (t("pricingLockedProcessing") || "Payment processing — your plan unlocks as soon as it clears"))
                     : billing?.subscription_status === "past_due"
                       ? (t("pricingLockedPastDue") || "Payment failed — please update your card to keep your plan")
@@ -661,14 +670,21 @@ export default function SubscriptionPage() {
               </div>
             </div>
             {!businessOnlyBlocked && (
-              <Button
-                variant="accent"
-                size="md"
-                onClick={() => handleCta("pro")}
-                className="whitespace-nowrap"
-              >
-                {t("pricingLockInRate") || "Lock in founding rate"}
-              </Button>
+              <div className="flex flex-col items-start sm:items-end gap-1.5 sm:max-w-[16rem]">
+                <Button
+                  variant="accent"
+                  size="md"
+                  onClick={() => handleCta("pro")}
+                  className="whitespace-nowrap"
+                >
+                  {t("pricingLockInRate") || "Lock in founding rate"}
+                </Button>
+                {/* R-e fix-up (P0-1): this button opens Stripe Checkout when
+                    Pro can check out — the Terms line sits beside it. */}
+                {proCheckoutReady && (
+                  <CheckoutTermsLine className="sm:text-right" testId="checkout-terms-line-trial" />
+                )}
+              </div>
             )}
           </div>
         </Card>
@@ -872,6 +888,14 @@ export default function SubscriptionPage() {
             pending === tier.id ||
             (!stripeReady && joined.has(tier.id));
 
+          // This button opens Stripe Checkout (not the waitlist, not /register).
+          const opensCheckout =
+            !!user?.email &&
+            !blockedForPersonal &&
+            !isCurrent &&
+            stripeReady &&
+            (tier.id === "starter" || tier.id === "pro");
+
           let ctaLabel;
           if (blockedForPersonal) {
             ctaLabel = t("pricingBusinessOnlyCta", "Businesses only");
@@ -968,7 +992,7 @@ export default function SubscriptionPage() {
                       {t("pricingFree", "Free") || "Free"}
                     </span>
                     <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                      {t("pricingForever", "forever") || "forever"}
+                      {t("pricingForever", "no card") || "no card"}
                     </span>
                   </div>
                 ) : (
@@ -1007,6 +1031,11 @@ export default function SubscriptionPage() {
                 >
                   {ctaLabel}
                 </Button>
+                {/* R-e fix-up (P0-1): the Terms acceptance + business
+                    confirmation, beside every button that opens a real
+                    Stripe checkout (signed in, a business account, this
+                    tier ready, not already on it). */}
+                {opensCheckout && <CheckoutTermsLine className="mt-2 text-center" />}
               </div>
 
               {/* Manage / Cancel — only when user has a real Stripe sub */}

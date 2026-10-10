@@ -60,11 +60,13 @@ class SignupRefMixin(BaseModel):
 
 
 class TermsAcceptMixin(BaseModel):
-    """`accept_terms` — the sign-up page showed "Ved at oprette en konto
-    accepterer du vores Handelsbetingelser og Privatlivspolitik." next to the
-    button the person used. Optional on every request that can create an
-    account (register, the Google/Apple completions and the magic-link
-    verify). Only a real JSON true counts; anything else becomes None here,
+    """`accept_terms` — the page showed the Terms acceptance line ("Ved at
+    oprette en konto accepterer du vores Handelsbetingelser." on /register,
+    "Ved at fortsætte accepterer du vores Handelsbetingelser." on /login)
+    next to the button the person used. Optional on every request that can
+    create an account (register, the Google/Apple completions, the
+    magic-link request and verify) and on the checkout request. Only a real
+    JSON true counts; anything else becomes None here,
     so an odd value can never fail a signup — it just records no acceptance.
     services/terms.py writes the record, on a NEW account only."""
     accept_terms: bool | None = None

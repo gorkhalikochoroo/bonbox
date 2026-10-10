@@ -94,7 +94,7 @@ function TermsEn() {
           <p>All financial data you enter into BonBox belongs to you. We do not claim ownership of your data.</p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li>You can download a copy of your data at any time as a CSV file (Profile)</li>
-            <li>You can delete your account at any time (Profile)</li>
+            <li>You can delete your account at any time under Profile. Deleting asks for your password: if you created the account with Google, Apple or an e-mail link, first choose a password with &ldquo;Forgot?&rdquo; on the login page, or write to <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>. If the account has team members with their own login, remove them first.</li>
             <li>See our <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</Link> for full details on data handling</li>
           </ul>
 
@@ -124,7 +124,7 @@ function TermsEn() {
             <li>You confirm that you are authorized to access and share the bank account data</li>
             <li>BonBox reads transaction data in read-only mode — we cannot initiate payments or transfers</li>
             <li>Auto-categorization of transactions is a suggestion that may not always be accurate — always review imported transactions</li>
-            <li>You can delete all imported bank data at any time</li>
+            <li>You can delete the entries an import created (sales and expenses)</li>
           </ul>
         </Section>
 
@@ -139,7 +139,7 @@ function TermsEn() {
         </Section>
 
         <Section num={8} title="Subscription and payment">
-          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). What each plan includes and what it costs is shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page in the app. Prices are per business, in Danish kroner and per month. No VAT (moms) is added to the price.</p>
+          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). The prices are shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page in the app. Prices are per business, in Danish kroner and per month. No VAT (moms) is added to the price. Every plan has usage caps (for example how many receipts you can scan per month). We may change, limit or remove features and usage caps with reasonable notice.</p>
           <p className="mt-3"><strong>Businesses only.</strong> Paid subscriptions are for businesses only. By buying a subscription you confirm that you buy it for your business and not as a consumer. An account set up for personal finance (Personal Mode) can use BonBox for free but cannot buy a paid subscription. As subscriptions are sold business to business, the consumer right of withdrawal (fortrydelsesret) under the Danish Consumer Contracts Act does not apply.</p>
           <p className="mt-3"><strong>Trial.</strong> A new account gets 14 days with the Pro features, free of charge and without a payment card. If you do not buy a subscription, the account moves to the Free plan when the trial ends, and you are not charged. If you buy a subscription during the trial, you enter a payment card at checkout, and the first charge is made when the trial ends.</p>
           <p className="mt-3"><strong>Payment and renewal.</strong> Payment is handled by Stripe. A subscription is paid one month in advance at a time, by payment card or another payment method Stripe offers at checkout, and it renews automatically every month until it is cancelled.</p>
@@ -307,7 +307,7 @@ function TermsDa() {
           <p>Alle økonomiske data, du indtaster i BonBox, tilhører dig. Vi gør ikke krav på ejerskab over dine data.</p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li>Du kan til enhver tid hente en kopi af dine data som en CSV-fil (Profil)</li>
-            <li>Du kan til enhver tid slette din konto (Profil)</li>
+            <li>Du kan til enhver tid slette din konto under Profil. Sletningen beder om din adgangskode: har du oprettet kontoen med Google, Apple eller et e-maillink, så vælg først en adgangskode via »Glemt?« på login-siden, eller skriv til <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>. Har kontoen teammedlemmer med eget login, skal de fjernes først.</li>
             <li>Se vores <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">privatlivspolitik</Link> for alle detaljer om, hvordan vi behandler data</li>
           </ul>
 
@@ -337,7 +337,7 @@ function TermsDa() {
             <li>Du bekræfter, at du har ret til at tilgå og dele dataene fra bankkontoen</li>
             <li>BonBox har kun læseadgang til transaktionsdata — vi kan ikke igangsætte betalinger eller overførsler</li>
             <li>Den automatiske kategorisering af transaktioner er et forslag, som ikke altid er korrekt — gennemgå altid importerede transaktioner</li>
-            <li>Du kan til enhver tid slette alle importerede bankdata</li>
+            <li>Du kan slette de posteringer, en import har oprettet (salg og udgifter)</li>
           </ul>
         </Section>
 
@@ -352,7 +352,7 @@ function TermsDa() {
         </Section>
 
         <Section num={8} title="Abonnement og betaling">
-          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). Hvad hver plan indeholder, og hvad den koster, står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling i appen. Priserne er pr. virksomhed, i danske kroner og pr. måned. Der lægges ikke moms oven i prisen.</p>
+          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). Priserne står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling i appen. Priserne er pr. virksomhed, i danske kroner og pr. måned. Der lægges ikke moms oven i prisen. Alle planer har forbrugslofter (f.eks. hvor mange kvitteringer du kan scanne pr. måned). Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.</p>
           <p className="mt-3"><strong>Kun for virksomheder.</strong> Betalte abonnementer er kun for virksomheder. Når du køber et abonnement, bekræfter du, at du køber det til din virksomhed og ikke som forbruger. En konto, der er oprettet til privatøkonomi (personlig tilstand), kan bruge BonBox gratis, men kan ikke købe et betalt abonnement. Da abonnementerne sælges mellem virksomheder, gælder forbrugeraftalelovens regler om fortrydelsesret ikke.</p>
           <p className="mt-3"><strong>Prøveperiode.</strong> En ny konto får 14 dage med Pro-funktionerne gratis og uden betalingskort. Køber du ikke et abonnement, overgår kontoen til Free-planen, når prøveperioden slutter, og du bliver ikke opkrævet. Køber du et abonnement i prøveperioden, angiver du et betalingskort ved betalingen, og det første træk sker, når prøveperioden slutter.</p>
           <p className="mt-3"><strong>Betaling og fornyelse.</strong> Betalingen håndteres af Stripe. Abonnementet betales forud for én måned ad gangen med betalingskort eller en anden betalingsmetode, som Stripe tilbyder ved betalingen, og det fornyes automatisk hver måned, indtil det bliver opsagt.</p>

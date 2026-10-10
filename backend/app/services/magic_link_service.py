@@ -161,10 +161,10 @@ def verify_token(
 ) -> User:
     """Exchange a raw magic-link token for a User.
 
-    accept_terms — True only when the page that sent this verify showed the
-    Terms acceptance line. Stamped on a NEW account only (services/terms.py);
-    the web app does not send it today, so magic-link accounts record no
-    acceptance.
+    accept_terms — True only when the link was requested from a page that
+    showed the Terms acceptance line (the mailed link carries &terms=1 and
+    the verify page sends it back). Stamped on a NEW account only
+    (services/terms.py).
 
     Raises:
       HTTPException(401) — token unknown

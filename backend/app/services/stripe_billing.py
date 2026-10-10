@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -224,6 +225,46 @@ def _terms_consent_text(lang: str) -> str:
     return f"I accept the BonBox [Terms of Service]({url})."
 
 
+# ───────────────────── Account deletion: stop the subscription ─────────────
+
+_ERASURE_DEAD_STATUSES = ("canceled", "incomplete_expired")
+
+
+def stop_subscription_for_erasure(sub_id: str, local_status: Optional[str]) -> str:
+    """Stop a subscription because its account is being deleted.
+
+    Returns "stopped" or "failed" — never a bare boolean, and "couldn't
+    check" is "failed". The caller deletes the account only on "stopped":
+    the Terms say deleting the account stops an active subscription at once,
+    and a deleted customer must never go on being charged.
+
+      • Stripe cancels it now                                → "stopped"
+      • the cancel call fails, but Stripe says the
+        subscription is already canceled / expired, or that
+        it does not exist (404 / resource_missing)            → "stopped"
+      • anything else (Stripe down, timeout, unknown state)  → "failed"
+      • Stripe not configured on this server: "stopped" only when our own
+        row already says the subscription is dead; otherwise "failed".
+    """
+    s = _stripe()
+    if s is None:
+        return "stopped" if (local_status or "").lower() in _ERASURE_DEAD_STATUSES else "failed"
+    try:
+        s.Subscription.cancel(sub_id)
+        return "stopped"
+    except Exception as e:  # noqa: BLE001
+        log.warning("erasure: Subscription.cancel(%s) failed: %s", sub_id, e)
+    try:
+        sub = s.Subscription.retrieve(sub_id)
+    except Exception as e:  # noqa: BLE001
+        if getattr(e, "http_status", None) == 404 or getattr(e, "code", None) == "resource_missing":
+            return "stopped"
+        log.warning("erasure: Subscription.retrieve(%s) failed: %s", sub_id, e)
+        return "failed"
+    status = str(_g(sub, "status") or "").lower()
+    return "stopped" if status in _ERASURE_DEAD_STATUSES else "failed"
+
+
 # ─────────────────────────── Customer management ───────────────────────────
 
 
@@ -295,8 +336,16 @@ def create_checkout_session(
     db: Session,
     price_id: Optional[str] = None,
     plan: str = "pro",
+    terms_version: Optional[str] = None,
 ) -> Optional[dict]:
     """Create a Stripe Checkout session for the user to upgrade.
+
+    terms_version — the Terms version the buyer accepted beside the buy
+    button (the billing router passes TERMS_VERSION when the request carried
+    accept_terms=true). Recorded on the subscription's metadata together
+    with the account's business_type at the moment of purchase, so the
+    business self-declaration is on record next to the money (LEG-12).
+    Without it the metadata carries the account's own record ("" if none).
 
     Returns a dict with `url` to redirect to, or None on failure.
 
@@ -444,6 +493,14 @@ def create_checkout_session(
             "bonbox_plan": plan,
             "bonbox_brand": "BonBox",
             "bonbox_founding_member": "true" if is_founding else "false",
+            # The declaration at purchase (LEG-12): which account type bought
+            # it and which Terms version was accepted. Record only — nothing
+            # reads these back to decide anything.
+            "bonbox_business_type": str(getattr(user, "business_type", None) or "")[:64],
+            "bonbox_terms_version": str(
+                terms_version if terms_version is not None
+                else (getattr(user, "terms_version", None) or "")
+            )[:16],
         },
     }
     if remaining > 0:
@@ -483,9 +540,11 @@ def create_checkout_session(
         #     on day-N as Stripe's normal trial-end billing event
         session_kwargs["payment_method_collection"] = "always"
 
-        # Stripe's own page in the owner's language — it otherwise follows
-        # the browser, so a Danish owner on an English browser got English.
-        session_kwargs["locale"] = "da" if lang == "da" else "en"
+        # Stripe's own page in Danish for a Danish owner — it otherwise
+        # follows the browser, so a Danish owner on an English browser got
+        # English. Everyone else keeps Stripe's default ("auto" = the
+        # browser's language), exactly as before R-e.
+        session_kwargs["locale"] = "da" if lang == "da" else "auto"
 
         # The line above the pay button: the commitment and the first-charge
         # date in one beat, in the owner's language. The founding price is
@@ -515,6 +574,19 @@ def create_checkout_session(
             "session_id": session.id,
         }
     except Exception as e:
+        # STRIPE_TOS_CONSENT switched on before the Terms URL was saved in the
+        # Stripe dashboard: Stripe refuses EVERY session. Say exactly that, so
+        # it is not read as a generic Stripe hiccup (fails closed either way).
+        if settings.STRIPE_TOS_CONSENT and re.search(
+            r"terms[ _]of[ _]service", str(e), re.IGNORECASE,
+        ):
+            log.error(
+                "STRIPE_TOS_CONSENT is on but Stripe refused the Terms consent "
+                "— save https://www.bonbox.dk/terms under Stripe → Settings → "
+                "Public details, or unset STRIPE_TOS_CONSENT. user=%s: %s",
+                user.id, e,
+            )
+            return None
         log.exception("create_checkout_session failed for user=%s: %s", user.id, e)
         return None
 
@@ -1252,6 +1324,17 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
     user.stripe_subscription_id = sub_id
     if obj.get("customer") and not user.stripe_customer_id:
         user.stripe_customer_id = obj["customer"]
+    # The buyer ticked the Terms box on Stripe's page (consent_collection,
+    # only with STRIPE_TOS_CONSENT on): record it on an account that has no
+    # or an older acceptance (services/terms.py). Committed with the
+    # linkage below.
+    try:
+        _consent = _g(obj, "consent") or {}
+        if (_g(_consent, "terms_of_service") or "") == "accepted":
+            from app.services.terms import apply_checkout_terms_acceptance
+            apply_checkout_terms_acceptance(user, True)
+    except Exception:  # noqa: BLE001 — a record must never cost the activation
+        log.warning("checkout.completed: terms consent stamp skipped", exc_info=True)
 
     # Confirmed-paid gate. 'unpaid' = an async method (MobilePay/SEPA) still
     # settling → link only, wait for the money-confirmed event. 'paid' and

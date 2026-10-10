@@ -2284,6 +2284,21 @@ class DeleteAccountRequest(BaseModel):
     password: str
 
 
+# The refusal when the subscription cannot be stopped at Stripe (R-e
+# fix-up) — the same sentences the profile page shows
+# (deleteSubscriptionStopFailed in frontend/src/i18n/{da,en}.js).
+DELETE_SUB_STOP_FAILED_EN = (
+    "We couldn't stop your subscription at Stripe just now, so your account "
+    "was not deleted and nothing was changed. Please try again in a few "
+    "minutes, or write to contact@bonbox.dk."
+)
+DELETE_SUB_STOP_FAILED_DA = (
+    "Vi kunne ikke stoppe dit abonnement hos Stripe lige nu, så din konto er "
+    "ikke slettet, og intet er ændret. Prøv igen om et par minutter, eller "
+    "skriv til contact@bonbox.dk."
+)
+
+
 @router.delete("/delete-account")
 def delete_account(
     data: DeleteAccountRequest,
@@ -2413,19 +2428,35 @@ def delete_account(
         )
 
     # ── The irreversible, outside-the-database steps — only now. ──
+    # Billing FIRST: a deleted customer must never go on being charged, and
+    # the Terms (§ 4, § 8) say deleting the account stops an active
+    # subscription at once. If Stripe cannot confirm the subscription is
+    # stopped, NOTHING is deleted (rolled back before any other outside step)
+    # and the owner is told to try again — it used to log a warning and
+    # delete anyway, leaving Stripe charging an account that no longer
+    # existed. The webhook that follows a cancel finds no user and is a no-op.
+    if _stripe_sub_id:
+        from app.services.stripe_billing import stop_subscription_for_erasure
+        _stop = stop_subscription_for_erasure(
+            _stripe_sub_id, getattr(current_user, "subscription_status", None),
+        )
+        if _stop != "stopped":
+            db.rollback()
+            logger.error(
+                "delete_account: subscription %s could not be stopped — account NOT deleted",
+                _stripe_sub_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "subscription_cancel_failed",
+                    "message": DELETE_SUB_STOP_FAILED_EN,
+                    "message_da": DELETE_SUB_STOP_FAILED_DA,
+                },
+            )
     # PSD2: consent stays live at the bank for up to 90 days unless revoked.
     for _bc in _bank_conns:
         best_effort_revoke(_bc)
-    # Billing: a deleted customer must not go on being charged. Best-effort;
-    # the webhook that follows finds no user and is a no-op.
-    if _stripe_sub_id:
-        try:
-            from app.services.stripe_billing import _stripe
-            _s = _stripe()
-            if _s is not None:
-                _s.Subscription.cancel(_stripe_sub_id)
-        except Exception:  # noqa: BLE001
-            logger.warning("delete_account: Stripe subscription cancel failed (non-fatal)", exc_info=True)
     # GDPR Art.17: purge storage blobs with no retention basis. The row sweep
     # above deletes the POINTERS; the BLOBS in Supabase Storage must go too or
     # staff-chat photos, staff avatars and the business logo orphan forever.

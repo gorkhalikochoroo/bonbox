@@ -209,12 +209,13 @@ class User(Base):
     # never return it next to an account outside the user's own export.
     # services/signup_ref.py.
     signup_ref: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    # Which Terms of Service version the account holder accepted when the
-    # account was created ("2026-10-10"), and when. Written once, at
-    # creation, and only when the sign-up page showed the acceptance line and
-    # the client said so (accept_terms=true). NULL = no acceptance recorded
-    # (every account from before, an older app build, or a path that shows no
-    # line). services/terms.py.
+    # Which Terms of Service version the account holder accepted ("2026-10-10"),
+    # and when. Written at creation when the sign-up page showed the
+    # acceptance line and the client said so (accept_terms=true), and at
+    # checkout when the buyer accepted the Terms beside the buy button (or on
+    # Stripe's page) and the record was missing or older. NULL = no acceptance
+    # recorded (every account from before that has not bought since, an older
+    # app build). services/terms.py.
     terms_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──

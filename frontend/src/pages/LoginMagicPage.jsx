@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { withSignupRef, clearSignupRef } from "../utils/signupRef";
+import { withTermsAcceptance } from "../legal/terms";
 import ClaimQuestion from "../components/ClaimQuestion";
 
 /**
@@ -39,6 +40,10 @@ import ClaimQuestion from "../components/ClaimQuestion";
 export default function LoginMagicPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") || "";
+  // &terms=1 — the link was requested from a page that showed the Terms
+  // acceptance line (backend adds it). Sent back as accept_terms; the
+  // server stamps the Terms version only if this verify CREATES the account.
+  const termsShown = searchParams.get("terms") === "1";
   const navigate = useNavigate();
   const { t } = useLanguage();
   // useAuth may not have setUser exported (it doesn't in the current
@@ -84,7 +89,10 @@ export default function LoginMagicPage() {
         // A new account made by this link gets the door-visit code, if one
         // is kept — the mailed link carries it as &ref= (utils/signupRef.js).
         // An existing account is never stamped (backend).
-        const res = await api.post("/auth/magic-link/verify", withSignupRef({ token }));
+        const res = await api.post(
+          "/auth/magic-link/verify",
+          withSignupRef(withTermsAcceptance({ token }, { acceptTerms: termsShown })),
+        );
         clearSignupRef();
         if (cancelled) return;
         const access = res?.data?.access_token;
