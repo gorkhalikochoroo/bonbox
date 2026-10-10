@@ -433,6 +433,23 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     # status sweep AND rows still 'sent' but past their due_date (in
     # case the sweep hasn't run yet today). Excludes credit notes —
     # negative-amount rows aren't "owed to us".
+    #
+    # Invoice dates are the venue's calendar day: create_draft stamps
+    # issue_date with today_local, and due_date = issue_date + terms. So this
+    # whole block reads "today" and "this month" on that same clock. The
+    # server's date.today() is UTC (Render, CI) and is still yesterday from
+    # 00:00 to 02:00 in Copenhagen, which dropped invoices sent after local
+    # midnight, kept last month's counters on the 1st and reported overdue
+    # a day late. paid_at is stored as naive UTC (utc_now), so its month
+    # bound is the venue's local midnight on the 1st, converted to UTC.
+    # Only this block moves: `today` above stays as it is because Sale.date
+    # follows its own business-day convention.
+    from app.services.tz_utils import today_local, utc_window_for_local_day
+    inv_today = today_local(user)
+    inv_month_start = inv_today.replace(day=1)
+    inv_month_start_utc = (
+        utc_window_for_local_day(user, inv_month_start)[0].replace(tzinfo=None)
+    )
     overdue_q = (
         db.query(
             sa_func.count(Invoice.id).label("n"),
@@ -441,7 +458,7 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         .filter(
             Invoice.user_id == user.id,
             Invoice.is_credit_note.is_(False),
-            Invoice.due_date < today,
+            Invoice.due_date < inv_today,
             Invoice.status.in_(("sent", "overdue")),
         )
         .first()
@@ -460,16 +477,12 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     ) or 0
 
     # Month-to-date progress counters — only counts non-draft, non-credit
-    # issue_date is stamped in the venue's day (InvoiceService.create_draft:
-    # today_local), so the window is read in that day too, not the server's.
-    from app.services.tz_utils import today_local
-    inv_today = today_local(user)
     sent_this_month = (
         db.query(sa_func.count(Invoice.id))
         .filter(
             Invoice.user_id == user.id,
             Invoice.is_credit_note.is_(False),
-            Invoice.issue_date >= inv_today.replace(day=1),
+            Invoice.issue_date >= inv_month_start,
             Invoice.issue_date <= inv_today,
             Invoice.status.in_(("sent", "paid", "overdue", "credited")),
         )
@@ -481,7 +494,7 @@ def compute_precompute(user: User, db: Session) -> Precompute:
             Invoice.user_id == user.id,
             Invoice.is_credit_note.is_(False),
             Invoice.paid_at.isnot(None),
-            Invoice.paid_at >= datetime.combine(month_start, datetime.min.time()),
+            Invoice.paid_at >= inv_month_start_utc,
         )
         .scalar()
     ) or 0
