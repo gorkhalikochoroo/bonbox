@@ -17,10 +17,16 @@ This pure-ASGI middleware:
     (CVE-2026-54283), and BonBox's only urlencoded senders are small
     machine posts (Twilio webhooks, Apple's form_post sign-in).
 
-The overflow is raised as an HTTPException(413) from ``receive`` so
-FastAPI's body reader re-raises it as-is (any other exception there turns
-into a generic 400); if it escapes the app instead, the middleware sends
-the 413 itself, provided no response has started.
+The overflow is raised as an HTTPException(413) from ``receive``, which
+stops the body read at the cap. Behind the ``@app.middleware("http")``
+layers anyio wraps it in an ExceptionGroup, so FastAPI's body reader no
+longer recognises it and answers a generic 400 "error parsing the body"
+(every JSON / form / multipart route; only routes that read
+``request.body()`` themselves, like the Stripe webhook, saw the 413). So
+once the cap is crossed the middleware itself owns the answer: whatever
+response the app then starts is replaced by the 413, and an exception
+that escapes the app is answered with the 413 too — provided no response
+had started before the overflow.
 """
 
 from __future__ import annotations
@@ -96,27 +102,44 @@ class BodySizeLimitMiddleware:
             return
 
         received = 0
+        overflowed = False
+        response_started = False
+        replaced = False
 
         async def limited_receive() -> dict:
-            nonlocal received
+            nonlocal received, overflowed
             message = await receive()
             if message.get("type") == "http.request":
                 received += len(message.get("body") or b"")
                 if received > limit:
+                    overflowed = True
                     raise BodyTooLarge(limit)
             return message
 
-        response_started = False
+        async def _send_413() -> None:
+            nonlocal response_started, replaced
+            response_started = True
+            replaced = True
+            await _too_large_response(limit)(scope, receive, send)
 
         async def tracking_send(message: dict) -> None:
             nonlocal response_started
+            if replaced:
+                return  # the 413 already went out; drop the app's answer
             if message.get("type") == "http.response.start":
+                if overflowed and not response_started:
+                    # The app is answering a body it could not finish reading
+                    # (FastAPI's 400 "error parsing the body"): send the 413.
+                    await _send_413()
+                    return
                 response_started = True
             await send(message)
 
         try:
             await self.app(scope, limited_receive, tracking_send)
-        except BodyTooLarge:
-            if response_started:
+        except Exception:
+            if replaced:
+                return  # the 413 is complete; nothing left to answer
+            if not overflowed or response_started:
                 raise
-            await _too_large_response(limit)(scope, receive, send)
+            await _send_413()

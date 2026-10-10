@@ -215,3 +215,63 @@ def test_the_middleware_counts_chunks_when_no_content_length_is_sent():
 
     r = asyncio.run(run(_chunks(600, size=100), ctype="application/x-www-form-urlencoded"))
     assert r.status_code == 413
+
+
+# ─── R-d fix-up: a real 413 on routes FastAPI parses itself ─────────
+#
+# Behind the @app.middleware("http") layers anyio wraps the overflow in an
+# ExceptionGroup, and FastAPI's body reader then answered a generic 400
+# "There was an error parsing the body" on every JSON / form / multipart
+# route (only routes that read request.body() themselves saw the 413).
+
+def _chunked_multipart(total: int, boundary: str = "bonboxboundary"):
+    head = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="z.jpg"\r\n'
+        "Content-Type: image/jpeg\r\n\r\n"
+    ).encode() + b"\xff\xd8\xff\xe0"
+
+    async def gen():
+        yield head
+        sent = len(head)
+        while sent < total:
+            n = min(64 * 1024, total - sent)
+            sent += n
+            yield b"a" * n
+        yield f"\r\n--{boundary}--\r\n".encode()
+    return gen()
+
+
+def test_a_chunked_photo_upload_over_10mb_gets_413_and_the_route_never_runs(db, as_user, monkeypatch):
+    u = _owner(db)
+    as_user(u)
+    monkeypatch.setattr(daily_close_router, "parse_z_report", lambda p: pytest.fail("route ran"))
+    monkeypatch.setattr(
+        daily_close_router, "save_receipt_photo_ex", lambda *a, **k: pytest.fail("route ran"),
+    )
+    r = _post(
+        "/api/daily-close/scan-report",
+        content=_chunked_multipart(MAX_BODY_BYTES + 512 * 1024),
+        headers={"Content-Type": "multipart/form-data; boundary=bonboxboundary", **_ip()},
+    )
+    assert r.status_code == 413, r.text
+    assert r.json()["detail"] == "Request body too large (max 10 MB)"
+
+
+def test_a_chunked_json_body_over_10mb_gets_413_on_a_parsed_route():
+    r = _post(
+        "/api/auth/login",
+        content=_chunks(MAX_BODY_BYTES + 256 * 1024),
+        headers={"Content-Type": "application/json", **_ip()},
+    )
+    assert r.status_code == 413, r.text
+
+
+def test_a_chunked_urlencoded_body_over_64kb_gets_413_on_a_parsed_route():
+    r = _post(
+        "/api/auth/login",
+        content=_chunks(MAX_URLENCODED_BYTES + 1024, size=8 * 1024),
+        headers={"Content-Type": "application/x-www-form-urlencoded", **_ip()},
+    )
+    assert r.status_code == 413, r.text
+
