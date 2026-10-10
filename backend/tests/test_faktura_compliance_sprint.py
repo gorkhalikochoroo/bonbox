@@ -431,7 +431,8 @@ def test_tax_autopilot_dedup_bank_matched_sale(db, user, customer):
     payment_match_service.try_match_sale_to_invoice(db, sale)
     db.commit()
 
-    today = date.today()
+    from app.services.tz_utils import today_local
+    today = today_local(user)  # invoices are dated in the venue's day (InvoiceService.create_draft), not the server's
     period_start = today.replace(day=1) - timedelta(days=60)
     # End date is exclusive in _calc_vat — include today
     period_end = today + timedelta(days=1)
