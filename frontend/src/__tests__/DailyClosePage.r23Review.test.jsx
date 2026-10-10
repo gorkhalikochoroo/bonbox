@@ -25,6 +25,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { moveRequests } from "../test/closeMoveCalls";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
@@ -144,7 +145,9 @@ const deadLine = (on, { only = null } = {}) => {
   if (!post.realImpl) post.realImpl = post.getMockImplementation();
   const pass = post.realImpl;
   if (!on) { post.mockImplementation(pass); return; }
-  post.mockImplementation((url, body) => (url === "/daily-close" && body?.save_id && (!only || body.date === only)
+  // (R-c round 2: a date move is one request — it dies on the line too.)
+  post.mockImplementation((url, body) => ((url === "/daily-close" && body?.save_id && (!only || body.date === only))
+    || (url === "/daily-close/move" && (!only || body?.to_date === only))
     ? Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }))
     : pass(url, body)));
 };
@@ -266,7 +269,10 @@ describe("2. a move whose new day's save is unconfirmed: never \"Kopieret\", nev
     tap(/^dcDateMovedRetry$/);
     for (let i = 0; i < 8; i++) await settle();
     expect(rowFor(yesterday)).toMatchObject({ status: "draft", revenue_total: 14000 });
-    expect(del).toHaveBeenCalledWith(`/daily-close/${todayRow.id}`, expect.anything());
+    // (R-c round 2: today's draft goes IN the move — one request naming the
+    // version the form holds — never by a DELETE sent after it.)
+    expect(moveRequests(post.mock.calls).at(-1)).toMatchObject({ from_date: today, from_base_updated_at: todayRow.updated_at });
+    expect(del).not.toHaveBeenCalled();
     expect(rowFor()).toBeUndefined();
     expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedFrom:/);
   });

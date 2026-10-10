@@ -8215,6 +8215,7 @@ export const da = {
     dcStartOverNotDeletedChangedNoAmount: "Ikke slettet — kladden blev gemt på en anden enhed imens. Fortsæt den, eller start forfra igen.",
     dcStartOverNotDeletedLocked: "Ikke slettet — dagen blev låst på en anden enhed.",
     dcDateMovedNotSavedYet: "Ikke gemt for {to} endnu — intet er slettet for {from}",
+    dcDateMovedUnconfirmed: "Flytningen til {to} er ikke bekræftet endnu",
     dcDateMovedRetry: "Prøv igen",
     dcMoveTargetDraftBody: "Dine tal bliver på {from} — der flyttes ikke noget. Fortsæt kladden for {to}, eller bliv på {from}.",
     dcDateMovedMaybeCopied: "Kopieret til {to} — kladden for {from} kan stadig stå der",

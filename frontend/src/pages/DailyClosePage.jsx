@@ -39,6 +39,11 @@ import {
   QUEUE_FAILED,
   QUEUE_NEEDS_CONFIRMATION,
   QUEUE_WAITING_NETWORK,
+  isHeldLive,
+  isQueuedMove,
+  moveRequestOf,
+  registerQueueHolder,
+  releaseQueueHolder,
 } from "../utils/dailyCloseQueue";
 import {
   headlineTotal,
@@ -247,6 +252,9 @@ async function parseExportError(err, t = englishOnly) {
    It now lives in its own module with the poster injected, so every one of
    those paths is pinned by a test. */
 const postClose = (payload) => api.post("/daily-close", payload);
+// R-c round 2 — a date move, one request: the new day saved and the old
+// day's draft deleted together on the server (POST /daily-close/move).
+const postMove = (req, cfg) => api.post("/daily-close/move", req, cfg);
 // The server's limits for the close's informational text (schemas/daily_close
 // CLOSED_BY_MAX / NOTES_MAX). It cuts rather than refusing; the inputs and the
 // payload stay inside them so nothing the owner sees is cut server-side.
@@ -607,7 +615,10 @@ export default function DailyClosePage() {
   // "waiting for YOUR confirmation" are two different promises to the owner
   // and a single count cannot tell them apart. A close blocked on the anomaly
   // guard used to be invisible (and, before that, deleted).
-  const [queue, setQueue] = useState(() => getOfflineQueue());
+  const [queueAll, setQueue] = useState(() => getOfflineQueue());
+  // (Not a move the open form is sending itself — it says where that is:
+  // R-c round 2. Shown once the form is gone and the queue sends it.)
+  const queue = useMemo(() => queueAll.filter((it) => !isHeldLive(it)), [queueAll]);
   const queueCounts = useMemo(() => queueSummary(queue), [queue]);
   const retryableFailed = useMemo(() => queue.filter((it) => it?.state === QUEUE_FAILED
     && it.errorCode !== QUEUE_ERR_DRAFT_CHANGED).length, [queue]);
@@ -630,7 +641,8 @@ export default function DailyClosePage() {
     syncInFlight.current = true;
     setSyncing(true);
     try {
-      const res = await syncOfflineQueue(postClose);
+      // (A queued move goes as the move, with its own save_id — R-c round 2.)
+      const res = await syncOfflineQueue(postClose, { postMove });
       setQueue(res.remaining);
       // Refresh whenever anything actually landed — a queue that still holds an
       // item awaiting confirmation may STILL have synced three others. And
@@ -722,7 +734,8 @@ export default function DailyClosePage() {
     const base = item.conflictStamp || item.payload?.base_updated_at || null;
     const payload = { ...item.payload, base_updated_at: base };
     try {
-      const res = await postClose(payload);
+      // (A queued move goes as the move — on the version chosen — R-c round 2.)
+      const res = isQueuedMove(item) ? await postMove(moveRequestOf(item, { toBase: base })) : await postClose(payload);
       if (res?.data?.requires_confirmation) {
         setQueue(updateQueueItem(item.id, { payload, state: QUEUE_NEEDS_CONFIRMATION, anomaly: res.data.anomaly || {}, errorCode: null, errorDetail: null }));
         return;
@@ -763,7 +776,13 @@ export default function DailyClosePage() {
     setReviewError("");
     try {
       // On the newest version the owner chose to save over, if any.
-      await postClose({ ...item.payload, ...(item.conflictStamp ? { base_updated_at: item.conflictStamp } : {}), acknowledge_anomaly: true });
+      // (A queued move goes as the move — R-c round 2.)
+      if (isQueuedMove(item)) {
+        const req = moveRequestOf(item, item.conflictStamp ? { toBase: item.conflictStamp } : {});
+        await postMove({ ...req, body: { ...req.body, acknowledge_anomaly: true } });
+      } else {
+        await postClose({ ...item.payload, ...(item.conflictStamp ? { base_updated_at: item.conflictStamp } : {}), acknowledge_anomaly: true });
+      }
       setQueue(removeFromOfflineQueue(item.id));
       setReviewItem(null);
       fetchHistory();
@@ -823,6 +842,12 @@ export default function DailyClosePage() {
     // date move waiting on the new day's save never finished).
     const goOn = () => { setIsOnline(true); setTimeout(doSync, 0); };
     const goOff = () => setIsOnline(false);
+    // R-c round 2 — a move a page gone before its answer left queued (a
+    // reload, the app killed, the page left): sent on now, with its own
+    // save_id — the old day's draft and the new day's figures were never
+    // to stand side by side waiting for the next "online".
+    if (navigator.onLine !== false && getOfflineQueue().some((it) => isQueuedMove(it) && !isHeldLive(it)
+      && (!it.state || it.state === QUEUE_WAITING_NETWORK))) setTimeout(doSync, 0);
     window.addEventListener("online", goOn);
     window.addEventListener("offline", goOff);
     return () => { window.removeEventListener("online", goOn); window.removeEventListener("offline", goOff); };
@@ -2060,6 +2085,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+  // R-c round 2 — this form's hold on the queued move it is sending itself
+  // (the offline queue never sends it beside the form, nor lists it as
+  // waiting). Gone with the form: a page left, reloaded or killed holds
+  // nothing, and the queue sends the move on.
+  const holderRef = useRef(null);
+  useEffect(() => {
+    const id = registerQueueHolder();
+    holderRef.current = id;
+    return () => {
+      releaseQueueHolder(id);
+      try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+    };
+  }, []);
   // Round 23 — the form emptied by Start forfra: bumped, so a follow-up
   // started before (a move finishing) never writes onto the empty form.
   const formEpochRef = useRef(0);
@@ -2267,6 +2305,25 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // save has landed (the first day, and a day passed on the way — moved
   // again before the new day was filed).
   const moveFromRef = useRef(null);
+  // R-c round 2 — every move SENT and not answered yet, by its new day: the
+  // new day's saves go as that move until it is answered — also once the
+  // form has gone on to something else (another draft opened, a date picked
+  // with nothing on the form): a re-send of the new day's figures as a plain
+  // save left the old day's draft standing beside them.
+  const movesRef = useRef({});
+  /** The move is over (answered, refused, handed to the queue, or started over). */
+  const endMove = (m) => {
+    if (!m) return;
+    m.done = true;
+    if (movesRef.current[m.toKey] === m) delete movesRef.current[m.toKey];
+    if (moveFromRef.current === m) moveFromRef.current = null;
+  };
+  /** The form lets go of the move on screen: one never sent is dropped; one sent goes on until answered. */
+  const letGoOfMove = () => {
+    const m = moveFromRef.current;
+    moveFromRef.current = null;
+    if (m && m.server && !m.sentIds?.size) endMove(m);
+  };
   // What the move did, said once under the date: { from, to, state, keys,
   // canDelete, failed } — state "moved" (the old draft is gone: "Flyttet
   // fra …") or "copy" ("Kopieret til … — kladden for … står der stadig", with
@@ -2355,7 +2412,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     boxFillEpochRef.current += 1;
     // A move answered but not filed yet is not this draft's: nothing of it
     // was filed for this day, and the day it came from keeps its draft.
-    moveFromRef.current = null;
+    // (R-c round 2: one already sent goes on, as one request, until it is
+    // answered — letGoOfMove.)
+    letGoOfMove();
     setMovedNote(null);
     // (Round 23 review: what Start forfra said is not said over the draft
     // loaded now.)
@@ -3286,7 +3345,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     const pending = moveFromRef.current;
     if (!figures) {
       // Nothing of the owner's goes with the date.
-      moveFromRef.current = null;
+      letGoOfMove();
       setMovedNote(null);
       act(dateMoved, next);
       setBusinessDate(next);
@@ -3396,12 +3455,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       });
       if (!mountedRef.current) return;
       if (ans === true) {
-        moveFromRef.current = goes.length ? { from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current, runNo: runNoRef.current } : null;
+        // R-c round 2 — the move is ONE request (the new day's next save,
+        // sent at once, IS the move: postDayDraft). A move not answered yet
+        // that the figures leave again is part of this one: its old day goes
+        // in "keys", and its queued attempt is replaced by this move's.
+        const outboxId = pending?.outboxId || null;
+        // (The move not answered yet that the figures leave again: this one
+        // covers its day too, and takes its queued attempt over.)
+        if (pending?.server) { pending.outboxId = null; endMove(pending); }
+        moveFromRef.current = goes.length ? {
+          from, to: next, toKey: nextKey, keys: goes, epoch: formEpochRef.current, runNo: runNoRef.current,
+          server: true, outboxId,
+        } : null;
+        if (moveFromRef.current) movesRef.current[nextKey] = moveFromRef.current;
         // The figures are the new day's now: a draft of them that got no
         // answer on the old day is never sent there again.
         // (Not the figures a day let go of held then, on no server — kept on
         // this phone as a copy: round 23 R-c review.)
         goes.forEach((k) => { keepLetGoFigures(k); delete failedBodyRef.current[k]; movedAwayRef.current[k] = runNoRef.current; });
+        // R-c round 2 — a copy of those figures this form kept on this phone
+        // for the old day (left offline earlier) goes too: the move carries
+        // them. Sent on by itself it filed the old day again beside the move.
+        dropOldDayCopies(goes);
         // The new day is filed at once, not two seconds later — its answer
         // finishes the move.
         sendNowRef.current = true;
@@ -4710,12 +4785,253 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     if (!stuck.length) return { from: m.from, to: m.to, state: "moved", keys: outcomes.map((o) => o.key) };
     return { from: m.from, to: m.to, state: "copy", stuck };
   };
+  /* ─── R-c round 2 — a date move is ONE request ──────────────────────────
+     "Flyt tallene" was the new day's save and then, from its answer, the old
+     day's delete: a page gone before that answer (a reload, the app killed)
+     never sent the delete, and the figures stood on both days. Now every
+     save of the new day — while the move is not answered — IS the move
+     (POST /daily-close/move): the server saves the new day and deletes the
+     old day's draft (on the version this form holds) in one transaction, or
+     does neither. Each attempt is kept on this phone as ONE queued move (the
+     offline queue's item, held by this form while it lives): a page that is
+     gone leaves it to the queue, which sends it again with the same save_id
+     — the server answers a move it already did with what it did. */
+  /** The move whose new day is `key` (save number `runNo` built after it), not answered yet. */
+  const moveFor = (key, runNo = null) => {
+    const m = movesRef.current[key];
+    return m && m.server && !m.done && m.toKey === key && (runNo == null || m.runNo == null || runNo > m.runNo) ? m : null;
+  };
+  /** The old days' saves still on their way answer first: one landing after the move would file the day again. */
+  const fromDaysSettled = async (m) => {
+    for (let i = 0; i < 50; i++) {
+      const list = (m.keys || []).flatMap((k) => [...(keyInflightRef.current[k] || [])]);
+      if (!list.length) return;
+      await Promise.allSettled(list);
+    }
+  };
+  /** One old day as the move names it: the version of its draft this form holds, and its own save whose answer was lost. */
+  const moveFromOf = (m, k) => {
+    const [date, branch] = String(k).split("|");
+    const letGo = releasedFor(k);
+    const held = !letGo && Object.prototype.hasOwnProperty.call(baseRef.current, k) ? baseRef.current[k] : null;
+    const lost = lostSaveRef.current[k];
+    // (A day the form let go of: only a save of it built since is the form's.)
+    const lostId = lost?.id && (!letGo || releasedFor(k, lost.runNo)) ? lost.id : null;
+    const shown = m.shown?.[k];
+    // (Read fresh just before the move: the day written last by a save of
+    // this form's whose answer was lost — that very version, by its id.)
+    const read = m.fromRead?.[k];
+    if (read) return { date, branch_id: branch || null, base_updated_at: read.base, base_save_id: read.save };
+    return { date, branch_id: branch || null, base_updated_at: shown?.updated_at || held || null, base_save_id: lostId };
+  };
+  /**
+   * An old day a save of this form's got no answer on: asked first, as a
+   * delete always asked (round 23 fix-up) — two answers lost in a row, the
+   * one the move names (base_save_id) may not be the one that wrote the day
+   * last. Written last by ANY save of this form's (of a day let go of: the
+   * one since): that version, by its id. Anyone else's, or no read: the
+   * move names what the form holds, and the server keeps anything else.
+   */
+  const readMoveFromDays = async (m) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    for (const k of m.keys || []) {
+      const lost = lostSaveRef.current[k];
+      if (!lost?.id || m.shown?.[k] || m.fromRead?.[k]) continue;
+      const letGo = releasedFor(k);
+      if (letGo && !releasedFor(k, lost.runNo)) continue;
+      let row;
+      try { row = await readDayFresh(k); } catch { continue; }
+      if (!row || (row.status || "confirmed") !== "draft" || !row.updated_at) continue;
+      const mine = letGo ? row.last_save_id === lost.id : lastSaveIsMine(row);
+      if (!mine) continue;
+      (m.fromRead || (m.fromRead = {}))[k] = { base: row.updated_at, save: row.last_save_id };
+    }
+  };
+  const moveRequestFor = (m, body) => {
+    const [first, ...rest] = (m.keys || []).map((k) => moveFromOf(m, k));
+    return {
+      from_date: first.date,
+      from_branch_id: first.branch_id,
+      from_base_updated_at: first.base_updated_at,
+      from_base_save_id: first.base_save_id,
+      also_from: rest,
+      to_date: body.date,
+      to_base_updated_at: body.base_updated_at ?? null,
+      body,
+      save_id: body.save_id,
+    };
+  };
+  /** This attempt of the move, kept on this phone as the ONE queued move (held by this form). */
+  const keepMoveOutbox = (m, req, { held = true } = {}) => {
+    const move = {
+      from_date: req.from_date, from_branch_id: req.from_branch_id,
+      from_base_updated_at: req.from_base_updated_at, from_base_save_id: req.from_base_save_id,
+      also_from: req.also_from, save_id: req.save_id,
+    };
+    const heldBy = held ? holderRef.current : null;
+    let kept = false;
+    if (m.outboxId && getOfflineQueue().some((it) => it.id === m.outboxId)) {
+      updateQueueItem(m.outboxId, { payload: req.body, move, heldBy, state: QUEUE_WAITING_NETWORK, errorCode: null, errorDetail: null, httpStatus: null });
+      kept = true;
+    } else {
+      const item = addToOfflineQueue(req.body, { move, heldBy });
+      m.outboxId = item?.id || null;
+      kept = Boolean(item);
+    }
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+    return kept;
+  };
+  const dropMoveOutbox = (m) => {
+    if (!m?.outboxId) return;
+    const id = m.outboxId;
+    m.outboxId = null;
+    if (!getOfflineQueue().some((it) => it.id === id)) return;
+    removeFromOfflineQueue(id);
+    try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ }
+  };
+  /**
+   * The server's answer to the move: the figures are on the new day, and
+   * each old day is as the server left it — "deleted" (its draft, the
+   * version this form held, is gone), "none" (nothing was stored),
+   * "draft_changed" (saved elsewhere since — kept, and shown) or "locked"
+   * (kept). "Flyttet fra" only from the server's moved:true.
+   */
+  const applyMoveAnswer = (m, data) => {
+    dropMoveOutbox(m);
+    if (m.done) { if (moveFromRef.current === m) moveFromRef.current = null; return; }
+    endMove(m);
+    const outcomes = [];
+    (data?.from || []).forEach((f, i) => {
+      const k = m.keys[i] || `${f.date}|${f.branch_id || ""}`;
+      if (f.status === "deleted") {
+        forgetDay(k);
+        delete failedBodyRef.current[k];
+        if (f.id != null) setDroppedIds((prev) => (prev.has(f.id) ? prev : new Set(prev).add(f.id)));
+        setStartOverFailed((cur) => (cur && cur.key === k ? null : cur));
+        outcomes.push({ key: k, outcome: "deleted" });
+      } else if (f.status === "none") {
+        outcomes.push({ key: k, outcome: queuedCopyMayFile(k) ? "queued" : "none" });
+      } else {
+        const row = f.row && typeof f.row === "object" ? f.row : null;
+        forgetDay(k);
+        if (row?.id != null) setRowOverrides((prev) => ({ ...prev, [row.id]: { row, listed: existingClosesRef.current } }));
+        outcomes.push({ key: k, outcome: f.status === "locked" ? "locked" : "changed" });
+      }
+    });
+    onDraftSaved?.();
+    // (Said on the new day, as the form left it — never over Start forfra.)
+    if (!mountedRef.current || formEpochRef.current !== m.epoch || rowKeyRef.current !== m.toKey) return;
+    const note = moveNoteOf(m, outcomes);
+    // ("Flyttet fra" only on the server's own moved:true.)
+    if (note.state === "moved" && data?.moved !== true) return;
+    setMovedNote(note);
+  };
+  /**
+   * A save of `key` as the form sends it: the move, while one is not
+   * answered for that day (the save built after it), else the day's plain
+   * save. Answers like a save (`data`: the new day's row); `move`: the
+   * move's own answer.
+   */
+  const postDayDraft = async (key, payload, cfg, runNo = null) => {
+    const m = moveFor(key, runNo);
+    if (!m) return api.post("/daily-close", payload, cfg);
+    await fromDaysSettled(m);
+    await readMoveFromDays(m);
+    if (!payload.save_id) {
+      payload.save_id = newSaveId();
+      mySaveIdsRef.current.add(payload.save_id);
+    }
+    const req = moveRequestFor(m, payload);
+    m.lastReq = req;
+    (m.sentIds || (m.sentIds = new Set())).add(req.save_id);
+    keepMoveOutbox(m, req);
+    let res;
+    // (Sent with the browser offline: it never left this phone — not done.)
+    m.lastSentOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+    try {
+      res = await postMove(req, cfg);
+    } catch (err) {
+      // Answered (refused — nothing was done, the old day keeps its draft):
+      // the form says why; the move is not on this phone to send again.
+      if (err?.response && err.response.status < 500) dropMoveOutbox(m);
+      throw err;
+    }
+    // A lock the double-check stopped: nothing was done.
+    if (res?.data?.requires_confirmation) return res;
+    applyMoveAnswer(m, res?.data);
+    return { ...res, data: res?.data?.close || {}, move: res?.data };
+  };
+  /**
+   * The move's answer was lost: sent once more AS IT WAS (its save_id) — a
+   * move the server already did is answered with what it did; one that never
+   * arrived is done now. (Offline, or no answer again: the line under the
+   * date says it is not saved yet; the queued move stays on this phone.)
+   */
+  const replayMove = async (m) => {
+    if (!m?.lastReq || (typeof navigator !== "undefined" && navigator.onLine === false)) return null;
+    try {
+      const res = await postMove(m.lastReq, { _noRetry: true, timeout: 8000 });
+      if (!res?.data || res.data.requires_confirmation) return null;
+      applyMoveAnswer(m, res.data);
+      return res.data;
+    } catch (err) {
+      if (err?.response && err.response.status < 500) dropMoveOutbox(m);
+      return null;
+    }
+  };
+  /**
+   * The move's answer was lost, and sent once more it was lost again: what
+   * the server holds says what became of it. The new day written last by one
+   * of this move's own attempts: the move was done (both halves, in one
+   * transaction) — each old day read as it is now (no draft: gone; a draft:
+   * kept — "står der stadig"; locked: kept). Not written by it: not done
+   * (yet). Cannot be read (offline): not known — said so, never guessed.
+   */
+  const resolveLostMove = async (m) => {
+    // (Sent while the browser said offline: it never left this phone.)
+    if (m.lastSentOffline) return { landed: false };
+    const data = await replayMove(m);
+    if (data) return { data };
+    if (m.done) return { done: true };
+    let row;
+    try { row = await readDayFresh(m.toKey); } catch { return { unknown: true }; }
+    const landed = Boolean(row?.last_save_id) && Boolean(m.sentIds?.has(row.last_save_id));
+    if (!landed) return { landed: false };
+    const from = [];
+    for (const k of m.keys) {
+      let r;
+      try { r = await readDayFresh(k); } catch { return { unknown: true }; }
+      from.push({ status: !r ? "deleted" : (r.status || "confirmed") !== "draft" ? "locked" : "draft_changed", row: r || null, id: null });
+    }
+    if (m.done) return { done: true };
+    const read = { moved: from.every((f) => f.status === "deleted"), from, close: row };
+    applyMoveAnswer(m, read);
+    return { data: read };
+  };
+  /**
+   * Going away offline with the move not answered: the figures waiting (or
+   * sent with no answer) are kept as the queued move — a new attempt that
+   * follows the last one sent (the version it wrote is the form's own) —
+   * never as a plain copy of the new day that would leave the old day's
+   * draft behind. False when `key` has no move waiting.
+   */
+  const keepMoveOnTheWayOut = (key, built, runNo = null) => {
+    const m = moveFor(key, runNo);
+    if (!m || !built) return false;
+    const body = { ...built, base_updated_at: saveBaseFor(key, runNo), save_id: newSaveId() };
+    mySaveIdsRef.current.add(body.save_id);
+    const follows = saveFollowsFor(key, runNo);
+    if (follows) body.base_save_id = follows;
+    return keepMoveOutbox(m, moveRequestFor(m, body));
+  };
   // A move answered "Flyt tallene", and the new day's save landed: the old
   // day's draft goes now — deleted on the version this form holds, or the
   // line under the date says it is still there ("Slet den" when it can).
   const finishMove = async (savedKey) => {
     const m = moveFromRef.current;
-    if (!m || savedKey !== m.toKey) return;
+    // (R-c round 2: a move is done on the server, in one request — its
+    // answer says what became of the old day: applyMoveAnswer.)
+    if (!m || m.server || savedKey !== m.toKey) return;
     moveFromRef.current = null;
     const outcomes = [];
     for (const k of m.keys) {
@@ -4802,7 +5118,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     pendingSaveRef.current = null;
     retryArmedRef.current = null;
     lastSentRef.current = null;
-    moveFromRef.current = null;
+    letGoOfMove();
     act(resetTills);
     setScanPhotos([]);
     setReceiptPhotoUrl(null);
@@ -4954,6 +5270,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     setStartOverFailed(null);
     let outcome = "none";
     const out = {};
+    // R-c round 2 — a move onto this day not answered yet: its figures are
+    // the ones started over — its queued attempt is not sent on afterwards
+    // (one on its way answers first: the delete below waits for it).
+    const startedMove = moveFor(key);
+    if (startedMove) dropMoveOutbox(startedMove);
     try {
       if (filedNow) outcome = await deleteDayDraft(key, { shown: bannerRow, out });
     } finally {
@@ -4973,6 +5294,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // close is filed under that branch, not beside it.
     if (bannerRow) setFileBranchOverride(bannerRow.branch_id || null);
     resetFormEmpty();
+    // (A move onto this day is over: its figures were started over.)
+    if (startedMove) endMove(startedMove);
     // Round 23 review — the server kept it (saved on another device
     // meanwhile, or locked there): the form starts over as asked, and the
     // day's banner shows that draft — with why it was not deleted, and what
@@ -5143,8 +5466,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         saveIdOfRef.current.set(tracker, saveId);
         if (!keyWireRef.current[savingKey]) keyWireRef.current[savingKey] = new Set();
         keyWireRef.current[savingKey].add(tracker);
-        const res = await api.post("/daily-close", body,
-          keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined);
+        // (The new day of a move not answered yet: this save IS the move —
+        // R-c round 2.)
+        const res = await postDayDraft(savingKey, body,
+          keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined, runNo);
         noteSaved(savingKey, body, res);
         // Answered, and built after the save that got no answer: the day's
         // version is this one's now.
@@ -5212,30 +5537,39 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // next answered save of the day. Any save of the form's was not
           // proof (round 22 review): an earlier one already on the new day
           // finished the move while the moved figures were on no server.
-          const m = moveFromRef.current;
-          if (m && savingKey === m.toKey) {
+          // R-c round 2 — the new day of a move, its answer lost: the move
+          // (this very request, its save_id) is sent once more — a move the
+          // server already did answers with what it did, one that never
+          // arrived is done now. No answer again (offline, a dead line): the
+          // line under the date says it is not saved yet, and the move stays
+          // on this phone as ONE queued move (sent again once online, or by
+          // the queue when this page is gone).
+          const m = moveFor(savingKey, runNo);
+          if (m) {
             const landed = saveId;
-            const sayCopy = () => {
-              // Not known to be filed (offline, or not landed): the old day
-              // still holds the figures — said so, never "moved" — until the
-              // new day's save lands (then the old draft goes, as answered).
+            const sayCopy = (unknown = false) => {
+              // Not known to be filed (offline, or not landed): never
+              // "moved" — "Ikke gemt for {to} endnu" while the server says
+              // the move is not done; not known at all (no read): the move is
+              // not confirmed yet — until it is answered.
               if (!mountedRef.current || moveFromRef.current !== m || formEpochRef.current !== m.epoch) return;
-              setMovedNote(moveNoteOf(m, m.keys.map((k) => ({ key: k, outcome: "pending" }))));
+              setMovedNote({ ...moveNoteOf(m, m.keys.map((k) => ({ key: k, outcome: "pending" }))), unconfirmed: unknown });
             };
-            readDayFresh(savingKey)
-              .then((row) => {
-                if (!row || row.last_save_id !== landed) { sayCopy(); return; }
-                // Landed: an answered save in all but the answer — the day is
-                // the form's own (never "Der er allerede en kladde" over the
-                // owner's own moved figures), and the move finishes.
+            resolveLostMove(m)
+              .then((r) => {
+                const row = r?.data?.close;
+                if (!row || row.id == null) { if (!r?.done) sayCopy(Boolean(r?.unknown)); return; }
+                // Answered after all: an answered save of the new day.
                 noteSaved(savingKey, body, { data: row });
                 setOwnDraftKeys((p) => (p.has(savingKey) ? p : new Set(p).add(savingKey)));
                 if (releasedFor(savingKey, runNo)) { stampLetGoCopy(savingKey, row.updated_at); unreleaseDay(savingKey); }
                 if (lostSaveRef.current[savingKey]?.id === landed) delete lostSaveRef.current[savingKey];
+                const f1 = failedBodyRef.current[savingKey];
+                if (f1 && f1.runNo <= runNo) delete failedBodyRef.current[savingKey];
+                if (mountedRef.current && savingKey === rowKeyRef.current) setUnsentKey((k) => (k === savingKey ? null : k));
                 if (retryArmedRef.current === sent) { retryArmedRef.current = null; lastSentRef.current = sent; }
-                finishMove(savingKey);
               })
-              .catch(sayCopy);
+              .catch(() => sayCopy(true));
           }
         }
         // Refused (answered: nothing written): this body is not what the day
@@ -5262,6 +5596,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           }
         } else if (isDeletedLockedClose(err)) {
           if (savingKey === rowKeyRef.current) setDeletedLockedRow(errText(err, ""));
+          // (A move onto that day: nothing moved — the old day keeps its draft.)
+          { const mv = movesRef.current[savingKey] || (moveFromRef.current?.toKey === savingKey ? moveFromRef.current : null); if (mv) { dropMoveOutbox(mv); endMove(mv); } }
         } else if (err?.response?.status === 409) {
           // Locked on another device while this form had the day open (round
           // 22): said at once — the day's "already closed and locked" banner,
@@ -5276,7 +5612,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           }
           // The day the figures were moved to is locked: nothing moved, and
           // the day they came from keeps its draft.
-          if (moveFromRef.current?.toKey === savingKey) moveFromRef.current = null;
+          { const mv = movesRef.current[savingKey] || (moveFromRef.current?.toKey === savingKey ? moveFromRef.current : null); if (mv) { dropMoveOutbox(mv); endMove(mv); } }
         }
       } finally {
         inflightRef.current.delete(tracker);
@@ -5339,14 +5675,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // (Never an anomaly acknowledged for the owner, never a save's own ids.)
     const { save_id: _sid, base_save_id: _follows, acknowledge_anomaly: _ack, ...rest } = src;
     const payload = { ...rest, base_updated_at: c.stamp || rest.base_updated_at || null };
+    // R-c round 2 — the new day of a move not answered yet: the copy is the
+    // move ("Behold mine tal" on it sends the move, the old day's delete with
+    // it — never a plain save of the new day).
+    const m = moveFor(c.key);
+    let move = null;
+    if (m) {
+      const req = moveRequestFor(m, { ...payload, save_id: newSaveId() });
+      move = {
+        from_date: req.from_date, from_branch_id: req.from_branch_id,
+        from_base_updated_at: req.from_base_updated_at, from_base_save_id: req.from_base_save_id,
+        also_from: req.also_from, save_id: req.save_id,
+      };
+    }
     const prev = conflictCopyRef.current;
     let kept = false;
     if (prev && prev.conflict === c && getOfflineQueue().some((it) => it.id === prev.id)) {
-      updateQueueItem(prev.id, { payload });
+      updateQueueItem(prev.id, { payload, ...(move ? { move } : {}) });
       kept = true;
     } else {
       const item = addFailedToOfflineQueue(payload, {
         errorCode: QUEUE_ERR_DRAFT_CHANGED, conflictStamp: c.stamp || null, httpStatus: 412,
+        ...(move ? { move } : {}),
       });
       if (item) { conflictCopyRef.current = { conflict: c, id: item.id }; kept = true; }
     }
@@ -5367,6 +5717,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // (Round 23: a date move is confirmed before the date changes — the copy
     // is the day the form is on, the one the owner chose.)
     const dayKey = run.key;
+    // R-c round 2 — the new day of a move not answered yet: kept as the
+    // queued move (one item, the old day's delete with it), never as a plain
+    // copy of the new day.
+    if (moveFor(dayKey)) return keepMoveOnTheWayOut(dayKey, built);
     // (The boxes as they are now: a day the form let go of goes on the
     // version History lists — round 23 R-c, saveBaseFor.)
     const payload = { ...built, base_updated_at: saveBaseFor(dayKey) };
@@ -5393,6 +5747,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     for (const [key, f] of Object.entries(failedBodyRef.current)) {
       // The waiting save files this day itself (its own copy, above).
       if (pendingSaveRef.current?.key === key && formFilesRef.current) continue;
+      // (A move not answered yet: the queued move holds these figures — R-c round 2.)
+      if (moveFor(key, f.runNo)) {
+        if (keepMoveOnTheWayOut(key, f.body, f.runNo)) kept = true;
+        continue;
+      }
       // (The figures as they were sent, save number f.runNo — round 23 R-c.)
       const payload = { ...f.body, base_updated_at: saveBaseFor(key, f.runNo) };
       const follows = saveFollowsFor(key, f.runNo);
@@ -5449,8 +5808,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
       onTheirWay.add(tracker);
       sendGenRef.current[key] = (sendGenRef.current[key] || 0) + 1;
       let again = false;
-      (async () => api.post("/daily-close", payload,
-        keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined))()
+      // (The new day of a move not answered yet, figures built after it:
+      // sent as the move — R-c round 2.)
+      (async () => postDayDraft(key, payload,
+        keepalive && typeof fetch === "function" ? { adapter: "fetch", fetchOptions: { keepalive: true } } : undefined, f.runNo))()
         .then((res) => {
           noteSaved(key, payload, res);
           if (failedBodyRef.current[key] === f) delete failedBodyRef.current[key];
@@ -5519,6 +5880,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           if (again) sendFailedBodies({ keepalive });
         });
     }
+  };
+  /** This form's own copies (offline, sent with no answer) of days whose figures a move takes. */
+  const dropOldDayCopies = (keys) => {
+    let dropped = false;
+    const oc = offlineCopyRef.current;
+    if (oc && getOfflineQueue().some((it) => it.id === oc.id && keys.includes(closeRowKey(it.payload)))) {
+      removeFromOfflineQueue(oc.id);
+      offlineCopyRef.current = null;
+      dropped = true;
+    }
+    for (const k of keys) {
+      const id = failedCopiesRef.current[k];
+      if (!id) continue;
+      delete failedCopiesRef.current[k];
+      if (getOfflineQueue().some((it) => it.id === id)) { removeFromOfflineQueue(id); dropped = true; }
+    }
+    if (dropped) { try { window.dispatchEvent(new Event(QUEUE_CHANGED_EVENT)); } catch { /* no window */ } }
   };
   const dropOfflineCopy = () => {
     const oc = offlineCopyRef.current;
@@ -5653,12 +6031,26 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // A draft save of the day got no answer (it may have landed): the lock —
     // queued offline too — follows it; its version is the form's own.
     if (saveFollowsFor(lockKey)) payload.base_save_id = saveFollowsFor(lockKey);
+    // R-c round 2 — the lock of a move's new day while the move is not
+    // answered: the lock IS the move (one request — the old day's draft
+    // deleted with it), and queued offline it is ONE queued move, handed to
+    // the queue (sent with the same save_id once online).
+    const lockMove = moveFor(lockKey);
+    const queueLock = () => {
+      if (!lockMove) return Boolean(addToOfflineQueue(payload));
+      if (!payload.save_id) { payload.save_id = newSaveId(); mySaveIdsRef.current.add(payload.save_id); }
+      const req = lockMove.lastReq && lockMove.lastReq.save_id === payload.save_id ? lockMove.lastReq : moveRequestFor(lockMove, payload);
+      if (!keepMoveOutbox(lockMove, req, { held: false })) return false;
+      lockMove.handedOff = true;
+      endMove(lockMove);
+      return true;
+    };
 
     if (!navigator.onLine) {
       // A queue write can be refused (quota, Safari private mode). Saying
       // "queued" when nothing was stored would be the same lie the old sync
       // loop told — tell the owner instead, so they can write the numbers down.
-      const queued = addToOfflineQueue(payload);
+      const queued = queueLock();
       setSaving(false);
       if (!queued) { restoreHeldSave(); setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
       dropHeldSave();
@@ -5667,7 +6059,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     }
 
     try {
-      const resp = await api.post("/daily-close", payload);
+      const resp = await postDayDraft(lockKey, payload);
       // Detective control — when today's total is far off the recent
       // same-weekday baseline the backend returns this (and saves
       // NOTHING) instead of a close. Surface the soft "double-check"
@@ -5705,8 +6097,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     } catch (err) {
       if (!err.response) {
         // Network failed mid-request — queue for later (and say so honestly
-        // if the device refused to store it).
-        const queued = addToOfflineQueue(payload);
+        // if the device refused to store it). (A lock that is a move: its
+        // attempt is the queued move already, sent again with its save_id.)
+        const queued = queueLock();
         setSaving(false);
         if (!queued) { restoreHeldSave(); setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
         dropHeldSave();
@@ -5749,6 +6142,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // banner, the form read-only), and History is read again for its
         // amount (round 22).
         if (lockKey === rowKeyRef.current) { setLockedRowRejected(true); onDraftSaved?.(); }
+        // (A lock that was a move: nothing moved — the old day keeps its draft.)
+        if (lockMove) endMove(lockMove);
         // The amount only when this form knows it: editing a draft whose day
         // was locked elsewhere said "Locked at 0 kr.", a figure nobody locked.
         setError(existingForDate && existingForDate.revenue_total != null
@@ -7486,7 +7881,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               <div data-testid="dc-date-moved" data-state="pending" className="mb-4 -mt-1 text-[13px] text-amber-900 dark:text-amber-100 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="flex items-center gap-1.5">
                   <Icon name="CalendarClock" size={14} className="shrink-0" />
-                  {t("dcDateMovedNotSavedYet", "Not saved for {to} yet — nothing is deleted for {from}", { to: short(movedNote.to), from: short(movedNote.from) })}
+                  {movedNote.unconfirmed
+                    // R-c round 2 — the move's answer lost and the server not
+                    // reachable to ask: whether it was done is not known (it
+                    // is one request — done whole, or not at all).
+                    ? t("dcDateMovedUnconfirmed", "The move to {to} isn't confirmed yet", { to: short(movedNote.to) })
+                    : t("dcDateMovedNotSavedYet", "Not saved for {to} yet — nothing is deleted for {from}", { to: short(movedNote.to), from: short(movedNote.from) })}
                 </span>
                 <Button size="sm" variant="secondary" className="min-h-10" disabled={moveBusy || isOnline === false} onClick={retryMovedSave}>
                   {t("dcDateMovedRetry", "Try again")}

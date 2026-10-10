@@ -15,6 +15,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { closeBodies } from "../test/closeMoveCalls";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -123,9 +124,10 @@ const lockedPayload = async () => {
   );
   return post.mock.calls.find(([url, body]) => url === "/daily-close" && body?.status === "confirmed")[1];
 };
-const drafts = (iso) => post.mock.calls
-  .filter(([u, b]) => u === "/daily-close" && b?.status === "draft" && (!iso || b.date === iso))
-  .map(([, b]) => b);
+// (R-c round 2: the new day's draft of a date move rides in the move's one
+// request — POST /daily-close/move — and is read as the save it is.)
+const drafts = (iso) => closeBodies(post.mock.calls)
+  .filter((b) => b?.status === "draft" && (!iso || b.date === iso));
 const callsFor = (url, iso) => get.mock.calls.filter(([u, c]) => u === url && c?.params?.date === iso).length;
 
 describe("the bon's MOMS left in an emptied box is sent as the bon's (review fix 1)", () => {

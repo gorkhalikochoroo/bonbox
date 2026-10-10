@@ -17,6 +17,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { closeBodies, moveAnswer, moveRequests } from "../test/closeMoveCalls";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -94,18 +95,23 @@ beforeEach(() => {
     if (url === "/property-report") return Promise.resolve({ data: { totals: {} } });
     return Promise.resolve({ data: [] });
   });
-  post.mockImplementation((url) => {
+  post.mockImplementation((url, body) => {
     if (String(url).includes("scan")) return Promise.resolve({ data: scans.shift() });
-    return Promise.resolve({ data: { id: 1, status: "draft" } });
+    // R-c round 2 — a date move is one request: the new day saved, the old
+    // day's draft (the version the form holds) deleted by the server.
+    if (url === "/daily-close/move") {
+      return Promise.resolve({ data: moveAnswer(body, { id: 2, date: body.to_date, status: "draft", updated_at: "2026-09-26T10:00:01" }, { status: "deleted", id: 1 }) });
+    }
+    return Promise.resolve({ data: { id: 1, status: "draft", updated_at: "2026-09-25T10:00:00" } });
   });
 });
 
 const renderPage = () => render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
 const pickDate = (container, iso) =>
   fireEvent.change(container.querySelector("#close-date"), { target: { value: iso } });
-const drafts = (date) => post.mock.calls
-  .filter(([url, body]) => url === "/daily-close" && body?.status === "draft" && body?.date === date)
-  .map(([, body]) => body);
+// (R-c round 2: the new day's draft of a move is the move's body.)
+const drafts = (date) => closeBodies(post.mock.calls)
+  .filter((body) => body?.status === "draft" && body?.date === date);
 const choice = () => screen.queryByTestId("dc-date-move");
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 const callsFor = (url, date) => get.mock.calls.filter(([u, cfg]) => u === url && cfg?.params?.date === date).length;
@@ -168,7 +174,11 @@ describe("daily close — figures typed for one day, date moved to another (must
     await waitFor(() => expect(drafts("2026-09-26")).toHaveLength(1), { timeout: 3500 });
     expect(drafts("2026-09-26")[0]).toMatchObject({ date: "2026-09-26", revenue_breakdown: { food: 17130 } });
     expect(container.querySelector("#close-date").value).toBe("2026-09-26");
-    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    // R-c round 2 — the old day's draft is deleted IN the move (one request,
+    // on the version the form holds), never by a DELETE sent after it.
+    const [mv] = moveRequests(post.mock.calls);
+    expect(mv).toMatchObject({ from_date: "2026-09-25", to_date: "2026-09-26", from_base_updated_at: "2026-09-25T10:00:00" });
+    expect(del).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByText(/^dcDateMovedFrom:/)).toBeInTheDocument());
   }, 12000);
 

@@ -386,8 +386,10 @@ describe("6. \"Brug dem for {to}\" moves the figures, never copies them", () => 
     keyIn(q("#dc-rev-food"), "14000");
     await flush();
     // The new day's save fails: the old day's draft stays where it is.
+    // (R-c round 2: the new day's save of a move IS the move.)
     const realPost = post.getMockImplementation();
-    post.mockImplementation((url, body) => (url === "/daily-close" && body.date === yesterday
+    post.mockImplementation((url, body) => ((url === "/daily-close" && body.date === yesterday)
+      || (url === "/daily-close/move" && body.to_date === yesterday)
       ? Promise.reject(Object.assign(new Error("offline"), {})) : realPost(url, body)));
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
     await flush();

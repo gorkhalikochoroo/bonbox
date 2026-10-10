@@ -42,7 +42,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.terminal import Terminal
 from app.models.kasserapport import KasserapportExtraction
 from app.schemas.daily_close import (
-    CLOSED_BY_MAX, NOTES_MAX, DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock,
+    CLOSED_BY_MAX, NOTES_MAX, DailyCloseCreate, DailyCloseMove, DailyCloseResponse, DailyCloseUnlock,
 )
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
@@ -1958,6 +1958,32 @@ def _capture_extraction_correction(db, user, *, status, final_values):
             pass
 
 
+def _require_own_branch(db: Session, user: User, branch_id) -> None:
+    """A close is filed only under a branch of the caller's own (R-c round 2,
+    CMS-1): a branch_id of another account's — a copy queued on a shared phone
+    by the account signed in before, or a crafted request — is refused (403,
+    detail.code "branch_not_owned"), never filed into this account's books
+    under someone else's branch. No branch (None) is every account's own."""
+    if branch_id is None:
+        return
+    owned = (
+        db.query(Branch.id)
+        .filter(Branch.id == branch_id, Branch.user_id == user.id)
+        .first()
+    )
+    if owned is None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": BRANCH_NOT_OWNED,
+                "message": "Afdelingen hører ikke til denne konto. Intet er gemt.",
+            },
+        )
+
+
+BRANCH_NOT_OWNED = "branch_not_owned"
+
+
 @router.post("")
 @_limiter.limit("30/minute")
 def create_daily_close(
@@ -1966,6 +1992,22 @@ def create_daily_close(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    _require_own_branch(db, user, data.branch_id)
+    out = _file_close(request, data, db, user)
+    if out[0] == "anomaly":
+        return out[1]
+    _, row, status, final_values = out
+    return _after_close_filed(db, request, user, row, status, final_values)
+
+
+def _file_close(request: Request, data: DailyCloseCreate, db: Session, user: User,
+                *, defer_commit: bool = False):
+    """The save (or lock) of one day's close — create_daily_close's body, up
+    to and including its write. ("anomaly", {requires_confirmation …}) when
+    the lock's double-check stopped it (nothing written), else ("filed", row,
+    status, final_values). `defer_commit` (a date move, R-c round 2): the
+    write is flushed, never committed — the move commits it together with the
+    old day's delete, in one transaction under both days' locks."""
     # Cut informational text to length before any use (update path, create
     # path, audit payloads) — a long name or note never fails a lock.
     data.closed_by = _clip_text(data.closed_by, CLOSED_BY_MAX)
@@ -2260,7 +2302,7 @@ def create_daily_close(
         except Exception:  # noqa: BLE001
             _anomaly = {"flagged": False}
         if _anomaly.get("flagged"):
-            return {
+            return "anomaly", {
                 "requires_confirmation": True,
                 "anomaly": {
                     "reason": _anomaly.get("reason"),
@@ -2410,29 +2452,16 @@ def create_daily_close(
             },
             ip_address=getattr(request.client, "host", None) if request.client else None,
         )
-        db.commit()
-        db.refresh(existing)
-        _capture_extraction_correction(
-            db, user, status=status,
-            final_values={
-                "revenue_total": revenue_total, "moms_total": moms_total,
-                "payment_breakdown": data.payment_breakdown,
-                "revenue_breakdown": data.revenue_breakdown,
-                "cash_counted": data.cash_counted,
-            },
-        )
-        response = _to_response(existing)
-        # L3 — Lane A close-ritual auto-email. Only on transition INTO
-        # confirmed (i.e. the lock event), not on subsequent draft saves
-        # of an unlocked-then-edited close. The helper handles all the
-        # tier + preference gating + scan attachment + retry — never
-        # raises into this path.
-        if status == "confirmed":
-            _invalidate_daily_brief_cache(db, user)
-            response["close_ritual"] = _fire_close_auto_email(db, request, user, existing)
-            response.update({k: v for k, v in _to_response(existing).items()
-                             if k.startswith("email_")})
-        return response
+        if defer_commit:
+            db.flush()
+        else:
+            db.commit()
+        return "filed", existing, status, {
+            "revenue_total": revenue_total, "moms_total": moms_total,
+            "payment_breakdown": data.payment_breakdown,
+            "revenue_breakdown": data.revenue_breakdown,
+            "cash_counted": data.cash_counted,
+        }
 
     dc = DailyClose(
         id=uuid.uuid4(),
@@ -2554,26 +2583,257 @@ def create_daily_close(
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
     )
-    db.commit()
-    db.refresh(dc)
-    _capture_extraction_correction(
-        db, user, status=status,
-        final_values={
-            "revenue_total": revenue_total, "moms_total": moms_total,
-            "payment_breakdown": data.payment_breakdown,
-            "revenue_breakdown": data.revenue_breakdown,
-            "cash_counted": data.cash_counted,
-        },
-    )
-    response = _to_response(dc)
-    # L3 — Lane A close-ritual auto-email. Only on the lock transition.
-    # Drafts (status="draft") do NOT trigger — the email is the "the
-    # day is officially closed, here's the kasserapport" notification.
+    if defer_commit:
+        db.flush()
+    else:
+        db.commit()
+    return "filed", dc, status, {
+        "revenue_total": revenue_total, "moms_total": moms_total,
+        "payment_breakdown": data.payment_breakdown,
+        "revenue_breakdown": data.revenue_breakdown,
+        "cash_counted": data.cash_counted,
+    }
+
+
+def _after_close_filed(db: Session, request: Request, user: User, row: DailyClose,
+                       status: str, final_values: dict) -> dict:
+    """What follows a committed save or lock (create_daily_close, a date
+    move): the extraction's correction captured, the answer built, and — on
+    the lock — the brief's cache dropped and the close-ritual mail sent."""
+    db.refresh(row)
+    _capture_extraction_correction(db, user, status=status, final_values=final_values)
+    response = _to_response(row)
+    # L3 — Lane A close-ritual auto-email. Only on the lock transition (a
+    # save INTO confirmed), not on draft saves of an unlocked-then-edited
+    # close. Drafts (status="draft") do NOT trigger — the email is the "the
+    # day is officially closed, here's the kasserapport" notification. The
+    # helper handles all the tier + preference gating + scan attachment +
+    # retry — never raises into this path.
     if status == "confirmed":
         _invalidate_daily_brief_cache(db, user)
-        response["close_ritual"] = _fire_close_auto_email(db, request, user, dc)
-        response.update({k: v for k, v in _to_response(dc).items() if k.startswith("email_")})
+        response["close_ritual"] = _fire_close_auto_email(db, request, user, row)
+        response.update({k: v for k, v in _to_response(row).items() if k.startswith("email_")})
     return response
+
+
+# ─── POST /move — a date move, one request (R-c round 2) ───
+#
+# A move was two requests tied together only in page memory: the new day's
+# save, then — from its answer — the old day's delete. A page gone before
+# the answer (a reload, the app killed) never sent the delete, and the
+# figures stood on both days (both locked: counted twice). Now the server
+# does both in ONE transaction under both days' locks (taken in a fixed
+# order — two moves crossing never deadlock): the new day saved under the
+# same rules as POST /daily-close (412 draft_changed / 409 locked / 423
+# deleted_locked_close — and then nothing at all is done), and the old day's
+# draft deleted only when it is still the version the form holds; otherwise
+# it is kept and returned. Idempotent by save_id: sent again after a lost
+# answer, the same result, never a second delete.
+
+_MOVE_ACTION = "daily_close.move"
+_MOVE_ENTITY = "daily_close_move"
+
+
+def _move_record_id(user_id, save_id: str) -> uuid.UUID:
+    """The move's audit row id, from the account and the move's own id: a
+    move sent again finds the first one's row by an exact lookup."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"bonbox:daily-close-move:{user_id}:{save_id}")
+
+
+def _move_already_done(db: Session, user: User, save_id: str) -> dict | None:
+    """What a move with this save_id did, when it was done before (its audit
+    row's after-state), else None."""
+    import json as _json
+    from app.models.audit_log import AuditLog
+    row = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.entity_type == _MOVE_ENTITY,
+            AuditLog.entity_id == _move_record_id(user.id, save_id),
+            AuditLog.action == _MOVE_ACTION,
+        )
+        .first()
+    )
+    if row is None:
+        return None
+    try:
+        after = _json.loads(row.after_state or "{}")
+    except Exception:  # noqa: BLE001
+        after = {}
+    return after if isinstance(after, dict) else {}
+
+
+def _live_close(db: Session, user: User, day, branch_id):
+    return (
+        db.query(DailyClose)
+        .filter(
+            DailyClose.user_id == user.id,
+            DailyClose.date == day,
+            DailyClose.branch_id == branch_id,
+            DailyClose.is_deleted.isnot(True),
+        )
+        .first()
+    )
+
+
+def _take_back_moved_day(db: Session, request: Request, user: User, day, branch_id,
+                         base, base_save_id, *, move_id: str, to_date, to_branch_id) -> tuple[str, DailyClose | None]:
+    """The old day of a move, under its lock: ("deleted", row) — its draft
+    was the form's version and is gone (row: the deleted draft); ("none",
+    None) — nothing is stored; ("locked", row) / ("draft_changed", row) —
+    kept as it is."""
+    row = _live_close(db, user, day, branch_id)
+    if row is None:
+        return "none", None
+    if (getattr(row, "status", None) or "confirmed") != "draft":
+        return "locked", row
+    stored = _naive_utc(getattr(row, "updated_at", None))
+    owned = base is not None and stored is not None and stored <= _naive_utc(base)
+    if not owned and base_save_id:
+        owned = _last_save_id(db, user, row.id) == base_save_id
+    if not owned:
+        return "draft_changed", row
+    row.is_deleted = True
+    row.deleted_at = utc_now()
+    audit_service.record(
+        db, user=user,
+        action="close.deleted",
+        entity_type="daily_close",
+        entity_id=row.id,
+        before={"date": row.date.isoformat() if row.date else None, "status": row.status},
+        after={"is_deleted": True, "moved_to": to_date.isoformat() if to_date else None,
+               **({"moved_to_branch_id": str(to_branch_id)} if to_branch_id else {}),
+               "move_id": move_id},
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
+    return "deleted", row
+
+
+@router.post("/move")
+@_limiter.limit("30/minute")
+def move_daily_close(
+    request: Request,
+    data: DailyCloseMove,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    body = data.body
+    if body.date != data.to_date:
+        raise HTTPException(status_code=422, detail={"code": "move_date_mismatch",
+                                                     "message": "body.date must be to_date"})
+    froms = [(data.from_date, data.from_branch_id, data.from_base_updated_at, data.from_base_save_id)]
+    froms += [(f.date, f.branch_id, f.base_updated_at, f.base_save_id) for f in data.also_from]
+    to_key = (data.to_date, body.branch_id)
+    seen = set()
+    for d, b, _base, _sid in froms:
+        if (d, b) == to_key:
+            raise HTTPException(status_code=422, detail={"code": "move_same_day",
+                                                         "message": "a move needs another day"})
+        if (d, b) in seen:
+            raise HTTPException(status_code=422, detail={"code": "move_day_twice",
+                                                         "message": "a day is named twice"})
+        seen.add((d, b))
+    # Every branch named is the caller's own (CMS-1).
+    for b in {body.branch_id, *(b for _d, b, _x, _y in froms)}:
+        _require_own_branch(db, user, b)
+
+    # Both (all) days' locks, in one fixed order: two moves crossing (7→9 and
+    # 9→7) wait for each other instead of deadlocking.
+    from app.services.close_day_lock import close_day_key
+    days = {close_day_key(user.id, d, b): (d, b) for d, b, _x, _y in froms}
+    days[close_day_key(user.id, data.to_date, body.branch_id)] = to_key
+    for k in sorted(days):
+        d, b = days[k]
+        _lock_close_day(db, user.id, d, b)
+
+    def _answer(rec: dict, replay: bool) -> dict:
+        new_row = None
+        try:
+            if rec.get("close_id"):
+                new_row = db.query(DailyClose).filter(
+                    DailyClose.id == uuid.UUID(str(rec["close_id"])),
+                    DailyClose.user_id == user.id,
+                ).first()
+        except (ValueError, TypeError):
+            new_row = None
+        out_from = []
+        for f in rec.get("from") or []:
+            try:
+                fd = date.fromisoformat(str(f.get("date")))
+                fb = uuid.UUID(str(f["branch_id"])) if f.get("branch_id") else None
+            except (ValueError, TypeError):
+                continue
+            now_row = _live_close(db, user, fd, fb)
+            out_from.append({
+                "date": fd.isoformat(), "branch_id": str(fb) if fb else None,
+                "status": f.get("status"),
+                # The draft the move deleted (its id), or the row it kept.
+                "id": f.get("id"),
+                "row": _to_response(now_row) if now_row is not None else None,
+            })
+        first = out_from[0] if out_from else {"status": rec.get("old_status"), "row": None}
+        return {
+            "moved": bool(rec.get("moved")),
+            "old_status": rec.get("old_status"),
+            "old": first.get("row"),
+            "from": out_from,
+            "close": _to_response(new_row) if new_row is not None and not new_row.is_deleted else None,
+            "save_id": data.save_id,
+            "replay": replay,
+        }
+
+    # The same move sent again (its answer lost): what it did, nothing more.
+    done = _move_already_done(db, user, data.save_id)
+    if done is not None:
+        db.rollback()
+        return _answer(done, True)
+
+    # The new day: the same save as POST /daily-close, on the version of it
+    # the form holds — none known is "no row known", never "no check".
+    body.base_updated_at = data.to_base_updated_at or body.base_updated_at or datetime(1970, 1, 1)
+    if not body.save_id:
+        body.save_id = data.save_id
+    out = _file_close(request, body, db, user, defer_commit=True)
+    if out[0] == "anomaly":
+        # The lock's double-check: nothing is written, nothing moves.
+        db.rollback()
+        return out[1]
+    _, new_row, status, final_values = out
+
+    # The old day(s): deleted only on the version the form holds.
+    results = []
+    for d, b, base, sid in froms:
+        st, row = _take_back_moved_day(db, request, user, d, b, base, sid, move_id=data.save_id,
+                                       to_date=data.to_date, to_branch_id=body.branch_id)
+        results.append({"date": d.isoformat(), "branch_id": str(b) if b else None, "status": st,
+                        "id": str(row.id) if row is not None else None})
+    moved = all(r["status"] in ("deleted", "none") for r in results)
+    rec = {
+        "save_id": data.save_id,
+        "to_date": data.to_date.isoformat(),
+        "to_branch_id": str(body.branch_id) if body.branch_id else None,
+        "close_id": str(new_row.id),
+        "status": status,
+        "moved": moved,
+        "old_status": results[0]["status"],
+        "from": results,
+    }
+    audit_service.record(
+        db, user=user,
+        action=_MOVE_ACTION,
+        entity_type=_MOVE_ENTITY,
+        entity_id=_move_record_id(user.id, data.save_id),
+        before=None,
+        after=rec,
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
+    db.commit()
+    close = _after_close_filed(db, request, user, new_row, status, final_values)
+    ans = _answer(rec, False)
+    # The new day's answer as a save's (with its lock's close_ritual).
+    ans["close"] = close
+    return ans
 
 
 # ─── "Did this address already get a version of this close?" ───

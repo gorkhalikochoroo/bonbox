@@ -231,7 +231,11 @@ describe("3. an older day's save answering last", () => {
     await settle(0);
     await leave(); // yesterday's save goes and answers first
     await settle(700);
-    await waitFor(() => expect(stored(today)).toBeTruthy());
+    // Today's slow save landed. (R-c round 2: the move — one request, sent
+    // once today's save on its way has answered — then took today's draft
+    // with it: never on both days.)
+    await waitFor(() => expect(S.posts.some((b) => b.date === today && !b.__move)).toBe(true));
+    await waitFor(() => expect(stored(today)).toBeUndefined());
     expect(stored(yesterday)).toBeTruthy();
     expect(container.textContent).not.toContain("dcDayHasDraft");
     keyIn(container.querySelector("#dc-rev-drinks"), "1.200");

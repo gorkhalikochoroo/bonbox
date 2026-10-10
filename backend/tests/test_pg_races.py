@@ -974,3 +974,234 @@ def test_h_old_send_never_writes_into_a_deleted_close(monkeypatch):
     row = _row(c["id"])
     assert row["is_deleted"] is True and row["updated_at"] == after_delete["updated_at"], row
     assert row["email_sent_to"] is None and row["email_status"] == after_delete["email_status"], row
+
+
+# ═══ (m) R-c round 2 — a date move in ONE request (POST /daily-close/move) ═══
+# The new day's save and the old day's delete in one transaction under both
+# days' locks (taken in one fixed order), against another device's save of
+# either day, a lock, a delete, the same move sent twice, and a move the
+# other way round at the same moment.
+_orig_lock_day = dcr._lock_close_day
+
+
+def _gated_lock_day(db, user_id, day, branch_id):
+    _orig_lock_day(db, user_id, day, branch_id)
+    G.hit("post_lock")
+
+
+dcr._lock_close_day = _gated_lock_day
+
+
+def _move(racer, uid, frm, to, food, *, from_base=None, from_save=None, to_base=None, save_id=None, **extra):
+    req = {"from_date": frm, "to_date": to, "from_base_updated_at": from_base,
+           "from_base_save_id": from_save, "to_base_updated_at": to_base,
+           "body": _body(to, food, **extra), "save_id": save_id or f"mv-{uuid.uuid4().hex[:12]}"}
+    return _req(racer, "POST", "/api/daily-close/move", uid, json=req)
+
+
+def _two_days():
+    a = _new_day()
+    b = _new_day()
+    return a, b
+
+
+def _moves_recorded(uid, save_id):
+    s = SessionLocal()
+    try:
+        moves = s.query(AuditLog).filter(AuditLog.user_id == uuid.UUID(uid), AuditLog.action == "daily_close.move").all()
+        dels = [a for a in s.query(AuditLog).filter(AuditLog.user_id == uuid.UUID(uid), AuditLog.action == "close.deleted").all()
+                if f'"move_id": "{save_id}"' in (a.after_state or "")]
+        return len(moves), len(dels)
+    finally:
+        s.close()
+
+
+# (m1) the move vs another device's save of the OLD day
+def _check_m1(rm, ro, uid, a, b, v0):
+    _no_500(rm, ro)
+    assert rm.status_code == 200 and ro.status_code == 200, (rm.status_code, rm.text[:300], ro.status_code, ro.text[:300])
+    live_a = _rows(uid, a, live_only=True)
+    live_b = _rows(uid, b, live_only=True)
+    assert [r["rev"] for r in live_b] == [1000], live_b
+    # The old day holds the other device's figures — never the moved ones.
+    assert [r["rev"] for r in live_a] == [7777], live_a
+    m = rm.json()
+    if m["moved"]:
+        # Moved first: the draft the form held is gone; the other device filed
+        # the day again afterwards (a new row).
+        assert m["old_status"] == "deleted" and live_a[0]["id"] != v0["id"], (m, live_a)
+    else:
+        assert m["old_status"] == "draft_changed" and live_a[0]["id"] == v0["id"], (m, live_a)
+
+
+@pytest.mark.parametrize("first,point", [("M", "pre_write"), ("M", "pre_commit"), ("M", "post_lock"),
+                                         ("O", "pre_claim"), ("O", "pre_commit")])
+def test_m1_det_move_vs_save_of_the_old_day(first, point):
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    M = ("M", lambda *x: _move(*x, from_base=v0["updated_at"]), ("M", uid, a, b, 1000))
+    O = ("O", _post, ("O", uid, _body(a, 7777, base_updated_at=v0["updated_at"], save_id="other")))
+    if first == "M":
+        rm, ro, blocked = _interleave(M, point, O)
+    else:
+        ro, rm, blocked = _interleave(O, point, M)
+    print(f"\n[m1 {first}@{point}] move {rm.status_code} {rm.text[:120]} save {ro.status_code} blocked={blocked}")
+    assert blocked, "the second request was never held by the first's lock"
+    _check_m1(rm, ro, uid, a, b, v0)
+
+
+@pytest.mark.parametrize("it", range(10))
+def test_m1_stochastic_move_vs_save_of_the_old_day(it):
+    _reset_limits()
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    bar = threading.Barrier(2)
+    tm = Run(lambda: _move("M", uid, a, b, 1000, from_base=v0["updated_at"]), barrier=bar)
+    to = Run(_post, "O", uid, _body(a, 7777, base_updated_at=v0["updated_at"], save_id="other"), barrier=bar)
+    tm.start(); to.start(); tm.join(30); to.join(30)
+    _check_m1(tm.res, to.res, uid, a, b, v0)
+
+
+# (m2) the move vs another device's first save of the NEW day
+def _check_m2(rm, ro, uid, a, b):
+    _no_500(rm, ro)
+    codes = sorted([rm.status_code, ro.status_code])
+    assert codes == [200, 412], (rm.status_code, rm.text[:300], ro.status_code, ro.text[:300])
+    live_a = _rows(uid, a, live_only=True)
+    live_b = _rows(uid, b, live_only=True)
+    if rm.status_code == 200:
+        assert rm.json()["moved"] is True and live_a == [] and [r["rev"] for r in live_b] == [1000], (live_a, live_b)
+    else:
+        # Refused as a whole: the old day keeps its draft, the new day the other device's.
+        assert _code(rm) == "draft_changed", rm.text[:300]
+        assert [r["rev"] for r in live_a] == [1000] and [r["rev"] for r in live_b] == [5555], (live_a, live_b)
+
+
+@pytest.mark.parametrize("first,point", [("M", "pre_write"), ("M", "pre_commit"), ("O", "pre_write"), ("O", "pre_commit")])
+def test_m2_det_move_vs_first_save_of_the_new_day(first, point):
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    M = ("M", lambda *x: _move(*x, from_base=v0["updated_at"]), ("M", uid, a, b, 1000))
+    O = ("O", _post, ("O", uid, _body(b, 5555, base_updated_at="1970-01-01T00:00:00", save_id="other")))
+    if first == "M":
+        rm, ro, blocked = _interleave(M, point, O)
+    else:
+        ro, rm, blocked = _interleave(O, point, M)
+    print(f"\n[m2 {first}@{point}] move {rm.status_code} save {ro.status_code} blocked={blocked}")
+    assert blocked
+    _check_m2(rm, ro, uid, a, b)
+
+
+@pytest.mark.parametrize("it", range(10))
+def test_m2_stochastic_move_vs_first_save_of_the_new_day(it):
+    _reset_limits()
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    bar = threading.Barrier(2)
+    tm = Run(lambda: _move("M", uid, a, b, 1000, from_base=v0["updated_at"]), barrier=bar)
+    to = Run(_post, "O", uid, _body(b, 5555, base_updated_at="1970-01-01T00:00:00", save_id="other"), barrier=bar)
+    tm.start(); to.start(); tm.join(30); to.join(30)
+    _check_m2(tm.res, to.res, uid, a, b)
+
+
+# (m3) the move vs a lock of the old day on another device
+@pytest.mark.parametrize("first,point", [("M", "pre_write"), ("M", "pre_commit"), ("L", "pre_claim"), ("L", "pre_commit")])
+def test_m3_det_move_vs_lock_of_the_old_day(first, point):
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    M = ("M", lambda *x: _move(*x, from_base=v0["updated_at"]), ("M", uid, a, b, 1000))
+    L = ("L", _post, ("L", uid, _lock_body(a, 5000, v0["updated_at"])))
+    if first == "M":
+        rm, rl, blocked = _interleave(M, point, L)
+    else:
+        rl, rm, blocked = _interleave(L, point, M)
+    print(f"\n[m3 {first}@{point}] move {rm.status_code} {rm.text[:120]} lock {rl.status_code} blocked={blocked}")
+    assert blocked
+    _no_500(rm, rl)
+    assert rm.status_code == 200 and rl.status_code == 200, (rm.text[:300], rl.text[:300])
+    live_a = _rows(uid, a, live_only=True)
+    live_b = _rows(uid, b, live_only=True)
+    assert [r["rev"] for r in live_b] == [1000]
+    # The old day is the lock's (its own figures), never the moved draft.
+    assert [(r["status"], r["rev"]) for r in live_a] == [("confirmed", 5000)], live_a
+    m = rm.json()
+    assert m["old_status"] == ("deleted" if first == "M" else "locked"), m
+    assert m["moved"] is (first == "M")
+
+
+# (m4) the move vs a delete of the old day
+@pytest.mark.parametrize("first,point", [("M", "pre_write"), ("M", "pre_commit"), ("D", "pre_claim"), ("D", "pre_commit")])
+def test_m4_det_move_vs_delete_of_the_old_day(first, point):
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    M = ("M", lambda *x: _move(*x, from_base=v0["updated_at"]), ("M", uid, a, b, 1000))
+    D = ("D", _delete, ("D", uid, v0["id"], v0["updated_at"]))
+    if first == "M":
+        rm, rd, blocked = _interleave(M, point, D)
+    else:
+        rd, rm, blocked = _interleave(D, point, M)
+    print(f"\n[m4 {first}@{point}] move {rm.status_code} {rm.text[:120]} delete {rd.status_code} blocked={blocked}")
+    assert blocked
+    _no_500(rm, rd)
+    assert rm.status_code == 200 and rd.status_code == 204, (rm.text[:300], rd.text[:300])
+    assert _rows(uid, a, live_only=True) == []
+    assert [r["rev"] for r in _rows(uid, b, live_only=True)] == [1000]
+    m = rm.json()
+    assert m["moved"] is True and m["old_status"] == ("deleted" if first == "M" else "none"), m
+
+
+# (m5) the same move sent twice (its answer lost, sent again)
+def _check_m5(r1, r2, uid, a, b, sid):
+    _no_500(r1, r2)
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text[:300], r2.text[:300])
+    j1, j2 = r1.json(), r2.json()
+    assert sorted([j1["replay"], j2["replay"]]) == [False, True], (j1, j2)
+    assert (j1["moved"], j1["old_status"]) == (j2["moved"], j2["old_status"]) == (True, "deleted")
+    assert _rows(uid, a, live_only=True) == []
+    assert [r["rev"] for r in _rows(uid, b, live_only=True)] == [1000]
+    assert _moves_recorded(uid, sid) == (1, 1), "one move, one delete"
+
+
+@pytest.mark.parametrize("point", ["pre_write", "pre_commit", "post_lock"])
+def test_m5_det_the_same_move_twice(point):
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    sid = f"dup-{uuid.uuid4().hex[:8]}"
+    M1 = ("M1", lambda *x: _move(*x, from_base=v0["updated_at"], save_id=sid), ("M1", uid, a, b, 1000))
+    M2 = ("M2", lambda *x: _move(*x, from_base=v0["updated_at"], save_id=sid), ("M2", uid, a, b, 1000))
+    r1, r2, blocked = _interleave(M1, point, M2)
+    print(f"\n[m5 @{point}] {r1.status_code} {r2.status_code} blocked={blocked}")
+    assert blocked
+    _check_m5(r1, r2, uid, a, b, sid)
+
+
+@pytest.mark.parametrize("it", range(10))
+def test_m5_stochastic_the_same_move_twice(it):
+    _reset_limits()
+    uid = _user(); a, b = _two_days()
+    v0 = _seed_draft(uid, a)
+    sid = f"dup-{uuid.uuid4().hex[:8]}"
+    bar = threading.Barrier(2)
+    t1 = Run(lambda: _move("M1", uid, a, b, 1000, from_base=v0["updated_at"], save_id=sid), barrier=bar)
+    t2 = Run(lambda: _move("M2", uid, a, b, 1000, from_base=v0["updated_at"], save_id=sid), barrier=bar)
+    t1.start(); t2.start(); t1.join(30); t2.join(30)
+    _check_m5(t1.res, t2.res, uid, a, b, sid)
+
+
+# (m6) two moves the other way round at the same moment: never a deadlock
+def test_m6_two_moves_crossing_never_deadlock():
+    uid = _user(); a, b = _two_days()
+    va = _seed_draft(uid, a, food=1000)
+    vb = _seed_draft(uid, b, food=2000)
+    M1 = ("M1", lambda *x: _move(*x, from_base=va["updated_at"], to_base=vb["updated_at"]), ("M1", uid, a, b, 1000))
+    M2 = ("M2", lambda *x: _move(*x, from_base=vb["updated_at"], to_base=va["updated_at"]), ("M2", uid, b, a, 2000))
+    # M1 holds its FIRST lock; M2 must wait on that same first lock (one
+    # order for both) — taken the other way round, each would hold one day
+    # and wait for the other's (Postgres: deadlock_detected → a 500).
+    r1, r2, blocked = _interleave(M1, "post_lock", M2)
+    print(f"\n[m6] {r1.status_code} {r1.text[:120]} | {r2.status_code} {r2.text[:120]} blocked={blocked}")
+    assert blocked
+    _no_500(r1, r2)
+    assert r1.status_code == 200, r1.text[:300]
+    assert r2.status_code in (200, 412), r2.text[:300]
+    assert len(_rows(uid, a, live_only=True)) <= 1 and len(_rows(uid, b, live_only=True)) <= 1

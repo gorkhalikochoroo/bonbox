@@ -23,6 +23,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { moveRequests } from "../test/closeMoveCalls";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
@@ -333,7 +334,10 @@ describe("C. a date move with figures is asked first", () => {
     expect(asked.at(-1).title).toMatch(/^dcMoveConfirmTitle:/);
     expect(asked.at(-1).message).toMatch(/^dcMoveConfirmBody:/);
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000 });
-    expect(del).toHaveBeenCalledWith(`/daily-close/${todayRow.id}`, { params: { base_updated_at: todayRow.updated_at } });
+    // (R-c round 2: deleted IN the move — one request naming the version the
+    // form holds — never by a DELETE sent after it.)
+    expect(moveRequests(post.mock.calls)[0]).toMatchObject({ from_date: today, to_date: yesterday, from_base_updated_at: todayRow.updated_at });
+    expect(del).not.toHaveBeenCalled();
     expect(rowFor()).toBeUndefined();
     expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedFrom:/);
   });
@@ -353,21 +357,37 @@ describe("C. a date move with figures is asked first", () => {
     expect(btn(/^dcDateMovedDeleteOld$/)).toBeUndefined();
   });
 
-  it("the old draft's delete gets no answer: \"står der stadig\" with \"Slet den\" — tapped once it can, it is deleted and the line says \"Flyttet fra\"", async () => {
+  // R-c round 2 — the old draft's delete is part of the move (one request,
+  // done whole or not at all): it cannot get "no answer" on its own any more.
+  // What can is the MOVE's answer: lost, it is sent again as it was (its
+  // save_id) — the server answers what it did — and the line says the move.
+  // ("Slet den" after a move is retired with the separate delete.)
+  it("the move's answer is lost: sent again as it was, the server answers what it did — \"Flyttet fra\", the old draft gone, nothing to \"Slet den\", no DELETE", async () => {
     serve();
     await mount();
     await typed();
-    const realDel = del.getMockImplementation();
-    del.mockImplementation(() => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" })));
+    let deletes = 0;
+    del.mockImplementation(() => { deletes += 1; return Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" })); });
+    const pass = post.getMockImplementation();
+    let lose = 1;
+    post.mockImplementation((url, body) => {
+      const out = pass(url, body);
+      if (url === "/daily-close/move" && lose > 0) {
+        lose -= 1;
+        return out.then(() => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" })));
+      }
+      return out;
+    });
     fireEvent.change(q("#close-date"), { target: { value: yesterday } });
     await flush();
-    expect(rowFor()).toMatchObject({ revenue_total: 14000 });
-    expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/dcDateMovedCopied:/);
-    del.mockImplementation(realDel);
-    tap(/^dcDateMovedDeleteOld$/);
-    await flush();
+    const sent = moveRequests(post.mock.calls);
+    expect(sent.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(sent.map((r) => r.save_id)).size).toBe(1);
+    expect(deletes).toBe(0);
     expect(rowFor()).toBeUndefined();
+    expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000 });
     expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedFrom:/);
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeFalsy();
   });
 
   it("answered no: the form stays on its day with its figures, nothing is filed elsewhere", async () => {

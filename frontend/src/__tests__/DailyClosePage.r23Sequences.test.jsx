@@ -328,18 +328,26 @@ const PLANS = [
     A.expect(stored(A.S)).toBeUndefined();
     A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
   }],
-  ["review 2/3: the old day's delete gets no answer after the new day landed — \"Kopieret til … står der stadig\" with \"Slet den\"; tapped: deleted, \"Flyttet fra\" — and the new day holds the figures", 23013, async (A) => {
+  // R-c round 2 — review 2/3's state (the new day filed, the old day's
+  // delete lost on its own) cannot happen any more: the old day's delete is
+  // part of the move, one request, done whole or not at all. The plan keeps
+  // its repro (a DELETE request would fail) and holds the move to what the
+  // review asked for: the new day holds the figures, the old day's draft is
+  // gone, the line says so — and no separate delete is ever sent.
+  ["review 2/3 (R-c round 2: the old day's delete is part of the move — it cannot fail on its own): a DELETE request would get no answer; none is sent — the server moves the figures in one request: \"Flyttet fra\", today's draft gone, yesterday holds the figures, nothing left to \"Slet den\"", 23013, async (A) => {
     await A.skip();
     await A.typeBox("rev", "food", "14.000");
     const del = A.S.remove;
-    A.S.remove = () => Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
+    let deleteRequests = 0;
+    A.S.remove = () => { deleteRequests += 1; return Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" })); };
     await A.moveDate(A.yesterday);
     A.S.remove = del;
-    A.expect(A.hasText("dcDateMovedCopied")).toBe(true);
+    A.expect(deleteRequests).toBe(0);
+    A.expect(A.hasText("dcDateMovedCopied")).toBe(false);
     A.expect(stored(A.S, `${A.yesterday}|`).revenue_total).toBe(14000);
-    A.expect(await A.deleteOld()).toBe(true);
     A.expect(stored(A.S)).toBeUndefined();
     A.expect(A.hasText("dcDateMovedFrom")).toBe(true);
+    A.expect(Boolean(A.findBtn(/^dcDateMovedDeleteOld$/))).toBe(false);
   }],
   // Round 23 fix-up — two devices and a lost answer: the re-sent save is on
   // the version the FORM holds (never the one History lists by then).
@@ -689,7 +697,12 @@ describe("daily close — round 23 sequences (Start forfra deletes, no scan offl
     expect(STATS.D).toBeGreaterThan(0);
     expect(STATS.MT).toBeGreaterThan(0);
     expect(STATS.MVpending).toBeGreaterThan(0);
-    expect(STATS.MVdeleteOld).toBeGreaterThan(0);
+    // (R-c round 2: "Slet den" after a move is retired with the separate
+    // delete — the old day's draft goes in the move itself, or is kept and
+    // said; MVdeleteOld counts nothing any more. The move instead: sent as
+    // one request, and sent again after a lost answer with its own save_id.)
+    expect(STATS.moves).toBeGreaterThan(0);
+    expect(STATS.moveReplays).toBeGreaterThan(0);
     expect(STATS.M6race).toBeGreaterThan(0);
     expect(STATS.deadSaves).toBeGreaterThan(0);
     expect(STATS.noIdWriters).toBeGreaterThan(0);

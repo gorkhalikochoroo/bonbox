@@ -82,6 +82,42 @@ class DailyCloseCreate(BaseModel):
     base_save_id: str | None = Field(None, max_length=64)
 
 
+class DailyCloseMoveFrom(BaseModel):
+    """A further day the moved figures passed through (moved on again before
+    the move that took them there was answered): its draft goes too, on the
+    same rule as the first day's."""
+    date: datetime.date
+    branch_id: uuid.UUID | None = None
+    base_updated_at: datetime.datetime | None = None
+    base_save_id: str | None = Field(None, max_length=64)
+
+
+class DailyCloseMove(BaseModel):
+    """POST /daily-close/move (R-c round 2) — a date move in ONE request: the
+    figures saved on the new day (`body`, a draft save — or a lock — of
+    `to_date`, under the same rules as POST /daily-close) and the old day's
+    draft deleted, together, or neither.
+
+    The old day's draft is deleted only when it is still the version the form
+    holds: stored no later than `from_base_updated_at`, or written last by
+    the form's own save `from_base_save_id` (a save whose answer was lost).
+    No base and no save id: the form holds no version — whatever is stored
+    there is kept and returned, never deleted. `to_base_updated_at` is the
+    version of the new day the form holds (None: it knew of no row there —
+    never "no check"); it overrides body.base_updated_at. `save_id` names the
+    move: sent again (an answer lost), it returns what the first one did and
+    changes nothing."""
+    from_date: datetime.date
+    from_branch_id: uuid.UUID | None = None
+    to_date: datetime.date
+    from_base_updated_at: datetime.datetime | None = None
+    from_base_save_id: str | None = Field(None, max_length=64)
+    to_base_updated_at: datetime.datetime | None = None
+    also_from: list[DailyCloseMoveFrom] = Field(default_factory=list, max_length=5)
+    body: DailyCloseCreate
+    save_id: str = Field(..., min_length=1, max_length=64)
+
+
 class DailyCloseUnlock(BaseModel):
     reason: str                             # required — "Accountant found error", etc.
 

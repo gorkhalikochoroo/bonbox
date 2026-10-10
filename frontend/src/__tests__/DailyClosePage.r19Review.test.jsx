@@ -202,8 +202,12 @@ describe("1. a draft is taken back only if nothing was filed for the day since",
     // (Round 23: each move is asked first — answered "Flyt tallene".)
     await moveTo(yesterday);
     await flush();
-    // Yesterday is filed; today's release waits on today's slow save.
-    expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000 });
+    // R-c round 2 (expectation changed): the move is ONE request — the new
+    // day saved and today's draft deleted together — sent once today's save
+    // on its way has answered (landing after the move it would file today
+    // again). Nothing is filed for yesterday meanwhile, and nothing deleted.
+    expect(rowFor(yesterday)).toBeUndefined();
+    expect(S.deletes).toEqual([]);
     await moveTo(today);
     await flush();
     await act(async () => { heldToday.splice(0).forEach((go) => go()); await new Promise((r) => setTimeout(r, 0)); });
@@ -262,21 +266,29 @@ describe("2 + 11. a second date change before the first new day is filed", () =>
   });
 });
 
+// R-c round 2 — the old day's delete is part of the move (one request): it
+// cannot fail on its own any more. What can still happen is the server
+// KEEPING the old day's draft — saved on another device since the version the
+// form holds — and the move says so the same way. ("Slet den" is not offered
+// for it: a version this form never held — retired with the separate delete.)
 describe("4. a move whose old-day delete does not go through says so", () => {
-  it("14.000 typed for today, DELETE refused, \"Brug dem\" for yesterday: \"kladden for i dag har stadig de samme tal\"", async () => {
+  it("14.000 typed for today, today's draft saved on another device since (the server keeps it), \"Flyt tallene\" for yesterday: \"kladden for i dag står der stadig\"", async () => {
     serve();
     await mount();
     await typed14000();
     await flush();
-    del.mockImplementation(() => Promise.reject(Object.assign(new Error("offline"), {})));
+    let deletes = 0;
+    del.mockImplementation(() => { deletes += 1; return Promise.reject(Object.assign(new Error("offline"), {})); });
+    S.otherSave(`${today}|`, (r) => { r.notes = "Anden telefon"; });
     await moveTo(yesterday);
     await flush();
     expect(rowFor(yesterday)).toMatchObject({ revenue_total: 14000 });
-    expect(rowFor(today)).toMatchObject({ revenue_total: 14000 });
+    expect(rowFor(today)).toMatchObject({ revenue_total: 14000, notes: "Anden telefon" });
+    expect(deletes).toBe(0);
     // Never "moved" for a day that still holds the figures (round 23: the
-    // note is "Kopieret til … står der stadig", with "Slet den").
+    // note is "Kopieret til … står der stadig").
     expect(q('[data-testid="dc-date-moved"]').textContent).toMatch(/^dcDateMovedCopied:/);
-    expect(btn(/^dcDateMovedDeleteOld$/)).toBeTruthy();
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeFalsy();
   });
 });
 

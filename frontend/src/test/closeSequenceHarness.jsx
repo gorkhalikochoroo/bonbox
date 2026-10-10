@@ -161,6 +161,9 @@ export const STATS = {
   // Round 22: answers lost (stored, never heard), MV / M6 checked on a day
   // with one, and LK.
   lostAnswers: 0, MVlost: 0, M6lost: 0, LK: 0, offlineSteps: 0, M6offline: 0,
+  // R-c round 2: moves sent to the server (one request each), answered again
+  // for the same save_id, and plans run across a full reload.
+  moves: 0, moveReplays: 0, reloads: 0,
   // Release R-c: a move off a day locked elsewhere, checked for its wording.
   MVlocked: 0,
   // Round 23: Start forfra that could not be done (said, nothing changed),
@@ -467,25 +470,53 @@ export function createServer({ exemptByDate = {}, rows = [], syncedDates = [] } 
         response: { status: 412, data: { detail: { code: "draft_changed", updated_at: newer.updated_at, current: { ...newer } } } },
       }));
     }
-    S.rows.delete(entry[0]);
-    S.dead.set(entry[0], id);
+    S.recordDelete(entry[0], entry[1]);
+    return Promise.resolve({ data: null });
+  };
+  S.recordDelete = (key, row, { mount = S.mountNow, action = S.actionNow || null } = {}) => {
+    const id = row.id;
+    S.rows.delete(key);
+    S.dead.set(key, id);
     S.deletes.push(id);
     // Round 23 — the row as it was when deleted (M6: the question named it).
     // Round 23 review — and whose version it was: who wrote it last, its
     // version, which version the deleting visit's FORM held (and was shown
     // in a list), and the owner's action that asked for it (D).
     S.deletedRows.push({
-      ...entry[1],
-      __writer: S.writer.get(entry[0]) ?? null,
-      __ver: S.verOf(entry[1]),
-      __mount: S.mountNow,
-      __formSeen: S.formSeenBy(S.mountNow, entry[0]),
-      __formHeld: S.formHeldBy(S.mountNow, entry[0]),
-      __byQueue: Boolean(S.byQueue.get(entry[0])) && S.writer.get(entry[0]) !== "other",
-      __seen: S.seenBy(S.mountNow, entry[0]),
-      __action: S.actionNow || null,
+      ...row,
+      __writer: S.writer.get(key) ?? null,
+      __ver: S.verOf(row),
+      __mount: mount,
+      __formSeen: S.formSeenBy(mount, key),
+      __formHeld: S.formHeldBy(mount, key),
+      __byQueue: Boolean(S.byQueue.get(key)) && S.writer.get(key) !== "other",
+      __seen: S.seenBy(mount, key),
+      __action: action,
     });
-    return Promise.resolve({ data: null });
+  };
+  // R-c round 2 — the visits whose page is GONE (a full reload, the app
+  // killed): their requests still reach the server, but no answer reaches
+  // them — there is no page to hear it.
+  S.goneMounts = new Set();
+  // R-c round 2 — POST /daily-close/move, the backend's move in miniature
+  // (routers/daily_close.move_daily_close): the new day saved under the save
+  // rules (409 locked, 412 draft_changed — and then nothing is done), the
+  // old day's draft deleted only on the version the form holds (no later
+  // than from_base_updated_at, or written last by from_base_save_id), else
+  // kept and returned; the same save_id again answers what it did.
+  S.moves = new Map();
+  // Which visit first sent each save id (a save, or a move's new day).
+  S.saveIdMount = new Map();
+  S.moveAnswer = (rec, replay) => {
+    const from = rec.from.map((f) => {
+      const r = S.rows.get(`${f.date}|${f.branch_id || ""}`);
+      return { ...f, row: r ? { ...r } : null };
+    });
+    const close = S.rows.get(rec.key);
+    return {
+      moved: rec.moved, old_status: rec.from[0]?.status ?? null, old: from[0]?.row ?? null, from,
+      close: close && close.id === rec.closeId ? { ...close } : null, save_id: rec.saveId, replay,
+    };
   };
   // A slow network: while `holding` is set, each save (or delete) waits in
   // `held` and reaches the server — in the order sent — on releaseHeld().
@@ -561,7 +592,100 @@ export function installApi(S, get, post, del = null) {
       }
       return s ? Promise.resolve({ data: JSON.parse(JSON.stringify(s)) }) : Promise.reject(new Error("no scan stubbed"));
     }
+    // R-c round 2 — a date move, one request (see S.moves above).
+    if (url === "/daily-close/move") {
+      if (body?.save_id && !S.saveIdMount.has(body.save_id)) S.saveIdMount.set(body.save_id, S.mountNow);
+      if (S.holding.offline) return S.offlineErr();
+      if (S.holding.dead && body?.save_id) {
+        STATS.deadSaves += 1;
+        return S.offlineErr();
+      }
+      const req = JSON.parse(JSON.stringify(body));
+      const copy = req.body;
+      const tags = S.tagAtSend ? S.tagAtSend(copy) : {};
+      const sentBy = S.mountNow;
+      const arrive = () => {
+        STATS.moves = (STATS.moves || 0) + 1;
+        const done = S.moves.get(req.save_id);
+        if (done) {
+          STATS.moveReplays = (STATS.moveReplays || 0) + 1;
+          return Promise.resolve({ data: S.moveAnswer(done, true) });
+        }
+        const key = `${copy.date}|${copy.branch_id || ""}`;
+        if (S.rows.get(key)?.status === "confirmed") {
+          S.lockConflicts += 1;
+          S.lockHits.push({ key, mount: tags.__mount ?? null });
+          return Promise.reject(Object.assign(new Error("locked"), { response: { status: 409, data: {} } }));
+        }
+        copy.base_updated_at = req.to_base_updated_at || copy.base_updated_at || NO_ROW_BASE;
+        const newer = S.changedSince(copy);
+        if (newer) {
+          S.refused.push({ ...copy, ...tags, __stored: newer.updated_at });
+          S.offered.set(`${tags.__mount}|${key}`, S.verOf(newer));
+          return Promise.reject(Object.assign(new Error("draft changed"), {
+            response: { status: 412, data: { detail: { code: "draft_changed", updated_at: newer.updated_at, current: { ...newer } } } },
+          }));
+        }
+        const prev = S.rows.get(key);
+        if (prev && tags.__mount != null && !tags.__queued && S.verOf(prev) > S.seenBy(tags.__mount, key)) {
+          S.stale.push({ date: copy.date, mount: tags.__mount, version: S.verOf(prev), seen: S.seenBy(tags.__mount, key),
+            writer: S.writer.get(key), was: { revenue_total: prev.revenue_total, payment_breakdown: prev.payment_breakdown, notes: prev.notes } });
+        }
+        S.posts.push({ ...copy, ...tags, __move: true });
+        const row = S.save(copy);
+        S.lastSaveId.set(key, copy.save_id || null);
+        S.writer.set(key, tags.__mount != null ? tags.__mount : "page");
+        S.see(tags.__mount, key, S.verOf(row));
+        S.formSee(tags.__mount, key, S.verOf(row));
+        if (!tags.__queued) S.formHold(tags.__mount, key, S.verOf(row));
+        S.byQueue.set(key, Boolean(tags.__queued));
+        const froms = [{ date: req.from_date, branch_id: req.from_branch_id || null, base_updated_at: req.from_base_updated_at, base_save_id: req.from_base_save_id },
+          ...(req.also_from || [])];
+        const from = froms.map((f) => {
+          const k = `${f.date}|${f.branch_id || ""}`;
+          const r = S.rows.get(k);
+          const out = { date: f.date, branch_id: f.branch_id || null, id: null };
+          if (!r) return { ...out, status: "none" };
+          if (r.status !== "draft") return { ...out, status: "locked" };
+          const owned = (f.base_updated_at != null && r.updated_at && !(r.updated_at > f.base_updated_at))
+            || (Boolean(f.base_save_id) && S.lastSaveId.get(k) === f.base_save_id);
+          if (!owned) return { ...out, status: "draft_changed" };
+          // (D: the version the move names is the one a FORM held — the visit
+          // whose save wrote it (base_save_id), or one whose form held it
+          // (base_updated_at). A move the queue sends for a visit that is gone
+          // deletes on that visit's word, not the visit open now.)
+          const ver = S.verOf(r);
+          let heldBy = f.base_save_id && S.lastSaveId.get(k) === f.base_save_id ? S.saveIdMount.get(f.base_save_id) : null;
+          if (heldBy == null) heldBy = [...S.formHeld.entries()].find(([, m]) => (m.get(k) || 0) >= ver)?.[0] ?? null;
+          S.recordDelete(k, r, { mount: heldBy ?? tags.__mount ?? S.mountNow, action: "move" });
+          return { ...out, status: "deleted", id: r.id };
+        });
+        const rec = { saveId: req.save_id, key, closeId: row.id, from,
+          moved: from.every((f) => f.status === "deleted" || f.status === "none") };
+        S.moves.set(req.save_id, rec);
+        return Promise.resolve({ data: S.moveAnswer(rec, false) });
+      };
+      // No page left to hear it (R-c round 2): the request is done, the answer goes nowhere.
+      const toPage = (out, res, rej) => { if (S.goneMounts.has(sentBy)) { out.catch(() => {}); return; } out.then(res, rej); };
+      if (S.holding.post || S.held.length) {
+        return new Promise((res, rej) => { S.held.push(() => toPage(arrive(), res, rej)); });
+      }
+      if (S.holding.drop) {
+        return arrive().then(() => {
+          S.lostKeys.add(`${copy.date}|${copy.branch_id || ""}`);
+          STATS.lostAnswers += 1;
+          return Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }));
+        });
+      }
+      if (S.holding.answer) {
+        const out = arrive();
+        out.catch(() => {});
+        return new Promise((res, rej) => { S.held.push(() => toPage(out, res, rej)); });
+      }
+      return new Promise((res, rej) => toPage(arrive(), res, rej));
+    }
     if (url === "/daily-close") {
+      if (body?.save_id && !S.saveIdMount.has(body.save_id)) S.saveIdMount.set(body.save_id, S.mountNow);
       // Offline (r22): never reaches the server — nothing stored, no answer.
       if (S.holding.offline) return S.offlineErr();
       // Round 23 review — a dead line while the browser says online: the
@@ -616,8 +740,11 @@ export function installApi(S, get, post, del = null) {
         return Promise.resolve({ data: { ...row } });
       };
       // Behind anything still on its way: requests arrive in the order sent.
+      // (A page gone since — R-c round 2 — hears no answer.)
+      const sentBy = S.mountNow;
+      const toPage = (out, res, rej) => { if (S.goneMounts.has(sentBy)) { out.catch(() => {}); return; } out.then(res, rej); };
       if (S.holding.post || S.held.length) {
-        return new Promise((res, rej) => { S.held.push(() => arrive().then(res, rej)); });
+        return new Promise((res, rej) => { S.held.push(() => toPage(arrive(), res, rej)); });
       }
       // Stored, the answer lost (a refusal still answers: nothing was stored).
       if (S.holding.drop) {
@@ -631,9 +758,9 @@ export function installApi(S, get, post, del = null) {
       if (S.holding.answer) {
         const out = arrive();
         out.catch(() => {}); // handled when its answer is released
-        return new Promise((res, rej) => { S.held.push(() => out.then(res, rej)); });
+        return new Promise((res, rej) => { S.held.push(() => toPage(out, res, rej)); });
       }
-      return arrive();
+      return new Promise((res, rej) => toPage(arrive(), res, rej));
     }
     return Promise.resolve({ data: {} });
   });
@@ -1085,7 +1212,9 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
     if (!note || !onForm()) return;
     const on = q("#close-date")?.value;
     const t = note.textContent;
-    if (/dcDateMovedNotSavedYet:/.test(t)) {
+    // (R-c round 2: or "the move is not confirmed yet" — its answer lost and
+    // the server not reachable to ask.)
+    if (/dcDateMovedNotSavedYet:|dcDateMovedUnconfirmed:/.test(t)) {
       STATS.MVpending += 1;
       expect(Boolean(findBtn(/^dcDateMovedDeleteOld$/)), fail("MT nothing is deleted for a move not saved yet",
         `"${t}" with "Slet den" offered`)).toBe(false);
@@ -2342,6 +2471,20 @@ export async function runSequence(seed, page, { S: givenS, get, post, del = null
         // visit's copy on this phone's offline queue, synced now (no save id
         // — the page reads History again once it lands).
         deleteOld, retryMove,
+        // R-c round 2: a FULL reload (or the app killed and opened again)
+        // while requests are on their way — they still reach the server,
+        // but the page that sent them is gone and hears nothing; the new
+        // visit starts with only what this phone stored.
+        reload: async () => {
+          await step("reload (the page that sent the requests is gone)", async () => {
+            S.goneMounts.add(S.mountNow);
+            STATS.reloads += 1;
+            await unmount();
+            try { globalThis[CLOSE_SAVES]?.clear?.(); } catch { /* none */ }
+            mount();
+            await loaded();
+          }, resetDay);
+        },
         queueCopy: async (payload) => {
           addToOfflineQueue({ branch_id: null, status: "draft", base_updated_at: NO_ROW_BASE, ...payload });
           STATS.noIdWriters += 1;

@@ -31,6 +31,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { moveRequests } from "../test/closeMoveCalls";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
@@ -180,7 +181,12 @@ describe("review 1 — a date move made offline and the page left offline never 
   // står der stadig", never "Flyttet"). Left offline, the latest figures are
   // kept on this phone for the day the form is on, and today's draft stays —
   // as said. (Round 22 kept them on today instead: the owner's move undone.)
-  it("answered on today, offline, \"Flyt tallene\" for yesterday, an edit, left: said \"står der stadig\"; once online yesterday holds the latest, today's draft is still there — never \"Flyttet\"", async () => {
+  // R-c round 2 (expectation changed — the money break this round fixes):
+  // the move left offline is ONE queued move; once online it is done whole —
+  // yesterday holds the latest figures and today's draft (the version the
+  // form held) is gone. Round 23 left today's draft standing beside them:
+  // the figures on both days.
+  it("answered on today, offline, \"Flyt tallene\" for yesterday, an edit, left: said \"Ikke gemt endnu\"; once online the ONE queued move is done — yesterday holds the latest, today's draft is gone, never on both days", async () => {
     serve();
     try {
       const view = await mount();
@@ -201,10 +207,13 @@ describe("review 1 — a date move made offline and the page left offline never 
       keyIn(q("#dc-rev-food"), "3500");
       view.unmount();
       for (let i = 0; i < 4; i++) await settle();
+      // ONE queued move (never a save of yesterday plus a promised delete).
+      expect(queued()).toHaveLength(1);
+      expect(queued()[0]).toMatchObject({ payload: { date: yesterday, revenue_breakdown: { food: 3500 } }, move: { from_date: today } });
       await mount();
       await goOnline();
       expect(rowFor(yesterday)).toMatchObject({ status: "draft", revenue_breakdown: { food: 3500 } });
-      expect(rowFor()).toMatchObject({ status: "draft", revenue_breakdown: { food: 3000 } });
+      expect(rowFor()).toBeUndefined();
       expect(queued()).toHaveLength(0);
     } finally {
       S.holding.offline = false;
@@ -497,8 +506,10 @@ describe("review 6 — a day read without last_save_id is unknown, never \"saved
     await pickDay(yesterday);
     await flush();
     await flush();
-    expect(del).toHaveBeenCalledTimes(1);
-    expect(del.mock.calls[0][1].params.base_save_id).toBe(sid);
+    // (R-c round 2: the server's own check is in the move itself — one
+    // request naming the form's lost save — never a DELETE sent after it.)
+    expect(del).not.toHaveBeenCalled();
+    expect(moveRequests(post.mock.calls)[0].from_base_save_id).toBe(sid);
     expect(rowFor()).toBeUndefined();
     expect(rowFor(yesterday)).toMatchObject({ revenue_breakdown: { food: 3000 } });
     expect(text()).toContain("dcDateMovedFrom");
@@ -573,7 +584,9 @@ describe("review 7 — a move finishes only when the moved save itself landed", 
     // (Round 23: the moved save is sent at once and re-sent on the way out —
     // it never lands, every time.)
     const pass = post.getMockImplementation();
-    post.mockImplementation((url, body) => (url === "/daily-close" && body?.date === yesterday && body?.revenue_breakdown?.food === 3000
+    // (R-c round 2: the moved save IS the move — one request.)
+    post.mockImplementation((url, body) => ((url === "/daily-close" && body?.date === yesterday && body?.revenue_breakdown?.food === 3000)
+      || (url === "/daily-close/move" && body?.to_date === yesterday && body?.body?.revenue_breakdown?.food === 3000)
       ? Promise.reject(Object.assign(new Error("Network Error"), { code: "ERR_NETWORK" }))
       : pass(url, body)));
     await pickDay(yesterday);

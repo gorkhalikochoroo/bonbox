@@ -32,6 +32,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { moveRequests } from "../test/closeMoveCalls";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 
@@ -190,8 +191,11 @@ describe("must fix — a save whose answer was lost is asked about before the da
     await moveTo(yesterday);
     // Asked: one read of the old day, by date, with the last save's id.
     expect(dayReads().some(([, cfg]) => cfg.params.from === today && cfg.params.to === today)).toBe(true);
-    // Deleted on that version — the server's version check, as after an answer.
-    expect(del).toHaveBeenCalledWith(`/daily-close/${lost.id}`, { params: { base_updated_at: stamp, base_save_id: sid } });
+    // Deleted on that version — the server's version check, as after an
+    // answer. (R-c round 2: in the move itself — one request naming that
+    // version — never by a DELETE sent after it.)
+    expect(moveRequests(post.mock.calls)[0]).toMatchObject({ from_date: today, from_base_updated_at: stamp, from_base_save_id: sid });
+    expect(del).not.toHaveBeenCalled();
     expect(rowFor()).toBeUndefined();
     expect(rowFor(yesterday)).toMatchObject({ revenue_breakdown: { food: 3000 } });
     expect(text()).toContain("dcDateMovedFrom");
@@ -213,7 +217,13 @@ describe("must fix — a save whose answer was lost is asked about before the da
     expect(text()).not.toContain("dcDateMovedFrom");
   });
 
-  it("…the server cannot be asked (offline): never \"moved\" — the old day may hold the figures, and the note says so", async () => {
+  // R-c round 2 (expectation changed): the page cannot read the day, but the
+  // MOVE asks the server itself — it names the form's own lost save
+  // (from_base_save_id), and the server deletes the draft only when that save
+  // wrote it last. So it is known, from the server's own answer (moved:
+  // true): "Flyttet fra", today's draft gone — no guess, no "kan stadig stå
+  // der", and nothing left to "Slet den".
+  it("…the page cannot read the day (its reads fail): the move asks the server itself — moved on the server's word, never on a guess", async () => {
     serve();
     const pass = get.getMockImplementation();
     get.mockImplementation((url, cfg) => (cfg?.params?.with_save_id
@@ -224,14 +234,15 @@ describe("must fix — a save whose answer was lost is asked about before the da
     await toStepWith("#dc-rev-food");
     keyIn(q("#dc-rev-food"), "3000");
     await flushLost();
+    const sid = S.lastSaveId.get(KEY);
     await moveTo(yesterday);
     expect(del).not.toHaveBeenCalled();
-    // (Round 23: the old day's save got no answer and could not be asked
-    // about — "Kopieret til … — kladden … kan stadig stå der", with "Slet
-    // den"; never the certain "står der stadig" for what is not known.)
-    expect(text()).toContain("dcDateMovedMaybeCopied");
-    expect(btn(/^dcDateMovedDeleteOld$/)).toBeTruthy();
-    expect(text()).not.toContain("dcDateMovedFrom");
+    expect(moveRequests(post.mock.calls)[0]).toMatchObject({ from_date: today, from_base_save_id: sid });
+    expect(rowFor()).toBeUndefined();
+    expect(rowFor(yesterday)).toMatchObject({ revenue_breakdown: { food: 3000 } });
+    expect(text()).toContain("dcDateMovedFrom");
+    expect(text()).not.toContain("dcDateMovedMaybeCopied");
+    expect(btn(/^dcDateMovedDeleteOld$/)).toBeFalsy();
   });
 
   it("nothing landed (the lost save never reached the server's row): nothing to take back — the move is a move", async () => {

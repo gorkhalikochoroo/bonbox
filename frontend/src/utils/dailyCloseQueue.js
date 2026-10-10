@@ -87,6 +87,55 @@ export function draftChangedStamp(err) {
   return d.updated_at || d.current?.updated_at || null;
 }
 
+/* ─── A date move, queued as ONE item (R-c round 2) ──────────────────────
+   A move is one request (POST /daily-close/move): the new day's figures
+   saved and the old day's draft deleted together, on the server. A move the
+   page could not finish (no answer — offline, a dead line, a reload or the
+   app killed while it was on its way) is kept here as ONE queued move —
+   never as a save plus a promised delete — and sent again with the same
+   save_id: the server answers a move it already did with what it did, and
+   deletes nothing a second time. The item is the new day's draft
+   (`payload`, its base_updated_at the version of the new day the form held)
+   with a `move` envelope:
+     { from_date, from_branch_id, from_base_updated_at, from_base_save_id,
+       also_from: [{ date, branch_id, base_updated_at, base_save_id }], save_id } */
+export const isQueuedMove = (it) => Boolean(it && it.move && typeof it.move === "object" && it.move.save_id);
+/** The request a queued move sends (`toBase`: the version of the new day to send it on — "keep mine"). */
+export function moveRequestOf(item, { toBase } = {}) {
+  const m = item?.move || {};
+  const body = { ...(item?.payload || {}) };
+  if (toBase !== undefined) body.base_updated_at = toBase;
+  body.save_id = m.save_id;
+  return {
+    from_date: m.from_date,
+    from_branch_id: m.from_branch_id ?? null,
+    from_base_updated_at: m.from_base_updated_at ?? null,
+    from_base_save_id: m.from_base_save_id ?? null,
+    also_from: Array.isArray(m.also_from) ? m.also_from : [],
+    to_date: body.date,
+    to_base_updated_at: body.base_updated_at ?? null,
+    body,
+    save_id: m.save_id,
+  };
+}
+
+/* Items a page that is still open is sending itself (its move on its way):
+   held by that page, never sent by the sync beside it nor listed as waiting
+   — the page says where its move is. A page that is gone (left, reloaded,
+   the app killed) holds nothing: its items are the queue's to send. Kept in
+   memory only, so a reload starts with no holders. */
+const liveHolders = new Set();
+export function registerQueueHolder() {
+  const id = newId();
+  liveHolders.add(id);
+  return id;
+}
+export function releaseQueueHolder(id) {
+  liveHolders.delete(id);
+}
+/** Held by a page still open (its own send is on its way). */
+export const isHeldLive = (it) => Boolean(it?.heldBy) && liveHolders.has(it.heldBy);
+
 /** Classify an HTTP status into one of the reason codes above. */
 function reasonForStatus(status) {
   return typeof status === "number" && status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED;
@@ -137,9 +186,10 @@ export function writeOfflineQueue(items) {
   }
 }
 
-/** Queue a close for later. Returns the stored item (or null if storage refused). */
-export function addToOfflineQueue(payload) {
+/** Queue a close for later. Returns the stored item (or null if storage refused). `extra`: a queued move's envelope (`move`) and holder (`heldBy`). */
+export function addToOfflineQueue(payload, extra = {}) {
   const item = {
+    ...extra,
     payload,
     ts: Date.now(),
     id: newId(),
@@ -179,7 +229,9 @@ export function removeFromOfflineQueue(id) {
 
 /** Merge fields into one item by id (e.g. re-flagging it after a manual retry). */
 export function updateQueueItem(id, patch) {
-  const next = getOfflineQueue().map((it) => (it.id === id ? { ...it, ...patch } : it));
+  // `rev`: changed since a sync read it — that sync's verdict on the older
+  // copy is never written over this one (mergeBack).
+  const next = getOfflineQueue().map((it) => (it.id === id ? { ...it, ...patch, rev: (it.rev || 0) + 1 } : it));
   writeOfflineQueue(next);
   return next;
 }
@@ -224,8 +276,13 @@ function mergeBack(snapshot, remaining) {
   const handled = new Set(snapshot.map((it) => it.id));
   const kept = new Map(remaining.map((it) => [it.id, it]));
   const out = [];
+  const walked = new Map(snapshot.map((it) => [it.id, it]));
   for (const live of getOfflineQueue()) {
     if (!handled.has(live.id)) { out.push(live); continue; } // arrived mid-sync
+    // Changed while the sync was on the network (the page put newer figures
+    // in it — R-c round 2): the sync decided about the copy it read, not
+    // this one. Kept as it is now — sent next time, on its own version.
+    if ((live.rev || 0) !== (walked.get(live.id)?.rev || 0)) { out.push(live); continue; }
     const decided = kept.get(live.id);
     if (decided) out.push(decided);                          // still queued
     // else: it synced for real — this is the only way a close leaves the device
@@ -250,7 +307,7 @@ export function firstNeedingConfirmation(items) {
  *          `remaining` is what is ACTUALLY on the device afterwards, which can
  *          include closes queued during the run — see mergeBack.
  */
-export async function syncOfflineQueue(post) {
+export async function syncOfflineQueue(post, { postMove = null, onSent = null } = {}) {
   const queue = getOfflineQueue();
   if (!queue.length) {
     return { remaining: [], synced: 0, stoppedOnNetwork: false, ...queueSummary([]) };
@@ -287,10 +344,24 @@ export async function syncOfflineQueue(post) {
       remaining.push(item);
       continue;
     }
+    // A page still open is sending this one itself (its move on its way —
+    // R-c round 2): never a second send beside it.
+    if (isHeldLive(item)) {
+      remaining.push(item);
+      continue;
+    }
+    // A queued move goes as the move (one request, the same save_id) — never
+    // as a plain save of the new day that leaves the old day's draft behind.
+    // (A caller that cannot send moves keeps it.)
+    const asMove = isQueuedMove(item);
+    if (asMove && typeof postMove !== "function") {
+      remaining.push(item);
+      continue;
+    }
 
     let resp;
     try {
-      resp = await post(item.payload);
+      resp = asMove ? await postMove(moveRequestOf(item)) : await post(item.payload);
     } catch (err) {
       if (!err?.response) {
         // Rule 1 — the network is still down. Keep THIS item and every item
@@ -337,6 +408,20 @@ export async function syncOfflineQueue(post) {
       // 4G. Both mean the money is saved and this copy is a duplicate — so we
       // stop retrying and offer to remove it, instead of alarming the owner
       // about a close that is already in the books.
+      // A move whose NEW day is locked (409): nothing moved — the figures
+      // are on no server but this copy (and, maybe, the old day's draft).
+      // Never "already saved".
+      if (status === 409 && asMove) {
+        remaining.push({
+          ...item,
+          state: QUEUE_FAILED,
+          errorCode: QUEUE_ERR_REJECTED,
+          errorDetail: errText(err, ""),
+          httpStatus: status,
+          lastTriedTs: Date.now(),
+        });
+        continue;
+      }
       if (status === 409) {
         remaining.push({
           ...item,
@@ -378,6 +463,9 @@ export async function syncOfflineQueue(post) {
     }
 
     synced += 1;
+    if (typeof onSent === "function") {
+      try { onSent(item, resp?.data); } catch { /* the caller's note only */ }
+    }
   }
 
   const merged = mergeBack(queue, remaining);

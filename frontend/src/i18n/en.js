@@ -8506,6 +8506,7 @@ export const en = {
     dcStartOverNotDeletedChangedNoAmount: "Not deleted — the draft was saved on another device meanwhile. Continue it, or start over again.",
     dcStartOverNotDeletedLocked: "Not deleted — the day was locked on another device.",
     dcDateMovedNotSavedYet: "Not saved for {to} yet — nothing is deleted for {from}",
+    dcDateMovedUnconfirmed: "The move to {to} isn't confirmed yet",
     dcDateMovedRetry: "Try again",
     dcMoveTargetDraftBody: "Your figures stay on {from} — nothing is moved. Continue the {to} draft, or stay on {from}.",
     dcDateMovedMaybeCopied: "Copied to {to} — the draft for {from} may still be there",
