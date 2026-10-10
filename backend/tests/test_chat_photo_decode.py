@@ -22,10 +22,10 @@ Run:
 
 from __future__ import annotations
 
+import ast
 import io
 import pathlib
 import random
-import re
 import uuid
 
 import pytest
@@ -265,19 +265,172 @@ def test_busy_photo_refusals_survive_the_production_5xx_sanitizer(
     assert db.get(type(member), member.id).profile_photo_key is None
 
 
+# A call-level guard (round-3 review): the first version was file-level — a
+# module that already used decode_slot once could add a second, ungated
+# Image.open and stay green — and it missed reportlab's ImageReader,
+# Image.frombytes / frombuffer and pillow_heif.read_heif / open_heif.
+
+#: Decode sites that never see an upload's bytes. Keyed (module, call).
+_NOT_AN_UPLOAD = {
+    # The stored logo (logo_service re-encodes every upload to <= 800 px
+    # PNG inside the gate) and QR codes BonBox renders itself.
+    ("services/gavekort_pdf.py", "ImageReader"): "stored logo + generated QR",
+    ("services/invoice_pdf.py", "reportlab Image"): "stored logo + generated MobilePay QR",
+    ("services/kasserapport_pdf.py", "reportlab Image"): "stored logo",
+}
+
+
+def _callee(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _decode_calls(tree: ast.Module) -> list[tuple[ast.Call, str]]:
+    """Every call that decodes image bytes, with a label."""
+    pil, rl_image, image_reader = set(), set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                name = a.asname or a.name
+                if node.module == "PIL" and a.name == "Image":
+                    pil.add(name)
+                elif node.module == "reportlab.platypus" and a.name == "Image":
+                    rl_image.add(name)
+                elif node.module == "reportlab.lib.utils" and a.name == "ImageReader":
+                    image_reader.add(name)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "PIL.Image" and a.asname:
+                    pil.add(a.asname)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in pil
+                and f.attr in ("open", "frombytes", "frombuffer")):
+            found.append((node, f"Image.{f.attr}"))
+        elif _callee(f) == "open_upload_image":
+            found.append((node, "open_upload_image"))
+        elif _callee(f) in ("read_heif", "open_heif"):
+            found.append((node, _callee(f)))
+        elif _callee(f) == "ImageReader" or (isinstance(f, ast.Name) and f.id in image_reader):
+            found.append((node, "ImageReader"))
+        elif isinstance(f, ast.Name) and f.id in rl_image:
+            found.append((node, "reportlab Image"))
+    return found
+
+
+def _gated(tree: ast.Module, node: ast.AST, parents: dict, depth: int = 0) -> bool:
+    """The call runs inside ``with decode_slot(...)``: lexically in the
+    same function (a with-block, or a later item of the same with), or
+    inside a helper whose every use is itself such a gated call."""
+    cur = node
+    while cur in parents:
+        par = parents[cur]
+        if isinstance(par, (ast.With, ast.AsyncWith)):
+            if isinstance(cur, ast.withitem):
+                prior = par.items[: par.items.index(cur)]
+            else:
+                prior = par.items if cur in par.body else []
+            if any(isinstance(i.context_expr, ast.Call) and _callee(i.context_expr.func) == "decode_slot"
+                   for i in prior):
+                return True
+        if isinstance(par, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            break
+        cur = par
+    fn = cur if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)) else parents.get(cur)
+    if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or depth >= 4:
+        return False
+    uses = [n for n in ast.walk(tree)
+            if isinstance(n, (ast.Name, ast.Attribute)) and _callee(n) == fn.name
+            and isinstance(getattr(n, "ctx", None), ast.Load)]
+    if not uses:
+        return False
+    for use in uses:
+        call = parents.get(use)
+        if not (isinstance(call, ast.Call) and call.func is use):
+            return False  # handed around as a value: cannot tell where it runs
+        if not _gated(tree, call, parents, depth + 1):
+            return False
+    return True
+
+
+def _ungated_decodes(src: str, rel: str) -> list[str]:
+    tree = ast.parse(src)
+    parents = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+    out = []
+    for call, label in _decode_calls(tree):
+        if (rel, label) in _NOT_AN_UPLOAD:
+            continue
+        if not _gated(tree, call, parents):
+            out.append(f"{rel}:{call.lineno} {label}")
+    return out
+
+
 def test_every_module_that_decodes_an_upload_goes_through_the_gate():
-    """A new decode site must not bypass the gate: any app module that
-    opens an image with Pillow (Image.open / open_upload_image) must use
-    decode_slot. The PDF builders only embed the already-sanitised logo
-    (reportlab), never an upload."""
-    offenders = []
-    for path in APP_DIR.rglob("*.py"):
-        if path.name == "image_guard.py":
+    """A new decode site must not bypass the gate: every call that decodes
+    image bytes (Image.open / frombytes / frombuffer, open_upload_image,
+    reportlab's ImageReader / Image, pillow_heif read_heif / open_heif)
+    must run inside ``with decode_slot()`` — checked per CALL, so a module
+    that already uses the gate once cannot add a second, ungated decode.
+    image_guard.open_upload_image's own Image.open is the exception by
+    contract: its every caller is checked instead."""
+    offenders, decoding = [], set()
+    for path in sorted(APP_DIR.rglob("*.py")):
+        rel = str(path.relative_to(APP_DIR))
+        if rel == "services/image_guard.py":
             continue
         src = path.read_text(encoding="utf-8")
-        if re.search(r"\bImage\.open\(|\bopen_upload_image\(", src) and "decode_slot(" not in src:
-            offenders.append(str(path.relative_to(APP_DIR)))
+        if _decode_calls(ast.parse(src)):
+            decoding.add(rel)
+        offenders += _ungated_decodes(src, rel)
     assert offenders == []
+    # Guards the guard: the known upload decoders were really looked at.
+    assert {
+        "services/receipt_ocr.py", "services/kasserapport_extractor.py", "services/inventory_ocr.py",
+        "services/chat_image.py", "services/logo_service.py",
+    } <= decoding, decoding
+
+
+def test_the_gate_guard_catches_a_second_ungated_decode_in_a_gated_module():
+    src = """
+import io
+from PIL import Image
+from reportlab.lib.utils import ImageReader
+import pillow_heif
+from app.services.image_guard import decode_slot, open_upload_image
+
+def gated(raw):
+    with decode_slot():
+        img = open_upload_image(raw)
+    with decode_slot(), Image.open(io.BytesIO(raw)) as im:
+        pass
+    return img
+
+def _helper(raw):
+    return Image.open(io.BytesIO(raw))  # every use of _helper is gated
+
+def gated_too(raw):
+    with decode_slot():
+        return _helper(raw)
+
+def sneaky(raw):
+    a = Image.open(io.BytesIO(raw))
+    b = Image.frombytes("RGB", (1, 1), raw)
+    c = ImageReader(io.BytesIO(raw))
+    d = pillow_heif.read_heif(raw)
+    with Image.open(io.BytesIO(raw)) as e, decode_slot():  # opened BEFORE the slot
+        pass
+    return open_upload_image(raw)
+"""
+    bad = _ungated_decodes(src, "services/x.py")
+    lines = sorted(int(b.split(":")[1].split()[0]) for b in bad)
+    assert len(bad) == 6, bad
+    assert all(n >= 20 for n in lines), bad  # nothing in gated(), _helper() or gated_too()
 
 
 # ─── 2. The chat sanitizer: 25 MP for PNG, phone JPEGs reduced ──────
