@@ -881,6 +881,32 @@ def test_daily_brief_precompute_includes_faktura_intel(db, user, customer):
     assert p.invoices_sent_this_month >= 3  # all 3 invoices counted as sent
 
 
+def test_daily_brief_counts_an_invoice_sent_after_local_midnight(
+    db, user, customer, monkeypatch,
+):
+    """From 00:00 to 02:00 in Copenhagen the server's UTC date is still
+    yesterday. An invoice sent then is dated in the venue's day
+    (create_draft -> today_local), so "sent this month" must be read in the
+    venue's day as well. Read in the server's day it was dropped, and on
+    the 1st of a month the brief said nothing had been sent yet."""
+    import app.services.daily_brief as brief
+    from app.services.tz_utils import today_local
+
+    inv = _make_invoice(db, user, customer, Decimal("500.00"))
+    venue_today = today_local(user)
+    assert inv.issue_date == venue_today
+    server_today = venue_today - timedelta(days=1)
+
+    class _UtcServerDate(date):
+        @classmethod
+        def today(cls):
+            return server_today
+
+    monkeypatch.setattr(brief, "date", _UtcServerDate)
+    p = brief.compute_precompute(user, db)
+    assert p.invoices_sent_this_month == 1
+
+
 def test_daily_brief_candidates_surface_overdue_action(db, user, customer):
     """When fakturaer are overdue, the candidate list MUST include an
     'action' card with the total kr + count. This is the morning reminder

@@ -460,13 +460,17 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     ) or 0
 
     # Month-to-date progress counters — only counts non-draft, non-credit
+    # issue_date is stamped in the venue's day (InvoiceService.create_draft:
+    # today_local), so the window is read in that day too, not the server's.
+    from app.services.tz_utils import today_local
+    inv_today = today_local(user)
     sent_this_month = (
         db.query(sa_func.count(Invoice.id))
         .filter(
             Invoice.user_id == user.id,
             Invoice.is_credit_note.is_(False),
-            Invoice.issue_date >= month_start,
-            Invoice.issue_date <= today,
+            Invoice.issue_date >= inv_today.replace(day=1),
+            Invoice.issue_date <= inv_today,
             Invoice.status.in_(("sent", "paid", "overdue", "credited")),
         )
         .scalar()
