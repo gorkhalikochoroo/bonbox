@@ -387,6 +387,124 @@ def test_a_newer_draft_moved_elsewhere_is_not_the_version_this_form_holds(db, cl
     assert out["moved"] is True and out["old_status"] == "none"
 
 
+# ── 4b. a day is its date AND its branch (push 2, review should_fix) ───────
+# The double-move guard compared dates only: a version moved to the 4th of
+# branch X and then (a second phone, the same version) to the 4th of branch Y
+# was let through — "the 4th" is this move's own day — and the figures stood
+# under both branches, counted twice once both were locked.
+
+def _branch(db, u, name):
+    from app.models.branch import Branch
+    b = Branch(user_id=u.id, name=name, business_type="restaurant")
+    db.add(b); db.commit(); db.refresh(b)
+    return str(b.id)
+
+
+def _live_b(db, u, day, branch_id):
+    db.expire_all()
+    from datetime import date as _d
+    return (db.query(DailyClose)
+            .filter(DailyClose.user_id == u.id, DailyClose.date == _d.fromisoformat(day),
+                    DailyClose.branch_id == (uuid.UUID(branch_id) if branch_id else None),
+                    DailyClose.is_deleted.isnot(True))
+            .all())
+
+
+def test_the_same_draft_moved_to_the_same_date_under_another_branch_is_refused(db, client):
+    a = _user(db)
+    x = _branch(db, a, "Afdeling X")
+    y = _branch(db, a, "Afdeling Y")
+    d = _save(client, a, A, 1000, branch_id=x)
+    m1 = client.post("/api/daily-close/move", headers=_auth(a), json={
+        "from_date": A, "from_branch_id": x, "to_date": B,
+        "from_base_updated_at": d["updated_at"], "body": _body(B, 1000, branch_id=x),
+        "save_id": f"mv-{uuid.uuid4().hex[:12]}",
+    })
+    assert m1.status_code == 200 and m1.json()["moved"] is True, m1.text
+    assert m1.json()["old_status"] == "deleted", m1.text
+    # A second phone holding the same version moves it to the same DATE under
+    # the other branch.
+    req = {
+        "from_date": A, "from_branch_id": x, "to_date": B,
+        "from_base_updated_at": d["updated_at"], "from_base_save_id": None,
+        "to_base_updated_at": None,
+        "body": _body(B, 1000, branch_id=y), "save_id": f"mv-{uuid.uuid4().hex[:12]}",
+    }
+    m2 = client.post("/api/daily-close/move", headers=_auth(a), json=req)
+    assert m2.status_code == 409, m2.text
+    det = m2.json()["detail"]
+    assert det["code"] == "moved_elsewhere", det
+    assert det["date"] == A and det["branch_id"] == x
+    assert det["to"] == B and det["to_branch_id"] == x, det
+    # The figures on ONE day: B under X, nothing under Y, the old day empty.
+    assert [float(r.revenue_total) for r in _live_b(db, a, B, x)] == [1000]
+    assert _live_b(db, a, B, y) == []
+    assert _live_b(db, a, A, x) == []
+    assert len(_audits(db, a, "daily_close.move")) == 1
+
+
+def test_moved_to_another_branch_on_this_moves_own_date_is_still_moved_elsewhere_without_from_branch(db, client):
+    """No-branch old day, moved first to B under branch X, then (the same
+    version) to B with no branch: two days, refused — the date alone matched."""
+    a = _user(db)
+    x = _branch(db, a, "Afdeling X")
+    d = _save(client, a, A, 1000)
+    m1 = _move(client, a, to=B, from_base=d["updated_at"], food=1000, branch_id=x)
+    assert m1.status_code == 200 and m1.json()["moved"] is True, m1.text
+    m2 = _move(client, a, to=B, from_base=d["updated_at"], food=1000)
+    assert m2.status_code == 409, m2.text
+    det = m2.json()["detail"]
+    assert det["code"] == "moved_elsewhere" and det["to"] == B and det["to_branch_id"] == x, det
+    assert _live_b(db, a, B, None) == []
+    assert [float(r.revenue_total) for r in _live_b(db, a, B, x)] == [1000]
+
+
+def test_moving_on_through_a_branch_day_the_first_move_went_to_is_not_moved_elsewhere(db, client):
+    """Pairs never over-refuse: A/X → B/Y (answer lost), then B/Y → C/X naming
+    A/X too. A/X went to B/Y, which is part of this move — moved."""
+    a = _user(db)
+    x = _branch(db, a, "Afdeling X")
+    y = _branch(db, a, "Afdeling Y")
+    d = _save(client, a, A, 1000, branch_id=x)
+    req1 = {
+        "from_date": A, "from_branch_id": x, "to_date": B,
+        "from_base_updated_at": d["updated_at"], "body": _body(B, 1000, branch_id=y),
+        "save_id": f"mv-{uuid.uuid4().hex[:12]}",
+    }
+    m1 = client.post("/api/daily-close/move", headers=_auth(a), json=req1)
+    assert m1.status_code == 200 and m1.json()["moved"] is True, m1.text
+    req2 = {
+        "from_date": B, "from_branch_id": y, "to_date": C,
+        "from_base_updated_at": m1.json()["close"]["updated_at"],
+        "also_from": [{"date": A, "branch_id": x, "base_updated_at": d["updated_at"]}],
+        "body": _body(C, 1000, branch_id=x), "save_id": f"mv-{uuid.uuid4().hex[:12]}",
+    }
+    r = client.post("/api/daily-close/move", headers=_auth(a), json=req2)
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"] is True
+    assert _live_b(db, a, A, x) == [] and _live_b(db, a, B, y) == []
+    assert [float(r.revenue_total) for r in _live_b(db, a, C, x)] == [1000]
+
+
+def test_the_same_draft_moved_again_to_the_same_branch_day_is_not_moved_elsewhere(db, client):
+    """The same (date, branch) as the first move is this move's own day: not
+    refused as moved_elsewhere (as with dates alone) — the new day's version
+    check answers it."""
+    a = _user(db)
+    x = _branch(db, a, "Afdeling X")
+    d = _save(client, a, A, 1000, branch_id=x)
+    req = lambda: {  # noqa: E731
+        "from_date": A, "from_branch_id": x, "to_date": B,
+        "from_base_updated_at": d["updated_at"], "body": _body(B, 1000, branch_id=x),
+        "save_id": f"mv-{uuid.uuid4().hex[:12]}",
+    }
+    m1 = client.post("/api/daily-close/move", headers=_auth(a), json=req())
+    assert m1.status_code == 200 and m1.json()["moved"] is True, m1.text
+    m2 = client.post("/api/daily-close/move", headers=_auth(a), json=req())
+    assert _code(m2) != "moved_elsewhere", m2.text
+    assert [float(r.revenue_total) for r in _live_b(db, a, B, x)] == [1000]
+
+
 # ── 5. a move's save_id sent with other days ───────────────────────────────
 
 def test_a_replayed_move_save_id_with_other_days_is_refused(db, client):

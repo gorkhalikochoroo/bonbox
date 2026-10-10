@@ -992,10 +992,13 @@ def _gated_lock_day(db, user_id, day, branch_id):
 dcr._lock_close_day = _gated_lock_day
 
 
-def _move(racer, uid, frm, to, food, *, from_base=None, from_save=None, to_base=None, save_id=None, **extra):
+def _move(racer, uid, frm, to, food, *, from_base=None, from_save=None, to_base=None, save_id=None,
+          from_branch=None, **extra):
     req = {"from_date": frm, "to_date": to, "from_base_updated_at": from_base,
            "from_base_save_id": from_save, "to_base_updated_at": to_base,
            "body": _body(to, food, **extra), "save_id": save_id or f"mv-{uuid.uuid4().hex[:12]}"}
+    if from_branch:
+        req["from_branch_id"] = from_branch
     return _req(racer, "POST", "/api/daily-close/move", uid, json=req)
 
 
@@ -1253,6 +1256,65 @@ def test_m7_stochastic_two_moves_of_one_draft_to_two_days(it):
     t2 = Run(lambda: _move("M2", uid, a, c, 1000, from_base=v0["updated_at"]), barrier=bar)
     t1.start(); t2.start(); t1.join(30); t2.join(30)
     _check_m7(t1.res, t2.res, uid, a, b, c)
+
+
+# (m8) push 2 (review should_fix) — the same as (m7) with the SAME new date
+# under two branches: a day is its date AND its branch. Dates alone let the
+# second move through ("the new date is this move's own"): the figures stood
+# under both branches, counted twice once both were locked.
+def _rows_b(uid, day, branch_id):
+    s = SessionLocal()
+    try:
+        return [float(r.revenue_total or 0) for r in s.query(DailyClose).filter(
+            DailyClose.user_id == uid, DailyClose.date == date.fromisoformat(day),
+            DailyClose.branch_id == uuid.UUID(branch_id),
+            DailyClose.is_deleted.isnot(True)).all()]
+    finally:
+        s.close()
+
+
+def _seed_branch_draft(uid, day, branch_id, food=1000):
+    r = _post("seed", uid, _body(day, food, branch_id=branch_id, base_updated_at="1970-01-01T00:00:00"))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _check_m8(r1, r2, uid, a, b, x, y):
+    _no_500(r1, r2)
+    codes = sorted([r1.status_code, r2.status_code])
+    assert codes == [200, 409], (r1.status_code, r1.text[:300], r2.status_code, r2.text[:300])
+    loser = r1 if r1.status_code == 409 else r2
+    assert _code(loser) == "moved_elsewhere", loser.text[:300]
+    assert loser.json()["detail"]["to"] == b, loser.text[:300]
+    assert _rows_b(uid, a, x) == []
+    # The figures on ONE day: b under X or b under Y, never both.
+    assert sorted(_rows_b(uid, b, x) + _rows_b(uid, b, y)) == [1000.0], (_rows_b(uid, b, x), _rows_b(uid, b, y))
+
+
+@pytest.mark.parametrize("point", ["pre_write", "pre_commit", "post_lock"])
+def test_m8_det_two_moves_of_one_draft_to_one_date_under_two_branches(point):
+    uid = _user(); a = _new_day(); b = _new_day()
+    x = _branch(uid); y = _branch(uid)
+    v0 = _seed_branch_draft(uid, a, x)
+    M1 = ("M1", lambda *z: _move(*z, from_base=v0["updated_at"], from_branch=x, branch_id=x), ("M1", uid, a, b, 1000))
+    M2 = ("M2", lambda *z: _move(*z, from_base=v0["updated_at"], from_branch=x, branch_id=y), ("M2", uid, a, b, 1000))
+    r1, r2, blocked = _interleave(M1, point, M2)
+    print(f"\n[m8 @{point}] {r1.status_code} {r1.text[:120]} | {r2.status_code} {r2.text[:120]} blocked={blocked}")
+    assert blocked
+    _check_m8(r1, r2, uid, a, b, x, y)
+
+
+@pytest.mark.parametrize("it", range(6))
+def test_m8_stochastic_two_moves_of_one_draft_to_one_date_under_two_branches(it):
+    _reset_limits()
+    uid = _user(); a = _new_day(); b = _new_day()
+    x = _branch(uid); y = _branch(uid)
+    v0 = _seed_branch_draft(uid, a, x)
+    bar = threading.Barrier(2)
+    t1 = Run(lambda: _move("M1", uid, a, b, 1000, from_base=v0["updated_at"], from_branch=x, branch_id=x), barrier=bar)
+    t2 = Run(lambda: _move("M2", uid, a, b, 1000, from_base=v0["updated_at"], from_branch=x, branch_id=y), barrier=bar)
+    t1.start(); t2.start(); t1.join(30); t2.join(30)
+    _check_m8(t1.res, t2.res, uid, a, b, x, y)
 
 
 # (s1) the SAME save sent twice at once (a copy kept on the phone goes while

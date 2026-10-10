@@ -2817,13 +2817,24 @@ MOVED_ELSEWHERE = "moved_elsewhere"
 SAVE_ID_REUSED = "save_id_reused"
 
 
-def _moved_elsewhere(db: Session, user: User, day, branch_id, base, base_save_id, ok_to: set) -> str | None:
-    """The day another move took THIS version of the day's draft to (R-c
-    round 2 fix-up), else None. The form names a version of the old day
-    (`base`, or its own save `base_save_id`) and nothing is stored there:
-    when that very version was deleted by another move — to a day that is
-    not part of this one (`ok_to`: this move's own days) — the figures stand
-    on that day already, and moving them again would put them on two days.
+def _move_day_key(day, branch_id) -> tuple[str, str | None]:
+    """A day of a move as (date, branch): the same date under two branches
+    is two days (push 2 — the review's should_fix)."""
+    d = day.isoformat() if hasattr(day, "isoformat") else str(day)
+    return d, (str(branch_id) if branch_id else None)
+
+
+def _moved_elsewhere(db: Session, user: User, day, branch_id, base, base_save_id,
+                     ok_to: set) -> tuple[str, str | None] | None:
+    """The day — (date, branch) — another move took THIS version of the
+    day's draft to (R-c round 2 fix-up), else None. The form names a version
+    of the old day (`base`, or its own save `base_save_id`) and nothing is
+    stored there: when that very version was deleted by another move — to a
+    day that is not part of this one (`ok_to`: this move's own days, as
+    _move_day_key pairs) — the figures stand on that day already, and moving
+    them again would put them on two days. A day is its date AND its branch:
+    a version moved to the 9th of branch A and then to the 9th of branch B
+    stood on two days, counted twice (dates alone let it through).
     A draft deleted any other way (Start forfra, "Slet") is not this."""
     import json as _json
     if base is None and not base_save_id:
@@ -2859,7 +2870,10 @@ def _moved_elsewhere(db: Session, user: User, day, branch_id, base, base_save_id
             continue
         if not isinstance(after, dict) or not after.get("move_id") or not after.get("moved_to"):
             continue
-        if after.get("moved_to") in ok_to:
+        # (close.deleted by a move records moved_to_branch_id whenever the
+        # new day has a branch; absent = no branch.)
+        went_to = (str(after.get("moved_to")), after.get("moved_to_branch_id") or None)
+        if went_to in ok_to:
             continue
         held = False
         was = before.get("updated_at") if isinstance(before, dict) else None
@@ -2871,7 +2885,7 @@ def _moved_elsewhere(db: Session, user: User, day, branch_id, base, base_save_id
         if not held and base_save_id:
             held = _last_save_id(db, user, entity_id) == base_save_id
         if held:
-            return str(after.get("moved_to"))
+            return went_to
     return None
 
 
@@ -2996,7 +3010,7 @@ def move_daily_close(
     # The version of an old day the form holds was moved to ANOTHER day by
     # another move already (a second phone, a page left open): moved again,
     # the figures would stand on both new days. Refused, nothing written.
-    ok_to = {data.to_date.isoformat(), *(d.isoformat() for d, _b, _x, _y in froms)}
+    ok_to = {_move_day_key(data.to_date, body.branch_id), *(_move_day_key(d, b) for d, b, _x, _y in froms)}
     for d, b, base, sid in froms:
         if _live_close(db, user, d, b) is not None:
             continue
@@ -3007,7 +3021,8 @@ def move_daily_close(
                 "code": MOVED_ELSEWHERE,
                 "date": d.isoformat(),
                 "branch_id": str(b) if b else None,
-                "to": went,
+                "to": went[0],
+                "to_branch_id": went[1],
                 "message": "These figures were already moved to another day. Nothing was moved.",
             })
 
