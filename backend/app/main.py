@@ -4,6 +4,14 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# glibc malloc settings for this one process (M_ARENA_MAX=2, 1 MiB mmap
+# threshold) — set here, before the heavy imports and before any worker
+# thread exists. Measured need, how to switch off (BONBOX_MALLOPT=0):
+# app/utils/malloc_tuning.py. No-op on macOS / musl.
+from app.utils.malloc_tuning import apply_malloc_tuning as _apply_malloc_tuning
+
+_MALLOC_TUNING = _apply_malloc_tuning()
+
 # Optional Sentry init — only loaded if SENTRY_DSN env var set AND the
 # sentry-sdk package is installed. Wrapped in try/except so missing dep
 # never crashes the app. Add `sentry-sdk[fastapi]` to requirements.txt
