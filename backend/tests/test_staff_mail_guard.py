@@ -503,3 +503,24 @@ def test_single_shift_subject_in_danish_and_english(db, mails, pushes, kind, da,
     assert [m["subject"] for m in mails] == [da, en]
     for r in db.query(NotificationLog).all():
         assert r.subject.startswith(("Shift cancelled - 2026-11-25", "Shift updated - 2026-11-25"))
+
+
+def test_staff_self_edit_uses_the_same_strict_rule(client, db):
+    """The staffer's own e-mail from the portal is mailed the same way."""
+    from app.models.staff import StaffLink
+    from app.routers import staff_portal as sp
+    sp.limiter.reset()
+    owner = _owner(db)
+    anna = _staff(db, owner, email=None)
+    db.add(StaffLink(id=uuid.uuid4(), user_id=owner.id, staff_id=anna.id,
+                     token="tokM", active=True))
+    db.commit()
+    r = client.put("/api/portal/tokM/email", json={"email": "anna..x@cafe.dk"})
+    assert r.status_code == 400, r.text
+    db.refresh(anna)
+    assert anna.email is None
+    r = client.put("/api/portal/tokM/email", json={"email": " Anna@Cafe.DK "})
+    assert r.status_code == 200, r.text
+    db.refresh(anna)
+    assert anna.email == "anna@cafe.dk"
+    sp.limiter.reset()

@@ -2089,6 +2089,14 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
             email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
             if not re.match(email_regex, email):
                 raise HTTPException(status_code=400, detail="Invalid email format")
+            # The same strict rule as the owner's roster (SEC-1): BonBox mails
+            # this address from its own domain, so it must be one ordinary
+            # mailbox ("a..b@x.dk" passes the pattern above, not this).
+            from app.utils.email_address import strict_email
+            try:
+                email = strict_email(email)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid email format")
             member.email = email
 
     # Handle phone
