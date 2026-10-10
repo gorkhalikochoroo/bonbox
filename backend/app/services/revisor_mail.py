@@ -675,7 +675,11 @@ def claim_question_pending(user: Any) -> bool:
         return True
     try:
         from app.services.claim_decision import question_open_for
-        return question_open_for(db, user.id)
+        # In a SAVEPOINT: on Postgres a failed statement aborts the whole
+        # transaction, and the caller (a publish, a shift edit's in-app
+        # alert) must still be able to write and commit (review, 10 Oct).
+        with db.begin_nested():
+            return question_open_for(db, user.id)
     except Exception:  # noqa: BLE001 — fail closed: no third-party mail
         logger.warning("claim question lookup failed for %s", getattr(user, "id", None))
         return True
@@ -770,22 +774,29 @@ def third_party_sends(db, user, actions, *, hours: int = 24) -> list[dict] | Non
     """The `after` payloads of this account's audit rows for `actions` in the
     last `hours`, newest first, each with its row time under "_at" and its
     action under "_action". None when
-    the query itself failed (the caller decides; the caps fail open)."""
+    the query itself failed (the caller decides; the caps fail open, the staff
+    mail fails closed).
+
+    The query runs in a SAVEPOINT: on Postgres a failed statement (a statement
+    timeout, a dropped connection) aborts the whole transaction, and every
+    later statement of the caller — the publish response, a shift edit's
+    in-app alert, its commit — would fail with it (review, 10 Oct)."""
     try:
         import json
         from app.models.audit_log import AuditLog
         from app.utils.time import utc_now
         since = utc_now() - timedelta(hours=hours)
-        rows = (
-            db.query(AuditLog.after_state, AuditLog.created_at, AuditLog.action)
-            .filter(
-                AuditLog.user_id == user.id,
-                AuditLog.action.in_(tuple(actions)),
-                AuditLog.created_at >= since,
+        with db.begin_nested():
+            rows = (
+                db.query(AuditLog.after_state, AuditLog.created_at, AuditLog.action)
+                .filter(
+                    AuditLog.user_id == user.id,
+                    AuditLog.action.in_(tuple(actions)),
+                    AuditLog.created_at >= since,
+                )
+                .order_by(AuditLog.created_at.desc())
+                .all()
             )
-            .order_by(AuditLog.created_at.desc())
-            .all()
-        )
         out: list[dict] = []
         for after_state, created_at, action in rows:
             try:
