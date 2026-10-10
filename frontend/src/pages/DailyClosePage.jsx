@@ -2308,9 +2308,16 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // these is the form's own (the server's last_save_id).
   const mySaveIdsRef = useRef(new Set());
   const mountedRef = useRef(true);
+  // The short scroll to the loaded day (Rediger / Fortsæt): one at a time,
+  // and none left to run once the form is gone.
+  const scrollToDayTimerRef = useRef(null);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      if (scrollToDayTimerRef.current) clearTimeout(scrollToDayTimerRef.current);
+      scrollToDayTimerRef.current = null;
+    };
   }, []);
   // R-c round 2 — this form's hold on the queued move it is sending itself
   // (the offline queue never sends it beside the form, nor lists it as
@@ -2826,7 +2833,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     onEditConsumed?.();
     // Rediger / Fortsæt / a link that names the day: the loaded form sat
     // below the fold and nothing moved.
-    setTimeout(() => document.getElementById("close-date")?.scrollIntoView?.({ behavior: "smooth", block: "center" }), 60);
+    if (scrollToDayTimerRef.current) clearTimeout(scrollToDayTimerRef.current);
+    scrollToDayTimerRef.current = setTimeout(() => {
+      scrollToDayTimerRef.current = null;
+      document.getElementById("close-date")?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    }, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editDraft]);
 
@@ -4523,6 +4534,23 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
 
   // Draft auto-save — fires on step change (silent, no loading state)
   const [draftSaved, setDraftSaved] = useState(false);
+  // "Gemt" shows for 3 s after a save lands. One timer at a time (a later
+  // save restarts it), and none left running once the page is gone (a save
+  // answered after the form closed starts none).
+  const draftSavedTimerRef = useRef(null);
+  const flashDraftSaved = useCallback(() => {
+    if (!mountedRef.current) return;
+    setDraftSaved(true);
+    if (draftSavedTimerRef.current) clearTimeout(draftSavedTimerRef.current);
+    draftSavedTimerRef.current = setTimeout(() => {
+      draftSavedTimerRef.current = null;
+      setDraftSaved(false);
+    }, 3000);
+  }, []);
+  useEffect(() => () => {
+    if (draftSavedTimerRef.current) clearTimeout(draftSavedTimerRef.current);
+    draftSavedTimerRef.current = null;
+  }, []);
   // A save is waiting or on its way: the step slot says "Gemmer…" until the
   // server has answered, so "Gemt" only ever means saved.
   const [draftSavingState, setDraftSavingState] = useState(false);
@@ -5878,8 +5906,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         if (letGo) { stampLetGoCopy(savingKey, res?.data?.updated_at); unreleaseDay(savingKey); }
         onDraftSaved?.();
         setUnsentKey((k) => (k === savingKey ? null : k));
-        setDraftSaved(true);
-        setTimeout(() => setDraftSaved(false), 3000);
+        flashDraftSaved();
         // The new day of a date move is filed: the old day's draft goes.
         finishMove(savingKey);
       } catch (err) {
@@ -6251,8 +6278,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             // the day on screen, as for any answered save (release gate R-b).
             setUnsentKey((k) => (k === key ? null : k));
             if (key === rowKeyRef.current) {
-              setDraftSaved(true);
-              setTimeout(() => setDraftSaved(false), 3000);
+              flashDraftSaved();
             }
             // R-c review — the new day of a date move ("Flyt tallene"), sent
             // again after its save died (the owner on another day since —
