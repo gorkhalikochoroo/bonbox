@@ -21,8 +21,10 @@ photo goes through here (INFRA-03):
      * a JPEG over the ceiling is decoded at a reduced scale (Pillow's
        ``draft``: 1/2, 1/4 ... in the JPEG decoder itself) to at most the
        ceiling — never refused;
-     * any other format over the ceiling is refused like an unreadable
-       file. 50 MP is above the largest default phone mode (iPhone 48 MP =
+     * any other format over the ceiling is refused with its own text
+       ("too many pixels", ``ImageTooLargeError``), never the wrong-format
+       text — a HEIC refused for its size must not be told to use HEIC.
+       50 MP is above the largest default phone mode (iPhone 48 MP =
        48.8M px, Samsung 50 MP = 49.9M px).
    Formats with no reduced decode have lower ceilings
    (``UPLOAD_MAX_PIXELS_BY_FORMAT``, 25 MP): WEBP's decoder needs about
@@ -181,14 +183,38 @@ def decode_slot(*, lang: str | None = None, wait_s: float | None = None) -> Iter
 # path has ever decoded).
 _HEIF_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"}
 
+#: Wrong format: the bytes are not an allow-listed image (or Pillow cannot
+#: read them).
 _REFUSAL_TEXT = {
     "da": "Filen kunne ikke læses som et billede. Brug et foto i JPEG, PNG, HEIC eller WebP.",
     "en": "This file couldn't be read as an image. Use a photo in JPEG, PNG, HEIC or WebP.",
 }
 
+#: Right format, but the canvas is over its decode ceiling. The same text on
+#: every photo route that refuses for size (receipt / expense / sale /
+#: Z-report saves, and the chat and avatar 413s in chat_image).
+_TOO_MANY_PIXELS_TEXT = {
+    "da": "Billedet har for mange pixels – tag det i normal opløsning, eller brug et skærmbillede.",
+    "en": "This photo has too many pixels – take it at normal resolution, or use a screenshot.",
+}
 
-def refusal_message(lang: str | None) -> str:
-    return _REFUSAL_TEXT["da" if lang == "da" else "en"]
+
+def _pick(texts: dict[str, str], lang: str | None) -> str:
+    return texts["da" if lang == "da" else "en"]
+
+
+def too_many_pixels_message(lang: str | None) -> str:
+    return _pick(_TOO_MANY_PIXELS_TEXT, lang)
+
+
+def refusal_message(lang: str | None, exc: BaseException | None = None) -> str:
+    """The owner's refusal text. Pass the caught ``UnsupportedImageError``
+    as ``exc`` so a photo refused for its size reads "too many pixels",
+    not "use JPEG, PNG, HEIC or WebP"; without it (a magic-byte refusal)
+    it is the wrong-format text."""
+    if isinstance(exc, UnsupportedImageError):
+        return exc.message(lang)
+    return _pick(_REFUSAL_TEXT, lang)
 
 
 class UnsupportedImageError(ValueError):
@@ -196,12 +222,28 @@ class UnsupportedImageError(ValueError):
 
     A ValueError so every existing ``except ValueError -> 400`` keeps
     working; ``str()`` is the English refusal. Routes that know the
-    owner use ``refusal_message(owner_lang(user))`` instead.
+    owner use ``refusal_message(owner_lang(user), e)`` instead.
     """
+
+    _texts = _REFUSAL_TEXT
 
     def __init__(self, reason: str = ""):
         self.reason = reason
-        super().__init__(_REFUSAL_TEXT["en"])
+        super().__init__(self._texts["en"])
+
+    def message(self, lang: str | None) -> str:
+        return _pick(self._texts, lang)
+
+
+class ImageTooLargeError(UnsupportedImageError):
+    """An allow-listed photo whose canvas is over its decode ceiling.
+
+    An ``UnsupportedImageError`` (so every ``except`` that refuses a photo
+    still refuses it, before anything is decoded or stored), with its own
+    text: the format was fine, the pixel count was not.
+    """
+
+    _texts = _TOO_MANY_PIXELS_TEXT
 
 
 def sniff_image_format(raw: bytes) -> str | None:
@@ -246,7 +288,8 @@ def open_upload_image(src: Union[bytes, str, Path], *, max_side: int | None = No
     """``Image.open`` restricted to the allow-list.
 
     ``src`` is raw upload bytes (magic-checked first) or a path to a file
-    that holds them. Raises ``UnsupportedImageError`` for anything else.
+    that holds them. Raises ``UnsupportedImageError`` for anything else —
+    ``ImageTooLargeError`` (a subclass) when the canvas is over its ceiling.
 
     ``max_side``: the caller only needs the image this big on its long side
     (the OCR / vision reads downscale to ~2000 px). A JPEG is then decoded
@@ -316,4 +359,4 @@ def _bound_canvas(img: Image.Image, *, max_side: int | None = None) -> Image.Ima
             return img
     logger.info("upload refused before decode: %s canvas %sx%s", img.format, w, h)
     img.close()
-    raise UnsupportedImageError("canvas over the decode ceiling")
+    raise ImageTooLargeError("canvas over the decode ceiling")

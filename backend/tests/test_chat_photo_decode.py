@@ -440,11 +440,13 @@ def test_the_chat_png_ceiling_is_25_mp_and_the_jpeg_ceiling_stays_50_mp():
     assert chat_image._MAX_DECODED_PIXELS == 50_000_000 >= 8160 * 6120  # Samsung 50 MP
 
 
-@pytest.mark.parametrize("fn_name,msg", [
-    ("sanitize_chat_photo", "Billedet har for mange pixels."),
-    ("sanitize_profile_photo", "Billedet har for høj opløsning."),
-])
-def test_a_png_over_25_mp_is_refused_before_it_is_decoded(monkeypatch, fn_name, msg):
+_TOO_MANY_PX_DA = "Billedet har for mange pixels – tag det i normal opløsning, eller brug et skærmbillede."
+_TOO_MANY_PX_EN = "This photo has too many pixels – take it at normal resolution, or use a screenshot."
+
+
+@pytest.mark.parametrize("fn_name", ["sanitize_chat_photo", "sanitize_profile_photo"])
+@pytest.mark.parametrize("lang,msg", [(None, _TOO_MANY_PX_DA), ("da", _TOO_MANY_PX_DA), ("en", _TOO_MANY_PX_EN)])
+def test_a_png_over_25_mp_is_refused_before_it_is_decoded(monkeypatch, fn_name, lang, msg):
     # 5001 x 5001 = 25.01 MP, RGBA: a few KB on the wire, 100 MB decoded.
     raw = _img("PNG", size=(5001, 5001), mode="RGBA", color=(255, 0, 0, 0))
     from PIL import ImageFile
@@ -452,11 +454,25 @@ def test_a_png_over_25_mp_is_refused_before_it_is_decoded(monkeypatch, fn_name, 
     loads = []
     real_load = ImageFile.ImageFile.load
     monkeypatch.setattr(ImageFile.ImageFile, "load", lambda self: loads.append(1) or real_load(self))
+    kw = {} if lang is None else {"lang": lang}  # no lang: a staffer, Danish
     with pytest.raises(HTTPException) as ei:
-        getattr(chat_image, fn_name)(raw)
+        getattr(chat_image, fn_name)(raw, **kw)
     assert ei.value.status_code == 413
+    # The one "too many pixels" text every photo route uses (image_guard),
+    # in the sender's language.
     assert ei.value.detail == msg
+    assert ei.value.detail == image_guard.too_many_pixels_message(lang or "da")
     assert loads == [], "nothing may be decoded before the refusal"
+
+
+@pytest.mark.parametrize("fn_name", ["sanitize_chat_photo", "sanitize_profile_photo"])
+def test_a_jpeg_over_50_mp_gets_the_same_too_many_pixels_text(monkeypatch, fn_name):
+    monkeypatch.setattr(chat_image, "_MAX_DECODED_PIXELS", 100 * 100)
+    raw = _img("JPEG", size=(400, 300))
+    with pytest.raises(HTTPException) as ei:
+        getattr(chat_image, fn_name)(raw, lang="en")
+    assert ei.value.status_code == 413
+    assert ei.value.detail == _TOO_MANY_PX_EN
 
 
 def test_an_rgba_png_under_the_ceiling_is_flattened_onto_white_as_before():

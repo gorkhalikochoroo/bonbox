@@ -878,12 +878,15 @@ def extract_kasserapport_full(
     result.image_sha256 = image_sha256(raw)
 
     from app.services.ai_limits import AIBusyError
+    from app.services.image_guard import ImageTooLargeError
 
     try:
         b64 = _image_to_base64_jpeg(image_path)
     except AIBusyError:
         raise  # every decode slot taken: 503 "busy, try again", nothing logged as failed
-    except Image.DecompressionBombError:
+    except (Image.DecompressionBombError, ImageTooLargeError):
+        # Over Pillow's or the upload gate's canvas ceiling — the same code,
+        # not "image_load_failed", so the admin review sees size, not damage.
         result.error = "image_too_large_pixel_count"
         return result
     except Exception as e:  # noqa: BLE001

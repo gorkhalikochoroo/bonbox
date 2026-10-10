@@ -1030,8 +1030,8 @@ def upload_receipt(
         # refused before any decoder runs (INFRA-03).
         try:
             stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
-        except UnsupportedImageError:
-            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
+        except UnsupportedImageError as e:
+            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user), e))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

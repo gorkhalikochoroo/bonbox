@@ -4507,8 +4507,8 @@ def scan_z_report(
                 str(user.id),
                 kind="kasserapport",
             )
-        except UnsupportedImageError:
-            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user)))
+        except UnsupportedImageError as e:
+            raise HTTPException(status_code=400, detail=refusal_message(owner_lang(user), e))
         except ValueError as e:
             # Not decodable as an image (was an unhandled 500 before). The
             # owner reads the same da/en refusal as for a wrong format —

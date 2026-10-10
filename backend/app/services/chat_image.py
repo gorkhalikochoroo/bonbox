@@ -181,7 +181,7 @@ def sanitize_chat_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes, s
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
     from app.services.ai_limits import AIBusyError
-    from app.services.image_guard import decode_slot
+    from app.services.image_guard import decode_slot, too_many_pixels_message
 
     try:
         # One of the process-wide decode slots (image_guard: at most 2 photo
@@ -194,7 +194,8 @@ def sanitize_chat_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes, s
             img = _decode_rgb(
                 raw_bytes, inferred,
                 need_for=lambda size: _fit(size, MAX_OUTPUT_DIM),
-                too_many_px="Billedet har for mange pixels.",
+                # The same "too many pixels" text as every other photo route.
+                too_many_px=too_many_pixels_message(lang),
             )
             img.thumbnail((MAX_OUTPUT_DIM, MAX_OUTPUT_DIM), Image.LANCZOS)
             out = io.BytesIO()
@@ -246,7 +247,7 @@ def sanitize_profile_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
     from app.services.ai_limits import AIBusyError
-    from app.services.image_guard import decode_slot
+    from app.services.image_guard import decode_slot, too_many_pixels_message
 
     try:
         # One of the process-wide decode slots (image_guard: at most 2 photo
@@ -260,7 +261,7 @@ def sanitize_profile_photo(raw_bytes: bytes, *, lang: str = "da") -> tuple[bytes
             img = _decode_rgb(
                 raw_bytes, inferred,
                 need_for=_short_side_at_least(PROFILE_OUTPUT_DIM),
-                too_many_px="Billedet har for høj opløsning.",
+                too_many_px=too_many_pixels_message(lang),
             )
             # Center-crop to a square so the circular avatar never letterboxes.
             w, h = img.size

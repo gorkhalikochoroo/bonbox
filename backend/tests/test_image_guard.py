@@ -396,8 +396,130 @@ def test_an_oversized_canvas_is_refused_on_the_receipt_upload(db, as_user, local
         headers=_ip(),
     )
     assert r.status_code == 400
-    assert r.json()["detail"] == image_guard.refusal_message("da")
+    # Refused for its size: the "too many pixels" text, never "use JPEG,
+    # PNG, HEIC or WebP" — the format was fine (push-2 review).
+    assert r.json()["detail"] == _TOO_MANY_PX["da"]
+    assert r.json()["detail"] != image_guard.refusal_message("da")
     assert list(local_receipts.iterdir()) == []
+
+
+# ─── Push 2 review: a photo over the ceiling gets its own text ───────
+
+_TOO_MANY_PX = {
+    "da": "Billedet har for mange pixels – tag det i normal opløsning, eller brug et skærmbillede.",
+    "en": "This photo has too many pixels – take it at normal resolution, or use a screenshot.",
+}
+_WRONG_FORMAT = {
+    "da": "Filen kunne ikke læses som et billede. Brug et foto i JPEG, PNG, HEIC eller WebP.",
+    "en": "This file couldn't be read as an image. Use a photo in JPEG, PNG, HEIC or WebP.",
+}
+
+
+def test_the_two_refusal_texts_are_distinct_and_exact():
+    for lang in ("da", "en"):
+        assert image_guard.too_many_pixels_message(lang) == _TOO_MANY_PX[lang]
+        assert image_guard.refusal_message(lang) == _WRONG_FORMAT[lang]
+    # Every other app language reads English, as before.
+    assert image_guard.too_many_pixels_message("tr") == _TOO_MANY_PX["en"]
+    assert image_guard.too_many_pixels_message(None) == _TOO_MANY_PX["en"]
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "WEBP", "HEIF", "BMP", "GIF", "TIFF"])
+def test_a_canvas_over_its_ceiling_raises_the_too_many_pixels_error(monkeypatch, fmt):
+    """Including a HEIC: refused for its size, it must not be told to use HEIC."""
+    monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
+    with pytest.raises(image_guard.ImageTooLargeError) as ei:
+        image_guard.open_upload_image(_canvas(fmt, (400, 300)))
+    e = ei.value
+    # Still an UnsupportedImageError and a ValueError: every existing
+    # `except` that refuses a photo before anything is stored still does.
+    assert isinstance(e, image_guard.UnsupportedImageError) and isinstance(e, ValueError)
+    assert str(e) == _TOO_MANY_PX["en"]
+    for lang in ("da", "en"):
+        assert e.message(lang) == _TOO_MANY_PX[lang]
+        assert image_guard.refusal_message(lang, e) == _TOO_MANY_PX[lang]
+
+
+@pytest.mark.parametrize("raw", [_psd(), b"%PDF-1.7\n" + b"x" * 64])
+def test_a_wrong_format_keeps_the_format_text(raw):
+    with pytest.raises(image_guard.UnsupportedImageError) as ei:
+        image_guard.open_upload_image(raw)
+    e = ei.value
+    assert not isinstance(e, image_guard.ImageTooLargeError)
+    for lang in ("da", "en"):
+        assert image_guard.refusal_message(lang, e) == _WRONG_FORMAT[lang]
+        assert image_guard.refusal_message(lang) == _WRONG_FORMAT[lang]
+
+
+def _expense_row(db, u):
+    import datetime as _dt
+
+    from app.models.expense import Expense, ExpenseCategory
+
+    cat = ExpenseCategory(id=uuid.uuid4(), user_id=u.id, name="Varer")
+    db.add(cat)
+    db.commit()
+    e = Expense(id=uuid.uuid4(), user_id=u.id, category_id=cat.id, amount=100,
+                date=_dt.date.today(), description="x")
+    db.add(e)
+    db.commit()
+    return e
+
+
+_PHOTO_ROUTES = [
+    ("expense upload", lambda db, u: "/api/expenses/upload-receipt"),
+    ("expense attach", lambda db, u: f"/api/expenses/{_expense_row(db, u).id}/attach-receipt"),
+    ("sale upload", lambda db, u: "/api/sales/upload-receipt"),
+    ("z-report scan", lambda db, u: "/api/daily-close/scan-report"),
+]
+
+
+@pytest.mark.parametrize("route,path_for", _PHOTO_ROUTES, ids=[r[0] for r in _PHOTO_ROUTES])
+@pytest.mark.parametrize("ui_language,lang", [(None, "da"), ("en", "en")])
+def test_every_photo_route_says_too_many_pixels_in_the_owners_language(
+    db, as_user, local_receipts, monkeypatch, route, path_for, ui_language, lang,
+):
+    monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
+    monkeypatch.setattr(daily_close_router, "parse_z_report", lambda p: pytest.fail("must not read"))
+    u = _owner(db, ui_language=ui_language)
+    as_user(u)
+    r = _post(
+        path_for(db, u),
+        files={"file": ("foto.png", _canvas("PNG", (400, 300)), "image/png")},
+        headers=_ip(),
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == _TOO_MANY_PX[lang]
+    assert list(local_receipts.iterdir()) == [], "nothing is stored"
+
+
+@pytest.mark.parametrize("route,path_for", _PHOTO_ROUTES, ids=[r[0] for r in _PHOTO_ROUTES])
+def test_every_photo_route_still_says_wrong_format_for_a_psd(
+    db, as_user, local_receipts, monkeypatch, route, path_for,
+):
+    monkeypatch.setattr(daily_close_router, "parse_z_report", lambda p: pytest.fail("must not read"))
+    u = _owner(db, ui_language="en")
+    as_user(u)
+    r = _post(
+        path_for(db, u),
+        files={"file": ("foto.jpg", _psd(), "image/jpeg")},
+        headers=_ip(),
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == _WRONG_FORMAT["en"]
+
+
+def test_the_kasserapport_read_logs_a_canvas_over_the_ceiling_as_too_large(tmp_path, monkeypatch):
+    """No refusal text on this route (it answers 200 with an error code the
+    admin review reads): the size refusal gets the size code, not
+    "image_load_failed"."""
+    from app.services import kasserapport_extractor as kx
+
+    monkeypatch.setattr(image_guard, "UPLOAD_MAX_PIXELS", 100 * 100)
+    p = tmp_path / "z.png"
+    p.write_bytes(_canvas("PNG", (400, 300)))
+    res = kx.extract_kasserapport_full(str(p), skip_classifier=True)
+    assert res.error == "image_too_large_pixel_count"
 
 
 # ─── R-d fix-up: an undecodable photo on the Z-report scan ───────────

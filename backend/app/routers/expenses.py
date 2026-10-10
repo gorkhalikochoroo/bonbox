@@ -1012,8 +1012,8 @@ def attach_receipt_to_expense(
     from app.services.receipt_ocr import save_receipt_photo
     try:
         stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
-    except UnsupportedImageError:
-        raise HTTPException(400, refusal_message(owner_lang(user)))
+    except UnsupportedImageError as e:
+        raise HTTPException(400, refusal_message(owner_lang(user), e))
     except ValueError as e:
         raise HTTPException(400, str(e))
     except AIBusyError:
@@ -1594,8 +1594,8 @@ def upload_expense_receipt(
     with vision_slot(user, db=db):
         try:
             stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
-        except UnsupportedImageError:
-            raise HTTPException(400, refusal_message(owner_lang(user)))
+        except UnsupportedImageError as e:
+            raise HTTPException(400, refusal_message(owner_lang(user), e))
         except ValueError as e:
             raise HTTPException(400, str(e))
 
