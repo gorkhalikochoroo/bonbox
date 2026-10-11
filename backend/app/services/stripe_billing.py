@@ -1512,7 +1512,8 @@ def _alarm_second_live_subscription(
     so a failing alarm statement outside one would fail the relink's own
     commit (InFailedSqlTransaction -> webhook 500 -> Stripe retries the event,
     and the alarm with it). A failure rolls back to the savepoint only, and
-    the billing write commits without the row. Never raises."""
+    the billing write commits without the row, and a CRITICAL
+    "BILLING_ALARM_UNRECORDED" log line (ids only) says so. Never raises."""
     via = event_type or "sync"
     log.error(
         "%s: user=%s already has subscription %s (status=%s) and is now linked to "
@@ -1547,7 +1548,15 @@ def _alarm_second_live_subscription(
             ))
             db.flush()  # the INSERT runs inside the savepoint, not at the caller's commit
     except Exception as e:  # noqa: BLE001 — a backstop must never cost the billing write
-        log.warning("second-subscription alarm row not written: %s", type(e).__name__)
+        # No row means no triage note and no digest. The R-i ops-alert path
+        # (ops_alert.send_ops_alert) needs the DB for its dedupe/cap rows, so
+        # the out-of-band trace is this CRITICAL line: a stable marker to
+        # alert on, ids only (no names, no e-mails).
+        log.critical(
+            "BILLING_ALARM_UNRECORDED second live subscription: user=%s old_sub=%s "
+            "new_sub=%s event=%s error=%s — check %s at Stripe",
+            user.id, old_sub, new_sub, event_id or "-", type(e).__name__, old_sub,
+        )
 
 
 def _apply_subscription_state(

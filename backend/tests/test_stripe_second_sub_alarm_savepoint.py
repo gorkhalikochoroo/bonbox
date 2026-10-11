@@ -197,3 +197,39 @@ def test_the_healthy_alarm_still_lands_with_the_relink(engine, db):
         assert s.get(User, uid).stripe_subscription_id == "sub_B"
     finally:
         s.close()
+
+
+# Review (12 Oct): a lost alarm row must not be lost silently ────────────────
+MARKER = "BILLING_ALARM_UNRECORDED"
+
+
+@pytest.mark.parametrize("match", [_is_alarm_select, _is_alarm_insert],
+                         ids=["dedupe_select_fails", "insert_fails"])
+def test_a_lost_alarm_row_logs_critical_with_ids_only(engine, db, match, caplog):
+    """The R-i ops-alert path needs the DB (dedupe, cooldown and cap rows), so
+    the out-of-band trace is one CRITICAL log line with a stable marker and
+    ids only — never the owner's e-mail or business name."""
+    uid = _subscriber(db)
+    caplog.set_level("INFO", logger="bonbox.stripe")
+    with _PostgresAbort(engine, match) as pg:
+        r = _deliver(db, _created("evt_lost_" + match.__name__))
+    assert pg.fired and r["status"] == "ok"
+    crit = [rec for rec in caplog.records
+            if rec.levelname == "CRITICAL" and MARKER in rec.getMessage()]
+    assert len(crit) == 1, [rec.getMessage() for rec in caplog.records]
+    msg = crit[0].getMessage()
+    for part in (str(uid), "sub_A", "sub_B", "evt_lost_" + match.__name__):
+        assert part in msg, msg
+    assert "savepoint@alarm.dk" not in msg and "business" not in msg.lower()
+    s = _fresh(engine)
+    try:
+        assert s.get(User, uid).stripe_subscription_id == "sub_B"   # relink still commits
+    finally:
+        s.close()
+
+
+def test_a_healthy_alarm_logs_no_critical(engine, db, caplog):
+    _subscriber(db)
+    caplog.set_level("INFO", logger="bonbox.stripe")
+    assert _deliver(db, _created("evt_ok_nocrit"))["status"] == "ok"
+    assert not [rec for rec in caplog.records if MARKER in rec.getMessage()]
