@@ -1,14 +1,19 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
+import { CheckCircle2 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { GoogleLogin } from "@react-oauth/google";
+import usePageTitle from "../hooks/usePageTitle";
+// Push 6 — Google's button drawn in the page's language (GoogleButton.jsx).
+import GoogleButton from "../components/GoogleButton";
 import api from "../services/api";
 // Task #65 — Apple Sign-In button (web). Renders nothing when the
 // VITE_APPLE_CLIENT_ID env var is empty, so non-prod builds stay
 // quiet without conditional imports.
 import AppleSignInButton from "../components/AppleSignInButton";
 import { oauthErrText } from "../utils/errText";
+import { authErrorKey } from "../utils/authErrors";
+import { emailProblem } from "../utils/signupValidation";
 import { withSignupRef } from "../utils/signupRef";
 // R-e fix-up — Google, Apple and the e-mail link create an account here too
 // when the address is new, so this page shows the Terms acceptance line
@@ -18,7 +23,10 @@ import { withSignupRef } from "../utils/signupRef";
 import SignupTermsLine from "../components/SignupTermsLine";
 import { withTermsAcceptance } from "../legal/terms";
 import { postLoginPath } from "../utils/verifySkip";
-import BonBoxMark from "../components/BonBoxMark";
+import AuthShell, {
+  AuthAlert, AuthDivider, AuthHeading, FieldError, FieldLabel, PasswordInput, PrimaryButton,
+} from "../components/auth/AuthUI";
+import { inputClass, linkClass } from "../components/auth/authStyles";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -88,14 +96,24 @@ export default function LoginPage() {
   // The native flow returns an identityToken in the SAME shape as Apple's
   // web JS SDK, so it hits POST /api/auth/oauth/apple unchanged — no
   // backend changes needed.
-  const { login, googleLogin, googleOauthLogin, appleOauthLogin, needsEmailVerification } = useAuth();
-  const { lang, setLang, LANGUAGES, t } = useLanguage();
+  const { login, googleLogin, googleOauthLogin, appleOauthLogin } = useAuth();
+  const { t } = useLanguage();
+  usePageTitle("suTitleLogin");
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const location = useLocation();
+  // Push 6 — an address typed on /register ("Log ind", or "Den e-mail har
+  // allerede en konto") comes along as router state, never in the URL.
+  const handedEmail = typeof location.state?.email === "string" ? location.state.email.trim() : "";
+  const [email, setEmail] = useState(handedEmail);
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  // { key, vars, action } — rendered with t() so it follows a language
+  // switch; { text } for a line already in the owner's language (Google/Apple).
+  const [error, setError] = useState(null);
+  // Inline field messages (push 6): shown under the field, not in the box.
+  const [fieldErr, setFieldErr] = useState({});
   const [loading, setLoading] = useState(false);
-  const [showPass, setShowPass] = useState(false);
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
   // Magic-link mode swaps the password field for an email-only form.
   // Toggled via the "Email me a sign-in link instead" link below the
   // password row. Tracked here (rather than its own route) because
@@ -105,12 +123,12 @@ export default function LoginPage() {
   const [magicSent, setMagicSent] = useState(false);
   const [magicSending, setMagicSending] = useState(false);
   // Sign-in surface differs per platform:
-  //   • Web: Google (via @react-oauth/google JS SDK) + Apple JS SDK
+  //   • Web: Google (Google's own button, drawn by GoogleButton) + Apple JS SDK
   //   • iOS: Apple via our in-project Capacitor plugin (Task #90 —
   //     ios/App/App/AppleSignInPlugin.swift), which covers Apple
   //     guideline 4.8 by offering an OAuth provider on iOS. Google on
   //     iOS would need a SEPARATE native Capacitor plugin since the
-  //     web @react-oauth/google flow doesn't work reliably inside the
+  //     web Google flow doesn't work reliably inside the
   //     Capacitor WebView. v1.x follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
@@ -182,35 +200,38 @@ export default function LoginPage() {
     };
   }, []);
 
+  /** Show a server answer: under its field when it names one, else in the box. */
+  const showAuthError = (r) => {
+    if (r.field === "email") {
+      setFieldErr({ email: r.key });
+      emailRef.current?.focus();
+      return;
+    }
+    setError({ key: r.key, vars: r.vars, action: r.action });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setError(null);
     setRetryStatus(null);
     setSuggestMagic(false);
+    // Said under the field, in the page's language — not a browser bubble.
+    const emailKey = emailProblem(email);
+    const pwKey = password ? null : "enterPassword";
+    if (emailKey || pwKey) {
+      setFieldErr({ email: emailKey, password: pwKey });
+      (emailKey ? emailRef : passwordRef).current?.focus();
+      return;
+    }
+    setFieldErr({});
     setLoading(true);
     try {
-      const data = await login(email, password);
+      const data = await login(email.trim(), password);
       navigate(postLoginPath(data.user));
     } catch (err) {
-      let msg;
-      const detail = err.response?.data?.detail;
-      if (typeof detail === "string") {
-        // Server returned a specific string error message
-        msg = detail;
-      } else if (Array.isArray(detail)) {
-        // Pydantic validation errors — extract first readable message
-        const first = detail[0] || {};
-        msg = (first.msg || "Invalid input").replace(/^Value error,\s*/, "");
-      } else if (err.code === "ECONNABORTED") {
-        msg = "Server is waking up — please wait 30s and try again";
-      } else if (err.code === "ERR_NETWORK" || !err.response) {
-        msg = "Cannot reach server — check your connection or try again in a moment";
-      } else if (err.response?.status >= 500) {
-        msg = "Server error — please try again in a moment";
-      } else {
-        msg = "Invalid email or password";
-      }
-      setError(msg);
+      // A wrong password reads "E-mail eller adgangskode passer ikke" with
+      // the way out beside it; no answer at all says so (utils/authErrors).
+      showAuthError(authErrorKey(err, "login"));
     } finally {
       setLoading(false);
     }
@@ -225,19 +246,19 @@ export default function LoginPage() {
    */
   const handleAppleNativeSignIn = async () => {
     if (appleNativeBusy) return;
-    setError("");
+    setError(null);
     setAppleNativeBusy(true);
     try {
       const plugin = window.Capacitor?.Plugins?.AppleSignIn;
       if (!plugin?.signIn) {
         // Defensive — hasAppleNative should already guard this branch.
-        setError(t("appleSigninFailed") || "Apple sign-in failed");
+        setError({ text: t("appleSigninFailed") || "Apple sign-in failed" });
         return;
       }
       const res = await plugin.signIn();
       const idToken = res?.identityToken;
       if (!idToken) {
-        setError(t("appleSigninFailed") || "Apple sign-in failed");
+        setError({ text: t("appleSigninFailed") || "Apple sign-in failed" });
         return;
       }
       // Apple sends fullName only on FIRST sign-in — flatten to a single
@@ -253,7 +274,7 @@ export default function LoginPage() {
       if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
         return;
       }
-      setError(oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t));
+      setError({ text: oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t) });
     } finally {
       setAppleNativeBusy(false);
     }
@@ -269,11 +290,14 @@ export default function LoginPage() {
    */
   const handleMagicSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    if (!email || !email.includes("@")) {
-      setError(t("magicLinkInvalidEmail") || "Please enter a valid email address");
+    setError(null);
+    const emailKey = emailProblem(email);
+    if (emailKey) {
+      setFieldErr({ email: emailKey });
+      emailRef.current?.focus();
       return;
     }
+    setFieldErr({});
     setMagicSending(true);
     try {
       // withSignupRef: a kept door-visit code rides along so the mailed link
@@ -286,456 +310,369 @@ export default function LoginPage() {
       );
       setMagicSent(true);
     } catch (err) {
-      let msg;
-      if (err.code === "ECONNABORTED") {
-        msg = "Server is waking up — please wait 30s and try again";
-      } else if (err.code === "ERR_NETWORK" || !err.response) {
-        msg = "Cannot reach server — check your connection or try again in a moment";
-      } else if (err.response?.status === 429) {
-        // Router-level IP rate limit (10/hour). Service-level email
-        // limit is silently swallowed for enumeration safety; this
-        // 429 is the per-IP limit triggering, which IS safe to show.
-        msg = t("magicLinkRateLimited") || "Too many requests. Try again in an hour.";
-      } else {
-        msg = t("magicLinkFallback") || "We couldn't send the link. Try password sign-in instead.";
-      }
-      setError(msg);
+      // Router-level IP rate limit (10/hour) → magicLinkRateLimited; the
+      // service-level e-mail limit is swallowed for enumeration safety.
+      showAuthError(authErrorKey(err, "magic"));
     } finally {
       setMagicSending(false);
     }
   };
 
   const switchToMagicMode = () => {
-    setError("");
+    setError(null);
+    setFieldErr({});
     setMagicMode(true);
     setPassword("");
   };
 
   const switchToPasswordMode = () => {
-    setError("");
+    setError(null);
+    setFieldErr({});
     setMagicMode(false);
     setMagicSent(false);
   };
 
+  const typedEmail = email.trim();
+
   return (
-    <>
-      <style>{`
-        @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
-
-      <div className="min-h-screen flex flex-col bg-slate-50 text-gray-900">
-        {/* Top bar — wordmark left, language dropdown right (Copenhagen-style minimal nav) */}
-        {/* Sticky + glass-static. capacitor.config sets
-            StatusBar.overlaysWebView:true (the fix for the dark strips above
-            the header and below the tab bar), which means the webview owns the
-            full screen and scrolled content passes UNDER a transparent status
-            bar. body pads by env(safe-area-inset-top) so this sits correctly at
-            rest — but a plain non-sticky header scrolled straight up into the
-            clock. The signed-in app never showed this because Layout's header
-            is fixed .glass; the signed-out screens had no equivalent.
-            .glass-static, not .glass: a transform on a sticky element causes
-            the documented iOS scroll wobble (see index.css). */}
-        <header className="sticky top-0 z-40 glass-static px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
-          {/* Brand mark — the kit's forest tile with the paper b
-              (docs/brand/README.md), the same tile as the sidebar and the
-              landing nav, so the login logo is the one logo. */}
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-bb-forest text-bb-paper">
-              <BonBoxMark size={26} />
-            </div>
-            <span className="text-[15px] font-semibold tracking-tight">BonBox</span>
-          </Link>
-
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value)}
-            aria-label={t("loginLanguageLabel", "Language")}
-            className="text-[13px] bg-transparent border border-gray-200 rounded-md px-2.5 py-1.5
-              text-gray-700 hover:border-gray-400
-              focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code} className="bg-white">
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </header>
-
-        {/* Body — single column, generous whitespace */}
-        <main className="flex-1 flex items-center justify-center px-6 py-12 sm:py-20">
-          <div className="w-full max-w-[400px]" style={{ animation: "slideUp 0.4s ease-out" }}>
-            <h1 className="text-[28px] sm:text-[32px] font-semibold tracking-tight leading-[1.15] text-gray-900">
-              {t("welcomeBack")}
-            </h1>
-            <p className="text-[15px] text-gray-500 mt-2 leading-relaxed">
-              {t("signInDescription")}
-            </p>
-
-            {/* Task #97 — multi-layer cold-start UX banner.  While the
-                axios retry interceptor is mid-backoff against a sleeping
-                Render dyno, show "Server is waking up…" instead of the
-                silent button-spinner so the user knows we're not stuck. */}
-            {retryStatus && (loading || magicSending) && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="mt-6 flex items-start gap-2.5 bg-amber-50
-                border border-amber-200 text-amber-900 px-3.5 py-3 rounded-lg text-[13px]"
-              >
-                <svg className="w-4 h-4 shrink-0 mt-0.5 animate-spin" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
-                <span>
-                  {retryStatus.coldStart
-                    ? t("loginWarmingUp", "Can't reach BonBox right now — retrying.")
-                    : t("loginRetrying", "Network hiccup — retrying.")}
-                  {" "}
-                  <span className="text-amber-700/80 ml-1">
-                    {t("loginAttemptOf", "Attempt {n} of {max}")
-                      .replace("{n}", retryStatus.attempt)
-                      .replace("{max}", retryStatus.max)}
-                  </span>
-                </span>
-              </div>
-            )}
-
-            {error && (
-              <div
-                role="alert"
-                aria-live="assertive"
-                className="mt-6 flex items-start gap-2.5 bg-red-50
-                border border-red-200 text-red-700 px-3.5 py-3 rounded-lg text-[13px]"
-              >
-                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-                </svg>
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Task #97 — when password retries are exhausted, surface
-                magic-link as a one-click fallback so the user isn't
-                dead-ended.  Magic-link uses a different code path
-                (email-only, no /auth/login) so it can succeed when
-                password POST keeps timing out. */}
-            {suggestMagic && !loading && !magicSending && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="mt-3 flex items-start gap-2.5 bg-blue-50
-                border border-blue-200 text-blue-900 px-3.5 py-3 rounded-lg text-[13px]"
-              >
-                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                </svg>
-                <span>
-                  {t("loginPasswordStuckTryMagic", "Password sign-in is having trouble. Try the one-click email link instead — it works even when the API is slow.")}
-                  {" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSuggestMagic(false);
-                      setError("");
-                      if (!magicMode) {
-                        // switchToMagicMode is declared elsewhere; inlined here
-                        // to avoid the cross-reference dance.
-                        if (typeof switchToMagicMode === "function") switchToMagicMode();
-                      }
-                    }}
-                    className="underline font-medium text-blue-700 hover:text-blue-900"
-                  >
-                    {t("loginUseMagicLink", "Send me a sign-in link")}
-                  </button>
-                </span>
-              </div>
-            )}
-
-            {/* ── Task #65 — OAuth row (Apple + Google) ───────────────
-                Sits ABOVE the email/password form so the third-party
-                options are the dominant choice. Each provider verifies
-                its own token server-side via /auth/oauth/{provider}.
-                Both buttons render only when their respective client
-                IDs are configured AND we're not inside Capacitor's
-                WebView (which has its own native sign-in surface). */}
-            {!magicMode && (hasAppleWeb || hasAppleNative || hasGoogle) && (
-              <div className="mt-7 space-y-2.5">
-                {hasAppleNative && (
-                  // Task #90 — native iOS SIWA button. Visual parity with
-                  // AppleSignInButton (web): black bg, Apple glyph, 44px tap
-                  // target. On tap we call our Capacitor plugin which
-                  // presents the system sheet.
-                  <button
-                    type="button"
-                    onClick={handleAppleNativeSignIn}
-                    disabled={appleNativeBusy}
-                    aria-label={t("signInWithApple") || "Sign in with Apple"}
-                    className="w-full flex items-center justify-center gap-2 bg-black text-white rounded-lg
-                      h-[44px] px-4 text-[15px] font-medium hover:bg-gray-900 transition
-                      disabled:opacity-60 disabled:cursor-not-allowed
-                      focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
-                  >
-                    <svg width="16" height="18" viewBox="0 0 16 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                      <path
-                        d="M13.2 13.7c-.3.7-.7 1.4-1.2 2-.7.9-1.5 1.5-2.4 1.5-.4 0-.9-.1-1.5-.4-.6-.3-1.1-.4-1.6-.4-.5 0-1 .1-1.7.4-.6.2-1.1.4-1.5.4-.9 0-1.7-.7-2.5-1.6C.4 14.1 0 12.4 0 10.5c0-1.7.4-3.1 1.3-4.2.7-.9 1.6-1.4 2.7-1.4.4 0 1 .1 1.7.4.7.3 1.2.4 1.4.4.2 0 .7-.1 1.6-.4.8-.3 1.5-.4 2.1-.3 1.5.1 2.7.7 3.4 1.8-1.3.8-2 1.9-2 3.3 0 1.1.4 2 1.2 2.7.4.3.7.6 1.2.7-.1.3-.2.6-.3 1zM11.5 0c.1.7-.2 1.5-.7 2.2-.6.8-1.4 1.3-2.3 1.2-.1-.7.2-1.5.7-2.1.3-.4.7-.7 1.1-.9.4-.2.9-.3 1.2-.4z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                    <span>{appleNativeBusy ? "…" : (t("signInWithApple") || "Sign in with Apple")}</span>
-                  </button>
-                )}
-                {hasAppleWeb && (
-                  <AppleSignInButton
-                    clientId={APPLE_CLIENT_ID_WEB}
-                    label={t("signInWithApple") || "Sign in with Apple"}
-                    mode="signin"
-                    onSuccess={async ({ idToken, name }) => {
-                      setError("");
-                      try {
-                        const data = await appleOauthLogin(idToken, name, { acceptTerms: true });
-                        navigate(postLoginPath(data.user));
-                      } catch (err) {
-                        setError(oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t));
-                      }
-                    }}
-                    onError={(msg) =>
-                      setError(msg || t("appleSigninFailed") || "Apple sign-in failed")
-                    }
-                  />
-                )}
-                {hasGoogle && (
-                  <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
-                    <GoogleLogin
-                      onSuccess={(res) => {
-                        setError("");
-                        // Prefer the new unified endpoint when wired up;
-                        // fall back to the legacy /auth/google helper if
-                        // anything goes wrong (e.g. brand-new install
-                        // hitting an old backend during a deploy).
-                        const fn = googleOauthLogin || googleLogin;
-                        fn(res.credential, { acceptTerms: true })
-                          .then((data) => {
-                            navigate(postLoginPath(data.user));
-                          })
-                          .catch((err) => setError(oauthErrText(err, t("googleSigninFailed"), t)));
-                      }}
-                      onError={() => setError(t("googleSigninFailed"))}
-                      shape="rectangular"
-                      size="large"
-                      width={String(googleWidth)}
-                      text="signin_with"
-                      theme="outline"
-                      // Google renders this button's own label, and without a
-                      // locale it picks one from the browser or the signed-in
-                      // Google account — so an English page showed "Log ind med
-                      // Google" above "Welcome back" and "Sign in to continue".
-                      // The first screen anyone sees, in two languages at once.
-                      // Follows the app's own picker instead.
-                      locale={lang}
-                    />
-                  </div>
-                )}
-                {/* R-e fix-up — the Terms acceptance line beside the
-                    Google/Apple row (those buttons create an account when
-                    the address is new). Once, before the e-mail divider. */}
-                <SignupTermsLine variant="continue" isNative={isNative} className="pt-1" />
-                <div className="flex items-center gap-3 pt-3">
-                  <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-[11px] uppercase tracking-wider text-gray-400">
-                    {t("orUseEmail") || (t("or") + " " + (t("emailLabel") || "email")).toLowerCase()}
-                  </span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-              </div>
-            )}
-
-            {/* Magic-link sent confirmation — replaces the form entirely
-                once the request goes through. We don't blur the email
-                or reveal whether the address is registered (just like
-                the backend's enumeration-safe 200). */}
-            {magicMode && magicSent ? (
-              <div className="mt-7 bg-gray-50 border border-gray-100 rounded-xl p-5">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-[15px] font-semibold text-gray-900">{t("magicLinkSent") || "Check your email"}</p>
-                    <p className="text-[13px] text-gray-800 mt-1 leading-relaxed">
-                      {/* The address was written into a `||` fallback the
-                          populated key shadows — so someone who mistyped their
-                          email was told "your email", and waited. */}
-                      {t("magicLinkSentDetail",
-                        "If {email} is registered, we've sent a sign-in link. It expires in 15 minutes.",
-                        { email })}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={switchToPasswordMode}
-                      className="mt-3 text-[13px] text-gray-700 hover:text-gray-900 underline-offset-2 hover:underline font-medium"
-                    >
-                      {t("usePasswordInstead") || "Use password instead"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <form
-                onSubmit={magicMode ? handleMagicSubmit : handleSubmit}
-                className="mt-7 space-y-4"
-              >
-                <div>
-                  <label htmlFor="email" className="block text-[13px] font-medium text-gray-700 mb-1.5">
-                    {t("emailLabel")}
-                  </label>
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder={t("emailPlaceholder")}
-                    autoComplete="email"
-                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300
-                      rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
-                      focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-gray-900 transition"
-                    required
-                  />
-                </div>
-
-                {/* Password field — hidden in magic-link mode */}
-                {!magicMode && (
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label htmlFor="password" className="block text-[13px] font-medium text-gray-700">
-                        {t("passwordLabel")}
-                      </label>
-                      <Link to="/forgot-password"
-                            className="text-[13px] text-gray-600 hover:text-gray-900 underline-offset-2 hover:underline">
-                        {t("forgotShort")}
-                      </Link>
-                    </div>
-                    <div className="relative">
-                      <input
-                        id="password"
-                        type={showPass ? "text" : "password"}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        autoComplete="current-password"
-                        className="w-full px-3.5 pr-11 py-2.5 bg-white border border-gray-300
-                          rounded-lg text-[15px] text-gray-900 placeholder:text-gray-400
-                          focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-gray-900 transition"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPass(!showPass)}
-                        aria-label={showPass ? (t("hidePassword") || "Hide password") : (t("showPassword") || "Show password")}
-                        aria-pressed={showPass}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-800 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                      >
-                        {showPass ? (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Primary sign-in CTA — emerald-600 (brand-green). Marketing
-                    surfaces (landing, login, register) earn brand-green;
-                    interior app primary CTAs stay gray-900 per doctrine.
-                    Migrated from #22c55e → emerald-600 (#059669) for token
-                    consistency with Layout sidebar + landing + Button.accent. */}
-                <button
-                  type="submit"
-                  disabled={magicMode ? magicSending : loading}
-                  className="w-full bg-emerald-600 text-white py-2.5 rounded-lg
-                    text-[14px] font-medium hover:bg-emerald-700
-                    disabled:opacity-60 disabled:cursor-not-allowed transition
-                    flex items-center justify-center gap-2"
-                >
-                  {(magicMode ? magicSending : loading) ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                      </svg>
-                      {magicMode ? (t("magicLinkSending") || "Sending…") : t("signingIn")}
-                    </>
-                  ) : magicMode ? (t("magicLinkSend") || "Email me a sign-in link") : t("signIn")}
-                </button>
-                {/* R-e fix-up — the e-mail link creates an account when the
-                    address is new: the Terms line sits under its button. */}
-                {magicMode && <SignupTermsLine variant="continue" isNative={isNative} />}
-
-                {/* Mode-toggle link — sits under the primary CTA so it
-                    never competes for the eye. In password mode this
-                    is "Email me a sign-in link instead"; in magic-link
-                    mode it's "Use password instead". */}
-                <div className="text-center pt-1">
-                  <button
-                    type="button"
-                    onClick={magicMode ? switchToPasswordMode : switchToMagicMode}
-                    className="text-[13px] text-gray-600 hover:text-gray-900 underline-offset-2 hover:underline"
-                  >
-                    {magicMode
-                      ? (t("usePasswordInstead") || "Use password instead")
-                      : (t("useEmailInstead") || "Email me a sign-in link instead")}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Task #90 — native Apple Sign-In moved into the OAuth row
-                above (rendered conditionally on hasAppleNative). We
-                replaced the @capacitor-community/apple-sign-in plugin
-                (which pinned capacitor-swift-pm ^7) with a thin in-project
-                Swift wrapper around AuthenticationServices — see
-                ios/App/App/AppleSignInPlugin.swift. */}
-
-            {/* iOS-only hint for users who signed up via Google on web.
-                Even with Apple SIWA available, we still hide Google on
-                iOS (no native Google Capacitor plugin yet). So
-                Google-account users still need the "Forgot password"
-                bridge until we add native Google. */}
-            {isNative && (
-              <p className="mt-4 text-center text-[12px] text-gray-500">
-                {t("loginGoogleHintNative") ||
-                  "Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password."}
-              </p>
-            )}
-
-            {/* Apple Guideline 3.1.1 — no account registration on the iOS
-                app (sign-up is the on-ramp to an off-platform subscription).
-                Native is sign-in only; new businesses register on the web.
-                Hide the "create account" link in the native shell. */}
-            {!isNative && (
-            <p className="mt-7 text-center text-[13px] text-gray-500">
-              {t("newToBonBox")}{" "}
-              <Link to="/register" className="text-gray-900 font-medium underline-offset-2 hover:underline">
-                {t("createAccount")}
-              </Link>
-            </p>
-            )}
-          </div>
-        </main>
-
-        {/* Footer — quietly Danish */}
-        <footer className="px-6 sm:px-10 py-5 text-[12px] text-gray-400 flex items-center justify-between border-t border-gray-200/60">
+    <AuthShell
+      language
+      footer={
+        /* Footer — quietly Danish */
+        <footer className="px-6 sm:px-10 py-5 text-[12px] text-gray-600 dark:text-gray-400 flex items-center justify-between border-t border-bb-line/30 dark:border-gray-800">
           <span>{t("madeInCph")}</span>
           <div className="flex items-center gap-4">
-            <Link to="/privacy" className="hover:text-gray-700">{t("privacyLink")}</Link>
-            <Link to="/terms" className="hover:text-gray-700">{t("termsLink")}</Link>
+            <Link to="/privacy" className="hover:text-gray-900 dark:hover:text-white">{t("privacyLink")}</Link>
+            <Link to="/terms" className="hover:text-gray-900 dark:hover:text-white">{t("termsLink")}</Link>
           </div>
         </footer>
-      </div>
-    </>
+      }
+    >
+      <AuthHeading title={t("welcomeBack")} sub={t("signInDescription")} />
+
+      {/* Task #97 — multi-layer cold-start UX banner.  While the
+          axios retry interceptor is mid-backoff against a sleeping
+          Render dyno, show "Server is waking up…" instead of the
+          silent button-spinner so the user knows we're not stuck. */}
+      {retryStatus && (loading || magicSending) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-6 flex items-start gap-2.5 bg-amber-50
+          border border-amber-200 text-amber-900 px-3.5 py-3 rounded-lg text-[13px]"
+        >
+          <svg className="w-4 h-4 shrink-0 mt-0.5 motion-safe:animate-spin" viewBox="0 0 24 24" aria-hidden="true">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          <span>
+            {retryStatus.coldStart
+              ? t("loginWarmingUp", "Can't reach BonBox right now — retrying.")
+              : t("loginRetrying", "Network hiccup — retrying.")}
+            {" "}
+            <span className="text-amber-800 ml-1">
+              {t("loginAttemptOf", "Attempt {n} of {max}")
+                .replace("{n}", retryStatus.attempt)
+                .replace("{max}", retryStatus.max)}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <AuthAlert className="mt-6">
+          {error.key ? t(error.key, error.vars) : error.text}
+          {error.action === "reset" && (
+            <>
+              {" "}
+              <Link to="/forgot-password" state={{ prefillEmail: typedEmail }} className={`${linkClass} font-medium text-red-800 dark:text-red-200 decoration-red-400`}>
+                {t("suResetLink")}
+              </Link>
+            </>
+          )}
+        </AuthAlert>
+      )}
+
+      {/* Task #97 — when password retries are exhausted, surface
+          magic-link as a one-click fallback so the user isn't
+          dead-ended.  Magic-link uses a different code path
+          (email-only, no /auth/login) so it can succeed when
+          password POST keeps timing out. */}
+      {suggestMagic && !loading && !magicSending && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-3 flex items-start gap-2.5 bg-blue-50
+          border border-blue-200 text-blue-900 px-3.5 py-3 rounded-lg text-[13px]"
+        >
+          <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+          <span>
+            {t("loginPasswordStuckTryMagic", "Password sign-in is having trouble. Try the one-click email link instead — it works even when the API is slow.")}
+            {" "}
+            <button
+              type="button"
+              onClick={() => {
+                setSuggestMagic(false);
+                setError(null);
+                if (!magicMode) {
+                  // switchToMagicMode is declared elsewhere; inlined here
+                  // to avoid the cross-reference dance.
+                  if (typeof switchToMagicMode === "function") switchToMagicMode();
+                }
+              }}
+              className="underline font-medium text-blue-700 hover:text-blue-900"
+            >
+              {t("loginUseMagicLink", "Send me a sign-in link")}
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* ── Task #65 — OAuth row (Apple + Google) ───────────────
+          Sits ABOVE the email/password form so the third-party
+          options are the dominant choice. Each provider verifies
+          its own token server-side via /auth/oauth/{provider}.
+          Both buttons render only when their respective client
+          IDs are configured AND we're not inside Capacitor's
+          WebView (which has its own native sign-in surface). */}
+      {!magicMode && (hasAppleWeb || hasAppleNative || hasGoogle) && (
+        <div className="mt-6 space-y-2.5 [&>[data-testid=signup-terms-line]_a]:py-3">
+          {hasAppleNative && (
+            // Task #90 — native iOS SIWA button. Visual parity with
+            // AppleSignInButton (web): black bg, Apple glyph, 44px tap
+            // target. On tap we call our Capacitor plugin which
+            // presents the system sheet.
+            <button
+              type="button"
+              onClick={handleAppleNativeSignIn}
+              disabled={appleNativeBusy}
+              aria-label={t("signInWithApple") || "Sign in with Apple"}
+              className="w-full flex items-center justify-center gap-2 bg-black text-white rounded-lg
+                h-[44px] px-4 text-[15px] font-medium hover:bg-gray-900 transition
+                disabled:opacity-60 disabled:cursor-not-allowed
+                focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
+            >
+              <svg width="16" height="18" viewBox="0 0 16 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path
+                  d="M13.2 13.7c-.3.7-.7 1.4-1.2 2-.7.9-1.5 1.5-2.4 1.5-.4 0-.9-.1-1.5-.4-.6-.3-1.1-.4-1.6-.4-.5 0-1 .1-1.7.4-.6.2-1.1.4-1.5.4-.9 0-1.7-.7-2.5-1.6C.4 14.1 0 12.4 0 10.5c0-1.7.4-3.1 1.3-4.2.7-.9 1.6-1.4 2.7-1.4.4 0 1 .1 1.7.4.7.3 1.2.4 1.4.4.2 0 .7-.1 1.6-.4.8-.3 1.5-.4 2.1-.3 1.5.1 2.7.7 3.4 1.8-1.3.8-2 1.9-2 3.3 0 1.1.4 2 1.2 2.7.4.3.7.6 1.2.7-.1.3-.2.6-.3 1zM11.5 0c.1.7-.2 1.5-.7 2.2-.6.8-1.4 1.3-2.3 1.2-.1-.7.2-1.5.7-2.1.3-.4.7-.7 1.1-.9.4-.2.9-.3 1.2-.4z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span>{appleNativeBusy ? "…" : (t("signInWithApple") || "Sign in with Apple")}</span>
+            </button>
+          )}
+          {hasAppleWeb && (
+            <AppleSignInButton
+              clientId={APPLE_CLIENT_ID_WEB}
+              label={t("signInWithApple") || "Sign in with Apple"}
+              mode="signin"
+              onSuccess={async ({ idToken, name }) => {
+                setError(null);
+                try {
+                  const data = await appleOauthLogin(idToken, name, { acceptTerms: true });
+                  navigate(postLoginPath(data.user));
+                } catch (err) {
+                  setError({ text: oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t) });
+                }
+              }}
+              onError={(msg) =>
+                setError({ text: msg || t("appleSigninFailed") || "Apple sign-in failed" })
+              }
+            />
+          )}
+          {hasGoogle && (
+            <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
+              {/* The button's own label follows the page's language, on the
+                  first load and on every switch (GoogleButton.jsx) — an
+                  English page used to show "Log ind med Google" above
+                  "Welcome back". */}
+              <GoogleButton
+                onSuccess={(res) => {
+                  setError(null);
+                  // Prefer the new unified endpoint when wired up;
+                  // fall back to the legacy /auth/google helper if
+                  // anything goes wrong (e.g. brand-new install
+                  // hitting an old backend during a deploy).
+                  const fn = googleOauthLogin || googleLogin;
+                  fn(res.credential, { acceptTerms: true })
+                    .then((data) => {
+                      navigate(postLoginPath(data.user));
+                    })
+                    .catch((err) => setError({ text: oauthErrText(err, t("googleSigninFailed"), t) }));
+                }}
+                onError={() => setError({ text: t("googleSigninFailed") })}
+                width={googleWidth}
+                text="signin_with"
+                theme="outline"
+              />
+            </div>
+          )}
+          {/* R-e fix-up — the Terms acceptance line beside the
+              Google/Apple row (those buttons create an account when
+              the address is new). Once, before the e-mail divider. */}
+          <SignupTermsLine variant="continue" isNative={isNative} className="pt-1" />
+          <div className="pt-3">
+            <AuthDivider label={t("orUseEmail") || (t("or") + " " + (t("emailLabel") || "email")).toLowerCase()} />
+          </div>
+        </div>
+      )}
+
+      {/* Magic-link sent confirmation — replaces the form entirely
+          once the request goes through. We don't blur the email
+          or reveal whether the address is registered (just like
+          the backend's enumeration-safe 200). */}
+      {magicMode && magicSent ? (
+        <div className="mt-6 rounded-lg border border-bb-line/70 dark:border-gray-700 bg-white dark:bg-gray-900 p-5" role="status" aria-live="polite">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 aria-hidden="true" className="w-6 h-6 shrink-0 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("magicLinkSent") || "Check your email"}</p>
+              <p className="text-[14px] text-gray-800 dark:text-gray-200 mt-1 leading-relaxed">
+                {/* The address was written into a `||` fallback the
+                    populated key shadows — so someone who mistyped their
+                    email was told "your email", and waited. */}
+                {t("magicLinkSentDetail",
+                  "If {email} is registered, we've sent a sign-in link. It expires in 15 minutes.",
+                  { email })}
+              </p>
+              <button
+                type="button"
+                onClick={switchToPasswordMode}
+                className={`mt-3 text-[14px] font-medium ${linkClass}`}
+              >
+                {t("usePasswordInstead") || "Use password instead"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <form
+          onSubmit={magicMode ? handleMagicSubmit : handleSubmit}
+          noValidate
+          className={`${!magicMode && (hasAppleWeb || hasAppleNative || hasGoogle) ? "mt-5" : "mt-6"} space-y-4`}
+        >
+          <div>
+            <FieldLabel htmlFor="email">{t("emailLabel")}</FieldLabel>
+            <input
+              ref={emailRef}
+              id="email"
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (fieldErr.email) setFieldErr((f) => ({ ...f, email: null }));
+              }}
+              placeholder={t("emailPlaceholder")}
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              aria-invalid={fieldErr.email ? true : undefined}
+              aria-describedby={fieldErr.email ? "login-email-error" : undefined}
+              className={inputClass(!!fieldErr.email)}
+            />
+            <FieldError id="login-email-error">{fieldErr.email ? t(fieldErr.email) : null}</FieldError>
+          </div>
+
+          {/* Password field — hidden in magic-link mode */}
+          {!magicMode && (
+            <div>
+              <FieldLabel
+                htmlFor="password"
+                aside={
+                  <Link to="/forgot-password" state={{ prefillEmail: typedEmail }} className={`text-[14px] ${linkClass}`}>
+                    {t("forgotShort")}
+                  </Link>
+                }
+              >
+                {t("passwordLabel")}
+              </FieldLabel>
+              <PasswordInput
+                ref={passwordRef}
+                id="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErr.password) setFieldErr((f) => ({ ...f, password: null }));
+                }}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                required
+                aria-invalid={fieldErr.password ? true : undefined}
+                aria-describedby={fieldErr.password ? "login-password-error" : undefined}
+                invalid={!!fieldErr.password}
+              />
+              <FieldError id="login-password-error">{fieldErr.password ? t(fieldErr.password) : null}</FieldError>
+            </div>
+          )}
+
+          {/* Primary sign-in CTA — forest with paper text on /register and
+              /login (push 6, Manoj's B7): 11.6:1, where the old emerald-600
+              with white text measured 3.65:1. */}
+          <PrimaryButton
+            loading={magicMode ? magicSending : loading}
+            loadingLabel={magicMode ? (t("magicLinkSending") || "Sending…") : t("signingIn")}
+            className="mt-2"
+          >
+            {magicMode ? (t("magicLinkSend") || "Email me a sign-in link") : t("suSignInBtn")}
+          </PrimaryButton>
+          {/* R-e fix-up — the e-mail link creates an account when the
+              address is new: the Terms line sits under its button. */}
+          {magicMode && <SignupTermsLine variant="continue" isNative={isNative} />}
+
+          {/* Mode-toggle link — sits under the primary CTA so it
+              never competes for the eye. In password mode this
+              is "Email me a sign-in link instead"; in magic-link
+              mode it's "Use password instead". */}
+          <div className="text-center pt-1">
+            <button
+              type="button"
+              onClick={magicMode ? switchToPasswordMode : switchToMagicMode}
+              className={`text-[14px] ${linkClass}`}
+            >
+              {magicMode
+                ? (t("usePasswordInstead") || "Use password instead")
+                : (t("useEmailInstead") || "Email me a sign-in link instead")}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Task #90 — native Apple Sign-In moved into the OAuth row
+          above (rendered conditionally on hasAppleNative). We
+          replaced the @capacitor-community/apple-sign-in plugin
+          (which pinned capacitor-swift-pm ^7) with a thin in-project
+          Swift wrapper around AuthenticationServices — see
+          ios/App/App/AppleSignInPlugin.swift. */}
+
+      {/* iOS-only hint for users who signed up via Google on web.
+          Even with Apple SIWA available, we still hide Google on
+          iOS (no native Google Capacitor plugin yet). So
+          Google-account users still need the "Forgot password"
+          bridge until we add native Google. */}
+      {isNative && (
+        <p className="mt-4 text-center text-[13px] text-gray-600">
+          {t("loginGoogleHintNative") ||
+            "Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password."}
+        </p>
+      )}
+
+      {/* Apple Guideline 3.1.1 — no account registration on the iOS
+          app (sign-up is the on-ramp to an off-platform subscription).
+          Native is sign-in only; new businesses register on the web.
+          Hide the "create account" link in the native shell. */}
+      {!isNative && (
+        <p className="mt-6 text-center text-[14px] text-gray-600 dark:text-gray-400">
+          {t("newToBonBox")}{" "}
+          <Link to="/register" state={{ email: typedEmail }} className={`${linkClass} font-medium`}>
+            {t("createAccount")}
+          </Link>
+        </p>
+      )}
+    </AuthShell>
   );
 }
