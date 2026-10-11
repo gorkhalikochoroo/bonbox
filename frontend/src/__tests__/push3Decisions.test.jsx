@@ -7,7 +7,10 @@
  *   (2) Plan switching: § 8 says "Vil du skifte mellem Starter og Pro, så
  *       skriv til contact@bonbox.dk — så skifter vi planen for dig." The
  *       Stripe portal has plan switching OFF, so nothing in the app may
- *       promise a self-serve switch.
+ *       promise a self-serve switch. Round 2: "Skiftet gælder fra den dag,
+ *       vi skifter. Prisforskellen for resten af perioden lægges på næste
+ *       betaling eller fratrækkes." (Stripe's default proration when the
+ *       plan is switched in the Dashboard.)
  *   (C) The iPhone app (App Store 3.1.1 / 3.1.3) renders /terms too: its
  *       § 8 carries no link and no instruction to buy or manage outside the
  *       app, and the web text says "when you use BonBox in a browser" where
@@ -108,7 +111,7 @@ describe("decision 2: § 8 says how to switch between Starter and Pro", () => {
     renderTerms("da");
     const p = screen.getByTestId("terms-plan-switch");
     expect(p.textContent).toBe(
-      "Skift af plan. Vil du skifte mellem Starter og Pro, så skriv til contact@bonbox.dk — så skifter vi planen for dig.",
+      "Skift af plan. Vil du skifte mellem Starter og Pro, så skriv til contact@bonbox.dk — så skifter vi planen for dig. Skiftet gælder fra den dag, vi skifter. Prisforskellen for resten af perioden lægges på næste betaling eller fratrækkes.",
     );
     expect(within(p).getByRole("link").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
   });
@@ -117,7 +120,7 @@ describe("decision 2: § 8 says how to switch between Starter and Pro", () => {
     renderTerms("en");
     const p = screen.getByTestId("terms-plan-switch");
     expect(p.textContent).toBe(
-      "Switching plans. If you want to switch between Starter and Pro, write to contact@bonbox.dk — we will switch the plan for you.",
+      "Switching plans. If you want to switch between Starter and Pro, write to contact@bonbox.dk — we will switch the plan for you. The switch applies from the day we make it. The price difference for the rest of the period is added to your next payment or deducted from it.",
     );
     expect(within(p).getByRole("link").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
   });
@@ -155,15 +158,24 @@ describe("(C) § 8 in the iPhone app: no link, address or instruction to buy or 
         "Administrer abonnement", "Manage subscription"]) {
         expect(text).not.toContain(cta);
       }
+      // App Review 3.1.1: the app names no price — not even in the Terms.
+      expect(text).not.toMatch(/\b(129|249|199|349)\b|\d+\s?kr\./);
+      expect(screen.getByTestId("terms-founding-price").textContent).toBe(lang === "da"
+        ? "Stifterpris. Så længe færre end 100 virksomheder har et betalt abonnement hos os, får nye abonnementer stifterprisen. Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse. Opsiger du abonnementet, eller ophører det, fordi en betaling ikke går igennem, mister du stifterprisen, og et nyt abonnement senere koster den pris, der gælder på det tidspunkt."
+        : "Founding price. While fewer than 100 businesses have a paid subscription with us, new subscriptions get the founding price. You keep the founding price as long as your subscription stays active without a break. If you cancel the subscription, or it ends because a payment does not go through, the founding price is lost, and a new subscription later costs the price that applies at that time.");
       if (lang === "da") {
         expect(text).toContain("Abonnementer administreres uden for appen.");
-        expect(text).toContain("Et skift mellem Starter og Pro foretager vi for dig efter anmodning pr. e-mail.");
+        expect(screen.getByTestId("terms-plan-switch").textContent).toBe(
+          "Skift af plan. Et skift mellem Starter og Pro foretager vi for dig uden for appen. Skiftet gælder fra den dag, vi skifter. Prisforskellen for resten af perioden lægges på næste betaling eller fratrækkes.",
+        );
         expect(text).toContain("Du kan opsige abonnementet når som helst. Det sker uden for appen, i Stripes kundeportal.");
         expect(text).toContain("Imens kan du opdatere dit kort uden for appen, i Stripes kundeportal.");
         expect(text).toContain("Vi opkræver aldrig betaling med tilbagevirkende kraft.");
       } else {
         expect(text).toContain("Subscriptions are managed outside the app.");
-        expect(text).toContain("We switch a subscription between Starter and Pro for you on request by e-mail.");
+        expect(screen.getByTestId("terms-plan-switch").textContent).toBe(
+          "Switching plans. We switch a subscription between Starter and Pro for you, outside the app. The switch applies from the day we make it. The price difference for the rest of the period is added to your next payment or deducted from it.",
+        );
         expect(text).toContain("You can cancel at any time. This is done outside the app, in Stripe’s customer portal.");
         expect(text).toContain("Meanwhile you can update your card outside the app, in Stripe’s customer portal.");
         expect(text).toContain("We never charge retroactively.");
@@ -186,6 +198,18 @@ describe("(C) § 8 in the iPhone app: no link, address or instruction to buy or 
       const { container } = renderTerms(lang);
       const hrefs = [...container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
       expect(hrefs.some((h) => /pricing|subscription|checkout|stripe/i.test(h))).toBe(false);
+      cleanup();
+    }
+  });
+});
+
+describe("Switch (Manoj, 11 Oct round 2): from when a switch applies and what happens to the price", () => {
+  it("web § 8 still names the prices (the iPhone app does not)", () => {
+    for (const lang of ["da", "en"]) {
+      renderTerms(lang);
+      expect(screen.getByTestId("terms-founding-price").textContent).toContain(lang === "da"
+        ? "stifterprisen: Starter 129 kr. og Pro 249 kr. pr. måned (normalpris: Starter 199 kr. og Pro 349 kr.)."
+        : "the founding price: Starter 129 kr. and Pro 249 kr. per month (regular price: Starter 199 kr. and Pro 349 kr.).");
       cleanup();
     }
   });
