@@ -110,7 +110,9 @@ export default function MonthEndBundleBanner() {
   const btnStyle =
     phase === "do_it_now"
       ? "bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500"
-      : "bg-amber-600 hover:bg-amber-700 text-white dark:text-gray-900 dark:hover:bg-amber-500";
+      : // Dark: an amber TINT with an amber edge, not a solid amber-600 slab
+        // (the brightest solid on a night screen). Same hue as light.
+        "bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-500/15 dark:text-amber-300 dark:hover:bg-amber-500/25 dark:shadow-[inset_0_0_0_1px_var(--color-amber-700)]";
 
   return (
     <div

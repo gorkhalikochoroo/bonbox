@@ -189,14 +189,18 @@ export default function DemoDataCard({ forceShow = false, onAvailabilityChange }
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
+            {/* Dark: amber stays (attention, same hue as light) but as a TINT
+                with an amber edge, not a solid fill. Once the white primaries
+                went dark, the amber-600 slab (luminance 0.28) was the brightest
+                solid on the fresh phone screen. Light is unchanged. */}
             <button
               type="button"
               onClick={onSeed}
               disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                         bg-amber-600 hover:bg-amber-700 active:bg-amber-800 dark:hover:bg-amber-500 dark:active:bg-amber-500
+                         bg-amber-600 hover:bg-amber-700 active:bg-amber-800 dark:bg-amber-500/15 dark:hover:bg-amber-500/25 dark:active:bg-amber-500/25
                          disabled:opacity-60 disabled:cursor-wait
-                         text-white dark:text-gray-900 text-sm font-medium shadow-sm
+                         text-white dark:text-amber-300 text-sm font-medium shadow-sm dark:shadow-[inset_0_0_0_1px_var(--color-amber-700)]
                          focus:outline-none focus:ring-2 focus:ring-amber-500
                          focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             >

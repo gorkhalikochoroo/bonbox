@@ -63,6 +63,9 @@ const TW = {
   gray600: "#4a5565",
   gray900: "#101828",
   amber600: "#e17100",
+  amber300: "#ffd236",
+  amber500: "#fe9a00",
+  amber700: "#bb4d00",
   red500: "#fb2c36",
   red600: "#e7000b",
 };
@@ -130,8 +133,19 @@ describe("the dark inks the fix relies on clear their floors", () => {
     }
   });
 
-  it("gray-900 ink on the amber-600 action fill clears AA (white on it does not)", () => {
-    expect(contrast(TW.gray900, TW.amber600)).toBeGreaterThanOrEqual(4.5);
+  it("the dark amber action is a tint, not a slab: amber-300 ink clears AA, the edge is visible", () => {
+    // `bg-amber-500/15` composited over the subtle rung (DemoDataCard's well)
+    const over = (fg, a, bg) => {
+      const c = (h, i) => parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16);
+      return "#" + [0, 1, 2].map((i) => Math.round(a * c(fg, i) + (1 - a) * c(bg, i)).toString(16).padStart(2, "0")).join("");
+    };
+    const tint = over(TW.amber500, 0.15, L.subtle.dark);
+    expect(luminance(tint)).toBeLessThan(0.1); // amber-600 solid was 0.28
+    expect(luminance(TW.amber600)).toBeGreaterThan(0.25);
+    expect(contrast(TW.amber300, tint)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(TW.amber300, over(TW.amber500, 0.25, L.subtle.dark))).toBeGreaterThanOrEqual(4.5); // hover
+    expect(contrast(TW.amber700, tint)).toBeGreaterThanOrEqual(1.3); // the inset edge
+    // and white on the light amber-600 fill is the light-mode issue left to the owner
     expect(contrast(TW.white, TW.amber600)).toBeLessThan(4.5);
   });
 
@@ -177,6 +191,21 @@ describe("no near-white slab is a dark-mode fill", () => {
 
   it.each(SOLID_CONTROLS)("%s", (rel) => {
     expect(classStrings(rel).filter((s) => SLAB.test(s))).toEqual([]);
+  });
+});
+
+describe("amber is never a solid action fill in dark", () => {
+  // Amber means attention. In light the two amber CTAs keep their fill (an
+  // open owner question); in dark they are a tint + amber edge, so the
+  // brightest solid on a fresh night screen is not "try sample data".
+  it.each(["components/DemoDataCard.jsx", "components/MonthEndBundleBanner.jsx"])("%s", (rel) => {
+    const solid = classStrings(rel).filter((s) => /(^|\s)bg-amber-600(\s|$)/.test(s));
+    expect(solid.length).toBeGreaterThan(0);
+    for (const s of solid) {
+      expect(s).toContain("dark:bg-amber-500/15");
+      expect(s).toContain("dark:text-amber-300");
+      expect(s).not.toMatch(/dark:(hover:|active:)?bg-amber-(4|5|6)00(?![\w/])/);
+    }
   });
 });
 
