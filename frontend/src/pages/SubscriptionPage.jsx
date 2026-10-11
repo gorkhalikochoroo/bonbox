@@ -882,13 +882,17 @@ export default function SubscriptionPage() {
             (tier.id === "starter" || tier.id === "pro") &&
             !isCurrent;
 
-          // Push-3 review F3: the Pro card's "14 days free · No card
-          // required" badge is an offer for an account that has not paid
-          // yet. A subscriber (live Stripe subscription or a paid plan) who
-          // switches gets no trial — the switch is done by e-mail, and
-          // Stripe's trial days come from the signup trial only.
-          const showOfferBadge =
-            !!tier.badge && !hasLiveSub && currentPlan !== "starter" && currentPlan !== "pro";
+          // Push-3 review F3 + round 3 (G3): the Pro card's "14 days free ·
+          // No card required" badge is the SIGN-UP offer, and it is false
+          // for every signed-in account on this page: the checkout always
+          // collects a card (stripe_billing: payment_method_collection
+          // "always"), its trial days are only what is left of the signup
+          // trial (0 once that has ended), and a subscriber who switches gets
+          // none. /subscription is behind ProtectedRoute, so the badge only
+          // shows to an anonymous render; the public pricing on /
+          // (PricingV2) keeps the offer for new sign-ups. Not tied to
+          // /billing/me, so it never shows while that loads or fails.
+          const showOfferBadge = !!tier.badge && !user;
 
           // A paying subscriber's Free card has no button: "Start free" did
           // nothing (handleCta returns on "free"), and going to Free means
@@ -1016,7 +1020,7 @@ export default function SubscriptionPage() {
                 )}
               </div>
 
-              {/* Trial badge — Pro only, never to a paying subscriber */}
+              {/* Sign-up offer badge — Pro only, never to a signed-in account */}
               {showOfferBadge && (
                 <div className="text-[11px] font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-md px-2.5 py-1.5 mt-4 text-center">
                   {tier.badge}

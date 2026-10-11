@@ -73,6 +73,7 @@ vi.mock("../hooks/useEventLog", () => ({ trackEvent: () => {} }));
 
 const TermsPage = (await import("../pages/TermsPage")).default;
 const SubscriptionPage = (await import("../pages/SubscriptionPage")).default;
+const PricingV2 = (await import("../components/landing/v2/PricingV2")).default;
 
 afterEach(() => {
   cleanup();
@@ -447,7 +448,8 @@ describe("the trial text quotes the button's real label; np has the § 8 switch 
 // said "🎁 14 dage gratis · Intet kort krævet". A subscriber who switches
 // plan gets no trial (the switch is done by e-mail, and Stripe's trial days
 // come from the signup trial only), so the badge is not shown to an account
-// with a live subscription or a paid plan.
+// with a live subscription or a paid plan. Round 3 (G3): nor to any other
+// signed-in account — see below.
 describe("F3: no '14 days free' badge for a paying subscriber", () => {
   const paying = (plan, status = "active") => ({
     plan, trial_active: false, is_paid: true, subscription_status: status,
@@ -481,10 +483,46 @@ describe("F3: no '14 days free' badge for a paying subscriber", () => {
       expect(container.textContent).not.toContain(badge(lang));
     });
 
-    it(`${lang}: a trial account (no subscription) still sees the badge on the Pro card`, async () => {
-      renderSub({ ...paying("trial", null), is_paid: false }, lang);
-      await screen.findAllByTestId("checkout-terms-line");
-      expect(screen.getAllByText(badge(lang))).toHaveLength(1);
+    // Round 3 (G3): the badge is false for EVERY signed-in account on this
+    // page. The checkout always collects a card (stripe_billing:
+    // payment_method_collection="always"), and its trial days are only what
+    // is left of the signup trial (0 once it has ended). /subscription is
+    // behind ProtectedRoute, so the badge is never shown here; the public
+    // pricing (PricingV2 on /) keeps the offer, which is true for a sign-up.
+    for (const [who, billing] of [
+      ["a trial account (no subscription)", { ...paying("trial", null), is_paid: false, trial_active: true }],
+      ["a free account whose trial has ended", { ...paying("free", null), is_paid: false }],
+      ["a free account with a canceled subscription", { ...paying("free", "canceled"), is_paid: false }],
+    ]) {
+      it(`${lang}: ${who} sees no "14 days free · no card" badge on the plan page`, async () => {
+        const { container } = renderSub(billing, lang);
+        await screen.findAllByTestId("checkout-terms-line");
+        expect(container.textContent).not.toContain(badge(lang));
+        expect(container.textContent).not.toContain((lang === "da" ? da : en).pricingBadgeFreeTrial);
+        expect(container.textContent).not.toMatch(lang === "da" ? /Intet kort krævet/ : /No card required/);
+      });
+    }
+
+    it(`${lang}: no badge while /billing/me is still loading or has failed`, async () => {
+      langCode = lang;
+      authState = { user: { id: "u1", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+      get.mockReset();
+      get.mockImplementation((url) => (url === "/billing/me"
+        ? Promise.reject(new Error("cold start"))
+        : Promise.resolve({ data: url === "/waitlist/status" ? [] : {} })));
+      const { container } = render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+      expect(container.textContent).not.toContain(badge(lang));
+      await waitFor(() => expect(get).toHaveBeenCalledWith("/billing/me"));
+      expect(container.textContent).not.toContain(badge(lang));
+    });
+
+    it(`${lang}: the public pricing on / still makes the sign-up offer`, () => {
+      langCode = lang;
+      const { container } = render(<MemoryRouter><PricingV2 /></MemoryRouter>);
+      const d = lang === "da" ? da : en;
+      expect(d["landingV2.pricing.pro.trial"]).toBe(
+        lang === "da" ? "14 dage gratis · intet kort påkrævet" : "14 days free · no card required");
+      expect(container.textContent).toContain(d["landingV2.pricing.pro.trial"]);
     });
   }
 });
