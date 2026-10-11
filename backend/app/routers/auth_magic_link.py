@@ -42,6 +42,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils import abuse_signals
 from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
@@ -54,7 +55,7 @@ from app.schemas.magic_link import (
     ClaimDecisionIn, ClaimDecisionResponse, ClaimStatusResponse, ClaimTicketIn,
     MagicLinkRequest, MagicLinkResponse, MagicLinkVerify,
 )
-from app.services import audit_service
+from app.services import abuse_caps, audit_service
 from app.services.auth import create_access_token, get_current_user
 from app.services.email_service import send_email
 from app.services.magic_link_service import create_token, verify_token
@@ -174,6 +175,21 @@ def request_magic_link(
     email = data.email  # already normalized by the schema
     ip = _client_ip(request)
     generic_message = "If that email is registered, we've sent a sign-in link. Check your inbox in a moment."
+
+    # Fleet-wide and per-domain ceilings (R-sec): they hold when the caller
+    # rotates IP addresses, which the per-IP limit above does not. Over a
+    # ceiling, an address WITHOUT an account gets nothing — no token row, no
+    # audit row, no log line, no mail — and the identical 200. An existing
+    # account carries on (its own 3-per-10-minutes limit still applies).
+    try:
+        over = abuse_caps.magic_link_ceiling(db, email)
+    except Exception:  # noqa: BLE001 — couldn't check → don't send (same as deliver()'s cap_check_error)
+        db.rollback()
+        over = "check_error"
+    if over is not None and not abuse_caps.has_account(db, email):
+        if over in ("fleet", "domain"):
+            abuse_signals.bump(f"magic_link_{over}")
+        return MagicLinkResponse(ok=True, message=generic_message)
 
     # Service-layer email rate limit. If it trips, we DON'T propagate the
     # 429 — that would let an attacker count tokens per email and

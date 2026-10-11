@@ -11,7 +11,9 @@ from datetime import timedelta
 
 from sqlalchemy import case, func
 
+from app.config import settings
 from app.models.magic_link_token import MagicLinkToken
+from app.models.user import User
 from app.utils.time import utc_now
 
 
@@ -29,3 +31,46 @@ def magic_link_counts(db, domain: str | None = None) -> tuple[int, int]:
         q = q.filter(MagicLinkToken.email.endswith("@" + domain, autoescape=True))
     day, hour = q.one()
     return int(hour or 0), int(day or 0)
+
+
+def _over(hour: int, day: int, max_hour: int, max_day: int) -> bool:
+    return (max_hour > 0 and hour >= max_hour) or (max_day > 0 and day >= max_day)
+
+
+def magic_link_ceiling(db, email: str) -> str | None:
+    """"fleet" or "domain" when a sign-in mail ceiling is reached, else None.
+
+    fleet  — sign-in link rows in the last hour / 24 h, every address;
+    domain — the same for this e-mail's domain (the part after the last "@").
+    Settings are read at call time; a setting <= 0 is skipped, and with all
+    four off no query runs. Raises if a count fails — the caller decides
+    (the magic-link router then sends nothing, like deliver()'s
+    cap_check_error)."""
+    s = settings
+    fh, fd = s.MAGIC_LINK_FLEET_MAX_PER_HOUR, s.MAGIC_LINK_FLEET_MAX_PER_DAY
+    if fh > 0 or fd > 0:
+        if _over(*magic_link_counts(db), fh, fd):
+            return "fleet"
+    dh, dd = s.MAGIC_LINK_DOMAIN_MAX_PER_HOUR, s.MAGIC_LINK_DOMAIN_MAX_PER_DAY
+    email = (email or "").strip().lower()
+    domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+    if domain and (dh > 0 or dd > 0):
+        if _over(*magic_link_counts(db, domain), dh, dd):
+            return "domain"
+    return None
+
+
+def has_account(db, email: str) -> bool:
+    """Does a BonBox account use this (lower-cased) e-mail? A failed lookup
+    answers False: over a ceiling, "couldn't check" means "send nothing"."""
+    try:
+        return (
+            db.query(User.id).filter(func.lower(User.email) == (email or "").strip().lower()).first()
+            is not None
+        )
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
