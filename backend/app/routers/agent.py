@@ -81,18 +81,60 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 # barrier: every tool result passes through strip_contact_fields() before it
 # is streamed to the page or sent back to the model as a tool_result, so a
 # future tool that adds a contact field cannot leak it.
-_CONTACT_KEY_PARTS = ("phone", "email", "e_mail", "mobile")
+#
+# Keys are matched by whole word, never by substring (push-3 review F1): a
+# substring rule on "mobile" dropped "mobilepay" from query_revenue's
+# payment_split, so MobilePay revenue vanished from the "By payment" line, the
+# RevenueCard and the tool_result while total_revenue still counted it.
+# A key is split into words (snake_case, kebab-case, camelCase); it is a
+# contact field when one of its words is in _CONTACT_WORDS, or it spells
+# "e mail", or it has "mobile"/"mobil" not followed by "pay"/"payment"
+# ("mobile_number" goes, "mobile_pay" stays; "mobilepay" is one word and stays).
+_CONTACT_WORDS = frozenset({
+    "phone", "phones", "phonenumber", "phonenumbers", "telephone", "telephones",
+    "telefon", "telefonnummer", "tlf", "cellphone", "mobilenumber", "mobilephone",
+    "mobilnummer", "email", "emails", "emailaddress", "emailaddresses",
+})
+_MOBILE_WORDS = frozenset({"mobile", "mobil"})
+_PAYMENT_WORDS = frozenset({"pay", "payment", "payments"})
+# Dicts whose KEYS are data values, not field names: payment_split is keyed by
+# Sale.payment_method (a free string — "phone" can be a phone-order method).
+# Their keys are kept; their values are still checked.
+_DATA_KEYED_MAPS = frozenset({"payment_split"})
 
 
-def strip_contact_fields(value):
+def _key_words(key: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", key)
+    return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
+
+
+def _is_contact_key(key) -> bool:
+    if not isinstance(key, str):
+        return False
+    words = _key_words(key)
+    for i, w in enumerate(words):
+        nxt = words[i + 1] if i + 1 < len(words) else None
+        if w in _CONTACT_WORDS:
+            return True
+        if w == "e" and nxt == "mail":
+            return True
+        if w in _MOBILE_WORDS and nxt not in _PAYMENT_WORDS:
+            return True
+    return False
+
+
+def strip_contact_fields(value, _keep_keys: bool = False):
     """A copy of `value` without any dict key that names a phone number or an
-    e-mail address (any key containing phone / email / e_mail / mobile, any
-    case), at any depth. Names, figures and shifts are kept."""
+    e-mail address (phone / email / e-mail / mobile as a whole word in the
+    key, any case), at any depth. Names, figures, shifts and payment methods
+    (mobilepay, mobile_pay) are kept."""
     if isinstance(value, dict):
+        if _keep_keys:
+            return {k: strip_contact_fields(v) for k, v in value.items()}
         return {
-            k: strip_contact_fields(v)
+            k: strip_contact_fields(v, _keep_keys=k in _DATA_KEYED_MAPS)
             for k, v in value.items()
-            if not (isinstance(k, str) and any(p in k.lower() for p in _CONTACT_KEY_PARTS))
+            if not _is_contact_key(k)
         }
     if isinstance(value, (list, tuple)):
         return [strip_contact_fields(v) for v in value]

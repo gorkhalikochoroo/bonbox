@@ -12,9 +12,10 @@ All queries filter by user_id and exclude soft-deleted rows
 Every result is sent to Anthropic's API as a tool_result (routers/agent.py).
 So no tool returns a phone number or an e-mail address (Push 3, Manoj,
 11 Oct 2026: names, figures and shifts only — /privacy says so). The router
-also strips every key containing one of _CONTACT_KEY_PARTS
-(routers/agent.py, strip_contact_fields) from every result before it leaves
-the server, in case a future tool adds one.
+also strips every key that names a phone number or an e-mail address (by
+whole word, so payment methods like "mobilepay" stay — routers/agent.py,
+strip_contact_fields) from every result before it leaves the server, in
+case a future tool adds one.
 """
 
 from datetime import date, timedelta

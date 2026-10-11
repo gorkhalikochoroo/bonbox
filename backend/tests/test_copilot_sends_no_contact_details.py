@@ -347,3 +347,113 @@ def test_privacy_says_the_copilot_never_sends_stored_phone_numbers_or_emails():
     assert "Vi sender aldrig de telefonnumre eller e-mailadresser, der er gemt på din konto." in privacy
     # The old sentence that hid the names and contact details is gone.
     assert "never raw customer data" not in privacy and "aldrig rå kundedata" not in privacy
+
+
+# ─── the second barrier keeps payment methods (push-3 review F1) ────
+#
+# strip_contact_fields() used to drop every key that CONTAINED "mobile",
+# so query_revenue's payment_split lost its "mobilepay" entry: the
+# "By payment" line, the RevenueCard pills and the tool_result sent to
+# Claude no longer added up to total_revenue. Contact keys are now matched
+# by whole word, and the keys of payment_split are payment methods (data),
+# never field names.
+
+from app.models import Sale  # noqa: E402
+
+PAYMENT_SPLIT_KEYS = ("cash", "card", "mobilepay", "mobile_pay", "MobilePay", "mobilePay", "mixed")
+
+
+def _seed_sales(db, user) -> dict[str, float]:
+    amounts = {"cash": 200.0, "card": 300.0, "mobilepay": 500.0}
+    for method, amount in amounts.items():
+        db.add(Sale(user_id=user.id, date=date.today(), amount=amount, payment_method=method))
+    db.commit()
+    return amounts
+
+
+def test_mobilepay_is_never_stripped_at_any_depth():
+    for key in PAYMENT_SPLIT_KEYS:
+        raw = {key: 1, "data": {key: {"total": 2.0}, "rows": [{key: 3}]}}
+        assert agent_router.strip_contact_fields(raw) == raw, key
+
+
+def test_a_query_revenue_shaped_result_comes_through_unchanged():
+    raw = {
+        "summary": "This Month revenue: 1.000 kr from 3 sales",
+        "data": {
+            "total_revenue": 1000.0,
+            "payment_split": {k: {"total": 100.0, "count": 1} for k in PAYMENT_SPLIT_KEYS},
+            "currency": "DKK",
+        },
+    }
+    assert agent_router.strip_contact_fields(raw) == raw
+
+
+def test_the_payment_split_keeps_every_method_even_one_named_like_a_contact_field():
+    # Sale.payment_method is a free string (SaleCreate takes any str), so a
+    # method called "phone" (a phone order) is a payment method, not a
+    # phone number. Its figures are still checked for contact keys.
+    raw = {"data": {"payment_split": {
+        "phone": {"total": 50.0, "count": 1},
+        "mobile": {"total": 60.0, "count": 2, "email": "x@y.dk"},
+    }}}
+    assert agent_router.strip_contact_fields(raw) == {"data": {"payment_split": {
+        "phone": {"total": 50.0, "count": 1},
+        "mobile": {"total": 60.0, "count": 2},
+    }}}
+
+
+def test_contact_keys_are_still_stripped_by_whole_word():
+    contact = ("phone", "Phone", "phone_number", "phoneNumber", "phone_numbers", "mobile", "Mobile",
+               "mobile_number", "mobileNumber", "mobile_phone", "contact_mobile", "telephone", "email",
+               "Email", "EMAIL", "e_mail", "e-mail", "eMail", "email_address", "emailAddress", "emails",
+               "guest_email", "guest_phone", "contact_email", "contact_phone", "customer_phone",
+               "staff_email", "mobilenumber", "mobilnummer")
+    raw = {k: "secret" for k in contact}
+    raw.update({"name": "A", "mobilepay_total": 1, "mobile_pay_count": 2})
+    out = agent_router.strip_contact_fields(raw)
+    assert set(out) == {"name", "mobilepay_total", "mobile_pay_count"}
+
+
+def test_real_query_revenue_keeps_mobilepay_through_the_barrier(db):
+    u = _seed(db)
+    amounts = _seed_sales(db, u)
+    result = agent_router.strip_contact_fields(agent_tools.query_revenue(db, u.id, period="this_month"))
+    split = result["data"]["payment_split"]
+    assert {m: v["total"] for m, v in split.items()} == amounts
+    assert sum(v["total"] for v in split.values()) == result["data"]["total_revenue"] == 1000.0
+
+
+def test_claude_path_sends_and_streams_the_whole_payment_split(db, as_user, monkeypatch):
+    u = _seed(db)
+    amounts = _seed_sales(db, u)
+    as_user(u)
+    received, events = _chat_with_tools(monkeypatch, [("query_revenue", {"period": "this_month"})])
+    [sent] = _tool_results_sent(received)
+    split = json.loads(sent)["data"]["payment_split"]
+    assert {m: v["total"] for m, v in split.items()} == amounts
+    [streamed] = [d["result"] for e, d in events if e == "tool_result"]
+    assert {m: v["total"] for m, v in streamed["data"]["payment_split"].items()} == amounts
+
+
+def test_local_path_streams_the_whole_payment_split_and_names_mobilepay(db, as_user, monkeypatch):
+    u = _seed(db)
+    amounts = _seed_sales(db, u)
+    as_user(u)
+    monkeypatch.setattr(agent_router.settings, "USE_CLAUDE_API", False, raising=False)
+    monkeypatch.setattr(agent_router, "_detect_intent", lambda msg: ("query_revenue", {"period": "this_month"}))
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+            ip = f"10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+            return await c.post("/api/agent/chat", json={"message": "omsætning denne måned", "history": []},
+                                headers={"CF-Connecting-IP": ip})
+
+    resp = asyncio.run(run())
+    assert resp.status_code == 200, resp.text
+    events = _sse_events(resp.text)
+    [streamed] = [d["result"] for e, d in events if e == "tool_result"]
+    assert {m: v["total"] for m, v in streamed["data"]["payment_split"].items()} == amounts
+    text = "".join(d["delta"] for e, d in events if e == "text")
+    assert "mobilepay: 500" in text, text
