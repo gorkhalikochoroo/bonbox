@@ -2120,7 +2120,12 @@ export default function ProfilePage() {
                           setDeleting(true);
                           setDeleteError("");
                           try {
-                            await api.delete("/auth/delete-account", { data: { password: deletePassword } });
+                            // _noRetry: the server refuses a deletion with
+                            // 503 when Stripe can't stop the subscription or
+                            // settle the customer record. The interceptor's
+                            // cold-start retry turned one click into 5 DELETEs
+                            // behind a ~29 s spinner (push-3 review F2).
+                            await api.delete("/auth/delete-account", { data: { password: deletePassword }, _noRetry: true });
                             localStorage.clear();
                             window.location.href = "/login";
                           } catch (err) {
