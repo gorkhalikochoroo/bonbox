@@ -90,6 +90,15 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 #   (mobile, mobil, mobilnummer, contact_mobile, mobile2) · "mobil" followed
 #   later by "number"/"nummer"/"nr" (mobilepay_number: a MobilePay number IS
 #   a phone number).
+# Round 4 (H2): also "mail" (mail, mailadresse, kontakt_mail, mailAddress —
+# the everyday Danish word), "epost" (epost, e-post, e_post), "msisdn" and
+# "whatsapp" by substring; and the short, ambiguous phone words only as a
+# WHOLE WORD of the key (split on separators, camelCase and digits): tel,
+# tel_no / telno, tel_nr / telnr, gsm, gsm_nr, cell_number / cellNumber,
+# mob_no, fax, sms_number — so hotel, telemetry, excel or logs_merged are
+# not contact fields. Any key with "mobil" in it is a contact field (mobile,
+# mobilnummer, mobilepay_no, customer_mobilepay: a MobilePay number IS a
+# phone number) unless it is exempt under (ii).
 # Exactly two exemptions (push-3 review F1: a substring rule on "mobile"
 # dropped "mobilepay" from query_revenue's payment_split, so MobilePay revenue
 # vanished from the "By payment" line, the RevenueCard and the tool_result
@@ -98,11 +107,17 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 #        not field names. Their values are still checked, and a contact-looking
 #        key whose value is a plain string (a contact detail, not a figure)
 #        is still stripped;
-#   (ii) a key that is exactly a payment-method name: mobilepay, mobile_pay,
-#        MobilePay, mobilepayment(s).
-_CONTACT_SUBSTRINGS = ("phone", "email", "telefon", "tlf")
-_MOBIL_CONTACT = re.compile(r"mobil(?!e?pay)|mobil[a-z0-9]*?(?:number|nummer|nr)")
-_PAYMENT_METHOD_KEYS = frozenset({"mobilepay", "mobilepayment", "mobilepayments"})
+#   (ii) the payment method itself — the key with case and separators removed
+#        is mobilepay or mobilepayment(s) — or mobilepay + an aggregate
+#        (total, count, amount, revenue, sum, share, pct, percent, fee, fees).
+_CONTACT_SUBSTRINGS = ("phone", "email", "telefon", "tlf", "mail", "epost", "msisdn", "whatsapp")
+_PHONE_WORDS = re.compile(
+    r"_(?:tel(?:_?(?:no|nr))?|gsm(?:_?(?:no|nr))?|cell_?(?:number|no|nr)|mob_?(?:no|nr)"
+    r"|fax|sms_?(?:number|no|nr))_"
+)
+_MOBILEPAY_FIGURE = re.compile(
+    r"mobilepay(?:ments?)?|mobilepay(?:total|count|amount|revenue|sum|share|pct|percent|fees?)"
+)
 # Dicts whose KEYS are data values, not field names: payment_split is keyed by
 # Sale.payment_method (a free string — "phone" can be a phone-order method),
 # role_breakdown (query_staff) by the owner's role names ("Telefon").
@@ -113,21 +128,30 @@ def _normalized_key(key: str) -> str:
     return re.sub(r"[^a-z0-9]", "", key.lower())
 
 
+def _key_words(key: str) -> str:
+    """The key's words, lower case, each wrapped in "_": "cellNumber" →
+    "_cell_number_", "tel2" → "_tel_2_", "Kunde-Tel" → "_kunde_tel_"."""
+    k = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key)
+    k = re.sub(r"([A-Za-z])([0-9])", r"\1_\2", k)
+    return "_" + "_".join(w for w in re.split(r"[^a-z0-9]+", k.lower()) if w) + "_"
+
+
 def _is_contact_key(key) -> bool:
     if not isinstance(key, str):
         return False
     c = _normalized_key(key)
-    if c in _PAYMENT_METHOD_KEYS:
-        return False
-    return any(p in c for p in _CONTACT_SUBSTRINGS) or bool(_MOBIL_CONTACT.search(c))
+    if "mobil" in c:
+        return not _MOBILEPAY_FIGURE.fullmatch(c)
+    return any(p in c for p in _CONTACT_SUBSTRINGS) or bool(_PHONE_WORDS.search(_key_words(key)))
 
 
 def strip_contact_fields(value, _keep_keys: bool = False):
     """A copy of `value` without any dict key that names a phone number or an
-    e-mail address (phone / email / e-mail / telefon / tlf / mobil... in the
-    key, any case, any separators), at any depth. Names, figures, shifts and
-    payment methods (mobilepay, mobile_pay) are kept, and so are the keys of
-    payment_split and role_breakdown when their value is a figure."""
+    e-mail address (phone / email / mail / e-post / telefon / tlf / mobil...
+    in the key, any case, any separators; tel / gsm / fax ... as a whole
+    word), at any depth. Names, figures, shifts and the payment method
+    (mobilepay, mobile_pay, mobilepay_total ...) are kept, and so are the
+    keys of payment_split and role_breakdown when their value is a figure."""
     if isinstance(value, dict):
         if _keep_keys:
             return {

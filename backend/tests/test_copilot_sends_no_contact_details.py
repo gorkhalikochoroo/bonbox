@@ -532,3 +532,115 @@ def test_real_query_staff_keeps_a_role_named_like_a_contact_field(db):
     breakdown = result["data"]["role_breakdown"]
     assert breakdown == {"server": 1, "Telefon": 1, "Phone orders": 1}
     assert sum(breakdown.values()) == result["data"]["total_staff"] == 3
+
+
+# ─── round 4 (H2): "mail" / "e-post", more phone spellings, a strict MobilePay ──
+#
+# Round 3's substrings (phone, email, telefon, tlf, mobil...) missed e-mail
+# keys spelled with a bare "mail" — the everyday Danish word ("mailadresse",
+# "kontakt_mail") — and "epost" / "e-post", and common phone spellings (tel,
+# tel_nr, gsm, msisdn, whatsapp, cell_number, mob_no, fax). The ambiguous
+# short ones (tel, gsm, cell, mob, fax, sms) are matched only as a whole word
+# of the key (hotel, telemetry, excel, logs_merged are not contact fields).
+# And the MobilePay exemption is now strict: only the payment method itself
+# (mobilepay, mobilepayment(s)) and mobilepay + an aggregate (total, count,
+# amount, revenue, sum, share, pct, percent, fee, fees) are kept; a MobilePay
+# NUMBER or a person's MobilePay (mobilepay_no, customer_mobilepay) is not.
+
+import ast  # noqa: E402
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+STRIPPED_ROUND_4 = (
+    # e-mail spelled with a bare "mail", or "e-post"
+    "mail", "Mail", "mailadresse", "mail_adresse", "kontakt_mail", "kontaktmail", "mail_address",
+    "mailAddress", "epost", "e-post", "e_post", "kunde_epost",
+    # phone spellings
+    "tel", "Tel", "tel_no", "telno", "tel_nr", "telnr", "guest_tel", "telNo", "tel2", "Kunde-Tel",
+    "gsm", "gsm_nr", "gsmNr", "msisdn", "whatsapp", "whatsapp_number", "WhatsApp", "cell_number",
+    "cellNumber", "cellnumber", "mob_no", "mobNo", "fax", "fax_number", "sms_number",
+    # a MobilePay number, or a person's MobilePay, is a phone number
+    "mobilepay_no", "mobilePayNo", "mobilepay_num", "mobile_pay_no", "customer_mobilepay",
+    "guest_mobilepay", "payer_mobilepay", "contact_mobile_pay",
+)
+
+# Payment-method keys and MobilePay aggregates: figures, not contact details.
+KEPT_MOBILEPAY = (
+    "mobilepay", "mobile_pay", "MobilePay", "mobilePay", "Mobile-Pay", "mobilepayment",
+    "mobile_payments", "mobilepay_total", "mobile_pay_count", "mobilepay_amount", "mobilepay_revenue",
+    "mobilepay_sum", "mobilepay_share", "mobilepay_pct", "mobilepay_percent", "mobilepay_fee",
+    "mobilePayFees",
+)
+
+# Words that merely CONTAIN tel / cell / gsm / fax / mob / sms are not contact keys.
+KEPT_LOOKALIKES = (
+    "hotel", "hotel_revenue", "telemetry_count", "cancel_count", "excel_rows", "excel_number",
+    "logs_merged", "bags_mall", "faxe_total", "mobs", "smsa", "intel", "hostel_nights",
+)
+
+
+@pytest.mark.parametrize("key", STRIPPED_ROUND_4)
+def test_round_4_contact_spellings_are_stripped_at_any_depth(key):
+    assert agent_router.strip_contact_fields({key: "+4512345678", "name": "A"}) == {"name": "A"}
+    raw = {"data": {"rows": [{"name": "A", key: "ida@x.dk"}], "nested": {key: {"v": 1}, "total": 2}}}
+    assert agent_router.strip_contact_fields(raw) == {
+        "data": {"rows": [{"name": "A"}], "nested": {"total": 2}}}
+
+
+def test_the_mobilepay_method_and_its_aggregates_are_kept():
+    raw = {k: 1 for k in KEPT_MOBILEPAY}
+    assert agent_router.strip_contact_fields(raw) == raw
+
+
+def test_keys_that_merely_contain_a_short_phone_word_are_kept():
+    raw = {k: 1 for k in KEPT_LOOKALIKES}
+    assert agent_router.strip_contact_fields(raw) == raw
+
+
+def test_data_keyed_maps_keep_their_keys_and_drop_contact_strings_under_round_4_spellings():
+    raw = {"data": {
+        "payment_split": {"mobilepay": {"total": 500.0, "count": 3}, "Mail": {"total": 1.0},
+                          "mobilepay_no": "12345678"},
+        "role_breakdown": {"Tel": 2, "kontakt_mail": "ida@x.dk", "chef": 1},
+    }}
+    assert agent_router.strip_contact_fields(raw) == {"data": {
+        "payment_split": {"mobilepay": {"total": 500.0, "count": 3}, "Mail": {"total": 1.0}},
+        "role_breakdown": {"Tel": 2, "chef": 1},
+    }}
+
+
+def _literal_tool_keys() -> tuple[set[str], set[str]]:
+    """(dict keys the tools build, every identifier-like string literal and
+    keyword name in services/agent_tools.py — a superset)."""
+    path = Path(agent_tools.__file__)
+    tree = ast.parse(path.read_text())
+    docstrings = {
+        id(n.body[0].value) for n in ast.walk(tree)
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and n.body and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)
+    }
+    dict_keys, literals = set(), set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Dict):
+            dict_keys |= {k.value for k in n.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+        elif isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) \
+                and isinstance(n.slice, ast.Constant) and isinstance(n.slice.value, str):
+            dict_keys.add(n.slice.value)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings \
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_\-]*", n.value):
+            literals.add(n.value)
+        elif isinstance(n, ast.keyword) and n.arg:
+            literals.add(n.arg)
+    return dict_keys, literals | dict_keys
+
+
+def test_no_real_tool_key_is_stripped_by_the_rule():
+    """Every literal key the Copilot tools build (and every identifier-like
+    literal in agent_tools.py) goes through the rule: none is a contact key,
+    so no figure the Copilot shows can vanish (the F1 class of bug)."""
+    dict_keys, everything = _literal_tool_keys()
+    assert len(dict_keys) >= 90, sorted(dict_keys)  # the extraction found the tools' keys
+    stripped = sorted(k for k in everything if agent_router._is_contact_key(k))
+    assert stripped == [], stripped
+    raw = {k: 1 for k in everything}
+    assert agent_router.strip_contact_fields(raw) == raw
