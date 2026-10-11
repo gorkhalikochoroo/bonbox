@@ -18,6 +18,10 @@
 //          status "ok" (a FIRST scan) gets the success card, chime and
 //          haptic; "already" gets its own amber warning (different sound,
 //          warning haptic) so a reused/shared ticket can't pass as new.
+//          Exception: when THIS device let the ticket in a moment ago (its
+//          own "ok" < 2 min old, or a POST whose answer was lost < 60 s
+//          ago), "already" is the same guest re-presenting — a neutral
+//          "Allerede tjekket ind her" card, no tone, no alarm.
 //   L10  — Honest copy: "Allerede scannet kl. {time}" / "Refunderet" /
 //          "Billetten er ikke bekræftet" (the 409 is booking_not_confirmed,
 //          never "already scanned").
@@ -61,9 +65,18 @@ import SectionBanner from "../components/ui/SectionBanner";
 import MoneyField from "../components/ui/MoneyField";
 
 // ── Constants ────────────────────────────────────────────────────────
-// Scan debounce — same QR within this window is silently dropped so a
-// user holding the phone steady doesn't double-POST the scan endpoint.
+// Scan debounce — SLIDING. Every repeat read of the same QR pushes the
+// window out again, so a guest holding the phone up for 20 s is posted once;
+// the QR has to be out of view for this long before it is submitted again.
 const SCAN_DEBOUNCE_MS = 3000;
+// This device's own recent check-ins (ticket id → time of its "ok"). An
+// "already" for one of these is the same guest showing the ticket again,
+// not a reused ticket, so it gets the neutral card instead of the alarm.
+const OWN_CHECKIN_WINDOW_MS = 2 * 60 * 1000;
+// A scan POST that died with no response may still have landed. If the
+// next answer for that ticket within this window is "already", it was
+// most likely ours.
+const LOST_RESPONSE_WINDOW_MS = 60 * 1000;
 // Last-N visible scan history — keeps the flash log readable at the door.
 const MAX_HISTORY = 5;
 // Camera scan frame interval — using rAF gives us ~60 FPS which is more
@@ -137,6 +150,17 @@ function decodeQrPayload(qrText) {
   } catch {
     return null;
   }
+}
+
+// Small time-boxed memory: key → timestamp. Expired keys are pruned on
+// every write so a long door shift can't grow it without bound.
+function rememberAt(map, key, at, windowMs) {
+  for (const [k, v] of map) if (at - v >= windowMs) map.delete(k);
+  map.set(key, at);
+}
+function seenWithin(map, key, now, windowMs) {
+  const at = map.get(key);
+  return at != null && now - at < windowMs;
 }
 
 // Server timestamps (e.g. a ticket's scanned_at) are NAIVE UTC: the backend
@@ -291,6 +315,9 @@ function ScanFlashCard({ entry }) {
   // the host has to look at the guest. The one entry kind that tints its
   // border + icon amber, so it can't be mistaken for either neighbour.
   const warn = entry.kind === "warning";
+  // "info" = this device already let this guest in (they showed the ticket
+  // again). Nothing to act on: neutral surface, check icon, gray dot.
+  const info = entry.kind === "info";
   // gray-50/gray-200 neutral surface — same recipe as Card primitive.
   // Doctrine line: "context callouts neutral block + colored icon prefix".
   return (
@@ -304,7 +331,7 @@ function ScanFlashCard({ entry }) {
     >
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 shrink-0" aria-hidden="true">
-          {ok ? (
+          {ok || info ? (
             <Check size={18} strokeWidth={2.25} className="text-gray-700 dark:text-gray-200" />
           ) : warn ? (
             <AlertTriangle size={18} strokeWidth={2.25} className="text-amber-600 dark:text-amber-400" />
@@ -312,11 +339,12 @@ function ScanFlashCard({ entry }) {
             <AlertTriangle size={18} strokeWidth={2.25} className="text-gray-700 dark:text-gray-200" />
           )}
         </div>
-        {/* Status dot — green for success, amber for already-scanned, red
-            for error. Tracks the doctrine "● Paid" status-pill pattern. */}
+        {/* Status dot — green for success, gray for checked-in-here, amber
+            for already-scanned, red for error. Tracks the doctrine "● Paid"
+            status-pill pattern. */}
         <span
           className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${
-            ok ? "bg-emerald-500" : warn ? "bg-amber-500" : "bg-red-500"
+            ok ? "bg-emerald-500" : info ? "bg-gray-400" : warn ? "bg-amber-500" : "bg-red-500"
           }`}
           aria-hidden="true"
         />
@@ -558,8 +586,13 @@ export default function DoorScanPage() {
   const streamRef = useRef(null);
   const rafRef = useRef(null);
   const frameCountRef = useRef(0);
-  // Debounce: { text, until } — repeated reads of the same QR ignored
-  const lastScanRef = useRef({ text: null, until: 0 });
+  // Debounce: { text, until, slide } — repeated reads of the same QR are
+  // ignored and (while slide) push `until` out; see SCAN_DEBOUNCE_MS.
+  const lastScanRef = useRef({ text: null, until: 0, slide: true });
+  // ticket id → when THIS device got "ok" for it (OWN_CHECKIN_WINDOW_MS).
+  const ownCheckinsRef = useRef(new Map());
+  // ticket id → when a scan POST for it got no response (LOST_RESPONSE_WINDOW_MS).
+  const lostScansRef = useRef(new Map());
   const audioRef = useRef(null);
 
   // ── Gavekort redeem sheet ──────────────────────────────────────────
@@ -665,15 +698,16 @@ export default function DoorScanPage() {
       haptic.error();
       return;
     }
+    const whoLine = (data) => [
+      data?.customer_name,
+      data?.tier_label,
+      data?.booking_id ? `#${String(data.booking_id).slice(0, 8)}` : null,
+    ].filter(Boolean).join(" · ");
     // Already scanned → amber warning: own sound, warning haptic, and the
     // scanned count does NOT move (the guest was counted the first time).
     const flagAlreadyScanned = (scannedAt, data) => {
       const when = formatTimeShort(scannedAt);
-      const who = [
-        data?.customer_name,
-        data?.tier_label,
-        data?.booking_id ? `#${String(data.booking_id).slice(0, 8)}` : null,
-      ].filter(Boolean).join(" · ");
+      const who = whoLine(data);
       pushHistory({
         kind: "warning",
         title: when
@@ -685,6 +719,42 @@ export default function DoorScanPage() {
       if (audioRef.current) audioRef.current.warning();
       haptic.warning();
     };
+    // Already checked in BY THIS DEVICE → neutral card, no tone, a light
+    // tap. The host let this guest in a moment ago; nothing to check.
+    const flagCheckedInHere = (data) => {
+      pushHistory({
+        kind: "info",
+        title: t("scanCheckedInHere", "Allerede tjekket ind her"),
+        subtitle: whoLine(data) || t("scanCheckedInHereBody", "Du behøver ikke scanne igen"),
+        at: new Date().toISOString(),
+      });
+      haptic.light();
+    };
+    // The server answered for this ticket: that consumes any "no response"
+    // marker a previous POST for it left behind.
+    const takeLostAt = () => {
+      const at = lostScansRef.current.get(tid);
+      lostScansRef.current.delete(tid);
+      return at;
+    };
+    // "already" is only an alarm when someone ELSE let this ticket in.
+    const onAlready = (scannedAt, data, lostAt) => {
+      const now = Date.now();
+      if (seenWithin(ownCheckinsRef.current, tid, now, OWN_CHECKIN_WINDOW_MS)) {
+        flagCheckedInHere(data);
+        return;
+      }
+      if (lostAt != null && now - lostAt < LOST_RESPONSE_WINDOW_MS) {
+        // Our earlier POST most likely landed and only its answer was lost,
+        // so that check-in was ours: remember it, and count the guest (the
+        // lost "ok" never reached the counter).
+        rememberAt(ownCheckinsRef.current, tid, lostAt, OWN_CHECKIN_WINDOW_MS);
+        setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
+        flagCheckedInHere(data);
+        return;
+      }
+      flagAlreadyScanned(scannedAt, data);
+    };
     const flagError = (title, subtitle = null) => {
       pushHistory({ kind: "error", title, subtitle, at: new Date().toISOString() });
       if (audioRef.current) audioRef.current.failure();
@@ -694,10 +764,11 @@ export default function DoorScanPage() {
     try {
       const res = await api.post(`/tickets/${tid}/scan`, { qr: qrText });
       const data = res?.data || {};
+      const lostAt = takeLostAt();
       // The endpoint is idempotent: a re-scan is a 200 too, with
       // status "already". Only "ok" — a first scan — is a welcome.
       if (data.status === "already") {
-        flagAlreadyScanned(data.scanned_at, data);
+        onAlready(data.scanned_at, data, lostAt);
         return;
       }
       if (data.status !== "ok") {
@@ -714,6 +785,7 @@ export default function DoorScanPage() {
           .filter(Boolean).join(" · ") || t("scanAccepted", "Billet bekræftet"),
         at: new Date().toISOString(),
       });
+      rememberAt(ownCheckinsRef.current, tid, Date.now(), OWN_CHECKIN_WINDOW_MS);
       setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
       if (audioRef.current) audioRef.current.success();
       haptic.success();
@@ -722,12 +794,19 @@ export default function DoorScanPage() {
       const body = err?.response?.data;
       const rawDetail = body?.detail;
       const detail = rawDetail || body?.message;
+      const lostAt = err?.response ? takeLostAt() : undefined;
       let title;
       let subtitle = null;
       if (!err?.response && (err?.isAxiosError || err?.request)) {
         // No HTTP answer at all (offline, timeout, DNS). We can't know if the
-        // scan landed, so say what to do — not what happened.
+        // scan landed, so say what to do — not what happened — and remember
+        // the ticket: an "already" for it next means this POST got through.
         title = t("scanNetworkError", "Ingen forbindelse — scan billetten igen");
+        rememberAt(lostScansRef.current, tid, Date.now(), LOST_RESPONSE_WINDOW_MS);
+        // The card says "scan again": if the QR is still held up, let the
+        // retry fire once the window runs out instead of waiting for it to
+        // leave the frame (the sliding debounce would otherwise hold it).
+        if (lastScanRef.current.text === qrText) lastScanRef.current.slide = false;
       } else if (status === 409 && rawDetail?.error === "booking_not_confirmed") {
         // The 409 this endpoint sends is an unconfirmed BOOKING (pending /
         // cancelled / expired), not a repeat scan.
@@ -737,14 +816,18 @@ export default function DoorScanPage() {
           : null;
       } else if (status === 409 && (body?.scanned_at || rawDetail?.scanned_at)) {
         // Tolerated shape: a 409 that does carry a prior stamp IS a re-scan.
-        flagAlreadyScanned(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body);
+        onAlready(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body, lostAt);
         return;
       } else if (status === 410) {
         title = t("scanRefunded", "Billet ugyldig — refunderet");
       } else if (status === 404) {
         title = t("scanNotFound", "Billet findes ikke");
       } else if (status === 403) {
-        title = t("scanWrongEvent", "Forkert arrangement");
+        // Not "wrong event": this endpoint answers another tenant's ticket
+        // with 404 and the wrong-event check happens on the device before
+        // any POST. A 403 comes from the session (a login without scan
+        // rights), so say that.
+        title = t("scanNoAccess", "Du har ikke adgang til at scanne billetter");
       } else if (typeof detail === "string" && detail.trim()) {
         title = detail;
       } else {
@@ -799,10 +882,14 @@ export default function DoorScanPage() {
       if (gkOpenRef.current) return;
 
       const now = Date.now();
-      if (lastScanRef.current.text === code.data && now < lastScanRef.current.until) {
-        return; // within 3-second debounce — silently drop
+      const last = lastScanRef.current;
+      if (last.text === code.data && now < last.until) {
+        // Same QR still in view: drop it, and slide the window so it only
+        // reopens once the QR has been out of view for SCAN_DEBOUNCE_MS.
+        if (last.slide) last.until = now + SCAN_DEBOUNCE_MS;
+        return;
       }
-      lastScanRef.current = { text: code.data, until: now + SCAN_DEBOUNCE_MS };
+      lastScanRef.current = { text: code.data, until: now + SCAN_DEBOUNCE_MS, slide: true };
 
       // Gavekort mode: only gavekort QRs are valid here. Reject anything else
       // (e.g. an event ticket) instead of falling through to the ticket path —
@@ -901,7 +988,7 @@ export default function DoorScanPage() {
     }
     setScanning(false);
     unlockPortrait();
-    lastScanRef.current = { text: null, until: 0 };
+    lastScanRef.current = { text: null, until: 0, slide: true };
     frameCountRef.current = 0;
   }, []);
 

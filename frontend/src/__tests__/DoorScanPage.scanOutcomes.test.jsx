@@ -14,6 +14,12 @@
  * AudioContext so "no success chime" is a measured fact, not a mock call.
  * Strings resolve from the real da dictionary, so every key is proven to
  * exist in Danish, not just in an inline fallback.
+ *
+ * Follow-up (same day, adversarial review): the same-QR debounce slides (a
+ * guest holding the phone up is posted ONCE, not every 3 s), and an
+ * "already" for a ticket THIS device just let in — its own "ok", or a POST
+ * whose answer was lost — is a neutral "Allerede tjekket ind her", not the
+ * reuse alarm. A 403 says "no access", not "wrong event".
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -196,6 +202,25 @@ async function scanOnce(expectedPosts) {
   await waitFor(() => expect(api.post).toHaveBeenCalledTimes(expectedPosts));
 }
 
+// Keep the QR in view: one camera read every `stepMs` for `durationMs`.
+// Each read is waited for, so every one of them reached the debounce.
+async function holdQr(durationMs, stepMs = 500) {
+  for (let held = 0; held < durationMs; held += stepMs) {
+    clock += stepMs;
+    qrQueue.push(QR);
+    await waitFor(() => expect(qrQueue.length).toBe(0));
+  }
+}
+
+const networkError = () =>
+  Object.assign(new Error("Network Error"), {
+    isAxiosError: true,
+    code: "ERR_NETWORK",
+    request: {},
+  });
+
+const isWarningTone = (tone) => tone.freq === 523 && tone.type === "triangle";
+
 const cards = () => Array.from(document.querySelectorAll("[data-scan-kind]"));
 const newestCard = () => cards()[0];
 
@@ -215,7 +240,7 @@ describe("DoorScanPage — ticket scan outcomes", () => {
     expect(screen.getByText("1 / 100 scannet · 99 tilbage")).toBeInTheDocument();
   });
 
-  it("second scan of the same ticket → amber 'already' warning, NO success chime, count unchanged", async () => {
+  it("same ticket again after this device's 2-minute window → amber 'already' warning, NO success chime, count unchanged", async () => {
     api.post
       .mockResolvedValueOnce({ data: okBody })
       .mockResolvedValueOnce({ data: { ...okBody, status: "already" } });
@@ -225,6 +250,9 @@ describe("DoorScanPage — ticket scan outcomes", () => {
     await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("success"));
     const tonesAfterFirst = tones.length;
 
+    // Minutes later the ticket is back: not the guest re-presenting at the
+    // door this device just let them through, so it IS the reuse alarm.
+    clock += 2 * 60_000;
     await scanOnce(2);
     await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("warning"));
 
@@ -323,6 +351,158 @@ describe("DoorScanPage — ticket scan outcomes", () => {
     expect(screen.getByText("0 / 100 scannet · 100 tilbage")).toBeInTheDocument();
   });
 
+  it("holding the same QR in view for 10 s posts ONCE (the debounce slides)", async () => {
+    api.post.mockResolvedValue({ data: okBody });
+    await openScanner();
+    await scanOnce(1);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("success"));
+
+    // A fixed 3 s window would re-post at 3 s, 6 s and 9 s.
+    await holdQr(10_000);
+
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(cards()).toHaveLength(1);
+    expect(haptic.warning).not.toHaveBeenCalled();
+    expect(tones.some(isWarningTone)).toBe(false);
+  });
+
+  it("QR out of view for 3 s+ and back → posts again; out for less → still dropped", async () => {
+    api.post
+      .mockResolvedValueOnce({ data: okBody })
+      .mockResolvedValueOnce({ data: { ...okBody, status: "already" } });
+    await openScanner();
+    await scanOnce(1);
+    await holdQr(2_000);
+
+    // Away 2 s (no reads), then back: inside the window → dropped.
+    clock += 2_000;
+    qrQueue.push(QR);
+    await waitFor(() => expect(qrQueue.length).toBe(0));
+    expect(api.post).toHaveBeenCalledTimes(1);
+
+    // Away 3.1 s, then back → submitted again.
+    clock += 3_100;
+    qrQueue.push(QR);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+  });
+
+  it("this device's own 'ok', then 'already' for the same ticket → neutral card, no warning tone", async () => {
+    api.post
+      .mockResolvedValueOnce({ data: okBody })
+      .mockResolvedValueOnce({ data: { ...okBody, status: "already" } });
+    await openScanner();
+
+    await scanOnce(1);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("success"));
+    const tonesAfterFirst = tones.length;
+
+    await scanOnce(2); // 5 s later, well inside the 2-minute window
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("info"));
+
+    const card = newestCard();
+    expect(card.textContent).toContain(da.scanCheckedInHere);
+    expect(card.textContent).toContain("Sita Sharma");
+    expect(card.textContent).not.toContain("Allerede scannet");
+    expect(card.className).not.toMatch(/amber/);
+    // No tone at all for the repeat — certainly not the warning or the chime.
+    expect(tones.slice(tonesAfterFirst)).toHaveLength(0);
+    expect(haptic.warning).not.toHaveBeenCalled();
+    expect(haptic.error).not.toHaveBeenCalled();
+    expect(haptic.success).toHaveBeenCalledTimes(1);
+    expect(haptic.light).toHaveBeenCalledTimes(1);
+    // Counted once.
+    expect(screen.getByText("1 / 100 scannet · 99 tilbage")).toBeInTheDocument();
+  });
+
+  it("network error, then 'already' for that ticket → neutral card (the lost scan went through)", async () => {
+    api.post
+      .mockRejectedValueOnce(networkError())
+      .mockResolvedValueOnce({ data: { ...okBody, status: "already" } });
+    await openScanner();
+
+    await scanOnce(1);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("error"));
+    expect(newestCard().textContent).toContain(da.scanNetworkError);
+    const tonesAfterError = tones.length;
+
+    // The card says "scan again" and the guest keeps holding the phone up:
+    // the retry fires by itself once the 3 s window passes.
+    await holdQr(4_000);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("info"));
+
+    const card = newestCard();
+    expect(card.textContent).toContain(da.scanCheckedInHere);
+    expect(card.textContent).not.toContain("Allerede scannet");
+    expect(tones.slice(tonesAfterError).some(isWarningTone)).toBe(false);
+    expect(tones.slice(tonesAfterError)).toHaveLength(0);
+    expect(haptic.warning).not.toHaveBeenCalled();
+    // The lost "ok" never reached the counter — this guest is counted now.
+    expect(screen.getByText("1 / 100 scannet · 99 tilbage")).toBeInTheDocument();
+  });
+
+  it("network error, then 'already' more than 60 s later → amber alarm", async () => {
+    api.post
+      .mockRejectedValueOnce(networkError())
+      .mockResolvedValueOnce({ data: { ...okBody, status: "already" } });
+    await openScanner();
+
+    await scanOnce(1);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("error"));
+
+    clock += 61_000;
+    await scanOnce(2);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("warning"));
+    expect(haptic.warning).toHaveBeenCalledTimes(1);
+  });
+
+  it("a ticket someone else let in (no 'ok' on this device) → amber alarm, warning tone", async () => {
+    api.post.mockResolvedValueOnce({ data: { ...okBody, status: "already" } });
+    await openScanner();
+
+    await scanOnce(1);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("warning"));
+
+    const card = newestCard();
+    expect(card.textContent).toContain("Allerede scannet kl. 20.48");
+    expect(card.textContent).toContain("Sita Sharma");
+    expect(card.textContent).not.toContain(da.scanCheckedInHere);
+    expect(tones.filter(isWarningTone)).toHaveLength(2);
+    expect(tones.some(isSuccessTone)).toBe(false);
+    expect(haptic.warning).toHaveBeenCalledTimes(1);
+    expect(haptic.light).not.toHaveBeenCalled();
+    expect(screen.getByText("0 / 100 scannet · 100 tilbage")).toBeInTheDocument();
+  });
+
+  it("403 → 'no access' message, never 'Forkert arrangement'", async () => {
+    api.post.mockRejectedValueOnce(
+      Object.assign(new Error("Request failed with status code 403"), {
+        isAxiosError: true,
+        response: { status: 403, data: { detail: "Not allowed" } },
+      }),
+    );
+    await openScanner();
+    await scanOnce(1);
+
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("error"));
+    const card = newestCard();
+    expect(card.textContent).toContain(da.scanNoAccess);
+    expect(card.textContent).not.toContain(da.scanWrongEvent);
+    expect(haptic.error).toHaveBeenCalledTimes(1);
+  });
+
+  it("a QR for another event is still stopped on the device as 'Forkert arrangement'", async () => {
+    const otherEventQr = `eyJhbGciOiJIUzI1NiJ9.${b64url({ tid: TICKET_ID, eid: "other-event" })}.sig`;
+    await openScanner();
+    clock += 5_000;
+    qrQueue.push(otherEventQr);
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("error"));
+
+    expect(newestCard().textContent).toContain(da.scanWrongEvent);
+    expect(newestCard().textContent).toContain(da.scanWrongEventBody);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it("every new door-scan string has a real English and Danish entry", () => {
     for (const key of [
       "scanNotConfirmed",
@@ -330,6 +510,9 @@ describe("DoorScanPage — ticket scan outcomes", () => {
       "scanNetworkError",
       "scanAlreadyScannedBody",
       "scanAlreadyScannedAt",
+      "scanCheckedInHere",
+      "scanCheckedInHereBody",
+      "scanNoAccess",
     ]) {
       expect(typeof en[key]).toBe("string");
       expect(typeof da[key]).toBe("string");
@@ -337,5 +520,9 @@ describe("DoorScanPage — ticket scan outcomes", () => {
     }
     expect(en.scanNotConfirmed).toBe("Ticket not confirmed");
     expect(da.scanNotConfirmed).toBe("Billetten er ikke bekræftet");
+    expect(da.scanCheckedInHere).toBe("Allerede tjekket ind her");
+    expect(en.scanCheckedInHere).toBe("Already checked in on this device");
+    expect(da.scanNoAccess).toBe("Du har ikke adgang til at scanne billetter");
+    expect(en.scanNoAccess).toBe("You don't have access to scan tickets");
   });
 });
