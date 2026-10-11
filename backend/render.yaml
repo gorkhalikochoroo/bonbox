@@ -202,6 +202,15 @@ services:
         sync: false
       - key: BANK_PROVIDER
         sync: false
+      # R-h privacy clean-ups: OFF in code (dry-run counts only). Manoj turns
+      # them on in Render after checking GET /api/admin/privacy-purges; listed
+      # so a rebuilt service does not silently drop a flag he switched on.
+      - key: PRIVACY_PURGE_WAITLIST_ENABLED
+        sync: false
+      - key: PRIVACY_PURGE_ORPHANS_ENABLED
+        sync: false
+      - key: AUDIT_EMAIL_CLEANUP_ENABLED
+        sync: false
       # ── Bank connect, MobilePay, WhatsApp ──
       - key: GOCARDLESS_SECRET_ID
         sync: false
