@@ -148,8 +148,22 @@ describe("the icon files the HTML and the manifests point at", () => {
   const html = read(join(FRONTEND, "index.html"));
   const hrefs = [...html.matchAll(/<link rel="(?:icon|apple-touch-icon)"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
 
+  it("the icon links are the kit's favicon snippet, with no SVG link", () => {
+    // The b is drawn separately for 16 and 32 px. An SVG link would win in
+    // Firefox and scale the 32 px drawing down to a soft 16 px tab icon.
+    expect(hrefs.map((h) => h.split("?")[0])).toEqual([
+      "/favicon.ico", "/favicon-32.png", "/favicon-16.png", "/apple-touch-icon.png",
+    ]);
+    expect(html).not.toMatch(/<link rel="icon" type="image\/svg\+xml"/);
+    expect(html).toMatch(/<link rel="icon" href="\/favicon\.ico\?v=3" sizes="16x16 32x32" \/>/);
+    expect(pngSize(join(PUBLIC, "apple-touch-icon.png"))).toEqual([180, 180]);
+    expect(pngSize(join(PUBLIC, "vagtplan-apple-touch-icon.png"))).toEqual([180, 180]);
+    // Kept as a file: email_unsubscribe.py links it by absolute URL.
+    expect(existsSync(join(PUBLIC, "favicon.svg"))).toBe(true);
+  });
+
   it("every icon link resolves to a real file and carries the same cache param", () => {
-    expect(hrefs.length).toBeGreaterThanOrEqual(5);
+    expect(hrefs.length).toBeGreaterThanOrEqual(4);
     for (const h of hrefs) {
       const [path, query] = h.split("?");
       expect(existsSync(join(PUBLIC, path)), path).toBe(true);

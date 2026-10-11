@@ -54,12 +54,16 @@
          it could fall back from — which is why search results kept showing the
          old icon. Static files in public/ are matched before rewrites, so the
          file's existence is the fix. Raster PNGs are listed too because an
-         SVG-only favicon is the least well-supported option across crawlers. -->
-    <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
+         SVG-only favicon is the least well-supported option across crawlers.
+         These four links are the logo kit's snippet (docs/brand/README.md).
+         The b is drawn separately for 16 and 32 px, so there is deliberately
+         no SVG link: browsers that prefer an SVG would scale the 32 px
+         drawing down to a soft 16 px tab icon. /favicon.svg stays in public/
+         because other pages link it by absolute URL. -->
+    <link rel="icon" href="/favicon.ico?v=3" sizes="16x16 32x32" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
-    <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
     <!-- viewport-fit=cover exposes env(safe-area-inset-*) so layouts can
          dodge the notch / punch-hole camera. We dropped maximum-scale +
          user-scalable=no so kitchen owners can pinch-zoom into a small
