@@ -155,9 +155,9 @@ export default function DemoDataCard({ forceShow = false, onAvailabilityChange }
   // surfaces means owners get one mental model: amber = sample data.
   return (
     <div
-      className="bg-gray-50 dark:bg-gray-800/50
+      className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))]
                  rounded-xl p-5 sm:p-6 border border-gray-100
-                 dark:border-gray-700 shadow-sm"
+                 dark:border-[rgb(var(--surface-line))] shadow-sm"
       role="region"
       aria-label={t("demoCardAria", "Try BonBox with sample data")}
     >
@@ -194,9 +194,9 @@ export default function DemoDataCard({ forceShow = false, onAvailabilityChange }
               onClick={onSeed}
               disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                         bg-amber-600 hover:bg-amber-700 active:bg-amber-800
+                         bg-amber-600 hover:bg-amber-700 active:bg-amber-800 dark:hover:bg-amber-500 dark:active:bg-amber-500
                          disabled:opacity-60 disabled:cursor-wait
-                         text-white text-sm font-medium shadow-sm
+                         text-white dark:text-gray-900 text-sm font-medium shadow-sm
                          focus:outline-none focus:ring-2 focus:ring-amber-500
                          focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             >

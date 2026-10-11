@@ -311,7 +311,34 @@ const LADDER_SWEPT = [
   "components/dashboard/ProfitLossCard.jsx",
   "components/dashboard/RevenueTrendChart.jsx",
   "components/dashboard/TopSellersCard.jsx",
+  "components/dashboard/TodayOnShiftCard.jsx",
+  // The rest of what /dashboard renders lives outside components/dashboard/:
+  // the "Skal ses nu" queue, the brief, the prompts and the banners. Walking
+  // Home in dark found the first card on the page (NeedsYouQueue) painting
+  // the ground, and every icon chip in the brief/prompt row painted in its
+  // own card's colour — the same two collapses, one directory over.
+  "components/NeedsYouQueue.jsx",
+  "components/AccountantHoursWidget.jsx",
+  "components/FinancialCurtain.jsx",
+  "components/DailyBriefCard.jsx",
+  "components/ConnectionsProgressCard.jsx",
+  "components/PushOptInPrompt.jsx",
+  "components/AnomalyAlertsCard.jsx",
+  "components/BranchSummaryCard.jsx",
+  "components/SmartStaffingCard.jsx",
+  "components/CloserPromptCard.jsx",
+  "components/MonthEndBundleBanner.jsx",
+  "components/TrialBanner.jsx",
+  "components/DemoDataCard.jsx",
+  "components/ExpiryAlertsCard.jsx",
 ];
+
+/**
+ * Swept for the ground and hairline rules, but with no NEUTRAL surface of its
+ * own to put on the ladder: a tinted interrupt card (red/amber wash on a ring).
+ * Listed, not loosened — the adoption mirror below still counts everyone else.
+ */
+const TINT_ONLY = ["components/ExpiryAlertsCard.jsx"];
 
 /** Every class string in `rel` that declares a surface resolving to the ground. */
 function groundPaintedSurfaces(rel) {
@@ -387,7 +414,14 @@ describe("no surface on a job page paints the page ground", () => {
     const adopting = LADDER_SWEPT.filter((rel) =>
       /dark:bg-\[rgb\(var\(--surface-(card|subtle|raised)\)\)\]/.test(code(rel)),
     );
-    expect(adopting.length).toBe(LADDER_SWEPT.length);
+    expect(adopting.length).toBe(LADDER_SWEPT.length - TINT_ONLY.length);
+    expect(TINT_ONLY.every((rel) => LADDER_SWEPT.includes(rel))).toBe(true);
+  });
+
+  it.each(TINT_ONLY)("%s is exempt from adoption only because it has no neutral surface", (rel) => {
+    // The exemption cannot hide a neutral card: the moment this file grows a
+    // bg-white / bg-gray-50 surface, it has something to put on the ladder.
+    expect(classStrings(rel).filter((s) => LIGHT_NEUTRAL_BG.test(s))).toEqual([]);
   });
 });
 
