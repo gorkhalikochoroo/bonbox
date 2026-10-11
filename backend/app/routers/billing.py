@@ -70,6 +70,20 @@ CHECKOUT_PORTAL_FAILED_EN = (
     "subscription, so we did not start a new payment. Please try again in a few "
     "minutes, or write to contact@bonbox.dk."
 )
+# The refusal when Stripe could not be asked whether the account already has
+# a subscription (push-3 round 4, H1) — it claims no subscription, since we
+# could not check. The same sentences as checkoutSubscriptionCheckFailed in
+# frontend/src/i18n/{da,en}.js.
+CHECKOUT_CHECK_FAILED_DA = (
+    "Vi kunne ikke tjekke dit abonnement hos Stripe lige nu, så vi har ikke "
+    "startet en betaling. Prøv igen om et par minutter, eller skriv til "
+    "contact@bonbox.dk."
+)
+CHECKOUT_CHECK_FAILED_EN = (
+    "We couldn't check your subscription at Stripe just now, so we did not "
+    "start a payment. Please try again in a few minutes, or write to "
+    "contact@bonbox.dk."
+)
 limiter = Limiter(key_func=client_ip)
 
 
@@ -376,42 +390,52 @@ def create_checkout(
     #   • Stripe has no live subscription (or no such customer) → the stale
     #     row was corrected by the self-heal's own path, and the normal
     #     checkout below goes ahead.
-    if _has_live_subscription(user):
-        def _portal():
-            try:
-                return stripe_billing.create_billing_portal_session(user, db)
-            except Exception:  # noqa: BLE001
-                log.exception("checkout: portal session raised for live subscriber user=%s", user.id)
-                return None
+    #
+    # Round 4 (H1): Stripe is asked before EVERY checkout, not only when our
+    # row says live. A row that says canceled / None / unpaid / incomplete
+    # can still have a live subscription at Stripe (a late
+    # customer.subscription.deleted for an OLD subscription wipes the row of
+    # the current one), and that account was sent a second checkout. An
+    # account that never had Stripe (no stored customer, the search by
+    # bonbox_user_id finds none) checks out as before, its row untouched.
+    # "Couldn't check" is refused with 502 subscription_check_failed, whose
+    # message claims no subscription.
+    def _portal():
+        try:
+            return stripe_billing.create_billing_portal_session(user, db)
+        except Exception:  # noqa: BLE001
+            log.exception("checkout: portal session raised for live subscriber user=%s", user.id)
+            return None
 
-        portal = None
-        if (user.plan or "free") in ("starter", "pro", "business"):
+    portal = None
+    if _has_live_subscription(user) and (user.plan or "free") in ("starter", "pro", "business"):
+        portal = _portal()
+        at_stripe = None if portal else stripe_billing.confirm_live_subscription(user, db)
+    else:
+        at_stripe = stripe_billing.confirm_live_subscription(user, db)
+        if at_stripe == "live":
             portal = _portal()
-            at_stripe = None if portal else stripe_billing.confirm_live_subscription(user, db)
-        else:
-            at_stripe = stripe_billing.confirm_live_subscription(user, db)
-            if at_stripe == "live":
-                portal = _portal()
-        if portal:
-            return {"url": portal["url"], "already_subscribed": True}
-        if at_stripe != "none":
-            log.error(
-                "checkout: refused for live subscriber user=%s status=%s plan=%s stripe=%s — "
-                "no portal session; no new checkout created",
-                user.id, user.subscription_status, user.plan, at_stripe,
-            )
-            return JSONResponse(
-                status_code=502,
-                content={
-                    "detail": {
-                        "code": "subscriber_portal_failed",
-                        "message": CHECKOUT_PORTAL_FAILED_EN,
-                        "message_da": CHECKOUT_PORTAL_FAILED_DA,
-                    },
-                    "_error": True,
-                    "_recoverable": True,
+    if portal:
+        return {"url": portal["url"], "already_subscribed": True}
+    if at_stripe != "none":
+        log.error(
+            "checkout: refused for a (possible) subscriber user=%s status=%s plan=%s stripe=%s — "
+            "no portal session; no new checkout created",
+            user.id, user.subscription_status, user.plan, at_stripe,
+        )
+        checked = at_stripe == "live"
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": {
+                    "code": "subscriber_portal_failed" if checked else "subscription_check_failed",
+                    "message": CHECKOUT_PORTAL_FAILED_EN if checked else CHECKOUT_CHECK_FAILED_EN,
+                    "message_da": CHECKOUT_PORTAL_FAILED_DA if checked else CHECKOUT_CHECK_FAILED_DA,
                 },
-            )
+                "_error": True,
+                "_recoverable": True,
+            },
+        )
 
     # Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1):
     # the Terms are B2B and carry no consumer withdrawal section, so a

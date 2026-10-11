@@ -358,26 +358,32 @@ def get_or_create_customer(user: User, db: Session) -> Optional[str]:
         # Verify the stored ID still exists in the current Stripe mode. If the
         # current key (live) doesn't recognize the ID (was created in test),
         # Stripe raises InvalidRequestError with code='resource_missing'.
+        # A customer deleted in the dashboard does NOT raise: Stripe answers
+        # {id, deleted: true} (push-3 round 4) — treated the same way, or its
+        # id would go to Checkout and fail on every attempt.
         try:
-            s.Customer.retrieve(user.stripe_customer_id)
-            return user.stripe_customer_id
+            existing = s.Customer.retrieve(user.stripe_customer_id)
+            gone = _g(existing, "deleted") is True
         except Exception as e:
             msg = str(e).lower()
             if "no such customer" in msg or "resource_missing" in msg:
-                log.warning(
-                    "Stored stripe_customer_id=%s for user=%s no longer exists "
-                    "(likely test→live mismatch); creating fresh customer",
-                    user.stripe_customer_id, user.id,
-                )
-                user.stripe_customer_id = None
-                # also clear the linked subscription — that one's also test-mode
-                user.stripe_subscription_id = None
-                user.subscription_status = None
-                db.commit()
-                # fall through to creation below
+                gone = True
             else:
                 log.exception("Customer retrieve failed for user=%s: %s", user.id, e)
                 return None
+        if not gone:
+            return user.stripe_customer_id
+        log.warning(
+            "Stored stripe_customer_id=%s for user=%s no longer exists "
+            "(test→live mismatch, or deleted in the dashboard); creating fresh customer",
+            user.stripe_customer_id, user.id,
+        )
+        user.stripe_customer_id = None
+        # also clear the linked subscription — that one's also test-mode
+        user.stripe_subscription_id = None
+        user.subscription_status = None
+        db.commit()
+        # fall through to creation below
 
     try:
         customer = s.Customer.create(
@@ -884,10 +890,11 @@ def _stripe_says_no_such_customer(e: Exception) -> bool:
 
 def confirm_live_subscription(user: User, db: Session) -> str:
     """Ask STRIPE whether this account still has a live subscription. The
-    checkout gate (routers/billing.create_checkout) calls this when our row
-    says "live" but that is not enough to decide: the portal could not be
-    opened, or the plan was never raised (a SEPA / MobilePay debit still
-    settling — or a stale row).
+    checkout gate (routers/billing.create_checkout) calls this before EVERY
+    checkout (push-3 round 4 — our row's status is not proof either way: a
+    late webhook for an old subscription can wipe the row of the current
+    one), and for a paid plan with a live status when its portal could not
+    be opened.
 
     Returns "live", "none" or "unknown" — never a bare boolean, and
     "couldn't check" is "unknown"; the caller then refuses (the safe side).
@@ -902,11 +909,14 @@ def confirm_live_subscription(user: User, db: Session) -> str:
       • anything else (not configured, down, timeout, odd reply,
         more subscriptions than one page, a failed DB write)       → "unknown"
 
-    On "none" our stale fields are corrected through the self-heal's own
-    path (_forget_dead_subscription — the customer id goes only when Stripe
-    has no such customer), with an audit row, BEFORE the checkout that
-    follows: a stale live status would otherwise count as a founding seat and
-    hand this account the founding price. An orphaned customer found by the
+    On "none" our stale fields — a live-looking status (any of
+    STRIPE_LIVE_SUBSCRIPTION_STATUSES), or a customer Stripe no longer has —
+    are corrected through the self-heal's own path
+    (_forget_dead_subscription — the customer id goes only when Stripe has
+    no such customer), with an audit row, BEFORE the checkout that follows;
+    a row that already says canceled / None is not touched. (A stale live
+    status would otherwise count as a founding seat and hand this account
+    the founding price.) An orphaned customer found by the
     search is linked again (as sync_user_subscription_from_stripe does).
     """
     s = _stripe()
@@ -950,7 +960,13 @@ def confirm_live_subscription(user: User, db: Session) -> str:
             if _g(subs, "has_more") is True:
                 return "unknown"
 
-    # Stripe confirms: no live subscription. Correct the stale row.
+    # Stripe confirms: no live subscription. Correct the row only when it is
+    # stale (push-3 round 4): it still says live (or unpaid / incomplete), or
+    # Stripe has no such customer. A row that already says canceled / None is
+    # left alone — no audit row, and a plan granted by hand (no Stripe ever)
+    # is never dropped just because the account opened a checkout.
+    if not customer_gone and (user.subscription_status or "").lower() not in STRIPE_LIVE_SUBSCRIPTION_STATUSES:
+        return "none"
     old_status, old_plan = user.subscription_status, user.plan
     new_plan = "free" if (old_plan or "free") in ("starter", "pro", "business") else old_plan
     try:

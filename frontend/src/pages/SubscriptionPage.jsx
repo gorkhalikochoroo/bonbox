@@ -501,6 +501,14 @@ export default function SubscriptionPage() {
             "checkoutSubscriberPortalFailed",
             "We couldn't open your subscription at Stripe just now. You already have a subscription, so we did not start a new payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
           ));
+        } else if (e?.response?.data?.detail?.code === "subscription_check_failed") {
+          // Push-3 round 4 (H1): the server could not ask Stripe whether this
+          // account already has a subscription, so it started no payment.
+          // Claims no subscription — we could not check.
+          setMsg(t(
+            "checkoutSubscriptionCheckFailed",
+            "We couldn't check your subscription at Stripe just now, so we did not start a payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
+          ));
         } else if (e?.response?.status === 409 && e.response.data?.payment_unavailable) {
           // Backend says this tier can't check out yet — degrade to waitlist.
           fallbackToWaitlist = true;

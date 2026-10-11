@@ -569,3 +569,49 @@ describe("F4: a live subscriber's refused checkout is explained in the app's lan
     );
   });
 });
+
+// Push-3 round 4 (H1, money): the server asks Stripe before EVERY checkout.
+// When Stripe can't be asked, it refuses with 502 subscription_check_failed —
+// a message that claims no subscription (the account may not have one). The
+// page says so in the app's language, never the "you already have a
+// subscription" text.
+describe("H1: a checkout refused because Stripe couldn't be asked is explained in the app's language", () => {
+  for (const lang of ["da", "en"]) {
+    it(lang, async () => {
+      langCode = lang;
+      authState = { user: { id: "u1", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+      get.mockReset();
+      get.mockImplementation((url) => Promise.resolve({
+        data: url === "/billing/me"
+          ? { plan: "free", trial_active: false, is_paid: false, subscription_status: "canceled",
+            stripe_configured: true, checkout_ready: { starter: true, pro: true, any: true } }
+          : url === "/waitlist/status" ? [] : {},
+      }));
+      post.mockReset();
+      post.mockImplementation((url) => (url === "/billing/stripe/checkout-session"
+        ? Promise.reject({ response: { status: 502, data: { detail: {
+          code: "subscription_check_failed", message: en.checkoutSubscriptionCheckFailed,
+          message_da: da.checkoutSubscriptionCheckFailed } } } })
+        : Promise.resolve({ data: {} })));
+      render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+      const [, proLine] = await screen.findAllByTestId("checkout-terms-line");
+      const card = proLine.closest(".relative");
+      within(card).getByRole("button").click();
+      const d = lang === "da" ? da : en;
+      expect(await screen.findByText(d.checkoutSubscriptionCheckFailed)).toBeTruthy();
+      expect(screen.queryByText(d.checkoutSubscriberPortalFailed)).toBeNull();
+      expect(post).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("da and en say the same thing, claim no subscription, and the Danish is Danish", () => {
+    expect(da.checkoutSubscriptionCheckFailed).toBe(
+      "Vi kunne ikke tjekke dit abonnement hos Stripe lige nu, så vi har ikke startet en betaling. Prøv igen om et par minutter, eller skriv til contact@bonbox.dk.",
+    );
+    expect(en.checkoutSubscriptionCheckFailed).toBe(
+      "We couldn't check your subscription at Stripe just now, so we did not start a payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
+    );
+    expect(da.checkoutSubscriptionCheckFailed).not.toMatch(/allerede/);
+    expect(en.checkoutSubscriptionCheckFailed).not.toMatch(/already/);
+  });
+});

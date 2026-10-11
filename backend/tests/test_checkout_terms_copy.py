@@ -169,7 +169,9 @@ def _post_checkout(client, user, plan="pro", body=None, create_result="ok"):
          patch("app.services.stripe_billing.checkout_ready",
                return_value={"starter": True, "pro": True, "any": True}), \
          patch("app.services.stripe_billing.create_checkout_session", create), \
-         patch("app.services.stripe_billing.create_billing_portal_session", portal):
+         patch("app.services.stripe_billing.create_billing_portal_session", portal), \
+         patch("app.services.stripe_billing.confirm_live_subscription",
+               return_value="none"):  # push-3 round 4: Stripe is asked first; it has no live sub
         r = client.post("/api/billing/stripe/checkout-session",
                         json=body if body is not None else {"plan": plan})
     return r, create, portal

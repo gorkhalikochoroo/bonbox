@@ -17,6 +17,10 @@ Pinned here:
   * a live subscription on any plan gets the portal, never a checkout;
   * an account without a live subscription (none, canceled) checks out as
     before.
+
+Round 4 (H1): Stripe is asked before EVERY checkout, not only when our row
+says live, and "couldn't check" is refused with a message that does not
+claim a subscription (502 subscription_check_failed).
 """
 from __future__ import annotations
 
@@ -136,6 +140,23 @@ def _assert_refused(r):
     )
 
 
+def _assert_check_failed(r):
+    """Round 4 (H1): Stripe could not be asked (down, odd reply, more than one
+    page). Refused — but the message does not claim a subscription the
+    account may not have."""
+    assert r.status_code == 502, r.text
+    detail = r.json()["detail"]
+    assert detail["code"] == "subscription_check_failed"
+    assert detail["message"] == (
+        "We couldn't check your subscription at Stripe just now, so we did not start a payment. "
+        "Please try again in a few minutes, or write to contact@bonbox.dk."
+    )
+    assert detail["message_da"] == (
+        "Vi kunne ikke tjekke dit abonnement hos Stripe lige nu, så vi har ikke startet en betaling. "
+        "Prøv igen om et par minutter, eller skriv til contact@bonbox.dk."
+    )
+
+
 @pytest.mark.parametrize("stripe_says", ["live", "unknown"])
 @pytest.mark.parametrize("status", ["active", "trialing", "past_due"])
 @pytest.mark.parametrize("plan", ["starter", "pro"])
@@ -144,7 +165,7 @@ def test_portal_failure_for_a_subscriber_creates_no_checkout(db_session, client,
     user = _make_user(db_session, plan=plan, status=status)
     with caplog.at_level(logging.ERROR, logger="bonbox.billing"):
         r, create, portal = _post(client, user, portal_result=None, stripe_says=stripe_says)
-    _assert_refused(r)
+    (_assert_refused if stripe_says == "live" else _assert_check_failed)(r)
     portal.assert_called_once()
     create.assert_not_called()
     assert _checkout_counter(db_session, user) == 0
@@ -169,7 +190,7 @@ def test_subscriber_without_a_customer_id_creates_no_checkout(db_session, client
          patch.object(stripe_billing, "_stripe", return_value=mock_stripe), \
          patch.object(stripe_billing, "checkout_ready", return_value={"starter": True, "pro": True, "any": True}):
         r = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
-    _assert_refused(r)
+    _assert_check_failed(r)  # round 4: the search's odd reply is "couldn't check"
     mock_stripe.checkout.Session.create.assert_not_called()
     mock_stripe.Customer.create.assert_not_called()
 
@@ -188,7 +209,7 @@ def test_real_portal_helper_failing_at_stripe_never_reaches_checkout(db_session,
          patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro_regular"), \
          patch.object(settings, "STRIPE_PRICE_ID_PRO_FOUNDING", "price_pro_founding"):
         r = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
-    _assert_refused(r)
+    _assert_check_failed(r)  # round 4: the list's odd reply is "couldn't check"
     mock_stripe.billing_portal.Session.create.assert_called_once()
     mock_stripe.checkout.Session.create.assert_not_called()
 
@@ -217,7 +238,7 @@ def test_a_subscriber_still_gets_the_portal_when_it_works(db_session, client):
                                          ("free", "incomplete_expired"), ("free", "unpaid")])
 def test_no_live_subscription_checks_out_as_before(db_session, client, plan, status):
     user = _make_user(db_session, plan=plan, status=status)
-    r, create, portal = _post(client, user, portal_result=None)
+    r, create, portal = _post(client, user, portal_result=None, stripe_says="none")
     assert r.status_code == 200, r.text
     assert r.json()["url"] == "https://stripe.test/checkout"
     create.assert_called_once()
@@ -280,10 +301,13 @@ def _stripe_down():
     return stripe_sdk.APIConnectionError("Could not connect to Stripe")
 
 
-def _sdk(*, portal="https://billing.stripe.test/p", subs=(), has_more=False, customers=None):
+def _sdk(*, portal="https://billing.stripe.test/p", subs=(), has_more=False, customers=None,
+         customer_deleted=False):
     """portal: a URL, or an Exception the portal call raises.
     subs: subscription statuses Stripe lists for the customer, or an Exception.
-    customers: ids Customer.search finds by bonbox_user_id, or an Exception."""
+    customers: ids Customer.search finds by bonbox_user_id, or an Exception.
+    customer_deleted: Customer.retrieve answers {deleted: true} (a customer
+    deleted in the Stripe dashboard — Stripe does not raise for that)."""
     calls = {"portal": [], "subs": [], "search": [], "customer_create": [], "checkout": []}
 
     def _construct(cls, data):
@@ -317,7 +341,10 @@ def _sdk(*, portal="https://billing.stripe.test/p", subs=(), has_more=False, cus
     def cust_retrieve(cid, **kw):
         if isinstance(subs, Exception) and "No such customer" in str(subs):
             raise _missing_customer()
-        return _construct(stripe_sdk.Customer, {"id": cid, "object": "customer"})
+        data = {"id": cid, "object": "customer"}
+        if customer_deleted:
+            data["deleted"] = True
+        return _construct(stripe_sdk.Customer, data)
 
     def cust_create(**kw):
         calls["customer_create"].append(kw)
@@ -475,7 +502,7 @@ def test_stripe_unreachable_refuses_and_changes_nothing(db_session, client, plan
     before = _row(db_session, user)
     sdk, calls = _sdk(portal=_stripe_down(), subs=_stripe_down())
     r, seen = _post_sdk(client, user, sdk)
-    _assert_refused(r)
+    _assert_check_failed(r)
     assert seen == [] and calls["checkout"] == []
     assert _row(db_session, user) == before
     assert _checkout_counter(db_session, user) == 0
@@ -488,7 +515,7 @@ def test_more_subscriptions_than_one_page_is_not_a_no(db_session, client):
     before = _row(db_session, user)
     sdk, calls = _sdk(subs=("canceled",), has_more=True)
     r, seen = _post_sdk(client, user, sdk)
-    _assert_refused(r)
+    _assert_check_failed(r)
     assert seen == []
     assert _row(db_session, user) == before
 
@@ -499,7 +526,7 @@ def test_no_customer_id_and_stripe_search_down_refuses(db_session, client):
     user = _make_user(db_session, plan="free", status="past_due", customer=None)
     sdk, calls = _sdk(customers=_stripe_down())
     r, seen = _post_sdk(client, user, sdk)
-    _assert_refused(r)
+    _assert_check_failed(r)
     assert seen == [] and calls["subs"] == []
 
 
@@ -526,13 +553,223 @@ def test_no_customer_id_but_stripe_finds_one_with_a_live_subscription(db_session
     assert _row(db_session, user)["customer"] == "cus_found"
 
 
-# Stripe is asked only when our row says "live"
+# ─── round 4 (H1): Stripe is asked before EVERY checkout ─────────────
+#
+# Round 3 asked Stripe only when our row said live (active / trialing /
+# past_due). A row that says canceled, None, unpaid or incomplete can still
+# have a live subscription at Stripe — a late customer.subscription.deleted
+# for an OLD subscription wipes the row of the current one — and that account
+# was sent a second checkout. (The round-3 test that pinned "Stripe is not
+# asked without a local live status" asserted that hole; it is replaced by
+# the first test below, same account states, now asserting the portal.)
+# Every account with a Stripe customer — stored, or found by its
+# bonbox_user_id — is now asked first:
+#   live    → the portal (502 subscriber_portal_failed when it can't open);
+#   none    → a stale live-looking row is corrected, then the checkout;
+#   unknown → 502 subscription_check_failed (it claims no subscription).
+# An account that never had Stripe checks out as before, its row untouched.
 
-@pytest.mark.parametrize("plan,status", [("trial", None), ("free", "canceled"), ("free", "unpaid")])
-def test_stripe_is_not_asked_without_a_local_live_status(db_session, client, plan, status):
+NOT_LIVE_LOCALLY = [("trial", None), ("free", None), ("free", "canceled"), ("free", "unpaid"),
+                    ("free", "incomplete"), ("free", "incomplete_expired"), ("pro", "canceled")]
+
+
+def _audit_rows(db, user):
+    return db.query(SecurityEvent).filter(SecurityEvent.user_id == user.id).all()
+
+
+@pytest.mark.parametrize("at_stripe", ["active", "past_due", "unpaid", "incomplete"])
+@pytest.mark.parametrize("plan,status", NOT_LIVE_LOCALLY)
+def test_a_row_that_looks_dead_but_stripe_has_a_live_subscription_gets_the_portal(
+        db_session, client, plan, status, at_stripe):
     user = _make_user(db_session, plan=plan, status=status)
-    sdk, calls = _sdk(subs=("active",))
+    before = _row(db_session, user)
+    sdk, calls = _sdk(subs=("canceled", at_stripe))
     r, seen = _post_sdk(client, user, sdk)
     assert r.status_code == 200, r.text
-    assert calls["subs"] == [] and calls["portal"] == [] and calls["search"] == []
-    assert len(seen) == 1
+    assert r.json() == {"url": "https://billing.stripe.test/p", "already_subscribed": True}
+    assert len(calls["subs"]) == 1 and calls["subs"][0]["customer"] == "cus_live_1"
+    assert seen == [] and calls["checkout"] == [] and calls["customer_create"] == []
+    assert _row(db_session, user) == before
+    assert _checkout_counter(db_session, user) == 0
+
+
+def test_the_verifiers_probe_a_late_delete_for_an_old_subscription_opens_no_second_checkout(db_session, client):
+    """Sub B is active at Stripe. A delayed customer.subscription.deleted for
+    the OLD sub A wiped the row (canceled / free / no sub / no period end).
+    Before round 4 the next Upgrade click opened a real checkout without
+    asking Stripe — a second subscription billed every month."""
+    user = _make_user(db_session, plan="pro", status="active")
+    user.plan, user.subscription_status = "free", "canceled"
+    user.stripe_subscription_id, user.subscription_period_end = None, None
+    db_session.commit()
+    sdk, calls = _sdk(subs=("active",))
+    r, _ = _post_sdk(client, user, sdk, real_checkout=True)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"url": "https://billing.stripe.test/p", "already_subscribed": True}
+    assert calls["checkout"] == [] and calls["customer_create"] == []
+    assert _checkout_counter(db_session, user) == 0
+
+
+@pytest.mark.parametrize("plan,status", [("free", "canceled"), ("trial", None), ("free", "unpaid")])
+def test_a_row_that_looks_dead_stripe_live_and_the_portal_fails_is_refused(db_session, client, plan, status):
+    user = _make_user(db_session, plan=plan, status=status)
+    before = _row(db_session, user)
+    sdk, calls = _sdk(portal=_stripe_down(), subs=("active",))
+    r, seen = _post_sdk(client, user, sdk)
+    _assert_refused(r)
+    assert len(calls["portal"]) == 1
+    assert seen == [] and calls["checkout"] == []
+    assert _row(db_session, user) == before
+    assert _checkout_counter(db_session, user) == 0
+
+
+@pytest.mark.parametrize("stripe_answer", ["down", "more_pages"])
+@pytest.mark.parametrize("plan,status", [("free", "canceled"), ("trial", None), ("pro", "canceled")])
+def test_stripe_unreachable_for_a_row_that_looks_dead_refuses_with_a_neutral_message(
+        db_session, client, plan, status, stripe_answer):
+    user = _make_user(db_session, plan=plan, status=status)
+    before = _row(db_session, user)
+    sdk, calls = (_sdk(subs=_stripe_down()) if stripe_answer == "down"
+                  else _sdk(subs=("canceled",), has_more=True))
+    r, seen = _post_sdk(client, user, sdk)
+    _assert_check_failed(r)
+    assert calls["portal"] == [] and seen == [] and calls["checkout"] == []
+    assert _row(db_session, user) == before
+    assert _audit_rows(db_session, user) == []
+    assert _checkout_counter(db_session, user) == 0
+
+
+def test_no_customer_id_and_the_search_down_refuses_for_a_row_that_looks_dead(db_session, client):
+    user = _make_user(db_session, plan="trial", status=None, customer=None)
+    sdk, calls = _sdk(customers=_stripe_down())
+    r, seen = _post_sdk(client, user, sdk)
+    _assert_check_failed(r)
+    assert len(calls["search"]) == 1 and calls["subs"] == [] and seen == []
+
+
+def test_no_customer_id_and_an_orphaned_customer_with_a_live_subscription_gets_the_portal(db_session, client):
+    user = _make_user(db_session, plan="free", status=None, customer=None)
+    sdk, calls = _sdk(customers=["cus_found"], subs=("active",))
+    r, seen = _post_sdk(client, user, sdk)
+    assert r.status_code == 200, r.text
+    assert r.json()["already_subscribed"] is True
+    assert calls["subs"][0]["customer"] == "cus_found"
+    assert seen == []
+    assert _row(db_session, user)["customer"] == "cus_found"
+
+
+@pytest.mark.parametrize("subs", [(), ("canceled",), ("incomplete_expired", "canceled")])
+@pytest.mark.parametrize("plan,status", [("free", "canceled"), ("trial", None), ("free", None),
+                                         ("pro", "canceled")])
+def test_stripe_has_no_live_subscription_checks_out_and_leaves_an_accurate_row_alone(
+        db_session, client, plan, status, subs):
+    """Our row already says there is nothing live: nothing to correct, no
+    audit row — the checkout opens as before."""
+    user = _make_user(db_session, plan=plan, status=status)
+    before = _row(db_session, user)
+    sdk, calls = _sdk(subs=subs)
+    r, seen = _post_sdk(client, user, sdk)
+    assert r.status_code == 200, r.text
+    assert r.json()["url"] == "https://stripe.test/checkout"
+    assert len(calls["subs"]) == 1 and calls["portal"] == []
+    assert seen == [{"status": status, "customer": "cus_live_1", "sub": before["sub"], "plan": plan}]
+    assert _row(db_session, user) == before
+    assert _audit_rows(db_session, user) == []
+    assert _checkout_counter(db_session, user) == 1
+
+
+@pytest.mark.parametrize("status", ["unpaid", "incomplete"])
+def test_a_stale_unpaid_or_incomplete_row_is_corrected_before_the_checkout(db_session, client, status):
+    """unpaid / incomplete count as live at Stripe. When Stripe has none, our
+    row is stale: corrected (self-heal path, audit row) before the checkout."""
+    user = _make_user(db_session, plan="free", status=status)
+    sdk, calls = _sdk(subs=("canceled",))
+    r, seen = _post_sdk(client, user, sdk)
+    assert r.status_code == 200, r.text
+    assert r.json()["url"] == "https://stripe.test/checkout"
+    assert seen == [{"status": None, "customer": "cus_live_1", "sub": None, "plan": "free"}]
+    assert any(f"status:'{status}'->None" in (e.detail or "") for e in _audit_rows(db_session, user))
+
+
+def test_a_customer_stripe_no_longer_has_is_healed_for_a_row_that_looks_dead_too(db_session, client):
+    user = _make_user(db_session, plan="free", status="canceled")
+    sdk, calls = _sdk(subs=_missing_customer())
+    r, _ = _post_sdk(client, user, sdk, real_checkout=True)
+    assert r.status_code == 200, r.text
+    assert r.json()["url"] == "https://checkout.stripe.test/new"
+    assert len(calls["customer_create"]) == 1
+    [session] = calls["checkout"]
+    assert session["customer"] == "cus_new"
+    row = _row(db_session, user)
+    assert (row["customer"], row["sub"], row["status"]) == ("cus_new", None, None)
+
+
+@pytest.mark.parametrize("plan", ["trial", "free", "pro"])
+def test_an_account_that_never_had_stripe_checks_out_as_before(db_session, client, plan):
+    """No stored customer, and Stripe's search by bonbox_user_id (never by
+    e-mail) finds none: the checkout opens as before and the row is not
+    touched — a 'pro' granted by hand stays 'pro', and no audit row."""
+    user = _make_user(db_session, plan=plan, status=None, customer=None)
+    before = _row(db_session, user)
+    sdk, calls = _sdk(customers=[])
+    r, seen = _post_sdk(client, user, sdk)
+    assert r.status_code == 200, r.text
+    assert r.json()["url"] == "https://stripe.test/checkout"
+    assert len(calls["search"]) == 1 and calls["subs"] == [] and calls["portal"] == []
+    assert seen == [{"status": None, "customer": None, "sub": None, "plan": plan}]
+    assert _row(db_session, user) == before
+    assert _audit_rows(db_session, user) == []
+    assert _checkout_counter(db_session, user) == 1
+
+
+def test_a_customer_deleted_in_the_dashboard_is_replaced_at_checkout(db_session, client):
+    """Stripe's Customer.retrieve does not raise for a customer deleted in the
+    dashboard: it answers {id, deleted: true}. get_or_create_customer used
+    to hand that id to Checkout (a 500 on every attempt, forever). It is now
+    treated like 'no such customer': cleared, and a fresh customer is made."""
+    user = _make_user(db_session, plan="free", status="canceled")
+    sdk, calls = _sdk(subs=(), customer_deleted=True)
+    r, _ = _post_sdk(client, user, sdk, real_checkout=True)
+    assert r.status_code == 200, r.text
+    assert r.json()["url"] == "https://checkout.stripe.test/new"
+    assert len(calls["customer_create"]) == 1
+    [session] = calls["checkout"]
+    assert session["customer"] == "cus_new"
+    row = _row(db_session, user)
+    assert (row["customer"], row["sub"], row["status"]) == ("cus_new", None, None)
+
+
+def test_get_or_create_customer_replaces_a_deleted_customer(db_session):
+    from app.services import stripe_billing
+    user = _make_user(db_session, plan="free", status=None)
+    sdk, calls = _sdk(customer_deleted=True)
+    with patch.object(stripe_billing, "_stripe", return_value=sdk):
+        assert stripe_billing.get_or_create_customer(user, db_session) == "cus_new"
+    assert _row(db_session, user)["customer"] == "cus_new"
+    assert len(calls["customer_create"]) == 1
+
+
+def test_get_or_create_customer_keeps_a_customer_that_exists(db_session):
+    from app.services import stripe_billing
+    user = _make_user(db_session, plan="free", status=None)
+    sdk, calls = _sdk()
+    with patch.object(stripe_billing, "_stripe", return_value=sdk):
+        assert stripe_billing.get_or_create_customer(user, db_session) == "cus_live_1"
+    assert calls["customer_create"] == []
+
+
+def test_the_page_says_the_check_failed_in_the_app_language():
+    """The neutral refusal is the i18n checkoutSubscriptionCheckFailed text
+    (da + en), and the subscription page shows it for that code."""
+    import re
+    from pathlib import Path
+    from app.routers.billing import CHECKOUT_CHECK_FAILED_DA, CHECKOUT_CHECK_FAILED_EN
+
+    root = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    for lang, msg in (("da", CHECKOUT_CHECK_FAILED_DA), ("en", CHECKOUT_CHECK_FAILED_EN)):
+        src = (root / "i18n" / f"{lang}.js").read_text()
+        m = re.search(r'checkoutSubscriptionCheckFailed:\s*"([^"]+)"', src)
+        assert m and m.group(1) == msg, lang
+    page = (root / "pages" / "SubscriptionPage.jsx").read_text()
+    assert '"subscription_check_failed"' in page
+    assert re.search(r't\(\s*"checkoutSubscriptionCheckFailed"', page)

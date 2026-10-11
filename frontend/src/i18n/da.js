@@ -2631,6 +2631,7 @@ export const da = {
     tooManyRequests: "For mange forespørgsler — prøv igen om et minut.",
     checkoutStartFailed: "Kunne ikke starte checkout. Prøv igen.",
     checkoutSubscriberPortalFailed: "Vi kunne ikke åbne dit abonnement hos Stripe lige nu. Du har allerede et abonnement, så vi har ikke startet en ny betaling. Prøv igen om et par minutter, eller skriv til contact@bonbox.dk.",
+    checkoutSubscriptionCheckFailed: "Vi kunne ikke tjekke dit abonnement hos Stripe lige nu, så vi har ikke startet en betaling. Prøv igen om et par minutter, eller skriv til contact@bonbox.dk.",
     alreadyOnWaitlist: "Du er allerede på listen — vi kontakter dig, når betalingen er klar.",
     waitlistJoinedPro: "🎉 Du er på stiftermedlemslisten — når betalingen åbner, låser du 249 kr/md fast så længe du er abonnent.",
     waitlistJoinedTier: "🎉 Du er på {tier}-listen — vi sender en mail, når den åbner.",

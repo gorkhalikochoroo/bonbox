@@ -456,6 +456,12 @@ def test_f_second_checkout_within_hour_is_429(db_session, client):
          patch(
              "app.services.stripe_billing.create_checkout_session",
              return_value={"url": "https://stripe.test/s", "session_id": "cs_1"},
+         ), \
+         patch(
+             # push-3 round 4: Stripe is asked before every checkout; it has
+             # no live subscription for this account.
+             "app.services.stripe_billing.confirm_live_subscription",
+             return_value="none",
          ):
         r1 = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
         r2 = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
