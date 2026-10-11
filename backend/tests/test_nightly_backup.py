@@ -1298,3 +1298,158 @@ def test_alerts_go_through_the_frontend_monitors_email_and_push(fernet, key, db_
     for bad in (UID_A, "a" * 64, SERVICE_KEY, key):
         assert bad not in html and bad not in json.dumps(pushes)
     assert pushes[0]["title"] == "BonBox: nightly backup FAILED"
+
+
+# ── review fixes (Oct 11): a restore re-applies later erasures ──────────
+
+def _user(uid, email, **kw):
+    from app.models.user import User
+    return User(id=uuid.UUID(uid) if isinstance(uid, str) else uid, email=email,
+                password_hash="x", business_name=email.split("@")[0], business_type="cafe",
+                currency="DKK", plan="free", role=kw.pop("role", "owner"), **kw)
+
+
+def test_retained_tables_match_delete_account():
+    """reapply_erasures keeps exactly the tables delete_account keeps."""
+    import inspect as _inspect
+    import re as _re
+    from app.routers import auth as auth_router
+    from app.services.backup_erasure import RETAINED_TABLES
+    src = _inspect.getsource(auth_router.delete_account)
+    m = _re.search(r"_ERASURE_RETAINED_TABLES\s*=\s*\{([^}]*)\}", src)
+    assert m and set(_re.findall(r"[\"']([a-z_]+)[\"']", m.group(1))) == set(RETAINED_TABLES)
+
+
+def test_tombstone_rows_parse_strictly():
+    from app.services.backup_erasure import merge_tombstones, parse_tombstone_rows
+    t = parse_tombstone_rows([{"user_id": UID_A.replace("-", "").upper(),
+                               "erased_at": "2026-10-11 10:22:33.123456"},
+                              (UID_B, datetime(2026, 10, 1, tzinfo=timezone.utc))])
+    assert t == {UID_A: datetime(2026, 10, 11, 10, 22, 33, 123456), UID_B: datetime(2026, 10, 1)}
+    assert merge_tombstones(t, {UID_A: datetime(2026, 1, 1)})[UID_A] == datetime(2026, 1, 1)
+    for bad in ([{"user_id": "nope", "erased_at": "2026-10-11"}],
+                [{"user_id": UID_A, "erased_at": ""}]):
+        with pytest.raises(ValueError):
+            parse_tombstone_rows(bad)
+
+
+def test_reapply_erasures_erases_accounts_a_restore_brought_back(db_env):
+    """The DB half of delete_account, again: the account's rows and its users
+    row go, its team is unlinked (never erased), other pointers at it are
+    cleared, the tombstone is written; other accounts are untouched. Dry run
+    changes nothing; a second run changes nothing."""
+    from app.models.category_mapping import CategoryMapping
+    from app.models.feedback import Feedback
+    from app.models.user import User
+    from app.services.backup_erasure import reapply_erasures
+    engine, Session = db_env
+    member, invited = str(uuid.UUID(int=0xC)), str(uuid.UUID(int=0xD))
+    s = Session()
+    s.add_all([_user(UID_A, "a@example.dk"), _user(UID_B, "b@example.dk")])
+    s.flush()
+    s.add_all([_user(member, "m@example.dk", role="staff", owner_id=uuid.UUID(UID_A)),
+               _user(invited, "i@example.dk", invited_by_user_id=uuid.UUID(UID_A))])
+    s.add_all([Feedback(user_id=uuid.UUID(UID_A), rating=5, category="x", message="a"),
+               Feedback(user_id=uuid.UUID(UID_B), rating=4, category="x", message="b"),
+               CategoryMapping(user_id=uuid.UUID(UID_A), keyword="kaffe", category_name="Varer")])
+    s.commit()
+    s.close()
+    tombstones = {UID_A: NOW}
+
+    rep = reapply_erasures(engine, tombstones, dry_run=True)
+    assert rep["accounts_in_target"] == 1 and rep["accounts_erased"] == 0
+    assert len(_rows(Session, User)) == 4 and len(_rows(Session, Feedback)) == 2
+
+    rep = reapply_erasures(engine, tombstones)
+    assert (rep["accounts_erased"], rep["team_members_unlinked"], rep["user_refs_cleared"],
+            rep["tombstones_written"], rep["tables_failed"]) == (1, 1, 1, 1, [])
+    assert rep["rows_deleted"] >= 2
+    users = {str(u.id): u for u in _rows(Session, User)}
+    assert set(users) == {UID_B, member, invited}
+    assert users[member].owner_id is None and users[member].role == "owner"   # unlinked, kept
+    assert users[invited].invited_by_user_id is None
+    assert [f.message for f in _rows(Session, Feedback)] == ["b"]
+    assert _rows(Session, CategoryMapping) == []
+    assert [(str(t.user_id), t.erased_at) for t in _rows(Session, ErasureTombstone)] == [(UID_A, NOW)]
+
+    rep = reapply_erasures(engine, tombstones)
+    assert (rep["accounts_erased"], rep["rows_deleted"], rep["tombstones_written"]) == (0, 0, 0)
+
+
+def test_restore_reads_tombstones_from_the_newest_export(fernet, key, db_env, buckets):
+    from app.services.backup_db import read_export_table
+    _, Session = db_env
+    src, dst = buckets
+    _run(fernet, db_env, buckets)
+    _tombstone(Session, UID_A, NOW + timedelta(hours=2))
+    _run(fernet, db_env, buckets, now=NOW + timedelta(days=1))
+    args = restore.build_parser().parse_args(["--dry-run", "--reapply-erasures",
+                                              "--source-dir", str(dst.root)])
+    ctx = {}
+    out = restore.run_erasures(dst, fernet, args, {"BACKUP_ENCRYPTION_KEY": key}, ctx)
+    assert out["ok"] and out["tombstones"] == 1
+    assert list(out["sources"].values()) == [1]
+    assert ctx["tombstones"] == {UID_A: NOW + timedelta(hours=2)}
+    # an export without that table answers None, not "no tombstones"
+    complete, _ = bs.list_db_exports(dst)
+    man = bs.load_export_manifest(dst, complete[-1], fernet)
+    with io.BytesIO() as enc:
+        bs.fetch_export(dst, man["parts"], enc)
+        enc.seek(0)
+        assert read_export_table(DecryptingReader(enc, fernet), "no_such_table") is None
+
+
+def test_photo_restore_leaves_out_erased_accounts_no_basis_files(fernet, key, db_env, buckets, tmp_path):
+    """Erased after the last backup run (so the backup still holds the
+    avatar): with --reapply-erasures the avatar is not put back; the
+    accounting document is (6-year rule); other accounts are."""
+    src, dst = buckets
+    avatar = f"{UID_A}/staff_avatar/{'a' * 64}.jpg"
+    receipt = f"{UID_A}/expense/{'b' * 64}.jpg"
+    other = f"{UID_B}/sale/{'c' * 64}.jpg"
+    for i, p in enumerate((avatar, receipt, other)):
+        _put(src, p, _photo(i))
+    _run(fernet, db_env, buckets)
+    live = create_engine(f"sqlite:///{tmp_path / 'live.db'}")
+    ErasureTombstone.__table__.create(live)
+    with live.begin() as c:
+        c.execute(ErasureTombstone.__table__.insert().values(user_id=uuid.UUID(UID_A),
+                                                             erased_at=NOW + timedelta(hours=1)))
+    live.dispose()
+    env = {"BACKUP_ENCRYPTION_KEY": key, "ERASURE_SOURCE_DATABASE_URL": f"sqlite:///{tmp_path / 'live.db'}"}
+    base = ["--skip-db", "--source-dir", str(dst.root)]
+
+    target = tmp_path / "restored"
+    assert restore.main(base + ["--reapply-erasures", "--photos-target-dir", str(target)], env=env) == 0
+    assert not (target / "receipts" / avatar).exists()
+    assert (target / "receipts" / receipt).read_bytes() == src.download(receipt)
+    assert (target / "receipts" / other).read_bytes() == src.download(other)
+
+    # without the option: everything, as before
+    every = tmp_path / "every"
+    assert restore.main(base + ["--photos-target-dir", str(every)], env=env) == 0
+    assert (every / "receipts" / avatar).exists()
+
+    # a tombstone source that cannot be read: photos are NOT restored
+    broken = {**env, "ERASURE_SOURCE_DATABASE_URL": f"sqlite:///{tmp_path / 'missing' / 'x.db'}"}
+    nothing = tmp_path / "nothing"
+    assert restore.main(base + ["--reapply-erasures", "--photos-target-dir", str(nothing)],
+                        env=broken) == 1
+    assert not nothing.exists() or not any(nothing.rglob("*.jpg"))
+
+
+def test_restore_takes_the_db_target_from_the_environment(fernet, key, db_env, buckets, capsys):
+    """RESTORE_DB_TARGET_URL keeps the password out of shell history; it gets
+    the same refusals as --db-target."""
+    _, dst = buckets
+    _run(fernet, db_env, buckets)
+    base = ["--skip-photos", "--source-dir", str(dst.root)]
+    prod = "postgresql://postgres.ahlqhztujpeccmaivkhr:pw@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+    env = {"BACKUP_ENCRYPTION_KEY": key, "RESTORE_DB_TARGET_URL": prod}
+    assert restore.main(base, env=env) == 1
+    assert "main production project" in capsys.readouterr().out
+    live = "postgresql://u:secretpw@db.internal:5432/app"
+    env = {"BACKUP_ENCRYPTION_KEY": key, "RESTORE_DB_TARGET_URL": live, "DATABASE_URL": live}
+    assert restore.main(base + ["--reapply-erasures"], env=env) == 1
+    out = capsys.readouterr().out
+    assert "DATABASE_URL" in out and "secretpw" not in out

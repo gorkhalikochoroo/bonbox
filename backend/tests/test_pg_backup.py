@@ -14,7 +14,10 @@ Postgres; this file does:
     one holds the lock; a killed lock connection aborts the run
   • the quarterly-drill path on the REAL app schema (create_all +
     main._run_migrations, audit_logs rules included): export → restore →
-    every table's row count identical
+    every table's row count identical, and every app model table exported
+  • a login that may not set session_replication_role is refused before any
+    download, with what to do; --reapply-erasures erases again, on the real
+    schema, an account erased after the restored export
 
 Each run creates databases of its own (bk_src_<hex>, bk_dst_<hex>,
 bk_app_src_<hex>, bk_app_dst_<hex>) on that server and drops them at the end. It does not touch the app's engine, so it
@@ -147,8 +150,9 @@ def backup(pg, tmp_path_factory):
     src.upload(f"{uuid.UUID(int=1)}/expense/{'a' * 64}.jpg", os.urandom(5000), upsert=True)
     dst = LocalDirBucket(root / "bonbox-backup")
     eng = pg["engines"]["src"]
+    # expect_tables=(): this database holds test tables, not the app's schema
     out = bs.run_nightly_backup(cfg=_cfg(fernet), engine=eng, session_factory=sessionmaker(bind=eng),
-                                sources={"receipts": src}, dst=dst, now=NOW)
+                                sources={"receipts": src}, dst=dst, now=NOW, expect_tables=frozenset())
     return {"key": key, "fernet": fernet, "dst": dst, "out": out, "env": {"BACKUP_ENCRYPTION_KEY": key}}
 
 
@@ -327,8 +331,10 @@ def test_pg_full_app_schema_round_trip(tmp_path, monkeypatch):
 
         key = Fernet.generate_key().decode()
         backup_bucket = LocalDirBucket(tmp_path / "app-backup")
-        res = bs.export_db_to_backup(engines["src"], backup_bucket, load_backup_fernet(key), now=NOW)
+        res = bs.export_db_to_backup(engines["src"], backup_bucket, load_backup_fernet(key), now=NOW,
+                                     expect_tables=bs.app_table_names())
         assert res["verified"] and res["tables"] > 50
+        assert res["missing_tables"] == []          # every app model table is in the export
 
         env = {"BACKUP_ENCRYPTION_KEY": key}
         target = _url(names["dst"])
@@ -349,6 +355,143 @@ def test_pg_full_app_schema_round_trip(tmp_path, monkeypatch):
         q = "SELECT id, email, business_name, created_at FROM users ORDER BY email"
         with engines["src"].connect() as a, engines["dst"].connect() as b:
             assert [tuple(r) for r in a.execute(sa.text(q))] == [tuple(r) for r in b.execute(sa.text(q))]
+    finally:
+        for eng in engines.values():
+            eng.dispose()
+        with admin.connect() as c:
+            for n in names.values():
+                c.execute(sa.text(f'DROP DATABASE IF EXISTS "{n}" WITH (FORCE)'))
+        admin.dispose()
+
+
+# ── review fixes (Oct 11) ────────────────────────────────────────────────
+
+class _CountingBucket:
+    """Counts the export-part downloads (fetch_export → download_to)."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.part_downloads = 0
+
+    def download_to(self, key, fileobj):
+        self.part_downloads += 1
+        return self.inner.download_to(key, fileobj)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def test_pg_restore_explains_a_login_that_cannot_disable_fk_triggers(pg, backup, capsys):
+    """session_replication_role needs a privileged login. The script checks
+    it BEFORE downloading anything, says what to do, and writes nothing."""
+    tag = uuid.uuid4().hex[:8]
+    role, pw = f"bk_noperm_{tag}", uuid.uuid4().hex
+    admin = sa.create_engine(PG_URL, isolation_level="AUTOCOMMIT")
+    with admin.connect() as c:
+        c.execute(sa.text(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{pw}'"))
+    try:
+        url = make_url(pg["urls"]["dst"]).set(username=role, password=pw).render_as_string(
+            hide_password=False)
+        where = f"{make_url(url).host}/{pg['names']['dst']}"
+        before = _table(pg["engines"]["dst"], "bk_owner")
+        counting = _CountingBucket(backup["dst"])
+        rc = restore.main(["--skip-photos", "--truncate", "--confirm-target", where],
+                          env={**backup["env"], "RESTORE_DB_TARGET_URL": url},
+                          backup_bucket=counting)
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "may not set session_replication_role" in out and "Nothing was written" in out
+        assert "Session pooler" in out and pw not in out
+        assert counting.part_downloads == 0                      # refused before any download
+        assert _table(pg["engines"]["dst"], "bk_owner") == before
+    finally:
+        with admin.connect() as c:
+            c.execute(sa.text(f'DROP ROLE IF EXISTS "{role}"'))
+        admin.dispose()
+
+
+def test_pg_restore_reapplies_erasures_on_the_real_schema(tmp_path, monkeypatch, capsys):
+    """An account erased after the export comes back with a restore. With
+    --reapply-erasures (tombstones from the newest export) the restored
+    database matches the live one again; without it the script says so, and
+    the separate --reapply-erasures step fixes it."""
+    import app.main as main
+    from app.database import Base
+    from app.models.feedback import Feedback
+    from app.models.user import User
+    from app.services.auth import hash_password
+    from app.services.backup_erasure import reapply_erasures
+
+    admin = sa.create_engine(PG_URL, isolation_level="AUTOCOMMIT")
+    tag = uuid.uuid4().hex[:10]
+    names = {"src": f"bk_er_src_{tag}", "dst": f"bk_er_dst_{tag}"}
+    engines = {}
+    try:
+        with admin.connect() as c:
+            for n in names.values():
+                c.execute(sa.text(f'CREATE DATABASE "{n}"'))
+        for role, n in names.items():
+            eng = sa.create_engine(_url(n))
+            engines[role] = eng
+            Base.metadata.create_all(bind=eng)
+            with monkeypatch.context() as m:
+                m.setattr(main, "engine", eng)
+                main._run_migrations()
+        gone, kept = uuid.uuid4(), uuid.uuid4()
+        s = sessionmaker(bind=engines["src"])()
+        for uid, mail in ((gone, "gone@example.dk"), (kept, "kept@example.dk")):
+            s.add(User(id=uid, email=mail, password_hash=hash_password("pw123456"),
+                       business_name=mail, business_type="cafe", currency="DKK", plan="free",
+                       role="owner", created_at=NOW))
+        s.flush()
+        s.add_all([Feedback(user_id=gone, rating=5, category="x", message="erase me"),
+                   Feedback(user_id=kept, rating=4, category="x", message="keep me")])
+        s.commit()
+        s.close()
+
+        key = Fernet.generate_key().decode()
+        fernet = load_backup_fernet(key)
+        bucket = LocalDirBucket(tmp_path / "er-backup")
+        old = bs.export_db_to_backup(engines["src"], bucket, fernet, now=NOW)["export_id"]
+        # the account is erased in the live database after that export …
+        rep = reapply_erasures(engines["src"], {str(gone): NOW + timedelta(hours=3)})
+        assert rep["accounts_erased"] == 1
+        bs.export_db_to_backup(engines["src"], bucket, fernet, now=NOW + timedelta(days=1))
+
+        target = _url(names["dst"])
+        where = f"{make_url(target).host}/{names['dst']}"
+        env = {"BACKUP_ENCRYPTION_KEY": key, "RESTORE_DB_TARGET_URL": target}
+        base = ["--skip-photos", "--source-dir", str(bucket.root), "--confirm-target", where,
+                "--truncate", "--export", old]
+
+        def users(eng):
+            with eng.connect() as c:
+                return sorted(str(r[0]) for r in c.execute(sa.text("SELECT id FROM users")))
+
+        def counts(eng):
+            with eng.connect() as c:
+                tables = [r[0] for r in c.execute(sa.text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY 1"))]
+                return {t: c.execute(sa.text(f'SELECT count(*) FROM "{t}"')).scalar() for t in tables}
+
+        # … a plain restore of the older export brings it back, and says so
+        assert restore.main(base, env=env) == 0
+        assert str(gone) in users(engines["dst"])
+        assert "accounts erased after" in capsys.readouterr().out
+        # the separate step erases it again
+        assert restore.main(["--skip-db", "--skip-photos", "--reapply-erasures", "--source-dir",
+                             str(bucket.root), "--confirm-target", where], env=env) == 0
+        assert users(engines["dst"]) == users(engines["src"]) == [str(kept)]
+
+        # in one go: restore + re-apply
+        assert restore.main(base + ["--reapply-erasures"], env=env) == 0
+        assert users(engines["dst"]) == [str(kept)]
+        assert counts(engines["dst"]) == counts(engines["src"])
+        q = "SELECT user_id, message FROM feedback ORDER BY message"
+        with engines["src"].connect() as a, engines["dst"].connect() as b:
+            assert [tuple(r) for r in a.execute(sa.text(q))] == [tuple(r) for r in b.execute(sa.text(q))]
+            assert [tuple(r) for r in a.execute(sa.text("SELECT * FROM erasure_tombstones"))] == \
+                [tuple(r) for r in b.execute(sa.text("SELECT * FROM erasure_tombstones"))]
     finally:
         for eng in engines.values():
             eng.dispose()

@@ -379,7 +379,64 @@ def verify_export_stream(plain: BinaryIO, *, count_rows: bool = True, check: Che
     }
 
 
+def read_export_table(plain: BinaryIO, table: str, *, check: Check = None) -> Optional[str]:
+    """One table's CSV (text, with its header line) from an export stream, or
+    None when the export has no such table. Reads only as far as that table.
+    (The caller has checked the parts against the manifest's sha256.)"""
+    gz = gzip.GzipFile(fileobj=plain, mode="rb")
+    tar = tarfile.open(fileobj=gz, mode="r|")
+    wanted = None
+    try:
+        for member in tar:
+            if check:
+                check()
+            if member.name == "schema.json":
+                doc = json.loads(tar.extractfile(member).read())
+                if doc.get("format") != EXPORT_FORMAT:
+                    raise VerifyError("unknown export format")
+                wanted = next((t["file"] for t in doc["tables"] if t["name"] == table), None)
+                if wanted is None:
+                    return None
+            elif wanted is not None and member.name == wanted:
+                return tar.extractfile(member).read().decode("utf-8")
+        return None
+    finally:
+        tar.close()
+
+
 # ── restore (Postgres target) ────────────────────────────────────────────
+
+REPLICA_ROLE_HELP = (
+    "this login may not set session_replication_role, which the restore needs to load the "
+    "tables in any order with foreign-key triggers off. Connect as the 'postgres' user (on "
+    "Supabase: the Session pooler on port 5432 or the direct connection, user "
+    "postgres.<project ref>), not a custom role. If the provider still refuses it, restore "
+    "into a local Postgres first (runbook section 4, step 4) and copy from there. "
+    "Nothing was written.")
+
+
+def replica_role_problem(target_conn) -> Optional[str]:
+    """None when this psycopg2 connection may SET session_replication_role =
+    replica (checked in a transaction that is rolled back); otherwise a
+    message that says why and what to do. Run BEFORE any download or write."""
+    try:
+        target_conn.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+    cur = target_conn.cursor()
+    try:
+        cur.execute("SET LOCAL session_replication_role = replica")
+        return None
+    except Exception as e:  # noqa: BLE001
+        detail = (str(e).strip().splitlines() or [""])[0][:200]
+        return f"{REPLICA_ROLE_HELP} (the server said: {type(e).__name__}: {detail})"
+    finally:
+        try:
+            target_conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        cur.close()
+
 
 def _target_columns(cur, table: str) -> list[str] | None:
     cur.execute(
@@ -414,10 +471,8 @@ def restore_export_stream(plain: BinaryIO, target_conn, *, truncate: bool = Fals
         cur.execute(f"SET LOCAL statement_timeout = {int(STATEMENT_TIMEOUT_MS)}")
         try:
             cur.execute("SET LOCAL session_replication_role = replica")
-        except Exception as e:  # noqa: BLE001
-            raise VerifyError(
-                "cannot disable FK triggers for the load (session_replication_role needs "
-                f"the postgres/superuser role): {type(e).__name__}") from None
+        except Exception as e:  # noqa: BLE001 — normally caught first by replica_role_problem
+            raise VerifyError(f"{REPLICA_ROLE_HELP} ({type(e).__name__})") from None
         skipped: list[str] = []
         file_table: dict[str, str] = {}
         gz = gzip.GzipFile(fileobj=plain, mode="rb")
