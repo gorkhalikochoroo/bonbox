@@ -10,7 +10,9 @@ Two implementations of one small interface:
 Contract that the backup job relies on (services/backup_service):
   • list_all() returns the COMPLETE recursive listing or raises
     BackupStorageError. It never returns a partial list: a partial list would
-    make every unlisted object look "deleted in source".
+    make every unlisted object look "deleted in source". A folder is paged
+    until the API returns an EMPTY page (a short page is not taken as the
+    end: the server may cap the page size below LIST_PAGE).
   • download() returns None only for "not found"; any other failure raises.
   • upload()/delete_many() raise on failure.
 Errors carry status codes and short bodies, never the service key.
@@ -109,6 +111,8 @@ class SupabaseBucket:
             if budget[0] < 0:
                 raise BackupStorageError("listing exceeded MAX_LIST_CALLS")
             items = self._list_page(prefix, offset)
+            if not items:
+                break
             for it in items:
                 name = it.get("name")
                 if not name or name == _PLACEHOLDER:
@@ -126,9 +130,11 @@ class SupabaseBucket:
                         created_at=_parse_ts(it.get("created_at")),
                         updated_at=_parse_ts(it.get("updated_at")),
                     ))
-            if len(items) < LIST_PAGE:
-                break
-            offset += LIST_PAGE
+            # Advance by what came back, not by LIST_PAGE, and stop only on an
+            # empty page: a server that caps a page below LIST_PAGE would
+            # otherwise end the listing early, and every unlisted object
+            # would look deleted in the source.
+            offset += len(items)
         return folders, files
 
     def list_folders(self, prefix: str) -> list[str]:
@@ -151,6 +157,22 @@ class SupabaseBucket:
                 raise BackupStorageError("listing exceeded MAX_LISTED_OBJECTS")
             pending.extend(sub)
         return out
+
+    # ── bucket ───────────────────────────────────────────────────────
+    def bucket_public(self) -> bool:
+        """True when the bucket is PUBLIC (anyone with a key path can read
+        it). Raises BackupStorageError when it cannot be checked — the caller
+        reports "unknown", never "private"."""
+        resp = self._client.get(f"{self.base}/bucket/{self.bucket}", headers=self._headers)
+        if resp.status_code >= 400:
+            raise self._err(f"bucket info {self.bucket}", resp)
+        try:
+            body = resp.json()
+        except ValueError:
+            raise BackupStorageError(f"bucket info {self.bucket}: not JSON") from None
+        if not isinstance(body, dict) or not isinstance(body.get("public"), bool):
+            raise BackupStorageError(f"bucket info {self.bucket}: unexpected response shape")
+        return body["public"]
 
     # ── objects ──────────────────────────────────────────────────────
     @staticmethod
@@ -184,10 +206,11 @@ class SupabaseBucket:
                 fileobj.write(block)
         return True
 
-    def upload(self, key: str, data: bytes, *, upsert: bool) -> None:
+    def upload(self, key: str, data: bytes, *, upsert: bool,
+               content_type: str = "application/octet-stream") -> None:
         resp = self._client.post(
             f"{self.base}/object/{self.bucket}/{key}", content=data,
-            headers={**self._headers, "Content-Type": "application/octet-stream",
+            headers={**self._headers, "Content-Type": content_type,
                      "x-upsert": "true" if upsert else "false"},
         )
         if resp.status_code >= 400:
@@ -269,6 +292,9 @@ class LocalDirBucket:
             return []
         return sorted((self._info(p) for p in base.iterdir() if p.is_file()), key=lambda o: o.key)
 
+    def bucket_public(self) -> bool:
+        return False            # a local directory is never public
+
     def download(self, key: str) -> bytes | None:
         p = self._path(key)
         return p.read_bytes() if p.is_file() else None
@@ -285,8 +311,9 @@ class LocalDirBucket:
                 fileobj.write(block)
         return True
 
-    def upload(self, key: str, data: bytes, *, upsert: bool) -> None:
-        p = self._path(key)
+    def upload(self, key: str, data: bytes, *, upsert: bool,
+               content_type: str = "application/octet-stream") -> None:
+        p = self._path(key)              # (content_type: a directory keeps none)
         if p.exists() and not upsert:
             raise ObjectExistsError(f"upload {key} -> HTTP 409: already exists")
         p.parent.mkdir(parents=True, exist_ok=True)

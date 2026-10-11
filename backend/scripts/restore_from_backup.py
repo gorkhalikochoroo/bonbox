@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import mimetypes
 import os
 import sys
 import tempfile
@@ -74,6 +75,17 @@ from app.services.backup_storage import (  # noqa: E402
 )
 
 MAIN_PROJECT_REF = "ahlqhztujpeccmaivkhr"
+
+# The extensions storage.compose_key allows, with the types the app uploads
+# them as (a restored object must be served like the original).
+_CONTENT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                  "webp": "image/webp", "heic": "image/heic", "pdf": "application/pdf"}
+
+
+def content_type_for(path: str) -> str:
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return (_CONTENT_TYPES.get(ext) or mimetypes.guess_type(path)[0]
+            or "application/octet-stream")
 
 
 def _say(msg: str) -> None:
@@ -239,7 +251,8 @@ def run_photos(bucket, fernet, args, env) -> dict:
                 out["written"] += 1
         elif target_bucket is not None:
             try:
-                target_bucket.upload(e["path"], data, upsert=False)
+                target_bucket.upload(e["path"], data, upsert=False,
+                                     content_type=content_type_for(e["path"]))
                 out["written"] += 1
             except ObjectExistsError:
                 out["already_present"] += 1

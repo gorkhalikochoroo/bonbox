@@ -18,6 +18,9 @@ documents) and the database, so every promise it makes is pinned here:
     corrupted part); export retention = 30 newest + 12 monthly
   • one run at a time; the job never raises; failures land in ErrorLog +
     MonitorState; the scheduler registers it; the admin endpoint reports it
+  • alerts (operator email + push): a failure once per incident, one
+    recovery note, a stale watch, every mass deletion — counts and kinds
+    only, never paths, ids or secrets; the 88-day cut runs every night
 
 Storage is a directory-backed bucket (LocalDirBucket) or a failing stub; the
 database is SQLite. The Postgres COPY path and the real advisory lock are in
@@ -765,6 +768,11 @@ def test_scheduler_registers_nightly_backup():
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert (fields["hour"], fields["minute"]) == ("4", "20")
     assert str(job.trigger.timezone) == "UTC"
+    watch = sched.get_job("nightly_backup_watch")
+    assert watch is not None and watch.func is bs.check_backup_staleness
+    assert watch.max_instances == 1 and watch.coalesce is True
+    wf = {f.name: str(f) for f in watch.trigger.fields}
+    assert (wf["hour"], wf["minute"]) == ("*", "50")          # hourly
     # …and the app registers it before it starts the scheduler. (Not via
     # main._scheduler: any `with TestClient(app)` earlier in the run shuts the
     # scheduler down at lifespan exit, which empties its job store.)
@@ -779,6 +787,9 @@ def test_admin_backup_health(fernet, db_env, buckets, monkeypatch):
     from app.services.admin_security import require_super_admin
     _db_ready.set()
     engine, Session = db_env
+    # Like production: every model app.main registers exists before the run
+    # (the nightly export reports any app table it does not find).
+    Base.metadata.create_all(engine)
 
     def _get_db():
         s = Session()
@@ -800,6 +811,9 @@ def test_admin_backup_health(fernet, db_env, buckets, monkeypatch):
         body = c.get("/api/admin/backup-health").json()
         assert body["state"] == "HEALTHY" and body["healthy"] is True and body["stale"] is False
         assert body["last_run"]["db"]["verified"] is True
+        assert body["alarms"] == [] and body["alerted_at"] is None
+        assert body["bucket"] == {"private": None, "error": None}      # backup off: not checked
+        assert body["last_run"]["bucket_private"] is True               # the run checked its bucket
         monkeypatch.setattr(bs, "settings", _settings(BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY))
         body = c.get("/api/admin/backup-health").json()
         assert body["config"]["status"] == "misconfigured"
@@ -817,6 +831,9 @@ class _FakeStorageAPI:
     def __init__(self, key):
         self.key = key
         self.buckets: dict[str, dict[str, bytes]] = {"receipts": {}, "bonbox-backup": {}}
+        self.public: dict[str, bool] = {"receipts": False, "bonbox-backup": False}
+        self.page_cap: int | None = None     # a server that returns fewer than `limit`
+        self.content_types: dict[tuple[str, str], str | None] = {}
         self.requests: list = []
 
     def __call__(self, request):
@@ -825,6 +842,12 @@ class _FakeStorageAPI:
         assert request.headers["apikey"] == self.key
         assert request.headers["authorization"] == f"Bearer {self.key}"
         path = request.url.path
+        if request.method == "GET" and path.startswith("/storage/v1/bucket/"):
+            b = path[len("/storage/v1/bucket/"):]
+            if b not in self.buckets:
+                return httpx.Response(400, json={"statusCode": "404", "error": "Bucket not found",
+                                                 "message": "Bucket not found"})
+            return httpx.Response(200, json={"id": b, "name": b, "public": self.public[b]})
         assert path.startswith("/storage/v1/object")
         rest = path[len("/storage/v1/object"):]
 
@@ -853,7 +876,8 @@ class _FakeStorageAPI:
                                    "metadata": {"size": len(v),
                                                 "eTag": '"' + hashlib.md5(v).hexdigest() + '"'}}
             ordered = [items[n] for n in sorted(items)]
-            return httpx.Response(200, json=ordered[body["offset"]:body["offset"] + body["limit"]])
+            limit = min(body["limit"], self.page_cap or body["limit"])
+            return httpx.Response(200, json=ordered[body["offset"]:body["offset"] + limit])
         if request.method == "DELETE":
             b = rest.strip("/")
             for k in json.loads(request.content)["prefixes"]:
@@ -872,6 +896,7 @@ class _FakeStorageAPI:
                 return httpx.Response(400, json={"statusCode": "409", "error": "Duplicate",
                                                  "message": "The resource already exists"})
             self.buckets[b][key] = request.read()
+            self.content_types[(b, key)] = request.headers.get("content-type")
             return httpx.Response(200, json={"Key": f"{b}/{key}"})
         return httpx.Response(405)
 
@@ -959,3 +984,317 @@ def test_restore_photos_into_a_bucket_never_overwrites(fernet, key, db_env, buck
     assert restore.main(base + ["--allow-main-project", "--confirm-target", "receipts"], env=env) == 0
     assert api.buckets["receipts"][paths[0]] == b"already here"
     assert api.buckets["receipts"][paths[1]] == src.download(paths[1])
+    # put back with the type its extension names, as the app stored it
+    assert api.content_types[("receipts", paths[1])] == "image/jpeg"
+
+
+# ── review fixes (Oct 11): listing, bucket privacy, limits, config ──────
+
+def test_listing_pages_until_an_empty_page(fernet):
+    """A server that returns fewer items than asked for (a page-size cap
+    below LIST_PAGE) must not end the listing early — every unlisted object
+    would look deleted in the source."""
+    import httpx
+    from app.services.backup_storage import LIST_PAGE, SupabaseBucket
+    api = _FakeStorageAPI(SERVICE_KEY)
+    api.page_cap = 3
+    assert LIST_PAGE > api.page_cap
+    client = httpx.Client(transport=httpx.MockTransport(api))
+    src = SupabaseBucket("https://main.example.co", SERVICE_KEY, "receipts", client=client)
+    paths = [f"{UID_A}/expense/{i:064x}.jpg" for i in range(8)] + [f"{UID_B}/sale/{'e' * 64}.jpg"]
+    for i, p in enumerate(paths):
+        api.buckets["receipts"][p] = _photo(i, 64)
+    assert sorted(o.key for o in src.list_all()) == sorted(paths)
+    assert len(src.list_files(f"{UID_A}/expense")) == 8
+
+
+def test_backup_bucket_must_be_private(fernet, db_env, buckets):
+    """Reported, never a reason to stop: a PUBLIC bucket fails the run (and
+    alerts) but tonight's backup still lands; a check that cannot be made is
+    'unknown', never 'private'."""
+    import httpx
+    from app.services.backup_storage import SupabaseBucket
+    api = _FakeStorageAPI(SERVICE_KEY)
+    client = httpx.Client(transport=httpx.MockTransport(api))
+    bucket = SupabaseBucket("https://backup.example.co", SERVICE_KEY, "bonbox-backup", client=client)
+    assert bucket.bucket_public() is False
+    api.public["bonbox-backup"] = True
+    assert bucket.bucket_public() is True
+    with pytest.raises(BackupStorageError):
+        SupabaseBucket("https://backup.example.co", SERVICE_KEY, "gone", client=client).bucket_public()
+    cfg = _cfg(fernet)
+    api.public["bonbox-backup"] = False
+    assert bs.bucket_privacy(cfg, client=client) == {"private": True, "error": None}
+    api.public["bonbox-backup"] = True
+    assert bs.bucket_privacy(cfg, client=client) == {"private": False, "error": None}
+    gone = bs.BackupConfig(**{**cfg.__dict__, "bucket": "gone"})
+    res = bs.bucket_privacy(gone, client=client)
+    assert res["private"] is None and res["error"] and SERVICE_KEY not in res["error"]
+
+    src, dst = buckets
+    _put(src, f"{UID_A}/expense/{'a' * 64}.jpg", _photo(1))
+
+    class _Public(LocalDirBucket):
+        def bucket_public(self):
+            return True
+
+    out = _run(fernet, db_env, buckets, dst=_Public(dst.root))
+    assert out["status"] == "failed" and out["bucket_private"] is False
+    assert out["error_kinds"].get("bucket:public") == 1
+    assert out["db"]["ok"] and out["photos"]["copied"] == 1      # the backup still landed
+
+    class _Unknown(LocalDirBucket):
+        def bucket_public(self):
+            raise BackupStorageError(f"bucket info -> HTTP 403: key {SERVICE_KEY}")
+
+    out = _run(fernet, db_env, buckets, dst=_Unknown(dst.root), now=NOW + timedelta(days=1))
+    assert out["status"] == "ok", out["errors"]
+    assert out["bucket_private"] is None and SERVICE_KEY not in out["bucket_check"]
+
+
+def test_object_size_limit_is_25_mb(fernet, db_env, buckets):
+    """Uploads are capped at 12 MB; one object is held in memory to hash and
+    encrypt it, so anything over 25 MB is reported, not copied."""
+    assert bs.MAX_OBJECT_BYTES == 25 * 1024 * 1024
+    src, dst = buckets
+    big = src.root / UID_A / "expense" / f"{'f' * 64}.jpg"
+    big.parent.mkdir(parents=True)
+    with big.open("wb") as f:
+        f.truncate(bs.MAX_OBJECT_BYTES + 1)            # sparse: no real 25 MB write
+    out = _run(fernet, db_env, buckets)
+    assert out["status"] == "failed" and out["error_kinds"] == {"photos:too_large": 1}
+    assert out["photos"]["copied"] == 0
+
+
+def test_backup_key_must_not_be_the_main_projects_key(key):
+    cfg = bs.load_config(_settings(BACKUP_SUPABASE_URL="https://backup.supabase.co",
+                                   BACKUP_SUPABASE_SERVICE_KEY="mainkey", BACKUP_ENCRYPTION_KEY=key))
+    assert cfg.status == "misconfigured"
+    assert any("equals SUPABASE_SERVICE_KEY" in p for p in cfg.problems)
+    assert not any("mainkey" in p for p in cfg.problems)
+
+
+def test_export_reports_app_tables_it_does_not_hold(fernet, db_env, buckets):
+    """The nightly run checks the export holds every app model table (a wrong
+    search_path would export the wrong tables while looking complete). A gap
+    fails the run and alerts — but the export itself still lands."""
+    out = _run(fernet, db_env, buckets, expect_tables=frozenset({"users", "no_such_table"}))
+    assert out["status"] == "failed"
+    assert out["error_kinds"] == {"db:missing_tables": 1}
+    assert any("no_such_table" in e for e in out["errors"])
+    assert out["db"]["ok"] and out["db"]["missing_tables"] == ["no_such_table"]
+    _, dst = buckets
+    complete, _ = bs.list_db_exports(dst)
+    assert complete == [out["db"]["export_id"]]
+    man = bs.load_export_manifest(dst, complete[0], fernet)
+    assert man["missing_tables"] == ["no_such_table"]
+    # the default is every model the app registered
+    assert {"users", "erasure_tombstones", "monitor_state"} <= bs.app_table_names()
+
+
+# ── review fixes (Oct 11): the 88-day cut runs every night ──────────────
+
+def test_old_exports_expire_even_when_tonights_export_fails(fernet, db_env, buckets, monkeypatch):
+    """/privacy: copies disappear when the backups expire. If the export
+    fails night after night, the exports older than DB_MAX_AGE must still
+    go — but the count-based thinning waits for a night with a new export."""
+    _, dst = buckets
+    ages = [120, 100, 89, 87, 60, 40, 1]
+    ids = [bs.export_id_for(NOW - timedelta(days=d)) for d in ages]
+    for i in ids:
+        dst.upload(f"db/{i}/part-00000.enc", b"x", upsert=True)
+        dst.upload(f"db/{i}/manifest.json.enc", b"m", upsert=True)
+
+    def boom(*a, **k):
+        raise RuntimeError("database unreachable")
+
+    monkeypatch.setattr(bs, "export_db_to_backup", boom)
+    out = _run(fernet, db_env, buckets)
+    assert out["status"] == "failed" and out["error_kinds"].get("db:RuntimeError") == 1
+    complete, _ = bs.list_db_exports(dst)
+    assert sorted(complete) == sorted(ids[3:])                 # 87 days and younger stay
+    assert out["retention"]["exports_deleted"] == 3
+
+    # age_only never thins by count: 40 young exports all stay
+    many = [bs.export_id_for(NOW - timedelta(days=d, hours=1)) for d in range(40)]
+    for i in many:
+        dst.upload(f"db/{i}/manifest.json.enc", b"m", upsert=True)
+    res = bs.prune_db_exports(dst, now=NOW, protect=set(), age_only=True)
+    assert res["exports_deleted"] == 0
+    res = bs.prune_db_exports(dst, now=NOW, protect=set())
+    assert res["exports_deleted"] > 0                           # a good night thins them
+
+
+# ── review fixes (Oct 11): operator alerts, once per incident ───────────
+
+@pytest.fixture
+def alerts(monkeypatch):
+    sent = []
+    monkeypatch.setattr(bs, "_notify", lambda db, subject, lines, title, body:
+                        sent.append({"subject": subject, "lines": lines, "title": title, "body": body}))
+    return sent
+
+
+def _alert_text(a) -> str:
+    return "\n".join([a["subject"], *a["lines"], a["title"], a["body"]])
+
+
+def test_failure_alerts_once_per_incident_then_one_recovery_note(fernet, key, db_env, buckets, alerts):
+    src, _ = buckets
+    _put(src, f"{UID_A}/expense/{'a' * 64}.jpg", _photo(1))
+    _, Session = db_env
+    for day in range(3):                                     # three failed nights …
+        out = _run(fernet, db_env, buckets, key=key, dst=_BrokenBucket(), now=NOW + timedelta(days=day))
+        assert out["status"] == "failed"
+    assert len(alerts) == 1                                  # … one alert
+    a = alerts[0]
+    assert a["subject"] == "BonBox: nightly backup FAILED"
+    text = _alert_text(a)
+    for line in ("  - db:BackupStorageError: 1", "  - photos:BackupStorageError: 1",
+                 "  - retention:BackupStorageError: 1"):
+        assert line in a["lines"], a["lines"]
+    # no personal data, no paths, no secrets in an alert
+    for bad in (UID_A, "expense/", "a" * 64, SERVICE_KEY, key):
+        assert bad not in text
+    st = _rows(Session, MonitorState)[0]
+    assert st.last_alert_at is not None and st.incident_entry == "failed" and st.fail_streak == 3
+
+    out = _run(fernet, db_env, buckets, key=key, now=NOW + timedelta(days=3))
+    assert out["status"] == "ok", out["errors"]
+    assert len(alerts) == 2 and alerts[1]["subject"] == "BonBox: nightly backup recovered"
+    st = _rows(Session, MonitorState)[0]
+    assert st.last_alert_at is None and st.incident_entry is None
+    _run(fernet, db_env, buckets, key=key, now=NOW + timedelta(days=4))
+    assert len(alerts) == 2                                  # healthy nights are quiet
+
+    # a new failure is a new incident
+    _run(fernet, db_env, buckets, key=key, dst=_BrokenBucket(), now=NOW + timedelta(days=5))
+    assert len(alerts) == 3 and alerts[2]["subject"] == "BonBox: nightly backup FAILED"
+
+
+def test_misconfiguration_alerts_once_by_variable_name(db_env, monkeypatch, key, alerts):
+    engine, Session = db_env
+    monkeypatch.setattr(bs, "settings", _settings(BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY))
+    for _ in range(2):
+        out = bs.run_nightly_backup(engine=engine, session_factory=Session, dst=_ExplodingBucket())
+        assert out["status"] == "failed"
+    assert len(alerts) == 1
+    text = _alert_text(alerts[0])
+    assert "BACKUP_ENCRYPTION_KEY is not set" in text and SERVICE_KEY not in text
+
+
+def test_mass_deletion_alerts_every_time_and_stays_listed_30_days(fernet, db_env, buckets, alerts):
+    src, dst = buckets
+    paths = [f"{UID_A}/expense/{i:064x}.jpg" for i in range(12)]
+    others = [f"{UID_B}/sale/{i:064x}.jpg" for i in range(12)]
+    for i, p in enumerate(paths + others):
+        _put(src, p, _photo(i, 64))
+    assert _run(fernet, db_env, buckets)["status"] == "ok"
+    assert alerts == []
+
+    src.delete_many(paths)
+    _run(fernet, db_env, buckets, now=NOW + timedelta(days=1))
+    assert len(alerts) == 1
+    text = _alert_text(alerts[0])
+    assert alerts[0]["subject"].startswith("BonBox: MASS DELETION")
+    assert "12 of 24 backed-up files disappeared from the source bucket 'receipts'" in text
+    assert "nightly off-project backup FAILED" in text          # one mail for both
+    assert UID_A not in text and "expense/" not in text
+
+    # the incident is open (no recovery yet): a second mass deletion still alerts
+    src.delete_many(others)
+    _run(fernet, db_env, buckets, now=NOW + timedelta(days=2))
+    assert len(alerts) == 2 and "MASS DELETION" in alerts[1]["subject"]
+    assert "nightly off-project backup FAILED" not in _alert_text(alerts[1])
+
+    # it does not vanish after one night: listed until DELETED_GRACE runs out
+    out = _run(fernet, db_env, buckets, now=NOW + timedelta(days=3))
+    assert out["status"] == "ok", out["errors"]
+    assert [a["gone"] for a in out["alarms"]] == [12, 12]
+    out = _run(fernet, db_env, buckets, now=NOW + timedelta(days=31, hours=1))
+    assert [a["gone"] for a in out["alarms"]] == [12]           # the first one aged out
+    out = _run(fernet, db_env, buckets, now=NOW + timedelta(days=33))
+    assert out["alarms"] == []
+
+
+def test_an_erased_accounts_files_vanishing_is_no_mass_deletion(fernet, db_env, buckets, alerts):
+    """Account deletion purges the no-legal-basis kinds from the source at
+    once; those files going is expected and must not page anyone."""
+    src, _ = buckets
+    _, Session = db_env
+    paths = [f"{UID_A}/staff_avatar/{i:064x}.jpg" for i in range(12)]
+    for i, p in enumerate(paths + [f"{UID_B}/sale/{'c' * 64}.jpg"]):
+        _put(src, p, _photo(i, 64))
+    assert _run(fernet, db_env, buckets)["status"] == "ok"
+    src.delete_many(paths)
+    _tombstone(Session, UID_A, NOW + timedelta(hours=1))
+    out = _run(fernet, db_env, buckets, now=NOW + timedelta(days=1))
+    assert out["status"] == "ok", out["errors"]
+    assert out["photos"]["mass_deletions"] == [] and alerts == []
+
+
+def test_stale_watch_alerts_once(fernet, db_env, buckets, alerts, monkeypatch):
+    engine, Session = db_env
+    cfg = _cfg(fernet)
+    assert bs.check_backup_staleness(cfg=cfg, session_factory=Session)["status"] == "never_run"
+    assert bs.check_backup_staleness(cfg=bs.BackupConfig(status="disabled"),
+                                     session_factory=Session)["status"] == "disabled"
+    _run(fernet, db_env, buckets)
+    st = _rows(Session, MonitorState)[0]
+    last = st.last_check_at
+    assert bs.check_backup_staleness(cfg=cfg, session_factory=Session,
+                                     now=last + timedelta(hours=25))["status"] == "fresh"
+    with bs._process_lock:                                   # a run in progress here
+        assert bs.check_backup_staleness(cfg=cfg, session_factory=Session,
+                                         now=last + timedelta(hours=30))["status"] == "running"
+    assert alerts == []
+    res = bs.check_backup_staleness(cfg=cfg, session_factory=Session, now=last + timedelta(hours=27))
+    assert res == {"status": "stale", "alerted": True, "hours": 27}
+    assert len(alerts) == 1 and alerts[0]["subject"] == "BonBox: nightly backup has not run"
+    for h in (28, 40, 70):                                   # hourly, still stale: quiet
+        bs.check_backup_staleness(cfg=cfg, session_factory=Session, now=last + timedelta(hours=h))
+    assert len(alerts) == 1
+    st = _rows(Session, MonitorState)[0]
+    assert st.state == "BROKEN" and st.incident_entry == "stale"
+    # a failed run inside the open incident: no second alert …
+    _run(fernet, db_env, buckets, dst=_BrokenBucket(), now=NOW + timedelta(days=3))
+    assert len(alerts) == 1
+    # … and the next good run closes it with one note
+    assert _run(fernet, db_env, buckets, now=NOW + timedelta(days=4))["status"] == "ok"
+    assert len(alerts) == 2 and alerts[1]["subject"] == "BonBox: nightly backup recovered"
+
+
+def test_alerts_go_through_the_frontend_monitors_email_and_push(fernet, key, db_env, buckets, monkeypatch):
+    """The real channel: jobs/frontend_monitor_job.notify_operators — the
+    same operator email list and push devices as the prod-frontend alert."""
+    import app.jobs.frontend_monitor_job as fmj
+    from app.models.push_subscription import PushSubscription
+    from app.models.user import User
+    from app.services.auth import hash_password
+    engine, Session = db_env
+    Base.metadata.create_all(engine)
+    s = Session()
+    ops = User(id=uuid.uuid4(), email="ops@example.dk", password_hash=hash_password("pw123456"),
+               business_name="Ops", business_type="cafe", currency="DKK", plan="free", role="owner")
+    s.add(ops)
+    s.flush()
+    s.add(PushSubscription(user_id=ops.id, endpoint="https://push.example/1", p256dh="k", auth="a"))
+    s.commit()
+    s.close()
+    monkeypatch.setattr(fmj.settings, "SUPER_ADMIN_EMAILS", "Ops@example.dk, ops@example.dk")
+    monkeypatch.setattr(fmj.settings, "ADMIN_EMAIL", "")
+    mails, pushes = [], []
+    monkeypatch.setattr(fmj, "send_email", lambda to, subject, html: mails.append((to, subject, html)))
+    monkeypatch.setattr(fmj, "send_to_subscription", lambda sub, payload: pushes.append(payload))
+
+    src, _ = buckets
+    _put(src, f"{UID_A}/expense/{'a' * 64}.jpg", _photo(1))
+    _run(fernet, db_env, buckets, key=key, dst=_BrokenBucket())
+    _run(fernet, db_env, buckets, key=key, dst=_BrokenBucket(), now=NOW + timedelta(days=1))
+    assert len(mails) == 1 and len(pushes) == 1              # once, to one address
+    to, subject, html = mails[0]
+    assert to == "ops@example.dk" and subject == "BonBox: nightly backup FAILED"
+    assert "backup-health" in html
+    for bad in (UID_A, "a" * 64, SERVICE_KEY, key):
+        assert bad not in html and bad not in json.dumps(pushes)
+    assert pushes[0]["title"] == "BonBox: nightly backup FAILED"

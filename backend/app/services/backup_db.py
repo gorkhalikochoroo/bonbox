@@ -102,6 +102,11 @@ def _pg_catalog(cur) -> dict:
     server_version = cur.fetchone()[0]
     cur.execute("SELECT current_schema()")
     schema = cur.fetchone()[0]
+    if schema != "public":
+        # The app's tables live in "public". Another current schema means the
+        # connection's search_path is off and the export would hold the
+        # wrong tables (or none) while looking complete.
+        raise ExportError(f"current_schema() is {schema!r}, not 'public' (check the search_path)")
     cur.execute(
         "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         "WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p') "

@@ -37,15 +37,30 @@ One run (scheduled nightly in app/main.py; at most one at a time):
      then db/<export id>/manifest.json.enc marks it complete.
   3. Retention of exports: the newest DB_KEEP_NIGHTLY (30) plus the first
      export of each of the newest DB_KEEP_MONTHLY (12) months — but never an
-     export older than DB_MAX_AGE (88 days), because /privacy promises that
-     backups are purged within 90 days of an account deletion and a DB export
-     cannot be edited to drop one account. Today that cap leaves 30 nightly
-     + 2-3 monthly; raising it is a /privacy change first. Incomplete
-     exports older than 2 days are removed. Pruning runs only after tonight's
-     export succeeded.
+     export older than DB_MAX_AGE (88 days). /privacy (push 3) says "copies
+     in our backups disappear when those backups expire", and a DB export
+     cannot be edited to drop one account, so every export must expire; the
+     88-day cap is that expiry (below the 90 days /privacy used to name).
+     Today it leaves 30 nightly + 2-3 monthly; keeping more is Manoj's call.
+     Incomplete exports older than 2 days are removed. The AGE cut runs
+     every night whatever tonight's export did (a failing export must not
+     stop old ones expiring); the count-based thinning only runs after
+     tonight's export landed.
 Every run that does work writes a MonitorState row (service="nightly_backup")
 with counts / bytes / duration / outcome, and on failure an ErrorLog row
 (method="JOB") that /api/admin/recent-errors shows. It never raises.
+
+Alerts (operator email + push, the frontend monitor's channel), never with
+personal data — counts and error kinds only, details stay behind
+/api/admin/backup-health:
+  • FAILED — once per incident: the first failed run (or a failed run after
+    a recovery) alerts; further failures while the incident is open do not.
+  • STALE — check_backup_staleness() (hourly) alerts once when the last run
+    is older than STALE_AFTER (26 h) and no incident is open.
+  • MASS DELETION in the source bucket — always alerts (each is a new event),
+    in the same mail as a FAILED alert when both happen in one run, and stays
+    listed in last_summary["alarms"] for DELETED_GRACE (30 days).
+  • RECOVERED — one note when a run succeeds after an alert.
 
 Single run: a process lock plus, on Postgres, pg_try_advisory_xact_lock held
 by an open transaction for the whole run (the pooler is in transaction mode,
@@ -96,9 +111,13 @@ DB_MANIFEST_NAME = "manifest.json.enc"
 
 DB_KEEP_NIGHTLY = 30
 DB_KEEP_MONTHLY = 12
-# /privacy (EN + DA): "Backups are purged within 90 days" of account deletion.
-# 88 days leaves room for the nightly cadence (an export is pruned on the first
-# run after it ages out). Change ONLY together with the privacy text.
+# /privacy (EN + DA, push 3): "Copies in our backups disappear when those
+# backups expire" — no number. A DB export cannot be edited to drop one
+# account, so every export must expire: this is that expiry, kept below the
+# 90 days the old /privacy text promised. 88 days leaves room for the nightly
+# cadence (an export is pruned on the first run after it ages out). The age
+# cut runs every night, also when tonight's export failed. Raising it is
+# Manoj's call (12 monthly exports = a year of a deleted account's data).
 DB_MAX_AGE = timedelta(days=88)
 DB_INCOMPLETE_MAX_AGE = timedelta(days=2)
 DB_PART_BYTES = 32 << 20
@@ -108,7 +127,10 @@ DELETED_GRACE = timedelta(days=30)
 # ((MIN_RETENTION_YEARS + 1) * 366 days).
 ACCOUNTING_KEEP = timedelta(days=6 * 366)
 
-MAX_OBJECT_BYTES = 100 << 20
+# Uploads are capped at 12 MB (kasserapport / smart scan / daily close); 25 MB
+# leaves room for a format the caps don't cover without letting one odd object
+# take the run's memory (an object is held in memory to hash and encrypt it).
+MAX_OBJECT_BYTES = 25 << 20
 MASS_DELETE_MIN = 10          # this many vanished objects in one night …
 MASS_DELETE_SHARE = 0.2       # … and more than this share of them → alarm
 VERIFY_SAMPLE = 3
@@ -116,6 +138,10 @@ RUN_DEADLINE_SECONDS = 45 * 60
 HEARTBEAT_EVERY_SECONDS = 15
 LOCK_KEY = "bonbox:nightly_backup"
 LOCK_IDLE_TIMEOUT = "15min"
+# A night is skipped when the process is down at 04:20 (e.g. a deploy); the
+# hourly watch alerts once the last recorded run is older than this.
+STALE_AFTER = timedelta(hours=26)
+HEALTH_URL = "https://api.bonbox.dk/api/admin/backup-health"
 
 _EXPORT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}Z$")
 _PHOTO_KEY_RE = re.compile(r"^photos/(?P<bucket>[^/]+)/(?P<path>.+)\.(?P<sha>[0-9a-f]{64})\.enc$")
@@ -174,6 +200,10 @@ def load_config(s=None) -> BackupConfig:
     if url and main_url and _norm_url(url) == _norm_url(main_url):
         problems.append("BACKUP_SUPABASE_URL points at the main project; the backup must "
                         "live in a separate project")
+    main_key = (getattr(s, "SUPABASE_SERVICE_KEY", "") or "").strip()
+    if vals["BACKUP_SUPABASE_SERVICE_KEY"] and vals["BACKUP_SUPABASE_SERVICE_KEY"] == main_key:
+        problems.append("BACKUP_SUPABASE_SERVICE_KEY equals SUPABASE_SERVICE_KEY; use the "
+                        "backup project's own secret key (one leaked key must not reach both)")
     if problems:
         return BackupConfig(status="misconfigured", problems=problems, secrets=secrets)
     source_bucket = (getattr(s, "SUPABASE_RECEIPTS_BUCKET", "") or "receipts").strip()
@@ -190,6 +220,20 @@ def config_status(s=None) -> dict:
     cfg = load_config(s)
     return {"status": cfg.status, "problems": cfg.problems,
             "bucket": cfg.bucket if cfg.status == "enabled" else None}
+
+
+def bucket_privacy(cfg: Optional[BackupConfig] = None, *, client=None) -> dict:
+    """Live check for /api/admin/backup-health: is the backup bucket private?
+    {"private": True | False | None, "error": str | None}; None = could not
+    check (never reported as private). Only when the backup is enabled."""
+    cfg = cfg or load_config()
+    if cfg.status != "enabled":
+        return {"private": None, "error": None}
+    try:
+        b = SupabaseBucket(cfg.url, cfg.service_key, cfg.bucket, timeout=10.0, client=client)
+        return {"private": not b.bucket_public(), "error": None}
+    except Exception as e:  # noqa: BLE001 — report, never break the endpoint
+        return {"private": None, "error": _redact(f"{type(e).__name__}: {e}", cfg.secrets)}
 
 
 def _redact(msg, secrets: tuple[str, ...] = ()) -> str:
@@ -351,10 +395,13 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
     stats = {"listed": 0, "unchanged": 0, "copied": 0, "copied_bytes": 0, "refreshed": 0,
              "vanished": 0, "skipped_erased": 0, "marked_deleted": 0, "purged": 0,
              "verified": 0, "manifest_rebuilt": False, "backup_objects": 0,
-             "backup_bytes": 0, "errors": [], "error_count": 0}
+             "backup_bytes": 0, "errors": [], "error_count": 0,
+             # kind → count: fixed labels, no paths — what an alert may show
+             "error_kinds": {}, "mass_deletions": []}
 
-    def err(msg: str) -> None:
+    def err(msg: str, kind: str) -> None:
         stats["error_count"] += 1
+        stats["error_kinds"][kind] = stats["error_kinds"].get(kind, 0) + 1
         if len(stats["errors"]) < 20:
             stats["errors"].append(msg[:300])
 
@@ -368,7 +415,7 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
             try:
                 listing = src.list_all("")
             except Exception as e:  # noqa: BLE001 — incomplete listing: copy nothing, delete nothing
-                err(f"list source bucket {bucket}: {type(e).__name__}: {e}")
+                err(f"list source bucket {bucket}: {type(e).__name__}: {e}", "list_source")
                 continue
             live = {o.key: o for o in listing}
             stats["listed"] += len(live)
@@ -392,7 +439,8 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
                     continue
                 try:
                     if obj.size is not None and obj.size > MAX_OBJECT_BYTES:
-                        err(f"{bucket}/{path}: {obj.size} bytes is over the per-object limit")
+                        err(f"{bucket}/{path}: {obj.size} bytes is over the per-object limit",
+                            "too_large")
                         continue
                     data = src.download(path)
                     if data is None:
@@ -424,20 +472,29 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
                 except BackupAborted:
                     raise
                 except Exception as e:  # noqa: BLE001 — one object never stops the run
-                    err(f"{bucket}/{path}: {type(e).__name__}: {e}")
+                    err(f"{bucket}/{path}: {type(e).__name__}: {e}", f"copy:{type(e).__name__}")
 
             # The listing was complete: whatever it lacks is gone from the source.
             gone = 0
+            gone_erased = 0      # an erased account's files: expected to go
             for k, e in entries.items():
                 if e.get("bucket") == bucket and not e.get("source_deleted_at") and e["path"] not in live:
                     e["source_deleted_at"] = now_s
                     gone += 1
+                    if e.get("uid") and e["uid"] in tombstones:
+                        gone_erased += 1
             stats["marked_deleted"] += gone
             # A wiped or mass-deleted bucket must page a human while the copies
-            # are still inside their grace window, not be mirrored silently.
-            if gone >= MASS_DELETE_MIN and gone > MASS_DELETE_SHARE * max(was_live, 1):
-                err(f"mass deletion in source bucket {bucket}: {gone} objects disappeared "
-                    "since the last run (backup copies are kept; check the bucket)")
+            # are still inside their grace window, not be mirrored silently:
+            # it fails the run AND is an alarm of its own (run_nightly_backup
+            # alerts on every one, and keeps it listed for DELETED_GRACE).
+            unexplained = gone - gone_erased
+            if unexplained >= MASS_DELETE_MIN and unexplained > MASS_DELETE_SHARE * max(was_live, 1):
+                stats["mass_deletions"].append({"bucket": bucket, "gone": unexplained,
+                                                "of": was_live})
+                err(f"mass deletion in source bucket {bucket}: {unexplained} objects disappeared "
+                    "since the last run (backup copies are kept; check the bucket)",
+                    "mass_deletion")
 
         due = [k for k, e in entries.items() if _photo_due(e, now, tombstones)]
         if due:
@@ -450,7 +507,8 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
             except BackupAborted:
                 raise
             except Exception as e:  # noqa: BLE001 — keep entries, retry next night
-                err(f"purge {len(due)} backup copies: {type(e).__name__}: {e}")
+                err(f"purge {len(due)} backup copies: {type(e).__name__}: {e}",
+                    f"purge:{type(e).__name__}")
 
         live_keys = [k for k, e in entries.items() if not e.get("source_deleted_at")]
         sample = (rng or random.Random()).sample(live_keys, min(VERIFY_SAMPLE, len(live_keys)))
@@ -459,23 +517,23 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
             try:
                 blob = dst.download(k)
                 if blob is None:
-                    err(f"verify {k}: backup copy missing")
+                    err(f"verify {k}: backup copy missing", "verify_missing")
                     continue
                 if hashlib.sha256(decrypt_bytes(blob, fernet)).hexdigest() != entries[k]["sha256"]:
-                    err(f"verify {k}: sha256 mismatch")
+                    err(f"verify {k}: sha256 mismatch", "verify_mismatch")
                     continue
                 stats["verified"] += 1
             except BackupAborted:
                 raise
             except Exception as e:  # noqa: BLE001
-                err(f"verify {k}: {type(e).__name__}: {e}")
+                err(f"verify {k}: {type(e).__name__}: {e}", f"verify:{type(e).__name__}")
     finally:
         stats["backup_objects"] = len(entries)
         stats["backup_bytes"] = sum(int(e.get("size") or 0) for e in entries.values())
         try:
             save_photo_manifest(dst, fernet, manifest, now)
         except Exception as e:  # noqa: BLE001
-            err(f"save photo manifest: {type(e).__name__}: {e}")
+            err(f"save photo manifest: {type(e).__name__}: {e}", f"save_manifest:{type(e).__name__}")
     return stats
 
 
@@ -526,11 +584,23 @@ def load_export_manifest(dst, export_id: str, fernet) -> Optional[dict]:
     return json.loads(decrypt_bytes(blob, fernet))
 
 
+def app_table_names() -> frozenset[str]:
+    """Every table the app's models declare (Base.metadata)."""
+    import app.models  # noqa: F401 — register every model
+    from app.database import Base
+    return frozenset(Base.metadata.tables)
+
+
 def export_db_to_backup(engine, dst, fernet, *, now: datetime,
                         check: Callable[[], None] = lambda: None,
-                        part_bytes: int = DB_PART_BYTES, verify: bool = True) -> dict:
+                        part_bytes: int = DB_PART_BYTES, verify: bool = True,
+                        expect_tables: frozenset[str] = frozenset()) -> dict:
     """Export, encrypt, upload, verify; the manifest is written last and marks
-    the export complete."""
+    the export complete. Every name in `expect_tables` should be in the
+    export (the nightly run passes the app's model tables); the ones that are
+    not — a wrong search_path, a table in another schema — are returned as
+    `missing_tables` (and kept in the manifest) for the run to report and
+    alert on. The export itself still lands: a partial backup beats none."""
     export_id = export_id_for(now)
     prefix = f"{DB_PREFIX}/{export_id}"
     t0 = time.monotonic()
@@ -546,6 +616,7 @@ def export_db_to_backup(engine, dst, fernet, *, now: datetime,
             except Exception:  # noqa: BLE001
                 pass
         writer.close()
+        missing = sorted(set(expect_tables) - set(meta["tables"]))
         size = enc.tell()
         enc.seek(0)
         parts = []
@@ -589,6 +660,7 @@ def export_db_to_backup(engine, dst, fernet, *, now: datetime,
                    for k, v in meta["tables"].items()},
         "verified": bool(verify),
         "verified_at": _iso(utc_now()) if verify else None,
+        "missing_tables": missing,
     }
     dst.upload(f"{prefix}/{DB_MANIFEST_NAME}",
                encrypt_bytes(json.dumps(manifest, separators=(",", ":")).encode(), fernet),
@@ -596,7 +668,7 @@ def export_db_to_backup(engine, dst, fernet, *, now: datetime,
     return {"ok": True, "export_id": export_id, "tables": meta["table_count"],
             "rows": meta["total_rows"], "plain_bytes": meta["total_csv_bytes"],
             "encrypted_bytes": size, "parts": len(parts), "verified": bool(verify),
-            "seconds": round(time.monotonic() - t0, 1)}
+            "missing_tables": missing, "seconds": round(time.monotonic() - t0, 1)}
 
 
 # ── export retention ─────────────────────────────────────────────────────
@@ -646,9 +718,16 @@ def list_db_exports(dst) -> tuple[list[str], dict[str, list[str]]]:
     return sorted(complete), incomplete
 
 
-def prune_db_exports(dst, *, now: datetime, protect: set[str]) -> dict:
+def prune_db_exports(dst, *, now: datetime, protect: set[str], age_only: bool = False) -> dict:
+    """Delete the exports retention no longer keeps. `age_only` (a night
+    whose export failed): only the DB_MAX_AGE cut and stale incomplete
+    exports — the count-based thinning waits for a night with a new export,
+    but nothing may outlive DB_MAX_AGE because an export failed."""
     complete, incomplete = list_db_exports(dst)
-    keep = select_exports_to_keep(complete, now=now) | set(protect)
+    if age_only:
+        keep = {c for c in complete if now - parse_export_id(c) <= DB_MAX_AGE} | set(protect)
+    else:
+        keep = select_exports_to_keep(complete, now=now) | set(protect)
     doomed_keys: list[str] = []
     deleted_ids: list[str] = []
     for export_id in complete:
@@ -666,7 +745,7 @@ def prune_db_exports(dst, *, now: datetime, protect: set[str]) -> dict:
             "exports_deleted": len(deleted_ids), "objects_deleted": len(doomed_keys)}
 
 
-# ── run ──────────────────────────────────────────────────────────────────
+# ── recording ────────────────────────────────────────────────────────────
 
 def _load_tombstones(session_factory) -> dict:
     from app.models.erasure_tombstone import ErasureTombstone
@@ -677,9 +756,77 @@ def _load_tombstones(session_factory) -> dict:
         db.close()
 
 
-def _record(session_factory, summary: dict, ok: bool, error_type: str) -> None:
-    """MonitorState row (service="nightly_backup") + an ErrorLog row on failure.
-    `summary` holds counts and already-redacted error strings only."""
+# ── alerts ───────────────────────────────────────────────────────────────
+
+def _notify(db, subject: str, lines: list[str], push_title: str, push_body: str) -> None:
+    """Operator email + push through the frontend monitor's channel
+    (jobs/frontend_monitor_job.notify_operators). Fail-soft. Callers pass
+    counts, kinds and bucket names only — never paths, ids or row data."""
+    try:
+        from app.jobs.frontend_monitor_job import notify_operators
+        notify_operators(db, subject, lines, push_title, push_body)
+    except Exception as e:  # noqa: BLE001 — an alert must never break the job
+        logger.error("backup: operator alert failed: %s", type(e).__name__)
+
+
+def _kind_lines(kinds: Optional[dict]) -> list[str]:
+    return [f"  - {k}: {n}" for k, n in sorted((kinds or {}).items())][:15]
+
+
+def _mass_deletion_lines(alarms: list[dict]) -> list[str]:
+    out = [f"MASS DELETION: {a.get('gone')} of {a.get('of')} backed-up files disappeared from the "
+           f"source bucket '{a.get('bucket')}' since the previous run." for a in alarms]
+    out.append("The backup copies are kept (30 days for avatars, logos, chat images and staff "
+               "documents; 6 years for accounting documents). Check the main project's Storage "
+               "now; files can be put back with scripts/restore_from_backup.py (runbook section 4).")
+    return out
+
+
+def _incident_alert(summary: dict, st, run_now: datetime, *, failed: bool,
+                    new_alarms: list[dict]) -> tuple[str, list[str], str, str]:
+    when = run_now.strftime("%Y-%m-%d %H:%M")
+    lines: list[str] = []
+    if new_alarms:
+        lines += _mass_deletion_lines(new_alarms) + [""]
+    if failed:
+        lines += [f"The nightly off-project backup FAILED at {when} UTC "
+                  f"(failed runs in a row: {st.fail_streak}).",
+                  "What failed (kinds and counts only; no file names or account data by design):"]
+        lines += _kind_lines(summary.get("error_kinds")) or ["  - (no detail recorded)"]
+        lines += ["You get one mail per incident; the next one is the recovery note."]
+    lines += ["", f"Details: {HEALTH_URL} (super-admin) and /api/admin/recent-errors (method JOB).",
+              "Runbook: bonbox-lab-state/backup_runbook.md, section 2."]
+    if new_alarms:
+        subject = "BonBox: MASS DELETION in file storage (backup copies kept)"
+        push =("BonBox: mass deletion in storage",
+                f"{sum(int(a.get('gone') or 0) for a in new_alarms)} files vanished from the source bucket.")
+    else:
+        subject = "BonBox: nightly backup FAILED"
+        push = ("BonBox: nightly backup FAILED", "The nightly backup failed. See backup-health.")
+    return subject, lines, push[0], push[1]
+
+
+def _summary_json(summary: dict, limit: int = 8000) -> str:
+    """JSON that stays parseable under the column budget (the alarms list is
+    read back from it the next night)."""
+    text = json.dumps(summary, default=str)
+    if len(text) <= limit:
+        return text
+    errors = summary.get("errors") or []
+    slim = {**summary, "errors": [e[:150] for e in errors[:5]] + [f"… {len(errors)} errors in all"]}
+    text = json.dumps(slim, default=str)
+    return text if len(text) <= limit else json.dumps(
+        {k: slim.get(k) for k in ("status", "started_at", "duration_s", "error_kinds", "alarms",
+                                  "bucket_private")}, default=str)[:limit]
+
+
+def _record(session_factory, summary: dict, ok: bool, error_type: str,
+            run_now: Optional[datetime] = None) -> None:
+    """MonitorState row (service="nightly_backup") + an ErrorLog row on failure,
+    and the once-per-incident alerts (see the module docstring). `summary`
+    holds counts and already-redacted error strings only. The state is
+    committed BEFORE an alert is sent, so a crash or a slow mail server can
+    never make the next run alert the same incident again."""
     from app.models.error_log import ErrorLog
     from app.models.monitor_state import MonitorState
     try:
@@ -687,19 +834,41 @@ def _record(session_factory, summary: dict, ok: bool, error_type: str) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("backup: could not open a session to record the run")
         return
+    alert = None
     try:
         st = db.query(MonitorState).filter(MonitorState.service == SERVICE).first()
         if st is None:
             st = MonitorState(service=SERVICE, state="HEALTHY", fail_streak=0, consecutive_ok=0)
             db.add(st)
         now = utc_now()
+        run_now = run_now or now
+        # Mass deletions stay listed for DELETED_GRACE — the window in which
+        # the copies of the no-legal-basis kinds still exist — instead of
+        # vanishing from the status after one night.
+        try:
+            prev = json.loads(st.last_summary) if st.last_summary else {}
+        except ValueError:
+            prev = {}
+        carried = [a for a in (prev.get("alarms") or []) if isinstance(a, dict)
+                   and (_parse_iso(a.get("at")) or datetime.min) > run_now - DELETED_GRACE]
+        new_alarms = [{"kind": "mass_deletion", "at": _iso(run_now), **m}
+                      for m in ((summary.get("photos") or {}).get("mass_deletions") or [])]
+        summary["alarms"] = carried + new_alarms
+
         st.last_check_at = now
-        st.last_summary = json.dumps(summary, default=str)[:8000]
         if ok:
             st.state = "HEALTHY"
             st.fail_streak = 0
             st.consecutive_ok = (st.consecutive_ok or 0) + 1
             st.broken_since = None
+            if st.last_alert_at is not None:
+                mins = int((now - st.last_alert_at).total_seconds() // 60)
+                alert = ("BonBox: nightly backup recovered",
+                         [f"The nightly off-project backup succeeded at {run_now.strftime('%Y-%m-%d %H:%M')} "
+                          f"UTC, {mins} min after the alert.", f"Status: {HEALTH_URL}"],
+                         "BonBox: nightly backup recovered", "The nightly backup works again.")
+                st.last_alert_at = None
+                st.incident_entry = None
         else:
             st.state = "BROKEN"
             st.fail_streak = (st.fail_streak or 0) + 1
@@ -710,21 +879,87 @@ def _record(session_factory, summary: dict, ok: bool, error_type: str) -> None:
                 error_type=error_type,
                 message=("; ".join(summary.get("errors") or []) or "backup failed")[:2000],
             ))
+            first = st.last_alert_at is None          # no incident open yet
+            if first or new_alarms:
+                alert = _incident_alert(summary, st, run_now, failed=first, new_alarms=new_alarms)
+            if first:
+                st.last_alert_at = now
+                st.incident_entry = "failed"
+        st.last_summary = _summary_json(summary)
         db.commit()
     except Exception:  # noqa: BLE001 — recording must never crash the job
         logger.exception("backup: could not record the run")
+        alert = None
         try:
             db.rollback()
         except Exception:  # noqa: BLE001
             pass
+    try:
+        if alert:
+            _notify(db, *alert)
     finally:
         db.close()
 
 
+def check_backup_staleness(*, cfg: Optional[BackupConfig] = None, session_factory=None,
+                           now: Optional[datetime] = None) -> dict:
+    """Hourly watch: alert ONCE when the last recorded run is older than
+    STALE_AFTER (a skipped night — the process was down at 04:20, or the job
+    is not registered). Quiet when the backup is off, while a run is in
+    progress here, before the first run (the runbook's manual first run
+    creates the row) and while an incident is already open. Never raises."""
+    try:
+        cfg = cfg or load_config()
+        if cfg.status == "disabled":
+            return {"status": "disabled"}
+        if _process_lock.locked():
+            return {"status": "running"}
+        if session_factory is None:
+            from app.database import SessionLocal as session_factory  # noqa: N813
+        from app.models.monitor_state import MonitorState
+        db = session_factory()
+        try:
+            st = db.query(MonitorState).filter(MonitorState.service == SERVICE).first()
+            if st is None or st.last_check_at is None:
+                return {"status": "never_run"}
+            now = now or utc_now()
+            age = now - st.last_check_at
+            if age <= STALE_AFTER:
+                return {"status": "fresh"}
+            if st.last_alert_at is not None:
+                return {"status": "stale", "alerted": False}
+            st.state = "BROKEN"
+            st.broken_since = st.broken_since or now
+            st.last_alert_at = now
+            st.incident_entry = "stale"
+            db.commit()
+            hours = int(age.total_seconds() // 3600)
+            _notify(db, "BonBox: nightly backup has not run",
+                    [f"The last nightly off-project backup ran {hours} h ago "
+                     f"({st.last_check_at.strftime('%Y-%m-%d %H:%M')} UTC); it should run every night "
+                     "at 04:20 UTC.",
+                     "Usually a deploy or restart at 04:20 skipped one night. Two in a row: check the "
+                     "Render logs for 'nightly backup job not registered', or run it by hand "
+                     "(runbook section 2).",
+                     f"Status: {HEALTH_URL}",
+                     "You get one mail per incident; the next one is the recovery note."],
+                    "BonBox: nightly backup has not run", f"No backup for {hours} h.")
+            return {"status": "stale", "alerted": True, "hours": hours}
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001
+        logger.error("backup: staleness check failed: %s", type(e).__name__)
+        return {"status": "error"}
+
+
+# ── run ──────────────────────────────────────────────────────────────────
+
 def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, session_factory=None,
                        sources: Optional[dict] = None, dst=None, now: Optional[datetime] = None,
-                       deadline_seconds: int = RUN_DEADLINE_SECONDS) -> dict:
-    """The scheduled entry point. Never raises; returns the run summary."""
+                       deadline_seconds: int = RUN_DEADLINE_SECONDS,
+                       expect_tables: Optional[frozenset[str]] = None) -> dict:
+    """The scheduled entry point. Never raises; returns the run summary.
+    `expect_tables` defaults to every app model table (app_table_names)."""
     t0 = time.monotonic()
     try:
         cfg = cfg or load_config()
@@ -738,7 +973,9 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
     if session_factory is None:
         from app.database import SessionLocal as session_factory  # noqa: N813
     if cfg.status == "misconfigured":
-        summary = {"status": "failed", "errors": [f"misconfigured: {p}" for p in cfg.problems]}
+        summary = {"status": "failed", "errors": [f"misconfigured: {p}" for p in cfg.problems],
+                   # problems name variables only (load_config), never values
+                   "error_kinds": {f"misconfigured: {p}": 1 for p in cfg.problems}}
         logger.error("backup: misconfigured: %s", "; ".join(cfg.problems))
         _record(session_factory, summary, ok=False, error_type="backup:misconfigured")
         return summary
@@ -747,12 +984,18 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
         from app.database import engine as _engine
         engine = _engine
     now = now or utc_now()
-    summary: dict = {"status": "running", "started_at": _iso(now), "photos": None,
-                     "db": None, "retention": None, "errors": []}
+    summary: dict = {"status": "running", "started_at": _iso(now), "bucket_private": None,
+                     "photos": None, "db": None, "retention": None, "errors": [],
+                     "error_kinds": {}}
     secrets = cfg.secrets
+    kinds: dict = summary["error_kinds"]
+
+    def kind(label: str, n: int = 1) -> None:
+        kinds[label] = kinds.get(label, 0) + n
 
     def note(phase: str, e: BaseException) -> None:
         summary["errors"].append(_redact(f"{phase}: {type(e).__name__}: {e}", secrets))
+        kind(f"{phase.split(':')[0]}:{type(e).__name__}")
 
     try:
         with backup_run_lock(engine) as lock:
@@ -769,6 +1012,19 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
             if dst is None:
                 dst = SupabaseBucket(cfg.url, cfg.service_key, cfg.bucket)
 
+            # 0. The backup bucket must be private. Reported, never a reason
+            #    to stop: everything in it is encrypted. A check that cannot be
+            #    made is "unknown" (None), never "private".
+            try:
+                public = dst.bucket_public()
+                summary["bucket_private"] = not public
+                if public:
+                    summary["errors"].append("bucket: the backup bucket is PUBLIC; make it private "
+                                             "in the backup project (Storage, bucket settings)")
+                    kind("bucket:public")
+            except Exception as e:  # noqa: BLE001
+                summary["bucket_check"] = _redact(f"{type(e).__name__}: {e}", secrets)
+
             # 1. photos
             try:
                 if sources is None:
@@ -779,6 +1035,7 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
                         sources = {}
                         summary["errors"].append("photos: main SUPABASE_URL / SUPABASE_SERVICE_KEY "
                                                  "not set, so photos were not backed up")
+                        kind("photos:source_not_configured")
                 if sources:
                     try:
                         tombstones = _load_tombstones(session_factory)
@@ -792,6 +1049,8 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
                     if stats["error_count"] > len(stats["errors"]):
                         summary["errors"].append(
                             f"photos: {stats['error_count'] - len(stats['errors'])} more errors")
+                    for k, n in stats["error_kinds"].items():
+                        kind(f"photos:{k}", n)
                     summary["photos"] = {k: v for k, v in stats.items() if k != "errors"}
             except Exception as e:  # noqa: BLE001
                 note("photos", e)
@@ -799,18 +1058,32 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
             # 2. database
             try:
                 check()
-                summary["db"] = export_db_to_backup(engine, dst, cfg.fernet, now=now, check=check)
+                summary["db"] = export_db_to_backup(
+                    engine, dst, cfg.fernet, now=now, check=check,
+                    expect_tables=app_table_names() if expect_tables is None else expect_tables)
+                missing = summary["db"].get("missing_tables") or []
+                if missing:
+                    summary["errors"].append(
+                        f"db: the export lacks {len(missing)} app table(s): {', '.join(missing[:10])} "
+                        "(check the database's schema / search_path)")
+                    kind("db:missing_tables")
             except Exception as e:  # noqa: BLE001
                 note("db", e)
 
-            # 3. export retention — only after tonight's export landed
-            if summary["db"] and summary["db"].get("ok"):
-                try:
-                    check()
-                    summary["retention"] = prune_db_exports(
-                        dst, now=now, protect={summary["db"]["export_id"]})
-                except Exception as e:  # noqa: BLE001
-                    note("retention", e)
+            # 3. export retention — EVERY night. Tonight's export failed or
+            #    the deadline passed: still the DB_MAX_AGE cut (no export may
+            #    outlive it because exports keep failing); the count-based
+            #    thinning only after tonight's export landed. No deadline
+            #    check here, only the lock heartbeat (never prune while
+            #    another run might hold the lock).
+            db_ok = bool(summary["db"] and summary["db"].get("ok"))
+            try:
+                lock.heartbeat(force=True)
+                summary["retention"] = prune_db_exports(
+                    dst, now=now, protect={summary["db"]["export_id"]} if db_ok else set(),
+                    age_only=not db_ok)
+            except Exception as e:  # noqa: BLE001
+                note("retention", e)
     except Exception as e:  # noqa: BLE001 — the lock itself, or anything unforeseen
         note("run", e)
 
@@ -821,19 +1094,21 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
         logger.info("backup: ok in %ss", summary["duration_s"])
     else:
         logger.error("backup: failed: %s", "; ".join(summary["errors"])[:1000])
-    _record(session_factory, summary, ok=ok, error_type="backup:failed")
+    _record(session_factory, summary, ok=ok, error_type="backup:failed", run_now=now)
     return summary
 
 
 def register_backup_job(scheduler) -> None:
-    """Add the nightly run to the app's APScheduler (called from app/main.py).
+    """Add the nightly run and its hourly watch to the app's APScheduler
+    (called from app/main.py).
 
     04:20 UTC: after the 02:30 maintenance + retention sweep and every 03:xx
     job, after 04:00 recurring expenses, before the 06:00 brief push. One
     instance at a time; missed ticks coalesce into one run; a start delayed by
     a busy pool still runs within 3 h. The job store is in memory, so a process
-    that is down at 04:20 skips that night — /api/admin/backup-health then
-    reports the last run as stale (> 26 h)."""
+    that is down at 04:20 skips that night — the hourly watch (:50) then
+    alerts once the last run is older than STALE_AFTER (26 h), and
+    /api/admin/backup-health reports it as stale."""
     from apscheduler.triggers.cron import CronTrigger
     scheduler.add_job(
         run_nightly_backup,
@@ -844,4 +1119,14 @@ def register_backup_job(scheduler) -> None:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3 * 3600,
+    )
+    scheduler.add_job(
+        check_backup_staleness,
+        trigger=CronTrigger(minute=50, timezone="UTC"),
+        id="nightly_backup_watch",
+        name="Nightly backup watch (alerts once when no run for 26 h)",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
     )
