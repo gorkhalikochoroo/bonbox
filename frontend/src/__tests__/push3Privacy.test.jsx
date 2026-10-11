@@ -102,7 +102,7 @@ describe("deletion: /privacy says what Terms § 4 says", () => {
     expect(rows["Change log (every mark-paid / void / brand change), incl. your IP address"])
       .toBe("No end date: it cannot be edited or deleted through BonBox, and it is kept when you delete your account");
     expect(rows["Error log (technical errors, incl. IP address)"]).toBe("30 days, also after you delete your account");
-    expect(rows["Security log (sign-ups, e-mail sign-in links, admin access attempts; incl. IP address)"])
+    expect(rows["Security log (sign-ups we block or flag, e-mail sign-in links, admin access attempts and admin actions, changes to subscriptions and trials, plan limits and locked features you run into, and price lookups; some of them with IP address)"])
       .toBe("No end date; kept when you delete your account");
     expect(rows["Bank CSV files (raw)"]).toBe("Not saved: read in memory during the import");
     expect(rows["Backups of our database"]).toBe("Copies disappear when those backups expire");
@@ -234,6 +234,41 @@ describe("B2: /privacy records only THAT a Copilot question was asked (true sinc
     cleanup();
     rows = Object.fromEntries(tableRows(renderPage(PrivacyPolicyPage, "da").container, "Datatype"));
     expect(rows["Spørgsmål til AI Copilot"]).toBe("Kun at der blev stillet et spørgsmål, registreres: 180 dage, som andre hændelser til produktanalyse. Spørgsmålstekster, der blev gemt indtil midten af juli 2026 (de første 200 tegn), slettes 180 dage efter, at de blev stillet");
+  });
+});
+
+describe("should-fixes: who is controller, the date, the insights row", () => {
+  it("da + en: controller for the owner's account data; processor for what a business puts in about guests, customers and staff", () => {
+    let text = renderPage(PrivacyPolicyPage, "da").container.textContent.replace(/\s+/g, " ");
+    expect(text).toContain("Denne virksomhed er dataansvarlig for de oplysninger om dig og din BonBox-konto, der er beskrevet på denne side.");
+    expect(text).not.toContain("dataansvarlig for alt");
+    expect(screen.getByTestId("privacy-processor-role").textContent.replace(/\s+/g, " ").trim()).toBe(
+      "For de oplysninger, en virksomhed lægger ind i BonBox om sine gæster, kunder og medarbejdere (fx reservationer, khata-kunder og medarbejderoplysninger), er det den virksomhed, der er dataansvarlig, og vi behandler oplysningerne på dens vegne som dens databehandler.",
+    );
+    cleanup();
+    text = renderPage(PrivacyPolicyPage, "en").container.textContent.replace(/\s+/g, " ");
+    expect(text).toContain("That business is the data controller for the data about you and your BonBox account described on this page.");
+    expect(text).not.toContain("for everything described");
+    expect(screen.getByTestId("privacy-processor-role").textContent.replace(/\s+/g, " ").trim()).toBe(
+      "For the data a business puts into BonBox about its guests, customers and staff (for example reservations, khata customers and staff details), that business is the data controller, and we process the data on its behalf as its data processor.",
+    );
+  });
+
+  it("the 'Last updated' date is the Terms' date (TERMS_VERSION), in both languages", async () => {
+    const { TERMS_VERSION, termsDate } = await import("../legal/terms");
+    renderPage(PrivacyPolicyPage, "da");
+    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Senest opdateret: ${termsDate(TERMS_VERSION, "da")}`);
+    cleanup();
+    renderPage(PrivacyPolicyPage, "en");
+    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Last updated: ${termsDate(TERMS_VERSION, "en")}`);
+  });
+
+  it("insights: kept until the account is deleted (expired ones stay in the archive) — no 'auto-expire 1–30 days'", () => {
+    let rows = Object.fromEntries(tableRows(renderPage(PrivacyPolicyPage, "en").container, "Data type"));
+    expect(rows["AI insights derived from events"]).toBe("Until you delete your account; expired and dismissed insights stay in your insights archive");
+    cleanup();
+    rows = Object.fromEntries(tableRows(renderPage(PrivacyPolicyPage, "da").container, "Datatype"));
+    expect(rows["AI-indsigter afledt af hændelser"]).toBe("Indtil du sletter din konto; udløbne og fjernede indsigter bliver i dit arkiv over indsigter");
   });
 });
 

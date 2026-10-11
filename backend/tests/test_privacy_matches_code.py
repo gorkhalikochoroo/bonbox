@@ -75,6 +75,39 @@ def test_security_log_has_no_end_date_because_nothing_deletes_it():
     assert "365 days" not in PRIVACY and "365 dage" not in PRIVACY
 
 
+# Push 3 should-fix: the security-log row names what the log really holds.
+# Every file that writes a SecurityEvent, and the words on /privacy for it.
+# A new writer fails this test until the row says what it logs.
+_SECURITY_LOG_WRITERS = {
+    "app/routers/auth.py": ("sign-ups we block or flag", "tilmeldinger, vi afviser eller markerer"),
+    "app/routers/auth_magic_link.py": ("e-mail sign-in links", "login-links pr. e-mail"),
+    "app/services/admin_security.py": ("admin access attempts", "forsøg på administratoradgang"),
+    "app/routers/admin.py": ("admin actions", "handlinger foretaget af en administrator"),
+    "app/routers/billing.py": ("changes to subscriptions and trials", "ændringer af abonnementer og prøveperioder"),
+    "app/services/stripe_billing.py": ("changes to subscriptions and trials", "ændringer af abonnementer og prøveperioder"),
+    "app/jobs/subscription_reconcile_job.py": ("changes to subscriptions and trials", "ændringer af abonnementer og prøveperioder"),
+    "app/services/billing.py": ("plan limits and locked features you run into", "forbrugslofter og låste funktioner, du rammer"),
+    "app/services/smart_pricing.py": ("price lookups", "prisopslag"),
+}
+
+
+def test_the_security_log_row_names_everything_the_code_writes_to_it():
+    writers = sorted(
+        str(p.relative_to(ROOT / "backend")) for p, s in _app_sources().items()
+        if "SecurityEvent(" in s and "/models/" not in str(p)
+    )
+    assert writers == sorted(_SECURITY_LOG_WRITERS), writers
+    en = re.search(r'\["(Security log \([^"]+\))", "No end date; kept when you delete your account"\]', PRIVACY)
+    da = re.search(r'\["(Sikkerhedslog \([^"]+\))", "Ingen slutdato; beholdes, når du sletter din konto"\]', PRIVACY)
+    assert en and da
+    for en_words, da_words in _SECURITY_LOG_WRITERS.values():
+        assert en_words in en.group(1), en_words
+        assert da_words in da.group(1), da_words
+    # Some rows carry the IP (sign-ups, sign-in links, admin access); some do not.
+    assert "some of them with IP address" in en.group(1)
+    assert "nogle af dem med IP-adresse" in da.group(1)
+
+
 def test_no_one_can_change_the_retention_period():
     # The column exists (default 6) but nothing an owner sends can set it:
     # no schema field, no router, no frontend control.

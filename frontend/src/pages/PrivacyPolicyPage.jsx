@@ -1,6 +1,11 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CookieSettingsButton } from "../components/CookieConsent";
+// The "Last updated" date is the Terms' TERMS_VERSION (src/legal/terms.js):
+// /privacy changes in the same release as the Terms (Push 3), so the two
+// pages can never show different dates. If the policy ever changes on its
+// own, give it its own constant there.
+import { TERMS_VERSION, termsDate } from "../legal/terms";
 
 function Section({ title, children }) {
   return (
@@ -54,15 +59,20 @@ function PrivacyEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 14 October 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
         <Section title="Who we are">
           <p>
             BonBox is a product of <strong>DukaanAI v/Manoz Chaudhary</strong>, registered in Denmark
-            as a Personligt ejet Mindre Virksomhed. That business is the data controller for
-            everything described on this page.
+            as a Personligt ejet Mindre Virksomhed. That business is the data controller for the data
+            about you and your BonBox account described on this page.
+          </p>
+          <p className="mt-2" data-testid="privacy-processor-role">
+            For the data a business puts into BonBox about its guests, customers and staff (for example
+            reservations, khata customers and staff details), that business is the data controller, and
+            we process the data on its behalf as its data processor.
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registered name:</strong> DukaanAI v/Manoz Chaudhary</li>
@@ -244,10 +254,10 @@ function PrivacyEn() {
               ["Bank CSV files (raw)", "Not saved: read in memory during the import"],
               ["Parsed bank transactions", "Until you delete your account (they are saved as sales and expenses)"],
               ["Product analytics events", "180 days (auto-purged daily)"],
-              ["AI insights derived from events", "Auto-expire 1–30 days; can be dismissed any time"],
+              ["AI insights derived from events", "Until you delete your account; expired and dismissed insights stay in your insights archive"],
               ["AI Copilot questions", "Only the fact that a question was asked is recorded: 180 days, like other analytics events. Question texts saved until mid-July 2026 (first 200 characters) are deleted 180 days after they were asked"],
               ["Error log (technical errors, incl. IP address)", "30 days, also after you delete your account"],
-              ["Security log (sign-ups, e-mail sign-in links, admin access attempts; incl. IP address)", "No end date; kept when you delete your account"],
+              ["Security log (sign-ups we block or flag, e-mail sign-in links, admin access attempts and admin actions, changes to subscriptions and trials, plan limits and locked features you run into, and price lookups; some of them with IP address)", "No end date; kept when you delete your account"],
               ["Email communication logs", "Until you delete your account"],
               ["Backups of our database", "Copies disappear when those backups expire"],
             ]}
@@ -322,15 +332,20 @@ function PrivacyDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privatlivspolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 14. oktober 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Senest opdateret: {termsDate(TERMS_VERSION, "da")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
         <Section title="Hvem vi er">
           <p>
             BonBox er et produkt fra <strong>DukaanAI v/Manoz Chaudhary</strong>, der er registreret i Danmark
-            som Personligt ejet Mindre Virksomhed. Denne virksomhed er dataansvarlig for alt, hvad der
-            er beskrevet på denne side.
+            som Personligt ejet Mindre Virksomhed. Denne virksomhed er dataansvarlig for de oplysninger om
+            dig og din BonBox-konto, der er beskrevet på denne side.
+          </p>
+          <p className="mt-2" data-testid="privacy-processor-role">
+            For de oplysninger, en virksomhed lægger ind i BonBox om sine gæster, kunder og medarbejdere
+            (fx reservationer, khata-kunder og medarbejderoplysninger), er det den virksomhed, der er
+            dataansvarlig, og vi behandler oplysningerne på dens vegne som dens databehandler.
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registreret navn:</strong> DukaanAI v/Manoz Chaudhary</li>
@@ -512,10 +527,10 @@ function PrivacyDa() {
               ["Bank-CSV-filer (rå)", "Gemmes ikke: de læses i hukommelsen under importen"],
               ["Indlæste banktransaktioner", "Indtil du sletter din konto (de gemmes som salg og udgifter)"],
               ["Hændelser til produktanalyse", "180 dage (slettes automatisk hver dag)"],
-              ["AI-indsigter afledt af hændelser", "Udløber automatisk efter 1–30 dage; kan til enhver tid fjernes"],
+              ["AI-indsigter afledt af hændelser", "Indtil du sletter din konto; udløbne og fjernede indsigter bliver i dit arkiv over indsigter"],
               ["Spørgsmål til AI Copilot", "Kun at der blev stillet et spørgsmål, registreres: 180 dage, som andre hændelser til produktanalyse. Spørgsmålstekster, der blev gemt indtil midten af juli 2026 (de første 200 tegn), slettes 180 dage efter, at de blev stillet"],
               ["Fejllog (tekniske fejl, inkl. IP-adresse)", "30 dage, også efter at du har slettet din konto"],
-              ["Sikkerhedslog (tilmeldinger, login-links pr. e-mail, forsøg på administratoradgang; inkl. IP-adresse)", "Ingen slutdato; beholdes, når du sletter din konto"],
+              ["Sikkerhedslog (tilmeldinger, vi afviser eller markerer, login-links pr. e-mail, forsøg på administratoradgang og handlinger foretaget af en administrator, ændringer af abonnementer og prøveperioder, forbrugslofter og låste funktioner, du rammer, og prisopslag; nogle af dem med IP-adresse)", "Ingen slutdato; beholdes, når du sletter din konto"],
               ["Log over e-mailkommunikation", "Indtil du sletter din konto"],
               ["Sikkerhedskopier af vores database", "Kopierne forsvinder, når sikkerhedskopierne udløber"],
             ]}
