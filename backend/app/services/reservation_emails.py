@@ -57,6 +57,7 @@ from app.models.user import User
 from app.services.allergens import allergen_label
 from app.services.mailbox import count_same_mailbox
 from app.services.owner_language import owner_lang, venue_language
+from app.utils import abuse_signals
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -885,6 +886,17 @@ def guest_emails_sent_fleet_last_24h(db: Session) -> int:
     )
 
 
+def fleet_guest_mail_capped(db: Session) -> int | None:
+    """The fleet-wide ceiling (every venue together) when it is reached, else
+    None. Holds when a caller spreads bookings over many venues and IP
+    addresses. Read at call time; GUEST_EMAILS_FLEET_PER_DAY <= 0 is off.
+    Raises when the count fails — deliver() then refuses to send."""
+    cap = app_config.GUEST_EMAILS_FLEET_PER_DAY
+    if cap <= 0:
+        return None
+    return cap if guest_emails_sent_fleet_last_24h(db) >= cap else None
+
+
 def guest_email_owner_cap(db: Session, owner_id) -> int:
     """This owner's rolling-24h guest-mail ceiling: the lower one until the
     owner's own e-mail address is confirmed — and while a "did you create
@@ -1014,6 +1026,9 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
             if not capped and owner_guest_mail_capped(db, owner_id) is not None:
                 # The venue's own daily ceiling, across all its bookings.
                 capped, reason = True, "owner_capped"
+            if not capped and fleet_guest_mail_capped(db) is not None:
+                # Every venue together: the fleet-wide daily ceiling.
+                capped, reason = True, "fleet_capped"
             if (not capped and event_type in OWNER_INITIATED_GUEST_EVENTS
                     and mailbox_guest_mail_capped(db, owner_id, to) is not None):
                 # One stranger's inbox: the per-mailbox bound.
@@ -1021,6 +1036,8 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
         except Exception:  # noqa: BLE001 — couldn't check → don't send
             capped, reason = True, "cap_check_error"
         if capped:
+            if reason == "fleet_capped":
+                abuse_signals.bump("guest_mail_fleet")
             logger.warning("guest email suppressed: %s (reservation=%s, event=%s)",
                            reason, reservation_id, event_type)
             _log(db, owner_id=owner_id, reservation_id=reservation_id,
