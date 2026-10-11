@@ -66,10 +66,17 @@ const MAX_HISTORY = 5;
 const SCAN_THROTTLE_EVERY_N_FRAMES = 2;
 
 // ── Audio helpers ────────────────────────────────────────────────────
-// Tiny Web Audio beep for success / buzz for failure. No extra audio
+// Soft Web Audio note for success / low hum for failure. No extra audio
 // dependencies — generated programmatically. Safari iOS requires the
 // AudioContext be created on a user-gesture (handled by initing it
 // inside the "Start scanner" click handler).
+//
+// 12 Oct 2026: the old 880 Hz blip and 220 Hz square buzz were part of the
+// set Manoj found "a bit high, irritating"; he chose the softest option.
+// Success is now a warm 440 Hz note built like the stand's mallet chime
+// (utils/sound.js), failure a low 174.61 Hz sine — still unmistakably
+// different, neither one a square wave. Pinned by __tests__/soundSet.test.js.
+const DOOR_WARM = [[1, 1, 1], [2, 0.1, 0.5], [3, 0.03, 0.3]]; // [mult, amp, ringFactor]
 function makeAudioFeedback() {
   let ctx = null;
   const init = () => {
@@ -81,25 +88,37 @@ function makeAudioFeedback() {
       return ctx;
     } catch { return null; }
   };
-  const beep = (freq, duration, type = "sine", volume = 0.08) => {
+  // One soft note: sine partials each ringing out on `ring * ringFactor`
+  // (counted from the strike), a short rise instead of a click, and a 40 ms
+  // ease to silence at the end.
+  const beep = (freq, duration, volume, ring, { attack = 0.012, partials = [[1, 1, 1]] } = {}) => {
     const c = ctx;
     if (!c) return;
     try {
-      const osc = c.createOscillator();
-      const gain = c.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      gain.gain.value = volume;
-      osc.connect(gain).connect(c.destination);
-      osc.start();
-      gain.gain.exponentialRampToValueAtTime(0.00001, c.currentTime + duration);
-      osc.stop(c.currentTime + duration + 0.02);
+      const t0 = c.currentTime;
+      const fadeAt = t0 + Math.max(attack, duration - 0.04);
+      for (const [mult, amp, ringFactor] of partials) {
+        const tau = ring * ringFactor;
+        const peak = volume * amp;
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq * mult;
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(peak * Math.exp(-attack / tau), t0 + attack);
+        gain.gain.setTargetAtTime(0, t0 + attack, tau);
+        gain.gain.setValueAtTime(peak * Math.exp(-(fadeAt - t0) / tau), fadeAt);
+        gain.gain.linearRampToValueAtTime(0, t0 + duration);
+        osc.connect(gain).connect(c.destination);
+        osc.start(t0);
+        osc.stop(t0 + duration + 0.02);
+      }
     } catch { /* audio errors should never break the scan loop */ }
   };
   return {
     init,
-    success: () => beep(880, 0.12, "sine", 0.06),
-    failure: () => beep(220, 0.22, "square", 0.05),
+    success: () => beep(440, 0.5, 0.06, 0.2, { partials: DOOR_WARM }),
+    failure: () => beep(174.61, 0.25, 0.05, 0.05, { attack: 0.01 }),
   };
 }
 
