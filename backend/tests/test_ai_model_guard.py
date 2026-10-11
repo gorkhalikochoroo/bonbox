@@ -601,6 +601,10 @@ def test_wine_scan_gets_the_net_and_sends_no_temperature(monkeypatch, mem):
     assert [b["model"] for b in sent] == [NEW, LEGACY]
     assert all("temperature" not in b for b in sent)
     assert len(_rows(mem)) == 1
+    # Sonnet 5.5 gets thinking off (the 1200-token JSON answer can't be
+    # eaten by thinking); the Sonnet 5 retry goes out exactly as before.
+    assert sent[0]["thinking"] == {"type": "between_tools"}
+    assert sent[1] == {k: v for k, v in {**sent[0], "model": LEGACY}.items() if k != "thinking"}
 
 
 def test_first_text_skips_a_leading_thinking_block():

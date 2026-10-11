@@ -881,6 +881,7 @@ async def scan_bottle_label(
             import httpx
 
             from app.services.ai_model_guard import (
+                adapt_request,
                 first_text,
                 is_model_not_found_response,
                 legacy_model_for,
@@ -909,6 +910,9 @@ async def scan_bottle_label(
 
             async with httpx.AsyncClient(timeout=30.0) as _client:
                 async def _post(m: str):
+                    # adapt_request: the SDK readers' request shape for `m`
+                    # (Sonnet 5.5 -> thinking off, so thinking can't eat the
+                    # 1200-token JSON answer; Sonnet 5 / others unchanged).
                     return await _client.post(
                         "https://api.anthropic.com/v1/messages",
                         headers={
@@ -916,7 +920,7 @@ async def scan_bottle_label(
                             "anthropic-version": "2023-06-01",
                             "content-type": "application/json",
                         },
-                        json={"model": m, **request_body},
+                        json=adapt_request({"model": m, **request_body}),
                     )
 
                 resp = await _post(model)
