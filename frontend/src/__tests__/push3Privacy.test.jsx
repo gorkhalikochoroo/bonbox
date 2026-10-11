@@ -188,6 +188,23 @@ describe("B1: /privacy says what the Copilot sends to Anthropic — never phone 
         : "the names of products, khata customers and staff, staff roles and shifts), never the phone numbers or e-mail addresses stored in your account");
     });
 
+    it(`${lang}: SF2 — the Anthropic row says what the daily brief sends (khata customers' names too), never phone numbers or e-mails`, () => {
+      const { container } = renderPage(PrivacyPolicyPage, lang);
+      const row = tableRows(container, lang === "da" ? "Tjeneste" : "Service").find((r) => r[0] === "Anthropic (Claude API)");
+      expect(row[3]).toContain(lang === "da"
+        ? "For morgenbriefen: tal, varenavne, navnene på khata-kunder, der ikke har været forbi i et stykke tid, din virksomheds navn og type, de sider, du bruger mest, og seneste indsigter — aldrig telefonnumre eller e-mailadresser. For andre AI-funktioner: de tal, varenavne, tekster eller billeder, funktionen arbejder med."
+        : "For the daily brief: figures, item names, the names of khata customers who haven't been back for a while, your business name and type, the pages you use most and recent insights — never phone numbers or e-mail addresses. For other AI features: the figures, item names, text or photos the feature works on.");
+      expect(row[3]).not.toContain(lang === "da" ? "For morgenbriefen og andre AI-funktioner" : "For the daily brief and other AI features");
+    });
+
+    it(`${lang}: derived insights are shown to the people you give access to, and go to Anthropic with the Copilot and the brief`, () => {
+      const text = renderPage(PrivacyPolicyPage, lang).container.textContent.replace(/\s+/g, " ");
+      expect(text).toContain(lang === "da"
+        ? "Indsigterne beregnes på vores servere, gemmes på din konto og vises i BonBox for dig og for dem, du giver adgang. De er en del af det, Copilot og morgenbriefen sender til Anthropic (se nedenfor)."
+        : "These insights are computed on our servers, stored in your account and shown in BonBox to you and to the people you give access to. They are part of what the Copilot and the daily brief send to Anthropic (see below).");
+      expect(text).not.toContain(lang === "da" ? "vises kun for dig" : "shown only to you");
+    });
+
     it(`${lang}: who sees the books in BonBox names the team members and the revisor, and Anthropic for the AI features`, () => {
       const text = renderPage(PrivacyPolicyPage, lang).container.textContent.replace(/\s+/g, " ");
       expect(text).toContain(lang === "da"

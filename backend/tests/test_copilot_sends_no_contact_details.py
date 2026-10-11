@@ -304,6 +304,36 @@ def test_a_tool_that_returns_contact_fields_anyway_is_stripped_before_anthropic(
         assert secret not in everything
 
 
+# ─── the daily brief (SF2): what /privacy's Anthropic row says it sends ───
+
+def test_daily_brief_payload_has_khata_names_but_no_phone_or_email(db):
+    """/privacy: the daily brief sends "the names of khata customers who
+    haven't been back for a while" — and never phone numbers or e-mail
+    addresses. The brief's LLM payload is Precompute.to_dict()
+    (daily_brief._try_llm_polish), so hold the real producer to it."""
+    from app.services.daily_brief import compute_precompute
+    u = _seed(db)
+    cust = db.query(KhataCustomer).filter(KhataCustomer.user_id == u.id).one()
+    for days_ago in (20, 30, 50):  # a regular (≥ 3 visits in 90 days), last seen 20 days ago
+        db.add(KhataTransaction(customer_id=cust.id, user_id=u.id, date=date.today() - timedelta(days=days_ago),
+                                purchase_amount=50, paid_amount=50))
+    db.commit()
+    payload = compute_precompute(u, db).to_dict()
+    assert [r["name"] for r in payload["top_regulars_at_risk"]] == [CUSTOMER_NAME]
+    _assert_no_contact(payload)
+
+
+def test_privacy_says_what_the_daily_brief_sends():
+    from pathlib import Path
+    privacy = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "PrivacyPolicyPage.jsx").read_text()
+    assert ("For the daily brief: figures, item names, the names of khata customers who haven't been back for a "
+            "while, your business name and type, the pages you use most and recent insights — never phone numbers "
+            "or e-mail addresses.") in privacy
+    assert ("For morgenbriefen: tal, varenavne, navnene på khata-kunder, der ikke har været forbi i et stykke tid, "
+            "din virksomheds navn og type, de sider, du bruger mest, og seneste indsigter — aldrig telefonnumre "
+            "eller e-mailadresser.") in privacy
+
+
 # ─── /privacy says what this code sends ─────────────────────────────
 
 def test_privacy_says_the_copilot_never_sends_stored_phone_numbers_or_emails():
