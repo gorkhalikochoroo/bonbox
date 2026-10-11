@@ -15,7 +15,9 @@
  *     whose section basis is legitimate interest (Art. 6(1)(f));
  *   • it says the stamp happens also when Analytics is off or paused, that
  *     each value replaces the last, who sees it, how long it is kept, and
- *     that it is in the data export;
+ *     that it is in the account OWNER's data export — a team member is
+ *     refused the export and the owner's holds only the owner's row, so the
+ *     bullet says how a member gets theirs (combined-release fix round);
  *   • the retention table has a row for it;
  *   • the backend still matches the text: 5-minute interval, the stamp in
  *     get_current_user, and last_seen_at in the GDPR export.
@@ -54,13 +56,13 @@ const show = (lang) => {
 
 const TEXT = {
   en: {
-    bullet: "When your account was last used — one timestamp. Our server records it when you sign in and updates it at most once every 5 minutes while you use BonBox, also when Analytics is off or paused. Each new value replaces the old one. It is used for support and to see which accounts are in use; only the founder sees it, in BonBox’s admin view. It is kept until you delete your account and is included in your data export.",
+    bullet: "When your account was last used — one timestamp. Our server records it when you sign in and updates it at most once every 5 minutes while you use BonBox, also when Analytics is off or paused. Each new value replaces the old one. It is used for support and to see which accounts are in use; only the founder sees it, in BonBox’s admin view. It is kept until you delete your account. It is included in the account owner’s data export; team members can ask for theirs at contact@bonbox.dk.",
     heading: "Technical data",
     basis: "Legitimate interest (GDPR Article 6(1)(f))",
     row: ["When your account was last used (one timestamp, replaced each time)", "Until you delete your account"],
   },
   da: {
-    bullet: "Hvornår din konto sidst blev brugt — ét tidspunkt. Vores server registrerer det, når du logger ind, og opdaterer det højst én gang hvert 5. minut, mens du bruger BonBox, også når Analyse er slået fra eller sat på pause. Hver ny værdi erstatter den gamle. Det bruges til support og til at se, hvilke konti der er i brug; kun stifteren ser det, i BonBox’ administrationsvisning. Det opbevares, indtil du sletter din konto, og er med i din dataeksport.",
+    bullet: "Hvornår din konto sidst blev brugt — ét tidspunkt. Vores server registrerer det, når du logger ind, og opdaterer det højst én gang hvert 5. minut, mens du bruger BonBox, også når Analyse er slået fra eller sat på pause. Hver ny værdi erstatter den gamle. Det bruges til support og til at se, hvilke konti der er i brug; kun stifteren ser det, i BonBox’ administrationsvisning. Det opbevares, indtil du sletter din konto. Det er med i kontoejerens dataeksport; teammedlemmer kan bede om deres på contact@bonbox.dk.",
     heading: "Tekniske data",
     basis: "Legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f)",
     row: ["Hvornår din konto sidst blev brugt (ét tidspunkt, der erstattes hver gang)", "Indtil du sletter din konto"],
@@ -114,5 +116,16 @@ describe("the backend still does what /privacy says", () => {
 
   it("puts last_seen_at in the account holder's data export", async () => {
     expect(await backend("routers", "auth.py")).toMatch(/"last_seen_at",/);
+  });
+
+  it("the export is the owner's only: members are refused, and the users table is not walked", async () => {
+    const auth = await backend("routers", "auth.py");
+    // The owner's export holds the owner's own row (current_user), never a member's.
+    expect(auth).toMatch(/_EXPORT_SKIPPED_TABLES = \{[^}]*"users"/);
+    expect(auth).toContain("current_user.last_seen_at.isoformat()");
+    // Members are refused by member_read_guard: the export is a member-denied path.
+    const main = await backend("main.py");
+    const deny = main.slice(main.indexOf("_MEMBER_READ_DENY_PREFIXES"));
+    expect(deny).toContain('"/api/auth/export-data"');
   });
 });
