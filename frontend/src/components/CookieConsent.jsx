@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
 
@@ -183,10 +183,22 @@ function saveConsent(choices) {
   } catch { /* noop */ }
 }
 
+// Push 6 (B3) — on the two sign-up doors the full banner covered the e-mail
+// field, the Terms acceptance line and "Opret konto" on a 390 px phone, while
+// the Google button above them stayed tappable: an account could be made
+// without the acceptance line ever being visible. There the banner is
+// compact (same words, the body clamped to two lines behind "Læs mere"), and
+// the page pads its bottom by the banner's height (--bb-consent-h).
+const COMPACT_ROUTES = new Set(["/register", "/login"]);
+
 export default function CookieConsent() {
   const { t } = useLanguage();
+  const { pathname } = useLocation();
+  const compact = COMPACT_ROUTES.has(pathname);
   const [open, setOpen] = useState(false); // banner visible
   const [drawer, setDrawer] = useState(false); // customize drawer
+  const [bodyOpen, setBodyOpen] = useState(false); // compact: the full body text
+  const bannerRef = useRef(null);
   const [choices, setChoices] = useState({
     necessary: true,
     analytics: false,
@@ -275,6 +287,30 @@ export default function CookieConsent() {
     };
   }, []);
 
+  // The compact banner's height, for the page under it to pad by. Cleared
+  // whenever the compact banner is not on screen.
+  const showCompact = open && compact && !drawer;
+  useEffect(() => {
+    const root = typeof document !== "undefined" ? document.documentElement : null;
+    if (!root) return undefined;
+    if (!showCompact || !bannerRef.current) {
+      root.style.removeProperty("--bb-consent-h");
+      return undefined;
+    }
+    const el = bannerRef.current;
+    const write = () => root.style.setProperty("--bb-consent-h", `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    write();
+    let ro = null;
+    try {
+      ro = new ResizeObserver(write);
+      ro.observe(el);
+    } catch { /* no ResizeObserver: the first measure stands */ }
+    return () => {
+      try { ro && ro.disconnect(); } catch { /* noop */ }
+      root.style.removeProperty("--bb-consent-h");
+    };
+  }, [showCompact, bodyOpen]);
+
   if (!open) return null;
 
   const acceptAll = () => {
@@ -330,6 +366,71 @@ export default function CookieConsent() {
     </div>
   );
 
+  const bannerBody = t("cookieBannerBody") ||
+    "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks — recorded for signed-in accounts until you decline) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on.";
+
+  if (showCompact) {
+    // Same words and the same three choices as the full banner; Accept and
+    // Decline carry equal weight, side by side. No bottom-nav offset (these
+    // pages have none) and no aria-live: it is a dialog, not an alert.
+    const choice =
+      "min-h-11 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
+      "text-[14px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 " +
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 transition-colors duration-150";
+    const textBtn =
+      "min-h-11 text-[13px] text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
+      "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 rounded-sm";
+    return (
+      <div
+        ref={bannerRef}
+        role="dialog"
+        aria-label={t("cookieBannerAria") || "Cookie consent"}
+        data-cookie-consent="banner"
+        data-cookie-compact="1"
+        className="fixed left-0 right-0 bottom-0 z-[60] px-3 pb-[calc(0.25rem+env(safe-area-inset-bottom,0px))]"
+      >
+        <div className="max-w-[400px] mx-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm px-3 pt-2.5 pb-0">
+          <p className="text-[14px] font-semibold leading-5 text-gray-900 dark:text-white">
+            {t("cookieBannerTitle") || "We use cookies"}
+          </p>
+          <p
+            id="cookie-banner-body"
+            className={`mt-0.5 text-[13px] leading-[18px] text-gray-600 dark:text-gray-300 ${bodyOpen ? "max-h-[40vh] overflow-y-auto" : "line-clamp-2"}`}
+          >
+            {bannerBody}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={acceptAll} className={choice}>
+              {t("cookieAcceptAll") || "Accept all"}
+            </button>
+            <button type="button" onClick={declineAll} className={choice}>
+              {t("cookieDeclineNonEssential") || "Decline non-essential"}
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setBodyOpen((v) => !v)}
+                aria-expanded={bodyOpen}
+                aria-controls="cookie-banner-body"
+                className={textBtn}
+              >
+                {bodyOpen ? t("suCookieLess") : t("suCookieMore")}
+              </button>
+              <button type="button" onClick={() => setDrawer(true)} className={textBtn}>
+                {t("cookieCustomize") || "Customize"}
+              </button>
+            </div>
+            <Link to="/cookies" className={`${textBtn} inline-flex items-center`}>
+              {t("cookiePolicyLinkText") || "cookie policy"}
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Slight overlay only when drawer is open — banner alone stays
@@ -361,8 +462,7 @@ export default function CookieConsent() {
                     {t("cookieBannerTitle") || "We use cookies"}
                   </p>
                   <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
-                    {t("cookieBannerBody") ||
-                      "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks — recorded for signed-in accounts until you decline) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on."}
+                    {bannerBody}
                   </p>
                 </div>
               </div>
