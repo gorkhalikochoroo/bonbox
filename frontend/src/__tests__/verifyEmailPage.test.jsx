@@ -85,7 +85,7 @@ describe("the address and the code boxes", () => {
 
 describe("Forkert e-mail? Ret den", () => {
   const openFix = () => fireEvent.click(screen.getByRole("button", { name: da.suWrongEmail }));
-  const fillFix = (email = "ole.hansen@gmail.com", pw = "Kaffe2026") => {
+  const fillFix = (email = "ole.hansen@icloud.com", pw = "Kaffe2026") => {
     fireEvent.change(screen.getByLabelText(da.suChangeEmailLabel), { target: { value: email } });
     fireEvent.change(screen.getByLabelText(da.suChangeEmailPwLabel), { target: { value: pw } });
   };
@@ -98,9 +98,9 @@ describe("Forkert e-mail? Ret den", () => {
     expect(screen.getByLabelText(da.suChangeEmailPwLabel).getAttribute("autocomplete")).toBe("current-password");
     fillFix();
     await send();
-    expect(h.patch).toHaveBeenCalledWith("/auth/profile", { email: "ole.hansen@gmail.com", current_password: "Kaffe2026" });
+    expect(h.patch).toHaveBeenCalledWith("/auth/profile", { email: "ole.hansen@icloud.com", current_password: "Kaffe2026" });
     expect(authState.refreshUser).toHaveBeenCalled();
-    expect(screen.getByText("Ny kode sendt til ole.hansen@gmail.com.")).toBeTruthy();
+    expect(screen.getByText("Ny kode sendt til ole.hansen@icloud.com.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Send en ny kode om \d+ s/ })).toBeTruthy();
     // the panel closed
     expect(screen.queryByLabelText(da.suChangeEmailLabel)).toBeNull();
@@ -131,6 +131,16 @@ describe("Forkert e-mail? Ret den", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: da.logout })); });
     expect(authState.logout).toHaveBeenCalled();
     expect(h.navigate).toHaveBeenCalledWith("/login", { state: { email: "ejer@cafe.dk" } });
+  });
+
+  it("the address it already has (any letter case): a fresh code goes there, no PATCH — the line stays true", async () => {
+    open();
+    openFix();
+    fillFix("OLE.HANSEN@gmail.com");
+    await send();
+    expect(h.patch).not.toHaveBeenCalled();
+    expect(h.post).toHaveBeenCalledWith("/auth/resend-verification");
+    expect(screen.getByText("Ny kode sendt til OLE.HANSEN@gmail.com.")).toBeTruthy();
   });
 
   it("a malformed address is caught in place, nothing is sent", async () => {

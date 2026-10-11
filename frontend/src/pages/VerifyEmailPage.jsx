@@ -204,8 +204,15 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
     const newEmail = fixEmail.trim();
     setFixSaving(true);
     try {
-      await api.patch("/auth/profile", { email: newEmail, current_password: fixPassword });
-      await refreshUser?.();
+      if (newEmail.toLowerCase() === (user?.email || "").trim().toLowerCase()) {
+        // The address it already has: the server would change nothing (and
+        // mail nothing), so "Ny kode sendt til …" is made true by sending
+        // one there.
+        await api.post("/auth/resend-verification");
+      } else {
+        await api.patch("/auth/profile", { email: newEmail, current_password: fixPassword });
+        await refreshUser?.();
+      }
       // The new code went to the new address just now.
       setResendCooldown(60);
       setCode(["", "", "", "", "", ""]);
@@ -214,7 +221,8 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       setFixOpen(false);
       inputRefs.current[0]?.focus();
     } catch (err) {
-      const r = authErrorKey(err, "changeEmail");
+      const sameAddress = newEmail.toLowerCase() === (user?.email || "").trim().toLowerCase();
+      const r = authErrorKey(err, sameAddress ? "resend" : "changeEmail");
       if (r.field === "email") {
         setFixEmailErr(r.key);
         fixEmailRef.current?.focus();
