@@ -197,7 +197,7 @@ def test_the_abuse_monitor_ticks_on_postgres(monkeypatch):
     abuse_signals.reset()
     abuse_signals.bump("magic_link_fleet")
     out = amj.run_abuse_monitor_tick()
-    assert "error" not in out, out
+    assert "abuse_monitor_error" not in out and "error" not in out, out
     assert out["abuse_magic_link"] == "BROKEN"
     assert out["abuse_signups"] == "HEALTHY"
     s = SessionLocal()
@@ -240,7 +240,8 @@ def test_the_alert_goes_out_after_the_commit_on_postgres(monkeypatch):
     assert out["abuse_stand_join"] == "BROKEN", out
     assert sent == ["BonBox: host-stand pairing codes paused (global cool-off)"]
     abuse_signals.bump("stand_join_cooloff")
-    assert "error" not in amj.run_abuse_monitor_tick()
+    out = amj.run_abuse_monitor_tick()
+    assert "abuse_monitor_error" not in out and "error" not in out, out
     assert len(sent) == 1                                      # saved: told once
     s = SessionLocal()
     try:

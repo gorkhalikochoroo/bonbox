@@ -173,6 +173,18 @@ def purge_expired_signup_refs() -> int:
         db.close()
 
 
+def _nested_errors(results) -> str:
+    """"key:ErrorName, …" for each step of a per-step result dict that
+    failed ({"error": <name>}); "" when none did. Error names only."""
+    if not isinstance(results, dict):
+        return ""
+    return ", ".join(
+        f"{key}:{val['error']}"
+        for key, val in results.items()
+        if isinstance(val, dict) and val.get("error")
+    )
+
+
 def daily_maintenance() -> dict:
     """Composite job — run all maintenance steps and return a summary.
 
@@ -213,17 +225,27 @@ def daily_maintenance() -> dict:
     # R-h privacy purges (Venteliste guests, WhatsApp messages, expired
     # sign-in links, anonymous paid-plan waitlist). Each flag defaults OFF:
     # then this only counts what is due and logs the counts.
+    # A purge that failed inside run_privacy_purges (one try/except each) is
+    # also named in privacy_purges_error: R-i's job listener reads only
+    # top-level keys ending in "_error", never the nested {"error": ...}.
     try:
         from app.jobs.privacy_purges import run_privacy_purges
         summary["privacy_purges"] = run_privacy_purges()
+        failed = _nested_errors(summary["privacy_purges"])
+        if failed:
+            summary["privacy_purges_error"] = failed
     except Exception as e:  # noqa: BLE001
         summary["privacy_purges_error"] = type(e).__name__
 
     # R-h LEG-06 one-off: the owner's address in old change-log rows.
     # AUDIT_EMAIL_CLEANUP_ENABLED defaults OFF: then this only counts.
+    # A run that stopped part-way returns its counts plus "error"; that is
+    # lifted to audit_email_cleanup_error for the same listener.
     try:
         from app.services.audit_email_cleanup import run_cleanup
-        summary["audit_email_cleanup"] = run_cleanup()
+        summary["audit_email_cleanup"] = cleanup = run_cleanup()
+        if isinstance(cleanup, dict) and cleanup.get("error"):
+            summary["audit_email_cleanup_error"] = str(cleanup["error"])[:200]
     except Exception as e:  # noqa: BLE001
         summary["audit_email_cleanup_error"] = type(e).__name__
 

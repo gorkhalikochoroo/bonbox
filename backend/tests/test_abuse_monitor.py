@@ -232,7 +232,9 @@ def test_a_db_error_returns_a_dict_and_keeps_the_counts(monkeypatch):
     abuse_signals.reset()
     abuse_signals.bump("magic_link_fleet", 2)
     out = amj.run_abuse_monitor_tick()
-    assert isinstance(out, dict) and "error" in out
+    # "abuse_monitor_error": a key R-i's job listener records as a JOB row
+    # (tests/test_job_step_errors_reach_ops.py); a plain "error" was not seen.
+    assert isinstance(out, dict) and "abuse_monitor_error" in out
     assert abuse_signals.drain() == {"magic_link_fleet": 2}  # put back for the next tick
 
 
@@ -298,9 +300,9 @@ def test_a_failing_commit_sends_nothing_and_never_repeats(h, failing_commit):
     h.tick()                                                  # rows exist, all healthy
     failing_commit.on = True
     out = h.tick(magic_link_fleet=1)                          # ONE held-back request
-    assert out == {"error": "RuntimeError"}
+    assert out == {"abuse_monitor_error": "RuntimeError"}
     for _ in range(3):
-        assert h.tick() == {"error": "RuntimeError"}         # no new signals
+        assert h.tick() == {"abuse_monitor_error": "RuntimeError"}   # no new signals
     assert h.mails == [] and h.pushes == []                   # nothing told before it is saved
 
     failing_commit.on = False

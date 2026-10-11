@@ -1012,7 +1012,10 @@ def check_backup_staleness(*, cfg: Optional[BackupConfig] = None, session_factor
             db.close()
     except Exception as e:  # noqa: BLE001
         logger.error("backup: staleness check failed: %s", type(e).__name__)
-        return {"status": "error"}
+        # backup_watch_error: a key ending in "_error" is what R-i's job
+        # listener (jobs/job_events.py) records as one JOB row for the ops
+        # triage; "status": "error" alone never reached an operator.
+        return {"status": "error", "backup_watch_error": type(e).__name__}
 
 
 # ── run ──────────────────────────────────────────────────────────────────

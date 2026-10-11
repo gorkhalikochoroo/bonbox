@@ -73,7 +73,11 @@ _LABELS = {
 
 
 def run_abuse_monitor_tick() -> dict:
-    """One monitor tick. Never raises."""
+    """One monitor tick. Never raises. A failed tick returns
+    {"abuse_monitor_error": <exception class>}: the key ends in "_error", so
+    R-i's job listener (jobs/job_events.py) writes one JOB row per failed tick
+    and the ops triage tells the operator (one digest per 24 h). A plain
+    "error" key was invisible to it."""
     sig = abuse_signals.drain()
     db = SessionLocal()
     try:
@@ -118,7 +122,7 @@ def run_abuse_monitor_tick() -> dict:
             for kind, n in sig.items():
                 abuse_signals.bump(kind, n)
             print(f"abuse_monitor warning: {type(e).__name__}")
-            return {"error": type(e).__name__}
+            return {"abuse_monitor_error": type(e).__name__}
 
         # Saved: now tell the operators. Each send is fail-soft and never
         # undoes the saved state, so an incident is told at most once.
