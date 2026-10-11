@@ -42,6 +42,7 @@ import ipaddress
 from slowapi.util import get_remote_address
 
 from app.config import settings
+from app.utils import abuse_signals
 
 NO_EDGE = "no-edge"
 
@@ -120,3 +121,61 @@ def request_ip(request) -> str | None:
         return valid_ip(client.host) if client else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _first_headers(raw_headers) -> tuple:
+    """First CF-Connecting-IP, True-Client-IP and X-Forwarded-For values
+    (raw bytes, or None), in one pass over the ASGI header list."""
+    cf = tci = xff = None
+    for key, value in raw_headers or ():
+        if key == b"cf-connecting-ip":
+            if cf is None:
+                cf = value
+        elif key == b"true-client-ip":
+            if tci is None:
+                tci = value
+        elif key == b"x-forwarded-for":
+            if xff is None:
+                xff = value
+    return cf, tci, xff
+
+
+class EdgeClientIPMiddleware:
+    """Set ``request.client`` from the edge header, for every reader.
+
+    Pure ASGI, registered as the OUTERMOST user middleware (main.py asserts
+    it). It mutates ``scope`` in place and never copies it: the global
+    exception handler runs in ServerErrorMiddleware, outside the user stack,
+    and builds its Request from the same dict.
+
+      * valid CF-Connecting-IP / True-Client-IP → ``scope["client"] = (ip, 0)``
+      * otherwise, when the request carries X-Forwarded-For (uvicorn already
+        copied its leftmost, client-written value into ``scope["client"]``)
+        and CLIENT_IP_FAIL_CLOSED is on → ``scope["client"] = None``
+      * no edge header and no X-Forwarded-For → the socket peer stays
+        (Render's probe; TestClient's "testclient")
+
+    Requests without the edge header are counted (abuse_signals "no_edge"),
+    except the health paths, which Render probes directly.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket"):
+            try:
+                cf, tci, xff = _first_headers(scope.get("headers"))
+                ip = valid_ip(cf) or valid_ip(tci)
+                if ip:
+                    scope["client"] = (ip, 0)
+                    abuse_signals.bump("edge")
+                else:
+                    if xff is not None and settings.CLIENT_IP_FAIL_CLOSED:
+                        scope["client"] = None
+                    if scope.get("path") not in HEALTH_PATHS:
+                        abuse_signals.bump("no_edge")
+            except Exception:  # noqa: BLE001 — never block a request on this
+                if settings.CLIENT_IP_FAIL_CLOSED:
+                    scope["client"] = None
+        await self.app(scope, receive, send)

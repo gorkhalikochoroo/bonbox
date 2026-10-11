@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.utils.client_ip import client_ip
+from app.utils.client_ip import client_ip, request_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -54,15 +54,9 @@ _limiter = Limiter(key_func=client_ip)
 
 
 def _client_ip(request: Request | None) -> str | None:
-    if request is None:
-        return None
-    try:
-        fwd = request.headers.get("x-forwarded-for")
-        if fwd:
-            return fwd.split(",")[0].strip()
-        return request.client.host if request.client else None
-    except Exception:  # noqa: BLE001
-        return None
+    """Audit address (validated request.client, set from the edge header by
+    EdgeClientIPMiddleware). Never the XFF header: the client writes it."""
+    return request_ip(request)
 
 
 # ─── Organizer scan endpoint ────────────────────────────────────────

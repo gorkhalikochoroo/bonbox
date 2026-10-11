@@ -52,6 +52,7 @@ from app.schemas.payment_import import (
 # Reuse categorization from expenses router
 from app.routers.expenses import suggest_category_for, learn_category
 from app.utils.time import utc_now
+from app.utils.client_ip import request_ip
 
 logger = logging.getLogger("bonbox.payment_import")
 
@@ -62,17 +63,10 @@ router = APIRouter()
 
 
 def _client_ip(request: Request | None) -> str | None:
-    """Best-effort client IP for audit rows. Matches the pattern used
-    by routers/events.py — X-Forwarded-For first, then request.client."""
-    if request is None:
-        return None
-    try:
-        fwd = request.headers.get("x-forwarded-for")
-        if fwd:
-            return fwd.split(",")[0].strip()
-        return request.client.host if request.client else None
-    except Exception:
-        return None
+    """Best-effort client IP for audit rows. Matches routers/events.py: the
+    validated request.client (set from the edge header by
+    EdgeClientIPMiddleware), never the XFF header, which the client writes."""
+    return request_ip(request)
 
 
 def _txn_to_csv_line(txn: PaymentTransaction, row_index: int) -> CsvPaymentLine | None:

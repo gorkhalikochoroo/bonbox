@@ -24,7 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.utils.client_ip import client_ip
+from app.utils.client_ip import client_ip, request_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -710,8 +710,7 @@ def _write_security_event(
     evt = SecurityEvent(
         user_id=user_id,
         event_type=event_type,
-        ip_address=(client_ip(request) if request else None) or
-                   (request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None),
+        ip_address=request_ip(request) if request else None,
         user_agent=request.headers.get("user-agent"),
         detail=detail[:1900] if detail else None,
     )

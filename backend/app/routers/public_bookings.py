@@ -43,7 +43,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, Reque
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.utils.client_ip import client_ip
+from app.utils.client_ip import client_ip, request_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -83,16 +83,10 @@ _PENDING_TTL = timedelta(minutes=30)
 
 
 def _client_ip(request: Request | None) -> str | None:
-    """Best-effort IP capture for the audit row."""
-    if request is None:
-        return None
-    try:
-        fwd = request.headers.get("x-forwarded-for")
-        if fwd:
-            return fwd.split(",")[0].strip()
-        return request.client.host if request.client else None
-    except Exception:  # noqa: BLE001
-        return None
+    """Best-effort IP capture for the audit row: the validated
+    request.client (set from the edge header by EdgeClientIPMiddleware).
+    Never the XFF header: the client writes it."""
+    return request_ip(request)
 
 
 def _resolve_published_event(db: Session, slug: str) -> Event | None:

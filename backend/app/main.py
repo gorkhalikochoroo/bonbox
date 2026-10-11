@@ -44,7 +44,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
-from app.utils.client_ip import client_ip
+from app.utils.client_ip import client_ip, EdgeClientIPMiddleware
 from app.utils.request_path import routed_path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -5400,6 +5400,17 @@ app.add_middleware(
 )
 
 
+# --- Edge client address — outermost user middleware (R-sec) ---
+# Sets request.client from CF-Connecting-IP / True-Client-IP (set by the
+# Cloudflare edge in front of api.bonbox.dk), or clears it when the only
+# address is a client-written X-Forwarded-For (uvicorn's --forwarded-allow-ips
+# '*' copied that in). Registered AFTER CORS so it is the outermost user
+# middleware: every middleware, handler and audit row below sees the fixed
+# address. Pure ASGI; mutates the scope in place, so the global exception
+# handler (ServerErrorMiddleware, outside this stack) sees it too.
+app.add_middleware(EdgeClientIPMiddleware)
+
+
 # --- Regression guard: rate-limit middleware MUST be in the stack ---
 # The default_limits cap is only enforced while SlowAPIMiddleware is
 # registered (see the add_middleware call above). A future refactor that
@@ -5409,6 +5420,9 @@ app.add_middleware(
 assert any(
     m.cls is SlowAPIMiddleware for m in app.user_middleware
 ), "SlowAPIMiddleware missing from the stack — app-wide rate-limit would be inert"
+assert app.user_middleware[0].cls is EdgeClientIPMiddleware, (
+    "EdgeClientIPMiddleware must be outermost or audit rows record a forged IP"
+)
 
 
 # --- JWT secret strength check on startup ---
