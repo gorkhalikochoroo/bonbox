@@ -2125,12 +2125,16 @@ export default function ProfilePage() {
                             window.location.href = "/login";
                           } catch (err) {
                             // R-e fix-up: the server refuses the deletion when
-                            // the subscription cannot be stopped at Stripe —
-                            // say so in the app's language.
+                            // the subscription cannot be stopped at Stripe, or
+                            // (Manoj, 11 Oct) when Stripe can't settle the
+                            // customer record — say so in the app's language.
+                            const code = err?.response?.data?.detail?.code;
                             setDeleteError(
-                              err?.response?.data?.detail?.code === "subscription_cancel_failed"
+                              code === "subscription_cancel_failed"
                                 ? t("deleteSubscriptionStopFailed", "We couldn't stop your subscription at Stripe just now, so your account was not deleted and nothing was changed. Please try again in a few minutes, or write to contact@bonbox.dk.")
-                                : errText(err, t("deleteFailed") || "Failed to delete account"),
+                                : code === "stripe_customer_failed"
+                                  ? t("deleteStripeCustomerFailed", "We couldn't sort out your customer record at Stripe just now, so your account was not deleted. Please try again in a few minutes, or write to contact@bonbox.dk.")
+                                  : errText(err, t("deleteFailed") || "Failed to delete account"),
                             );
                           }
                           setDeleting(false);

@@ -2356,6 +2356,21 @@ DELETE_SUB_STOP_FAILED_DA = (
     "skriv til contact@bonbox.dk."
 )
 
+# The refusal when Stripe cannot tell us whether the customer has invoices,
+# or cannot delete a customer that has none (Manoj, 11 Oct) — the same
+# sentences the profile page shows (deleteStripeCustomerFailed). No "nothing
+# was changed": the subscription may already be stopped by then.
+DELETE_STRIPE_CUSTOMER_FAILED_EN = (
+    "We couldn't sort out your customer record at Stripe just now, so your "
+    "account was not deleted. Please try again in a few minutes, or write to "
+    "contact@bonbox.dk."
+)
+DELETE_STRIPE_CUSTOMER_FAILED_DA = (
+    "Vi kunne ikke afklare dine kundeoplysninger hos Stripe lige nu, så din "
+    "konto er ikke slettet. Prøv igen om et par minutter, eller skriv til "
+    "contact@bonbox.dk."
+)
+
 # The reply to a completed deletion (push 3) — what Terms § 4 says we keep,
 # nothing more: the change log, the security and error logs, and the images
 # of the four accounting kinds (storage.ACCOUNTING_RETENTION_KINDS), deleted
@@ -2399,7 +2414,8 @@ def delete_account(
     invoices, reservations, events, bank + MobilePay connections (with the
     PSD2 consent revoked at the provider first), and the user account.
     Audit/security logs are RETAINED under Bogføringsloven §10 / GDPR
-    Art.17(3)(b).
+    Art.17(3)(b). The Stripe customer is deleted when Stripe lists no
+    invoices for it, and kept when it has invoices (Terms § 4).
     """
     # Verify password to prevent accidental/unauthorized deletion
     if not verify_password(data.password, current_user.password_hash):
@@ -2488,6 +2504,7 @@ def delete_account(
     # nothing.
     _bank_conns = db.query(BankConnection).filter(BankConnection.user_id == uid).all()
     _stripe_sub_id = getattr(current_user, "stripe_subscription_id", None)
+    _stripe_customer_id = getattr(current_user, "stripe_customer_id", None)
     db.query(BankConnection).filter(BankConnection.user_id == uid).delete(synchronize_session=False)
     db.query(MobilePayConnection).filter(MobilePayConnection.user_id == uid).delete(synchronize_session=False)
 
@@ -2511,6 +2528,34 @@ def delete_account(
             status_code=500,
             detail="We couldn't delete your account right now, and nothing was changed. Please try again or contact support.",
         )
+
+    # ── The Stripe customer (Manoj, 11 Oct): deleted when Stripe lists no
+    # invoices for it, kept (5 years from the end of the financial year) when
+    # it has some. Asking Stripe is read-only, so it happens HERE, before any
+    # irreversible step: if Stripe can't answer, nothing at all has changed
+    # and nothing is deleted — our rows never go while the Stripe side is
+    # unknown. The delete itself comes after the subscription is stopped.
+    def _refuse_stripe_customer():
+        db.rollback()
+        logger.error(
+            "delete_account: Stripe customer %s could not be settled — account NOT deleted",
+            _stripe_customer_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "stripe_customer_failed",
+                "message": DELETE_STRIPE_CUSTOMER_FAILED_EN,
+                "message_da": DELETE_STRIPE_CUSTOMER_FAILED_DA,
+            },
+        )
+
+    _customer_fate = None
+    if _stripe_customer_id:
+        from app.services.stripe_billing import customer_fate_for_erasure
+        _customer_fate = customer_fate_for_erasure(_stripe_customer_id)
+        if _customer_fate not in ("delete", "keep", "gone"):
+            _refuse_stripe_customer()
 
     # ── The irreversible, outside-the-database steps — only now. ──
     # Billing FIRST: a deleted customer must never go on being charged, and
@@ -2539,6 +2584,13 @@ def delete_account(
                     "message_da": DELETE_SUB_STOP_FAILED_DA,
                 },
             )
+    # The subscription is stopped (or there was none): a customer with no
+    # invoices is deleted at Stripe now. If Stripe can't confirm it, nothing
+    # of ours is deleted.
+    if _customer_fate == "delete":
+        from app.services.stripe_billing import delete_customer_for_erasure
+        if delete_customer_for_erasure(_stripe_customer_id) != "deleted":
+            _refuse_stripe_customer()
     # PSD2: consent stays live at the bank for up to 90 days unless revoked.
     for _bc in _bank_conns:
         best_effort_revoke(_bc)

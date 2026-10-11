@@ -267,6 +267,72 @@ def stop_subscription_for_erasure(sub_id: str, local_status: Optional[str]) -> s
     return "stopped" if status in _ERASURE_DEAD_STATUSES else "failed"
 
 
+# ───────────────────── Account deletion: the Stripe customer ───────────────
+#
+# Manoj, 11 Oct 2026: when an account is deleted, its Stripe customer is
+# DELETED if Stripe lists no invoices for it. A customer WITH invoices is
+# kept — BonBox's own accounting records, 5 years from the end of the
+# financial year; a yearly runbook step deletes them after that
+# (bonbox-lab-state/releases.md). Terms § 4, /privacy and DELETE_DONE_* say
+# exactly this.
+
+
+def _stripe_says_missing(e: Exception) -> bool:
+    return getattr(e, "http_status", None) == 404 or getattr(e, "code", None) == "resource_missing"
+
+
+def customer_fate_for_erasure(customer_id: str) -> str:
+    """What happens to this Stripe customer when its account is deleted.
+    Read-only — nothing at Stripe changes.
+
+      • Stripe lists no invoices for it          → "delete"
+      • Stripe lists at least one invoice         → "keep"
+      • Stripe says there is no such customer
+        (404 / resource_missing, e.g. a customer
+        made with a test key)                     → "gone" (nothing to delete)
+      • anything else (Stripe not configured on
+        this server, down, timeout, odd reply)    → "failed"
+
+    Never a bare boolean: "couldn't check" is "failed", and the caller then
+    deletes nothing.
+    """
+    s = _stripe()
+    if s is None:
+        return "failed"
+    try:
+        invoices = s.Invoice.list(customer=customer_id, limit=1)
+    except Exception as e:  # noqa: BLE001
+        if _stripe_says_missing(e):
+            return "gone"
+        log.warning("erasure: Invoice.list(customer=%s) failed: %s", customer_id, e)
+        return "failed"
+    data = _g(invoices, "data")
+    if data is None:
+        log.warning("erasure: Invoice.list(customer=%s) gave no data list", customer_id)
+        return "failed"
+    return "keep" if len(list(data)) > 0 else "delete"
+
+
+def delete_customer_for_erasure(customer_id: str) -> str:
+    """Delete the Stripe customer of an account being deleted. Only called
+    when customer_fate_for_erasure() said "delete" (no invoices).
+
+    Returns "deleted" (Stripe confirms it, or says the customer is already
+    gone) or "failed" (anything else — the caller then deletes nothing).
+    """
+    s = _stripe()
+    if s is None:
+        return "failed"
+    try:
+        res = s.Customer.delete(customer_id)
+    except Exception as e:  # noqa: BLE001
+        if _stripe_says_missing(e):
+            return "deleted"
+        log.warning("erasure: deleting Stripe customer %s failed: %s", customer_id, e)
+        return "failed"
+    return "deleted" if _g(res, "deleted") is True else "failed"
+
+
 # ─────────────────────────── Customer management ───────────────────────────
 
 

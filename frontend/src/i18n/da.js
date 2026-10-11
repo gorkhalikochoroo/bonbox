@@ -4383,6 +4383,7 @@ export const da = {
     deleteFailed: "Kunne ikke slette konto",
     // R-e fix-up — sletning afvist, fordi abonnementet ikke kunne stoppes hos Stripe (routers/auth.py DELETE_SUB_STOP_FAILED_DA).
     deleteSubscriptionStopFailed: "Vi kunne ikke stoppe dit abonnement hos Stripe lige nu, så din konto er ikke slettet, og intet er ændret. Prøv igen om et par minutter, eller skriv til contact@bonbox.dk.",
+    deleteStripeCustomerFailed: "Vi kunne ikke afklare dine kundeoplysninger hos Stripe lige nu, så din konto er ikke slettet. Prøv igen om et par minutter, eller skriv til contact@bonbox.dk.",
     // Payment imports
     paymentImports: "Betalingsimport", paymentImportsDesc: "Forbind betalingsudbydere og importer transaktioner automatisk",
     connectedProviders: "Forbundet", availableProviders: "Tilgængelige udbydere",

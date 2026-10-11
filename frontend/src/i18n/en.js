@@ -4523,6 +4523,7 @@ export const en = {
     deleteFailed: "Failed to delete account",
     // R-e fix-up — deletion refused because the subscription could not be stopped at Stripe (routers/auth.py DELETE_SUB_STOP_FAILED_EN).
     deleteSubscriptionStopFailed: "We couldn't stop your subscription at Stripe just now, so your account was not deleted and nothing was changed. Please try again in a few minutes, or write to contact@bonbox.dk.",
+    deleteStripeCustomerFailed: "We couldn't sort out your customer record at Stripe just now, so your account was not deleted. Please try again in a few minutes, or write to contact@bonbox.dk.",
     // Payment imports
     paymentImports: "Payment Imports", paymentImportsDesc: "Connect payment providers to auto-import transactions",
     connectedProviders: "Connected", availableProviders: "Available Providers",

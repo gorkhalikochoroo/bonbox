@@ -472,11 +472,234 @@ STRIPE_KEPT_EN = ("We keep the payment records at Stripe (the customer and the i
                   "keep our own accounting records for 5 years.")
 
 
-def test_deletion_never_deletes_the_stripe_customer_so_the_texts_are_true():
-    """B6: § 4, /privacy and the reply say the Stripe customer and invoices are
-    kept. That is only true while the code never deletes the customer."""
+def test_only_the_erasure_helper_deletes_a_stripe_customer():
+    """Manoj, 11 Oct: the Stripe customer is deleted on erasure only when it
+    has no invoices. Exactly one place in the app may delete a Stripe
+    customer — delete_customer_for_erasure — and only delete_account calls
+    it, after customer_fate_for_erasure said "delete"."""
     from pathlib import Path
     app_dir = Path(__file__).resolve().parents[2] / "backend" / "app"
-    hits = [str(p) for p in app_dir.rglob("*.py")
-            if re.search(r"Customer\.delete\(|customers\.delete\(", p.read_text())]  # Stripe SDK calls
-    assert hits == [], hits
+    hits = {}
+    for p in app_dir.rglob("*.py"):
+        n = len(re.findall(r"Customer\.delete\(|customers\.delete\(", p.read_text()))  # Stripe SDK calls
+        if n:
+            hits[p.relative_to(app_dir).as_posix()] = n
+    assert hits == {"services/stripe_billing.py": 1}, hits
+    callers = [p.relative_to(app_dir).as_posix() for p in app_dir.rglob("*.py")
+               if "delete_customer_for_erasure(" in p.read_text()]
+    assert sorted(callers) == ["routers/auth.py", "services/stripe_billing.py"], callers
+    src = _delete_account_source()
+    assert src.count("delete_customer_for_erasure(") == 1
+    assert src.index('if _customer_fate == "delete":') < src.index("delete_customer_for_erasure(_stripe_customer_id)")
+
+
+# ── Manoj, 11 Oct: the Stripe customer — deleted with no invoices, kept with ──
+# Stripe is always mocked here; no test calls Stripe.
+
+
+def _fake_stripe_customer(*, invoices=(), list_exc=None, delete_exc=None, delete_reply=None,
+                          cancel_exc=None):
+    calls = []
+
+    class _Sub:
+        @staticmethod
+        def cancel(sub_id):
+            calls.append(("cancel", sub_id))
+            if cancel_exc:
+                raise cancel_exc
+
+        @staticmethod
+        def retrieve(sub_id):
+            calls.append(("retrieve", sub_id))
+            return {"status": "active"}
+
+    class _Invoice:
+        @staticmethod
+        def list(**kw):
+            calls.append(("invoices", kw.get("customer")))
+            if list_exc:
+                raise list_exc
+            return {"object": "list", "data": list(invoices)}
+
+    class _Customer:
+        @staticmethod
+        def delete(cid):
+            calls.append(("delete_customer", cid))
+            if delete_exc:
+                raise delete_exc
+            return delete_reply if delete_reply is not None else {"id": cid, "object": "customer", "deleted": True}
+
+    class _FakeStripe:
+        Subscription = _Sub
+        Invoice = _Invoice
+        Customer = _Customer
+
+    _FakeStripe.calls = calls  # Stripe calls and the outside steps, in order
+    return _FakeStripe
+
+
+@pytest.fixture
+def db_session_tx():
+    """db_session, but with SQLite's SAVEPOINTs made real (the SQLAlchemy
+    pysqlite recipe). delete_account deletes the rows inside SAVEPOINTs; with
+    the plain driver those are not undone by a rollback, so only this session
+    can show that a refused deletion leaves the rows (Postgres does it right)."""
+    from sqlalchemy import event
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+
+    @event.listens_for(engine, "connect")
+    def _connect(dbapi_conn, _rec):
+        dbapi_conn.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _begin(conn):
+        conn.exec_driver_sql("BEGIN")
+
+    Base.metadata.create_all(engine)
+    s = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    s.execute(text("PRAGMA foreign_keys=ON"))
+
+    def _override_get_db():
+        yield s
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        yield s
+    finally:
+        s.close()
+        app.dependency_overrides.pop(get_db, None)
+
+
+def _delete_with_customer(db_session, client, monkeypatch, fake, *, customer="cus_9", sub=None):
+    calls = fake.calls
+    monkeypatch.setattr("app.services.stripe_billing._stripe", lambda: fake)
+    monkeypatch.setattr("app.routers.bank_connect.best_effort_revoke", lambda c: calls.append("revoke"))
+    monkeypatch.setattr("app.services.storage.purge_user_blobs", lambda uid: calls.append("purge") or 0)
+    user = _seed_user_with_data(db_session)
+    uid = user.id
+    user.stripe_customer_id = customer
+    user.stripe_subscription_id = sub
+    user.subscription_status = "active" if sub else None
+    db_session.commit()
+    app.dependency_overrides[get_current_user] = lambda: user
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    return r, uid, calls
+
+
+def _assert_refused_and_nothing_deleted(r, uid, db_session, monkeypatch):
+    assert r.status_code == 503, r.text
+    detail = r.json()["detail"]
+    assert detail == {
+        "code": "stripe_customer_failed",
+        "message": auth_router.DELETE_STRIPE_CUSTOMER_FAILED_EN,
+        "message_da": auth_router.DELETE_STRIPE_CUSTOMER_FAILED_DA,
+    }
+    monkeypatch.undo()
+    from app.models.sale import Sale
+    assert db_session.query(User).filter(User.id == uid).first() is not None
+    assert db_session.query(Sale).filter(Sale.user_id == uid).count() == 1
+
+
+def test_customer_with_no_invoices_is_deleted_at_stripe(db_session, client, monkeypatch):
+    fake = _fake_stripe_customer(invoices=())
+    r, uid, calls = _delete_with_customer(db_session, client, monkeypatch, fake)
+    assert r.status_code == 200, r.text
+    assert calls == [("invoices", "cus_9"), ("delete_customer", "cus_9"), "purge"]
+    monkeypatch.undo()
+    assert db_session.query(User).filter(User.id == uid).first() is None
+
+
+def test_customer_with_invoices_is_kept_at_stripe(db_session, client, monkeypatch):
+    fake = _fake_stripe_customer(invoices=[{"id": "in_1", "status": "paid"}])
+    r, uid, calls = _delete_with_customer(db_session, client, monkeypatch, fake, sub="sub_live_9")
+    assert r.status_code == 200, r.text
+    assert ("delete_customer", "cus_9") not in calls
+    assert calls == [("invoices", "cus_9"), ("cancel", "sub_live_9"), "purge"]
+    monkeypatch.undo()
+    assert db_session.query(User).filter(User.id == uid).first() is None
+
+
+def test_customer_is_deleted_only_after_the_subscription_is_stopped(db_session, client, monkeypatch):
+    fake = _fake_stripe_customer(invoices=())
+    r, _uid, calls = _delete_with_customer(db_session, client, monkeypatch, fake, sub="sub_live_9")
+    assert r.status_code == 200, r.text
+    assert calls == [("invoices", "cus_9"), ("cancel", "sub_live_9"), ("delete_customer", "cus_9"), "purge"]
+
+
+def test_stripe_error_on_the_invoice_check_refuses_and_deletes_nothing(db_session_tx, client, monkeypatch):
+    fake = _fake_stripe_customer(list_exc=_StripeErr("api down", http_status=503))
+    r, uid, calls = _delete_with_customer(db_session_tx, client, monkeypatch, fake, sub="sub_live_9")
+    # Nothing outside the database happened either: no cancel, no customer
+    # delete, no bank revoke, no file purge.
+    assert calls == [("invoices", "cus_9")]
+    _assert_refused_and_nothing_deleted(r, uid, db_session_tx, monkeypatch)
+
+
+def test_stripe_error_on_the_customer_delete_refuses_and_deletes_nothing(db_session_tx, client, monkeypatch):
+    fake = _fake_stripe_customer(invoices=(), delete_exc=_StripeErr("timeout"))
+    r, uid, calls = _delete_with_customer(db_session_tx, client, monkeypatch, fake)
+    assert calls == [("invoices", "cus_9"), ("delete_customer", "cus_9")]
+    _assert_refused_and_nothing_deleted(r, uid, db_session_tx, monkeypatch)
+
+
+def test_customer_delete_without_a_confirmation_is_a_failure(db_session_tx, client, monkeypatch):
+    fake = _fake_stripe_customer(invoices=(), delete_reply={"id": "cus_9", "object": "customer"})
+    r, uid, calls = _delete_with_customer(db_session_tx, client, monkeypatch, fake)
+    assert "purge" not in calls
+    _assert_refused_and_nothing_deleted(r, uid, db_session_tx, monkeypatch)
+
+
+def test_stripe_not_configured_with_a_customer_refuses(db_session_tx, client, monkeypatch):
+    """Couldn't ask Stripe at all = unknown Stripe state = nothing deleted."""
+    calls = []
+    monkeypatch.setattr("app.services.stripe_billing._stripe", lambda: None)
+    monkeypatch.setattr("app.services.storage.purge_user_blobs", lambda uid: calls.append("purge") or 0)
+    user = _seed_user_with_data(db_session_tx)
+    uid = user.id
+    user.stripe_customer_id = "cus_9"
+    db_session_tx.commit()
+    app.dependency_overrides[get_current_user] = lambda: user
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    assert calls == []
+    _assert_refused_and_nothing_deleted(r, uid, db_session_tx, monkeypatch)
+
+
+@pytest.mark.parametrize("stage", ["list", "delete"])
+def test_a_customer_stripe_does_not_know_is_not_an_error(db_session, client, monkeypatch, stage):
+    """A customer Stripe says does not exist (e.g. made with a test key) has
+    nothing left to delete there — the account deletion goes ahead."""
+    missing = _StripeErr("No such customer: 'cus_9'", http_status=404, code="resource_missing")
+    fake = (_fake_stripe_customer(list_exc=missing) if stage == "list"
+            else _fake_stripe_customer(invoices=(), delete_exc=missing))
+    r, uid, calls = _delete_with_customer(db_session, client, monkeypatch, fake)
+    assert r.status_code == 200, r.text
+    assert "purge" in calls
+    monkeypatch.undo()
+    assert db_session.query(User).filter(User.id == uid).first() is None
+
+
+def test_no_stripe_customer_means_no_stripe_customer_call(db_session, client, monkeypatch):
+    fake = _fake_stripe_customer()
+    calls = fake.calls
+    monkeypatch.setattr("app.services.stripe_billing._stripe", lambda: fake)
+    monkeypatch.setattr("app.services.storage.purge_user_blobs", lambda uid: calls.append("purge") or 0)
+    user = _seed_user_with_data(db_session)
+    assert user.stripe_customer_id is None
+    app.dependency_overrides[get_current_user] = lambda: user
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    assert r.status_code == 200, r.text
+    assert calls == ["purge"]
+
+
+def test_customer_refusal_matches_the_profile_page_text():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / "frontend" / "src" / "i18n"
+    for lang, expected in (("da", auth_router.DELETE_STRIPE_CUSTOMER_FAILED_DA),
+                           ("en", auth_router.DELETE_STRIPE_CUSTOMER_FAILED_EN)):
+        src = (root / f"{lang}.js").read_text()
+        m = re.search(r'deleteStripeCustomerFailed:\s*"([^"]+)"', src)
+        assert m and m.group(1) == expected, lang
+    page = (root.parent / "pages" / "ProfilePage.jsx").read_text()
+    assert '"stripe_customer_failed"' in page
+    assert auth_router.DELETE_STRIPE_CUSTOMER_FAILED_EN in page
