@@ -148,13 +148,16 @@ describe("PrivacyPolicyPage — the legal-basis line names no thesis", () => {
 });
 
 describe("CookiePolicyPage — the Analytics category", () => {
+  // R-h (LEG-10): usage events are sent only after a "yes" in the banner; the
+  // old "run until you decline" wording must not come back.
   it.each([
-    ["en", "until you decline Analytics in the banner or pause them in Profile", "No third-party analytics tool is loaded"],
-    ["da", "indtil du afviser Analyse i banneret eller sætter dem på pause under Profil", "Der indlæses intet analyseværktøj fra tredjeparter"],
-  ])("lang=%s says first-party usage events run until declined or paused", (lang, runs, noTool) => {
+    ["en", "are sent from this browser only after you turn Analytics on in the banner", "No third-party analytics tool is loaded", "until you decline Analytics"],
+    ["da", "sendes først fra denne browser, når du slår Analyse til i banneret", "Der indlæses intet analyseværktøj fra tredjeparter", "indtil du afviser Analyse"],
+  ])("lang=%s says first-party usage events are sent only after a yes", (lang, runs, noTool, oldRule) => {
     const text = textAt(CookiePolicyPage, lang);
     expect(text).toContain(runs);
     expect(text).toContain(noTool);
+    expect(text).not.toContain(oldRule);
   });
 });
 

@@ -142,10 +142,11 @@ function CookiesEn() {
           <p>
             The three cookies above are strictly necessary, and under the ePrivacy Directive those do
             not require consent. You will still see a consent banner on your first visit. It is there
-            for the optional Analytics and Marketing categories. The Analytics switch starts off, but
+            for the optional Analytics and Marketing categories. The Analytics switch starts off, and
             BonBox's own usage events for signed-in accounts (see "Product analytics events" in our{" "}
             <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</Link>)
-            are recorded until you decline Analytics in the banner or pause them in Profile.
+            are sent from this browser only after you turn Analytics on in the banner or choose
+            “Accept all” — until you answer, it sends none.
             Declining in the banner stops the events this browser sends; pausing in Profile also
             stops the ones our server records for your account (AI token usage, the business-type
             guess during setup). Neither stops the record of each AI chat turn, Smart Sale Entry
@@ -291,9 +292,10 @@ function CookiesDa() {
             De tre cookies ovenfor er strengt nødvendige, og efter ePrivacy-direktivet kræver sådanne
             cookies ikke samtykke. Du vil alligevel se et samtykkebanner ved dit første besøg. Det er der
             for de valgfrie kategorier Analyse og Markedsføring. Kontakten til Analyse starter slået fra,
-            men BonBox' egne brugshændelser for indloggede konti (se "Hændelser til produktanalyse" i vores{" "}
+            og BonBox' egne brugshændelser for indloggede konti (se "Hændelser til produktanalyse" i vores{" "}
             <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">privatlivspolitik</Link>)
-            registreres, indtil du afviser Analyse i banneret eller sætter dem på pause under Profil.
+            sendes først fra denne browser, når du slår Analyse til i banneret eller vælger
+            “Accepter alle” — indtil du har svaret, sender den ingen.
             Afviser du i banneret, stopper de hændelser, denne browser sender; sætter du dem på pause
             under Profil, stopper også dem, vores server selv registrerer for din konto (tokenforbrug i
             AI og gættet på virksomhedstype under opsætningen). Ingen af delene stopper registreringen
