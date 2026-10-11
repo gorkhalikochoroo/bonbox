@@ -41,7 +41,8 @@ Multi-barrier defense (same 7-layer pattern):
   Layer 7 — TIGHT BUDGET
       ↓ Cap of 20 distinct fingerprints triaged per scan run. ~$0.005
         per triage with Sonnet. A scan run that triages 20 brand-new
-        bugs costs ~$0.10 — and that's a really bad day.
+        bugs costs ~$0.10 — and that's a really bad day. Billing:*
+        groups (money incidents) go first and are not counted.
 """
 from __future__ import annotations
 
@@ -322,10 +323,17 @@ class TriageRunResult:
     skipped_count: int
     error_count: int
     window_minutes: int
+    # created_at of the oldest Billing:* row this run left without a note
+    # (only past MAX_BILLING_TRIAGES_PER_RUN); the ops tick holds its
+    # watermark there so the next tick reads it again. None = all noted.
+    unnoted_billing_since: datetime | None = None
 
 
-# Cap on distinct fingerprints triaged per run (cost ceiling).
+# Cap on distinct fingerprints triaged per run (cost ceiling). Billing:*
+# groups do not count against it: they are triaged first, under their own
+# much higher bound (a runaway writer must not loop forever).
 MAX_TRIAGES_PER_RUN = 20
+MAX_BILLING_TRIAGES_PER_RUN = 200
 
 # Cooldown — don't re-triage the same fingerprint or re-email within this window.
 COOLDOWN_HOURS = 24
@@ -376,6 +384,14 @@ def run_triage(
         .limit(2000)  # safety bound
         .all()
     )
+    # Billing:* rows (money incidents, one row per incident) are all read,
+    # whatever the safety bound above kept.
+    seen = {r.id for r in rows}
+    rows += [
+        r for r in query.filter(ErrorLog.error_type.like("Billing:%"))
+        .order_by(ErrorLog.created_at.asc()).all()
+        if r.id not in seen
+    ]
 
     # Group by fingerprint
     groups: dict[str, list[ErrorLog]] = {}
@@ -383,14 +399,33 @@ def run_triage(
         fp = fingerprint(r)
         groups.setdefault(fp, []).append(r)
 
+    def _is_billing(occ: list[ErrorLog]) -> bool:
+        return (occ[0].error_type or "").startswith(_PER_INCIDENT_ERROR_PREFIXES)
+
+    # Billing:* groups first (oldest first) and outside the cost cap; the
+    # rest keep their newest-first order and the cap.
+    billing = sorted(
+        ((fp, occ) for fp, occ in groups.items() if _is_billing(occ)),
+        key=lambda g: min(o.created_at for o in g[1]),
+    )
+    others = [(fp, occ) for fp, occ in groups.items() if not _is_billing(occ)]
+
     new_notes: list[TriageNote] = []
     skipped = 0
     error_count = len(rows)
+    noted = {True: 0, False: 0}  # new notes, keyed by is-billing
+    unnoted_billing_since: datetime | None = None
 
     cooldown_cutoff = utc_now() - timedelta(hours=COOLDOWN_HOURS)
 
-    for fp, occurrences in list(groups.items())[:MAX_TRIAGES_PER_RUN * 4]:
-        if len(new_notes) >= MAX_TRIAGES_PER_RUN:
+    for fp, occurrences in billing + others[:MAX_TRIAGES_PER_RUN * 4]:
+        is_billing = _is_billing(occurrences)
+        if is_billing and noted[True] >= MAX_BILLING_TRIAGES_PER_RUN:
+            first = min(o.created_at for o in occurrences)
+            if unnoted_billing_since is None or first < unnoted_billing_since:
+                unnoted_billing_since = first
+            continue
+        if not is_billing and noted[False] >= MAX_TRIAGES_PER_RUN:
             break
 
         # Has this fingerprint been triaged recently?
@@ -459,6 +494,7 @@ def run_triage(
         db.commit()
         db.refresh(note)
         new_notes.append(note)
+        noted[is_billing] += 1
 
         # Email admin (Layer 6 ensures one email per fingerprint per cooldown)
         if send_emails and settings.ADMIN_EMAIL:
@@ -475,6 +511,7 @@ def run_triage(
         skipped_count=skipped,
         error_count=error_count,
         window_minutes=window_minutes,
+        unnoted_billing_since=unnoted_billing_since,
     )
 
 

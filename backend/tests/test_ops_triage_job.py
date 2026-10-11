@@ -442,3 +442,69 @@ def test_manual_run_triage_still_keeps_its_sanitized_sample(mem, monkeypatch):
         assert res.new_notes[0].sample_message == "lookup failed for key x"
     finally:
         db.close()
+
+
+# Billing:* groups first, never dropped for the cap (review, 12 Oct) ─────────
+_BILLING = "Billing:SecondLiveSubscription"
+
+
+def _seed_flood_and_alarms(Session, n_other=25, n_billing=2):
+    """n_other distinct NEWER error groups and n_billing OLDER billing alarms:
+    run_triage walks groups newest-first, so the alarms come last."""
+    for i in range(n_billing):
+        _seed(Session, method="WEBHOOK", path="/api/billing/stripe/webhook", status_code=None,
+              error_type=_BILLING, message=f"second live subscription: sub_A{i} -> sub_B{i}",
+              created_at=T0 - timedelta(minutes=20) + timedelta(seconds=i))
+    for i in range(n_other):
+        _seed(Session, method="GET", path=f"/api/flood{i}", status_code=500,
+              error_type=f"FloodError{i}", traceback=_TB,
+              created_at=T0 - timedelta(minutes=10) + timedelta(seconds=i))
+
+
+def _billing_notes(Session):
+    db = Session()
+    try:
+        return db.query(TriageNote).filter(TriageNote.error_type == _BILLING).count()
+    finally:
+        db.close()
+
+
+def test_billing_alarms_are_noted_even_when_20_other_groups_land(mem, prod, alerts, clock):
+    _seed_flood_and_alarms(mem, n_other=25, n_billing=2)
+    out = otj.run_ops_triage_tick()
+    assert _billing_notes(mem) == 2, "a billing alarm was dropped by the 20-group cap"
+    assert out["new_notes"] == 22                  # 2 billing + the 20-group cap
+    digest = [c for c in alerts if c["key"].startswith("triage:")][0]
+    db = mem()
+    try:
+        fps = {n.fingerprint for n in db.query(TriageNote).filter(TriageNote.error_type == _BILLING)}
+    finally:
+        db.close()
+    assert all(fp in digest["key"] for fp in fps)
+
+
+def test_billing_alarms_beyond_the_2000_row_bound_are_read(mem, prod, alerts, clock, monkeypatch):
+    _seed_flood_and_alarms(mem, n_other=3, n_billing=1)
+    # Squeeze the safety bound so the older alarm row falls outside it.
+    from sqlalchemy.orm import Query
+    orig = Query.limit
+    monkeypatch.setattr(Query, "limit", lambda self, n: orig(self, 3 if n == 2000 else n))
+    otj.run_ops_triage_tick()
+    assert _billing_notes(mem) == 1
+
+
+def test_watermark_stops_at_an_unnoted_billing_row(mem, prod, alerts, clock, monkeypatch):
+    monkeypatch.setattr(triage_service, "MAX_BILLING_TRIAGES_PER_RUN", 1)
+    _seed_flood_and_alarms(mem, n_other=0, n_billing=2)
+    out = otj.run_ops_triage_tick()
+    assert out["new_notes"] == 1
+    db = mem()
+    try:
+        st = db.query(MonitorState).filter(MonitorState.service == "ops_triage").one()
+        second = db.query(ErrorLog).filter(ErrorLog.message.like("%sub_A1 -> sub_B1")).one()
+        assert st.last_check_at == second.created_at   # not past the un-noted alarm
+    finally:
+        db.close()
+    clock["t"] = T0 + timedelta(minutes=15)
+    otj.run_ops_triage_tick()
+    assert _billing_notes(mem) == 2

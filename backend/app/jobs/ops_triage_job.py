@@ -23,7 +23,8 @@ One tick:
      (TriageNote's own 24 h cooldown then lets a recurring group open a new
      note);
   5. standing check: storage durability (alert at most once per 24 h);
-  6. advance the watermark.
+  6. advance the watermark — never past a Billing:* row that run_triage
+     left without a note (res.unnoted_billing_since).
 
 A failing tick alerts directly ("job_error:ops_triage") and does NOT advance
 the watermark, so the next tick re-scans (the note cooldown prevents duplicate
@@ -90,7 +91,9 @@ def run_ops_triage_tick() -> dict:
 
         storage = _storage_standing_check()
 
-        st.last_check_at = upper
+        # Never past a Billing:* row that got no note this tick.
+        hold = getattr(res, "unnoted_billing_since", None)
+        st.last_check_at = min(upper, hold) if hold is not None else upper
         st.last_summary = (
             f"rows={res.error_count} new={new_count} skipped={res.skipped_count} "
             f"digest={digest.value if digest is not None else '-'}"
