@@ -10,6 +10,9 @@ file owns it:
 - the /api/admin scan blocker (`_admin_ip_strikes`, `_admin_ip_banned`):
   20 4xx answers within 60 s ban the IP for 10 minutes, after which every
   /api/admin request gets 404. No test owns it either.
+- the global join / stand-pairing cool-off (`_join_fail_times`,
+  `_join_cooloff_until`) and the in-process abuse counters
+  (app/utils/abuse_signals.py).
 
 Every TestClient request comes from the same client ("testclient"; it sends
 no edge header, so the rate-limit key is the shared "no-edge" bucket). CI runs
@@ -55,6 +58,8 @@ def _reset_app_rate_limits() -> None:
     main._coarse_hits.clear()
     main._admin_ip_strikes.clear()
     main._admin_ip_banned.clear()
+    main._join_fail_times.clear()
+    main._join_cooloff_until.clear()
 
 
 @pytest.fixture(autouse=True)

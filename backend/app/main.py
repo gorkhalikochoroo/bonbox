@@ -45,6 +45,8 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip, EdgeClientIPMiddleware
+from app.utils import abuse_signals
+from collections import deque
 from app.utils.request_path import routed_path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -4242,6 +4244,49 @@ async def admin_scan_blocker(request: Request, call_next):
             strikes.clear()
             bound_stamp_dict(_admin_ip_banned, stale_before=now, max_keys=_ADMIN_MAX_TRACKED_IPS)
         bound_window_dict(_admin_ip_strikes, cutoff=cutoff, max_keys=_ADMIN_MAX_TRACKED_IPS)
+    return response
+
+
+# --- Global cool-off for staff join / stand pairing codes (R-sec) ---
+# The per-IP limit (8/minute) on POST /api/portal/join and /api/stand/join
+# scales with the attacker's address pool. This counts WRONG codes (404s) from
+# all addresses together: JOIN_FAIL_GLOBAL_MAX of them within
+# JOIN_FAIL_WINDOW_SEC pauses that door for everyone for JOIN_COOLOFF_SEC
+# (429, same shape as the coarse ceiling; the staff JoinPage already says
+# "vent et minut"). Separate counters per door. Successes and the per-IP 429s
+# are not counted. Global, not per IP: at most JOIN_FAIL_GLOBAL_MAX floats per
+# door. Runs on the event loop (no lock); a restart resets it. 0 = off.
+# Kept out of the handlers on purpose: tests/test_join_code_hardening.py
+# inspects portal_join's source.
+_JOIN_BRAKE = {"/api/portal/join": "staff_join", "/api/stand/join": "stand_join"}
+_join_fail_times: dict[str, deque] = {}
+_join_cooloff_until: dict[str, float] = {}
+
+
+@app.middleware("http")
+async def join_failure_brake(request: Request, call_next):
+    kind = _JOIN_BRAKE.get(routed_path(request))
+    if kind is None or request.method != "POST":
+        return await call_next(request)
+    now = _time.time()
+    until = _join_cooloff_until.get(kind, 0.0)
+    if now < until:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests"},
+            headers={"Retry-After": str(int(until - now) + 1)},
+        )
+    response = await call_next(request)
+    limit = settings.JOIN_FAIL_GLOBAL_MAX
+    if response.status_code == 404 and limit > 0:
+        dq = _join_fail_times.get(kind)
+        if dq is None or dq.maxlen != limit:
+            dq = _join_fail_times[kind] = deque(dq or (), maxlen=limit)
+        dq.append(now)
+        if len(dq) >= limit and now - dq[0] <= settings.JOIN_FAIL_WINDOW_SEC:
+            _join_cooloff_until[kind] = now + settings.JOIN_COOLOFF_SEC
+            dq.clear()
+            abuse_signals.bump(f"{kind}_cooloff")
     return response
 
 
