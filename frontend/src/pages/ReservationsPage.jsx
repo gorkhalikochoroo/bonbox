@@ -113,6 +113,7 @@ import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venuePro
 import { formatKr } from "../utils/currency";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
+import { parseServerTime } from "../utils/serverTime";
 
 // Status → status-pill styling. Colour is BUDGETED, status-only (design
 // doctrine): it appears where it MEANS something and recedes where it
@@ -8992,7 +8993,9 @@ function StandDevices({ t }) {
     d.paired
       ? d.last_seen_at
         ? t("rsvpStandDeviceSeen", "Sidst set {when}", {
-            when: new Date(d.last_seen_at).toLocaleString(),
+            // A stand's last_seen_at is naive UTC (utc_now), unlike the
+            // bookings' wall-clock starts_at on this page.
+            when: parseServerTime(d.last_seen_at)?.toLocaleString() || "—",
           })
         : t("rsvpStandDevicePaired", "Forbundet")
       : t("rsvpStandDeviceWaiting", "Venter på koden");

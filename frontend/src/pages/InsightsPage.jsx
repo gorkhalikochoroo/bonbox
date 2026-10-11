@@ -3,6 +3,7 @@ import { ThumbsUp, ThumbsDown } from "lucide-react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
 import { useLanguage } from "../hooks/useLanguage";
+import { parseServerTime } from "../utils/serverTime";
 
 /**
  * /insights — full AI insights inbox.
@@ -403,11 +404,13 @@ function EmptyState({ filter }) {
 // Under a minute collapses to "just now": the catalogue has no seconds key,
 // and a hardcoded "{n}s ago" is the English-on-a-Danish-screen defect again.
 function timeAgo(iso, t) {
-  if (!iso) return "—";
-  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  // detected_at is a naive UTC stamp; parseServerTime reads it as UTC.
+  const then = parseServerTime(iso);
+  if (!then) return "—";
+  const sec = Math.floor((Date.now() - then.getTime()) / 1000);
   if (sec < 60) return t("justNow", "just now");
   if (sec < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(sec / 60) });
   if (sec < 86400) return t("hoursAgo", "{n}h ago", { n: Math.floor(sec / 3600) });
   if (sec < 604800) return t("daysAgo", "{n}d ago", { n: Math.floor(sec / 86400) });
-  return new Date(iso).toLocaleDateString();
+  return then.toLocaleDateString();
 }

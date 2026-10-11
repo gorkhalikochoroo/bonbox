@@ -44,6 +44,7 @@ import { useActivation } from "../hooks/useActivation";
 import { platform } from "../utils/platform";
 import { haptic } from "../utils/haptics";
 import { formatKr, parseMoneyInput } from "../utils/currency";
+import { parseServerTime } from "../utils/serverTime";
 
 import PageShell from "../components/ui/PageShell";
 import PageHeader from "../components/ui/PageHeader";
@@ -123,10 +124,12 @@ function decodeQrPayload(qrText) {
 }
 
 // Format a timestamp into HH:mm for the "Already scanned kl. 19:48" copy.
+// The server's scanned_at is naive UTC (utils/serverTime.js); the history's
+// own `at` stamps carry a Z and pass through unchanged.
 function formatTimeShort(iso) {
-  if (!iso) return "";
+  const d = parseServerTime(iso);
+  if (!d) return "";
   try {
-    const d = new Date(iso);
     return d.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "";

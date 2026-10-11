@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { errText } from "../utils/errText";
+import { parseServerTime } from "../utils/serverTime";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -27,8 +28,8 @@ import { useLanguage } from "../hooks/useLanguage";
 // and a hardcoded "{n}s ago" is the same hardcoded-English defect.
 function relativeTime(iso, t) {
   if (!iso) return "—";
-  const then = new Date(iso);
-  if (isNaN(then)) return iso;
+  const then = parseServerTime(iso); // naive server stamp = UTC (utils/serverTime.js)
+  if (!then) return iso;
   const sec = Math.floor((Date.now() - then.getTime()) / 1000);
   if (sec < 60) return t("justNow", "just now");
   if (sec < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(sec / 60) });
