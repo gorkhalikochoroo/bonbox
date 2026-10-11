@@ -38,6 +38,9 @@
  *
  * Design (premium pass — Linear/Stripe/Vercel onboarding bar):
  *   • Gray-900 primary; emerald reserved for the "money moment" + success.
+ *     (Push 6: the buttons really are gray-900 now — they were the emerald
+ *     accent, white on emerald-600 = 3.65:1, under AA; gray-900 is 17.7:1.
+ *     The 11 px labels read gray-600, not gray-400 = 2.5:1 on gray-50.)
  *     No rainbow, no brand gradients. Accents subtle.
  *   • Lucide outline icons; Inter; rounded-xl; generous whitespace.
  *   • Vertically-centred single column, comfortable max-width.
@@ -273,7 +276,7 @@ function StepHeader({ eyebrow, title, lede, center = false }) {
   return (
     <div className={center ? "text-center" : ""}>
       {eyebrow && (
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500 mb-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-600 dark:text-gray-400 mb-2">
           {eyebrow}
         </p>
       )}
@@ -987,7 +990,7 @@ export default function OnboardingPage() {
             <span className="text-sm font-semibold tracking-tight">BonBox</span>
           </div>
           <div className="flex items-center gap-3 sm:gap-4">
-            <span className="text-[11px] font-medium tabular-nums text-gray-400 dark:text-gray-500 hidden sm:inline">
+            <span className="text-[11px] font-medium tabular-nums text-gray-600 dark:text-gray-400 hidden sm:inline">
               {t("onbStepCounter", { n: step, total: totalSteps })}
             </span>
             <ProgressRail step={step} total={totalSteps} />
@@ -1056,7 +1059,7 @@ export default function OnboardingPage() {
               </div>
 
               <Button
-                variant="accent"
+                variant="primary"
                 size="lg"
                 onClick={goNext}
                 className="mt-8 w-full sm:w-auto sm:min-w-[13rem]"
@@ -1064,7 +1067,7 @@ export default function OnboardingPage() {
               >
                 {t("onbStep1Cta")}
               </Button>
-              <p className="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+              <p className="mt-3 text-[11px] text-gray-600 dark:text-gray-400">
                 {t("onbStep1Reassure")}
               </p>
             </div>
@@ -1178,7 +1181,7 @@ export default function OnboardingPage() {
               <fieldset className="mt-6">
                 <div className="flex items-center gap-3 mb-3" aria-hidden="true">
                   <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
-                  <legend className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">
+                  <legend className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-600 dark:text-gray-400">
                     {detected ? t("onbDetectedOverride") : t("onbDescribeOrPick")}
                   </legend>
                   <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
@@ -1522,7 +1525,7 @@ export default function OnboardingPage() {
                     Same accountant 95% of the time, but two different
                     channels — explicit copy here saves a support ticket
                     ("Why does it ask for the same email twice?"). */}
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
                   {t("onbStep3AccountantDisambig")}
                 </p>
                 {/* Said plainly, then the one explicit choice: nothing goes to
@@ -1769,7 +1772,7 @@ export default function OnboardingPage() {
               >
                 {t("onbExploreWithSampleData", "Explore with sample data")}
               </button>
-              <p className="mt-1 text-center text-[11px] text-gray-400 dark:text-gray-500">
+              <p className="mt-1 text-center text-[11px] text-gray-600 dark:text-gray-400">
                 {t("onbExploreSampleNote", "Your own details stay as you typed them. The sample figures are marked as demo and can be cleared again.")}
               </p>
             </div>
@@ -1943,7 +1946,7 @@ function PresetPillarChips({ typeLabel, ready, onPillars, offPillars, pillarOff,
 
           {offPillars.length > 0 && (
             <>
-              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500 mt-4 mb-2">
+              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-600 dark:text-gray-400 mt-4 mb-2">
                 {t("onbPresetAddTitle")}
               </p>
               <div className="flex flex-wrap gap-2" role="group" aria-label={t("onbPresetAddTitle")}>
@@ -2008,7 +2011,7 @@ function StepFooter({
           </Button>
         )}
         <Button
-          variant="accent"
+          variant="primary"
           onClick={onPrimary}
           busy={primaryBusy}
           className="min-h-11"

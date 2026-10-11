@@ -117,3 +117,33 @@ describe("the wizard asks the type nobody chose", () => {
     }
   });
 });
+
+describe("the first screen after sign-up meets the contrast bar (push 6 review)", () => {
+  // White on emerald-600 (the old `accent` buttons) is 3.65:1 at 14 px/500 —
+  // under AA's 4.5. The wizard's own design note says gray-900 primary
+  // (17.7:1): the buttons now are. The 11 px lines read gray-600 (gray-400
+  // was 2.51:1 on the gray-50 ground).
+  it("'Kom i gang' and every step's Næste are the gray-900 primary, never emerald", async () => {
+    h.user = owner("cafe");
+    render(<MemoryRouter><OnboardingPage /></MemoryRouter>);
+    const start = screen.getByText("onbStep1Cta").closest("button");
+    expect(start.className).toMatch(/\bbg-gray-900\b/);
+    expect(start.className).not.toMatch(/emerald/);
+    expect(screen.getByText("onbStep1Reassure").className).toMatch(/\btext-gray-600\b/);
+    fireEvent.click(start);
+    await screen.findByRole("radiogroup", { name: "onbStep2BranchLabel" });
+    const next = screen.getByText("onbNext").closest("button");
+    expect(next.className).toMatch(/\bbg-gray-900\b/);
+    expect(next.className).not.toMatch(/emerald/);
+  });
+
+  it("no wizard text is gray-400 on the light ground (only aria-hidden icons may be)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const src = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../pages/OnboardingPage.jsx"), "utf8");
+    const lines = src.split("\n").filter((l) => /(^|[\s"'])text-gray-400(?=[\s"'])/.test(l) && !/aria-hidden="true"/.test(l));
+    expect(lines).toEqual([]);
+    expect(src).not.toMatch(/variant="accent"/);
+  });
+});
