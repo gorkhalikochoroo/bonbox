@@ -1252,6 +1252,33 @@ _SIGNUP_REF_STEPS = (
 )
 
 
+@router.get("/privacy-purges")
+def admin_privacy_purges(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """R-h: what each privacy purge would touch right now, and whether its
+    flag is on. Counts only — no id, name, phone or address. Read-only.
+
+    Every irreversible purge ships OFF; this is the dry run Manoj reads
+    before turning a flag on, and the same page measures the result after
+    (each `due` should drop to 0)."""
+    from app.config import settings
+    from app.jobs.privacy_purges import dry_run_counts
+    from app.services.audit_email_cleanup import count_due
+
+    due = dry_run_counts(db)
+    due["audit_rows_with_owner_email"] = count_due(db)
+    return {
+        "flags": {
+            "PRIVACY_PURGE_WAITLIST_ENABLED": bool(settings.PRIVACY_PURGE_WAITLIST_ENABLED),
+            "PRIVACY_PURGE_ORPHANS_ENABLED": bool(settings.PRIVACY_PURGE_ORPHANS_ENABLED),
+            "AUDIT_EMAIL_CLEANUP_ENABLED": bool(settings.AUDIT_EMAIL_CLEANUP_ENABLED),
+        },
+        "due": due,
+    }
+
+
 @router.get("/signup-refs")
 def admin_signup_refs(
     admin: User = Depends(require_super_admin),
