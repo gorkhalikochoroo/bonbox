@@ -99,6 +99,18 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      # ── Nightly off-project backup (services/backup_service.py). The keys of
+      # the SEPARATE bonbox-backup project (Frankfurt), never the main one.
+      # Without all three the backup is off and /api/admin/backup-health says
+      # so; without BACKUP_ENCRYPTION_KEY no backup can ever be read. ──
+      - key: BACKUP_SUPABASE_URL
+        sync: false
+      - key: BACKUP_SUPABASE_SERVICE_KEY
+        sync: false
+      - key: BACKUP_ENCRYPTION_KEY
+        sync: false
+      - key: BACKUP_ENCRYPTION_KEY_PREVIOUS
+        sync: false
       # ── Mail and ops alerts (recipients = ADMIN_EMAIL + SUPER_ADMIN_EMAILS) ──
       - key: RESEND_API_KEY
         sync: false
