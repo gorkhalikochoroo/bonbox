@@ -2680,6 +2680,13 @@ _migrations = [
     # owner closed (services/terms.py). A record of a closed notice, never an
     # acceptance. Nullable, no default, no backfill.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_notice_dismissed_version VARCHAR(16)",
+    # ── Migration (2026-10-11): users.last_seen_at — server-side "last seen" ─
+    # Mirrors app/models/user.py:User.last_seen_at (services/last_seen.py).
+    # The admin "Last seen" column read only event_logs, which the browser
+    # writes only with analytics consent (R-h). Nullable, no default, no
+    # backfill: a metadata-only ADD COLUMN, run under the 5 s lock_timeout
+    # like every statement here, and skipped once the column exists.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP",
     # ── Migration (2026-10-08): accountant_grants — was the invite link mailed ─
     # Mirrors app/models/accountant_grant.py. invite_mailed_at: when the
     # CURRENT invite link was handed to the mail server; invite_mail_held: why
@@ -3408,6 +3415,8 @@ def _run_migrations():
             ok += _add("users", "terms_accepted_at", "TIMESTAMP")
             # Mirror of users.terms_notice_dismissed_version (2026-10-10).
             ok += _add("users", "terms_notice_dismissed_version", "VARCHAR(16)")
+            # Mirror of users.last_seen_at (2026-10-11).
+            ok += _add("users", "last_seen_at", "TIMESTAMP")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")

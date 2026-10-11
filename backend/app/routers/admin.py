@@ -13,7 +13,7 @@ Role elevation must still be done in the DB directly.
 Data deletions go through the regular user-scoped endpoints.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -33,6 +33,36 @@ from app.services.triage_service import run_triage, serialize_note
 from app.utils.time import utc_now
 
 router = APIRouter()
+
+
+def _utc_iso(value):
+    """A stored timestamp as ISO-8601 UTC with a "Z", or None.
+
+    Columns hold NAIVE UTC (app/utils/time.py). A bare .isoformat() has no
+    offset, and the browser's Date() reads an offset-less date-time as LOCAL
+    time — so the admin list said "Last seen 2h ago" (CEST) for an account
+    signed in a minute earlier. Field names and the rest of the string are
+    unchanged; a tz-aware value is converted to UTC first; a plain date (no
+    time) has no offset to state and is returned as it was.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        return value.isoformat()
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.isoformat() + "Z"
+
+
+def _latest(*stamps):
+    """The newest of the given timestamps, ignoring None; None when all are.
+
+    "Last seen" is the newer of users.last_seen_at (the server's own sign-in
+    and session stamp, services/last_seen.py — independent of analytics
+    consent) and the newest event_logs row (usage analytics, which keeps
+    the history from before last_seen_at existed)."""
+    present = [s for s in stamps if s is not None]
+    return max(present) if present else None
 
 
 @router.get("/overview")
@@ -105,7 +135,7 @@ def admin_overview(
         "total_sales": total_sales,
         "total_expenses": total_expenses,
         "reservations": reservations,
-        "as_of": now.isoformat(),
+        "as_of": _utc_iso(now),
     }
 
 
@@ -185,10 +215,10 @@ def admin_user_list(
                 "role": u.role,
                 "email_verified": u.email_verified,
                 "is_locked": bool(getattr(u, "is_locked", False)),
-                "locked_at": u.locked_at.isoformat() if getattr(u, "locked_at", None) else None,
+                "locked_at": _utc_iso(getattr(u, "locked_at", None)),
                 "locked_reason": getattr(u, "locked_reason", None),
-                "created_at": u.created_at.isoformat(),
-                "last_active": last_event.isoformat() if last_event else None,
+                "created_at": _utc_iso(u.created_at),
+                "last_active": _utc_iso(_latest(getattr(u, "last_seen_at", None), last_event)),
                 "sale_count": sale_count,
                 "expense_count": expense_count,
                 "event_count": event_count,
@@ -197,7 +227,7 @@ def admin_user_list(
                 # Tier surface — see comment above.
                 "tier": tier,                         # free | trial | starter | pro
                 "plan_raw": (getattr(u, "plan", None) or "free").lower(),
-                "trial_ends_at": u.trial_ends_at.isoformat() if getattr(u, "trial_ends_at", None) else None,
+                "trial_ends_at": _utc_iso(getattr(u, "trial_ends_at", None)),
             }
         )
     return out
@@ -251,7 +281,7 @@ def admin_lock_user(
         "user_id": str(target.id),
         "email": target.email,
         "is_locked": True,
-        "locked_at": target.locked_at.isoformat() if target.locked_at else None,
+        "locked_at": _utc_iso(target.locked_at),
         "locked_reason": target.locked_reason,
     }
 
@@ -310,7 +340,7 @@ def admin_user_timeline(
             "event": r.event,
             "page": r.page,
             "detail": r.detail,
-            "created_at": r.created_at.isoformat(),
+            "created_at": _utc_iso(r.created_at),
         }
         for r in rows
     ]
@@ -447,7 +477,7 @@ def admin_security_events(
             "ip_address": r.ip_address,
             "user_agent": (r.user_agent or "")[:120],
             "detail": r.detail,
-            "created_at": r.created_at.isoformat(),
+            "created_at": _utc_iso(r.created_at),
         }
         for r in rows
     ]
@@ -477,7 +507,7 @@ def admin_recent_errors(
     return [
         {
             "id": str(r.id),
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "created_at": _utc_iso(r.created_at),
             "method": r.method,
             "path": r.path,
             "status_code": r.status_code,
@@ -516,9 +546,9 @@ def admin_prod_health(
         "state": st.state,
         "fail_streak": st.fail_streak,
         "consecutive_ok": st.consecutive_ok,
-        "broken_since": st.broken_since.isoformat() if st.broken_since else None,
-        "last_check_at": st.last_check_at.isoformat() if st.last_check_at else None,
-        "last_alert_at": st.last_alert_at.isoformat() if st.last_alert_at else None,
+        "broken_since": _utc_iso(st.broken_since),
+        "last_check_at": _utc_iso(st.last_check_at),
+        "last_alert_at": _utc_iso(st.last_alert_at),
         "last_summary": st.last_summary,
         "incident_entry": st.incident_entry,
         "incident_chunk": st.incident_chunk,
@@ -545,8 +575,8 @@ def admin_public_surface_health(
             "severity": r.severity,
             "codes": r.codes or [],
             "detail": r.detail or {},
-            "degraded_since": r.degraded_since.isoformat() if r.degraded_since else None,
-            "last_scanned_at": r.last_scanned_at.isoformat() if r.last_scanned_at else None,
+            "degraded_since": _utc_iso(r.degraded_since),
+            "last_scanned_at": _utc_iso(r.last_scanned_at),
             "last_summary": r.last_summary,
         }
         for r in rows
@@ -599,7 +629,7 @@ def admin_spam_candidates(
                 "id": str(u.id),
                 "email": u.email,
                 "business_name": u.business_name,
-                "created_at": u.created_at.isoformat(),
+                "created_at": _utc_iso(u.created_at),
                 "age_days": (utc_now() - u.created_at).days,
             })
     return {
@@ -759,7 +789,7 @@ def admin_training_drift(
             "pos_system": pos,
             "signal": signal,  # None means healthy / not enough data
         })
-    return {"systems": out, "checked_at": utc_now().isoformat()}
+    return {"systems": out, "checked_at": _utc_iso(utc_now())}
 
 
 @router.get("/training/recent-examples")
@@ -792,7 +822,7 @@ def admin_training_recent_examples(
                 str(r.promoted_from_extraction_id) if r.promoted_from_extraction_id else None
             ),
             "truth_json": r.truth_json,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "created_at": _utc_iso(r.created_at),
         }
         for r in rows
     ]
@@ -1034,8 +1064,8 @@ def admin_terminal_providers_list(
                     k for k in (r.signature_keywords or "").split("\n") if k
                 ],
                 "is_active": bool(r.is_active),
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "created_at": _utc_iso(r.created_at),
+                "updated_at": _utc_iso(r.updated_at),
             }
             for r in rows
         ],
@@ -1283,7 +1313,7 @@ def admin_signup_refs(
         by_prefix_members.setdefault(ref_prefix(ref), set()).add(uid)
 
     return {
-        "generated_at": utc_now().isoformat(),
+        "generated_at": _utc_iso(utc_now()),
         "steps": list(_SIGNUP_REF_STEPS),
         "total": _counts(set(ids)),
         "by_prefix": [

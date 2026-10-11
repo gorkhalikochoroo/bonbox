@@ -61,6 +61,7 @@ from app.models.user import User
 from app.schemas.auth import SignupRefMixin, TermsAcceptMixin, Token, UserResponse
 from app.services import audit_service
 from app.services.auth import create_access_token, hash_password
+from app.services.last_seen import touch_last_seen
 from app.services.oauth_apple import verify_apple_token
 from app.services.oauth_google import verify_google_token
 from app.services.signup_ref import apply_signup_ref
@@ -362,6 +363,7 @@ def oauth_apple(
     # cookie scope / SameSite logic stays single-sourced.
     from app.routers.auth import _set_auth_cookie
 
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
@@ -570,6 +572,7 @@ def google_signin(
 
     from app.routers.auth import _set_auth_cookie
 
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))

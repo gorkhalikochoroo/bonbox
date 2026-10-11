@@ -15,6 +15,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
 from app.utils import login_guard
+from app.services.last_seen import touch_last_seen
 
 from app.database import get_db
 from app.models.user import User
@@ -550,6 +551,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     # rarely complete email verification, so notifying only at that step
     # filters out 90%+ of fake-account noise from the admin inbox.
 
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
@@ -862,6 +864,7 @@ def apple_auth(
             except Exception:
                 pass
 
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
@@ -897,6 +900,7 @@ def login(request: Request, response: Response, data: UserLogin, db: Session = D
         )
 
     login_guard.clear(data.email)  # success → reset the failure counter
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
@@ -2136,10 +2140,13 @@ def export_all_data(
     # accepted at sign-up and when (services/terms.py); "" = none recorded.
     # terms_notice_dismissed_version — the Terms version whose in-app notice
     # the owner closed (a closed notice, not an acceptance); "" = never.
+    # last_seen_at — when the account was last signed in (UTC,
+    # services/last_seen.py); "" = not recorded.
     _write_csv_section(w, "Profile", [
         "id", "email", "business_name", "business_type", "currency",
         "daily_goal", "monthly_goal", "role", "created_at", "signup_ref",
         "terms_version", "terms_accepted_at", "terms_notice_dismissed_version",
+        "last_seen_at",
     ], [[
         str(current_user.id), current_user.email, current_user.business_name,
         current_user.business_type, current_user.currency,
@@ -2149,6 +2156,7 @@ def export_all_data(
         current_user.terms_version or "",
         current_user.terms_accepted_at.isoformat() if current_user.terms_accepted_at else "",
         getattr(current_user, "terms_notice_dismissed_version", None) or "",
+        current_user.last_seen_at.isoformat() if getattr(current_user, "last_seen_at", None) else "",
     ]])
 
     # --- Business Profile ---

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.services.last_seen import touch_last_seen
 from app.utils.request_path import routed_path
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -279,6 +280,13 @@ def get_current_user(
             detail="Session was signed out. Please log in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # ── Last seen (services/last_seen.py) ─────────────────────────────
+    # A valid, unlocked, unrevoked session: the account that holds it is
+    # here. Stamped on the token's OWN row, before any delegation below, so
+    # a revisor or team member is recorded as themselves, never as the
+    # owner. At most one write per 5 minutes per account; never raises.
+    touch_last_seen(db, user)
 
     # ── Accountant-view delegation ────────────────────────────────────
     if (getattr(user, "role", "") or "").lower() == "accountant":
