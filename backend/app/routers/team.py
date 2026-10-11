@@ -884,6 +884,8 @@ def accept_invite(
     # as /auth/login.
     from app.services.auth import create_access_token
     from app.schemas.auth import Token, UserResponse
+    from app.services.last_seen import touch_last_seen
+    touch_last_seen(db, invitee, force=True)  # signed in now (services/last_seen.py)
     jwt_token = create_access_token(str(invitee.id), invitee.token_version)
     return Token(access_token=jwt_token, user=UserResponse.model_validate(invitee))
 

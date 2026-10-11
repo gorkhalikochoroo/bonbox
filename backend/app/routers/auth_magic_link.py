@@ -471,6 +471,7 @@ def claim_decision(
             and not result.already_decided and not getattr(user, "is_locked", False)):
         from app.routers.auth import _set_auth_cookie
         db.refresh(user)
+        touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
         jwt_token = create_access_token(str(user.id), user.token_version)
         _set_auth_cookie(response, jwt_token, request)
         out.access_token = jwt_token

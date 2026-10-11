@@ -727,6 +727,18 @@ class AppleAuthRequest(SignupRefMixin, TermsAcceptMixin):
     full_name: Optional[str] = None  # Only present on first sign-in
 
 
+def _refuse_locked_apple_account(user) -> None:
+    """A locked account is refused before anything is linked, mailed or
+    stamped — the same 401 /auth/oauth/apple answers (auth_oauth Step 4), so
+    a locked row stays byte-identical. Password login and both /oauth routes
+    refuse a locked account; this legacy one (old iOS builds) did not."""
+    if user is not None and getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is locked. Contact support.",
+        )
+
+
 @router.post("/apple", response_model=Token)
 @limiter.limit("15/minute")
 def apple_auth(
@@ -772,12 +784,14 @@ def apple_auth(
     # the same relay alias.
     user = db.query(User).filter(User.apple_user_id == apple_sub).first()
     found_by_sub = user is not None
+    _refuse_locked_apple_account(user)
     # Everything below keys on the e-mail (lookup, link, create): only on an
     # address Apple says it verified.
     if not user and email and not claim_is_true(claims.get("email_verified")):
         raise refuse_unverified_email("Apple")
     if not user and email and not is_relay_email:
         user = user_by_email(db, email)
+        _refuse_locked_apple_account(user)
         if user:
             # Existing email-based user signing in with Apple for the
             # first time — link the apple_user_id so future sign-ins
@@ -1734,6 +1748,7 @@ def reset_password(
 
     # Sign the user straight in on THIS device with a fresh token at the new
     # version (the email-code holder is, by construction, the account owner).
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     fresh = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, fresh, request)
     return {"message": "Password reset successfully. You can now log in.", "token": fresh}
