@@ -170,10 +170,11 @@ def _wait_words(seconds: int) -> tuple[str, str]:
     return f"{hours} timer", f"{hours} hours"
 
 
-def _recorded_checkout_sessions(db: Session, user_id, key: str) -> list[str]:
+def _recorded_checkout_sessions(db: Session, user_id, key: Optional[str]) -> list[str]:
     """Session ids our EventLog rows of the last 24 h (a Stripe Checkout
-    Session lives 24 h) record for this account with fingerprint `key`,
-    newest first. Rows from before the fingerprint was recorded have none."""
+    Session lives 24 h) record for this account with fingerprint `key` (any
+    fingerprint when key is None), newest first. Rows from before the
+    fingerprint was recorded have none."""
     from app.models.event_log import EventLog
 
     rows = db.query(EventLog.detail).filter(
@@ -187,7 +188,8 @@ def _recorded_checkout_sessions(db: Session, user_id, key: str) -> list[str]:
             d = json.loads(detail or "")
         except (TypeError, ValueError):
             continue
-        if isinstance(d, dict) and d.get("key") == key and isinstance(d.get("session_id"), str):
+        if (isinstance(d, dict) and (key is None or d.get("key") == key)
+                and isinstance(d.get("session_id"), str)):
             ids.append(d["session_id"])
     return ids
 
@@ -408,6 +410,8 @@ def create_checkout(
         at Stripe (same response shape); only NEW sessions count against the
         per-account cap (5/hour, 10/day → 429 checkout_rate_limited, da + en,
         with the wait and Retry-After)
+      • Handing out a session (new or reused) expires the account's OTHER
+        open checkouts at Stripe, so only the latest press can be paid
     """
     if not stripe_billing.is_configured():
         return JSONResponse(
@@ -574,6 +578,10 @@ def create_checkout(
             _stamp_checkout_terms(user, db, accepted_terms)
             log.info("checkout: user=%s gets their open session %s again (plan=%s)",
                      user.id, reused["session_id"], requested_plan)
+            # Any other open checkout of this account (an expiry that failed
+            # on an earlier press) goes now: only this one can be paid.
+            if reused.get("others"):
+                stripe_billing.expire_checkout_sessions(user, reused["others"])
             return {"url": reused["url"], "session_id": reused["session_id"]}
 
     # FIX 5 — per-user cap on NEW checkout sessions (5/hour AND 10/day). The
@@ -609,6 +617,23 @@ def create_checkout(
 
     _stamp_checkout_terms(user, db, accepted_terms)
 
+    # The latest press is the only checkout that can be paid: expire every
+    # OTHER open one this account has (another plan's, one from before a
+    # fingerprint change, one from before this record held ids). Two open
+    # sessions paid one after the other would be two subscriptions on one
+    # customer, the webhook linking only the second — the ask-Stripe-first
+    # gate above can't see a payment that hasn't happened yet. Best effort:
+    # it never costs this checkout (stripe_billing logs any failure, and the
+    # next press tries again).
+    new_session_id = result.get("session_id") if isinstance(result, dict) else None
+    if new_session_id:
+        try:
+            recorded_ids = _recorded_checkout_sessions(db, user.id, None)
+        except Exception:  # noqa: BLE001 — the fallback list only; never costs the checkout
+            db.rollback()
+            recorded_ids = []
+        stripe_billing.expire_other_checkout_sessions(user, new_session_id, recorded_ids=recorded_ids)
+
     # Record a counter row AFTER a successful create so the per-user cap above
     # only counts real sessions (a failed create — Stripe down, no price —
     # shouldn't burn the user's quota). It also records which session this
@@ -622,7 +647,7 @@ def create_checkout(
             page="subscription",
             detail=json.dumps({
                 "plan": requested_plan,
-                "session_id": result.get("session_id") if isinstance(result, dict) else None,
+                "session_id": new_session_id,
                 "key": fingerprint["key"] if fingerprint else None,
             }),
         ))

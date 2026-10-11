@@ -781,6 +781,24 @@ def _line_item_prices(session) -> Optional[list]:
     return out
 
 
+def _account_checkout_id(user: User, customer_id: str, sess) -> Optional[str]:
+    """The session's id when it is a subscription checkout open at Stripe
+    for this account on this customer — the kind create_checkout_session
+    makes — else None."""
+    sid = _g(sess, "id")
+    cust = _g(sess, "customer")
+    cust_id = cust if isinstance(cust, str) else _g(cust, "id")
+    if (
+        isinstance(sid, str) and sid
+        and _g(sess, "status") == "open"
+        and _g(sess, "mode") == "subscription"
+        and cust_id == customer_id
+        and str(_g(sess, "client_reference_id") or "") == str(user.id)
+    ):
+        return sid
+    return None
+
+
 def find_open_checkout_session(
     user: User,
     session_ids: list,
@@ -788,8 +806,11 @@ def find_open_checkout_session(
     now: Optional[datetime] = None,
 ) -> Optional[dict]:
     """The Checkout Session this account already has OPEN at Stripe for the
-    same purchase, as {"url", "session_id"} — or None, and then the caller
-    makes a new one. Never raises; never writes.
+    same purchase, as {"url", "session_id", "others"} — or None, and then
+    the caller makes a new one. Never raises; never writes. "others" lists
+    this account's OTHER open subscription checkouts in the same answer —
+    ones an expiry that failed left open — for the caller to expire, so the
+    session handed back is the only one that can be paid.
 
     session_ids — the sessions our own record says the billing router made
     for this account with the same fingerprint (checkout_fingerprint), newest
@@ -797,7 +818,10 @@ def find_open_checkout_session(
     customer (Session.list, status="open", line items expanded), and a
     candidate must still be: open, subscription mode, this customer, this
     account (client_reference_id), exactly one line item of `price` x1, a URL,
-    and at least CHECKOUT_REUSE_MIN_LIFE before it expires.
+    and at least CHECKOUT_REUSE_MIN_LIFE before it expires. A candidate
+    passed over ONLY for its line items — none in Stripe's answer, or
+    another price — is logged once per lookup (a warning), so prod shows a
+    reuse that never happens.
 
     No stored customer → None without asking Stripe. The router asks this
     only after confirm_live_subscription, which links any customer Stripe
@@ -826,29 +850,121 @@ def find_open_checkout_session(
     wanted = [str(x) for x in session_ids if x]
     earliest_expiry = _epoch(now or utc_now()) + int(CHECKOUT_REUSE_MIN_LIFE.total_seconds())
     usable = {}
+    account_open = []
+    line_item_skips = []
     for sess in data:
-        sid = _g(sess, "id")
-        if not isinstance(sid, str) or sid not in wanted:
+        sid = _account_checkout_id(user, customer_id, sess)
+        if sid is None:
             continue
-        cust = _g(sess, "customer")
-        cust_id = cust if isinstance(cust, str) else _g(cust, "id")
+        account_open.append(sid)
+        if sid not in wanted:
+            continue
         expires_at = _g(sess, "expires_at")
         url = _g(sess, "url")
         if (
-            _g(sess, "status") != "open"
-            or _g(sess, "mode") != "subscription"
-            or cust_id != customer_id
-            or str(_g(sess, "client_reference_id") or "") != str(user.id)
-            or not isinstance(expires_at, int) or expires_at < earliest_expiry
+            not isinstance(expires_at, int) or expires_at < earliest_expiry
             or not isinstance(url, str) or not url
-            or _line_item_prices(sess) != [(price, 1)]
         ):
+            continue
+        prices = _line_item_prices(sess)
+        if prices != [(price, 1)]:
+            line_item_skips.append((sid, prices))
             continue
         usable[sid] = url
     for sid in wanted:  # newest first, as our record lists them
         if sid in usable:
-            return {"url": usable[sid], "session_id": sid}
+            return {"url": usable[sid], "session_id": sid,
+                    "others": [x for x in account_open if x != sid]}
+    if line_item_skips:
+        sid, prices = line_item_skips[0]
+        log.warning(
+            "checkout reuse: open session %s for user=%s passed over for its line items "
+            "(%s; want %s x1) — a new session follows",
+            sid, user.id,
+            "no line items in Stripe's answer — expand=data.line_items not honoured?"
+            if prices is None else f"Stripe lists {prices}",
+            price,
+        )
     return None
+
+
+# ─────────────────── Only the latest checkout can be paid ──────────────────
+#
+# Two open sessions for one account can BOTH be paid, one after the other —
+# two subscriptions on one customer, and the webhook links only the second,
+# so the first bills on unseen. The ask-Stripe-first gate cannot stop that
+# (each session is paid on Stripe's page, not through us). So whenever the
+# router hands out a session — a new one, or one reused — it expires every
+# OTHER open subscription checkout this account has: the latest press is
+# the only one that can be paid. Best effort: a failed expiry is logged and
+# never costs the checkout; the next press tries again (the reuse lookup
+# hands back the others it sees).
+
+_CHECKOUT_SWEEP_LIST_LIMIT = 100
+
+
+def expire_checkout_sessions(user: User, session_ids) -> list:
+    """Expire these Checkout Sessions at Stripe; the ids that were expired.
+    Never raises — each failure is logged as a warning."""
+    s = _stripe()
+    done = []
+    if not s:
+        return done
+    for sid in dict.fromkeys(str(x) for x in (session_ids or ()) if x):
+        try:
+            s.checkout.Session.expire(sid)
+            done.append(sid)
+        except Exception as e:  # noqa: BLE001
+            log.warning("checkout: could not expire superseded session %s for user=%s: %s",
+                        sid, user.id, e)
+    if done:
+        log.info("checkout: expired superseded session(s) %s for user=%s", done, user.id)
+    return done
+
+
+def expire_other_checkout_sessions(user: User, keep_session_id: str, recorded_ids=()) -> list:
+    """Expire every open subscription checkout this account has at Stripe
+    except `keep_session_id` (the one just handed out); the ids expired.
+
+    Stripe's listing of the stored customer's open sessions is the source,
+    filtered to this account's subscription checkouts (_account_checkout_id)
+    — it also finds sessions made before our record held their ids. When
+    Stripe can't be listed, `recorded_ids` (the sessions our record names
+    for this account in the last 24 h) are expired instead; one already
+    closed just logs Stripe's refusal. Never raises."""
+    try:
+        s = _stripe()
+        if not s:
+            return []
+        keep = str(keep_session_id or "")
+        customer_id = getattr(user, "stripe_customer_id", None)
+        targets = None
+        if customer_id:
+            try:
+                listing = s.checkout.Session.list(
+                    customer=customer_id, status="open", limit=_CHECKOUT_SWEEP_LIST_LIMIT,
+                )
+                data = _g(listing, "data")
+                if isinstance(data, (list, tuple)):
+                    targets = [
+                        sid for sid in (_account_checkout_id(user, customer_id, x) for x in data)
+                        if sid and sid != keep
+                    ]
+                else:
+                    log.warning("checkout: open-session listing gave no data list for user=%s",
+                                user.id)
+            except Exception as e:  # noqa: BLE001
+                log.warning("checkout: open-session listing failed for user=%s: %s", user.id, e)
+        if targets is None:
+            targets = [str(x) for x in (recorded_ids or ()) if x and str(x) != keep]
+            if targets:
+                log.warning("checkout: expiring the %d session(s) our record names for user=%s "
+                            "(Stripe's listing unavailable)", len(targets), user.id)
+        return expire_checkout_sessions(user, targets)
+    except Exception:  # noqa: BLE001
+        log.warning("checkout: expiring superseded sessions failed for user=%s", user.id,
+                    exc_info=True)
+        return []
 
 
 # ─────────────────────────── Self-healing sync ─────────────────────────────
@@ -1743,6 +1859,19 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
     sub_id = obj.get("subscription")
     if not sub_id:
         return
+    # Backstop for the checkout's expiry of superseded sessions: a SECOND
+    # subscription paid while the account's current one is live. The row is
+    # re-pointed at the new one below (as before), so the old one would go
+    # on billing unseen — say so loudly, naming both.
+    prev_sub = user.stripe_subscription_id
+    if (prev_sub and prev_sub != sub_id
+            and (user.subscription_status or "").lower() in ("active", "trialing", "past_due")):
+        log.error(
+            "checkout.completed: user=%s already has subscription %s (status=%s) and paid "
+            "for another, %s, in checkout %s — possible double billing; the account now "
+            "tracks %s, check %s at Stripe",
+            user.id, prev_sub, user.subscription_status, sub_id, obj.get("id"), sub_id, prev_sub,
+        )
     user.stripe_subscription_id = sub_id
     if obj.get("customer") and not user.stripe_customer_id:
         user.stripe_customer_id = obj["customer"]
