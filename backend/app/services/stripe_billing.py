@@ -1450,6 +1450,81 @@ def _late_event_for_old_subscription(
     return True
 
 
+# Statuses in which a subscription is still billing the customer.
+_SUB_LIVE_STATUSES = ("active", "trialing", "past_due")
+# error_logs.error_type of the second-live-subscription alarm (one triage group).
+_SECOND_SUB_ERROR_TYPE = "Billing:SecondLiveSubscription"
+
+
+def _relink_subscription(
+    db: Session, user: User, new_sub_id: Optional[str], *, event_id: str = "",
+    event_type: str = "", checkout_id: Optional[str] = None,
+) -> None:
+    """The ONE place the account's stripe_subscription_id is set to a
+    subscription (checkout, subscription.created/updated, invoice.paid, sync).
+
+    Double-billing backstop: Stripe often sends subscription.created or
+    invoice.paid for a new subscription BEFORE checkout.session.completed, so
+    any of these paths can be the one that moves the record off a subscription
+    that is still live. When it does, the old one goes on billing unseen —
+    say so in the log AND in error_logs, which the 15-minute ops triage turns
+    into an operator alert. The alarm never changes billing state: the id is
+    set exactly as before. Same id (a plan change on the same subscription):
+    silent."""
+    held = getattr(user, "stripe_subscription_id", None)
+    old_status = (getattr(user, "subscription_status", None) or "").lower()
+    if held and new_sub_id and held != new_sub_id and old_status in _SUB_LIVE_STATUSES:
+        _alarm_second_live_subscription(
+            db, user, held, old_status, new_sub_id,
+            event_id=event_id, event_type=event_type, checkout_id=checkout_id,
+        )
+    user.stripe_subscription_id = new_sub_id
+
+
+def _alarm_second_live_subscription(
+    db: Session, user: User, old_sub: str, old_status: str, new_sub: str, *,
+    event_id: str, event_type: str, checkout_id: Optional[str],
+) -> None:
+    """log.error + one error_logs row per (user, old_sub, new_sub). The row is
+    added to the caller's transaction, so it lands with the relink: a failed
+    attempt rolls both back and Stripe's retry writes it once; a relink that
+    landed is not seen again (the record already names new_sub). The lookup
+    keeps a recurring pair to one row. Never raises."""
+    via = event_type or "sync"
+    log.error(
+        "%s: user=%s already has subscription %s (status=%s) and is now linked to "
+        "another, %s%s — possible double billing; the account now tracks %s, "
+        "check %s at Stripe",
+        via, user.id, old_sub, old_status, new_sub,
+        f" (checkout {checkout_id})" if checkout_id else "", new_sub, old_sub,
+    )
+    try:
+        from app.models.error_log import ErrorLog
+        head = f"second live subscription: {old_sub} -> {new_sub}"
+        earlier = (
+            db.query(ErrorLog.message)
+            .filter(ErrorLog.error_type == _SECOND_SUB_ERROR_TYPE,
+                    ErrorLog.user_id == user.id)
+            .all()
+        )
+        if any((m or "").split(" | ")[0] == head for (m,) in earlier):
+            return
+        parts = [head, f"old_status={old_status}", f"via {via} {event_id or '-'}"]
+        if checkout_id:
+            parts.append(f"checkout {checkout_id}")
+        parts.append(f"check {old_sub} at Stripe")
+        db.add(ErrorLog(
+            method="WEBHOOK" if event_type else "SYNC",
+            path="/api/billing/stripe/webhook" if event_type else "billing:sync",
+            status_code=None,  # the event itself succeeded; triage reads NULL rows
+            user_id=user.id,
+            error_type=_SECOND_SUB_ERROR_TYPE,
+            message=" | ".join(parts)[:1000],
+        ))
+    except Exception as e:  # noqa: BLE001 — a backstop must never cost the billing write
+        log.warning("second-subscription alarm row not written: %s", type(e).__name__)
+
+
 def _apply_subscription_state(
     user: User, sub_obj, db: Session, *, event_id: str = "", event_type: str = "",
     raise_on_commit_failure: bool = False,
@@ -1561,7 +1636,7 @@ def _apply_subscription_state(
     # AUDIT BEFORE MUTATION — flush a SecurityEvent describing the change into
     # the same transaction. No-op (status+plan unchanged) writes nothing.
     # stripe_subscription_id is set here first so the audit detail can include it.
-    user.stripe_subscription_id = _g(sub_obj, "id")
+    _relink_subscription(db, user, _g(sub_obj, "id"), event_id=event_id, event_type=event_type)
     _audit_webhook_mutation(
         db, user,
         event_id=event_id, event_type=event_type,
@@ -2013,20 +2088,13 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
             return
     # Backstop for the checkout's expiry of superseded sessions: a SECOND
     # subscription paid while the account's current one is live. The row is
-    # re-pointed at the new one below (as before), so the old one would go
-    # on billing unseen — say so loudly, naming both.
+    # re-pointed at the new one (as before), so the old one would go on
+    # billing unseen — _relink_subscription says so loudly (log + error_logs
+    # row for the ops triage), naming both.
     # (after the recency guard above: a late event for an OLD subscription
     # has already returned, so this only sees a live second subscription)
-    prev_sub = held
-    if (prev_sub and prev_sub != sub_id
-            and (user.subscription_status or "").lower() in ("active", "trialing", "past_due")):
-        log.error(
-            "checkout.completed: user=%s already has subscription %s (status=%s) and paid "
-            "for another, %s, in checkout %s — possible double billing; the account now "
-            "tracks %s, check %s at Stripe",
-            user.id, prev_sub, user.subscription_status, sub_id, obj.get("id"), sub_id, prev_sub,
-        )
-    user.stripe_subscription_id = sub_id
+    _relink_subscription(db, user, sub_id, event_id=event.get("id", ""),
+                         event_type=event.get("type", ""), checkout_id=obj.get("id"))
     if obj.get("customer") and not user.stripe_customer_id:
         user.stripe_customer_id = obj["customer"]
     # The buyer ticked the Terms box on Stripe's page (consent_collection,
