@@ -112,6 +112,30 @@ describe("the retired notepad mark is gone from the source", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("no file in backend/app draws it either (the owner mails used to)", () => {
+    const py = walk(join(REPO, "backend/app")).filter((p) => extname(p) === ".py");
+    expect(py.length).toBeGreaterThan(50);
+    const offenders = py.filter((p) => {
+      const s = read(p);
+      return s.includes("M8 8h8M8 12h8M8 16h5") || s.includes("M9 8h10M9 12h10M9 16h6");
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("no logo tile types the letter B instead of drawing the b", () => {
+    const offenders = files.filter((p) => /<(div|span)[^>]*>\s*B\s*<\/(div|span)>/.test(read(p)));
+    expect(offenders).toEqual([]);
+  });
+
+  it("the first-run headers after /register carry the forest tile", () => {
+    for (const page of ["pages/OnboardingPage.jsx", "pages/FirstStepsPage.jsx"]) {
+      const s = read(join(SRC, page));
+      expect(s, page).toMatch(/import BonBoxMark from/);
+      expect(s, page).toContain("bg-bb-forest text-bb-paper");
+      expect(s, page).not.toContain("bg-gray-900 dark:bg-gray-100 grid place-items-center");
+    }
+  });
+
   it("every file that places the mark puts it on the forest tile", () => {
     const users = files.filter((p) => /import BonBoxMark from/.test(read(p)));
     expect(users.length).toBeGreaterThanOrEqual(10);

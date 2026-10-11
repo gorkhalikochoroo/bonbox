@@ -28,6 +28,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, Icon } from "../components/ui";
+import BonBoxMark from "../components/BonBoxMark";
 import { publicUrl } from "../utils/publicUrl";
 import RevisorInviteHeldNotice from "../components/RevisorInviteHeldNotice";
 
@@ -138,8 +139,8 @@ export default function FirstStepsPage() {
       <header className="sticky top-0 z-10 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-md border-b border-gray-200/70 dark:border-gray-800/70">
         <div className="max-w-xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gray-900 dark:bg-gray-100 grid place-items-center text-white dark:text-gray-900 font-semibold text-[13px]">
-              B
+            <div className="w-7 h-7 rounded-lg bg-bb-forest text-bb-paper grid place-items-center" aria-hidden="true">
+              <BonBoxMark size={22} />
             </div>
             <span className="text-sm font-semibold tracking-tight">BonBox</span>
           </div>
