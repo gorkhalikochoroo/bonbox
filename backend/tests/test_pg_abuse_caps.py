@@ -207,3 +207,44 @@ def test_the_abuse_monitor_ticks_on_postgres(monkeypatch):
         assert summary.startswith("signups_1h=3 signups_24h=3")
     finally:
         s.close()
+
+
+def test_only_a_confirmed_account_counts_on_postgres(db):
+    # R-sec fix round: an unconfirmed (registered, never verified) account
+    # must not walk past a sign-in mail ceiling. Boolean IS TRUE on Postgres.
+    db.add(User(email="owner@bonbox.dk", password_hash="x", business_name="Cafe",
+                email_verified=True))
+    db.add(User(email="pending@bonbox.dk", password_hash="x", business_name="Cafe",
+                email_verified=False))
+    db.add(User(email="legacy@bonbox.dk", password_hash="x", business_name="Cafe"))
+    db.commit()
+    assert abuse_caps.has_account(db, "OWNER@bonbox.dk") is True
+    assert abuse_caps.has_account(db, "pending@bonbox.dk") is False
+    assert abuse_caps.has_account(db, "legacy@bonbox.dk") is False
+    assert abuse_caps.has_account(db, "nobody@bonbox.dk") is False
+
+
+def test_the_alert_goes_out_after_the_commit_on_postgres(monkeypatch):
+    # R-sec fix round: the tick saves BROKEN + last_alert_at, commits, and
+    # only then mails and pushes (the real push fan-out reads operators and
+    # devices on the same session after the commit).
+    import app.jobs.abuse_monitor_job as amj
+    from app.utils import abuse_signals
+    sent = []
+    monkeypatch.setattr(amj, "send_email", lambda to, subject, html, **k: sent.append(subject) or True)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_EMAILS", "ops@example.com")
+    monkeypatch.setattr(settings, "ADMIN_EMAIL", "")
+    abuse_signals.reset()
+    abuse_signals.bump("stand_join_cooloff")
+    out = amj.run_abuse_monitor_tick()
+    assert out["abuse_stand_join"] == "BROKEN", out
+    assert sent == ["BonBox: host-stand pairing codes paused (global cool-off)"]
+    abuse_signals.bump("stand_join_cooloff")
+    assert "error" not in amj.run_abuse_monitor_tick()
+    assert len(sent) == 1                                      # saved: told once
+    s = SessionLocal()
+    try:
+        assert s.execute(_text("select last_alert_at is not null from monitor_state "
+                               "where service = 'abuse_stand_join'")).scalar() is True
+    finally:
+        s.close()
