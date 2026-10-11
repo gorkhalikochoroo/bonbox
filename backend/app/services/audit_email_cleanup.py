@@ -40,7 +40,7 @@ import json
 import logging
 from collections import defaultdict
 
-from sqlalchemy import bindparam, or_, and_, text, update
+from sqlalchemy import String, Text, and_, column, or_, text, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -157,6 +157,21 @@ def count_due(db: Session) -> int:
     return sum(1 for _ in _iter_due(db))
 
 
+def _batch_values(rows: list[dict]):
+    """The batch as one VALUES list, (id, before, after) per row, every value
+    a bound parameter. VALUES columns are named column1..column3 on both
+    Postgres and SQLite, so no column-alias syntax is needed."""
+    tuples, params = [], {}
+    for i, r in enumerate(rows):
+        tuples.append(f"(:i{i}, :b{i}, :a{i})")
+        params[f"i{i}"] = str(r["_id"])  # audit_logs.id is VARCHAR(36), as GUID binds it
+        params[f"b{i}"] = r["_b"]
+        params[f"a{i}"] = r["_a"]
+    return (text("VALUES " + ", ".join(tuples)).bindparams(**params)
+            .columns(column("column1", String), column("column2", Text), column("column3", Text))
+            .cte("v"))
+
+
 def _write_batch(rows: list[dict]) -> None:
     with engine.begin() as conn:
         pg = conn.dialect.name == "postgresql"
@@ -164,10 +179,16 @@ def _write_batch(rows: list[dict]) -> None:
             conn.execute(text("SET LOCAL lock_timeout = '3s'"))
             conn.execute(text("DROP RULE IF EXISTS audit_logs_no_update ON audit_logs"))
         t = AuditLog.__table__
+        # ONE statement for the whole batch (WITH v AS (VALUES ...) UPDATE ...
+        # FROM v). The batch runs while DROP RULE holds the ACCESS EXCLUSIVE
+        # lock on audit_logs, and every read or write of the change log waits
+        # behind it. Sent as executemany, psycopg2 made one round trip per
+        # row: 500 rows at ~20 ms (Render Frankfurt -> Supabase eu-west-1)
+        # held the lock for ~13 s. One statement is one round trip.
+        v = _batch_values(rows)
         conn.execute(
-            update(t).where(t.c.id == bindparam("_id"))
-            .values(before_state=bindparam("_b"), after_state=bindparam("_a")),
-            rows,
+            update(t).add_cte(v).where(t.c.id == v.c.column1)
+            .values(before_state=v.c.column2, after_state=v.c.column3)
         )
         if pg:
             conn.execute(text("CREATE OR REPLACE RULE audit_logs_no_update AS "

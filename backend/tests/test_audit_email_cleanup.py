@@ -230,6 +230,32 @@ def test_daily_maintenance_runs_the_step_and_it_counts_only_by_default(Session, 
     assert summary["accounting_retention"] == {"ok": True}
 
 
+def test_each_batch_is_one_update_statement_not_one_per_row(Session, monkeypatch):
+    """R-h fix round: the batch UPDATE runs while DROP RULE holds the ACCESS
+    EXCLUSIVE lock on audit_logs. Sent as executemany, psycopg2 makes one
+    network round trip per row (500 per batch, ~13 s at 20 ms), and every
+    audit_logs read or write waits behind it. Each batch must be ONE
+    statement, whatever its size."""
+    from sqlalchemy import event
+    monkeypatch.setattr(settings, "AUDIT_EMAIL_CLEANUP_ENABLED", True)
+    s = Session()
+    _seed(s)
+    seen = []
+
+    def _spy(conn, cursor, statement, params, context, executemany):
+        if statement.lstrip().upper().startswith(("UPDATE", "WITH")) and "audit_logs" in statement:
+            seen.append(executemany)
+
+    engine = aec.engine
+    event.listen(engine, "before_cursor_execute", _spy)
+    try:
+        res = aec.run_cleanup(batch=500)
+    finally:
+        event.remove(engine, "before_cursor_execute", _spy)
+    assert res["changed"] == 8 and "error" not in res
+    assert seen == [False]  # one batch of 8 rows = one plain statement
+
+
 # ── The flag's precondition: every "never edited" promise names the edit ──
 # AUDIT_EMAIL_CLEANUP_ENABLED edits the change log once. Six places (three
 # per language) say BonBox never edits it. The R-j paragraph for /privacy is

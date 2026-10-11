@@ -215,3 +215,26 @@ def test_28_a_concurrent_audit_insert_waits_and_is_not_lost(pg):
                         {"id": str(inserted["id"])}).one()
     assert row[0] == "invoice.mark_paid" and json.loads(row[1]) == {"status": "paid"}
     assert {"audit_logs_no_update", "audit_logs_no_delete"} <= _rules()
+
+
+def test_29_each_batch_is_one_statement_on_postgres(pg):
+    """R-h fix round: SQLAlchemy 2.0 + psycopg2 sends an executemany UPDATE
+    as one round trip per row, while DROP RULE holds the ACCESS EXCLUSIVE
+    lock on audit_logs (~13 s per 500-row batch at 20 ms). Each batch must be
+    a single statement — here 2 batches of up to 500 for 607 due rows."""
+    uid, ids, keep = _seed(n_brief=606)
+    seen = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _spy(conn, cursor, statement, params, context, executemany):
+        if "audit_logs" in statement and statement.lstrip().upper().startswith(("UPDATE", "WITH")):
+            seen.append(executemany)
+
+    try:
+        res = aec.run_cleanup(enabled=True, batch=500)
+    finally:
+        event.remove(engine, "before_cursor_execute", _spy)
+    assert res == {"due": 607, "changed": 607, "dry_run": False, "tenants": 1}
+    assert seen == [False, False]
+    assert _count_due_by_select() == 0
+    assert {"audit_logs_no_update", "audit_logs_no_delete"} <= _rules()
