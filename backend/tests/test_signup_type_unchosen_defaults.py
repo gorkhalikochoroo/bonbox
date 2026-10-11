@@ -170,3 +170,62 @@ def test_no_starter_rows_are_ever_taken_back(client, db_session):
     _, cats, mods, _ = _state(db_session)
     assert FOOD_CATS <= cats
     assert {"competitor", "weather", "expiry"} <= mods
+
+
+# ── Sample data seeded in the wizard before /onboarding/complete ────────────
+# The wizard's "Udforsk med eksempeldata" (POST /demo/seed?keep_profile=true)
+# runs before /onboarding/complete and writes sample categories named
+# "<name> · demo". Step 3 counted those as the owner's own and skipped the
+# type's starter set — after "Ryd demodata" a salon had no categories at all.
+
+def _seed_sample_data(client, auth):
+    try:
+        __import__("app.routers.demo", fromlist=["limiter"]).limiter.reset()
+    except Exception:  # noqa: BLE001
+        pass
+    r = client.post("/api/demo/seed?keep_profile=true", headers=auth)
+    assert r.status_code == 200, r.text
+
+
+def test_salon_gets_its_starter_set_next_to_the_wizard_sample_data(client, db_session):
+    auth = _register(client)
+    r = client.patch("/api/auth/profile", json={"business_type": "salon"}, headers=auth)
+    assert r.status_code == 200, r.text
+    _seed_sample_data(client, auth)
+    _, cats, _, _ = _state(db_session)
+    demo_cats = {c for c in cats if c.endswith(" · demo")}
+    assert demo_cats, "the sample data should have written its categories"
+
+    r = client.post("/api/auth/onboarding/complete", headers=auth)
+    assert r.status_code == 200, r.text
+    _, cats, _, _ = _state(db_session)
+    assert SALON_CATS <= cats
+    assert demo_cats <= cats  # the samples stay until "Ryd demodata"
+    assert cats - demo_cats == SALON_CATS
+
+
+def test_onboarding_complete_twice_after_sample_data_adds_no_duplicates(client, db_session):
+    auth = _register(client)
+    client.patch("/api/auth/profile", json={"business_type": "salon"}, headers=auth)
+    _seed_sample_data(client, auth)
+    client.post("/api/auth/onboarding/complete", headers=auth)
+    client.post("/api/auth/onboarding/complete", headers=auth)
+    db_session.expire_all()
+    u = db_session.query(User).one()
+    names = [c.name for c in db_session.query(ExpenseCategory).filter(ExpenseCategory.user_id == u.id)]
+    assert len(names) == len(set(names))
+    assert {n for n in names if not n.endswith(" · demo")} == SALON_CATS
+
+
+def test_owner_with_own_categories_gets_no_starter_set_even_with_sample_data(client, db_session):
+    auth = _register(client)
+    client.patch("/api/auth/profile", json={"business_type": "salon"}, headers=auth)
+    u = db_session.query(User).one()
+    db_session.add(ExpenseCategory(user_id=u.id, name="Hårprodukter"))
+    db_session.commit()
+    _seed_sample_data(client, auth)
+    r = client.post("/api/auth/onboarding/complete", headers=auth)
+    assert r.status_code == 200, r.text
+    _, cats, _, _ = _state(db_session)
+    own = {c for c in cats if not c.endswith(" · demo")}
+    assert own == {"Hårprodukter"}

@@ -57,6 +57,9 @@ logger = logging.getLogger("bonbox.archetype_defaults")
 # hasn't touched it. Kept in sync with the model's mapped_column(default=6).
 _DEFAULT_CUTOFF_HOUR = 6
 
+# The marker demo_seed puts on every sample row it writes ("Løn · demo").
+_DEMO_SUFFIX = " · demo"
+
 # Starter expense categories per archetype id. DK-localised on purpose — these
 # are internal bookkeeping buckets (Vareforbrug / Løn / Husleje), not UI text,
 # so they stay Danish across all UI languages (terminology lock).
@@ -186,10 +189,17 @@ def apply_archetype_defaults(db: Session, user: User, *, starter_set: bool = Tru
             )
 
         # ── 3. Starter ExpenseCategory rows (only if user has zero) ─────────
+        # Sample categories (the wizard's "Udforsk med eksempeldata" seeds
+        # them BEFORE /onboarding/complete, named "<name> · demo") are not the
+        # owner's own: counting them left a salon with no starter set at all
+        # once "Ryd demodata" removed the samples.
         try:
             existing_count = (
                 db.query(ExpenseCategory)
-                .filter(ExpenseCategory.user_id == user.id)
+                .filter(
+                    ExpenseCategory.user_id == user.id,
+                    ~ExpenseCategory.name.like(f"%{_DEMO_SUFFIX}"),
+                )
                 .count()
             )
             if existing_count == 0:
