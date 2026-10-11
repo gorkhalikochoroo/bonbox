@@ -1483,15 +1483,36 @@ def _relink_subscription(
     user.stripe_subscription_id = new_sub_id
 
 
+def _savepoint_in_open_transaction(db: Session):
+    """db.begin_nested() with the caller's transaction really open first.
+    pysqlite opens a transaction lazily, at the first INSERT/UPDATE/DELETE: a
+    SAVEPOINT issued before any write starts the transaction itself, and its
+    RELEASE then COMMITs what ran inside it — outside the caller's
+    transaction, so a later rollback of the caller would not take it back.
+    On SQLite (dev, tests) the outer transaction is opened first; Postgres
+    drivers open it at the first statement, so nothing changes there."""
+    conn = db.connection()
+    if conn.dialect.name == "sqlite":
+        raw = conn.connection.dbapi_connection
+        if raw is not None and not raw.in_transaction:
+            conn.exec_driver_sql("BEGIN")
+    return db.begin_nested()
+
+
 def _alarm_second_live_subscription(
     db: Session, user: User, old_sub: str, old_status: str, new_sub: str, *,
     event_id: str, event_type: str, checkout_id: Optional[str],
 ) -> None:
     """log.error + one error_logs row per (user, old_sub, new_sub). The row is
-    added to the caller's transaction, so it lands with the relink: a failed
-    attempt rolls both back and Stripe's retry writes it once; a relink that
-    landed is not seen again (the record already names new_sub). The lookup
-    keeps a recurring pair to one row. Never raises."""
+    written inside the caller's transaction, so it lands with the relink: a
+    failed attempt rolls both back and Stripe's retry writes it once; a relink
+    that landed is not seen again (the record already names new_sub). The
+    lookup keeps a recurring pair to one row. The lookup and the insert run in
+    a SAVEPOINT: on Postgres a failed statement aborts the whole transaction,
+    so a failing alarm statement outside one would fail the relink's own
+    commit (InFailedSqlTransaction -> webhook 500 -> Stripe retries the event,
+    and the alarm with it). A failure rolls back to the savepoint only, and
+    the billing write commits without the row. Never raises."""
     via = event_type or "sync"
     log.error(
         "%s: user=%s already has subscription %s (status=%s) and is now linked to "
@@ -1503,26 +1524,28 @@ def _alarm_second_live_subscription(
     try:
         from app.models.error_log import ErrorLog
         head = f"second live subscription: {old_sub} -> {new_sub}"
-        earlier = (
-            db.query(ErrorLog.message)
-            .filter(ErrorLog.error_type == _SECOND_SUB_ERROR_TYPE,
-                    ErrorLog.user_id == user.id)
-            .all()
-        )
-        if any((m or "").split(" | ")[0] == head for (m,) in earlier):
-            return
         parts = [head, f"old_status={old_status}", f"via {via} {event_id or '-'}"]
         if checkout_id:
             parts.append(f"checkout {checkout_id}")
         parts.append(f"check {old_sub} at Stripe")
-        db.add(ErrorLog(
-            method="WEBHOOK" if event_type else "SYNC",
-            path="/api/billing/stripe/webhook" if event_type else "billing:sync",
-            status_code=None,  # the event itself succeeded; triage reads NULL rows
-            user_id=user.id,
-            error_type=_SECOND_SUB_ERROR_TYPE,
-            message=" | ".join(parts)[:1000],
-        ))
+        with _savepoint_in_open_transaction(db):
+            earlier = (
+                db.query(ErrorLog.message)
+                .filter(ErrorLog.error_type == _SECOND_SUB_ERROR_TYPE,
+                        ErrorLog.user_id == user.id)
+                .all()
+            )
+            if any((m or "").split(" | ")[0] == head for (m,) in earlier):
+                return
+            db.add(ErrorLog(
+                method="WEBHOOK" if event_type else "SYNC",
+                path="/api/billing/stripe/webhook" if event_type else "billing:sync",
+                status_code=None,  # the event itself succeeded; triage reads NULL rows
+                user_id=user.id,
+                error_type=_SECOND_SUB_ERROR_TYPE,
+                message=" | ".join(parts)[:1000],
+            ))
+            db.flush()  # the INSERT runs inside the savepoint, not at the caller's commit
     except Exception as e:  # noqa: BLE001 — a backstop must never cost the billing write
         log.warning("second-subscription alarm row not written: %s", type(e).__name__)
 
